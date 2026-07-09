@@ -1,11 +1,54 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Chip } from './ui'
 import type { ArtifactType, EvidenceRecord } from '../../../shared/types'
 
 const ALL_TYPES: ArtifactType[] = [
-  'applog', 'binlog', 'archive-rec', 'list-json', 'bintrace', 'archive', 'screenshot', 'text', 'unknown'
+  'applog', 'binlog', 'archive-rec', 'list-json', 'tagged-json',
+  'bintrace', 'archive', 'screenshot', 'text', 'unknown'
 ]
 
-export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.Element {
+// binary/log types → the skill the Analyze button suggests in the composer
+const ANALYZE_SKILLS: Partial<Record<ArtifactType, string>> = {
+  binlog: 'analyze-binlog',
+  'archive-rec': 'analyze-archive-rec',
+  'tagged-json': 'analyze-tagged-json',
+  applog: 'analyze-applog'
+}
+
+// derived rows (meta.derivedFrom) sort directly below their source row
+function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?: boolean })[] {
+  const derivedBySource = new Map<number, EvidenceRecord[]>()
+  const top: EvidenceRecord[] = []
+  for (const r of rows) {
+    const from = r.meta.derivedFrom
+    if (typeof from === 'number') {
+      const list = derivedBySource.get(from) ?? []
+      list.push(r)
+      derivedBySource.set(from, list)
+    } else {
+      top.push(r)
+    }
+  }
+  const ordered: (EvidenceRecord & { derived?: boolean })[] = []
+  for (const r of top) {
+    ordered.push(r)
+    for (const d of derivedBySource.get(r.id) ?? []) ordered.push({ ...d, derived: true })
+    derivedBySource.delete(r.id)
+  }
+  // orphans whose source is filtered out or gone still render (unindented source position)
+  for (const list of derivedBySource.values()) {
+    for (const d of list) ordered.push({ ...d, derived: true })
+  }
+  return ordered
+}
+
+export function EvidenceLibrary({
+  caseSlug,
+  onSuggest
+}: {
+  caseSlug: string
+  onSuggest?: (text: string) => void
+}): React.JSX.Element {
   const [rows, setRows] = useState<EvidenceRecord[]>([])
   const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
   const [dragOver, setDragOver] = useState(false)
@@ -16,7 +59,11 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
 
   useEffect(() => {
     void reload()
-  }, [reload])
+    // reload when background extraction registers derived text
+    return window.argus.evidence.onChanged?.((slug) => {
+      if (slug === caseSlug) void reload()
+    })
+  }, [reload, caseSlug])
 
   async function handleDrop(e: React.DragEvent): Promise<void> {
     e.preventDefault()
@@ -27,7 +74,7 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
     await reload()
   }
 
-  const visible = typeFilter ? rows.filter((r) => r.artifactType === typeFilter) : rows
+  const visible = orderWithDerived(typeFilter ? rows.filter((r) => r.artifactType === typeFilter) : rows)
 
   return (
     <section
@@ -68,16 +115,36 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
           </tr>
         </thead>
         <tbody>
-          {visible.map((r) => (
-            <tr key={r.id} className="border-t border-hair">
-              <td className="py-1 font-mono text-dim">{r.relPath}</td>
-              <td>
-                <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">{r.artifactType}</span>
-              </td>
-              <td className="text-dim">{r.size.toLocaleString()} B</td>
-              <td className="text-dim">{new Date(r.createdAt).toLocaleString()}</td>
-            </tr>
-          ))}
+          {visible.map((r) => {
+            const skill = ANALYZE_SKILLS[r.artifactType]
+            return (
+              <tr key={r.id} className="border-t border-hair">
+                <td className={`py-1 font-mono text-dim ${r.derived ? 'pl-6' : ''}`}>
+                  {r.relPath}
+                  {r.derived && (
+                    <span className="ml-2">
+                      <Chip tone="neutral">derived</Chip>
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">{r.artifactType}</span>
+                </td>
+                <td className="text-dim">{r.size.toLocaleString()} B</td>
+                <td className="text-dim">
+                  {new Date(r.createdAt).toLocaleString()}
+                  {skill && onSuggest && (
+                    <button
+                      className="ml-2 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink"
+                      onClick={() => onSuggest(`/${skill} ${r.relPath}`)}
+                    >
+                      Analyze
+                    </button>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
           {visible.length === 0 && (
             <tr>
               <td colSpan={4} className="py-2 text-mute">

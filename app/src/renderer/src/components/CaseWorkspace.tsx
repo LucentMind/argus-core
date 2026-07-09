@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { SearchBar } from './SearchBar'
 import { EvidenceLibrary } from './EvidenceLibrary'
 import { ChatPane } from './ChatPane'
@@ -17,6 +17,8 @@ export function CaseWorkspace({
   onOpenHit: (hit: SearchHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
 }): React.JSX.Element {
+  const [prefill, setPrefill] = useState('')
+
   useEffect(() => {
     wireAgentStore()
     // restore the persisted transcript after an app restart
@@ -42,10 +44,10 @@ export function CaseWorkspace({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 flex-col gap-3 overflow-y-auto border-r border-hair p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-          <EvidenceLibrary caseSlug={slug} />
+          <EvidenceLibrary caseSlug={slug} onSuggest={setPrefill} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
+          <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} prefill={prefill} />
         </main>
         <aside className="w-96 overflow-y-auto border-l border-hair p-3">
           <FindingsPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
