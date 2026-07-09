@@ -67,9 +67,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.agentAuthStatus, async () => {
     if (!cachedAuth) {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
-      cachedAuth = await probeAuth(
+      const status = await probeAuth(
         (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never
       )
+      // only cache success — a failed probe should retry on the next case open
+      if (status.ok) cachedAuth = status
+      return status
     }
     return cachedAuth
   })
