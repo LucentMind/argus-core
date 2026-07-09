@@ -32,16 +32,23 @@ export function ensureTraceOnPath(appRoot: string): void {
   }
 }
 
-export async function runPreflight(): Promise<PreflightReport> {
+export async function runPreflight(argusParseBin: string | null): Promise<PreflightReport> {
+  let report: PreflightReport
   try {
     const { stdout } = await execFileAsync('sample-trace', ['doctor', '--json'], { timeout: 5000 })
-    const parsed = JSON.parse(stdout) as PreflightReport
-    return parsed
+    report = JSON.parse(stdout) as PreflightReport
   } catch (err) {
     const detail =
       (err as NodeJS.ErrnoException).code === 'ENOENT'
         ? 'sample-trace not installed (pip install -e trace-tools/)'
         : (err as Error).message
-    return { ok: false, checks: [{ name: 'sample-trace', ok: false, detail }] }
+    report = { ok: false, checks: [{ name: 'sample-trace', ok: false, detail }] }
   }
+  report.checks.unshift({
+    name: 'sample-parse',
+    ok: argusParseBin != null,
+    detail: argusParseBin ?? 'not built — run npm run build:rust'
+  })
+  report.ok = report.checks.every((c) => c.ok)
+  return report
 }
