@@ -78,7 +78,25 @@ export function deepMerge(base: unknown, patch: unknown): unknown {
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
+  // Identical primitives via Object.is
+  if (Object.is(a, b)) return true
+
+  // Arrays: same length, elements deepEqual in order
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => deepEqual(v, b[i]))
+  }
+
+  // Plain objects: same key set (regardless of order), values deepEqual
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const aKeys = Object.keys(a).sort()
+    const bKeys = Object.keys(b).sort()
+    if (aKeys.length !== bKeys.length) return false
+    if (!aKeys.every((k, i) => k === bKeys[i])) return false
+    return aKeys.every((k) => deepEqual(a[k], b[k]))
+  }
+
+  return false
 }
 
 /** Remove every leaf equal to its default (deep); unknown keys are always kept. */
