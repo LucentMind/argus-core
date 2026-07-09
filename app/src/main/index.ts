@@ -13,6 +13,7 @@ import { AgentService } from './services/agent/registry'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
+import { resolveArgusParse } from './services/parsers'
 import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
 import {
   seedSharedDirs,
@@ -51,6 +52,9 @@ function registerIpc(): void {
   seedSharedDirs(argusHome, resolveAssetSource(app.getAppPath()))
   // agent sessions and preflight inherit this process env — make sample-trace findable
   ensureTraceOnPath(app.getAppPath())
+  // …and sample-parse (Python delegation + agent Bash read ARGUS_PARSE_BIN)
+  const argusParseBin = resolveArgusParse(app.getAppPath())
+  if (argusParseBin) process.env.ARGUS_PARSE_BIN ??= argusParseBin
 
   // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
@@ -94,7 +98,7 @@ function registerIpc(): void {
     }
     return cachedAuth
   })
-  ipcMain.handle(IPC.agentPreflight, () => runPreflight())
+  ipcMain.handle(IPC.agentPreflight, () => runPreflight(argusParseBin))
   ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string) =>
     readSessionEvents(caseDir(argusHome, caseSlug))
   )

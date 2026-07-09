@@ -11,6 +11,12 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: ../trace-rs/target/release/
+    to: bin
+    filter:
+      - sample-parse
+      - sample-parse.exe
 win:
   executableName: app
 nsis:
