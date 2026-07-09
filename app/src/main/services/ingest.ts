@@ -6,9 +6,8 @@ import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { detectArtifactType } from './detect'
-import { indexEvidenceText } from './indexer'
+import { indexEvidenceFile } from './indexer'
 
-const MAX_INDEX_BYTES = 20 * 1024 * 1024
 const TEXT_TYPES: ArtifactType[] = ['applog', 'text', 'list-json', 'tagged-json']
 
 const COMPOUND_EXTS = ['.rec.gz', '.list.json', '.bintrace.zip', '.tar.gz']
@@ -92,7 +91,7 @@ export function ingestArtifact(
   const artifactType = detectArtifactType(destPath)
   const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
-  const indexable = TEXT_TYPES.includes(artifactType) && size <= MAX_INDEX_BYTES
+  const indexable = TEXT_TYPES.includes(artifactType)
   const meta: Record<string, unknown> = {
     originalName: path.basename(sourcePath),
     indexed: indexable
@@ -107,7 +106,7 @@ export function ingestArtifact(
     .run(kase.id, relPath, sha256, artifactType, size, origin, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
 
-  if (indexable) indexEvidenceText(db, id, fs.readFileSync(destPath, 'utf8'))
+  if (indexable) indexEvidenceFile(db, id, destPath)
 
   const record: EvidenceRecord = {
     id,
@@ -147,8 +146,7 @@ export function ingestDerived(
   const sha256 = sha256File(absPath)
   const size = fs.statSync(absPath).size
   const now = new Date().toISOString()
-  const indexable = size <= MAX_INDEX_BYTES
-  const meta = { derivedFrom: derivedFromId, indexed: indexable }
+  const meta = { derivedFrom: derivedFromId, indexed: true }
   const relPath = `evidence/${rel.split(path.sep).join('/')}`
 
   const res = db
@@ -158,7 +156,7 @@ export function ingestDerived(
     )
     .run(kase.id, relPath, sha256, size, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  if (indexable) indexEvidenceText(db, id, fs.readFileSync(absPath, 'utf8'))
+  indexEvidenceFile(db, id, absPath)
 
   const record: EvidenceRecord = {
     id,

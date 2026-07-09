@@ -7,15 +7,22 @@ interface Props {
   onClose: () => void
 }
 
+interface Doc {
+  relPath: string
+  caseSlug: string
+  content: string
+  startLine: number
+  truncated: boolean
+}
+
 export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX.Element {
-  const [doc, setDoc] = useState<{ relPath: string; caseSlug: string; content: string } | null>(
-    null
-  )
+  const [doc, setDoc] = useState<Doc | null>(null)
   const [derivedFrom, setDerivedFrom] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.argus.evidence.read(evidenceId).then(setDoc)
-  }, [evidenceId])
+    setDoc(null)
+    void window.argus.evidence.read(evidenceId, focusLine).then(setDoc)
+  }, [evidenceId, focusLine])
 
   useEffect(() => {
     if (doc) document.getElementById(`line-${focusLine}`)?.scrollIntoView({ block: 'center' })
@@ -46,24 +53,28 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
           <span className="flex items-center gap-2 font-mono text-sm text-ink">
             {doc ? `${doc.caseSlug} / ${doc.relPath}` : 'Loading…'}
             {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
+            {doc?.truncated && <Chip tone="neutral">showing lines near {focusLine} only</Chip>}
           </span>
           <Btn variant="ghost" onClick={onClose}>
             Close
           </Btn>
         </div>
         <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
-          {doc?.content.split('\n').map((line, i) => (
-            <div
-              key={i}
-              id={`line-${i + 1}`}
-              className={i + 1 === focusLine ? 'bg-defect/20 text-ink' : undefined}
-            >
-              <span className="mr-3 inline-block w-10 select-none text-right text-mute">
-                {i + 1}
-              </span>
-              {line}
-            </div>
-          ))}
+          {doc?.content.split('\n').map((line, i) => {
+            const lineNo = doc.startLine + i
+            return (
+              <div
+                key={lineNo}
+                id={`line-${lineNo}`}
+                className={lineNo === focusLine ? 'bg-defect/20 text-ink' : undefined}
+              >
+                <span className="mr-3 inline-block w-10 select-none text-right text-mute">
+                  {lineNo}
+                </span>
+                {line}
+              </div>
+            )
+          })}
         </pre>
       </div>
     </div>

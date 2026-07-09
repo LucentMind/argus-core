@@ -15,7 +15,8 @@ const argus = {
     ingest: (caseSlug: string, absPaths: string[]) =>
       ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
-    read: (evidenceId: number) => ipcRenderer.invoke(IPC.evidenceRead, evidenceId),
+    read: (evidenceId: number, focusLine?: number) =>
+      ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.evidenceChanged, listener)

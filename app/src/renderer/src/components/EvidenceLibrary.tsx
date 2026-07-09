@@ -116,7 +116,13 @@ export function EvidenceLibrary({
           ))}
         </select>
       </div>
-      <table className="w-full text-left text-xs">
+      <table className="w-full table-fixed text-left text-xs">
+        <colgroup>
+          <col className="w-[46%]" />
+          <col className="w-[14%]" />
+          <col className="w-[14%]" />
+          <col className="w-[26%]" />
+        </colgroup>
         <thead>
           <tr className="font-mono text-[10.5px] uppercase tracking-wide text-mute">
             <th className="py-1 font-medium">file</th>
@@ -131,12 +137,16 @@ export function EvidenceLibrary({
             return (
               <tr key={r.id} className="border-t border-hair">
                 <td className={`py-1 font-mono text-dim ${r.derived ? 'pl-6' : ''}`}>
-                  {r.relPath}
-                  {r.derived && (
-                    <span className="ml-2">
-                      <Chip tone="neutral">derived</Chip>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 truncate" title={r.relPath}>
+                      {r.relPath}
                     </span>
-                  )}
+                    {r.derived && (
+                      <span className="flex-shrink-0">
+                        <Chip tone="neutral">derived</Chip>
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td>
                   <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
@@ -144,7 +154,7 @@ export function EvidenceLibrary({
                   </span>
                 </td>
                 <td className="text-dim">{r.size.toLocaleString()} B</td>
-                <td className="text-dim">
+                <td className="truncate text-dim">
                   {new Date(r.createdAt).toLocaleString()}
                   {skill && onSuggest && (
                     <button
