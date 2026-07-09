@@ -50,3 +50,44 @@ export interface SearchHit {
   endLine: number
   matchLine: number // exact line of the first term match; falls back to startLine
 }
+
+export interface WorkspaceInfo {
+  path: string
+  remote: string | null
+  branch: string | null // branch recorded at link time
+  currentRef: string // current checked-out ref of the tree the case sees
+  dirty: boolean
+  worktreePath: string | null // non-null once workspace_checkout materialized one
+}
+
+export interface ApprovalDecision {
+  requestId: string
+  kind: 'allow' | 'allow-session' | 'deny'
+  comment?: string
+}
+
+export interface AuthStatus {
+  ok: boolean
+  detail: string // "logged in as x@y (subscription)" | "not logged in" | error text
+}
+
+export interface SkillMeta {
+  name: string
+  description: string
+}
+
+export interface PreflightCheck {
+  name: string
+  ok: boolean
+  detail: string
+}
+export interface PreflightReport {
+  ok: boolean
+  checks: PreflightCheck[]
+}
+
+export interface CaseCost {
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+}
