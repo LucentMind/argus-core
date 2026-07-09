@@ -22,7 +22,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
     <div className="flex flex-col gap-2">
       <form role="search" onSubmit={(e) => void run(e)}>
         <input
-          className="w-full rounded border border-neutral-600 bg-transparent px-3 py-1.5 text-sm"
+          className="w-full rounded-r2 border border-hair bg-overlay px-3 py-1.5 text-sm text-ink placeholder:text-mute"
           placeholder="Search evidence…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -34,16 +34,16 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
             <li
               key={`${h.evidenceId}-${i}`}
               onClick={() => onOpen(h)}
-              className="cursor-pointer rounded border border-neutral-800 p-2 text-xs hover:bg-neutral-800"
+              className="cursor-pointer rounded-r2 border border-hair bg-panel p-2 text-xs transition-colors hover:bg-overlay"
             >
-              <div className="font-medium">
+              <div className="font-mono font-medium text-ink">
                 {h.caseSlug} / {h.relPath}{' '}
-                <span className="text-neutral-500">
+                <span className="text-mute">
                   ({h.artifactType}, lines {h.startLine}–{h.endLine})
                 </span>
               </div>
               <div
-                className="text-neutral-300"
+                className="font-mono text-dim"
                 dangerouslySetInnerHTML={{
                   __html: h.snippet
                     .replace(/&/g, '&amp;')
@@ -57,7 +57,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
           ))}
         </ul>
       )}
-      {searched && hits.length === 0 && <p className="text-xs text-neutral-500">No matches.</p>}
+      {searched && hits.length === 0 && <p className="text-xs text-mute">No matches.</p>}
     </div>
   )
 }

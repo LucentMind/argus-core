@@ -22,8 +22,12 @@ export function seedSharedDirs(argusHome: string, source: { skills: string; refe
     [source.skills, sharedSkillsDir(argusHome)],
     [source.references, sharedReferencesDir(argusHome)]
   ] as const) {
-    if (fs.existsSync(src)) fs.cpSync(src, dest, { recursive: true, force: true })
-    else fs.mkdirSync(dest, { recursive: true })
+    // argusHome may be the asset source itself (dev default ~/Argus == repo checkout)
+    if (fs.existsSync(src) && path.resolve(src) !== path.resolve(dest)) {
+      fs.cpSync(src, dest, { recursive: true, force: true })
+    } else {
+      fs.mkdirSync(dest, { recursive: true })
+    }
   }
 }
 
