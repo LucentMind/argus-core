@@ -110,6 +110,7 @@ function registerIpc(): void {
     argusHome,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     onEvent: (e) => broadcast(IPC.agentEventChannel, e),
+    agentSettings: () => settingsService.get().agent,
     mirrorFactory: (caseSlug, sessionId) =>
       new SessionMirror(
         db,

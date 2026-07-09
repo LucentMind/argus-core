@@ -257,4 +257,44 @@ describe('CaseSession', () => {
     ).toBe(true)
     expect(events.some((e) => e.type === 'session.exited')).toBe(true)
   })
+
+  it('applies agentOptions: model, cliPath, permissionMode, personaAppend', async () => {
+    const sdk = fakeSdk()
+    const rec = createCase(db, argusHome, { slug: 'NAV-OPT', title: 't' })
+    const s = new CaseSession({
+      db,
+      argusHome,
+      caseId: rec.id,
+      caseSlug: 'NAV-OPT',
+      workspaceRoots: [],
+      skillsRoots: [],
+      emit: (e) => events.push(e),
+      createQuery: sdk.createQuery,
+      resumeSdkSessionId: null,
+      agentOptions: {
+        model: 'claude-sonnet-5',
+        cliPath: 'C:\\tools\\claude.exe',
+        permissionMode: 'plan',
+        personaAppend: 'Focus on ADAS module defects.'
+      }
+    })
+    const o = sdk.captured.options!
+    expect(o.model).toBe('claude-sonnet-5')
+    expect(o.pathToClaudeCodeExecutable).toBe('C:\\tools\\claude.exe')
+    expect(o.permissionMode).toBe('plan')
+    const sp = o.systemPrompt as { append: string }
+    expect(sp.append).toContain('Focus on ADAS module defects.')
+    expect(sp.append.indexOf('You are Argus')).toBeLessThan(sp.append.indexOf('Focus on ADAS'))
+    await s.stop('stopped')
+  })
+
+  it('omits model/permissionMode/cliPath when agentOptions is absent or default', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk) // no agentOptions
+    const o = sdk.captured.options!
+    expect(o.model).toBeUndefined()
+    expect(o.permissionMode).toBeUndefined()
+    expect(o.pathToClaudeCodeExecutable).toBeUndefined()
+    await s.stop('stopped')
+  })
 })

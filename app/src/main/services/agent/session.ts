@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
+import type { PermissionMode } from '../../../shared/settings'
 import { AsyncQueue } from './asyncQueue'
 import { normalizeSdkMessage, makeEvent, type NormalizeCtx } from './normalize'
 import { classifyToolCall, type RiskContext } from './risk'
@@ -21,6 +22,13 @@ export interface SessionMirrorLike {
   indexText(role: string, content: string, turnId: number | null): void
 }
 
+export interface SessionAgentOptions {
+  model?: string
+  cliPath?: string
+  permissionMode?: PermissionMode
+  personaAppend?: string
+}
+
 export interface SessionDeps {
   db: DatabaseSync
   argusHome: string
@@ -32,6 +40,7 @@ export interface SessionDeps {
   createQuery: CreateQueryFn
   resumeSdkSessionId: string | null
   mirror?: SessionMirrorLike
+  agentOptions?: SessionAgentOptions
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -75,13 +84,23 @@ export class CaseSession {
       workspaceRoots: deps.workspaceRoots,
       readonlyRoots: deps.skillsRoots
     }
+    const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({
       prompt: this.promptQueue,
       options: {
         cwd: dir,
         additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
         includePartialMessages: true,
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: ARGUS_PERSONA },
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: ao.personaAppend ? `${ARGUS_PERSONA}\n\n${ao.personaAppend}` : ARGUS_PERSONA
+        },
+        ...(ao.model ? { model: ao.model } : {}),
+        ...(ao.cliPath ? { pathToClaudeCodeExecutable: ao.cliPath } : {}),
+        ...(ao.permissionMode && ao.permissionMode !== 'default'
+          ? { permissionMode: ao.permissionMode }
+          : {}),
         mcpServers: {
           argus: createArgusMcpServer({
             db: deps.db,

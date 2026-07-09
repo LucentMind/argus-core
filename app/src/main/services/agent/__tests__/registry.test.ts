@@ -123,4 +123,66 @@ describe('AgentService', () => {
     expect(sess.sdk_session_id).toBe('22222222-2222-4222-8222-222222222222')
     await svc2.stopAll()
   })
+
+  it('reads maxSessions live from agentSettings and passes instance config to sessions', async () => {
+    const captured: Record<string, unknown>[] = []
+    const queues: AsyncQueue<unknown>[] = []
+    const createQuery: CreateQueryFn = (args) => {
+      captured.push(args.options as Record<string, unknown>)
+      const q = new AsyncQueue<unknown>()
+      queues.push(q)
+      return Object.assign(
+        { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
+        {
+          interrupt: async () => q.end()
+        }
+      )
+    }
+    const endTurn = async (i: number): Promise<void> => {
+      // reap only targets idle sessions (activeTurn === false) — finish the turn first
+      queues[i].push({ type: 'result', is_error: false })
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    let maxSessions = 1
+    const svc = new AgentService({
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: () => {},
+      createQuery,
+      agentSettings: () => ({
+        activeInstanceId: 'claude-default',
+        maxSessions,
+        probeTimeoutMs: 10000,
+        defaultPermissionMode: 'acceptEdits' as const,
+        personaAppend: 'brief.',
+        providerInstances: {
+          'claude-default': {
+            driver: 'claude-agent-sdk',
+            enabled: true,
+            config: { model: 'claude-opus-4-8' }
+          }
+        }
+      })
+    })
+    createCase(db, argusHome, { slug: 'C-1', title: 'a' })
+    createCase(db, argusHome, { slug: 'C-2', title: 'b' })
+    await svc.send('C-1', 'hi')
+    expect((captured[0].systemPrompt as { append: string }).append).toContain('brief.')
+    expect(captured[0].model).toBe('claude-opus-4-8')
+    expect(captured[0].permissionMode).toBe('acceptEdits')
+    await endTurn(0)
+    await svc.send('C-2', 'hi') // maxSessions 1 → idle C-1 reaped
+    expect(
+      svc
+        .states()
+        .filter((s) => s.state === 'running')
+        .map((s) => s.caseSlug)
+    ).toEqual(['C-2'])
+    await endTurn(1)
+    maxSessions = 3
+    await svc.send('C-1', 'hi') // live read: no reap now
+    expect(svc.states().filter((s) => s.state === 'running')).toHaveLength(2)
+    await svc.stopAll()
+  })
 })
