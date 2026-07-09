@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Btn } from './ui'
 
 interface Props {
   evidenceId: number
@@ -18,21 +19,21 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
   }, [doc, focusLine])
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-void/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
       <div
-        className="flex h-[80vh] w-[80vw] flex-col rounded-r4 border border-hair bg-panel shadow-xl"
+        className="flex h-[80vh] w-[80vw] flex-col rounded-r4 border border-hair2 bg-panel shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">
           <span className="font-mono text-sm text-ink">
             {doc ? `${doc.caseSlug} / ${doc.relPath}` : 'Loading…'}
           </span>
-          <button
-            className="rounded-r1 border border-hair px-2 py-0.5 text-xs text-dim transition-colors hover:bg-overlay hover:text-ink"
-            onClick={onClose}
-          >
+          <Btn variant="ghost" onClick={onClose}>
             Close
-          </button>
+          </Btn>
         </div>
         <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
           {doc?.content.split('\n').map((line, i) => (
@@ -41,7 +42,9 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
               id={`line-${i + 1}`}
               className={i + 1 === focusLine ? 'bg-defect/20 text-ink' : undefined}
             >
-              <span className="mr-3 inline-block w-10 select-none text-right text-mute">{i + 1}</span>
+              <span className="mr-3 inline-block w-10 select-none text-right text-mute">
+                {i + 1}
+              </span>
               {line}
             </div>
           ))}
