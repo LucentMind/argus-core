@@ -106,21 +106,49 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
       tool(
         'search_evidence',
         'FTS search over case evidence, findings and transcripts. Returns hits with relPath + matchLine — cite them as [relPath:line].',
-        { query: z.string(), scope: z.enum(['case', 'all']).optional(), artifact_type: z.string().optional() },
+        {
+          query: z.string(),
+          scope: z.enum(['case', 'all']).optional(),
+          artifact_type: z.string().optional()
+        },
         async (a) => asText(await h.search_evidence(a))
       ),
-      tool('list_evidence', 'List all evidence artifacts of this case with types and metadata.', {},
-        async (a) => asText(await h.list_evidence(a))),
-      tool('get_artifact_meta', 'Full metadata for one evidence artifact.', { evidence_id: z.number() },
-        async (a) => asText(await h.get_artifact_meta(a))),
-      tool('ingest_artifact', 'Register a file you created/derived (inside the case dir) as evidence — it becomes searchable and citable.',
-        { path: z.string() }, async (a) => asText(await h.ingest_artifact(a))),
-      tool('append_finding', 'Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim.',
-        { title: z.string(), markdown: z.string() }, async (a) => asText(await h.append_finding(a))),
-      tool('update_case_status', 'Move the case through its lifecycle (open|analyzing|rca-drafted|closed).',
-        { status: z.string() }, async (a) => asText(await h.update_case_status(a))),
-      tool('workspace_checkout', 'Check out a branch/PR ref of a linked repo in a case-scoped worktree. NEVER run git switch/checkout in the primary checkout.',
-        { repo_path: z.string(), ref: z.string() }, async (a) => asText(await h.workspace_checkout(a)))
+      tool(
+        'list_evidence',
+        'List all evidence artifacts of this case with types and metadata.',
+        {},
+        async (a) => asText(await h.list_evidence(a))
+      ),
+      tool(
+        'get_artifact_meta',
+        'Full metadata for one evidence artifact.',
+        { evidence_id: z.number() },
+        async (a) => asText(await h.get_artifact_meta(a))
+      ),
+      tool(
+        'ingest_artifact',
+        'Register a file you created/derived (inside the case dir) as evidence — it becomes searchable and citable.',
+        { path: z.string() },
+        async (a) => asText(await h.ingest_artifact(a))
+      ),
+      tool(
+        'append_finding',
+        'Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim.',
+        { title: z.string(), markdown: z.string() },
+        async (a) => asText(await h.append_finding(a))
+      ),
+      tool(
+        'update_case_status',
+        'Move the case through its lifecycle (open|analyzing|rca-drafted|closed).',
+        { status: z.string() },
+        async (a) => asText(await h.update_case_status(a))
+      ),
+      tool(
+        'workspace_checkout',
+        'Check out a branch/PR ref of a linked repo in a case-scoped worktree. NEVER run git switch/checkout in the primary checkout.',
+        { repo_path: z.string(), ref: z.string() },
+        async (a) => asText(await h.workspace_checkout(a))
+      )
     ]
   })
 }

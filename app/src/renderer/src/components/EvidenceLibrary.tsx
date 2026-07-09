@@ -3,8 +3,16 @@ import { Chip, SectionLabel } from './ui'
 import type { ArtifactType, EvidenceRecord } from '../../../shared/types'
 
 const ALL_TYPES: ArtifactType[] = [
-  'applog', 'binlog', 'archive-rec', 'list-json', 'tagged-json',
-  'bintrace', 'archive', 'screenshot', 'text', 'unknown'
+  'applog',
+  'binlog',
+  'archive-rec',
+  'list-json',
+  'tagged-json',
+  'bintrace',
+  'archive',
+  'screenshot',
+  'text',
+  'unknown'
 ]
 
 // binary/log types → the skill the Analyze button suggests in the composer
@@ -53,9 +61,10 @@ export function EvidenceLibrary({
   const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
   const [dragOver, setDragOver] = useState(false)
 
-  const reload = useCallback(async () => {
-    setRows(await window.argus.evidence.list(caseSlug))
-  }, [caseSlug])
+  const reload = useCallback(
+    (): Promise<void> => window.argus.evidence.list(caseSlug).then(setRows),
+    [caseSlug]
+  )
 
   useEffect(() => {
     void reload()
@@ -74,7 +83,9 @@ export function EvidenceLibrary({
     await reload()
   }
 
-  const visible = orderWithDerived(typeFilter ? rows.filter((r) => r.artifactType === typeFilter) : rows)
+  const visible = orderWithDerived(
+    typeFilter ? rows.filter((r) => r.artifactType === typeFilter) : rows
+  )
 
   return (
     <section
@@ -128,7 +139,9 @@ export function EvidenceLibrary({
                   )}
                 </td>
                 <td>
-                  <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">{r.artifactType}</span>
+                  <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
+                    {r.artifactType}
+                  </span>
                 </td>
                 <td className="text-dim">{r.size.toLocaleString()} B</td>
                 <td className="text-dim">

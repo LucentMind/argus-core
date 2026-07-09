@@ -4,7 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ApprovalCard } from '../ApprovalCard'
 
 const request = {
-  requestId: 'r1', tool: 'Bash', risk: 'MEDIUM', grantKey: 'ws:/repo',
+  requestId: 'r1',
+  tool: 'Bash',
+  risk: 'MEDIUM',
+  grantKey: 'ws:/repo',
   argsPreview: 'git fetch origin'
 }
 
@@ -19,7 +22,9 @@ describe('ApprovalCard', () => {
     expect(screen.getByText('git fetch origin')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /approve for session/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', {
-      requestId: 'r1', kind: 'allow-session', comment: undefined
+      requestId: 'r1',
+      kind: 'allow-session',
+      comment: undefined
     })
   })
 
@@ -29,7 +34,9 @@ describe('ApprovalCard', () => {
     fireEvent.change(screen.getByPlaceholderText(/reason/i), { target: { value: 'not now' } })
     fireEvent.click(screen.getByRole('button', { name: /^deny$/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', {
-      requestId: 'r1', kind: 'deny', comment: 'not now'
+      requestId: 'r1',
+      kind: 'deny',
+      comment: 'not now'
     })
   })
 })

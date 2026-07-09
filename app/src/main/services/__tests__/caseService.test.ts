@@ -16,11 +16,23 @@ beforeEach(() => {
 
 describe('createCase', () => {
   it('inserts a row and scaffolds the case dir', () => {
-    const rec = createCase(db, home, { slug: 'NAVAPI-12345', title: 'Tile 403s', jiraKey: 'NAVAPI-12345' })
+    const rec = createCase(db, home, {
+      slug: 'NAVAPI-12345',
+      title: 'Tile 403s',
+      jiraKey: 'NAVAPI-12345'
+    })
     expect(rec.slug).toBe('NAVAPI-12345')
     expect(rec.status).toBe('open')
     const dir = path.join(home, 'cases', 'NAVAPI-12345')
-    for (const p of ['evidence', 'evidence/.meta', 'sessions', '.rca', 'case.json', 'CLAUDE.md', 'findings.md']) {
+    for (const p of [
+      'evidence',
+      'evidence/.meta',
+      'sessions',
+      '.rca',
+      'case.json',
+      'CLAUDE.md',
+      'findings.md'
+    ]) {
       expect(fs.existsSync(path.join(dir, p)), p).toBe(true)
     }
     const caseJson = JSON.parse(fs.readFileSync(path.join(dir, 'case.json'), 'utf8'))

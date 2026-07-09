@@ -26,7 +26,8 @@ export function detectArtifactType(filePath: string): ArtifactType {
     return 'binlog'
   }
   if (head.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) return 'archive'
-  if (head.length > 262 && head.subarray(257, 262).equals(Buffer.from('ustar', 'latin1'))) return 'archive'
+  if (head.length > 262 && head.subarray(257, 262).equals(Buffer.from('ustar', 'latin1')))
+    return 'archive'
   if (head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'screenshot'
   if (head.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'screenshot'
   if (name.endsWith('.bintrace') || name.endsWith('.bintrace.zip')) return 'bintrace'

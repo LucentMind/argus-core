@@ -6,12 +6,26 @@ import type { EvidenceRecord } from '../../../../shared/types'
 
 const rows: EvidenceRecord[] = [
   {
-    id: 1, caseId: 1, relPath: 'evidence/log.txt', sha256: 'a'.repeat(64), artifactType: 'applog',
-    size: 120, origin: 'upload', meta: {}, createdAt: '2026-07-09T00:00:00Z'
+    id: 1,
+    caseId: 1,
+    relPath: 'evidence/log.txt',
+    sha256: 'a'.repeat(64),
+    artifactType: 'applog',
+    size: 120,
+    origin: 'upload',
+    meta: {},
+    createdAt: '2026-07-09T00:00:00Z'
   },
   {
-    id: 2, caseId: 1, relPath: 'evidence/trace.binlog', sha256: 'b'.repeat(64), artifactType: 'binlog',
-    size: 999, origin: 'upload', meta: {}, createdAt: '2026-07-09T00:00:00Z'
+    id: 2,
+    caseId: 1,
+    relPath: 'evidence/trace.binlog',
+    sha256: 'b'.repeat(64),
+    artifactType: 'binlog',
+    size: 999,
+    origin: 'upload',
+    meta: {},
+    createdAt: '2026-07-09T00:00:00Z'
   }
 ]
 
@@ -39,10 +53,28 @@ describe('EvidenceLibrary', () => {
 
   it('renders derived rows with a chip and an Analyze suggestion for binary types', async () => {
     window.argus.evidence.list = vi.fn(async () => [
-      { id: 1, caseId: 1, relPath: 'evidence/trace.binlog', sha256: 'x', artifactType: 'binlog',
-        size: 10, origin: 'upload', meta: {}, createdAt: '2026-07-09' },
-      { id: 2, caseId: 1, relPath: 'evidence/.derived/trace.binlog.txt', sha256: 'y', artifactType: 'text',
-        size: 5, origin: 'agent', meta: { derivedFrom: 1 }, createdAt: '2026-07-09' }
+      {
+        id: 1,
+        caseId: 1,
+        relPath: 'evidence/trace.binlog',
+        sha256: 'x',
+        artifactType: 'binlog',
+        size: 10,
+        origin: 'upload',
+        meta: {},
+        createdAt: '2026-07-09'
+      },
+      {
+        id: 2,
+        caseId: 1,
+        relPath: 'evidence/.derived/trace.binlog.txt',
+        sha256: 'y',
+        artifactType: 'text',
+        size: 5,
+        origin: 'agent',
+        meta: { derivedFrom: 1 },
+        createdAt: '2026-07-09'
+      }
     ]) as never
     const onSuggest = vi.fn()
     render(<EvidenceLibrary caseSlug="NAV-1" onSuggest={onSuggest} />)

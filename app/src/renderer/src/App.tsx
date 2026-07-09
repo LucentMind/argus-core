@@ -14,9 +14,9 @@ function App(): React.JSX.Element {
   const [view, setView] = useState<View>({ kind: 'home' })
   const [viewer, setViewer] = useState<{ evidenceId: number; focusLine: number } | null>(null)
 
-  const reload = useCallback(async () => {
-    setCases(await window.argus.cases.list())
-  }, [])
+  // setState happens in the promise callback (external-system subscription
+  // shape), not synchronously in effects — keeps react-hooks/set-state-in-effect happy
+  const reload = useCallback((): Promise<void> => window.argus.cases.list().then(setCases), [])
 
   useEffect(() => {
     void reload()

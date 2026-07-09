@@ -12,7 +12,8 @@ const argus = {
     readFindings: (caseSlug: string) => ipcRenderer.invoke(IPC.caseReadFindings, caseSlug)
   },
   evidence: {
-    ingest: (caseSlug: string, absPaths: string[]) => ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
+    ingest: (caseSlug: string, absPaths: string[]) =>
+      ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
     read: (evidenceId: number) => ipcRenderer.invoke(IPC.evidenceRead, evidenceId),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
@@ -27,9 +28,11 @@ const argus = {
   agent: {
     send: (caseSlug: string, text: string) => ipcRenderer.invoke(IPC.agentSend, caseSlug, text),
     interrupt: (caseSlug: string) => ipcRenderer.invoke(IPC.agentInterrupt, caseSlug),
-    respond: (caseSlug: string, d: ApprovalDecision) => ipcRenderer.invoke(IPC.agentRespond, caseSlug, d),
+    respond: (caseSlug: string, d: ApprovalDecision) =>
+      ipcRenderer.invoke(IPC.agentRespond, caseSlug, d),
     authStatus: () => ipcRenderer.invoke(IPC.agentAuthStatus),
-    history: (caseSlug: string): Promise<AgentEvent[]> => ipcRenderer.invoke(IPC.agentHistory, caseSlug),
+    history: (caseSlug: string): Promise<AgentEvent[]> =>
+      ipcRenderer.invoke(IPC.agentHistory, caseSlug),
     preflight: () => ipcRenderer.invoke(IPC.agentPreflight),
     onEvent: (cb: (e: AgentEvent) => void): (() => void) => {
       const listener = (_e: unknown, ev: AgentEvent): void => cb(ev)
@@ -39,8 +42,10 @@ const argus = {
   },
   workspaces: {
     pick: () => ipcRenderer.invoke(IPC.workspacesPick),
-    link: (caseSlug: string, repoPath: string) => ipcRenderer.invoke(IPC.workspacesLink, caseSlug, repoPath),
-    unlink: (caseSlug: string, repoPath: string) => ipcRenderer.invoke(IPC.workspacesUnlink, caseSlug, repoPath),
+    link: (caseSlug: string, repoPath: string) =>
+      ipcRenderer.invoke(IPC.workspacesLink, caseSlug, repoPath),
+    unlink: (caseSlug: string, repoPath: string) =>
+      ipcRenderer.invoke(IPC.workspacesUnlink, caseSlug, repoPath),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug)
   },
   skills: {

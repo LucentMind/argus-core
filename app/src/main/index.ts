@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import fs from 'node:fs'
 import path, { join } from 'node:path'
+import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC } from '../shared/ipc'
@@ -31,7 +32,6 @@ let agentService: AgentService | null = null
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
 // with two sessions streaming.
 if (process.env.ARGUS_LOOP_METRICS) {
-  const { monitorEventLoopDelay } = require('node:perf_hooks') as typeof import('node:perf_hooks')
   const h = monitorEventLoopDelay({ resolution: 10 })
   h.enable()
   setInterval(() => {
@@ -71,7 +71,9 @@ function registerIpc(): void {
     return records
   })
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => listEvidence(db, caseSlug))
-  ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number) => readEvidenceText(db, argusHome, evidenceId))
+  ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number) =>
+    readEvidenceText(db, argusHome, evidenceId)
+  )
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
     searchEvidence(db, q, filters ?? {})
   )
@@ -83,12 +85,18 @@ function registerIpc(): void {
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     onEvent: (e) => broadcast(IPC.agentEventChannel, e),
     mirrorFactory: (caseSlug, sessionId) =>
-      new SessionMirror(db, path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`), {
-        caseId: listCases(db).find((c) => c.slug === caseSlug)?.id ?? 0,
-        sessionId
-      })
+      new SessionMirror(
+        db,
+        path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`),
+        {
+          caseId: listCases(db).find((c) => c.slug === caseSlug)?.id ?? 0,
+          sessionId
+        }
+      )
   })
-  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) => agentService!.send(caseSlug, text))
+  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) =>
+    agentService!.send(caseSlug, text)
+  )
   ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string) => agentService!.interrupt(caseSlug))
   ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) =>
     agentService!.respond(caseSlug, d)
@@ -138,7 +146,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.workspacesUnlink, (_e, caseSlug: string, repoPath: string) =>
     unlinkWorkspace(db, argusHome, caseSlug, repoPath)
   )
-  ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) => listWorkspaces(db, argusHome, caseSlug))
+  ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) =>
+    listWorkspaces(db, argusHome, caseSlug)
+  )
 
   // — skills —
   ipcMain.handle(IPC.skillsList, () => listSkills(argusHome))

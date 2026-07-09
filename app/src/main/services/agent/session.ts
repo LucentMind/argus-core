@@ -63,7 +63,11 @@ export class CaseSession {
       )
       .run(deps.caseId, deps.resumeSdkSessionId, now, now)
     this.sessionId = Number(
-      (deps.db.prepare(`SELECT id FROM sessions WHERE case_id = ?`).get(deps.caseId) as { id: number }).id
+      (
+        deps.db.prepare(`SELECT id FROM sessions WHERE case_id = ?`).get(deps.caseId) as {
+          id: number
+        }
+      ).id
     )
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     this.riskCtx = {
@@ -159,7 +163,10 @@ export class CaseSession {
     toolName: string,
     input: Record<string, unknown>,
     opts: { signal: AbortSignal }
-  ): Promise<{ behavior: 'allow'; updatedInput: Record<string, unknown> } | { behavior: 'deny'; message: string }> {
+  ): Promise<
+    | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+    | { behavior: 'deny'; message: string }
+  > {
     const started = Date.now()
     const verdict = classifyToolCall(toolName, input, this.riskCtx)
     const log = (decision: string): void => {
@@ -213,21 +220,22 @@ export class CaseSession {
     this.emit(makeEvent(this.ctx(), 'request.resolved', { requestId, decision: outcome.decision }))
 
     if (outcome.decision === 'allow' || outcome.decision === 'allow-session') {
-      if (outcome.decision === 'allow-session' && verdict.grantKey) this.grants.add(verdict.grantKey)
+      if (outcome.decision === 'allow-session' && verdict.grantKey)
+        this.grants.add(verdict.grantKey)
       log(outcome.decision === 'allow-session' ? 'grant' : 'user')
       return { behavior: 'allow', updatedInput: input }
     }
     log(outcome.decision === 'cancelled' ? 'cancelled' : 'denied')
     return {
       behavior: 'deny',
-      message: outcome.comment ?? (outcome.decision === 'cancelled' ? 'Cancelled' : 'Denied by user')
+      message:
+        outcome.comment ?? (outcome.decision === 'cancelled' ? 'Cancelled' : 'Denied by user')
     }
   }
 
   // --- stream consumption ----------------------------------------------------
   private updateCursor(msg: { type?: string; subtype?: string; session_id?: string }): void {
-    const durable =
-      (msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result'
+    const durable = (msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result'
     if (!durable || !msg.session_id || !UUID_RE.test(msg.session_id)) return
     this.deps.db
       .prepare(`UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`)
@@ -288,7 +296,9 @@ export class CaseSession {
         if (!interrupted) {
           this.emit(makeEvent(this.ctx(), 'session.error', { message }))
         }
-        this.emit(makeEvent(this.ctx(), 'session.exited', { reason: interrupted ? 'stopped' : 'crashed' }))
+        this.emit(
+          makeEvent(this.ctx(), 'session.exited', { reason: interrupted ? 'stopped' : 'crashed' })
+        )
       }
     } finally {
       this.activeTurn = false

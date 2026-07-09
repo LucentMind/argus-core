@@ -38,10 +38,7 @@ describe('detectArtifactType', () => {
     expect(detectArtifactType(p)).toBe('list-json')
   })
   it('detects applog', () => {
-    const p = write(
-      'log.txt',
-      '07-08 14:23:01.123  1234  1234 I HiveMindNavigator: created\n'
-    )
+    const p = write('log.txt', '07-08 14:23:01.123  1234  1234 I HiveMindNavigator: created\n')
     expect(detectArtifactType(p)).toBe('applog')
   })
   it('detects tagged traces by filename', () => {

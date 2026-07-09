@@ -31,8 +31,7 @@ export async function extractDerivedText(
   const kind = EXTRACTORS[rec.artifactType]
   if (!kind) return null
   const slugRow = db.prepare(`SELECT slug FROM cases WHERE id = ?`).get(rec.caseId) as
-    | { slug: string }
-    | undefined
+    { slug: string } | undefined
   if (!slugRow) return null
   const dir = caseDir(argusHome, slugRow.slug)
   const srcAbs = path.join(dir, rec.relPath)

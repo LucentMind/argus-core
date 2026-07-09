@@ -19,7 +19,9 @@ export function HeaderChips({ slug }: { slug: string }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2">
       <span title={auth?.detail ?? 'probing claude CLI…'}>
-        <Chip tone={auth?.ok ? 'review' : 'danger'}>{auth ? (auth.ok ? 'claude ✓' : 'claude ✗') : 'claude …'}</Chip>
+        <Chip tone={auth?.ok ? 'review' : 'danger'}>
+          {auth ? (auth.ok ? 'claude ✓' : 'claude ✗') : 'claude …'}
+        </Chip>
       </span>
       <span
         title={

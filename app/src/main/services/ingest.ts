@@ -16,7 +16,8 @@ const COMPOUND_EXTS = ['.rec.gz', '.list.json', '.bintrace.zip', '.tar.gz']
 function splitName(baseName: string): { stem: string; ext: string } {
   const lower = baseName.toLowerCase()
   for (const ce of COMPOUND_EXTS) {
-    if (lower.endsWith(ce)) return { stem: baseName.slice(0, -ce.length), ext: baseName.slice(-ce.length) }
+    if (lower.endsWith(ce))
+      return { stem: baseName.slice(0, -ce.length), ext: baseName.slice(-ce.length) }
   }
   const ext = path.extname(baseName)
   return { stem: baseName.slice(0, baseName.length - ext.length), ext }
@@ -92,7 +93,10 @@ export function ingestArtifact(
   const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
   const indexable = TEXT_TYPES.includes(artifactType) && size <= MAX_INDEX_BYTES
-  const meta: Record<string, unknown> = { originalName: path.basename(sourcePath), indexed: indexable }
+  const meta: Record<string, unknown> = {
+    originalName: path.basename(sourcePath),
+    indexed: indexable
+  }
   const relPath = `evidence/${destName}`
 
   const res = db
@@ -106,7 +110,15 @@ export function ingestArtifact(
   if (indexable) indexEvidenceText(db, id, fs.readFileSync(destPath, 'utf8'))
 
   const record: EvidenceRecord = {
-    id, caseId: kase.id, relPath, sha256, artifactType, size, origin, meta, createdAt: now
+    id,
+    caseId: kase.id,
+    relPath,
+    sha256,
+    artifactType,
+    size,
+    origin,
+    meta,
+    createdAt: now
   }
   fs.writeFileSync(
     path.join(evidenceDir, '.meta', `${destName}.json`),
@@ -149,7 +161,15 @@ export function ingestDerived(
   if (indexable) indexEvidenceText(db, id, fs.readFileSync(absPath, 'utf8'))
 
   const record: EvidenceRecord = {
-    id, caseId: kase.id, relPath, sha256, artifactType: 'text', size, origin: 'agent', meta, createdAt: now
+    id,
+    caseId: kase.id,
+    relPath,
+    sha256,
+    artifactType: 'text',
+    size,
+    origin: 'agent',
+    meta,
+    createdAt: now
   }
   fs.mkdirSync(path.join(evidenceDir, '.meta', path.dirname(rel)), { recursive: true })
   fs.writeFileSync(path.join(evidenceDir, '.meta', `${rel}.json`), JSON.stringify(record, null, 2))

@@ -3,11 +3,24 @@ import type { AgentEvent } from '../../../shared/agent-events'
 export type TranscriptItem =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string; streaming: boolean }
-  | { kind: 'tool'; toolCallId: string; name: string; outputPreview: string; done: boolean; isError: boolean }
+  | {
+      kind: 'tool'
+      toolCallId: string
+      name: string
+      outputPreview: string
+      done: boolean
+      isError: boolean
+    }
 
 export interface CaseAgentState {
   items: TranscriptItem[]
-  pending: { requestId: string; tool: string; risk: string; grantKey: string | null; argsPreview: string }[]
+  pending: {
+    requestId: string
+    tool: string
+    risk: string
+    grantKey: string | null
+    argsPreview: string
+  }[]
   running: boolean
   cost: { inputTokens: number; outputTokens: number; costUsd: number }
   sessionNote: string | null
@@ -15,9 +28,12 @@ export interface CaseAgentState {
 }
 
 const EMPTY: CaseAgentState = {
-  items: [], pending: [], running: false,
+  items: [],
+  pending: [],
+  running: false,
   cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
-  sessionNote: null, findingsBump: 0
+  sessionNote: null,
+  findingsBump: 0
 }
 
 export class AgentStore {
@@ -63,7 +79,11 @@ export class AgentStore {
       const last = items[items.length - 1]
       switch (e.type) {
         case 'turn.started':
-          return { ...s, running: true, items: [...items, { kind: 'user', text: e.payload.userText }] }
+          return {
+            ...s,
+            running: true,
+            items: [...items, { kind: 'user', text: e.payload.userText }]
+          }
         case 'content.delta': {
           if (last?.kind === 'assistant' && last.streaming) {
             items[items.length - 1] = { ...last, text: last.text + e.payload.text }
@@ -83,16 +103,30 @@ export class AgentStore {
         case 'tool.call.started':
           return {
             ...s,
-            items: [...items, {
-              kind: 'tool', toolCallId: e.payload.toolCallId, name: e.payload.name,
-              outputPreview: '', done: false, isError: false
-            }]
+            items: [
+              ...items,
+              {
+                kind: 'tool',
+                toolCallId: e.payload.toolCallId,
+                name: e.payload.name,
+                outputPreview: '',
+                done: false,
+                isError: false
+              }
+            ]
           }
         case 'tool.call.completed': {
-          const idx = items.findIndex((i) => i.kind === 'tool' && i.toolCallId === e.payload.toolCallId)
+          const idx = items.findIndex(
+            (i) => i.kind === 'tool' && i.toolCallId === e.payload.toolCallId
+          )
           if (idx >= 0) {
             const t = items[idx] as Extract<TranscriptItem, { kind: 'tool' }>
-            items[idx] = { ...t, outputPreview: e.payload.outputPreview, done: true, isError: e.payload.isError }
+            items[idx] = {
+              ...t,
+              outputPreview: e.payload.outputPreview,
+              done: true,
+              isError: e.payload.isError
+            }
           }
           return { ...s, items }
         }
@@ -102,7 +136,8 @@ export class AgentStore {
           return { ...s, pending: s.pending.filter((p) => p.requestId !== e.payload.requestId) }
         case 'turn.completed':
           return {
-            ...s, running: false,
+            ...s,
+            running: false,
             cost: {
               inputTokens: s.cost.inputTokens + (e.payload.inputTokens ?? 0),
               outputTokens: s.cost.outputTokens + (e.payload.outputTokens ?? 0),
@@ -114,7 +149,12 @@ export class AgentStore {
         case 'session.error':
           return { ...s, sessionNote: `Session error: ${e.payload.message}` }
         case 'session.exited':
-          return { ...s, running: false, sessionNote: e.payload.reason === 'crashed' ? 'Session crashed — next message restarts it.' : null }
+          return {
+            ...s,
+            running: false,
+            sessionNote:
+              e.payload.reason === 'crashed' ? 'Session crashed — next message restarts it.' : null
+          }
         default:
           return s
       }

@@ -8,8 +8,14 @@ import type { AgentEvent } from '../../../../shared/agent-events'
 
 const ev = (type: string): AgentEvent =>
   ({
-    eventId: 'e1', caseId: 1, caseSlug: 'NAV-1', sessionId: 1, turnId: 1,
-    ts: new Date().toISOString(), type, payload: { text: 'x' }
+    eventId: 'e1',
+    caseId: 1,
+    caseSlug: 'NAV-1',
+    sessionId: 1,
+    turnId: 1,
+    ts: new Date().toISOString(),
+    type,
+    payload: { text: 'x' }
   }) as unknown as AgentEvent
 
 describe('SessionMirror', () => {
@@ -32,7 +38,10 @@ describe('SessionMirror', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
     const db = openDb(path.join(tmp, 'a.db'))
     const caseDir = path.join(tmp, 'case')
-    const m = new SessionMirror(db, path.join(caseDir, 'sessions', '1.jsonl'), { caseId: 1, sessionId: 1 })
+    const m = new SessionMirror(db, path.join(caseDir, 'sessions', '1.jsonl'), {
+      caseId: 1,
+      sessionId: 1
+    })
     m.append(ev('turn.started'))
     m.append(ev('assistant.message'))
     m.close()

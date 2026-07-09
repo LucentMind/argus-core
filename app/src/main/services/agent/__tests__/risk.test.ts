@@ -8,7 +8,7 @@ const ctx: RiskContext = {
   readonlyRoots: ['/home/u/Argus/skills', '/home/u/Argus/references']
 }
 
-function bash(command: string) {
+function bash(command: string): ReturnType<typeof classifyToolCall> {
   return classifyToolCall('Bash', { command }, ctx)
 }
 
@@ -25,18 +25,26 @@ describe('classifyToolCall — native and FS tools', () => {
   })
 
   it('allows Read inside the case dir, denies outside the sandbox', () => {
-    expect(classifyToolCall('Read', { file_path: `${ctx.caseDir}/evidence/a.txt` }, ctx).action).toBe('allow')
+    expect(
+      classifyToolCall('Read', { file_path: `${ctx.caseDir}/evidence/a.txt` }, ctx).action
+    ).toBe('allow')
     expect(classifyToolCall('Read', { file_path: '/home/u/.ssh/id_rsa' }, ctx).action).toBe('deny')
   })
 
   it('denies Write into read-only roots, allows in case dir', () => {
-    expect(classifyToolCall('Write', { file_path: '/home/u/Argus/skills/x/SKILL.md' }, ctx).action).toBe('deny')
-    expect(classifyToolCall('Write', { file_path: `${ctx.caseDir}/notes.md` }, ctx).action).toBe('allow')
+    expect(
+      classifyToolCall('Write', { file_path: '/home/u/Argus/skills/x/SKILL.md' }, ctx).action
+    ).toBe('deny')
+    expect(classifyToolCall('Write', { file_path: `${ctx.caseDir}/notes.md` }, ctx).action).toBe(
+      'allow'
+    )
   })
 
   it('resolves relative and missing FS paths against caseDir instead of bypassing the sandbox', () => {
     // relative path traversal that escapes the sandbox entirely -> deny
-    expect(classifyToolCall('Read', { file_path: '../../../../etc/passwd' }, ctx).action).toBe('deny')
+    expect(classifyToolCall('Read', { file_path: '../../../../etc/passwd' }, ctx).action).toBe(
+      'deny'
+    )
     // relative path that stays inside caseDir -> allow
     expect(classifyToolCall('Read', { file_path: 'evidence/a.txt' }, ctx).action).toBe('allow')
     // relative path that escapes into a readonly root -> deny (write)
@@ -61,11 +69,11 @@ describe('classifyToolCall — Bash', () => {
   })
 
   it.each([
-    ['git fetch origin', 'ws'],
-    ['git switch feature/x', 'ws'],
-    ['git checkout v3.16.0', 'ws'],
-    ['gh pr checkout 1234', 'ws']
-  ] as const)('%s → MEDIUM ask with workspace grant key', (cmd, _grantHint) => {
+    'git fetch origin',
+    'git switch feature/x',
+    'git checkout v3.16.0',
+    'gh pr checkout 1234'
+  ])('%s → MEDIUM ask with workspace grant key', (cmd) => {
     const v = bash(cmd)
     expect(v).toMatchObject({ action: 'ask', risk: 'MEDIUM' })
     if (v.action === 'ask') expect(v.grantKey).toMatch(/^ws:/)

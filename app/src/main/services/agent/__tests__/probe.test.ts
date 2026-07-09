@@ -8,7 +8,11 @@ function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
     const q = new AsyncQueue<unknown>()
     if (messages === 'throw') {
       return Object.assign(
-        { [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('spawn claude ENOENT')) }) },
+        {
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.reject(new Error('spawn claude ENOENT'))
+          })
+        },
         { interrupt: async () => undefined }
       )
     }
@@ -16,10 +20,8 @@ function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
       // mimic the real CLI: init and everything after it are only emitted once
       // the prompt stream yields a first user message
       void (async () => {
-        for await (const _first of args.prompt) {
-          for (const m of messages) q.push(m)
-          break
-        }
+        await args.prompt[Symbol.asyncIterator]().next()
+        for (const m of messages) q.push(m)
       })()
     }
     return Object.assign(
@@ -31,7 +33,9 @@ function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
 
 describe('probeAuth', () => {
   it('reports ok on system/init', async () => {
-    const st = await probeAuth(fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }]))
+    const st = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])
+    )
     expect(st.ok).toBe(true)
     expect(st.detail).toContain('claude-sonnet-5')
   })

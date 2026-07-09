@@ -22,7 +22,12 @@ beforeEach(() => {
   fs.writeFileSync(src, 'FATAL Navigator crashed at tile load\nline two\n')
   ingestArtifact(db, argusHome, 'NAV-1', src)
   handlers = argusToolHandlers({
-    db, argusHome, caseId: rec.id, caseSlug: 'NAV-1', sessionId: 1, emitFinding
+    db,
+    argusHome,
+    caseId: rec.id,
+    caseSlug: 'NAV-1',
+    sessionId: 1,
+    emitFinding
   })
 })
 
@@ -54,7 +59,10 @@ describe('argus native tools', () => {
   })
 
   it('append_finding writes findings.md and emits', async () => {
-    await handlers.append_finding({ title: 'Tile crash', markdown: 'Crash at [evidence/log.txt:1]' })
+    await handlers.append_finding({
+      title: 'Tile crash',
+      markdown: 'Crash at [evidence/log.txt:1]'
+    })
     const findings = fs.readFileSync(path.join(argusHome, 'cases', 'NAV-1', 'findings.md'), 'utf8')
     expect(findings).toContain('## Tile crash')
     expect(findings).toContain('[evidence/log.txt:1]')
@@ -63,7 +71,9 @@ describe('argus native tools', () => {
 
   it('update_case_status validates and persists', async () => {
     await handlers.update_case_status({ status: 'analyzing' })
-    const row = db.prepare(`SELECT status FROM cases WHERE slug='NAV-1'`).get() as { status: string }
+    const row = db.prepare(`SELECT status FROM cases WHERE slug='NAV-1'`).get() as {
+      status: string
+    }
     expect(row.status).toBe('analyzing')
     await expect(handlers.update_case_status({ status: 'bogus' })).rejects.toThrow(/status/i)
   })

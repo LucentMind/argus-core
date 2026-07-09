@@ -114,7 +114,10 @@ describe('normalizeSdkMessage', () => {
       },
       ctx
     )
-    expect(evs[0]).toMatchObject({ type: 'assistant.message', payload: { text: 'The root cause…' } })
+    expect(evs[0]).toMatchObject({
+      type: 'assistant.message',
+      payload: { text: 'The root cause…' }
+    })
   })
 
   it('maps result to turn.completed with usage', () => {

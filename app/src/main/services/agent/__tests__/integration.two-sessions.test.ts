@@ -35,7 +35,13 @@ describe('two concurrent case sessions', () => {
       ingestArtifact(db, argusHome, slug, src)
     }
     const queues = new Map<number, AsyncQueue<unknown>>()
-    const canUseTools: Array<(n: string, i: Record<string, unknown>, o: { signal: AbortSignal }) => Promise<{ behavior: string }>> = []
+    const canUseTools: Array<
+      (
+        n: string,
+        i: Record<string, unknown>,
+        o: { signal: AbortSignal }
+      ) => Promise<{ behavior: string }>
+    > = []
     let n = 0
     const createQuery: CreateQueryFn = (args) => {
       const q = new AsyncQueue<unknown>()
@@ -46,23 +52,52 @@ describe('two concurrent case sessions', () => {
         { interrupt: async () => q.end() }
       )
     }
-    const svc = new AgentService({ db, argusHome, skillsRoots: [], onEvent: (e) => events.push(e), createQuery })
+    const svc = new AgentService({
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: (e) => events.push(e),
+      createQuery
+    })
 
     await svc.send('NAV-1', '/analyze-applog evidence/NAV-1.txt')
     await svc.send('NAV-2', '/analyze-applog evidence/NAV-2.txt')
 
     // interleave assistant streams
-    queues.get(0)!.push({ type: 'stream_event', session_id: 'a', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'case1 ' } } })
-    queues.get(1)!.push({ type: 'stream_event', session_id: 'b', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'case2 ' } } })
-    queues.get(0)!.push({ type: 'assistant', session_id: 'a', message: { role: 'assistant', content: [{ type: 'text', text: 'Crash at [evidence/NAV-1.txt:1]' }] } })
+    queues.get(0)!.push({
+      type: 'stream_event',
+      session_id: 'a',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'case1 ' } }
+    })
+    queues.get(1)!.push({
+      type: 'stream_event',
+      session_id: 'b',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'case2 ' } }
+    })
+    queues.get(0)!.push({
+      type: 'assistant',
+      session_id: 'a',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Crash at [evidence/NAV-1.txt:1]' }]
+      }
+    })
     await flush()
 
     const deltas = events.filter((e) => e.type === 'content.delta')
-    expect(deltas.find((e) => (e.payload as { text: string }).text.includes('case1'))!.caseSlug).toBe('NAV-1')
-    expect(deltas.find((e) => (e.payload as { text: string }).text.includes('case2'))!.caseSlug).toBe('NAV-2')
+    expect(
+      deltas.find((e) => (e.payload as { text: string }).text.includes('case1'))!.caseSlug
+    ).toBe('NAV-1')
+    expect(
+      deltas.find((e) => (e.payload as { text: string }).text.includes('case2'))!.caseSlug
+    ).toBe('NAV-2')
 
     // approval opened in NAV-2 cannot be answered through NAV-1
-    const pend = canUseTools[1]('Bash', { command: 'git push' }, { signal: new AbortController().signal })
+    const pend = canUseTools[1](
+      'Bash',
+      { command: 'git push' },
+      { signal: new AbortController().signal }
+    )
     await flush()
     const opened = events.find((e) => e.type === 'request.opened')!
     expect(opened.caseSlug).toBe('NAV-2')

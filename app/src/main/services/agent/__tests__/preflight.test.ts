@@ -17,7 +17,10 @@ describe('resolveTraceBinDir', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-pf-'))
     const appRoot = path.join(tmp, 'app')
     const scripts = path.join(
-      tmp, 'trace-tools', '.venv', process.platform === 'win32' ? 'Scripts' : 'bin'
+      tmp,
+      'trace-tools',
+      '.venv',
+      process.platform === 'win32' ? 'Scripts' : 'bin'
     )
     fs.mkdirSync(appRoot, { recursive: true })
     fs.mkdirSync(scripts, { recursive: true })

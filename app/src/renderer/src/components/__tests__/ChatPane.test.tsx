@@ -7,9 +7,15 @@ import { uiStore } from '../../lib/uiStore'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 const base = {
-  eventId: 'e', caseId: 1, caseSlug: 'NAV-1', sessionId: 1, turnId: 1, ts: '2026-07-09T00:00:00Z'
+  eventId: 'e',
+  caseId: 1,
+  caseSlug: 'NAV-1',
+  sessionId: 1,
+  turnId: 1,
+  ts: '2026-07-09T00:00:00Z'
 }
-const ev = (type: string, payload: unknown): AgentEvent => ({ ...base, type, payload }) as AgentEvent
+const ev = (type: string, payload: unknown): AgentEvent =>
+  ({ ...base, type, payload }) as AgentEvent
 
 beforeEach(() => {
   window.argus = {
@@ -22,7 +28,9 @@ describe('ChatPane', () => {
   it('renders transcript with citation link and tool card', () => {
     agentStore.apply(ev('turn.started', { userText: 'why crash?' }))
     agentStore.apply(ev('assistant.message', { text: 'Crash at [evidence/log.txt:3]' }))
-    agentStore.apply(ev('tool.call.started', { toolCallId: 't1', name: 'mcp__argus__search_evidence' }))
+    agentStore.apply(
+      ev('tool.call.started', { toolCallId: 't1', name: 'mcp__argus__search_evidence' })
+    )
     const onCite = vi.fn()
     render(<ChatPane slug="NAV-1" onCite={onCite} />)
     expect(screen.getByText('why crash?')).toBeTruthy()
@@ -35,10 +43,16 @@ describe('ChatPane', () => {
     const slug = 'NAV-TOGGLE'
     const at = (type: string, payload: unknown): AgentEvent =>
       ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
-    agentStore.apply(at('tool.call.started', { toolCallId: 't9', name: 'mcp__argus__read_evidence' }))
+    agentStore.apply(
+      at('tool.call.started', { toolCallId: 't9', name: 'mcp__argus__read_evidence' })
+    )
     agentStore.apply(
       at('request.opened', {
-        requestId: 'r9', tool: 'Bash', risk: 'MEDIUM', grantKey: null, argsPreview: 'git push'
+        requestId: 'r9',
+        tool: 'Bash',
+        risk: 'MEDIUM',
+        grantKey: null,
+        argsPreview: 'git push'
       })
     )
     uiStore.setShowToolCalls(false)

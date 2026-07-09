@@ -4,9 +4,10 @@ import { Btn, Chip } from './ui'
 
 export function WorkspacesStrip({ slug }: { slug: string }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
-  const reload = useCallback(async () => {
-    setWorkspaces(await window.argus.workspaces.list(slug))
-  }, [slug])
+  const reload = useCallback(
+    (): Promise<void> => window.argus.workspaces.list(slug).then(setWorkspaces),
+    [slug]
+  )
   useEffect(() => {
     void reload()
   }, [reload])
