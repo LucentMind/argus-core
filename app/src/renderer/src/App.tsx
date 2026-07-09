@@ -1,34 +1,41 @@
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+import { useCallback, useEffect, useState } from 'react'
+import { CaseList } from './components/CaseList'
+import type { CaseRecord, NewCaseInput } from '../../shared/types'
 
 function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+  const [cases, setCases] = useState<CaseRecord[]>([])
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
+
+  const reload = useCallback(async () => {
+    setCases(await window.argus.cases.list())
+  }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  async function handleCreate(input: NewCaseInput): Promise<void> {
+    await window.argus.cases.create(input)
+    await reload()
+    setSelectedSlug(input.slug)
+  }
 
   return (
-    <>
-      <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div>
-      <Versions></Versions>
-    </>
+    <div className="flex h-screen bg-neutral-900 text-neutral-100">
+      <CaseList
+        cases={cases}
+        selectedSlug={selectedSlug}
+        onSelect={setSelectedSlug}
+        onCreate={(i) => void handleCreate(i)}
+      />
+      <main className="flex-1 p-4">
+        {selectedSlug ? (
+          <h1 className="text-lg font-semibold">{selectedSlug}</h1>
+        ) : (
+          <p className="text-neutral-400">Select or create a case.</p>
+        )}
+      </main>
+    </div>
   )
 }
 
