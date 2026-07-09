@@ -12,3 +12,11 @@ export function dbPath(argusHome: string): string {
 export function caseDir(argusHome: string, slug: string): string {
   return path.join(argusHome, 'cases', slug)
 }
+
+export function configDir(argusHome: string): string {
+  return path.join(argusHome, 'config')
+}
+
+export function settingsPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'settings.json')
+}
