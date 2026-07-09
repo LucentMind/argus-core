@@ -19,10 +19,22 @@ function firstExisting(dir: string): string | null {
  * Locate the sample-parse binary. Order: ARGUS_PARSE_BIN override → settings
  * (tools.parseBin) → dev cargo target next to the app root → bundled
  * extraResources → bare name on PATH.
+ *
+ * `envBin` means the USER-set override, captured at startup — NOT whatever
+ * the app itself may have exported to process.env since then (index.ts
+ * re-exports the resolved binary for spawned children, and that value must
+ * never shadow settings). It defaults to the live env for callers that
+ * haven't captured anything yet; callers that captured env at startup must
+ * pass it explicitly (`captured ?? null`), using `null` — not `undefined` —
+ * to mean "no user env", since an optional-with-undefined would silently
+ * fall back to the live (possibly app-exported) value.
  */
-export function resolveArgusParse(appRoot: string, settingsBin?: string): string | null {
-  const env = process.env.ARGUS_PARSE_BIN
-  if (env && fs.existsSync(env)) return env
+export function resolveArgusParse(
+  appRoot: string,
+  settingsBin?: string,
+  envBin: string | null = process.env.ARGUS_PARSE_BIN ?? null
+): string | null {
+  if (envBin && fs.existsSync(envBin)) return envBin
 
   if (settingsBin && fs.existsSync(settingsBin)) return settingsBin
 
