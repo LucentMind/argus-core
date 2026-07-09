@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
+import { activeInstanceConfig } from '../../../shared/drivers'
+import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
@@ -14,6 +16,8 @@ export interface AgentServiceDeps {
   createQuery?: CreateQueryFn
   maxSessions?: number
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
+  /** Live settings read at each session construction; falls back to maxSessions/defaults when absent (tests). */
+  agentSettings?: () => AgentSettings
 }
 
 const defaultCreateQuery: CreateQueryFn = (args) =>
@@ -33,8 +37,10 @@ export class AgentService {
     if (existing && existing.state === 'running') return existing
     if (existing) this.sessions.delete(caseSlug)
 
+    const as = this.deps.agentSettings?.()
+
     // reap LRU idle session if at capacity
-    const max = this.deps.maxSessions ?? 3
+    const max = as?.maxSessions ?? this.deps.maxSessions ?? 3
     if (this.sessions.size >= max) {
       const idle = [...this.sessions.entries()]
         .filter(([, s]) => !s.activeTurn)
@@ -60,7 +66,18 @@ export class AgentService {
       skillsRoots: this.deps.skillsRoots,
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
-      resumeSdkSessionId: cursor?.sdk_session_id ?? null
+      resumeSdkSessionId: cursor?.sdk_session_id ?? null,
+      agentOptions: as
+        ? (() => {
+            const cfg = activeInstanceConfig(settingsSchema.parse({ agent: as }))
+            return {
+              model: cfg.model,
+              cliPath: cfg.cliPath,
+              permissionMode: as.defaultPermissionMode,
+              personaAppend: as.personaAppend || undefined
+            }
+          })()
+        : undefined
     })
     if (this.deps.mirrorFactory) {
       // mirror is attached post-construction to keep SessionDeps simple
