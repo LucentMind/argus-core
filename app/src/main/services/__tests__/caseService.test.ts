@@ -38,6 +38,18 @@ describe('createCase', () => {
     expect(() => createCase(db, home, { slug: 'CASE-1', title: 'b' })).toThrow()
   })
 
+  it('scaffolds .claude symlinks and the working-rules CLAUDE.md', () => {
+    // ensure shared dirs exist first
+    fs.mkdirSync(path.join(home, 'skills'), { recursive: true })
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    createCase(db, home, { slug: 'SCAF-1', title: 'scaffold' })
+    const dir = path.join(home, 'cases', 'SCAF-1')
+    expect(fs.lstatSync(path.join(dir, '.claude', 'skills')).isSymbolicLink()).toBe(true)
+    const claudeMd = fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')
+    expect(claudeMd).toContain('mcp__argus__append_finding')
+    expect(claudeMd).toContain('<!-- argus:workspaces -->')
+  })
+
   it('rolls back the DB row when scaffolding fails', () => {
     // a FILE at cases/ makes mkdirSync throw ENOTDIR/EEXIST for any case dir
     fs.writeFileSync(path.join(home, 'cases'), 'not a directory')
