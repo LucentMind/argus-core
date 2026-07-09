@@ -82,4 +82,8 @@ describe('settings schema', () => {
     const result = stripDefaults({ a: { y: 2, x: 1 } }, { a: { x: 1, y: 2 } })
     expect(result).toEqual({})
   })
+
+  it('stripDefaults drops array leaves equal to default regardless of inner key order', () => {
+    expect(stripDefaults({ a: [{ y: 2, x: 1 }] }, { a: [{ x: 1, y: 2 }] })).toEqual({})
+  })
 })
