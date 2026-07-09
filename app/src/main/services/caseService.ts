@@ -42,30 +42,37 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
     )
     .run(input.slug, input.title, input.jiraKey ?? null, now, now)
 
+  const id = Number(res.lastInsertRowid)
   const dir = caseDir(argusHome, input.slug)
-  for (const sub of ['evidence/.meta', 'sessions', '.rca']) {
-    fs.mkdirSync(path.join(dir, sub), { recursive: true })
+
+  try {
+    for (const sub of ['evidence/.meta', 'sessions', '.rca']) {
+      fs.mkdirSync(path.join(dir, sub), { recursive: true })
+    }
+    const rec: CaseRecord = {
+      id,
+      slug: input.slug,
+      title: input.title,
+      jiraKey: input.jiraKey ?? null,
+      status: 'open',
+      tags: [],
+      createdAt: now,
+      updatedAt: now
+    }
+    fs.writeFileSync(
+      path.join(dir, 'case.json'),
+      JSON.stringify({ ...rec, id: undefined }, null, 2)
+    )
+    fs.writeFileSync(
+      path.join(dir, 'CLAUDE.md'),
+      `# Case: ${input.slug}\n\n## Context\n\n- Title: ${input.title}\n- Jira: ${input.jiraKey ?? '(none)'}\n- Opened: ${now}\n\n## Scope\n\n(fill in during triage)\n`
+    )
+    fs.writeFileSync(path.join(dir, 'findings.md'), `# Findings — ${input.slug}\n`)
+    return rec
+  } catch (err) {
+    db.prepare('DELETE FROM cases WHERE id = ?').run(id)
+    throw err
   }
-  const rec: CaseRecord = {
-    id: Number(res.lastInsertRowid),
-    slug: input.slug,
-    title: input.title,
-    jiraKey: input.jiraKey ?? null,
-    status: 'open',
-    tags: [],
-    createdAt: now,
-    updatedAt: now
-  }
-  fs.writeFileSync(
-    path.join(dir, 'case.json'),
-    JSON.stringify({ ...rec, id: undefined }, null, 2)
-  )
-  fs.writeFileSync(
-    path.join(dir, 'CLAUDE.md'),
-    `# Case: ${input.slug}\n\n## Context\n\n- Title: ${input.title}\n- Jira: ${input.jiraKey ?? '(none)'}\n- Opened: ${now}\n\n## Scope\n\n(fill in during triage)\n`
-  )
-  fs.writeFileSync(path.join(dir, 'findings.md'), `# Findings — ${input.slug}\n`)
-  return rec
 }
 
 export function listCases(db: DatabaseSync): CaseRecord[] {
