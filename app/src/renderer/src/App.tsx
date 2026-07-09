@@ -51,6 +51,7 @@ function App(): React.JSX.Element {
             void reload()
           }}
           onOpenHit={handleOpenHit}
+          onOpenCitation={(id, line) => setViewer({ evidenceId: id, focusLine: line })}
         />
       )}
       {viewer && (
