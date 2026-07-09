@@ -92,7 +92,7 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   if (prog === 'sample-trace' || prog === 'sample-parse') return { action: 'allow', risk: 'LOW' }
   if (prog === 'git') return classifyGit(tokens)
   if (prog === 'gh') return classifyGh(tokens)
-  if (prog === 'rm' && tokens.some((t) => /^-[a-zA-Z]*r/.test(t)))
+  if (prog === 'rm' && tokens.some((t) => /^-[a-zA-Z]*r/i.test(t) || t === '--recursive'))
     return { action: 'ask', risk: 'HIGH', grantKey: null, reason: 'Recursive delete' }
   if (prog === 'cd') {
     const target = tokens[1]
@@ -127,12 +127,12 @@ export function classifyToolCall(
 
   if (FS_READ_TOOLS.includes(toolName) || FS_WRITE_TOOLS.includes(toolName)) {
     const p = (input.file_path ?? input.path ?? input.notebook_path) as string | undefined
-    if (p && path.isAbsolute(p)) {
-      if (!inSandbox(p, ctx))
-        return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${p}` }
-      if (FS_WRITE_TOOLS.includes(toolName) && withinAny(p, ctx.readonlyRoots))
-        return { action: 'deny', risk: 'HIGH', reason: `Read-only root: ${p}` }
-    }
+    // The agent session's cwd is always ctx.caseDir, so a missing or relative path
+    // resolves against it. A missing path means "cwd" -> caseDir -> allowed.
+    const abs = p ? path.resolve(ctx.caseDir, p) : ctx.caseDir
+    if (!inSandbox(abs, ctx)) return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${p ?? abs}` }
+    if (FS_WRITE_TOOLS.includes(toolName) && withinAny(abs, ctx.readonlyRoots))
+      return { action: 'deny', risk: 'HIGH', reason: `Read-only root: ${p ?? abs}` }
     return { action: 'allow', risk: 'LOW' }
   }
 
@@ -151,10 +151,12 @@ export function classifyToolCall(
     return worst
   }
 
-  // Unknown MCP/other tools: convention default by name
+  // Unknown MCP/other tools: convention default by name.
+  // Destructive check runs first so e.g. "checkout" (read-ish prefix "check" would
+  // otherwise collide with) still falls through to ask, not auto-allow.
   const last = toolName.split('__').pop() ?? toolName
-  if (/^(get|list|read|search|view|find|check)/.test(last)) return { action: 'allow', risk: 'LOW' }
   if (/(delete|remove|transition|merge)/.test(last))
     return { action: 'ask', risk: 'HIGH', grantKey: null, reason: `Destructive tool: ${toolName}` }
+  if (/^(get|list|read|search|view|find|check)(_|$)/.test(last)) return { action: 'allow', risk: 'LOW' }
   return { action: 'ask', risk: 'MEDIUM', grantKey: `medium:${toolName}`, reason: `Write-capable tool: ${toolName}` }
 }

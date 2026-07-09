@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { classifyToolCall, type RiskContext } from '../risk'
 
@@ -32,6 +33,18 @@ describe('classifyToolCall — native and FS tools', () => {
     expect(classifyToolCall('Write', { file_path: '/home/u/Argus/skills/x/SKILL.md' }, ctx).action).toBe('deny')
     expect(classifyToolCall('Write', { file_path: `${ctx.caseDir}/notes.md` }, ctx).action).toBe('allow')
   })
+
+  it('resolves relative and missing FS paths against caseDir instead of bypassing the sandbox', () => {
+    // relative path traversal that escapes the sandbox entirely -> deny
+    expect(classifyToolCall('Read', { file_path: '../../../../etc/passwd' }, ctx).action).toBe('deny')
+    // relative path that stays inside caseDir -> allow
+    expect(classifyToolCall('Read', { file_path: 'evidence/a.txt' }, ctx).action).toBe('allow')
+    // relative path that escapes into a readonly root -> deny (write)
+    const relIntoReadonly = path.relative(ctx.caseDir, `${ctx.readonlyRoots[0]}/x/SKILL.md`)
+    expect(classifyToolCall('Write', { file_path: relIntoReadonly }, ctx).action).toBe('deny')
+    // missing path input -> treated as cwd (caseDir) -> allow
+    expect(classifyToolCall('Glob', {}, ctx).action).toBe('allow')
+  })
 })
 
 describe('classifyToolCall — Bash', () => {
@@ -52,7 +65,7 @@ describe('classifyToolCall — Bash', () => {
     ['git switch feature/x', 'ws'],
     ['git checkout v3.16.0', 'ws'],
     ['gh pr checkout 1234', 'ws']
-  ] as const)('%s → MEDIUM ask with workspace grant key', (cmd) => {
+  ] as const)('%s → MEDIUM ask with workspace grant key', (cmd, _grantHint) => {
     const v = bash(cmd)
     expect(v).toMatchObject({ action: 'ask', risk: 'MEDIUM' })
     if (v.action === 'ask') expect(v.grantKey).toMatch(/^ws:/)
@@ -88,7 +101,34 @@ describe('classifyToolCall — Bash', () => {
     expect(bash('cd /home/u/other && ls').action).toBe('deny')
   })
 
+  it.each(['rm -R build', 'rm -Rf build', 'rm -fR build', 'rm --recursive build'])(
+    '%s → recursive delete classified as HIGH ask',
+    (cmd) => {
+      expect(bash(cmd)).toMatchObject({ action: 'ask', risk: 'HIGH' })
+    }
+  )
+
   it('defaults unknown commands to LOW allow', () => {
     expect(bash('wc -l notes.md')).toMatchObject({ action: 'allow', risk: 'LOW' })
+  })
+})
+
+describe('classifyToolCall — unknown-tool fallback', () => {
+  it('does not let "checkout" collide with the read-ish "check" prefix', () => {
+    expect(classifyToolCall('mcp__foo__checkout_worktree', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM'
+    })
+    expect(classifyToolCall('mcp__x__checkout_worktree', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM'
+    })
+  })
+
+  it('classifies destructive-named tools as HIGH ask even before the read-ish check', () => {
+    expect(classifyToolCall('mcp__foo__delete_thing', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH'
+    })
   })
 })
