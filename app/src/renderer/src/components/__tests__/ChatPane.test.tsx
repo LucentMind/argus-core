@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
+import { uiStore } from '../../lib/uiStore'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 const base = {
@@ -28,6 +29,26 @@ describe('ChatPane', () => {
     fireEvent.click(screen.getByRole('link', { name: 'evidence/log.txt:3' }))
     expect(onCite).toHaveBeenCalledWith('evidence/log.txt', 3)
     expect(screen.getByText(/search_evidence/)).toBeTruthy()
+  })
+
+  it('hides tool cards when tool-call visibility is off, but keeps pending approvals', () => {
+    const slug = 'NAV-TOGGLE'
+    const at = (type: string, payload: unknown): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+    agentStore.apply(at('tool.call.started', { toolCallId: 't9', name: 'mcp__argus__read_evidence' }))
+    agentStore.apply(
+      at('request.opened', {
+        requestId: 'r9', tool: 'Bash', risk: 'MEDIUM', grantKey: null, argsPreview: 'git push'
+      })
+    )
+    uiStore.setShowToolCalls(false)
+    try {
+      render(<ChatPane slug={slug} onCite={vi.fn()} />)
+      expect(screen.queryByText(/read_evidence/)).toBeNull()
+      expect(screen.getByText('git push')).toBeTruthy()
+    } finally {
+      uiStore.setShowToolCalls(true)
+    }
   })
 
   it('sends composer text', () => {
