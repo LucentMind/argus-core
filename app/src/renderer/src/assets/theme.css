@@ -1,0 +1,21 @@
+/* OEH design tokens (D8) */
+@theme {
+  --color-void: #000000;
+  --color-panel: #17171c;
+  --color-overlay: #1d1d23;
+  --color-ink: #efede6;
+  --color-dim: rgba(239, 237, 230, 0.62);
+  --color-mute: rgba(239, 237, 230, 0.38);
+  --color-faint: rgba(239, 237, 230, 0.18);
+  --color-hair: rgba(255, 255, 255, 0.06);
+  --color-defect: #f3c352;
+  --color-danger: #f27a6b;
+  --color-signal: #7ec4ff;
+  --color-review: #8bdca5;
+  --font-sans: 'Geist Sans', 'Geist', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+  --radius-r1: 5px;
+  --radius-r2: 6px;
+  --radius-r3: 10px;
+  --radius-r4: 14px;
+}
