@@ -37,6 +37,13 @@ describe('createCase', () => {
     createCase(db, home, { slug: 'CASE-1', title: 'a' })
     expect(() => createCase(db, home, { slug: 'CASE-1', title: 'b' })).toThrow()
   })
+
+  it('rolls back the DB row when scaffolding fails', () => {
+    // a FILE at cases/ makes mkdirSync throw ENOTDIR/EEXIST for any case dir
+    fs.writeFileSync(path.join(home, 'cases'), 'not a directory')
+    expect(() => createCase(db, home, { slug: 'ROLLBACK-1', title: 'x' })).toThrow()
+    expect(getCase(db, 'ROLLBACK-1')).toBeNull()
+  })
 })
 
 describe('listCases / getCase', () => {
