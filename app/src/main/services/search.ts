@@ -5,6 +5,10 @@ import type { ArtifactType, SearchFilters, SearchHit } from '../../shared/types'
 import { caseDir } from './paths'
 
 const MAX_READ_BYTES = 2 * 1024 * 1024
+// window around a citation's target line, for files too big to load whole
+const WINDOW_LINES_BEFORE = 500
+const WINDOW_LINES_AFTER = 2000
+const SCAN_CHUNK_BYTES = 1024 * 1024
 
 function escapeFtsQuery(q: string): string {
   // Escape FTS special characters but preserve the query as individual terms
@@ -94,11 +98,59 @@ export function searchEvidence(
   }))
 }
 
+// Scans a file from the start counting newlines (never loading it whole),
+// keeping only lines within [windowStart, windowEnd]. Splits on raw \n bytes
+// so multi-byte UTF-8 characters are never decoded across a chunk boundary.
+function readLineWindow(
+  absPath: string,
+  windowStart: number,
+  windowEnd: number
+): { content: string; endLine: number; reachedEof: boolean } {
+  const fd = fs.openSync(absPath, 'r')
+  try {
+    const chunk = Buffer.alloc(SCAN_CHUNK_BYTES)
+    let carry = Buffer.alloc(0)
+    let lineNo = 0
+    let offset = 0
+    let reachedEof = false
+    const collected: string[] = []
+    while (true) {
+      const n = fs.readSync(fd, chunk, 0, SCAN_CHUNK_BYTES, offset)
+      if (n === 0) {
+        reachedEof = true
+        break
+      }
+      offset += n
+      const data = Buffer.concat([carry, chunk.subarray(0, n)])
+      let start = 0
+      let nl = data.indexOf(0x0a, start)
+      while (nl !== -1) {
+        lineNo++
+        if (lineNo >= windowStart && lineNo <= windowEnd) {
+          collected.push(data.subarray(start, nl).toString('utf8'))
+        }
+        start = nl + 1
+        nl = data.indexOf(0x0a, start)
+      }
+      carry = data.subarray(start)
+      if (lineNo >= windowEnd) break
+    }
+    if (reachedEof && carry.length > 0) {
+      lineNo++
+      if (lineNo >= windowStart && lineNo <= windowEnd) collected.push(carry.toString('utf8'))
+    }
+    return { content: collected.join('\n'), endLine: Math.min(lineNo, windowEnd), reachedEof }
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 export function readEvidenceText(
   db: DatabaseSync,
   argusHome: string,
-  evidenceId: number
-): { relPath: string; caseSlug: string; content: string } {
+  evidenceId: number,
+  focusLine?: number
+): { relPath: string; caseSlug: string; content: string; startLine: number; truncated: boolean } {
   const row = db
     .prepare(
       `SELECT e.rel_path AS relPath, c.slug AS caseSlug
@@ -108,18 +160,23 @@ export function readEvidenceText(
   if (!row) throw new Error(`Unknown evidence id: ${evidenceId}`)
   const abs = path.join(caseDir(argusHome, row.caseSlug), row.relPath)
   const stat = fs.statSync(abs)
-  let content: string
-  if (stat.size > MAX_READ_BYTES) {
-    const fd = fs.openSync(abs, 'r')
-    try {
-      const buf = Buffer.alloc(MAX_READ_BYTES)
-      fs.readSync(fd, buf, 0, MAX_READ_BYTES, 0)
-      content = buf.toString('utf8') + '\n… [truncated]'
-    } finally {
-      fs.closeSync(fd)
-    }
-  } else {
-    content = fs.readFileSync(abs, 'utf8')
+  if (stat.size <= MAX_READ_BYTES) {
+    const content = fs.readFileSync(abs, 'utf8')
+    return { relPath: row.relPath, caseSlug: row.caseSlug, content, startLine: 1, truncated: false }
   }
-  return { relPath: row.relPath, caseSlug: row.caseSlug, content }
+  const target = focusLine && focusLine > 0 ? focusLine : 1
+  const windowStart = Math.max(1, target - WINDOW_LINES_BEFORE)
+  const windowEnd = target + WINDOW_LINES_AFTER
+  const { content, endLine, reachedEof } = readLineWindow(abs, windowStart, windowEnd)
+  if (content === '') {
+    return {
+      relPath: row.relPath,
+      caseSlug: row.caseSlug,
+      content: `[line ${target} does not exist in this file — it ends at line ${endLine}]`,
+      startLine: 1,
+      truncated: true
+    }
+  }
+  const truncated = windowStart > 1 || !reachedEof
+  return { relPath: row.relPath, caseSlug: row.caseSlug, content, startLine: windowStart, truncated }
 }

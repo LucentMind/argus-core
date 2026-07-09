@@ -71,8 +71,8 @@ function registerIpc(): void {
     return records
   })
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => listEvidence(db, caseSlug))
-  ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number) =>
-    readEvidenceText(db, argusHome, evidenceId)
+  ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
+    readEvidenceText(db, argusHome, evidenceId, focusLine)
   )
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
     searchEvidence(db, q, filters ?? {})
