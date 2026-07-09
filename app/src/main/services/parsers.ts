@@ -16,12 +16,15 @@ function firstExisting(dir: string): string | null {
 }
 
 /**
- * Locate the sample-parse binary. Order: ARGUS_PARSE_BIN override → dev cargo
- * target next to the app root → bundled extraResources → bare name on PATH.
+ * Locate the sample-parse binary. Order: ARGUS_PARSE_BIN override → settings
+ * (tools.parseBin) → dev cargo target next to the app root → bundled
+ * extraResources → bare name on PATH.
  */
-export function resolveArgusParse(appRoot: string): string | null {
+export function resolveArgusParse(appRoot: string, settingsBin?: string): string | null {
   const env = process.env.ARGUS_PARSE_BIN
   if (env && fs.existsSync(env)) return env
+
+  if (settingsBin && fs.existsSync(settingsBin)) return settingsBin
 
   const dev = firstExisting(path.resolve(appRoot, '..', 'trace-rs', 'target', 'release'))
   if (dev) return dev

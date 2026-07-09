@@ -9,12 +9,14 @@ const execFileAsync = promisify(execFile)
 /**
  * Locate the directory holding the sample-trace executable so it can be
  * prepended to PATH for the app process (preflight + agent-spawned shells).
- * Order: ARGUS_TRACE_DIR override → dev venv next to the app root → null
- * (already on PATH, or genuinely missing — preflight reports either way).
+ * Order: ARGUS_TRACE_DIR override → settings (tools.traceDir) → dev venv next
+ * to the app root → null (already on PATH, or genuinely missing — preflight
+ * reports either way).
  */
-export function resolveTraceBinDir(appRoot: string): string | null {
+export function resolveTraceBinDir(appRoot: string, settingsDir?: string): string | null {
   const override = process.env.ARGUS_TRACE_DIR
   if (override && fs.existsSync(override)) return override
+  if (settingsDir && fs.existsSync(settingsDir)) return settingsDir
   const venvBin = path.resolve(
     appRoot,
     '..',
@@ -26,8 +28,8 @@ export function resolveTraceBinDir(appRoot: string): string | null {
   return null
 }
 
-export function ensureTraceOnPath(appRoot: string): void {
-  const dir = resolveTraceBinDir(appRoot)
+export function ensureTraceOnPath(appRoot: string, settingsDir?: string): void {
+  const dir = resolveTraceBinDir(appRoot, settingsDir)
   if (!dir) return
   const current = process.env.PATH ?? ''
   if (!current.split(path.delimiter).includes(dir)) {

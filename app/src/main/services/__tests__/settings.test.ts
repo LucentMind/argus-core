@@ -110,4 +110,30 @@ describe('SettingsService', () => {
     expect(p.settings).toEqual(defaultSettings())
     expect(p.loadError).toBeNull()
   })
+
+  it('probeTools: reports version for a working binary and found for a real trace dir', async () => {
+    svc = new SettingsService(argusHome, appRoot, noEnv)
+    // node itself is a --version-capable stand-in for sample-parse
+    const traceDir = path.join(tmp, 'tracebin')
+    fs.mkdirSync(traceDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(traceDir, process.platform === 'win32' ? 'sample-trace.exe' : 'sample-trace'),
+      ''
+    )
+    svc.patch({ tools: { parseBin: process.execPath, traceDir } })
+    const r = await svc.probeTools()
+    expect(r.parseBin.path).toBe(process.execPath)
+    expect(r.parseBin.version).toMatch(/^v?\d/)
+    expect(r.traceDir).toEqual({ path: traceDir, found: true })
+  })
+
+  it('probeTools: missing binary → version null; empty dir → found false', async () => {
+    svc = new SettingsService(argusHome, appRoot, noEnv)
+    const emptyDir = path.join(tmp, 'empty')
+    fs.mkdirSync(emptyDir, { recursive: true })
+    svc.patch({ tools: { parseBin: path.join(tmp, 'nope.exe'), traceDir: emptyDir } })
+    const r = await svc.probeTools()
+    expect(r.parseBin.version).toBeNull()
+    expect(r.traceDir.found).toBe(false)
+  })
 })

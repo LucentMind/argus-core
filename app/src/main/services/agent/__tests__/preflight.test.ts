@@ -37,4 +37,13 @@ describe('resolveTraceBinDir', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-pf-'))
     expect(resolveTraceBinDir(path.join(tmp, 'app'))).toBeNull()
   })
+
+  it('settings dir wins over the dev venv but loses to ARGUS_TRACE_DIR', () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-pf-'))
+    const settingsDir = path.join(tmp, 'custom-tools')
+    fs.mkdirSync(settingsDir, { recursive: true })
+    expect(resolveTraceBinDir(path.join(tmp, 'app'), settingsDir)).toBe(settingsDir)
+    process.env.ARGUS_TRACE_DIR = tmp
+    expect(resolveTraceBinDir(path.join(tmp, 'app'), settingsDir)).toBe(tmp)
+  })
 })

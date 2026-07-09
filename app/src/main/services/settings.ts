@@ -1,3 +1,7 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { JsonFileStore } from './fileStore'
 import { settingsPath } from './paths'
 import { resolveTraceBinDir } from './agent/preflight'
@@ -9,8 +13,11 @@ import {
   stripDefaults,
   type AppSettings,
   type ResolvedTool,
-  type SettingsPayload
+  type SettingsPayload,
+  type ProbeToolsReport
 } from '../../shared/settings'
+
+const execFileAsync = promisify(execFile)
 
 /**
  * User-set env values captured at startup, BEFORE index.ts mutates the
@@ -88,13 +95,42 @@ export class SettingsService {
       ? { value: this.env.traceDir, source: 'env' }
       : t.traceDir
         ? { value: t.traceDir, source: 'settings' }
-        : { value: resolveTraceBinDir(this.appRoot), source: 'default' }
+        : { value: resolveTraceBinDir(this.appRoot, t.traceDir || undefined), source: 'default' }
     const parseBin: ResolvedTool = this.env.parseBin
       ? { value: this.env.parseBin, source: 'env' }
       : t.parseBin
         ? { value: t.parseBin, source: 'settings' }
-        : { value: resolveArgusParse(this.appRoot), source: 'default' }
+        : { value: resolveArgusParse(this.appRoot, t.parseBin || undefined), source: 'default' }
     return { traceDir, parseBin }
+  }
+
+  /** Re-run tool resolution + liveness checks for the Analysis Tools page. */
+  async probeTools(): Promise<ProbeToolsReport> {
+    const { traceDir, parseBin } = this.resolvedTools()
+    let version: string | null = null
+    if (parseBin.value && fs.existsSync(parseBin.value)) {
+      try {
+        const { stdout } = await execFileAsync(parseBin.value, ['--version'], { timeout: 3000 })
+        version = stdout.trim() || null
+      } catch {
+        version = null // binary exists but --version failed; path still reported
+      }
+    }
+    const found = traceDir.value
+      ? fs.existsSync(
+          path.join(
+            traceDir.value,
+            process.platform === 'win32' ? 'sample-trace.exe' : 'sample-trace'
+          )
+        )
+      : false
+    return {
+      parseBin: {
+        path: parseBin.value && fs.existsSync(parseBin.value) ? parseBin.value : null,
+        version
+      },
+      traceDir: { path: traceDir.value, found }
+    }
   }
 
   payload(): SettingsPayload {
