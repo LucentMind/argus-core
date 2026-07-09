@@ -6,7 +6,7 @@ import type { SearchHit } from '../../../../shared/types'
 
 const hit: SearchHit = {
   evidenceId: 1, caseSlug: 'NAVAPI-1', relPath: 'evidence/log.txt',
-  artifactType: 'applog', snippet: '«TileStore» error', startLine: 1, endLine: 400
+  artifactType: 'applog', snippet: '«TileStore» error', startLine: 1, endLine: 400, matchLine: 3
 }
 
 beforeEach(() => {

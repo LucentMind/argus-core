@@ -25,6 +25,7 @@ describe('wave 0 exit criterion (service level)', () => {
     const doc = readEvidenceText(db, home, hits[0].evidenceId)
     const lines = doc.content.split('\n')
     const match = lines.findIndex((l) => l.includes('TileStore error')) + 1
+    expect(hits[0].matchLine).toBe(match)
     expect(match).toBeGreaterThanOrEqual(hits[0].startLine)
     expect(match).toBeLessThanOrEqual(hits[0].endLine)
   })

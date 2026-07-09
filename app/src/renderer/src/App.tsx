@@ -25,7 +25,7 @@ function App(): React.JSX.Element {
   }
 
   function handleOpenHit(hit: SearchHit): void {
-    setViewer({ evidenceId: hit.evidenceId, focusLine: hit.startLine })
+    setViewer({ evidenceId: hit.evidenceId, focusLine: hit.matchLine })
   }
 
   return (

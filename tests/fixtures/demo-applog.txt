@@ -1,0 +1,1200 @@
+--------- beginning of main
+07-08 14:23:00.273  1234  1234 I HiveMindNavigator: Route progress updated: 670.0m remaining
+07-08 14:23:00.401  1234  1261 W NavSDK  : GPS accuracy degraded: 1779m
+07-08 14:23:00.711  1234  1261 D Hybrid  : Router selected: onboard (latency 1524ms)
+07-08 14:23:00.908  1234  1234 I HiveMindNavigator: Route progress updated: 93.4m remaining
+07-08 14:23:01.135  1234  1261 I HiveMindNavigator: Route progress updated: 509.5m remaining
+07-08 14:23:01.413  1234  1234 D Hybrid  : Router selected: onboard (latency 6973ms)
+07-08 14:23:01.620  1234  1261 V NavSDK  : Location update lat=48.206 lon=11.2715
+07-08 14:23:01.818  1234  1250 V NavSDK  : Location update lat=48.2647 lon=11.3627
+07-08 14:23:01.904  1234  1250 I ADASISv2: Horizon path extended, 1684 edges
+07-08 14:23:02.250  1234  1234 D Hybrid  : Router selected: onboard (latency 4433ms)
+07-08 14:23:02.556  1234  1250 D Hybrid  : Router selected: onboard (latency 2145ms)
+07-08 14:23:02.633  1234  1234 V NavSDK  : Location update lat=48.6025 lon=11.9559
+07-08 14:23:02.930  1234  1250 I HiveMindNavigator: Route progress updated: 598.5m remaining
+07-08 14:23:03.325  1234  1250 D TileStore: Cache hit for tile z14/1754/6327
+07-08 14:23:03.533  1234  1250 V NavSDK  : Location update lat=48.2764 lon=11.6165
+07-08 14:23:03.657  1234  1261 V NavSDK  : Location update lat=48.1269 lon=11.2903
+07-08 14:23:03.962  1234  1250 D TileStore: Cache hit for tile z14/7673/6316
+07-08 14:23:04.358  1234  1234 W NavSDK  : GPS accuracy degraded: 9225m
+07-08 14:23:04.648  1234  1234 I HiveMindNavigator: Route progress updated: 213.9m remaining
+07-08 14:23:04.980  1234  1234 I ADASISv2: Horizon path extended, 4486 edges
+07-08 14:23:05.103  1234  1234 D Hybrid  : Router selected: onboard (latency 5255ms)
+07-08 14:23:05.383  1234  1234 I ADASISv2: Horizon path extended, 7617 edges
+07-08 14:23:05.525  1234  1250 D TileStore: Cache hit for tile z14/9297/8930
+07-08 14:23:05.837  1234  1250 I ADASISv2: Horizon path extended, 9660 edges
+07-08 14:23:06.014  1234  1234 D TileStore: Cache hit for tile z14/8448/8185
+07-08 14:23:06.328  1234  1234 I HiveMindNavigator: Route progress updated: 146.0m remaining
+07-08 14:23:06.655  1234  1234 I ADASISv2: Horizon path extended, 9871 edges
+07-08 14:23:06.840  1234  1261 D Hybrid  : Router selected: onboard (latency 7768ms)
+07-08 14:23:06.978  1234  1261 D Hybrid  : Router selected: onboard (latency 288ms)
+07-08 14:23:07.280  1234  1250 W NavSDK  : GPS accuracy degraded: 8897m
+07-08 14:23:07.599  1234  1250 V NavSDK  : Location update lat=48.1927 lon=11.4908
+07-08 14:23:07.705  1234  1261 I HiveMindNavigator: Route progress updated: 858.9m remaining
+07-08 14:23:07.847  1234  1261 D Hybrid  : Router selected: onboard (latency 3027ms)
+07-08 14:23:08.216  1234  1261 W NavSDK  : GPS accuracy degraded: 4989m
+07-08 14:23:08.444  1234  1234 D TileStore: Cache hit for tile z14/2604/6226
+07-08 14:23:08.683  1234  1261 D Hybrid  : Router selected: onboard (latency 109ms)
+07-08 14:23:08.846  1234  1250 I HiveMindNavigator: Route progress updated: 109.6m remaining
+07-08 14:23:09.204  1234  1234 V NavSDK  : Location update lat=48.4023 lon=11.1049
+07-08 14:23:09.561  1234  1250 I HiveMindNavigator: Route progress updated: 86.2m remaining
+07-08 14:23:09.897  1234  1234 D Hybrid  : Router selected: onboard (latency 2160ms)
+07-08 14:23:10.178  1234  1250 D Hybrid  : Router selected: onboard (latency 2805ms)
+07-08 14:23:10.412  1234  1234 D Hybrid  : Router selected: onboard (latency 7032ms)
+07-08 14:23:10.787  1234  1261 W NavSDK  : GPS accuracy degraded: 3395m
+07-08 14:23:10.946  1234  1250 W NavSDK  : GPS accuracy degraded: 6218m
+07-08 14:23:11.311  1234  1234 I ADASISv2: Horizon path extended, 2082 edges
+07-08 14:23:11.440  1234  1261 V NavSDK  : Location update lat=48.444 lon=11.9738
+07-08 14:23:11.571  1234  1261 D TileStore: Cache hit for tile z14/217/1263
+07-08 14:23:11.841  1234  1250 D TileStore: Cache hit for tile z14/1204/614
+07-08 14:23:11.916  1234  1234 D TileStore: Cache hit for tile z14/4662/8053
+07-08 14:23:12.155  1234  1261 W NavSDK  : GPS accuracy degraded: 9455m
+07-08 14:23:12.370  1234  1234 I ADASISv2: Horizon path extended, 6769 edges
+07-08 14:23:12.453  1234  1250 W NavSDK  : GPS accuracy degraded: 7162m
+07-08 14:23:12.652  1234  1261 I ADASISv2: Horizon path extended, 987 edges
+07-08 14:23:12.930  1234  1234 W NavSDK  : GPS accuracy degraded: 1712m
+07-08 14:23:13.121  1234  1234 V NavSDK  : Location update lat=48.1890 lon=11.4173
+07-08 14:23:13.238  1234  1250 I ADASISv2: Horizon path extended, 2396 edges
+07-08 14:23:13.352  1234  1234 I ADASISv2: Horizon path extended, 4192 edges
+07-08 14:23:13.557  1234  1234 D Hybrid  : Router selected: onboard (latency 1704ms)
+07-08 14:23:13.835  1234  1234 D Hybrid  : Router selected: onboard (latency 341ms)
+07-08 14:23:14.210  1234  1250 D TileStore: Cache hit for tile z14/2824/6758
+07-08 14:23:14.428  1234  1234 I ADASISv2: Horizon path extended, 1060 edges
+07-08 14:23:14.611  1234  1250 I ADASISv2: Horizon path extended, 4445 edges
+07-08 14:23:14.761  1234  1261 W NavSDK  : GPS accuracy degraded: 9205m
+07-08 14:23:15.062  1234  1234 D TileStore: Cache hit for tile z14/3211/4961
+07-08 14:23:15.451  1234  1234 D Hybrid  : Router selected: onboard (latency 8983ms)
+07-08 14:23:15.763  1234  1250 I HiveMindNavigator: Route progress updated: 54.6m remaining
+07-08 14:23:15.989  1234  1234 D Hybrid  : Router selected: onboard (latency 2679ms)
+07-08 14:23:16.375  1234  1234 I HiveMindNavigator: Route progress updated: 767.7m remaining
+07-08 14:23:16.633  1234  1250 W NavSDK  : GPS accuracy degraded: 3953m
+07-08 14:23:16.725  1234  1261 D Hybrid  : Router selected: onboard (latency 4133ms)
+07-08 14:23:16.983  1234  1250 D Hybrid  : Router selected: onboard (latency 1443ms)
+07-08 14:23:17.264  1234  1250 D Hybrid  : Router selected: onboard (latency 8665ms)
+07-08 14:23:17.641  1234  1250 D TileStore: Cache hit for tile z14/5247/4010
+07-08 14:23:17.829  1234  1250 W NavSDK  : GPS accuracy degraded: 5015m
+07-08 14:23:17.990  1234  1261 I HiveMindNavigator: Route progress updated: 18.3m remaining
+07-08 14:23:18.389  1234  1234 I HiveMindNavigator: Route progress updated: 75.2m remaining
+07-08 14:23:18.616  1234  1234 D TileStore: Cache hit for tile z14/5818/1227
+07-08 14:23:18.796  1234  1261 D TileStore: Cache hit for tile z14/7279/9000
+07-08 14:23:18.952  1234  1234 W NavSDK  : GPS accuracy degraded: 8766m
+07-08 14:23:19.235  1234  1261 D Hybrid  : Router selected: onboard (latency 5005ms)
+07-08 14:23:19.322  1234  1234 D TileStore: Cache hit for tile z14/4433/1991
+07-08 14:23:19.631  1234  1261 D TileStore: Cache hit for tile z14/4562/4716
+07-08 14:23:19.755  1234  1261 V NavSDK  : Location update lat=48.3435 lon=11.4425
+07-08 14:23:19.976  1234  1250 I HiveMindNavigator: Route progress updated: 92.1m remaining
+07-08 14:23:20.316  1234  1234 I HiveMindNavigator: Route progress updated: 13.2m remaining
+07-08 14:23:20.589  1234  1261 V NavSDK  : Location update lat=48.2747 lon=11.7339
+07-08 14:23:20.886  1234  1234 D Hybrid  : Router selected: onboard (latency 258ms)
+07-08 14:23:20.963  1234  1261 W NavSDK  : GPS accuracy degraded: 2542m
+07-08 14:23:21.025  1234  1234 V NavSDK  : Location update lat=48.9643 lon=11.9152
+07-08 14:23:21.226  1234  1234 I HiveMindNavigator: Route progress updated: 284.3m remaining
+07-08 14:23:21.590  1234  1250 D TileStore: Cache hit for tile z14/4188/1784
+07-08 14:23:21.913  1234  1234 I ADASISv2: Horizon path extended, 2632 edges
+07-08 14:23:22.266  1234  1234 D TileStore: Cache hit for tile z14/6855/506
+07-08 14:23:22.574  1234  1250 V NavSDK  : Location update lat=48.6845 lon=11.4165
+07-08 14:23:22.680  1234  1250 W NavSDK  : GPS accuracy degraded: 1871m
+07-08 14:23:23.035  1234  1234 I ADASISv2: Horizon path extended, 3744 edges
+07-08 14:23:23.371  1234  1250 I ADASISv2: Horizon path extended, 5828 edges
+07-08 14:23:23.708  1234  1261 D TileStore: Cache hit for tile z14/3752/487
+07-08 14:23:23.825  1234  1250 V NavSDK  : Location update lat=48.4664 lon=11.1237
+07-08 14:23:23.998  1234  1261 D Hybrid  : Router selected: onboard (latency 6648ms)
+07-08 14:23:24.392  1234  1234 D Hybrid  : Router selected: onboard (latency 5525ms)
+07-08 14:23:24.482  1234  1250 V NavSDK  : Location update lat=48.3025 lon=11.9612
+07-08 14:23:24.545  1234  1250 D Hybrid  : Router selected: onboard (latency 7219ms)
+07-08 14:23:24.850  1234  1234 V NavSDK  : Location update lat=48.7249 lon=11.8479
+07-08 14:23:25.035  1234  1250 D Hybrid  : Router selected: onboard (latency 3214ms)
+07-08 14:23:25.101  1234  1261 I ADASISv2: Horizon path extended, 127 edges
+07-08 14:23:25.475  1234  1250 D Hybrid  : Router selected: onboard (latency 3328ms)
+07-08 14:23:25.676  1234  1261 W NavSDK  : GPS accuracy degraded: 5509m
+07-08 14:23:25.836  1234  1250 I HiveMindNavigator: Route progress updated: 650.6m remaining
+07-08 14:23:26.063  1234  1250 W NavSDK  : GPS accuracy degraded: 6791m
+07-08 14:23:26.254  1234  1234 V NavSDK  : Location update lat=48.9183 lon=11.2185
+07-08 14:23:26.451  1234  1261 I ADASISv2: Horizon path extended, 2951 edges
+07-08 14:23:26.700  1234  1234 I ADASISv2: Horizon path extended, 9077 edges
+07-08 14:23:26.857  1234  1261 D TileStore: Cache hit for tile z14/7143/9602
+07-08 14:23:27.136  1234  1250 I ADASISv2: Horizon path extended, 7338 edges
+07-08 14:23:27.422  1234  1261 D Hybrid  : Router selected: onboard (latency 7852ms)
+07-08 14:23:27.532  1234  1261 I HiveMindNavigator: Route progress updated: 262.6m remaining
+07-08 14:23:27.803  1234  1261 V NavSDK  : Location update lat=48.1630 lon=11.3948
+07-08 14:23:27.962  1234  1234 D TileStore: Cache hit for tile z14/2514/500
+07-08 14:23:28.098  1234  1250 I ADASISv2: Horizon path extended, 1293 edges
+07-08 14:23:28.293  1234  1234 W NavSDK  : GPS accuracy degraded: 9531m
+07-08 14:23:28.594  1234  1250 I ADASISv2: Horizon path extended, 8199 edges
+07-08 14:23:28.729  1234  1234 W NavSDK  : GPS accuracy degraded: 190m
+07-08 14:23:29.052  1234  1250 D TileStore: Cache hit for tile z14/2981/8586
+07-08 14:23:29.119  1234  1234 D TileStore: Cache hit for tile z14/2088/7578
+07-08 14:23:29.450  1234  1261 W NavSDK  : GPS accuracy degraded: 8802m
+07-08 14:23:29.708  1234  1250 I ADASISv2: Horizon path extended, 8370 edges
+07-08 14:23:30.049  1234  1234 D Hybrid  : Router selected: onboard (latency 7405ms)
+07-08 14:23:30.359  1234  1250 I ADASISv2: Horizon path extended, 7473 edges
+07-08 14:23:30.672  1234  1261 W NavSDK  : GPS accuracy degraded: 4643m
+07-08 14:23:30.892  1234  1234 D TileStore: Cache hit for tile z14/4599/7306
+07-08 14:23:31.192  1234  1250 D TileStore: Cache hit for tile z14/4551/5602
+07-08 14:23:31.554  1234  1234 I HiveMindNavigator: Route progress updated: 133.2m remaining
+07-08 14:23:31.738  1234  1250 D TileStore: Cache hit for tile z14/3605/1152
+07-08 14:23:31.931  1234  1250 D Hybrid  : Router selected: onboard (latency 7733ms)
+07-08 14:23:32.003  1234  1261 I ADASISv2: Horizon path extended, 6481 edges
+07-08 14:23:32.384  1234  1261 I HiveMindNavigator: Route progress updated: 772.5m remaining
+07-08 14:23:32.567  1234  1250 I HiveMindNavigator: Route progress updated: 849.0m remaining
+07-08 14:23:32.881  1234  1261 I ADASISv2: Horizon path extended, 8918 edges
+07-08 14:23:33.188  1234  1250 D Hybrid  : Router selected: onboard (latency 3713ms)
+07-08 14:23:33.315  1234  1234 I ADASISv2: Horizon path extended, 8056 edges
+07-08 14:23:33.501  1234  1261 W NavSDK  : GPS accuracy degraded: 6724m
+07-08 14:23:33.609  1234  1261 I ADASISv2: Horizon path extended, 2191 edges
+07-08 14:23:33.846  1234  1261 I ADASISv2: Horizon path extended, 9797 edges
+07-08 14:23:34.128  1234  1234 I HiveMindNavigator: Route progress updated: 582.0m remaining
+07-08 14:23:34.481  1234  1250 D TileStore: Cache hit for tile z14/923/4362
+07-08 14:23:34.646  1234  1250 I ADASISv2: Horizon path extended, 5455 edges
+07-08 14:23:34.962  1234  1250 I ADASISv2: Horizon path extended, 4658 edges
+07-08 14:23:35.100  1234  1261 I HiveMindNavigator: Route progress updated: 428.6m remaining
+07-08 14:23:35.339  1234  1261 V NavSDK  : Location update lat=48.3773 lon=11.1224
+07-08 14:23:35.403  1234  1234 I HiveMindNavigator: Route progress updated: 855.2m remaining
+07-08 14:23:35.747  1234  1234 D Hybrid  : Router selected: onboard (latency 2596ms)
+07-08 14:23:35.841  1234  1261 W NavSDK  : GPS accuracy degraded: 1974m
+07-08 14:23:36.223  1234  1250 I ADASISv2: Horizon path extended, 4298 edges
+07-08 14:23:36.332  1234  1234 D Hybrid  : Router selected: onboard (latency 1976ms)
+07-08 14:23:36.719  1234  1250 I HiveMindNavigator: Route progress updated: 525.0m remaining
+07-08 14:23:36.971  1234  1261 I ADASISv2: Horizon path extended, 6598 edges
+07-08 14:23:37.090  1234  1234 D Hybrid  : Router selected: onboard (latency 4078ms)
+07-08 14:23:37.384  1234  1261 V NavSDK  : Location update lat=48.9937 lon=11.2083
+07-08 14:23:37.708  1234  1261 V NavSDK  : Location update lat=48.8828 lon=11.7118
+07-08 14:23:37.888  1234  1234 D Hybrid  : Router selected: onboard (latency 5690ms)
+07-08 14:23:38.235  1234  1250 I ADASISv2: Horizon path extended, 1829 edges
+07-08 14:23:38.621  1234  1261 W NavSDK  : GPS accuracy degraded: 7632m
+07-08 14:23:38.725  1234  1261 D TileStore: Cache hit for tile z14/8648/4525
+07-08 14:23:39.058  1234  1250 D Hybrid  : Router selected: onboard (latency 8021ms)
+07-08 14:23:39.260  1234  1250 W NavSDK  : GPS accuracy degraded: 9807m
+07-08 14:23:39.423  1234  1250 D TileStore: Cache hit for tile z14/1519/4669
+07-08 14:23:39.558  1234  1261 I ADASISv2: Horizon path extended, 9436 edges
+07-08 14:23:39.842  1234  1250 V NavSDK  : Location update lat=48.570 lon=11.8198
+07-08 14:23:39.956  1234  1250 D TileStore: Cache hit for tile z14/5913/4332
+07-08 14:23:40.104  1234  1261 D Hybrid  : Router selected: onboard (latency 4626ms)
+07-08 14:23:40.157  1234  1261 D TileStore: Cache hit for tile z14/1502/4054
+07-08 14:23:40.350  1234  1261 D Hybrid  : Router selected: onboard (latency 4037ms)
+07-08 14:23:40.566  1234  1250 W NavSDK  : GPS accuracy degraded: 8141m
+07-08 14:23:40.894  1234  1250 I HiveMindNavigator: Route progress updated: 271.9m remaining
+07-08 14:23:41.186  1234  1250 V NavSDK  : Location update lat=48.9628 lon=11.6146
+07-08 14:23:41.430  1234  1250 V NavSDK  : Location update lat=48.7071 lon=11.9117
+07-08 14:23:41.603  1234  1250 I ADASISv2: Horizon path extended, 4538 edges
+07-08 14:23:41.741  1234  1250 I HiveMindNavigator: Route progress updated: 651.9m remaining
+07-08 14:23:41.833  1234  1234 D Hybrid  : Router selected: onboard (latency 3133ms)
+07-08 14:23:41.958  1234  1261 I ADASISv2: Horizon path extended, 4630 edges
+07-08 14:23:42.215  1234  1250 D Hybrid  : Router selected: onboard (latency 9877ms)
+07-08 14:23:42.608  1234  1250 D TileStore: Cache hit for tile z14/4953/3827
+07-08 14:23:42.721  1234  1234 I HiveMindNavigator: Route progress updated: 640.1m remaining
+07-08 14:23:42.867  1234  1261 I HiveMindNavigator: Route progress updated: 502.5m remaining
+07-08 14:23:43.247  1234  1234 W NavSDK  : GPS accuracy degraded: 8142m
+07-08 14:23:43.603  1234  1250 D Hybrid  : Router selected: onboard (latency 4758ms)
+07-08 14:23:43.820  1234  1250 V NavSDK  : Location update lat=48.3120 lon=11.941
+07-08 14:23:44.199  1234  1234 I ADASISv2: Horizon path extended, 1969 edges
+07-08 14:23:44.390  1234  1261 I HiveMindNavigator: Route progress updated: 523.5m remaining
+07-08 14:23:44.458  1234  1234 D TileStore: Cache hit for tile z14/9321/5078
+07-08 14:23:44.856  1234  1250 I HiveMindNavigator: Route progress updated: 506.7m remaining
+07-08 14:23:45.119  1234  1261 D Hybrid  : Router selected: onboard (latency 3797ms)
+07-08 14:23:45.302  1234  1261 I ADASISv2: Horizon path extended, 4971 edges
+07-08 14:23:45.698  1234  1261 V NavSDK  : Location update lat=48.9416 lon=11.1086
+07-08 14:23:46.084  1234  1234 I HiveMindNavigator: Route progress updated: 853.4m remaining
+07-08 14:23:46.353  1234  1234 V NavSDK  : Location update lat=48.1430 lon=11.2673
+07-08 14:23:46.464  1234  1250 I HiveMindNavigator: Route progress updated: 149.3m remaining
+07-08 14:23:46.672  1234  1250 D Hybrid  : Router selected: onboard (latency 7799ms)
+07-08 14:23:46.733  1234  1234 V NavSDK  : Location update lat=48.4732 lon=11.7538
+07-08 14:23:47.024  1234  1250 V NavSDK  : Location update lat=48.9763 lon=11.3341
+07-08 14:23:47.114  1234  1234 D TileStore: Cache hit for tile z14/2541/4452
+07-08 14:23:47.189  1234  1261 D TileStore: Cache hit for tile z14/5139/9849
+07-08 14:23:47.527  1234  1250 V NavSDK  : Location update lat=48.7295 lon=11.2137
+07-08 14:23:47.818  1234  1250 W NavSDK  : GPS accuracy degraded: 6694m
+07-08 14:23:48.044  1234  1234 I ADASISv2: Horizon path extended, 7272 edges
+07-08 14:23:48.303  1234  1261 I ADASISv2: Horizon path extended, 5380 edges
+07-08 14:23:48.440  1234  1261 I HiveMindNavigator: Route progress updated: 213.7m remaining
+07-08 14:23:48.783  1234  1234 D Hybrid  : Router selected: onboard (latency 9719ms)
+07-08 14:23:49.183  1234  1261 W NavSDK  : GPS accuracy degraded: 4515m
+07-08 14:23:49.247  1234  1261 D TileStore: Cache hit for tile z14/7808/8602
+07-08 14:23:49.452  1234  1250 V NavSDK  : Location update lat=48.3073 lon=11.9690
+07-08 14:23:49.724  1234  1250 I ADASISv2: Horizon path extended, 1594 edges
+07-08 14:23:49.896  1234  1234 V NavSDK  : Location update lat=48.5360 lon=11.1813
+07-08 14:23:50.061  1234  1250 W NavSDK  : GPS accuracy degraded: 8217m
+07-08 14:23:50.343  1234  1234 I ADASISv2: Horizon path extended, 9112 edges
+07-08 14:23:50.552  1234  1234 V NavSDK  : Location update lat=48.4235 lon=11.5396
+07-08 14:23:50.942  1234  1234 I ADASISv2: Horizon path extended, 8531 edges
+07-08 14:23:51.222  1234  1250 D Hybrid  : Router selected: onboard (latency 7669ms)
+07-08 14:23:51.291  1234  1261 D Hybrid  : Router selected: onboard (latency 6027ms)
+07-08 14:23:51.606  1234  1234 W NavSDK  : GPS accuracy degraded: 7342m
+07-08 14:23:51.727  1234  1250 D Hybrid  : Router selected: onboard (latency 2246ms)
+07-08 14:23:51.930  1234  1234 W NavSDK  : GPS accuracy degraded: 8041m
+07-08 14:23:51.990  1234  1261 W NavSDK  : GPS accuracy degraded: 4020m
+07-08 14:23:52.096  1234  1261 D Hybrid  : Router selected: onboard (latency 324ms)
+07-08 14:23:52.289  1234  1234 D TileStore: Cache hit for tile z14/1958/7660
+07-08 14:23:52.565  1234  1261 D TileStore: Cache hit for tile z14/8265/4881
+07-08 14:23:52.862  1234  1250 I ADASISv2: Horizon path extended, 8005 edges
+07-08 14:23:52.998  1234  1250 D Hybrid  : Router selected: onboard (latency 2469ms)
+07-08 14:23:53.114  1234  1261 D Hybrid  : Router selected: onboard (latency 8427ms)
+07-08 14:23:53.472  1234  1250 I HiveMindNavigator: Route progress updated: 255.9m remaining
+07-08 14:23:53.641  1234  1234 D Hybrid  : Router selected: onboard (latency 4477ms)
+07-08 14:23:53.790  1234  1261 V NavSDK  : Location update lat=48.9716 lon=11.9601
+07-08 14:23:54.011  1234  1250 D TileStore: Cache hit for tile z14/7416/8924
+07-08 14:23:54.182  1234  1250 D Hybrid  : Router selected: onboard (latency 9003ms)
+07-08 14:23:54.392  1234  1261 V NavSDK  : Location update lat=48.3190 lon=11.4012
+07-08 14:23:54.576  1234  1250 I ADASISv2: Horizon path extended, 815 edges
+07-08 14:23:54.886  1234  1250 W NavSDK  : GPS accuracy degraded: 6346m
+07-08 14:23:55.282  1234  1250 W NavSDK  : GPS accuracy degraded: 2592m
+07-08 14:23:55.670  1234  1250 D TileStore: Cache hit for tile z14/8329/9769
+07-08 14:23:56.024  1234  1261 I ADASISv2: Horizon path extended, 1733 edges
+07-08 14:23:56.393  1234  1250 I HiveMindNavigator: Route progress updated: 653.0m remaining
+07-08 14:23:56.748  1234  1250 D TileStore: Cache hit for tile z14/1325/7792
+07-08 14:23:56.916  1234  1261 W NavSDK  : GPS accuracy degraded: 6612m
+07-08 14:23:56.994  1234  1250 V NavSDK  : Location update lat=48.8842 lon=11.6326
+07-08 14:23:57.264  1234  1234 I ADASISv2: Horizon path extended, 8964 edges
+07-08 14:23:57.530  1234  1261 D TileStore: Cache hit for tile z14/4808/3827
+07-08 14:23:57.611  1234  1261 I HiveMindNavigator: Route progress updated: 686.7m remaining
+07-08 14:23:57.967  1234  1261 I ADASISv2: Horizon path extended, 2825 edges
+07-08 14:23:58.122  1234  1234 I HiveMindNavigator: Route progress updated: 50.9m remaining
+07-08 14:23:58.274  1234  1234 V NavSDK  : Location update lat=48.7156 lon=11.2485
+07-08 14:23:58.510  1234  1234 D Hybrid  : Router selected: onboard (latency 3050ms)
+07-08 14:23:58.622  1234  1261 D Hybrid  : Router selected: onboard (latency 6367ms)
+07-08 14:23:58.911  1234  1234 I ADASISv2: Horizon path extended, 9654 edges
+07-08 14:23:59.042  1234  1250 W NavSDK  : GPS accuracy degraded: 4261m
+07-08 14:23:59.181  1234  1250 I HiveMindNavigator: Route progress updated: 810.0m remaining
+07-08 14:23:59.547  1234  1234 W NavSDK  : GPS accuracy degraded: 9055m
+07-08 14:23:59.623  1234  1261 V NavSDK  : Location update lat=48.9726 lon=11.5001
+07-08 14:24:00.009  1234  1250 W NavSDK  : GPS accuracy degraded: 4197m
+07-08 14:24:00.355  1234  1234 D TileStore: Cache hit for tile z14/6402/8016
+07-08 14:24:00.488  1234  1261 D Hybrid  : Router selected: onboard (latency 5981ms)
+07-08 14:24:00.642  1234  1234 W NavSDK  : GPS accuracy degraded: 4937m
+07-08 14:24:01.034  1234  1250 W NavSDK  : GPS accuracy degraded: 6584m
+07-08 14:24:01.087  1234  1261 W NavSDK  : GPS accuracy degraded: 903m
+07-08 14:24:01.398  1234  1234 V NavSDK  : Location update lat=48.3870 lon=11.5872
+07-08 14:24:01.670  1234  1261 D Hybrid  : Router selected: onboard (latency 4206ms)
+07-08 14:24:01.985  1234  1261 W NavSDK  : GPS accuracy degraded: 2340m
+07-08 14:24:02.069  1234  1250 W NavSDK  : GPS accuracy degraded: 745m
+07-08 14:24:02.395  1234  1261 I HiveMindNavigator: Route progress updated: 525.8m remaining
+07-08 14:24:02.491  1234  1234 V NavSDK  : Location update lat=48.5452 lon=11.6907
+07-08 14:24:02.611  1234  1261 D Hybrid  : Router selected: onboard (latency 6094ms)
+07-08 14:24:02.837  1234  1250 V NavSDK  : Location update lat=48.2795 lon=11.4310
+07-08 14:24:03.225  1234  1250 V NavSDK  : Location update lat=48.5649 lon=11.1986
+07-08 14:24:03.612  1234  1261 D TileStore: Cache hit for tile z14/3796/6611
+07-08 14:24:03.790  1234  1250 I ADASISv2: Horizon path extended, 328 edges
+07-08 14:24:04.028  1234  1261 I ADASISv2: Horizon path extended, 6138 edges
+07-08 14:24:04.340  1234  1261 V NavSDK  : Location update lat=48.9677 lon=11.6342
+07-08 14:24:04.719  1234  1250 I HiveMindNavigator: Route progress updated: 610.6m remaining
+07-08 14:24:04.778  1234  1261 D Hybrid  : Router selected: onboard (latency 5474ms)
+07-08 14:24:04.906  1234  1250 I HiveMindNavigator: Route progress updated: 575.5m remaining
+07-08 14:24:05.274  1234  1234 V NavSDK  : Location update lat=48.6789 lon=11.2011
+07-08 14:24:05.340  1234  1250 I HiveMindNavigator: Route progress updated: 280.9m remaining
+07-08 14:24:05.431  1234  1250 D TileStore: Cache hit for tile z14/8907/2322
+07-08 14:24:05.639  1234  1250 W NavSDK  : GPS accuracy degraded: 8950m
+07-08 14:24:05.895  1234  1250 W NavSDK  : GPS accuracy degraded: 2631m
+07-08 14:24:06.174  1234  1250 I ADASISv2: Horizon path extended, 6786 edges
+07-08 14:24:06.236  1234  1250 V NavSDK  : Location update lat=48.3659 lon=11.7364
+07-08 14:24:06.618  1234  1261 V NavSDK  : Location update lat=48.1727 lon=11.6118
+07-08 14:24:06.984  1234  1234 W NavSDK  : GPS accuracy degraded: 5976m
+07-08 14:24:07.173  1234  1234 D TileStore: Cache hit for tile z14/2101/7550
+07-08 14:24:07.455  1234  1234 W NavSDK  : GPS accuracy degraded: 9883m
+07-08 14:24:07.523  1234  1261 V NavSDK  : Location update lat=48.4090 lon=11.2163
+07-08 14:24:07.645  1234  1261 D Hybrid  : Router selected: onboard (latency 3494ms)
+07-08 14:24:07.770  1234  1261 D TileStore: Cache hit for tile z14/5483/2517
+07-08 14:24:07.821  1234  1250 D TileStore: Cache hit for tile z14/2229/8950
+07-08 14:24:08.151  1234  1234 I HiveMindNavigator: Route progress updated: 598.3m remaining
+07-08 14:24:08.247  1234  1250 V NavSDK  : Location update lat=48.3998 lon=11.9747
+07-08 14:24:08.302  1234  1261 V NavSDK  : Location update lat=48.958 lon=11.2176
+07-08 14:24:08.500  1234  1250 I HiveMindNavigator: Route progress updated: 673.6m remaining
+07-08 14:24:08.707  1234  1234 V NavSDK  : Location update lat=48.8508 lon=11.9826
+07-08 14:24:08.915  1234  1250 D TileStore: Cache hit for tile z14/810/8643
+07-08 14:24:09.125  1234  1250 I HiveMindNavigator: Route progress updated: 64.1m remaining
+07-08 14:24:09.472  1234  1250 I ADASISv2: Horizon path extended, 1868 edges
+07-08 14:24:09.771  1234  1234 I ADASISv2: Horizon path extended, 1304 edges
+07-08 14:24:09.934  1234  1250 D TileStore: Cache hit for tile z14/1176/2167
+07-08 14:24:10.202  1234  1261 D Hybrid  : Router selected: onboard (latency 9084ms)
+07-08 14:24:10.366  1234  1250 D Hybrid  : Router selected: onboard (latency 8792ms)
+07-08 14:24:10.575  1234  1234 D Hybrid  : Router selected: onboard (latency 7148ms)
+07-08 14:24:10.902  1234  1261 I HiveMindNavigator: Route progress updated: 769.0m remaining
+07-08 14:24:11.260  1234  1250 D Hybrid  : Router selected: onboard (latency 3622ms)
+07-08 14:24:11.468  1234  1250 D TileStore: Cache hit for tile z14/6879/5653
+07-08 14:24:11.657  1234  1250 W NavSDK  : GPS accuracy degraded: 1657m
+07-08 14:24:11.857  1234  1250 W NavSDK  : GPS accuracy degraded: 4276m
+07-08 14:24:12.240  1234  1234 W NavSDK  : GPS accuracy degraded: 7870m
+07-08 14:24:12.322  1234  1234 I HiveMindNavigator: Route progress updated: 93.0m remaining
+07-08 14:24:12.633  1234  1234 V NavSDK  : Location update lat=48.2231 lon=11.9215
+07-08 14:24:12.888  1234  1250 D Hybrid  : Router selected: onboard (latency 9302ms)
+07-08 14:24:13.173  1234  1261 I ADASISv2: Horizon path extended, 5893 edges
+07-08 14:24:13.552  1234  1250 I ADASISv2: Horizon path extended, 942 edges
+07-08 14:24:13.812  1234  1261 V NavSDK  : Location update lat=48.1797 lon=11.9568
+07-08 14:24:13.937  1234  1234 W NavSDK  : GPS accuracy degraded: 8000m
+07-08 14:24:14.283  1234  1234 V NavSDK  : Location update lat=48.9213 lon=11.6122
+07-08 14:24:14.600  1234  1250 D Hybrid  : Router selected: onboard (latency 3805ms)
+07-08 14:24:14.946  1234  1234 D Hybrid  : Router selected: onboard (latency 9221ms)
+07-08 14:24:15.209  1234  1234 W NavSDK  : GPS accuracy degraded: 4481m
+07-08 14:24:15.322  1234  1250 W NavSDK  : GPS accuracy degraded: 5162m
+07-08 14:24:15.495  1234  1261 D TileStore: Cache hit for tile z14/2447/9378
+07-08 14:24:15.685  1234  1261 D TileStore: Cache hit for tile z14/602/1603
+07-08 14:24:15.921  1234  1250 I ADASISv2: Horizon path extended, 6978 edges
+07-08 14:24:16.090  1234  1261 V NavSDK  : Location update lat=48.5205 lon=11.5414
+07-08 14:24:16.349  1234  1261 I HiveMindNavigator: Route progress updated: 148.5m remaining
+07-08 14:24:16.416  1234  1261 I HiveMindNavigator: Route progress updated: 252.2m remaining
+07-08 14:24:16.615  1234  1250 D Hybrid  : Router selected: onboard (latency 7342ms)
+07-08 14:24:16.760  1234  1250 D Hybrid  : Router selected: onboard (latency 1964ms)
+07-08 14:24:16.961  1234  1261 V NavSDK  : Location update lat=48.9817 lon=11.8072
+07-08 14:24:17.244  1234  1261 I HiveMindNavigator: Route progress updated: 206.3m remaining
+07-08 14:24:17.314  1234  1234 D TileStore: Cache hit for tile z14/5038/3560
+07-08 14:24:17.631  1234  1234 V NavSDK  : Location update lat=48.5475 lon=11.2065
+07-08 14:24:17.855  1234  1234 I ADASISv2: Horizon path extended, 2978 edges
+07-08 14:24:18.038  1234  1261 W NavSDK  : GPS accuracy degraded: 3870m
+07-08 14:24:18.284  1234  1234 W NavSDK  : GPS accuracy degraded: 5902m
+07-08 14:24:18.473  1234  1250 W NavSDK  : GPS accuracy degraded: 793m
+07-08 14:24:18.529  1234  1261 I HiveMindNavigator: Route progress updated: 777.3m remaining
+07-08 14:24:18.730  1234  1250 I ADASISv2: Horizon path extended, 6943 edges
+07-08 14:24:18.820  1234  1234 I HiveMindNavigator: Route progress updated: 869.9m remaining
+07-08 14:24:19.150  1234  1261 D Hybrid  : Router selected: onboard (latency 7638ms)
+07-08 14:24:19.522  1234  1234 I HiveMindNavigator: Route progress updated: 398.7m remaining
+07-08 14:24:19.657  1234  1261 D Hybrid  : Router selected: onboard (latency 6660ms)
+07-08 14:24:19.735  1234  1250 V NavSDK  : Location update lat=48.5662 lon=11.3730
+07-08 14:24:20.058  1234  1234 I HiveMindNavigator: Route progress updated: 464.3m remaining
+07-08 14:24:20.293  1234  1261 D TileStore: Cache hit for tile z14/5824/5852
+07-08 14:24:20.679  1234  1234 W NavSDK  : GPS accuracy degraded: 2519m
+07-08 14:24:20.765  1234  1261 V NavSDK  : Location update lat=48.3332 lon=11.2942
+07-08 14:24:20.868  1234  1234 W NavSDK  : GPS accuracy degraded: 1334m
+07-08 14:24:21.251  1234  1250 W NavSDK  : GPS accuracy degraded: 8195m
+07-08 14:24:21.565  1234  1261 D Hybrid  : Router selected: onboard (latency 7454ms)
+07-08 14:24:21.939  1234  1261 D Hybrid  : Router selected: onboard (latency 5395ms)
+07-08 14:24:22.099  1234  1250 I ADASISv2: Horizon path extended, 1218 edges
+07-08 14:24:22.304  1234  1234 V NavSDK  : Location update lat=48.4600 lon=11.9789
+07-08 14:24:22.477  1234  1250 I HiveMindNavigator: Route progress updated: 286.3m remaining
+07-08 14:24:22.540  1234  1261 V NavSDK  : Location update lat=48.4803 lon=11.1357
+07-08 14:24:22.893  1234  1261 I HiveMindNavigator: Route progress updated: 557.4m remaining
+07-08 14:24:23.077  1234  1261 D Hybrid  : Router selected: onboard (latency 9181ms)
+07-08 14:24:23.441  1234  1261 I ADASISv2: Horizon path extended, 9466 edges
+07-08 14:24:23.557  1234  1261 D Hybrid  : Router selected: onboard (latency 7892ms)
+07-08 14:24:23.660  1234  1250 I HiveMindNavigator: Route progress updated: 411.0m remaining
+07-08 14:24:24.054  1234  1234 I HiveMindNavigator: Route progress updated: 459.0m remaining
+07-08 14:24:24.117  1234  1250 W NavSDK  : GPS accuracy degraded: 7272m
+07-08 14:24:24.351  1234  1250 D Hybrid  : Router selected: onboard (latency 2700ms)
+07-08 14:24:24.531  1234  1250 V NavSDK  : Location update lat=48.6447 lon=11.6797
+07-08 14:24:24.819  1234  1261 I HiveMindNavigator: Route progress updated: 712.4m remaining
+07-08 14:24:24.986  1234  1261 V NavSDK  : Location update lat=48.1648 lon=11.9241
+07-08 14:24:25.171  1234  1250 V NavSDK  : Location update lat=48.9974 lon=11.2563
+07-08 14:24:25.250  1234  1250 W NavSDK  : GPS accuracy degraded: 2417m
+07-08 14:24:25.408  1234  1234 W NavSDK  : GPS accuracy degraded: 6521m
+07-08 14:24:25.667  1234  1250 I HiveMindNavigator: Route progress updated: 285.5m remaining
+07-08 14:24:25.942  1234  1234 V NavSDK  : Location update lat=48.2193 lon=11.8724
+07-08 14:24:26.218  1234  1250 I ADASISv2: Horizon path extended, 8431 edges
+07-08 14:24:26.274  1234  1250 V NavSDK  : Location update lat=48.3053 lon=11.3609
+07-08 14:24:26.656  1234  1234 I ADASISv2: Horizon path extended, 3245 edges
+07-08 14:24:27.056  1234  1234 D TileStore: Cache hit for tile z14/1364/4946
+07-08 14:24:27.284  1234  1234 D Hybrid  : Router selected: onboard (latency 8726ms)
+07-08 14:24:27.565  1234  1261 D Hybrid  : Router selected: onboard (latency 2247ms)
+07-08 14:24:27.747  1234  1261 D TileStore: Cache hit for tile z14/3062/2812
+07-08 14:24:27.950  1234  1261 I ADASISv2: Horizon path extended, 6068 edges
+07-08 14:24:28.252  1234  1261 I ADASISv2: Horizon path extended, 4768 edges
+07-08 14:24:28.577  1234  1250 D TileStore: Cache hit for tile z14/8849/4018
+07-08 14:24:28.965  1234  1250 I ADASISv2: Horizon path extended, 3278 edges
+07-08 14:24:29.252  1234  1250 D Hybrid  : Router selected: onboard (latency 7318ms)
+07-08 14:24:29.571  1234  1261 I ADASISv2: Horizon path extended, 8339 edges
+07-08 14:24:29.768  1234  1250 D TileStore: Cache hit for tile z14/3371/2367
+07-08 14:24:29.836  1234  1261 I ADASISv2: Horizon path extended, 6181 edges
+07-08 14:24:30.213  1234  1234 W NavSDK  : GPS accuracy degraded: 8552m
+07-08 14:24:30.363  1234  1261 D TileStore: Cache hit for tile z14/4569/7461
+07-08 14:24:30.464  1234  1234 I ADASISv2: Horizon path extended, 1602 edges
+07-08 14:24:30.800  1234  1234 V NavSDK  : Location update lat=48.536 lon=11.6897
+07-08 14:24:30.989  1234  1234 V NavSDK  : Location update lat=48.3962 lon=11.6426
+07-08 14:24:31.170  1234  1234 I HiveMindNavigator: Route progress updated: 293.6m remaining
+07-08 14:24:31.514  1234  1234 W NavSDK  : GPS accuracy degraded: 5593m
+07-08 14:24:31.612  1234  1261 V NavSDK  : Location update lat=48.7840 lon=11.2373
+07-08 14:24:31.826  1234  1234 D Hybrid  : Router selected: onboard (latency 186ms)
+07-08 14:24:31.883  1234  1261 D TileStore: Cache hit for tile z14/2549/9091
+07-08 14:24:32.146  1234  1250 I ADASISv2: Horizon path extended, 1921 edges
+07-08 14:24:32.279  1234  1250 I HiveMindNavigator: Route progress updated: 52.5m remaining
+07-08 14:24:32.553  1234  1234 D Hybrid  : Router selected: onboard (latency 7589ms)
+07-08 14:24:32.642  1234  1261 I ADASISv2: Horizon path extended, 9876 edges
+07-08 14:24:32.697  1234  1234 D Hybrid  : Router selected: onboard (latency 9521ms)
+07-08 14:24:32.999  1234  1261 V NavSDK  : Location update lat=48.7132 lon=11.125
+07-08 14:24:33.172  1234  1234 D Hybrid  : Router selected: onboard (latency 6925ms)
+07-08 14:24:33.455  1234  1250 I HiveMindNavigator: Route progress updated: 475.9m remaining
+07-08 14:24:33.529  1234  1261 D Hybrid  : Router selected: onboard (latency 9014ms)
+07-08 14:24:33.854  1234  1234 D Hybrid  : Router selected: onboard (latency 9179ms)
+07-08 14:24:34.040  1234  1261 I ADASISv2: Horizon path extended, 813 edges
+07-08 14:24:34.226  1234  1250 V NavSDK  : Location update lat=48.4255 lon=11.366
+07-08 14:24:34.552  1234  1261 V NavSDK  : Location update lat=48.4050 lon=11.1798
+07-08 14:24:34.859  1234  1250 V NavSDK  : Location update lat=48.2285 lon=11.826
+07-08 14:24:35.100  1234  1261 W NavSDK  : GPS accuracy degraded: 2968m
+07-08 14:24:35.313  1234  1261 W NavSDK  : GPS accuracy degraded: 7940m
+07-08 14:24:35.427  1234  1234 D TileStore: Cache hit for tile z14/1133/7598
+07-08 14:24:35.579  1234  1234 I HiveMindNavigator: Route progress updated: 714.1m remaining
+07-08 14:24:35.740  1234  1261 V NavSDK  : Location update lat=48.8544 lon=11.6624
+07-08 14:24:35.956  1234  1234 I HiveMindNavigator: Route progress updated: 680.4m remaining
+07-08 14:24:36.106  1234  1250 I HiveMindNavigator: Route progress updated: 780.6m remaining
+07-08 14:24:36.251  1234  1261 V NavSDK  : Location update lat=48.7259 lon=11.6653
+07-08 14:24:36.455  1234  1234 I ADASISv2: Horizon path extended, 5654 edges
+07-08 14:24:36.679  1234  1261 I ADASISv2: Horizon path extended, 6118 edges
+07-08 14:24:36.822  1234  1234 I HiveMindNavigator: Route progress updated: 657.1m remaining
+07-08 14:24:37.023  1234  1250 D TileStore: Cache hit for tile z14/9037/4913
+07-08 14:24:37.109  1234  1250 V NavSDK  : Location update lat=48.4943 lon=11.5121
+07-08 14:24:37.370  1234  1261 I ADASISv2: Horizon path extended, 2830 edges
+07-08 14:24:37.575  1234  1261 I ADASISv2: Horizon path extended, 793 edges
+07-08 14:24:37.930  1234  1261 V NavSDK  : Location update lat=48.7226 lon=11.4598
+07-08 14:24:38.323  1234  1261 I HiveMindNavigator: Route progress updated: 76.8m remaining
+07-08 14:24:38.515  1234  1234 D Hybrid  : Router selected: onboard (latency 2721ms)
+07-08 14:24:38.615  1234  1234 D Hybrid  : Router selected: onboard (latency 7279ms)
+07-08 14:24:38.709  1234  1250 D TileStore: Cache hit for tile z14/6101/6033
+07-08 14:24:39.091  1234  1261 I HiveMindNavigator: Route progress updated: 548.5m remaining
+07-08 14:24:39.299  1234  1234 V NavSDK  : Location update lat=48.6195 lon=11.7373
+07-08 14:24:39.550  1234  1250 D Hybrid  : Router selected: onboard (latency 6112ms)
+07-08 14:24:39.710  1234  1234 V NavSDK  : Location update lat=48.4189 lon=11.1958
+07-08 14:24:40.017  1234  1250 I ADASISv2: Horizon path extended, 8582 edges
+07-08 14:24:40.387  1234  1250 I HiveMindNavigator: Route progress updated: 243.0m remaining
+07-08 14:24:40.683  1234  1234 D TileStore: Cache hit for tile z14/4778/8147
+07-08 14:24:40.776  1234  1261 I HiveMindNavigator: Route progress updated: 412.3m remaining
+07-08 14:24:40.982  1234  1250 I HiveMindNavigator: Route progress updated: 731.4m remaining
+07-08 14:24:41.266  1234  1261 W NavSDK  : GPS accuracy degraded: 1163m
+07-08 14:24:41.506  1234  1250 V NavSDK  : Location update lat=48.2680 lon=11.2952
+07-08 14:24:41.734  1234  1234 I HiveMindNavigator: Route progress updated: 886.8m remaining
+07-08 14:24:41.866  1234  1250 I ADASISv2: Horizon path extended, 530 edges
+07-08 14:24:42.110  1234  1234 V NavSDK  : Location update lat=48.7757 lon=11.9138
+07-08 14:24:42.375  1234  1250 I HiveMindNavigator: Route progress updated: 68.5m remaining
+07-08 14:24:42.774  1234  1261 W NavSDK  : GPS accuracy degraded: 7942m
+07-08 14:24:42.968  1234  1234 I ADASISv2: Horizon path extended, 9519 edges
+07-08 14:24:43.062  1234  1250 V NavSDK  : Location update lat=48.1315 lon=11.7472
+07-08 14:24:43.350  1234  1261 V NavSDK  : Location update lat=48.2202 lon=11.9132
+07-08 14:24:43.606  1234  1234 D TileStore: Cache hit for tile z14/7188/8338
+07-08 14:24:43.947  1234  1250 D Hybrid  : Router selected: onboard (latency 2607ms)
+07-08 14:24:44.054  1234  1261 V NavSDK  : Location update lat=48.3794 lon=11.5769
+07-08 14:24:44.418  1234  1261 I HiveMindNavigator: Route progress updated: 233.0m remaining
+07-08 14:24:44.802  1234  1261 V NavSDK  : Location update lat=48.2150 lon=11.5061
+07-08 14:24:45.039  1234  1261 D Hybrid  : Router selected: onboard (latency 2862ms)
+07-08 14:24:45.419  1234  1261 D TileStore: Cache hit for tile z14/2904/5631
+07-08 14:24:45.483  1234  1261 I HiveMindNavigator: Route progress updated: 82.3m remaining
+07-08 14:24:45.803  1234  1250 V NavSDK  : Location update lat=48.3553 lon=11.9473
+07-08 14:24:46.069  1234  1261 I HiveMindNavigator: Route progress updated: 453.3m remaining
+07-08 14:24:46.310  1234  1250 W NavSDK  : GPS accuracy degraded: 5049m
+07-08 14:24:46.446  1234  1250 W NavSDK  : GPS accuracy degraded: 6753m
+07-08 14:24:46.655  1234  1234 W NavSDK  : GPS accuracy degraded: 1081m
+07-08 14:24:46.859  1234  1234 I ADASISv2: Horizon path extended, 7709 edges
+07-08 14:24:47.028  1234  1261 D TileStore: Cache hit for tile z14/5221/5331
+07-08 14:24:47.423  1234  1250 V NavSDK  : Location update lat=48.6632 lon=11.2242
+07-08 14:24:47.654  1234  1250 I HiveMindNavigator: Route progress updated: 294.0m remaining
+07-08 14:24:47.747  1234  1234 I ADASISv2: Horizon path extended, 4161 edges
+07-08 14:24:47.830  1234  1234 V NavSDK  : Location update lat=48.6393 lon=11.6950
+07-08 14:24:48.217  1234  1261 D TileStore: Cache hit for tile z14/5464/9564
+07-08 14:24:48.377  1234  1250 D TileStore: Cache hit for tile z14/8263/8533
+07-08 14:24:48.601  1234  1234 V NavSDK  : Location update lat=48.8248 lon=11.479
+07-08 14:24:48.982  1234  1234 D Hybrid  : Router selected: onboard (latency 7591ms)
+07-08 14:24:49.108  1234  1250 V NavSDK  : Location update lat=48.897 lon=11.928
+07-08 14:24:49.331  1234  1250 W NavSDK  : GPS accuracy degraded: 7810m
+07-08 14:24:49.569  1234  1250 I HiveMindNavigator: Route progress updated: 393.5m remaining
+07-08 14:24:49.873  1234  1234 I ADASISv2: Horizon path extended, 6095 edges
+07-08 14:24:50.063  1234  1234 D Hybrid  : Router selected: onboard (latency 9304ms)
+07-08 14:24:50.240  1234  1261 V NavSDK  : Location update lat=48.1304 lon=11.6429
+07-08 14:24:50.448  1234  1261 D Hybrid  : Router selected: onboard (latency 4682ms)
+07-08 14:24:50.736  1234  1234 I HiveMindNavigator: Route progress updated: 124.5m remaining
+07-08 14:24:50.924  1234  1234 V NavSDK  : Location update lat=48.9239 lon=11.6090
+07-08 14:24:51.044  1234  1261 D Hybrid  : Router selected: onboard (latency 6676ms)
+07-08 14:24:51.108  1234  1250 I HiveMindNavigator: Route progress updated: 132.0m remaining
+07-08 14:24:51.439  1234  1234 D Hybrid  : Router selected: onboard (latency 7587ms)
+07-08 14:24:51.701  1234  1250 D Hybrid  : Router selected: onboard (latency 2390ms)
+07-08 14:24:52.077  1234  1261 V NavSDK  : Location update lat=48.2762 lon=11.6538
+07-08 14:24:52.386  1234  1261 V NavSDK  : Location update lat=48.9827 lon=11.5611
+07-08 14:24:52.726  1234  1261 D Hybrid  : Router selected: onboard (latency 8125ms)
+07-08 14:24:52.973  1234  1250 I ADASISv2: Horizon path extended, 372 edges
+07-08 14:24:53.139  1234  1261 I HiveMindNavigator: Route progress updated: 882.1m remaining
+07-08 14:24:53.297  1234  1261 W NavSDK  : GPS accuracy degraded: 536m
+07-08 14:24:53.513  1234  1261 W NavSDK  : GPS accuracy degraded: 9577m
+07-08 14:24:53.642  1234  1234 I HiveMindNavigator: Route progress updated: 529.3m remaining
+07-08 14:24:53.876  1234  1234 W NavSDK  : GPS accuracy degraded: 6329m
+07-08 14:24:54.213  1234  1261 D TileStore: Cache hit for tile z14/617/9480
+07-08 14:24:54.302  1234  1250 I HiveMindNavigator: Route progress updated: 402.5m remaining
+07-08 14:24:54.405  1234  1250 W NavSDK  : GPS accuracy degraded: 3440m
+07-08 14:24:54.630  1234  1261 D Hybrid  : Router selected: onboard (latency 7826ms)
+07-08 14:24:54.935  1234  1261 W NavSDK  : GPS accuracy degraded: 2362m
+07-08 14:24:55.058  1234  1250 V NavSDK  : Location update lat=48.7937 lon=11.8709
+07-08 14:24:55.217  1234  1250 D TileStore: Cache hit for tile z14/7631/8834
+07-08 14:24:55.459  1234  1261 W NavSDK  : GPS accuracy degraded: 4431m
+07-08 14:24:55.678  1234  1250 D TileStore: Cache hit for tile z14/4671/9243
+07-08 14:24:55.807  1234  1261 V NavSDK  : Location update lat=48.4835 lon=11.3496
+07-08 14:24:56.104  1234  1261 V NavSDK  : Location update lat=48.7961 lon=11.5814
+07-08 14:24:56.480  1234  1250 W NavSDK  : GPS accuracy degraded: 4580m
+07-08 14:24:56.573  1234  1250 W NavSDK  : GPS accuracy degraded: 8999m
+07-08 14:24:56.937  1234  1234 I ADASISv2: Horizon path extended, 5754 edges
+07-08 14:24:57.088  1234  1250 V NavSDK  : Location update lat=48.1394 lon=11.5774
+07-08 14:24:57.368  1234  1234 W NavSDK  : GPS accuracy degraded: 7949m
+07-08 14:24:57.488  1234  1261 D Hybrid  : Router selected: onboard (latency 4542ms)
+07-08 14:24:57.782  1234  1234 D TileStore: Cache hit for tile z14/1889/9714
+07-08 14:24:57.917  1234  1234 W NavSDK  : GPS accuracy degraded: 8800m
+07-08 14:24:58.190  1234  1250 I HiveMindNavigator: Route progress updated: 99.2m remaining
+07-08 14:24:58.491  1234  1234 I HiveMindNavigator: Route progress updated: 616.3m remaining
+07-08 14:24:58.543  1234  1250 D Hybrid  : Router selected: onboard (latency 2687ms)
+07-08 14:24:58.822  1234  1261 I ADASISv2: Horizon path extended, 7922 edges
+07-08 14:24:58.941  1234  1261 V NavSDK  : Location update lat=48.5362 lon=11.4776
+07-08 14:24:59.012  1234  1234 I HiveMindNavigator: Route progress updated: 590.5m remaining
+07-08 14:24:59.250  1234  1234 W NavSDK  : GPS accuracy degraded: 711m
+07-08 14:24:59.446  1234  1250 D TileStore: Cache hit for tile z14/695/6604
+07-08 14:24:59.561  1234  1234 W NavSDK  : GPS accuracy degraded: 4842m
+07-08 14:24:59.614  1234  1234 D Hybrid  : Router selected: onboard (latency 9975ms)
+07-08 14:24:59.989  1234  1261 V NavSDK  : Location update lat=48.4762 lon=11.7544
+07-08 14:25:00.229  1234  1261 I ADASISv2: Horizon path extended, 2298 edges
+07-08 14:25:00.443  1234  1234 D TileStore: Cache hit for tile z14/1945/5517
+07-08 14:25:00.749  1234  1261 W NavSDK  : GPS accuracy degraded: 4315m
+07-08 14:25:00.864  1234  1250 W NavSDK  : GPS accuracy degraded: 5623m
+07-08 14:25:01.113  1234  1250 D TileStore: Cache hit for tile z14/2975/6743
+07-08 14:25:01.343  1234  1234 I HiveMindNavigator: Route progress updated: 366.7m remaining
+07-08 14:25:01.458  1234  1234 D TileStore: Cache hit for tile z14/7922/5401
+07-08 14:25:01.510  1234  1250 I ADASISv2: Horizon path extended, 3958 edges
+07-08 14:25:01.824  1234  1261 V NavSDK  : Location update lat=48.5047 lon=11.9643
+07-08 14:25:02.075  1234  1234 V NavSDK  : Location update lat=48.5990 lon=11.3971
+07-08 14:25:02.358  1234  1234 I ADASISv2: Horizon path extended, 5126 edges
+07-08 14:25:02.550  1234  1261 D Hybrid  : Router selected: onboard (latency 5195ms)
+07-08 14:25:02.641  1234  1234 V NavSDK  : Location update lat=48.6121 lon=11.3718
+07-08 14:25:03.026  1234  1250 I ADASISv2: Horizon path extended, 2609 edges
+07-08 14:25:03.338  1234  1250 D Hybrid  : Router selected: onboard (latency 6221ms)
+07-08 14:25:03.634  1234  1261 I ADASISv2: Horizon path extended, 8906 edges
+07-08 14:25:03.973  1234  1261 D TileStore: Cache hit for tile z14/9861/1441
+07-08 14:25:04.179  1234  1234 W NavSDK  : GPS accuracy degraded: 6027m
+07-08 14:25:04.550  1234  1261 I HiveMindNavigator: Route progress updated: 65.0m remaining
+07-08 14:25:04.916  1234  1234 D TileStore: Cache hit for tile z14/9483/8892
+07-08 14:25:05.024  1234  1234 D Hybrid  : Router selected: onboard (latency 7339ms)
+07-08 14:25:05.312  1234  1250 W NavSDK  : GPS accuracy degraded: 9654m
+07-08 14:25:05.394  1234  1234 D Hybrid  : Router selected: onboard (latency 7398ms)
+07-08 14:25:05.602  1234  1250 D Hybrid  : Router selected: onboard (latency 6906ms)
+07-08 14:25:05.850  1234  1261 D Hybrid  : Router selected: onboard (latency 7675ms)
+07-08 14:25:06.182  1234  1250 W NavSDK  : GPS accuracy degraded: 456m
+07-08 14:25:06.321  1234  1261 I HiveMindNavigator: Route progress updated: 673.8m remaining
+07-08 14:25:06.397  1234  1261 I ADASISv2: Horizon path extended, 5744 edges
+07-08 14:25:06.469  1234  1234 I HiveMindNavigator: Route progress updated: 841.8m remaining
+07-08 14:25:06.864  1234  1250 I ADASISv2: Horizon path extended, 619 edges
+07-08 14:25:07.057  1234  1250 D TileStore: Cache hit for tile z14/6987/6235
+07-08 14:25:07.264  1234  1234 I ADASISv2: Horizon path extended, 6254 edges
+07-08 14:25:07.553  1234  1234 W NavSDK  : GPS accuracy degraded: 8935m
+07-08 14:25:07.832  1234  1261 V NavSDK  : Location update lat=48.2043 lon=11.3024
+07-08 14:25:08.020  1234  1234 D TileStore: Cache hit for tile z14/3748/156
+07-08 14:25:08.412  1234  1250 I ADASISv2: Horizon path extended, 9020 edges
+07-08 14:25:08.648  1234  1250 D TileStore: Cache hit for tile z14/4155/7646
+07-08 14:25:08.753  1234  1261 D TileStore: Cache hit for tile z14/1948/627
+07-08 14:25:08.949  1234  1234 I HiveMindNavigator: Route progress updated: 224.2m remaining
+07-08 14:25:09.035  1234  1261 I HiveMindNavigator: Route progress updated: 407.3m remaining
+07-08 14:25:09.331  1234  1234 I HiveMindNavigator: Route progress updated: 227.8m remaining
+07-08 14:25:09.522  1234  1234 D TileStore: Cache hit for tile z14/8943/3659
+07-08 14:25:09.621  1234  1250 V NavSDK  : Location update lat=48.3936 lon=11.9538
+07-08 14:25:09.873  1234  1234 W NavSDK  : GPS accuracy degraded: 5353m
+07-08 14:25:10.028  1234  1250 D TileStore: Cache hit for tile z14/8640/3721
+07-08 14:25:10.184  1234  1261 I HiveMindNavigator: Route progress updated: 505.5m remaining
+07-08 14:25:10.541  1234  1250 D TileStore: Cache hit for tile z14/7099/9207
+07-08 14:25:10.608  1234  1250 V NavSDK  : Location update lat=48.6344 lon=11.8692
+07-08 14:25:10.902  1234  1250 I ADASISv2: Horizon path extended, 2544 edges
+07-08 14:25:11.083  1234  1234 D Hybrid  : Router selected: onboard (latency 7858ms)
+07-08 14:25:11.431  1234  1234 V NavSDK  : Location update lat=48.2465 lon=11.7686
+07-08 14:25:11.677  1234  1261 I ADASISv2: Horizon path extended, 9230 edges
+07-08 14:25:11.774  1234  1250 D TileStore: Cache hit for tile z14/4277/3431
+07-08 14:25:12.051  1234  1234 I ADASISv2: Horizon path extended, 6179 edges
+07-08 14:25:12.288  1234  1250 D TileStore: Cache hit for tile z14/944/4498
+07-08 14:25:12.574  1234  1234 D Hybrid  : Router selected: onboard (latency 747ms)
+07-08 14:25:12.690  1234  1234 D Hybrid  : Router selected: onboard (latency 9256ms)
+07-08 14:25:12.908  1234  1234 V NavSDK  : Location update lat=48.5067 lon=11.351
+07-08 14:25:13.286  1234  1261 W NavSDK  : GPS accuracy degraded: 2022m
+07-08 14:25:13.685  1234  1261 I ADASISv2: Horizon path extended, 4074 edges
+07-08 14:25:13.947  1234  1261 D TileStore: Cache hit for tile z14/6598/4021
+07-08 14:25:14.110  1234  1261 V NavSDK  : Location update lat=48.6336 lon=11.7739
+07-08 14:25:14.387  1234  1261 V NavSDK  : Location update lat=48.4385 lon=11.5992
+07-08 14:25:14.746  1234  1261 I ADASISv2: Horizon path extended, 1715 edges
+07-08 14:25:14.960  1234  1250 V NavSDK  : Location update lat=48.3428 lon=11.6173
+07-08 14:25:15.155  1234  1261 D Hybrid  : Router selected: onboard (latency 3725ms)
+07-08 14:25:15.256  1234  1261 V NavSDK  : Location update lat=48.9165 lon=11.9668
+07-08 14:25:15.558  1234  1250 V NavSDK  : Location update lat=48.2597 lon=11.3314
+07-08 14:25:15.688  1234  1250 D Hybrid  : Router selected: onboard (latency 4126ms)
+07-08 14:25:15.931  1234  1250 W NavSDK  : GPS accuracy degraded: 5630m
+07-08 14:25:16.248  1234  1250 I ADASISv2: Horizon path extended, 8137 edges
+07-08 14:25:16.357  1234  1261 V NavSDK  : Location update lat=48.2873 lon=11.2393
+07-08 14:25:16.598  1234  1261 D TileStore: Cache hit for tile z14/8982/1062
+07-08 14:25:16.660  1234  1261 I HiveMindNavigator: Route progress updated: 851.2m remaining
+07-08 14:25:16.727  1234  1261 I HiveMindNavigator: Route progress updated: 377.0m remaining
+07-08 14:25:16.858  1234  1234 W NavSDK  : GPS accuracy degraded: 2574m
+07-08 14:25:16.985  1234  1234 I ADASISv2: Horizon path extended, 6214 edges
+07-08 14:25:17.251  1234  1261 W NavSDK  : GPS accuracy degraded: 8016m
+07-08 14:25:17.472  1234  1250 I HiveMindNavigator: Route progress updated: 483.7m remaining
+07-08 14:25:17.526  1234  1261 D Hybrid  : Router selected: onboard (latency 4601ms)
+07-08 14:25:17.918  1234  1261 I HiveMindNavigator: Route progress updated: 457.0m remaining
+07-08 14:25:18.204  1234  1261 D TileStore: Cache hit for tile z14/1853/1678
+07-08 14:25:18.306  1234  1250 D TileStore: Cache hit for tile z14/8725/4235
+07-08 14:25:18.450  1234  1250 I ADASISv2: Horizon path extended, 1394 edges
+07-08 14:25:18.835  1234  1234 I ADASISv2: Horizon path extended, 9356 edges
+07-08 14:25:19.232  1234  1261 D TileStore: Cache hit for tile z14/5014/1420
+07-08 14:25:19.629  1234  1234 W NavSDK  : GPS accuracy degraded: 619m
+07-08 14:25:19.821  1234  1250 I ADASISv2: Horizon path extended, 9155 edges
+07-08 14:25:19.891  1234  1234 I HiveMindNavigator: Route progress updated: 635.5m remaining
+07-08 14:25:20.116  1234  1261 I ADASISv2: Horizon path extended, 5527 edges
+07-08 14:25:20.508  1234  1234 I HiveMindNavigator: Route progress updated: 806.4m remaining
+07-08 14:25:20.638  1234  1250 W NavSDK  : GPS accuracy degraded: 9386m
+07-08 14:25:20.783  1234  1250 I HiveMindNavigator: Route progress updated: 619.1m remaining
+07-08 14:25:21.148  1234  1234 D Hybrid  : Router selected: onboard (latency 639ms)
+07-08 14:25:21.523  1234  1261 V NavSDK  : Location update lat=48.356 lon=11.3494
+07-08 14:25:21.623  1234  1234 W NavSDK  : GPS accuracy degraded: 6625m
+07-08 14:25:21.778  1234  1261 D Hybrid  : Router selected: onboard (latency 4039ms)
+07-08 14:25:22.120  1234  1250 I ADASISv2: Horizon path extended, 8956 edges
+07-08 14:25:22.304  1234  1261 W NavSDK  : GPS accuracy degraded: 2392m
+07-08 14:25:22.608  1234  1234 D Hybrid  : Router selected: onboard (latency 5766ms)
+07-08 14:25:22.692  1234  1261 D TileStore: Cache hit for tile z14/1345/5680
+07-08 14:25:23.011  1234  1250 D Hybrid  : Router selected: onboard (latency 6599ms)
+07-08 14:25:23.072  1234  1234 V NavSDK  : Location update lat=48.7481 lon=11.8138
+07-08 14:25:23.246  1234  1234 I ADASISv2: Horizon path extended, 7175 edges
+07-08 14:25:23.534  1234  1234 W NavSDK  : GPS accuracy degraded: 6327m
+07-08 14:25:23.854  1234  1234 V NavSDK  : Location update lat=48.4137 lon=11.1304
+07-08 14:25:23.998  1234  1261 I ADASISv2: Horizon path extended, 2627 edges
+07-08 14:25:24.184  1234  1234 V NavSDK  : Location update lat=48.1845 lon=11.1599
+07-08 14:25:24.564  1234  1250 I ADASISv2: Horizon path extended, 5996 edges
+07-08 14:25:24.650  1234  1250 I HiveMindNavigator: Route progress updated: 176.8m remaining
+07-08 14:25:24.895  1234  1234 D Hybrid  : Router selected: onboard (latency 6785ms)
+07-08 14:25:24.954  1234  1261 V NavSDK  : Location update lat=48.9180 lon=11.1624
+07-08 14:25:25.214  1234  1250 V NavSDK  : Location update lat=48.6411 lon=11.302
+07-08 14:25:25.409  1234  1261 I HiveMindNavigator: Route progress updated: 655.1m remaining
+07-08 14:25:25.775  1234  1234 D TileStore: Cache hit for tile z14/9470/8637
+07-08 14:25:26.065  1234  1250 D TileStore: Cache hit for tile z14/2374/4505
+07-08 14:25:26.209  1234  1250 D TileStore: Cache hit for tile z14/1136/2839
+07-08 14:25:26.356  1234  1250 V NavSDK  : Location update lat=48.8033 lon=11.1360
+07-08 14:25:26.494  1234  1261 D TileStore: Cache hit for tile z14/8223/9828
+07-08 14:25:26.612  1234  1234 I HiveMindNavigator: Route progress updated: 130.6m remaining
+07-08 14:25:26.994  1234  1250 V NavSDK  : Location update lat=48.6324 lon=11.5499
+07-08 14:25:27.162  1234  1234 W NavSDK  : GPS accuracy degraded: 9838m
+07-08 14:25:27.317  1234  1250 D Hybrid  : Router selected: onboard (latency 3390ms)
+07-08 14:25:27.477  1234  1250 I ADASISv2: Horizon path extended, 5328 edges
+07-08 14:25:27.784  1234  1261 W NavSDK  : GPS accuracy degraded: 8144m
+07-08 14:25:28.108  1234  1250 V NavSDK  : Location update lat=48.6261 lon=11.4692
+07-08 14:25:28.285  1234  1261 D Hybrid  : Router selected: onboard (latency 3373ms)
+07-08 14:25:28.684  1234  1261 D TileStore: Cache hit for tile z14/9112/540
+07-08 14:25:28.896  1234  1250 W NavSDK  : GPS accuracy degraded: 3534m
+07-08 14:25:29.225  1234  1250 W NavSDK  : GPS accuracy degraded: 1233m
+07-08 14:25:29.511  1234  1250 D TileStore: Cache hit for tile z14/5061/4065
+07-08 14:25:29.791  1234  1250 W NavSDK  : GPS accuracy degraded: 7032m
+07-08 14:25:29.867  1234  1261 D Hybrid  : Router selected: onboard (latency 7951ms)
+07-08 14:25:30.057  1234  1261 D Hybrid  : Router selected: onboard (latency 6953ms)
+07-08 14:25:30.120  1234  1261 V NavSDK  : Location update lat=48.8896 lon=11.9829
+07-08 14:25:30.490  1234  1261 I HiveMindNavigator: Route progress updated: 694.4m remaining
+07-08 14:25:30.773  1234  1261 D TileStore: Cache hit for tile z14/825/9327
+07-08 14:25:31.060  1234  1250 I ADASISv2: Horizon path extended, 5532 edges
+07-08 14:25:31.147  1234  1261 I HiveMindNavigator: Route progress updated: 240.3m remaining
+07-08 14:25:31.458  1234  1261 D Hybrid  : Router selected: onboard (latency 9611ms)
+07-08 14:25:31.710  1234  1250 I ADASISv2: Horizon path extended, 6229 edges
+07-08 14:25:31.922  1234  1261 W NavSDK  : GPS accuracy degraded: 9743m
+07-08 14:25:32.147  1234  1234 V NavSDK  : Location update lat=48.502 lon=11.8009
+07-08 14:25:32.300  1234  1261 I HiveMindNavigator: Route progress updated: 113.3m remaining
+07-08 14:25:32.400  1234  1234 V NavSDK  : Location update lat=48.5720 lon=11.7560
+07-08 14:25:32.632  1234  1250 V NavSDK  : Location update lat=48.7901 lon=11.1699
+07-08 14:25:32.935  1234  1234 I ADASISv2: Horizon path extended, 5325 edges
+07-08 14:25:33.090  1234  1234 W NavSDK  : GPS accuracy degraded: 1985m
+07-08 14:25:33.437  1234  1261 W NavSDK  : GPS accuracy degraded: 1891m
+07-08 14:25:33.767  1234  1261 W NavSDK  : GPS accuracy degraded: 4096m
+07-08 14:25:33.879  1234  1250 D TileStore: Cache hit for tile z14/5522/9272
+07-08 14:25:34.264  1234  1234 D TileStore: Cache hit for tile z14/6736/3122
+07-08 14:25:34.538  1234  1234 I ADASISv2: Horizon path extended, 6581 edges
+07-08 14:25:34.846  1234  1250 D TileStore: Cache hit for tile z14/7465/9802
+07-08 14:25:35.032  1234  1234 W NavSDK  : GPS accuracy degraded: 3619m
+07-08 14:25:35.180  1234  1261 W NavSDK  : GPS accuracy degraded: 1125m
+07-08 14:25:35.265  1234  1250 D Hybrid  : Router selected: onboard (latency 3163ms)
+07-08 14:25:35.429  1234  1250 I ADASISv2: Horizon path extended, 1967 edges
+07-08 14:25:35.714  1234  1261 I ADASISv2: Horizon path extended, 8746 edges
+07-08 14:25:35.874  1234  1261 I ADASISv2: Horizon path extended, 6531 edges
+07-08 14:25:35.964  1234  1261 V NavSDK  : Location update lat=48.7601 lon=11.2926
+07-08 14:25:36.261  1234  1261 V NavSDK  : Location update lat=48.9769 lon=11.1488
+07-08 14:25:36.358  1234  1234 I HiveMindNavigator: Route progress updated: 222.3m remaining
+07-08 14:25:36.472  1234  1261 W NavSDK  : GPS accuracy degraded: 2416m
+07-08 14:25:36.658  1234  1261 D Hybrid  : Router selected: onboard (latency 2358ms)
+07-08 14:25:36.842  1234  1261 D TileStore: Cache hit for tile z14/8073/8904
+07-08 14:25:37.214  1234  1250 D TileStore: Cache hit for tile z14/9191/2833
+07-08 14:25:37.365  1234  1261 D TileStore: Cache hit for tile z14/5254/7489
+07-08 14:25:37.434  1234  1234 V NavSDK  : Location update lat=48.257 lon=11.8039
+07-08 14:25:37.552  1234  1261 I ADASISv2: Horizon path extended, 9300 edges
+07-08 14:25:37.831  1234  1250 I ADASISv2: Horizon path extended, 8156 edges
+07-08 14:25:38.129  1234  1234 I ADASISv2: Horizon path extended, 8106 edges
+07-08 14:25:38.208  1234  1234 I HiveMindNavigator: Route progress updated: 718.3m remaining
+07-08 14:25:38.360  1234  1250 V NavSDK  : Location update lat=48.3783 lon=11.8908
+07-08 14:25:38.469  1234  1261 I ADASISv2: Horizon path extended, 9367 edges
+07-08 14:25:38.790  1234  1261 I ADASISv2: Horizon path extended, 9106 edges
+07-08 14:25:38.879  1234  1261 I HiveMindNavigator: Route progress updated: 248.4m remaining
+07-08 14:25:39.217  1234  1261 V NavSDK  : Location update lat=48.8980 lon=11.781
+07-08 14:25:39.422  1234  1261 D TileStore: Cache hit for tile z14/7065/1777
+07-08 14:25:39.762  1234  1250 D TileStore: Cache hit for tile z14/4977/628
+07-08 14:25:39.904  1234  1234 I HiveMindNavigator: Route progress updated: 400.8m remaining
+07-08 14:25:40.226  1234  1261 D TileStore: Cache hit for tile z14/3538/9732
+07-08 14:25:40.399  1234  1234 W NavSDK  : GPS accuracy degraded: 7115m
+07-08 14:25:40.664  1234  1261 D TileStore: Cache hit for tile z14/3490/1072
+07-08 14:25:40.837  1234  1234 V NavSDK  : Location update lat=48.9878 lon=11.8927
+07-08 14:25:41.000  1234  1250 W NavSDK  : GPS accuracy degraded: 4894m
+07-08 14:25:41.251  1234  1234 D Hybrid  : Router selected: onboard (latency 1660ms)
+07-08 14:25:41.638  1234  1250 I ADASISv2: Horizon path extended, 1071 edges
+07-08 14:25:41.991  1234  1234 D TileStore: Cache hit for tile z14/2274/4190
+07-08 14:25:42.290  1234  1234 D TileStore: Cache hit for tile z14/6534/8119
+07-08 14:25:42.542  1234  1250 V NavSDK  : Location update lat=48.6886 lon=11.6246
+07-08 14:25:42.619  1234  1261 I HiveMindNavigator: Route progress updated: 368.5m remaining
+07-08 14:25:42.766  1234  1250 V NavSDK  : Location update lat=48.7549 lon=11.8096
+07-08 14:25:43.020  1234  1261 W NavSDK  : GPS accuracy degraded: 1626m
+07-08 14:25:43.410  1234  1234 W NavSDK  : GPS accuracy degraded: 5969m
+07-08 14:25:43.738  1234  1250 I ADASISv2: Horizon path extended, 3668 edges
+07-08 14:25:44.077  1234  1250 I ADASISv2: Horizon path extended, 4499 edges
+07-08 14:25:44.417  1234  1234 V NavSDK  : Location update lat=48.9067 lon=11.9568
+07-08 14:25:44.665  1234  1261 I ADASISv2: Horizon path extended, 5731 edges
+07-08 14:25:44.982  1234  1250 I HiveMindNavigator: Route progress updated: 98.6m remaining
+07-08 14:25:45.038  1234  1234 D TileStore: Cache hit for tile z14/7330/7579
+07-08 14:25:45.435  1234  1261 I ADASISv2: Horizon path extended, 3414 edges
+07-08 14:25:45.803  1234  1234 W NavSDK  : GPS accuracy degraded: 5045m
+07-08 14:25:46.159  1234  1250 V NavSDK  : Location update lat=48.1629 lon=11.6005
+07-08 14:25:46.238  1234  1234 W NavSDK  : GPS accuracy degraded: 2811m
+07-08 14:25:46.427  1234  1261 V NavSDK  : Location update lat=48.3936 lon=11.7132
+07-08 14:25:46.509  1234  1250 I HiveMindNavigator: Route progress updated: 11.0m remaining
+07-08 14:25:46.586  1234  1261 D Hybrid  : Router selected: onboard (latency 3805ms)
+07-08 14:25:46.874  1234  1250 I HiveMindNavigator: Route progress updated: 17.2m remaining
+07-08 14:25:47.210  1234  1250 I ADASISv2: Horizon path extended, 2265 edges
+07-08 14:25:47.285  1234  1261 I ADASISv2: Horizon path extended, 1563 edges
+07-08 14:25:47.617  1234  1250 I HiveMindNavigator: Route progress updated: 288.9m remaining
+07-08 14:25:47.715  1234  1261 D TileStore: Cache hit for tile z14/2440/1220
+07-08 14:25:47.962  1234  1250 D Hybrid  : Router selected: onboard (latency 2788ms)
+07-08 14:25:48.135  1234  1261 D TileStore: Cache hit for tile z14/2580/6845
+07-08 14:25:48.425  1234  1234 D TileStore: Cache hit for tile z14/1520/1746
+07-08 14:25:48.739  1234  1250 D Hybrid  : Router selected: onboard (latency 6391ms)
+07-08 14:25:49.126  1234  1250 V NavSDK  : Location update lat=48.2390 lon=11.4159
+07-08 14:25:49.401  1234  1261 D TileStore: Cache hit for tile z14/9166/9946
+07-08 14:25:49.704  1234  1234 V NavSDK  : Location update lat=48.539 lon=11.5042
+07-08 14:25:49.935  1234  1261 D Hybrid  : Router selected: onboard (latency 3190ms)
+07-08 14:25:50.122  1234  1234 W NavSDK  : GPS accuracy degraded: 994m
+07-08 14:25:50.345  1234  1261 I HiveMindNavigator: Route progress updated: 224.6m remaining
+07-08 14:25:50.603  1234  1250 D Hybrid  : Router selected: onboard (latency 297ms)
+07-08 14:25:50.980  1234  1250 D TileStore: Cache hit for tile z14/6437/9412
+07-08 14:25:51.158  1234  1250 W NavSDK  : GPS accuracy degraded: 2930m
+07-08 14:25:51.542  1234  1234 I HiveMindNavigator: Route progress updated: 24.9m remaining
+07-08 14:25:51.597  1234  1250 D TileStore: Cache hit for tile z14/752/1090
+07-08 14:25:51.824  1234  1250 W NavSDK  : GPS accuracy degraded: 8309m
+07-08 14:25:52.022  1234  1261 I ADASISv2: Horizon path extended, 1450 edges
+07-08 14:25:52.260  1234  1250 D Hybrid  : Router selected: onboard (latency 2601ms)
+07-08 14:25:52.339  1234  1234 I HiveMindNavigator: Route progress updated: 465.1m remaining
+07-08 14:25:52.730  1234  1250 D TileStore: Cache hit for tile z14/8888/5453
+07-08 14:25:52.986  1234  1250 W NavSDK  : GPS accuracy degraded: 1183m
+07-08 14:25:53.280  1234  1234 W NavSDK  : GPS accuracy degraded: 4009m
+07-08 14:25:53.416  1234  1250 I ADASISv2: Horizon path extended, 2000 edges
+07-08 14:25:53.680  1234  1261 I HiveMindNavigator: Route progress updated: 285.3m remaining
+07-08 14:25:53.960  1234  1261 D TileStore: Cache hit for tile z14/2056/307
+07-08 14:25:54.058  1234  1250 I HiveMindNavigator: Route progress updated: 155.8m remaining
+07-08 14:25:54.291  1234  1234 W NavSDK  : GPS accuracy degraded: 4347m
+07-08 14:25:54.472  1234  1261 W NavSDK  : GPS accuracy degraded: 4503m
+07-08 14:25:54.832  1234  1250 I HiveMindNavigator: Route progress updated: 308.2m remaining
+07-08 14:25:54.977  1234  1261 I HiveMindNavigator: Route progress updated: 244.0m remaining
+07-08 14:25:55.247  1234  1261 I ADASISv2: Horizon path extended, 7557 edges
+07-08 14:25:55.423  1234  1234 I ADASISv2: Horizon path extended, 9387 edges
+07-08 14:25:55.601  1234  1261 V NavSDK  : Location update lat=48.1785 lon=11.9502
+07-08 14:25:55.904  1234  1234 D TileStore: Cache hit for tile z14/8436/142
+07-08 14:25:56.255  1234  1250 I HiveMindNavigator: Route progress updated: 227.7m remaining
+07-08 14:25:56.432  1234  1261 D TileStore: Cache hit for tile z14/3032/679
+07-08 14:25:56.763  1234  1234 W NavSDK  : GPS accuracy degraded: 6970m
+07-08 14:25:56.926  1234  1250 I ADASISv2: Horizon path extended, 5341 edges
+07-08 14:25:57.265  1234  1234 D Hybrid  : Router selected: onboard (latency 6208ms)
+07-08 14:25:57.491  1234  1261 I HiveMindNavigator: Route progress updated: 169.6m remaining
+07-08 14:25:57.884  1234  1250 I ADASISv2: Horizon path extended, 1229 edges
+07-08 14:25:58.237  1234  1261 V NavSDK  : Location update lat=48.5462 lon=11.1515
+07-08 14:25:58.447  1234  1261 V NavSDK  : Location update lat=48.3387 lon=11.4877
+07-08 14:25:58.772  1234  1250 W NavSDK  : GPS accuracy degraded: 4074m
+07-08 14:25:58.951  1234  1261 I ADASISv2: Horizon path extended, 3301 edges
+07-08 14:25:59.316  1234  1250 D TileStore: Cache hit for tile z14/2566/204
+07-08 14:25:59.374  1234  1261 D Hybrid  : Router selected: onboard (latency 5775ms)
+07-08 14:25:59.718  1234  1234 I HiveMindNavigator: Route progress updated: 856.4m remaining
+07-08 14:26:00.034  1234  1234 I ADASISv2: Horizon path extended, 5138 edges
+07-08 14:26:00.156  1234  1234 D TileStore: Cache hit for tile z14/6978/8161
+07-08 14:26:00.546  1234  1234 D TileStore: Cache hit for tile z14/4684/1624
+07-08 14:26:00.918  1234  1261 D Hybrid  : Router selected: onboard (latency 6867ms)
+07-08 14:26:01.282  1234  1261 I ADASISv2: Horizon path extended, 1491 edges
+07-08 14:26:01.365  1234  1261 D TileStore: Cache hit for tile z14/6561/1326
+07-08 14:26:01.614  1234  1234 I ADASISv2: Horizon path extended, 2241 edges
+07-08 14:26:01.766  1234  1250 V NavSDK  : Location update lat=48.6538 lon=11.5445
+07-08 14:26:01.975  1234  1234 D TileStore: Cache hit for tile z14/1323/3421
+07-08 14:26:02.298  1234  1234 D Hybrid  : Router selected: onboard (latency 1885ms)
+07-08 14:26:02.385  1234  1250 I ADASISv2: Horizon path extended, 7735 edges
+07-08 14:26:02.577  1234  1234 D Hybrid  : Router selected: onboard (latency 5970ms)
+07-08 14:26:02.785  1234  1234 I ADASISv2: Horizon path extended, 4441 edges
+07-08 14:26:02.867  1234  1261 W NavSDK  : GPS accuracy degraded: 5084m
+07-08 14:26:03.161  1234  1250 I HiveMindNavigator: Route progress updated: 201.4m remaining
+07-08 14:26:03.263  1234  1250 W NavSDK  : GPS accuracy degraded: 4166m
+07-08 14:26:03.451  1234  1250 I HiveMindNavigator: Route progress updated: 612.7m remaining
+07-08 14:26:03.788  1234  1250 D TileStore: Cache hit for tile z14/609/6725
+07-08 14:26:04.033  1234  1234 D Hybrid  : Router selected: onboard (latency 4193ms)
+07-08 14:26:04.245  1234  1234 D TileStore: Cache hit for tile z14/2089/295
+07-08 14:26:04.585  1234  1250 D TileStore: Cache hit for tile z14/2241/3346
+07-08 14:26:04.765  1234  1261 W NavSDK  : GPS accuracy degraded: 1476m
+07-08 14:26:05.021  1234  1234 I HiveMindNavigator: Route progress updated: 29.4m remaining
+07-08 14:26:05.140  1234  1234 W NavSDK  : GPS accuracy degraded: 7365m
+07-08 14:26:05.222  1234  1250 V NavSDK  : Location update lat=48.2107 lon=11.799
+07-08 14:26:05.290  1234  1261 D Hybrid  : Router selected: onboard (latency 7196ms)
+07-08 14:26:05.478  1234  1250 I HiveMindNavigator: Route progress updated: 350.6m remaining
+07-08 14:26:05.588  1234  1250 D TileStore: Cache hit for tile z14/3166/4605
+07-08 14:26:05.795  1234  1261 D TileStore: Cache hit for tile z14/667/4126
+07-08 14:26:05.948  1234  1250 I ADASISv2: Horizon path extended, 9122 edges
+07-08 14:26:06.019  1234  1250 V NavSDK  : Location update lat=48.6375 lon=11.2348
+07-08 14:26:06.139  1234  1261 D Hybrid  : Router selected: onboard (latency 4182ms)
+07-08 14:26:06.537  1234  1250 D Hybrid  : Router selected: onboard (latency 419ms)
+07-08 14:26:06.861  1234  1250 V NavSDK  : Location update lat=48.7959 lon=11.9021
+07-08 14:26:07.031  1234  1250 D Hybrid  : Router selected: onboard (latency 8331ms)
+07-08 14:26:07.217  1234  1261 D TileStore: Cache hit for tile z14/527/5324
+07-08 14:26:07.344  1234  1261 V NavSDK  : Location update lat=48.1059 lon=11.7828
+07-08 14:26:07.519  1234  1234 D Hybrid  : Router selected: onboard (latency 3913ms)
+07-08 14:26:07.604  1234  1250 W NavSDK  : GPS accuracy degraded: 4051m
+07-08 14:26:07.841  1234  1234 W NavSDK  : GPS accuracy degraded: 1016m
+07-08 14:26:08.092  1234  1234 I ADASISv2: Horizon path extended, 5913 edges
+07-08 14:26:08.204  1234  1261 D Hybrid  : Router selected: onboard (latency 5310ms)
+07-08 14:26:08.498  1234  1261 D Hybrid  : Router selected: onboard (latency 562ms)
+07-08 14:26:08.793  1234  1234 D Hybrid  : Router selected: onboard (latency 9334ms)
+07-08 14:26:09.040  1234  1250 D TileStore: Cache hit for tile z14/8164/8982
+07-08 14:26:09.152  1234  1234 I HiveMindNavigator: Route progress updated: 90.3m remaining
+07-08 14:26:09.412  1234  1234 I HiveMindNavigator: Route progress updated: 478.5m remaining
+07-08 14:26:09.578  1234  1234 D Hybrid  : Router selected: onboard (latency 3400ms)
+07-08 14:26:09.748  1234  1234 D TileStore: Cache hit for tile z14/5401/1075
+07-08 14:26:09.849  1234  1234 W NavSDK  : GPS accuracy degraded: 2420m
+07-08 14:26:10.196  1234  1261 V NavSDK  : Location update lat=48.1288 lon=11.6220
+07-08 14:26:10.575  1234  1234 I ADASISv2: Horizon path extended, 9701 edges
+07-08 14:26:10.743  1234  1261 V NavSDK  : Location update lat=48.2335 lon=11.2680
+07-08 14:26:11.125  1234  1261 W NavSDK  : GPS accuracy degraded: 8082m
+07-08 14:26:11.286  1234  1261 W NavSDK  : GPS accuracy degraded: 9307m
+07-08 14:26:11.647  1234  1234 D Hybrid  : Router selected: onboard (latency 5946ms)
+07-08 14:26:11.930  1234  1261 D TileStore: Cache hit for tile z14/6299/5126
+07-08 14:26:12.221  1234  1261 D TileStore: Cache hit for tile z14/3011/129
+07-08 14:26:12.603  1234  1234 I ADASISv2: Horizon path extended, 9397 edges
+07-08 14:26:12.717  1234  1234 V NavSDK  : Location update lat=48.3719 lon=11.9365
+07-08 14:26:13.095  1234  1234 D TileStore: Cache hit for tile z14/5525/1374
+07-08 14:26:13.266  1234  1261 V NavSDK  : Location update lat=48.2850 lon=11.1553
+07-08 14:26:13.551  1234  1250 W NavSDK  : GPS accuracy degraded: 5600m
+07-08 14:26:13.605  1234  1250 D TileStore: Cache hit for tile z14/4188/1210
+07-08 14:36:12.482  1234  1250 E HiveMindNavigator: TileStore error: HTTP 403 for sample-dataset/2025_12_10-03_00_00 (BLOCKED_VERSION)
+07-08 14:36:12.640  1234  1250 E HiveMindNavigator: Router error: NoRoute for request 8842, falling back to onboard
+07-08 14:26:14.289  1234  1250 I ADASISv2: Horizon path extended, 6304 edges
+07-08 14:26:14.530  1234  1261 I HiveMindNavigator: Route progress updated: 747.6m remaining
+07-08 14:26:14.808  1234  1234 W NavSDK  : GPS accuracy degraded: 3795m
+07-08 14:26:15.016  1234  1250 I HiveMindNavigator: Route progress updated: 272.5m remaining
+07-08 14:26:15.158  1234  1234 I HiveMindNavigator: Route progress updated: 76.0m remaining
+07-08 14:26:15.518  1234  1234 D TileStore: Cache hit for tile z14/1328/9062
+07-08 14:26:15.687  1234  1261 D Hybrid  : Router selected: onboard (latency 8009ms)
+07-08 14:26:15.748  1234  1261 W NavSDK  : GPS accuracy degraded: 2803m
+07-08 14:26:16.109  1234  1250 D TileStore: Cache hit for tile z14/977/1759
+07-08 14:26:16.231  1234  1261 D TileStore: Cache hit for tile z14/6805/9178
+07-08 14:26:16.605  1234  1261 D Hybrid  : Router selected: onboard (latency 4446ms)
+07-08 14:26:16.753  1234  1250 D TileStore: Cache hit for tile z14/1671/913
+07-08 14:26:17.003  1234  1234 I ADASISv2: Horizon path extended, 2616 edges
+07-08 14:26:17.180  1234  1250 I ADASISv2: Horizon path extended, 1535 edges
+07-08 14:26:17.518  1234  1250 W NavSDK  : GPS accuracy degraded: 9933m
+07-08 14:26:17.638  1234  1261 I HiveMindNavigator: Route progress updated: 194.2m remaining
+07-08 14:26:17.790  1234  1234 I HiveMindNavigator: Route progress updated: 431.5m remaining
+07-08 14:26:17.948  1234  1250 I ADASISv2: Horizon path extended, 7815 edges
+07-08 14:26:18.311  1234  1250 V NavSDK  : Location update lat=48.1593 lon=11.9014
+07-08 14:26:18.426  1234  1234 I ADASISv2: Horizon path extended, 6152 edges
+07-08 14:26:18.632  1234  1250 V NavSDK  : Location update lat=48.7304 lon=11.7719
+07-08 14:26:18.761  1234  1234 V NavSDK  : Location update lat=48.9344 lon=11.1109
+07-08 14:26:19.074  1234  1234 W NavSDK  : GPS accuracy degraded: 1684m
+07-08 14:26:19.358  1234  1261 D Hybrid  : Router selected: onboard (latency 6882ms)
+07-08 14:26:19.488  1234  1261 I HiveMindNavigator: Route progress updated: 758.3m remaining
+07-08 14:26:19.684  1234  1261 D Hybrid  : Router selected: onboard (latency 7879ms)
+07-08 14:26:20.043  1234  1234 I ADASISv2: Horizon path extended, 4996 edges
+07-08 14:26:20.231  1234  1261 W NavSDK  : GPS accuracy degraded: 668m
+07-08 14:26:20.481  1234  1261 D Hybrid  : Router selected: onboard (latency 9463ms)
+07-08 14:26:20.875  1234  1234 D TileStore: Cache hit for tile z14/2070/7457
+07-08 14:26:21.257  1234  1234 D TileStore: Cache hit for tile z14/3571/3257
+07-08 14:26:21.322  1234  1250 I HiveMindNavigator: Route progress updated: 889.6m remaining
+07-08 14:26:21.443  1234  1261 W NavSDK  : GPS accuracy degraded: 2522m
+07-08 14:26:21.583  1234  1234 W NavSDK  : GPS accuracy degraded: 1197m
+07-08 14:26:21.769  1234  1250 I ADASISv2: Horizon path extended, 9144 edges
+07-08 14:26:22.119  1234  1234 D Hybrid  : Router selected: onboard (latency 7606ms)
+07-08 14:26:22.444  1234  1261 D Hybrid  : Router selected: onboard (latency 9726ms)
+07-08 14:26:22.768  1234  1234 I HiveMindNavigator: Route progress updated: 378.9m remaining
+07-08 14:26:23.016  1234  1234 D Hybrid  : Router selected: onboard (latency 1741ms)
+07-08 14:26:23.263  1234  1261 I HiveMindNavigator: Route progress updated: 709.3m remaining
+07-08 14:26:23.621  1234  1250 I ADASISv2: Horizon path extended, 4427 edges
+07-08 14:26:23.900  1234  1234 D Hybrid  : Router selected: onboard (latency 7850ms)
+07-08 14:26:24.010  1234  1261 I ADASISv2: Horizon path extended, 2456 edges
+07-08 14:26:24.273  1234  1234 W NavSDK  : GPS accuracy degraded: 6681m
+07-08 14:26:24.462  1234  1261 V NavSDK  : Location update lat=48.3992 lon=11.907
+07-08 14:26:24.678  1234  1250 V NavSDK  : Location update lat=48.6202 lon=11.431
+07-08 14:26:25.014  1234  1250 V NavSDK  : Location update lat=48.5194 lon=11.4693
+07-08 14:26:25.365  1234  1234 W NavSDK  : GPS accuracy degraded: 1709m
+07-08 14:26:25.462  1234  1250 W NavSDK  : GPS accuracy degraded: 7359m
+07-08 14:26:25.606  1234  1234 I ADASISv2: Horizon path extended, 1562 edges
+07-08 14:26:25.811  1234  1261 I ADASISv2: Horizon path extended, 8037 edges
+07-08 14:26:26.164  1234  1234 I HiveMindNavigator: Route progress updated: 468.6m remaining
+07-08 14:26:26.237  1234  1250 W NavSDK  : GPS accuracy degraded: 8403m
+07-08 14:26:26.335  1234  1234 D Hybrid  : Router selected: onboard (latency 9417ms)
+07-08 14:26:26.446  1234  1234 D TileStore: Cache hit for tile z14/1044/4187
+07-08 14:26:26.655  1234  1250 V NavSDK  : Location update lat=48.3362 lon=11.4588
+07-08 14:26:26.994  1234  1261 D Hybrid  : Router selected: onboard (latency 6603ms)
+07-08 14:26:27.367  1234  1234 W NavSDK  : GPS accuracy degraded: 600m
+07-08 14:26:27.547  1234  1234 D Hybrid  : Router selected: onboard (latency 7408ms)
+07-08 14:26:27.933  1234  1261 I ADASISv2: Horizon path extended, 9715 edges
+07-08 14:26:28.106  1234  1250 D TileStore: Cache hit for tile z14/4337/1580
+07-08 14:26:28.165  1234  1261 I HiveMindNavigator: Route progress updated: 155.0m remaining
+07-08 14:26:28.488  1234  1261 D TileStore: Cache hit for tile z14/3726/3788
+07-08 14:26:28.610  1234  1261 W NavSDK  : GPS accuracy degraded: 6809m
+07-08 14:26:28.667  1234  1250 W NavSDK  : GPS accuracy degraded: 245m
+07-08 14:26:29.036  1234  1261 W NavSDK  : GPS accuracy degraded: 2937m
+07-08 14:26:29.367  1234  1261 D TileStore: Cache hit for tile z14/4235/5104
+07-08 14:26:29.755  1234  1250 W NavSDK  : GPS accuracy degraded: 4611m
+07-08 14:26:30.119  1234  1234 V NavSDK  : Location update lat=48.7620 lon=11.4228
+07-08 14:26:30.332  1234  1261 W NavSDK  : GPS accuracy degraded: 8630m
+07-08 14:26:30.521  1234  1261 I HiveMindNavigator: Route progress updated: 16.5m remaining
+07-08 14:26:30.909  1234  1261 V NavSDK  : Location update lat=48.9298 lon=11.9828
+07-08 14:26:31.058  1234  1250 W NavSDK  : GPS accuracy degraded: 1871m
+07-08 14:26:31.131  1234  1250 V NavSDK  : Location update lat=48.5427 lon=11.4636
+07-08 14:26:31.410  1234  1234 W NavSDK  : GPS accuracy degraded: 4995m
+07-08 14:26:31.513  1234  1250 D TileStore: Cache hit for tile z14/1030/9930
+07-08 14:26:31.794  1234  1261 W NavSDK  : GPS accuracy degraded: 2392m
+07-08 14:26:31.853  1234  1250 I ADASISv2: Horizon path extended, 4943 edges
+07-08 14:26:32.220  1234  1261 I ADASISv2: Horizon path extended, 6461 edges
+07-08 14:26:32.283  1234  1234 W NavSDK  : GPS accuracy degraded: 9472m
+07-08 14:26:32.453  1234  1261 W NavSDK  : GPS accuracy degraded: 3743m
+07-08 14:26:32.690  1234  1261 I ADASISv2: Horizon path extended, 5973 edges
+07-08 14:26:32.845  1234  1250 D TileStore: Cache hit for tile z14/9246/3067
+07-08 14:26:32.929  1234  1234 D TileStore: Cache hit for tile z14/4337/9259
+07-08 14:26:33.310  1234  1250 V NavSDK  : Location update lat=48.1563 lon=11.3741
+07-08 14:26:33.439  1234  1250 V NavSDK  : Location update lat=48.6989 lon=11.5528
+07-08 14:26:33.580  1234  1250 V NavSDK  : Location update lat=48.7698 lon=11.2029
+07-08 14:26:33.649  1234  1261 W NavSDK  : GPS accuracy degraded: 9661m
+07-08 14:26:34.029  1234  1234 I HiveMindNavigator: Route progress updated: 430.3m remaining
+07-08 14:26:34.254  1234  1261 W NavSDK  : GPS accuracy degraded: 6353m
+07-08 14:26:34.409  1234  1234 I HiveMindNavigator: Route progress updated: 785.1m remaining
+07-08 14:26:34.507  1234  1261 D TileStore: Cache hit for tile z14/5714/6804
+07-08 14:26:34.869  1234  1250 I ADASISv2: Horizon path extended, 2446 edges
+07-08 14:26:35.221  1234  1250 D TileStore: Cache hit for tile z14/1424/8088
+07-08 14:26:35.492  1234  1234 D TileStore: Cache hit for tile z14/5234/1050
+07-08 14:26:35.700  1234  1234 D TileStore: Cache hit for tile z14/2862/9541
+07-08 14:26:35.922  1234  1250 I HiveMindNavigator: Route progress updated: 125.2m remaining
+07-08 14:26:36.193  1234  1250 I ADASISv2: Horizon path extended, 7129 edges
+07-08 14:26:36.377  1234  1261 I HiveMindNavigator: Route progress updated: 485.1m remaining
+07-08 14:26:36.558  1234  1261 I HiveMindNavigator: Route progress updated: 803.9m remaining
+07-08 14:26:36.675  1234  1261 W NavSDK  : GPS accuracy degraded: 167m
+07-08 14:26:36.981  1234  1234 D TileStore: Cache hit for tile z14/5741/5213
+07-08 14:26:37.067  1234  1250 D Hybrid  : Router selected: onboard (latency 9744ms)
+07-08 14:26:37.176  1234  1250 I HiveMindNavigator: Route progress updated: 275.4m remaining
+07-08 14:26:37.385  1234  1261 D Hybrid  : Router selected: onboard (latency 9870ms)
+07-08 14:26:37.554  1234  1250 W NavSDK  : GPS accuracy degraded: 2292m
+07-08 14:26:37.952  1234  1234 I ADASISv2: Horizon path extended, 5985 edges
+07-08 14:26:38.060  1234  1234 I ADASISv2: Horizon path extended, 413 edges
+07-08 14:26:38.189  1234  1261 D TileStore: Cache hit for tile z14/3560/459
+07-08 14:26:38.415  1234  1261 I HiveMindNavigator: Route progress updated: 336.3m remaining
+07-08 14:26:38.742  1234  1261 I ADASISv2: Horizon path extended, 4290 edges
+07-08 14:26:39.011  1234  1261 D Hybrid  : Router selected: onboard (latency 885ms)
+07-08 14:26:39.098  1234  1234 I HiveMindNavigator: Route progress updated: 52.9m remaining
+07-08 14:26:39.294  1234  1261 I ADASISv2: Horizon path extended, 2124 edges
+07-08 14:26:39.433  1234  1234 W NavSDK  : GPS accuracy degraded: 2608m
+07-08 14:26:39.726  1234  1250 W NavSDK  : GPS accuracy degraded: 252m
+07-08 14:26:39.923  1234  1250 I HiveMindNavigator: Route progress updated: 599.6m remaining
+07-08 14:26:40.191  1234  1250 W NavSDK  : GPS accuracy degraded: 2347m
+07-08 14:26:40.532  1234  1261 I HiveMindNavigator: Route progress updated: 465.3m remaining
+07-08 14:26:40.623  1234  1250 I HiveMindNavigator: Route progress updated: 708.4m remaining
+07-08 14:26:40.743  1234  1234 D TileStore: Cache hit for tile z14/4408/8671
+07-08 14:26:40.918  1234  1234 I ADASISv2: Horizon path extended, 4939 edges
+07-08 14:26:40.982  1234  1261 I ADASISv2: Horizon path extended, 3502 edges
+07-08 14:26:41.358  1234  1234 V NavSDK  : Location update lat=48.3942 lon=11.144
+07-08 14:26:41.643  1234  1261 I HiveMindNavigator: Route progress updated: 753.4m remaining
+07-08 14:26:41.866  1234  1234 I HiveMindNavigator: Route progress updated: 703.8m remaining
+07-08 14:26:42.170  1234  1261 I HiveMindNavigator: Route progress updated: 815.3m remaining
+07-08 14:26:42.301  1234  1234 V NavSDK  : Location update lat=48.4427 lon=11.7706
+07-08 14:26:42.386  1234  1250 D TileStore: Cache hit for tile z14/746/4860
+07-08 14:26:42.716  1234  1234 V NavSDK  : Location update lat=48.7079 lon=11.1998
+07-08 14:26:43.064  1234  1234 I HiveMindNavigator: Route progress updated: 18.6m remaining
+07-08 14:26:43.346  1234  1250 D TileStore: Cache hit for tile z14/5484/5957
+07-08 14:26:43.730  1234  1250 V NavSDK  : Location update lat=48.1622 lon=11.6205
+07-08 14:26:43.844  1234  1250 I ADASISv2: Horizon path extended, 6657 edges
+07-08 14:26:43.990  1234  1250 I ADASISv2: Horizon path extended, 7935 edges
+07-08 14:26:44.267  1234  1261 D TileStore: Cache hit for tile z14/1952/2271
+07-08 14:26:44.571  1234  1261 D TileStore: Cache hit for tile z14/1799/6916
+07-08 14:26:44.790  1234  1234 D Hybrid  : Router selected: onboard (latency 7278ms)
+07-08 14:26:45.054  1234  1250 V NavSDK  : Location update lat=48.572 lon=11.2240
+07-08 14:26:45.426  1234  1250 I HiveMindNavigator: Route progress updated: 800.0m remaining
+07-08 14:26:45.492  1234  1261 V NavSDK  : Location update lat=48.5248 lon=11.302
+07-08 14:26:45.846  1234  1261 D Hybrid  : Router selected: onboard (latency 9547ms)
+07-08 14:26:46.094  1234  1261 W NavSDK  : GPS accuracy degraded: 5642m
+07-08 14:26:46.327  1234  1250 W NavSDK  : GPS accuracy degraded: 1660m
+07-08 14:26:46.608  1234  1261 D TileStore: Cache hit for tile z14/7995/5764
+07-08 14:26:46.895  1234  1261 I ADASISv2: Horizon path extended, 2535 edges
+07-08 14:26:47.257  1234  1234 D Hybrid  : Router selected: onboard (latency 994ms)
+07-08 14:26:47.533  1234  1250 D TileStore: Cache hit for tile z14/8383/7788
+07-08 14:26:47.887  1234  1250 I HiveMindNavigator: Route progress updated: 678.8m remaining
+07-08 14:26:48.021  1234  1234 V NavSDK  : Location update lat=48.924 lon=11.8405
+07-08 14:26:48.264  1234  1234 I ADASISv2: Horizon path extended, 6707 edges
+07-08 14:26:48.341  1234  1250 I ADASISv2: Horizon path extended, 9488 edges
+07-08 14:26:48.422  1234  1250 I ADASISv2: Horizon path extended, 7424 edges
+07-08 14:26:48.514  1234  1234 I ADASISv2: Horizon path extended, 391 edges
+07-08 14:26:48.705  1234  1234 I HiveMindNavigator: Route progress updated: 505.8m remaining
+07-08 14:26:49.044  1234  1261 D Hybrid  : Router selected: onboard (latency 5090ms)
+07-08 14:26:49.291  1234  1250 W NavSDK  : GPS accuracy degraded: 7574m
+07-08 14:26:49.468  1234  1250 I HiveMindNavigator: Route progress updated: 736.8m remaining
+07-08 14:26:49.634  1234  1250 D Hybrid  : Router selected: onboard (latency 9929ms)
+07-08 14:26:49.935  1234  1234 V NavSDK  : Location update lat=48.7514 lon=11.1968
+07-08 14:26:50.251  1234  1250 D TileStore: Cache hit for tile z14/135/5692
+07-08 14:26:50.591  1234  1250 V NavSDK  : Location update lat=48.9073 lon=11.8652
+07-08 14:26:50.887  1234  1250 I HiveMindNavigator: Route progress updated: 808.2m remaining
+07-08 14:26:50.986  1234  1234 W NavSDK  : GPS accuracy degraded: 6804m
+07-08 14:26:51.125  1234  1250 D TileStore: Cache hit for tile z14/3172/2078
+07-08 14:26:51.251  1234  1250 D TileStore: Cache hit for tile z14/5636/1865
+07-08 14:26:51.317  1234  1234 W NavSDK  : GPS accuracy degraded: 9747m
+07-08 14:26:51.637  1234  1261 I ADASISv2: Horizon path extended, 7593 edges
+07-08 14:26:51.893  1234  1250 D Hybrid  : Router selected: onboard (latency 2305ms)
+07-08 14:26:51.945  1234  1261 W NavSDK  : GPS accuracy degraded: 895m
+07-08 14:26:52.322  1234  1261 D Hybrid  : Router selected: onboard (latency 8012ms)
+07-08 14:26:52.646  1234  1261 D TileStore: Cache hit for tile z14/9579/2945
+07-08 14:26:52.981  1234  1261 I HiveMindNavigator: Route progress updated: 354.8m remaining
+07-08 14:26:53.243  1234  1250 V NavSDK  : Location update lat=48.8359 lon=11.6402
+07-08 14:26:53.636  1234  1250 W NavSDK  : GPS accuracy degraded: 4167m
+07-08 14:26:53.825  1234  1234 V NavSDK  : Location update lat=48.4919 lon=11.7519
+07-08 14:26:53.924  1234  1250 D Hybrid  : Router selected: onboard (latency 8493ms)
+07-08 14:26:54.269  1234  1261 D Hybrid  : Router selected: onboard (latency 5243ms)
+07-08 14:26:54.577  1234  1234 D Hybrid  : Router selected: onboard (latency 3660ms)
+07-08 14:26:54.700  1234  1261 W NavSDK  : GPS accuracy degraded: 4860m
+07-08 14:26:54.871  1234  1261 W NavSDK  : GPS accuracy degraded: 2273m
+07-08 14:26:55.148  1234  1261 D TileStore: Cache hit for tile z14/8355/8988
+07-08 14:26:55.421  1234  1250 W NavSDK  : GPS accuracy degraded: 1990m
+07-08 14:26:55.668  1234  1261 D Hybrid  : Router selected: onboard (latency 9449ms)
+07-08 14:26:55.967  1234  1250 W NavSDK  : GPS accuracy degraded: 8847m
+07-08 14:26:56.324  1234  1261 I ADASISv2: Horizon path extended, 309 edges
+07-08 14:26:56.411  1234  1234 I ADASISv2: Horizon path extended, 2481 edges
+07-08 14:26:56.696  1234  1250 D TileStore: Cache hit for tile z14/4474/2736
+07-08 14:26:56.985  1234  1234 D TileStore: Cache hit for tile z14/1116/4935
+07-08 14:26:57.298  1234  1250 I HiveMindNavigator: Route progress updated: 329.2m remaining
+07-08 14:26:57.384  1234  1234 W NavSDK  : GPS accuracy degraded: 9305m
+07-08 14:26:57.694  1234  1234 D Hybrid  : Router selected: onboard (latency 6471ms)
+07-08 14:26:57.923  1234  1261 W NavSDK  : GPS accuracy degraded: 4812m
+07-08 14:26:58.206  1234  1250 I ADASISv2: Horizon path extended, 6449 edges
+07-08 14:26:58.590  1234  1261 W NavSDK  : GPS accuracy degraded: 5222m
+07-08 14:26:58.659  1234  1234 W NavSDK  : GPS accuracy degraded: 4217m
+07-08 14:26:58.926  1234  1261 I ADASISv2: Horizon path extended, 3795 edges
+07-08 14:26:59.223  1234  1261 W NavSDK  : GPS accuracy degraded: 6125m
+07-08 14:26:59.464  1234  1261 D Hybrid  : Router selected: onboard (latency 3318ms)
+07-08 14:26:59.852  1234  1261 V NavSDK  : Location update lat=48.7453 lon=11.3006
+07-08 14:26:59.928  1234  1250 D TileStore: Cache hit for tile z14/8518/2055
+07-08 14:26:59.992  1234  1234 V NavSDK  : Location update lat=48.9219 lon=11.4429
+07-08 14:27:00.099  1234  1250 V NavSDK  : Location update lat=48.192 lon=11.5515
+07-08 14:27:00.397  1234  1250 D TileStore: Cache hit for tile z14/754/2618
+07-08 14:27:00.656  1234  1250 W NavSDK  : GPS accuracy degraded: 5034m
+07-08 14:27:00.982  1234  1234 D Hybrid  : Router selected: onboard (latency 5966ms)
+07-08 14:27:01.307  1234  1234 V NavSDK  : Location update lat=48.8708 lon=11.3703
+07-08 14:27:01.539  1234  1250 D Hybrid  : Router selected: onboard (latency 2711ms)
+07-08 14:27:01.779  1234  1250 I ADASISv2: Horizon path extended, 1606 edges
+07-08 14:27:01.906  1234  1250 D TileStore: Cache hit for tile z14/5537/5524
+07-08 14:27:02.059  1234  1250 D Hybrid  : Router selected: onboard (latency 8791ms)
+07-08 14:27:02.458  1234  1234 W NavSDK  : GPS accuracy degraded: 244m
+07-08 14:27:02.742  1234  1261 I ADASISv2: Horizon path extended, 4037 edges
+07-08 14:27:03.007  1234  1234 D Hybrid  : Router selected: onboard (latency 4094ms)
+07-08 14:27:03.296  1234  1250 V NavSDK  : Location update lat=48.6348 lon=11.1957
+07-08 14:27:03.436  1234  1234 W NavSDK  : GPS accuracy degraded: 4733m
+07-08 14:27:03.805  1234  1250 V NavSDK  : Location update lat=48.8526 lon=11.8435
+07-08 14:27:04.025  1234  1261 V NavSDK  : Location update lat=48.3254 lon=11.5348
+07-08 14:27:04.104  1234  1261 I HiveMindNavigator: Route progress updated: 159.0m remaining
+07-08 14:27:04.340  1234  1234 W NavSDK  : GPS accuracy degraded: 1172m
+07-08 14:27:04.625  1234  1234 D TileStore: Cache hit for tile z14/7050/1802
+07-08 14:27:04.863  1234  1261 W NavSDK  : GPS accuracy degraded: 7230m
+07-08 14:27:05.199  1234  1234 I HiveMindNavigator: Route progress updated: 674.7m remaining
+07-08 14:27:05.257  1234  1234 W NavSDK  : GPS accuracy degraded: 5534m
+07-08 14:27:05.338  1234  1250 I HiveMindNavigator: Route progress updated: 168.4m remaining
+07-08 14:27:05.583  1234  1250 D Hybrid  : Router selected: onboard (latency 3829ms)
+07-08 14:27:05.776  1234  1250 I ADASISv2: Horizon path extended, 6726 edges
+07-08 14:27:05.937  1234  1261 I ADASISv2: Horizon path extended, 2038 edges
+07-08 14:27:05.989  1234  1261 W NavSDK  : GPS accuracy degraded: 1136m
+07-08 14:27:06.244  1234  1250 W NavSDK  : GPS accuracy degraded: 1289m
+07-08 14:27:06.619  1234  1261 I HiveMindNavigator: Route progress updated: 268.0m remaining
+07-08 14:27:06.774  1234  1250 I HiveMindNavigator: Route progress updated: 260.6m remaining
+07-08 14:27:06.958  1234  1250 W NavSDK  : GPS accuracy degraded: 604m
+07-08 14:27:07.062  1234  1261 D TileStore: Cache hit for tile z14/2334/6506
+07-08 14:27:07.216  1234  1250 W NavSDK  : GPS accuracy degraded: 2460m
+07-08 14:27:07.503  1234  1234 W NavSDK  : GPS accuracy degraded: 6213m
+07-08 14:27:07.746  1234  1234 D Hybrid  : Router selected: onboard (latency 2416ms)
+07-08 14:27:07.811  1234  1250 D Hybrid  : Router selected: onboard (latency 9875ms)
+07-08 14:27:08.049  1234  1261 I HiveMindNavigator: Route progress updated: 281.2m remaining
+07-08 14:27:08.358  1234  1234 W NavSDK  : GPS accuracy degraded: 5733m
+07-08 14:27:08.553  1234  1234 W NavSDK  : GPS accuracy degraded: 8497m
+07-08 14:27:08.659  1234  1234 D TileStore: Cache hit for tile z14/4240/3283
+07-08 14:41:03.114  1234  1261 E NavSDK  : FATAL binder transaction failed in VHAL bridge, code 29189
+07-08 14:27:08.984  1234  1250 D Hybrid  : Router selected: onboard (latency 1298ms)
+07-08 14:27:09.269  1234  1261 V NavSDK  : Location update lat=48.1708 lon=11.3334
+07-08 14:27:09.522  1234  1261 V NavSDK  : Location update lat=48.5951 lon=11.2200
+07-08 14:27:09.802  1234  1234 I HiveMindNavigator: Route progress updated: 263.8m remaining
+07-08 14:27:10.167  1234  1250 V NavSDK  : Location update lat=48.8060 lon=11.7483
+07-08 14:27:10.433  1234  1261 V NavSDK  : Location update lat=48.9671 lon=11.2596
+07-08 14:27:10.681  1234  1234 V NavSDK  : Location update lat=48.7117 lon=11.2862
+07-08 14:27:10.841  1234  1250 D TileStore: Cache hit for tile z14/7245/4633
+07-08 14:27:10.938  1234  1250 W NavSDK  : GPS accuracy degraded: 5532m
+07-08 14:27:11.150  1234  1261 V NavSDK  : Location update lat=48.5104 lon=11.8078
+07-08 14:27:11.238  1234  1250 W NavSDK  : GPS accuracy degraded: 1443m
+07-08 14:27:11.588  1234  1250 D TileStore: Cache hit for tile z14/8924/3318
+07-08 14:27:11.895  1234  1261 W NavSDK  : GPS accuracy degraded: 1352m
+07-08 14:27:11.971  1234  1261 I HiveMindNavigator: Route progress updated: 766.1m remaining
+07-08 14:27:12.032  1234  1250 D Hybrid  : Router selected: onboard (latency 9584ms)
+07-08 14:27:12.352  1234  1250 D TileStore: Cache hit for tile z14/700/9137
+07-08 14:27:12.592  1234  1261 D Hybrid  : Router selected: onboard (latency 7834ms)
+07-08 14:27:12.913  1234  1261 V NavSDK  : Location update lat=48.6530 lon=11.3758
+07-08 14:27:13.220  1234  1261 V NavSDK  : Location update lat=48.2293 lon=11.7713
+07-08 14:27:13.448  1234  1261 I ADASISv2: Horizon path extended, 6061 edges
+07-08 14:27:13.502  1234  1234 D TileStore: Cache hit for tile z14/2817/8523
+07-08 14:27:13.708  1234  1261 D TileStore: Cache hit for tile z14/9379/9370
+07-08 14:27:14.064  1234  1234 D TileStore: Cache hit for tile z14/8021/5978
+07-08 14:27:14.190  1234  1234 I ADASISv2: Horizon path extended, 3896 edges
+07-08 14:27:14.333  1234  1261 D TileStore: Cache hit for tile z14/801/3487
+07-08 14:27:14.700  1234  1250 V NavSDK  : Location update lat=48.6458 lon=11.7795
+07-08 14:27:15.059  1234  1250 I HiveMindNavigator: Route progress updated: 882.7m remaining
+07-08 14:27:15.145  1234  1261 D Hybrid  : Router selected: onboard (latency 4580ms)
+07-08 14:27:15.287  1234  1234 D Hybrid  : Router selected: onboard (latency 9441ms)
+07-08 14:27:15.469  1234  1261 I ADASISv2: Horizon path extended, 6085 edges
+07-08 14:27:15.748  1234  1250 I HiveMindNavigator: Route progress updated: 469.8m remaining
+07-08 14:27:16.138  1234  1250 D TileStore: Cache hit for tile z14/8560/6749
+07-08 14:27:16.474  1234  1261 V NavSDK  : Location update lat=48.8076 lon=11.7998
+07-08 14:27:16.526  1234  1234 D TileStore: Cache hit for tile z14/7307/2813
+07-08 14:27:16.603  1234  1234 W NavSDK  : GPS accuracy degraded: 4700m
+07-08 14:27:16.706  1234  1261 D TileStore: Cache hit for tile z14/6034/9963
+07-08 14:27:17.042  1234  1250 W NavSDK  : GPS accuracy degraded: 3873m
+07-08 14:27:17.376  1234  1250 W NavSDK  : GPS accuracy degraded: 1956m
+07-08 14:27:17.662  1234  1261 I ADASISv2: Horizon path extended, 3552 edges
+07-08 14:27:17.769  1234  1234 I ADASISv2: Horizon path extended, 467 edges
+07-08 14:27:17.834  1234  1234 D Hybrid  : Router selected: onboard (latency 9805ms)
+07-08 14:27:17.931  1234  1261 D Hybrid  : Router selected: onboard (latency 742ms)
+07-08 14:27:18.032  1234  1261 D TileStore: Cache hit for tile z14/4331/3049
+07-08 14:27:18.418  1234  1261 D Hybrid  : Router selected: onboard (latency 9334ms)
+07-08 14:27:18.474  1234  1234 W NavSDK  : GPS accuracy degraded: 4744m
+07-08 14:27:18.600  1234  1250 D Hybrid  : Router selected: onboard (latency 7823ms)
+07-08 14:27:18.710  1234  1234 I ADASISv2: Horizon path extended, 9944 edges
+07-08 14:27:19.038  1234  1234 D TileStore: Cache hit for tile z14/8469/4433
+07-08 14:27:19.341  1234  1261 V NavSDK  : Location update lat=48.7529 lon=11.9873
+07-08 14:27:19.415  1234  1234 I ADASISv2: Horizon path extended, 6415 edges
+07-08 14:27:19.503  1234  1261 D TileStore: Cache hit for tile z14/8664/8363
+07-08 14:27:19.700  1234  1250 D TileStore: Cache hit for tile z14/1677/3006
+07-08 14:27:20.066  1234  1261 D Hybrid  : Router selected: onboard (latency 739ms)
+07-08 14:27:20.292  1234  1261 I HiveMindNavigator: Route progress updated: 92.9m remaining
+07-08 14:27:20.388  1234  1234 D Hybrid  : Router selected: onboard (latency 8935ms)
+07-08 14:27:20.752  1234  1261 W NavSDK  : GPS accuracy degraded: 7169m
+07-08 14:27:20.949  1234  1250 I HiveMindNavigator: Route progress updated: 630.9m remaining
+07-08 14:27:21.079  1234  1250 I ADASISv2: Horizon path extended, 6346 edges
+07-08 14:27:21.335  1234  1234 W NavSDK  : GPS accuracy degraded: 9539m
+07-08 14:27:21.534  1234  1234 V NavSDK  : Location update lat=48.7917 lon=11.3909
+07-08 14:27:21.683  1234  1250 D Hybrid  : Router selected: onboard (latency 6795ms)
+07-08 14:27:21.800  1234  1261 W NavSDK  : GPS accuracy degraded: 216m
+07-08 14:27:22.032  1234  1250 D Hybrid  : Router selected: onboard (latency 217ms)
+07-08 14:27:22.311  1234  1250 W NavSDK  : GPS accuracy degraded: 5275m
+07-08 14:27:22.488  1234  1250 D TileStore: Cache hit for tile z14/7080/9690
+07-08 14:27:22.630  1234  1261 D Hybrid  : Router selected: onboard (latency 7039ms)
+07-08 14:27:22.808  1234  1250 V NavSDK  : Location update lat=48.6611 lon=11.3437
+07-08 14:27:23.051  1234  1234 D Hybrid  : Router selected: onboard (latency 8004ms)
+07-08 14:27:23.231  1234  1250 D Hybrid  : Router selected: onboard (latency 8025ms)
+07-08 14:27:23.627  1234  1261 D Hybrid  : Router selected: onboard (latency 5741ms)
+07-08 14:27:23.816  1234  1250 D TileStore: Cache hit for tile z14/2051/3864
+07-08 14:27:24.140  1234  1261 D TileStore: Cache hit for tile z14/1742/3613
+07-08 14:27:24.330  1234  1234 V NavSDK  : Location update lat=48.9120 lon=11.952
+07-08 14:27:24.516  1234  1234 W NavSDK  : GPS accuracy degraded: 186m
+07-08 14:27:24.854  1234  1250 I ADASISv2: Horizon path extended, 9934 edges
+07-08 14:27:24.935  1234  1234 V NavSDK  : Location update lat=48.3733 lon=11.6175
+07-08 14:27:25.198  1234  1250 W NavSDK  : GPS accuracy degraded: 6396m
+07-08 14:27:25.463  1234  1261 D Hybrid  : Router selected: onboard (latency 4793ms)
+07-08 14:27:25.851  1234  1234 I HiveMindNavigator: Route progress updated: 851.7m remaining
+07-08 14:27:26.125  1234  1234 I ADASISv2: Horizon path extended, 275 edges
+07-08 14:27:26.472  1234  1234 D Hybrid  : Router selected: onboard (latency 4785ms)
+07-08 14:27:26.534  1234  1261 D Hybrid  : Router selected: onboard (latency 8464ms)
+07-08 14:27:26.829  1234  1261 D Hybrid  : Router selected: onboard (latency 2876ms)
+07-08 14:27:26.891  1234  1234 D TileStore: Cache hit for tile z14/104/2679
+07-08 14:27:27.290  1234  1261 I ADASISv2: Horizon path extended, 5885 edges
+07-08 14:27:27.478  1234  1261 D Hybrid  : Router selected: onboard (latency 3381ms)
+07-08 14:27:27.534  1234  1234 W NavSDK  : GPS accuracy degraded: 1224m
+07-08 14:27:27.776  1234  1261 W NavSDK  : GPS accuracy degraded: 9260m
+07-08 14:27:27.948  1234  1250 V NavSDK  : Location update lat=48.3807 lon=11.3287
+07-08 14:27:28.323  1234  1250 D Hybrid  : Router selected: onboard (latency 176ms)
+07-08 14:27:28.435  1234  1261 D Hybrid  : Router selected: onboard (latency 1844ms)
+07-08 14:27:28.510  1234  1261 V NavSDK  : Location update lat=48.5670 lon=11.2017
+07-08 14:27:28.895  1234  1250 D Hybrid  : Router selected: onboard (latency 9519ms)
+07-08 14:27:29.188  1234  1250 I ADASISv2: Horizon path extended, 9326 edges
+07-08 14:27:29.507  1234  1261 V NavSDK  : Location update lat=48.7617 lon=11.7648
+07-08 14:27:29.859  1234  1250 I ADASISv2: Horizon path extended, 2004 edges
+07-08 14:27:29.933  1234  1261 W NavSDK  : GPS accuracy degraded: 3710m
+07-08 14:27:30.228  1234  1261 V NavSDK  : Location update lat=48.6857 lon=11.5885
+07-08 14:27:30.466  1234  1234 W NavSDK  : GPS accuracy degraded: 4414m

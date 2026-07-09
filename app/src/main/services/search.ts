@@ -21,6 +21,22 @@ function escapeFtsQuery(q: string): string {
   return terms.join(' ')
 }
 
+// Locate the first line inside a chunk that contains all query terms
+// (falling back to any term, then to the chunk start). FTS matches at chunk
+// granularity; this recovers line granularity for viewer deep-links.
+function findMatchLine(chunkContent: string, startLine: number, query: string): number {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return startLine
+  const lines = chunkContent.split('\n')
+  let anyTermIdx = -1
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase()
+    if (terms.every((t) => line.includes(t))) return startLine + i
+    if (anyTermIdx === -1 && terms.some((t) => line.includes(t))) anyTermIdx = i
+  }
+  return anyTermIdx >= 0 ? startLine + anyTermIdx : startLine
+}
+
 interface HitRow {
   evidenceId: number
   caseSlug: string
@@ -29,6 +45,7 @@ interface HitRow {
   snippet: string
   startLine: number
   endLine: number
+  chunkContent: string
 }
 
 export function searchEvidence(db: DatabaseSync, query: string, filters: SearchFilters = {}): SearchHit[] {
@@ -43,7 +60,8 @@ export function searchEvidence(db: DatabaseSync, query: string, filters: SearchF
               e.artifact_type           AS artifactType,
               snippet(evidence_fts, 0, '«', '»', '…', 12) AS snippet,
               evidence_fts.start_line   AS startLine,
-              evidence_fts.end_line     AS endLine
+              evidence_fts.end_line     AS endLine,
+              evidence_fts.content      AS chunkContent
        FROM evidence_fts
        JOIN evidence e ON e.id = evidence_fts.evidence_id
        JOIN cases c    ON c.id = e.case_id
@@ -61,7 +79,8 @@ export function searchEvidence(db: DatabaseSync, query: string, filters: SearchF
     artifactType: r.artifactType as ArtifactType,
     snippet: r.snippet,
     startLine: Number(r.startLine),
-    endLine: Number(r.endLine)
+    endLine: Number(r.endLine),
+    matchLine: findMatchLine(r.chunkContent, Number(r.startLine), query)
   }))
 }
 
