@@ -6,7 +6,7 @@ import { caseDir } from './paths'
 
 const MAX_READ_BYTES = 2 * 1024 * 1024
 
-function phraseEscape(q: string): string {
+function escapeFtsQuery(q: string): string {
   // Escape FTS special characters but preserve the query as individual terms
   // This allows per-term highlighting while preventing syntax errors
   const trimmed = q.trim()
@@ -53,7 +53,7 @@ export function searchEvidence(db: DatabaseSync, query: string, filters: SearchF
        ORDER BY bm25(evidence_fts)
        LIMIT 50`
     )
-    .all(phraseEscape(query), caseSlug, caseSlug, artifactType, artifactType) as unknown as HitRow[]
+    .all(escapeFtsQuery(query), caseSlug, caseSlug, artifactType, artifactType) as unknown as HitRow[]
   return rows.map((r) => ({
     evidenceId: Number(r.evidenceId),
     caseSlug: r.caseSlug,
