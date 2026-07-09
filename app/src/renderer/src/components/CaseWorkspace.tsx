@@ -6,7 +6,7 @@ import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
 import { WorkspacesStrip } from './WorkspacesStrip'
 import { Btn } from './ui'
-import { wireAgentStore } from '../lib/agentStore'
+import { agentStore, wireAgentStore } from '../lib/agentStore'
 import type { SearchHit } from '../../../shared/types'
 
 export function CaseWorkspace({
@@ -17,7 +17,11 @@ export function CaseWorkspace({
   onOpenHit: (hit: SearchHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
 }): React.JSX.Element {
-  useEffect(() => wireAgentStore(), [])
+  useEffect(() => {
+    wireAgentStore()
+    // restore the persisted transcript after an app restart
+    void window.argus.agent.history(slug).then((events) => agentStore.hydrate(slug, events))
+  }, [slug])
 
   async function handleCite(relPath: string, line: number): Promise<void> {
     const list = await window.argus.evidence.list(slug)

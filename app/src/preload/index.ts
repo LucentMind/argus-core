@@ -24,6 +24,7 @@ const argus = {
     interrupt: (caseSlug: string) => ipcRenderer.invoke(IPC.agentInterrupt, caseSlug),
     respond: (caseSlug: string, d: ApprovalDecision) => ipcRenderer.invoke(IPC.agentRespond, caseSlug, d),
     authStatus: () => ipcRenderer.invoke(IPC.agentAuthStatus),
+    history: (caseSlug: string): Promise<AgentEvent[]> => ipcRenderer.invoke(IPC.agentHistory, caseSlug),
     preflight: () => ipcRenderer.invoke(IPC.agentPreflight),
     onEvent: (cb: (e: AgentEvent) => void): (() => void) => {
       const listener = (_e: unknown, ev: AgentEvent): void => cb(ev)

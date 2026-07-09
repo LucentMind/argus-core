@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../db'
-import { SessionMirror } from '../mirror'
+import { SessionMirror, readSessionEvents } from '../mirror'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 const ev = (type: string): AgentEvent =>
@@ -24,6 +24,22 @@ describe('SessionMirror', () => {
     const lines = fs.readFileSync(file, 'utf8').trim().split('\n')
     expect(lines).toHaveLength(2)
     expect(JSON.parse(lines[0]).type).toBe('content.delta')
+    db.close()
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('readSessionEvents replays the mirror files back, skipping corrupt lines', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
+    const db = openDb(path.join(tmp, 'a.db'))
+    const caseDir = path.join(tmp, 'case')
+    const m = new SessionMirror(db, path.join(caseDir, 'sessions', '1.jsonl'), { caseId: 1, sessionId: 1 })
+    m.append(ev('turn.started'))
+    m.append(ev('assistant.message'))
+    m.close()
+    fs.appendFileSync(path.join(caseDir, 'sessions', '1.jsonl'), 'not-json\n')
+    const events = readSessionEvents(caseDir)
+    expect(events.map((e) => e.type)).toEqual(['turn.started', 'assistant.message'])
+    expect(readSessionEvents(path.join(tmp, 'missing'))).toEqual([])
     db.close()
     fs.rmSync(tmp, { recursive: true, force: true })
   })
