@@ -1,0 +1,51 @@
+export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
+
+export type ArtifactType =
+  | 'applog' | 'binlog' | 'archive-rec' | 'list-json'
+  | 'bintrace' | 'archive' | 'screenshot' | 'text' | 'unknown'
+
+export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent'
+
+export interface NewCaseInput {
+  slug: string
+  title: string
+  jiraKey?: string
+}
+
+export interface CaseRecord {
+  id: number
+  slug: string
+  title: string
+  jiraKey: string | null
+  status: CaseStatus
+  tags: string[]
+  createdAt: string // ISO 8601
+  updatedAt: string
+}
+
+export interface EvidenceRecord {
+  id: number
+  caseId: number
+  relPath: string // relative to the case dir, e.g. "evidence/applog.txt"
+  sha256: string
+  artifactType: ArtifactType
+  size: number
+  origin: EvidenceOrigin
+  meta: Record<string, unknown>
+  createdAt: string
+}
+
+export interface SearchFilters {
+  caseSlug?: string
+  artifactType?: ArtifactType
+}
+
+export interface SearchHit {
+  evidenceId: number
+  caseSlug: string
+  relPath: string
+  artifactType: ArtifactType
+  snippet: string // matched terms wrapped in « »
+  startLine: number
+  endLine: number
+}
