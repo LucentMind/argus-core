@@ -65,4 +65,21 @@ describe('settings schema', () => {
     expect(out).toEqual({ a: { b: 9, c: 2 } })
     expect(base.a.b).toBe(1) // no mutation
   })
+
+  it('stripDefaults is key-order-insensitive', () => {
+    const reordered = {
+      agent: {
+        providerInstances: {
+          'claude-default': { config: {}, enabled: true, driver: 'claude-agent-sdk' }
+        }
+      }
+    }
+    const merged = settingsSchema.parse(reordered)
+    expect(stripDefaults(merged, defaultSettings())).toEqual({})
+  })
+
+  it('stripDefaults handles deeply nested objects regardless of key order', () => {
+    const result = stripDefaults({ a: { y: 2, x: 1 } }, { a: { x: 1, y: 2 } })
+    expect(result).toEqual({})
+  })
 })
