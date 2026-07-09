@@ -23,4 +23,18 @@ describe('skillsDir', () => {
     ])
     fs.rmSync(tmp, { recursive: true, force: true })
   })
+
+  it('is a no-op when source and destination are the same directory', () => {
+    // happens when argusHome is the repo checkout itself (dev default ~/Argus)
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-sk-'))
+    const home = path.join(tmp, 'home')
+    const skills = path.join(home, 'skills')
+    fs.mkdirSync(skills, { recursive: true })
+    fs.writeFileSync(path.join(skills, 'keep.md'), 'x')
+    expect(() =>
+      seedSharedDirs(home, { skills, references: path.join(home, 'references') })
+    ).not.toThrow()
+    expect(fs.readFileSync(path.join(skills, 'keep.md'), 'utf8')).toBe('x')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
 })

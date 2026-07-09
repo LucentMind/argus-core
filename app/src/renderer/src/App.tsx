@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CaseList } from './components/CaseList'
-import { EvidenceLibrary } from './components/EvidenceLibrary'
+import { CaseDashboard } from './components/CaseDashboard'
+import { CaseWorkspace } from './components/CaseWorkspace'
 import { SearchBar } from './components/SearchBar'
 import { TextViewer } from './components/TextViewer'
 import type { CaseRecord, NewCaseInput, SearchHit } from '../../shared/types'
 
+type View = { kind: 'home' } | { kind: 'case'; slug: string }
+
 function App(): React.JSX.Element {
   const [cases, setCases] = useState<CaseRecord[]>([])
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
+  const [view, setView] = useState<View>({ kind: 'home' })
   const [viewer, setViewer] = useState<{ evidenceId: number; focusLine: number } | null>(null)
 
   const reload = useCallback(async () => {
@@ -21,7 +23,7 @@ function App(): React.JSX.Element {
   async function handleCreate(input: NewCaseInput): Promise<void> {
     await window.argus.cases.create(input)
     await reload()
-    setSelectedSlug(input.slug)
+    setView({ kind: 'case', slug: input.slug })
   }
 
   function handleOpenHit(hit: SearchHit): void {
@@ -29,27 +31,28 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-screen bg-neutral-900 text-neutral-100">
-      <CaseList
-        cases={cases}
-        selectedSlug={selectedSlug}
-        onSelect={setSelectedSlug}
-        onCreate={(i) => void handleCreate(i)}
-      />
-      <main className="flex-1 p-4">
-        {selectedSlug ? (
-          <div className="flex flex-col gap-4">
-            <h1 className="text-lg font-semibold">{selectedSlug}</h1>
-            <SearchBar caseSlug={selectedSlug} onOpen={handleOpenHit} />
-            <EvidenceLibrary caseSlug={selectedSlug} />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <p className="text-neutral-400">Select or create a case.</p>
+    <div className="h-screen overflow-auto bg-void text-ink">
+      {view.kind === 'home' ? (
+        <>
+          <CaseDashboard
+            cases={cases}
+            onOpen={(slug) => setView({ kind: 'case', slug })}
+            onCreate={(i) => void handleCreate(i)}
+          />
+          <div className="mx-auto max-w-5xl px-8 pb-8">
             <SearchBar caseSlug={null} onOpen={handleOpenHit} />
           </div>
-        )}
-      </main>
+        </>
+      ) : (
+        <CaseWorkspace
+          slug={view.slug}
+          onBack={() => {
+            setView({ kind: 'home' })
+            void reload()
+          }}
+          onOpenHit={handleOpenHit}
+        />
+      )}
       {viewer && (
         <TextViewer
           evidenceId={viewer.evidenceId}

@@ -37,15 +37,15 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => void handleDrop(e)}
-      className={`flex flex-col gap-2 rounded border p-3 ${
-        dragOver ? 'border-blue-400 bg-blue-950/30' : 'border-neutral-700'
+      className={`flex flex-col gap-2 rounded-r3 border bg-panel p-3 ${
+        dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
       }`}
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Evidence — drop files here</h2>
+        <h2 className="text-sm font-semibold text-ink">Evidence — drop files here</h2>
         <select
           aria-label="type-filter"
-          className="rounded border border-neutral-600 bg-neutral-900 px-1 py-0.5 text-xs"
+          className="rounded-r1 border border-hair bg-overlay px-1 py-0.5 text-xs text-dim"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as ArtifactType | '')}
         >
@@ -59,7 +59,7 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
         </select>
       </div>
       <table className="w-full text-left text-xs">
-        <thead className="text-neutral-400">
+        <thead className="text-mute">
           <tr>
             <th className="py-1">file</th>
             <th>type</th>
@@ -69,18 +69,18 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
         </thead>
         <tbody>
           {visible.map((r) => (
-            <tr key={r.id} className="border-t border-neutral-800">
-              <td className="py-1">{r.relPath}</td>
+            <tr key={r.id} className="border-t border-hair">
+              <td className="py-1 font-mono text-dim">{r.relPath}</td>
               <td>
-                <span className="rounded bg-neutral-700 px-1.5 py-0.5">{r.artifactType}</span>
+                <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">{r.artifactType}</span>
               </td>
-              <td>{r.size.toLocaleString()} B</td>
-              <td>{new Date(r.createdAt).toLocaleString()}</td>
+              <td className="text-dim">{r.size.toLocaleString()} B</td>
+              <td className="text-dim">{new Date(r.createdAt).toLocaleString()}</td>
             </tr>
           ))}
           {visible.length === 0 && (
             <tr>
-              <td colSpan={4} className="py-2 text-neutral-500">
+              <td colSpan={4} className="py-2 text-mute">
                 No evidence yet.
               </td>
             </tr>
