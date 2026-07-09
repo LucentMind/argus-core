@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { agentStore } from '../lib/agentStore'
+import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
 import { ToolCallCard } from './ToolCallCard'
 import { Composer } from './Composer'
@@ -16,6 +17,10 @@ export function ChatPane({
     (cb) => agentStore.subscribe(cb),
     () => agentStore.get(slug)
   )
+  const showToolCalls = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get().showToolCalls
+  )
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
@@ -27,7 +32,7 @@ export function ChatPane({
         {state.items.map((item, i) => {
           if (item.kind === 'user') {
             return (
-              <div key={i} className="ml-12 rounded-r3 bg-overlay p-3 text-sm text-ink">
+              <div key={i} className="ml-12 rounded-r3 border border-hair bg-hi p-3 text-sm text-ink">
                 {item.text}
               </div>
             )
@@ -40,6 +45,7 @@ export function ChatPane({
               </div>
             )
           }
+          if (!showToolCalls) return null
           return <ToolCallCard key={item.toolCallId} item={item} />
         })}
         {state.pending.map((p) => (
@@ -51,7 +57,7 @@ export function ChatPane({
       {state.running && (
         <div className="px-4 pb-1">
           <button
-            className="text-xs text-mute hover:text-danger"
+            className="font-mono text-xs text-mute transition-colors hover:text-danger"
             onClick={() => void window.argus.agent.interrupt(slug)}
           >
             ■ stop
