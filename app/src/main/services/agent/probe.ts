@@ -1,7 +1,16 @@
 import type { AuthStatus } from '../../../shared/types'
 import type { CreateQueryFn } from './session'
 
-async function* neverYield(): AsyncGenerator<unknown> {
+// The CLI only emits system/init after the prompt stream yields a first message,
+// so a never-yielding probe would always time out. One ping with maxTurns: 0
+// triggers init without running (or billing) a turn.
+async function* onePing(): AsyncGenerator<unknown> {
+  yield {
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: 'ping' }] },
+    parent_tool_use_id: null,
+    session_id: ''
+  }
   await new Promise(() => undefined)
 }
 
@@ -13,7 +22,7 @@ export async function probeAuth(
   let q: ReturnType<CreateQueryFn> | null = null
   try {
     q = createQuery({
-      prompt: neverYield(),
+      prompt: onePing(),
       options: { maxTurns: 0, allowedTools: [] }
     })
     const first = await Promise.race([

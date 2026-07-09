@@ -18,10 +18,20 @@ export function HeaderChips({ slug }: { slug: string }): React.JSX.Element {
 
   return (
     <div className="flex items-center gap-2">
-      <Chip tone={auth?.ok ? 'review' : 'danger'}>{auth ? (auth.ok ? 'claude ✓' : 'claude ✗') : 'claude …'}</Chip>
-      <Chip tone={preflight?.ok ? 'review' : 'neutral'}>
-        {preflight ? (preflight.ok ? 'trace ✓' : 'trace ✗') : 'trace …'}
-      </Chip>
+      <span title={auth?.detail ?? 'probing claude CLI…'}>
+        <Chip tone={auth?.ok ? 'review' : 'danger'}>{auth ? (auth.ok ? 'claude ✓' : 'claude ✗') : 'claude …'}</Chip>
+      </span>
+      <span
+        title={
+          preflight
+            ? preflight.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.name}: ${c.detail}`).join('\n')
+            : 'running preflight…'
+        }
+      >
+        <Chip tone={preflight?.ok ? 'review' : 'neutral'}>
+          {preflight ? (preflight.ok ? 'trace ✓' : 'trace ✗') : 'trace …'}
+        </Chip>
+      </span>
       <Chip tone="neutral">
         {(state.cost.inputTokens + state.cost.outputTokens).toLocaleString()} tok
         {state.cost.costUsd > 0 ? ` · $${state.cost.costUsd.toFixed(2)}` : ''}

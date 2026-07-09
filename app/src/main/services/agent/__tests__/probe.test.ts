@@ -4,7 +4,7 @@ import { AsyncQueue } from '../asyncQueue'
 import type { CreateQueryFn } from '../session'
 
 function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
-  return () => {
+  return (args) => {
     const q = new AsyncQueue<unknown>()
     if (messages === 'throw') {
       return Object.assign(
@@ -12,7 +12,16 @@ function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
         { interrupt: async () => undefined }
       )
     }
-    if (Array.isArray(messages)) for (const m of messages) q.push(m)
+    if (Array.isArray(messages)) {
+      // mimic the real CLI: init and everything after it are only emitted once
+      // the prompt stream yields a first user message
+      void (async () => {
+        for await (const _first of args.prompt) {
+          for (const m of messages) q.push(m)
+          break
+        }
+      })()
+    }
     return Object.assign(
       { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
       { interrupt: async () => q.end() }
