@@ -40,4 +40,31 @@ describe('resolveArgusParse', () => {
     expect(resolveArgusParse(path.join(tmp, 'app'))).toBe(path.join(target, 'sample-parse.exe'))
     fs.rmSync(tmp, { recursive: true, force: true })
   })
+
+  it('settings value wins over dev/bundled/PATH but loses to env', () => {
+    const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sample-parse-'))
+    try {
+      const settingsBin = path.join(tmp2, 'sample-parse.exe')
+      fs.writeFileSync(settingsBin, '')
+      // env unset → settings wins
+      expect(resolveArgusParse(path.join(tmp2, 'app'), settingsBin)).toBe(settingsBin)
+      // env set → env wins
+      const envBin = path.join(tmp2, 'env-parse.exe')
+      fs.writeFileSync(envBin, '')
+      process.env.ARGUS_PARSE_BIN = envBin
+      expect(resolveArgusParse(path.join(tmp2, 'app'), settingsBin)).toBe(envBin)
+    } finally {
+      delete process.env.ARGUS_PARSE_BIN
+      fs.rmSync(tmp2, { recursive: true, force: true })
+    }
+  })
+
+  it('nonexistent settings path is skipped', () => {
+    const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sample-parse-'))
+    try {
+      expect(resolveArgusParse(path.join(tmp2, 'app'), path.join(tmp2, 'missing.exe'))).toBeNull()
+    } finally {
+      fs.rmSync(tmp2, { recursive: true, force: true })
+    }
+  })
 })
