@@ -6,6 +6,31 @@ import { caseDir } from './paths'
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
+function claudeMdTemplate(input: NewCaseInput, now: string): string {
+  return `# Case: ${input.slug}
+
+- Title: ${input.title}
+- Jira: ${input.jiraKey ?? '(none)'}
+- Opened: ${now}
+- This directory is the case dir. Evidence lives in \`evidence/\`.
+
+## Linked code workspaces
+
+<!-- argus:workspaces -->
+_No code workspaces linked._
+<!-- /argus:workspaces -->
+
+## Working rules
+
+- Cite evidence as \`[<rel-path>:<line>]\` for every claim based on evidence, e.g. \`[evidence/applog.txt:812]\`.
+- Record findings with the \`mcp__argus__append_finding\` tool — never edit \`findings.md\` directly.
+- Search evidence with \`mcp__argus__search_evidence\` before grepping files.
+- Trace files (applog, BINLOG, recordings, bintrace): use the \`sample-trace\` / \`sample-parse\` CLIs — never raw grep/cat; they have guardrails and output caps.
+- To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
+- Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.
+`
+}
+
 interface CaseRow {
   id: number
   slug: string
@@ -63,10 +88,19 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       path.join(dir, 'case.json'),
       JSON.stringify({ ...rec, id: undefined }, null, 2)
     )
-    fs.writeFileSync(
-      path.join(dir, 'CLAUDE.md'),
-      `# Case: ${input.slug}\n\n## Context\n\n- Title: ${input.title}\n- Jira: ${input.jiraKey ?? '(none)'}\n- Opened: ${now}\n\n## Scope\n\n(fill in during triage)\n`
-    )
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMdTemplate(input, now))
+    const dotClaude = path.join(dir, '.claude')
+    fs.mkdirSync(dotClaude, { recursive: true })
+    for (const [name, target] of [
+      ['skills', path.join(argusHome, 'skills')],
+      ['references', path.join(argusHome, 'references')]
+    ] as const) {
+      const link = path.join(dotClaude, name)
+      // 'dir' symlinks need elevation on Windows; junctions don't and lstat still
+      // reports them as symbolic links.
+      const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+      if (!fs.existsSync(link) && fs.existsSync(target)) fs.symlinkSync(target, link, linkType)
+    }
     fs.writeFileSync(path.join(dir, 'findings.md'), `# Findings — ${input.slug}\n`)
     return rec
   } catch (err) {
