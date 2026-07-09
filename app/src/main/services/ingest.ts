@@ -11,14 +11,39 @@ import { indexEvidenceText } from './indexer'
 const MAX_INDEX_BYTES = 20 * 1024 * 1024
 const TEXT_TYPES: ArtifactType[] = ['applog', 'text', 'list-json']
 
-function collisionFreeName(evidenceDir: string, baseName: string): string {
+const COMPOUND_EXTS = ['.rec.gz', '.list.json', '.bintrace.zip', '.tar.gz']
+
+function splitName(baseName: string): { stem: string; ext: string } {
+  const lower = baseName.toLowerCase()
+  for (const ce of COMPOUND_EXTS) {
+    if (lower.endsWith(ce)) return { stem: baseName.slice(0, -ce.length), ext: baseName.slice(-ce.length) }
+  }
   const ext = path.extname(baseName)
-  const stem = baseName.slice(0, baseName.length - ext.length)
+  return { stem: baseName.slice(0, baseName.length - ext.length), ext }
+}
+
+function collisionFreeName(evidenceDir: string, baseName: string): string {
+  const { stem, ext } = splitName(baseName)
   let candidate = baseName
   for (let i = 1; fs.existsSync(path.join(evidenceDir, candidate)); i++) {
     candidate = `${stem}-${i}${ext}`
   }
   return candidate
+}
+
+function sha256File(filePath: string): string {
+  const hash = crypto.createHash('sha256')
+  const fd = fs.openSync(filePath, 'r')
+  try {
+    const buf = Buffer.alloc(64 * 1024)
+    let n: number
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
+      hash.update(buf.subarray(0, n))
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
+  return hash.digest('hex')
 }
 
 interface EvidenceRow {
@@ -62,10 +87,9 @@ export function ingestArtifact(
   const destPath = path.join(evidenceDir, destName)
   fs.copyFileSync(sourcePath, destPath)
 
-  const data = fs.readFileSync(destPath)
-  const sha256 = crypto.createHash('sha256').update(data).digest('hex')
+  const sha256 = sha256File(destPath)
   const artifactType = detectArtifactType(destPath)
-  const size = data.length
+  const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
   const indexable = TEXT_TYPES.includes(artifactType) && size <= MAX_INDEX_BYTES
   const meta: Record<string, unknown> = { originalName: path.basename(sourcePath), indexed: indexable }
@@ -79,7 +103,7 @@ export function ingestArtifact(
     .run(kase.id, relPath, sha256, artifactType, size, origin, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
 
-  if (indexable) indexEvidenceText(db, id, data.toString('utf8'))
+  if (indexable) indexEvidenceText(db, id, fs.readFileSync(destPath, 'utf8'))
 
   const record: EvidenceRecord = {
     id, caseId: kase.id, relPath, sha256, artifactType, size, origin, meta, createdAt: now

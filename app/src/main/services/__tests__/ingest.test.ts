@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact, listEvidence } from '../ingest'
@@ -37,6 +38,18 @@ describe('ingestArtifact', () => {
     const b = ingestArtifact(db, home, 'NAVAPI-1', FIXTURE)
     expect(a.relPath).toBe('evidence/sample-applog.txt')
     expect(b.relPath).toBe('evidence/sample-applog-1.txt')
+  })
+
+  it('preserves compound extensions on collision (.rec.gz stays archive-rec)', () => {
+    const src = path.join(os.tmpdir(), `argus-fix-${Date.now()}`, 'trace.rec.gz')
+    fs.mkdirSync(path.dirname(src), { recursive: true })
+    fs.writeFileSync(src, zlib.gzipSync(Buffer.from('x')))
+    const a = ingestArtifact(db, home, 'NAVAPI-1', src)
+    const b = ingestArtifact(db, home, 'NAVAPI-1', src)
+    expect(a.relPath).toBe('evidence/trace.rec.gz')
+    expect(b.relPath).toBe('evidence/trace-1.rec.gz')
+    expect(a.artifactType).toBe('archive-rec')
+    expect(b.artifactType).toBe('archive-rec')
   })
 
   it('throws for unknown case', () => {
