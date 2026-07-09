@@ -1,19 +1,40 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import fs from 'node:fs'
+import path, { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC } from '../shared/ipc'
-import { resolveArgusHome, dbPath } from './services/paths'
+import { resolveArgusHome, dbPath, caseDir } from './services/paths'
 import { openDb } from './services/db'
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { searchEvidence, readEvidenceText } from './services/search'
-import type { NewCaseInput, SearchFilters } from '../shared/types'
+import { AgentService } from './services/agent/registry'
+import { SessionMirror } from './services/agent/mirror'
+import { probeAuth } from './services/agent/probe'
+import { runPreflight } from './services/agent/preflight'
+import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
+import {
+  seedSharedDirs,
+  resolveAssetSource,
+  listSkills,
+  sharedSkillsDir,
+  sharedReferencesDir
+} from './services/skillsDir'
+import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
+
+let agentService: AgentService | null = null
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
+}
 
 function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
+  seedSharedDirs(argusHome, resolveAssetSource(app.getAppPath()))
 
+  // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) =>
@@ -24,6 +45,67 @@ function registerIpc(): void {
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
     searchEvidence(db, q, filters ?? {})
   )
+
+  // — agent —
+  agentService = new AgentService({
+    db,
+    argusHome,
+    skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
+    onEvent: (e) => broadcast(IPC.agentEventChannel, e),
+    mirrorFactory: (caseSlug, sessionId) =>
+      new SessionMirror(db, path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`), {
+        caseId: listCases(db).find((c) => c.slug === caseSlug)?.id ?? 0,
+        sessionId
+      })
+  })
+  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) => agentService!.send(caseSlug, text))
+  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string) => agentService!.interrupt(caseSlug))
+  ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) =>
+    agentService!.respond(caseSlug, d)
+  )
+  let cachedAuth: AuthStatus | null = null
+  ipcMain.handle(IPC.agentAuthStatus, async () => {
+    if (!cachedAuth) {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+      cachedAuth = await probeAuth(
+        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never
+      )
+    }
+    return cachedAuth
+  })
+  ipcMain.handle(IPC.agentPreflight, () => runPreflight())
+
+  // — case extras —
+  ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {
+    return db
+      .prepare(
+        `SELECT COALESCE(SUM(t.input_tokens),0) AS inputTokens,
+                COALESCE(SUM(t.output_tokens),0) AS outputTokens,
+                COALESCE(SUM(t.cost_usd),0) AS costUsd
+         FROM turns t JOIN cases c ON c.id = t.case_id WHERE c.slug = ?`
+      )
+      .get(caseSlug)
+  })
+  ipcMain.handle(IPC.caseReadFindings, (_e, caseSlug: string) => {
+    const f = path.join(caseDir(argusHome, caseSlug), 'findings.md')
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''
+  })
+
+  // — workspaces —
+  ipcMain.handle(IPC.workspacesPick, async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    return r.canceled ? null : r.filePaths[0]
+  })
+  ipcMain.handle(IPC.workspacesLink, (_e, caseSlug: string, repoPath: string) =>
+    linkWorkspace(db, argusHome, caseSlug, repoPath)
+  )
+  ipcMain.handle(IPC.workspacesUnlink, (_e, caseSlug: string, repoPath: string) =>
+    unlinkWorkspace(db, argusHome, caseSlug, repoPath)
+  )
+  ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) => listWorkspaces(db, argusHome, caseSlug))
+
+  // — skills —
+  ipcMain.handle(IPC.skillsList, () => listSkills(argusHome))
 }
 
 function createWindow(): void {
@@ -81,6 +163,10 @@ app.whenReady().then(() => {
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  void agentService?.stopAll()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
