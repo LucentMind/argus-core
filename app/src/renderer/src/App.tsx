@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CaseList } from './components/CaseList'
+import { EvidenceLibrary } from './components/EvidenceLibrary'
 import type { CaseRecord, NewCaseInput } from '../../shared/types'
 
 function App(): React.JSX.Element {
@@ -30,7 +31,10 @@ function App(): React.JSX.Element {
       />
       <main className="flex-1 p-4">
         {selectedSlug ? (
-          <h1 className="text-lg font-semibold">{selectedSlug}</h1>
+          <div className="flex flex-col gap-4">
+            <h1 className="text-lg font-semibold">{selectedSlug}</h1>
+            <EvidenceLibrary caseSlug={selectedSlug} />
+          </div>
         ) : (
           <p className="text-neutral-400">Select or create a case.</p>
         )}
