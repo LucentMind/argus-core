@@ -31,6 +31,15 @@ describe('searchEvidence', () => {
     expect(hits[0].relPath).toBe('evidence/sample-applog.txt')
   })
 
+  it('resolves the exact matching line within the chunk', () => {
+    // fixture line 3 is the only line containing both terms
+    const hits = searchEvidence(db, 'TileStore error', { caseSlug: 'NAVAPI-1' })
+    expect(hits[0].matchLine).toBe(3)
+    // single-term query on a line further down
+    const noRoute = searchEvidence(db, 'NoRoute', { caseSlug: 'NAVAPI-1' })
+    expect(noRoute[0].matchLine).toBe(5)
+  })
+
   it('filters by case', () => {
     const hits = searchEvidence(db, 'TileStore', { caseSlug: 'NAVAPI-2' })
     expect(hits.length).toBe(1)

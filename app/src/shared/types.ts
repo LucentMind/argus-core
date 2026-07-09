@@ -48,4 +48,5 @@ export interface SearchHit {
   snippet: string // matched terms wrapped in « »
   startLine: number
   endLine: number
+  matchLine: number // exact line of the first term match; falls back to startLine
 }
