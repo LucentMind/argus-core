@@ -38,8 +38,27 @@ export class AgentStore {
     for (const cb of this.listeners) cb()
   }
 
+  /**
+   * Replay persisted history into a case that has no live state yet.
+   * Stale pending approvals are dropped (unanswerable after a restart) and
+   * running is cleared — only live events may set them.
+   */
+  hydrate(caseSlug: string, events: AgentEvent[]): void {
+    if (this.byCase.get(caseSlug)?.items.length) return
+    for (const e of events) this.applyToState(e)
+    this.update(caseSlug, (s) => ({ ...s, pending: [], running: false }))
+  }
+
+  private applyToState(e: AgentEvent): void {
+    this.byCase.set(e.caseSlug, this.reduce(this.get(e.caseSlug), e))
+  }
+
   apply(e: AgentEvent): void {
-    this.update(e.caseSlug, (s) => {
+    this.update(e.caseSlug, (s) => this.reduce(s, e))
+  }
+
+  private reduce(s: CaseAgentState, e: AgentEvent): CaseAgentState {
+    {
       const items = [...s.items]
       const last = items[items.length - 1]
       switch (e.type) {
@@ -99,7 +118,7 @@ export class AgentStore {
         default:
           return s
       }
-    })
+    }
   }
 }
 

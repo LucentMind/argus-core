@@ -51,4 +51,27 @@ describe('AgentStore', () => {
     store.apply(ev('content.delta', { text: 'a' }))
     expect(store.get('OTHER').items).toHaveLength(0)
   })
+
+  it('hydrate replays history into an empty case, dropping stale pending/running', () => {
+    store.hydrate('NAV-1', [
+      ev('turn.started', { userText: 'hi' }),
+      ev('assistant.message', { text: 'answer [evidence/log.txt:1]' }),
+      ev('request.opened', { requestId: 'r1', tool: 'Bash', risk: 'HIGH', grantKey: null, argsPreview: 'git push' }),
+      ev('turn.completed', { status: 'success', inputTokens: 7, outputTokens: 3, costUsd: 0.02, durationMs: 5 }),
+      ev('turn.started', { userText: 'again' })
+    ])
+    const st = store.get('NAV-1')
+    expect(st.items).toHaveLength(3)
+    expect(st.cost.inputTokens).toBe(7)
+    expect(st.pending).toHaveLength(0) // stale approvals are unanswerable after restart
+    expect(st.running).toBe(false)
+  })
+
+  it('hydrate is a no-op when the case already has live state', () => {
+    store.apply(ev('turn.started', { userText: 'live' }))
+    store.hydrate('NAV-1', [ev('assistant.message', { text: 'old history' })])
+    const st = store.get('NAV-1')
+    expect(st.items).toHaveLength(1)
+    expect(st.items[0]).toMatchObject({ kind: 'user', text: 'live' })
+  })
 })

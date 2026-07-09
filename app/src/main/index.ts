@@ -10,9 +10,9 @@ import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
-import { SessionMirror } from './services/agent/mirror'
+import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
-import { runPreflight } from './services/agent/preflight'
+import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
 import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
 import {
   seedSharedDirs,
@@ -33,6 +33,8 @@ function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
   seedSharedDirs(argusHome, resolveAssetSource(app.getAppPath()))
+  // agent sessions and preflight inherit this process env — make sample-trace findable
+  ensureTraceOnPath(app.getAppPath())
 
   // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
@@ -77,6 +79,9 @@ function registerIpc(): void {
     return cachedAuth
   })
   ipcMain.handle(IPC.agentPreflight, () => runPreflight())
+  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string) =>
+    readSessionEvents(caseDir(argusHome, caseSlug))
+  )
 
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {

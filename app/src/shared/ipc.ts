@@ -13,6 +13,7 @@ export const IPC = {
   agentAuthStatus: 'agent:auth-status',
   agentPreflight: 'agent:preflight',
   agentEventChannel: 'agent:event',
+  agentHistory: 'agent:history',
   workspacesPick: 'workspaces:pick',
   workspacesLink: 'workspaces:link',
   workspacesUnlink: 'workspaces:unlink',
