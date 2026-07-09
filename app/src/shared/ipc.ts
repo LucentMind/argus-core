@@ -1,8 +1,21 @@
 export const IPC = {
   casesCreate: 'cases:create',
   casesList: 'cases:list',
+  caseCost: 'cases:cost',
+  caseReadFindings: 'cases:read-findings',
   evidenceIngest: 'evidence:ingest',
   evidenceList: 'evidence:list',
   evidenceRead: 'evidence:read',
-  searchQuery: 'search:query'
+  searchQuery: 'search:query',
+  agentSend: 'agent:send',
+  agentInterrupt: 'agent:interrupt',
+  agentRespond: 'agent:respond',
+  agentAuthStatus: 'agent:auth-status',
+  agentPreflight: 'agent:preflight',
+  agentEventChannel: 'agent:event',
+  workspacesPick: 'workspaces:pick',
+  workspacesLink: 'workspaces:link',
+  workspacesUnlink: 'workspaces:unlink',
+  workspacesList: 'workspaces:list',
+  skillsList: 'skills:list'
 } as const
