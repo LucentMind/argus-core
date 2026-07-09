@@ -1,17 +1,69 @@
-/* OEH design tokens (D8) */
+/* OEH design tokens (D8) — raw vars switch with [data-theme], Tailwind maps them inline */
+
+:root {
+  /* Surfaces */
+  --void: #000000;
+  --bg-1: #0a0a0b;
+  --bg-2: #111114;
+  --bg-hi: #17171c;
+  --bg-over: #1d1d23;
+
+  /* Ink */
+  --ink: #efede6;
+  --dim: rgba(239, 237, 230, 0.62);
+  --mute: rgba(239, 237, 230, 0.38);
+  --faint: rgba(239, 237, 230, 0.18);
+  --hair: rgba(255, 255, 255, 0.06);
+  --hair-2: rgba(255, 255, 255, 0.1);
+
+  /* Agent accents (theme-invariant) */
+  --signal: #7ec4ff;
+  --defect: #f3c352;
+  --review: #8bdca5;
+  --analytics: #c2a6fa;
+  --danger: #f27a6b;
+
+  /* Motion */
+  --mo-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+  --mo: 200ms cubic-bezier(0.2, 0, 0.2, 1);
+  --mo-slow: 320ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+:root[data-theme='light'] {
+  --void: #f5f3ee;
+  --bg-1: #faf8f3;
+  --bg-2: #ffffff;
+  --bg-hi: #f0eee7;
+  --bg-over: #eae8e1;
+
+  --ink: #18181b;
+  --dim: rgba(24, 24, 27, 0.7);
+  --mute: rgba(24, 24, 27, 0.5);
+  --faint: rgba(24, 24, 27, 0.25);
+  --hair: rgba(0, 0, 0, 0.06);
+  --hair-2: rgba(0, 0, 0, 0.12);
+}
+
+@theme inline {
+  --color-void: var(--void);
+  --color-deep: var(--bg-1);
+  --color-panel: var(--bg-2);
+  --color-hi: var(--bg-hi);
+  --color-overlay: var(--bg-over);
+  --color-ink: var(--ink);
+  --color-dim: var(--dim);
+  --color-mute: var(--mute);
+  --color-faint: var(--faint);
+  --color-hair: var(--hair);
+  --color-hair2: var(--hair-2);
+  --color-defect: var(--defect);
+  --color-danger: var(--danger);
+  --color-signal: var(--signal);
+  --color-review: var(--review);
+  --color-analytics: var(--analytics);
+}
+
 @theme {
-  --color-void: #000000;
-  --color-panel: #17171c;
-  --color-overlay: #1d1d23;
-  --color-ink: #efede6;
-  --color-dim: rgba(239, 237, 230, 0.62);
-  --color-mute: rgba(239, 237, 230, 0.38);
-  --color-faint: rgba(239, 237, 230, 0.18);
-  --color-hair: rgba(255, 255, 255, 0.06);
-  --color-defect: #f3c352;
-  --color-danger: #f27a6b;
-  --color-signal: #7ec4ff;
-  --color-review: #8bdca5;
   --font-sans: 'Geist Sans', 'Geist', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
   --radius-r1: 5px;
