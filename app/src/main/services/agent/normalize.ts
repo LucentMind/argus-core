@@ -36,7 +36,9 @@ function previewOf(content: unknown): string {
         ? content
             .map((b) => (typeof b === 'object' && b && 'text' in b ? String((b as { text: unknown }).text) : ''))
             .join('')
-        : JSON.stringify(content ?? '')
+        : content === null || content === undefined
+          ? ''
+          : JSON.stringify(content)
   return s.length > PREVIEW_MAX ? s.slice(0, PREVIEW_MAX) + '…' : s
 }
 

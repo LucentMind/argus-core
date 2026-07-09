@@ -14,6 +14,33 @@ describe('AsyncQueue', () => {
     for await (const v of q) seen.push(v)
     expect(seen).toEqual([1, 2])
   })
+
+  it('end() resolves a pending waiter', async () => {
+    const q = new AsyncQueue<number>()
+    const iter = q[Symbol.asyncIterator]()
+    const nextPromise = iter.next()
+    q.end()
+    const result = await nextPromise
+    expect(result).toEqual({ value: undefined, done: true })
+  })
+
+  it('push() resolves a pending waiter', async () => {
+    const q = new AsyncQueue<number>()
+    const iter = q[Symbol.asyncIterator]()
+    const nextPromise = iter.next()
+    q.push(42)
+    const result = await nextPromise
+    expect(result).toEqual({ value: 42, done: false })
+  })
+
+  it('push after end() is a no-op', async () => {
+    const q = new AsyncQueue<number>()
+    q.end()
+    q.push(1)
+    const seen: number[] = []
+    for await (const v of q) seen.push(v)
+    expect(seen).toEqual([])
+  })
 })
 
 describe('normalizeSdkMessage', () => {
@@ -111,5 +138,23 @@ describe('normalizeSdkMessage', () => {
 
   it('returns [] for messages it does not surface', () => {
     expect(normalizeSdkMessage({ type: 'system', subtype: 'hook_event' }, ctx)).toEqual([])
+  })
+
+  it('maps user message with null tool_result content to empty outputPreview', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'user',
+        session_id: 'abc',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: null, is_error: false }]
+        }
+      },
+      ctx
+    )
+    expect(evs[0]).toMatchObject({
+      type: 'tool.call.completed',
+      payload: { toolCallId: 't1', outputPreview: '', isError: false }
+    })
   })
 })
