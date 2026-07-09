@@ -136,4 +136,16 @@ describe('SettingsService', () => {
     expect(r.parseBin.version).toBeNull()
     expect(r.traceDir.found).toBe(false)
   })
+
+  it('resolvedTools ignores app-set live env when captured env is empty', () => {
+    svc = new SettingsService(argusHome, appRoot, noEnv)
+    const bin = path.join(tmp, 'app-exported.exe')
+    fs.writeFileSync(bin, '')
+    process.env.ARGUS_PARSE_BIN = bin
+    try {
+      expect(svc.resolvedTools().parseBin).toEqual({ value: null, source: 'default' })
+    } finally {
+      delete process.env.ARGUS_PARSE_BIN
+    }
+  })
 })

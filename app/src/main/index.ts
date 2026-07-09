@@ -63,17 +63,23 @@ function registerIpc(): void {
   // agent sessions and preflight inherit this process env — make sample-trace findable
   ensureTraceOnPath(app.getAppPath(), settingsService.get().tools.traceDir || undefined)
   // …and sample-parse (Python delegation + agent Bash read ARGUS_PARSE_BIN)
-  let argusParseBin = resolveArgusParse(
-    app.getAppPath(),
-    settingsService.get().tools.parseBin || undefined
-  )
-  if (argusParseBin) process.env.ARGUS_PARSE_BIN ??= argusParseBin
-
-  settingsService.subscribe(() => {
+  let argusParseBin: string | null = null
+  const recomputeParseBin = (): void => {
     argusParseBin = resolveArgusParse(
       app.getAppPath(),
-      settingsService.get().tools.parseBin || undefined
+      settingsService.get().tools.parseBin || undefined,
+      envOverrides.parseBin ?? null
     )
+    // export for spawned children (agent Bash, extraction CLIs); never clobber a user-set env
+    if (!envOverrides.parseBin) {
+      if (argusParseBin) process.env.ARGUS_PARSE_BIN = argusParseBin
+      else delete process.env.ARGUS_PARSE_BIN
+    }
+  }
+  recomputeParseBin()
+
+  settingsService.subscribe(() => {
+    recomputeParseBin()
     broadcast(IPC.settingsChanged, settingsService.payload())
   })
 

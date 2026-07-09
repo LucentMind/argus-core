@@ -100,7 +100,14 @@ export class SettingsService {
       ? { value: this.env.parseBin, source: 'env' }
       : t.parseBin
         ? { value: t.parseBin, source: 'settings' }
-        : { value: resolveArgusParse(this.appRoot, t.parseBin || undefined), source: 'default' }
+        : {
+            value: resolveArgusParse(
+              this.appRoot,
+              t.parseBin || undefined,
+              this.env.parseBin ?? null
+            ),
+            source: 'default'
+          }
     return { traceDir, parseBin }
   }
 

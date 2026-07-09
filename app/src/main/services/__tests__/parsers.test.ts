@@ -67,4 +67,20 @@ describe('resolveArgusParse', () => {
       fs.rmSync(tmp2, { recursive: true, force: true })
     }
   })
+
+  it('explicit null env ignores app-exported process.env (settings wins)', () => {
+    const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sample-parse-'))
+    try {
+      const oldBin = path.join(tmp2, 'old-parse.exe')
+      const newBin = path.join(tmp2, 'new-parse.exe')
+      fs.writeFileSync(oldBin, '')
+      fs.writeFileSync(newBin, '')
+      process.env.ARGUS_PARSE_BIN = oldBin // simulates the app's own startup export
+      expect(resolveArgusParse(path.join(tmp2, 'app'), newBin, null)).toBe(newBin)
+      expect(resolveArgusParse(path.join(tmp2, 'app'), newBin)).toBe(oldBin) // default still live-env (back-compat)
+    } finally {
+      delete process.env.ARGUS_PARSE_BIN
+      fs.rmSync(tmp2, { recursive: true, force: true })
+    }
+  })
 })
