@@ -8,6 +8,7 @@ import { resolveArgusHome, dbPath, caseDir } from './services/paths'
 import { openDb } from './services/db'
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
+import { extractDerivedText } from './services/extraction'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
@@ -59,9 +60,16 @@ function registerIpc(): void {
   // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
   ipcMain.handle(IPC.casesList, () => listCases(db))
-  ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) =>
-    absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
-  )
+  ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
+    const records = absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
+    // fire-and-forget: derived text appears via evidence:changed when ready
+    for (const rec of records) {
+      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin }).then((derived) => {
+        if (derived) broadcast(IPC.evidenceChanged, caseSlug)
+      })
+    }
+    return records
+  })
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => listEvidence(db, caseSlug))
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number) => readEvidenceText(db, argusHome, evidenceId))
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>

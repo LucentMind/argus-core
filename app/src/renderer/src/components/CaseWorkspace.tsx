@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { SearchBar } from './SearchBar'
 import { EvidenceLibrary } from './EvidenceLibrary'
 import { ChatPane } from './ChatPane'
@@ -23,6 +23,7 @@ export function CaseWorkspace({
     () => uiStore.get()
   )
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
+  const [prefill, setPrefill] = useState('')
 
   useEffect(() => {
     wireAgentStore()
@@ -48,10 +49,10 @@ export function CaseWorkspace({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-          <EvidenceLibrary caseSlug={slug} />
+          <EvidenceLibrary caseSlug={slug} onSuggest={setPrefill} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
+          <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} prefill={prefill} />
         </main>
         {ui.findingsCollapsed ? (
           <button
