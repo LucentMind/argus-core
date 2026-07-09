@@ -5,8 +5,9 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC } from '../shared/ipc'
-import { resolveArgusHome, dbPath, caseDir } from './services/paths'
+import { resolveArgusHome, dbPath, caseDir, settingsPath } from './services/paths'
 import { openDb } from './services/db'
+import { SettingsService } from './services/settings'
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
@@ -51,11 +52,30 @@ function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
   seedSharedDirs(argusHome, resolveAssetSource(app.getAppPath()))
+
+  // capture user-set env BEFORE this block mutates the process env (badge sources)
+  const envOverrides = {
+    traceDir: process.env.ARGUS_TRACE_DIR,
+    parseBin: process.env.ARGUS_PARSE_BIN
+  }
+  const settingsService = new SettingsService(argusHome, app.getAppPath(), envOverrides)
+
   // agent sessions and preflight inherit this process env — make sample-trace findable
-  ensureTraceOnPath(app.getAppPath())
+  ensureTraceOnPath(app.getAppPath(), settingsService.get().tools.traceDir || undefined)
   // …and sample-parse (Python delegation + agent Bash read ARGUS_PARSE_BIN)
-  const argusParseBin = resolveArgusParse(app.getAppPath())
+  let argusParseBin = resolveArgusParse(
+    app.getAppPath(),
+    settingsService.get().tools.parseBin || undefined
+  )
   if (argusParseBin) process.env.ARGUS_PARSE_BIN ??= argusParseBin
+
+  settingsService.subscribe(() => {
+    argusParseBin = resolveArgusParse(
+      app.getAppPath(),
+      settingsService.get().tools.parseBin || undefined
+    )
+    broadcast(IPC.settingsChanged, settingsService.payload())
+  })
 
   // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
@@ -102,11 +122,13 @@ function registerIpc(): void {
     agentService!.respond(caseSlug, d)
   )
   let cachedAuth: AuthStatus | null = null
-  ipcMain.handle(IPC.agentAuthStatus, async () => {
+  ipcMain.handle(IPC.agentAuthStatus, async (_e, force?: boolean) => {
+    if (force) cachedAuth = null
     if (!cachedAuth) {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
       const status = await probeAuth(
-        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never
+        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
+        { timeoutMs: settingsService.get().agent.probeTimeoutMs }
       )
       // only cache success — a failed probe should retry on the next case open
       if (status.ok) cachedAuth = status
@@ -152,6 +174,24 @@ function registerIpc(): void {
 
   // — skills —
   ipcMain.handle(IPC.skillsList, () => listSkills(argusHome))
+
+  // — settings —
+  ipcMain.handle(IPC.settingsGet, () => settingsService.payload())
+  ipcMain.handle(IPC.settingsPatch, (_e, p: unknown) => {
+    settingsService.patch(p)
+    return settingsService.payload()
+  })
+  ipcMain.handle(IPC.settingsProbeTools, () => settingsService.probeTools())
+  ipcMain.handle(IPC.settingsPickPath, async (_e, mode: 'file' | 'directory') => {
+    const r = await dialog.showOpenDialog({
+      properties: [mode === 'file' ? 'openFile' : 'openDirectory']
+    })
+    return r.canceled ? null : r.filePaths[0]
+  })
+  ipcMain.handle(IPC.settingsReveal, (_e, what: 'dataRoot' | 'settingsFile') => {
+    if (what === 'settingsFile') shell.showItemInFolder(settingsPath(argusHome))
+    else void shell.openPath(argusHome)
+  })
 }
 
 function createWindow(): void {

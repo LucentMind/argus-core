@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { NewCaseInput, SearchFilters, ApprovalDecision } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
+import type { SettingsPayload } from '../shared/settings'
 
 // Custom API for renderer
 const argus = {
@@ -31,7 +32,7 @@ const argus = {
     interrupt: (caseSlug: string) => ipcRenderer.invoke(IPC.agentInterrupt, caseSlug),
     respond: (caseSlug: string, d: ApprovalDecision) =>
       ipcRenderer.invoke(IPC.agentRespond, caseSlug, d),
-    authStatus: () => ipcRenderer.invoke(IPC.agentAuthStatus),
+    authStatus: (force?: boolean) => ipcRenderer.invoke(IPC.agentAuthStatus, force),
     history: (caseSlug: string): Promise<AgentEvent[]> =>
       ipcRenderer.invoke(IPC.agentHistory, caseSlug),
     preflight: () => ipcRenderer.invoke(IPC.agentPreflight),
@@ -51,6 +52,18 @@ const argus = {
   },
   skills: {
     list: () => ipcRenderer.invoke(IPC.skillsList)
+  },
+  settings: {
+    get: () => ipcRenderer.invoke(IPC.settingsGet),
+    patch: (p: unknown) => ipcRenderer.invoke(IPC.settingsPatch, p),
+    probeTools: () => ipcRenderer.invoke(IPC.settingsProbeTools),
+    pickPath: (mode: 'file' | 'directory') => ipcRenderer.invoke(IPC.settingsPickPath, mode),
+    reveal: (what: 'dataRoot' | 'settingsFile') => ipcRenderer.invoke(IPC.settingsReveal, what),
+    onChanged: (cb: (p: SettingsPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: SettingsPayload): void => cb(p)
+      ipcRenderer.on(IPC.settingsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.settingsChanged, listener)
+    }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file)
 }
