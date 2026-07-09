@@ -20,7 +20,7 @@ export function WorkspacesStrip({ slug }: { slug: string }): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-hair bg-panel px-4 py-1.5">
+    <div className="flex flex-wrap items-center gap-2 border-b border-hair bg-deep px-4 py-1.5">
       {workspaces.map((w) => (
         <span key={w.path} className="flex items-center gap-1.5">
           <Chip tone={w.worktreePath ? 'defect' : 'signal'}>
@@ -29,7 +29,7 @@ export function WorkspacesStrip({ slug }: { slug: string }): React.JSX.Element {
             {w.worktreePath ? ' · worktree' : ''}
           </Chip>
           <button
-            className="text-xs text-mute hover:text-danger"
+            className="text-xs text-mute transition-colors hover:text-danger"
             title="Unlink repo"
             onClick={() => void window.argus.workspaces.unlink(slug, w.path).then(reload)}
           >
@@ -37,7 +37,7 @@ export function WorkspacesStrip({ slug }: { slug: string }): React.JSX.Element {
           </button>
         </span>
       ))}
-      <Btn className="ml-auto text-xs" onClick={() => void link()}>
+      <Btn variant="ghost" className="ml-auto" onClick={() => void link()}>
         Link repo…
       </Btn>
     </div>

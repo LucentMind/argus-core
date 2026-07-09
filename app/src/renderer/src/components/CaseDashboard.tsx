@@ -9,6 +9,9 @@ const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'
   closed: 'neutral'
 }
 
+const INPUT =
+  'h-8 rounded-r2 border border-hair bg-overlay px-2.5 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2'
+
 export function CaseDashboard({
   cases,
   onOpen,
@@ -23,12 +26,14 @@ export function CaseDashboard({
   const [jira, setJira] = useState('')
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
-      <div>
-        <h1 className="text-xl font-semibold text-ink">Argus</h1>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-8">
+      <div className="flex flex-col gap-1">
+        <SectionLabel>
+          Cases · {cases.length} total
+        </SectionLabel>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
         <p className="text-sm text-dim">Defect analysis workbench</p>
       </div>
-      <SectionLabel>Cases</SectionLabel>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cases.map((c) => (
           <Card key={c.slug} onClick={() => onOpen(c.slug)} className="flex flex-col gap-2 p-4">
@@ -37,7 +42,7 @@ export function CaseDashboard({
               <Chip tone={STATUS_TONE[c.status]}>{c.status}</Chip>
             </div>
             <div className="text-sm text-ink">{c.title}</div>
-            <div className="text-xs text-mute">
+            <div className="mt-auto text-xs text-mute">
               {c.jiraKey ?? 'no ticket'} · updated {new Date(c.updatedAt).toLocaleDateString()}
             </div>
           </Card>
@@ -45,29 +50,32 @@ export function CaseDashboard({
         <Card className="flex flex-col gap-2 p-4">
           <SectionLabel>New case</SectionLabel>
           <input
-            className="rounded-r2 border border-hair bg-overlay px-2 py-1.5 font-mono text-sm text-ink placeholder:text-mute"
+            className={`${INPUT} font-mono`}
             placeholder="slug (e.g. NAVAPI-123)"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
           />
           <input
-            className="rounded-r2 border border-hair bg-overlay px-2 py-1.5 text-sm text-ink placeholder:text-mute"
+            className={INPUT}
             placeholder="title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
           <input
-            className="rounded-r2 border border-hair bg-overlay px-2 py-1.5 font-mono text-sm text-ink placeholder:text-mute"
+            className={`${INPUT} font-mono`}
             placeholder="jira key (optional)"
             value={jira}
             onChange={(e) => setJira(e.target.value)}
           />
           <Btn
             variant="primary"
+            className="justify-center"
             disabled={!slug || !title}
             onClick={() => {
               onCreate({ slug, title, jiraKey: jira || undefined })
-              setSlug(''); setTitle(''); setJira('')
+              setSlug('')
+              setTitle('')
+              setJira('')
             }}
           >
             Create case

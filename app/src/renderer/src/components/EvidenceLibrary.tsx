@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ArtifactType, EvidenceRecord } from '../../../shared/types'
+import { SectionLabel } from './ui'
 
 const ALL_TYPES: ArtifactType[] = [
   'applog', 'binlog', 'archive-rec', 'list-json', 'bintrace', 'archive', 'screenshot', 'text', 'unknown'
@@ -37,12 +38,12 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => void handleDrop(e)}
-      className={`flex flex-col gap-2 rounded-r3 border bg-panel p-3 ${
+      className={`flex flex-col gap-2 rounded-r3 border bg-panel p-3 transition-colors ${
         dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
       }`}
     >
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">Evidence — drop files here</h2>
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>Evidence — drop files here</SectionLabel>
         <select
           aria-label="type-filter"
           className="rounded-r1 border border-hair bg-overlay px-1 py-0.5 text-xs text-dim"
@@ -59,12 +60,12 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
         </select>
       </div>
       <table className="w-full text-left text-xs">
-        <thead className="text-mute">
-          <tr>
-            <th className="py-1">file</th>
-            <th>type</th>
-            <th>size</th>
-            <th>added</th>
+        <thead>
+          <tr className="font-mono text-[10.5px] uppercase tracking-wide text-mute">
+            <th className="py-1 font-medium">file</th>
+            <th className="font-medium">type</th>
+            <th className="font-medium">size</th>
+            <th className="font-medium">added</th>
           </tr>
         </thead>
         <tbody>
@@ -72,7 +73,9 @@ export function EvidenceLibrary({ caseSlug }: { caseSlug: string }): React.JSX.E
             <tr key={r.id} className="border-t border-hair">
               <td className="py-1 font-mono text-dim">{r.relPath}</td>
               <td>
-                <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">{r.artifactType}</span>
+                <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
+                  {r.artifactType}
+                </span>
               </td>
               <td className="text-dim">{r.size.toLocaleString()} B</td>
               <td className="text-dim">{new Date(r.createdAt).toLocaleString()}</td>

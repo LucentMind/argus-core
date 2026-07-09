@@ -22,7 +22,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
     <div className="flex flex-col gap-2">
       <form role="search" onSubmit={(e) => void run(e)}>
         <input
-          className="w-full rounded-r2 border border-hair bg-overlay px-3 py-1.5 text-sm text-ink placeholder:text-mute"
+          className="h-8 w-full rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
           placeholder="Search evidence…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -34,7 +34,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
             <li
               key={`${h.evidenceId}-${i}`}
               onClick={() => onOpen(h)}
-              className="cursor-pointer rounded-r2 border border-hair bg-panel p-2 text-xs transition-colors hover:bg-overlay"
+              className="cursor-pointer rounded-r2 border border-hair bg-panel p-2 text-xs transition-colors hover:border-hair2 hover:bg-hi"
             >
               <div className="font-mono font-medium text-ink">
                 {h.caseSlug} / {h.relPath}{' '}
@@ -43,7 +43,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
                 </span>
               </div>
               <div
-                className="font-mono text-dim"
+                className="font-mono text-dim [&_mark]:bg-defect/30 [&_mark]:text-ink"
                 dangerouslySetInnerHTML={{
                   __html: h.snippet
                     .replace(/&/g, '&amp;')
