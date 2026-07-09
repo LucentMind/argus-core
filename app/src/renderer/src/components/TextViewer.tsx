@@ -19,8 +19,15 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
   const [doc, setDoc] = useState<Doc | null>(null)
   const [derivedFrom, setDerivedFrom] = useState<string | null>(null)
 
-  useEffect(() => {
+  // adjust-state-during-render pattern: reset doc when evidence/line changes
+  const key = `${evidenceId}:${focusLine}`
+  const [lastKey, setLastKey] = useState(key)
+  if (key !== lastKey) {
+    setLastKey(key)
     setDoc(null)
+  }
+
+  useEffect(() => {
     void window.argus.evidence.read(evidenceId, focusLine).then(setDoc)
   }, [evidenceId, focusLine])
 
