@@ -96,4 +96,14 @@ describe('workspace service', () => {
     expect(fs.existsSync(wt)).toBe(false)
     expect(await listWorkspaces(db, argusHome, 'NAV-1')).toHaveLength(0)
   })
+
+  it('ensureWorktree stays on branch ref when called twice', async () => {
+    await linkWorkspace(db, argusHome, 'NAV-1', repo)
+    const wt = await ensureWorktree(argusHome, 'NAV-1', repo, 'feature/x')
+    // First call should attach to the branch
+    expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature/x')
+    // Second call should not detach the worktree
+    await ensureWorktree(argusHome, 'NAV-1', repo, 'feature/x')
+    expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature/x')
+  })
 })

@@ -146,6 +146,16 @@ export async function ensureWorktree(
   return withRepoLock(repoPath, async () => {
     const wt = worktreeDir(argusHome, caseSlug, repoPath)
     if (fs.existsSync(wt)) {
+      // Check if already at the requested ref; if so, skip switching to avoid detaching
+      const current = await git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')
+      if (current === ref) return wt
+
+      const [curSha, refSha] = await Promise.all([
+        git(wt, 'rev-parse', 'HEAD'),
+        git(wt, 'rev-parse', '--verify', `${ref}^{commit}`).catch(() => '')
+      ])
+      if (refSha && curSha === refSha) return wt
+
       await git(wt, 'switch', '--detach', ref).catch(async () => git(wt, 'switch', ref))
       return wt
     }
