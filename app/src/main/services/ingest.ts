@@ -9,7 +9,7 @@ import { detectArtifactType } from './detect'
 import { indexEvidenceText } from './indexer'
 
 const MAX_INDEX_BYTES = 20 * 1024 * 1024
-const TEXT_TYPES: ArtifactType[] = ['applog', 'text', 'list-json']
+const TEXT_TYPES: ArtifactType[] = ['applog', 'text', 'list-json', 'tagged-json']
 
 const COMPOUND_EXTS = ['.rec.gz', '.list.json', '.bintrace.zip', '.tar.gz']
 

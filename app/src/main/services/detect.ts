@@ -35,7 +35,12 @@ export function detectArtifactType(filePath: string): ArtifactType {
   if (name.endsWith('.json')) {
     try {
       const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-      if (parsed && Array.isArray(parsed.events)) return 'list-json'
+      if (parsed && typeof parsed === 'object') {
+        if (name.includes('tagged') || 'tagged' in parsed || 'tagged_events' in parsed) {
+          return 'tagged-json'
+        }
+        if (Array.isArray(parsed.events)) return 'list-json'
+      }
     } catch {
       /* fall through to text probe */
     }
