@@ -2,6 +2,29 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { IPC } from '../shared/ipc'
+import { resolveArgusHome, dbPath } from './services/paths'
+import { openDb } from './services/db'
+import { createCase, listCases } from './services/caseService'
+import { ingestArtifact, listEvidence } from './services/ingest'
+import { searchEvidence, readEvidenceText } from './services/search'
+import type { NewCaseInput, SearchFilters } from '../shared/types'
+
+function registerIpc(): void {
+  const argusHome = resolveArgusHome()
+  const db = openDb(dbPath(argusHome))
+
+  ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
+  ipcMain.handle(IPC.casesList, () => listCases(db))
+  ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) =>
+    absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
+  )
+  ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => listEvidence(db, caseSlug))
+  ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number) => readEvidenceText(db, argusHome, evidenceId))
+  ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
+    searchEvidence(db, q, filters ?? {})
+  )
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -51,6 +74,8 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  registerIpc()
 
   createWindow()
 
