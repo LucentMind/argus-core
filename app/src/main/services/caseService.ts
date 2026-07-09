@@ -110,11 +110,14 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
 }
 
 export function listCases(db: DatabaseSync): CaseRecord[] {
-  const rows = db.prepare(`SELECT * FROM cases ORDER BY created_at DESC, id DESC`).all() as unknown as CaseRow[]
+  const rows = db
+    .prepare(`SELECT * FROM cases ORDER BY created_at DESC, id DESC`)
+    .all() as unknown as CaseRow[]
   return rows.map(rowToCase)
 }
 
 export function getCase(db: DatabaseSync, slug: string): CaseRecord | null {
-  const row = db.prepare(`SELECT * FROM cases WHERE slug = ?`).get(slug) as unknown as CaseRow | undefined
+  const row = db.prepare(`SELECT * FROM cases WHERE slug = ?`).get(slug) as unknown as
+    CaseRow | undefined
   return row ? rowToCase(row) : null
 }

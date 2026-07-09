@@ -55,7 +55,9 @@ describe('openDb', () => {
 
     it('creates wave-1 agent tables', () => {
       const names = db
-        .prepare(`SELECT name FROM sqlite_master WHERE type IN ('table','virtual table') OR type='table'`)
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type IN ('table','virtual table') OR type='table'`
+        )
         .all() as unknown as { name: string }[]
       const nameList = names.map((r) => r.name)
       for (const t of ['sessions', 'turns', 'tool_calls', 'messages_fts']) {
@@ -71,7 +73,9 @@ describe('openDb', () => {
         tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`)
       old.close()
       const upgraded = openDb(file)
-      const cols = upgraded.prepare(`PRAGMA table_info(cases)`).all() as unknown as { name: string }[]
+      const cols = upgraded.prepare(`PRAGMA table_info(cases)`).all() as unknown as {
+        name: string
+      }[]
       const colNames = cols.map((r) => r.name)
       expect(colNames).toContain('workspaces')
       upgraded.close()

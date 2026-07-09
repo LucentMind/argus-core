@@ -58,7 +58,9 @@ export class SessionMirror implements SessionMirrorLike {
   indexText(role: string, content: string, turnId: number | null): void {
     if (!content.trim()) return
     this.db
-      .prepare(`INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?, ?, ?, ?, ?)`)
+      .prepare(
+        `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?, ?, ?, ?, ?)`
+      )
       .run(content, this.ids.caseId, this.ids.sessionId, turnId, role)
   }
 

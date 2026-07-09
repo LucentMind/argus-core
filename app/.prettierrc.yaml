@@ -2,3 +2,5 @@ singleQuote: true
 semi: false
 printWidth: 100
 trailingComma: none
+# git core.autocrlf=true checks files out as CRLF on Windows; don't fight it
+endOfLine: auto

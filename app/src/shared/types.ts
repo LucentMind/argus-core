@@ -1,8 +1,16 @@
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
 export type ArtifactType =
-  | 'applog' | 'binlog' | 'archive-rec' | 'list-json' | 'tagged-json'
-  | 'bintrace' | 'archive' | 'screenshot' | 'text' | 'unknown'
+  | 'applog'
+  | 'binlog'
+  | 'archive-rec'
+  | 'list-json'
+  | 'tagged-json'
+  | 'bintrace'
+  | 'archive'
+  | 'screenshot'
+  | 'text'
+  | 'unknown'
 
 export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent'
 

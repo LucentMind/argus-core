@@ -17,7 +17,10 @@ export function resolveAssetSource(appRoot: string): { skills: string; reference
   }
 }
 
-export function seedSharedDirs(argusHome: string, source: { skills: string; references: string }): void {
+export function seedSharedDirs(
+  argusHome: string,
+  source: { skills: string; references: string }
+): void {
   for (const [src, dest] of [
     [source.skills, sharedSkillsDir(argusHome)],
     [source.references, sharedReferencesDir(argusHome)]
@@ -57,7 +60,9 @@ export function updateClaudeMdWorkspaces(
   const body =
     workspaces.length === 0
       ? '_No code workspaces linked._'
-      : workspaces.map((w) => `- \`${w.path}\` (linked at branch \`${w.branch ?? '?'}\`)`).join('\n')
+      : workspaces
+          .map((w) => `- \`${w.path}\` (linked at branch \`${w.branch ?? '?'}\`)`)
+          .join('\n')
   const content = fs.readFileSync(file, 'utf8')
   const replaced = content.replace(
     /<!-- argus:workspaces -->[\s\S]*?<!-- \/argus:workspaces -->/,

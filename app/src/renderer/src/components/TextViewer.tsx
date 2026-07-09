@@ -8,7 +8,9 @@ interface Props {
 }
 
 export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX.Element {
-  const [doc, setDoc] = useState<{ relPath: string; caseSlug: string; content: string } | null>(null)
+  const [doc, setDoc] = useState<{ relPath: string; caseSlug: string; content: string } | null>(
+    null
+  )
   const [derivedFrom, setDerivedFrom] = useState<string | null>(null)
 
   useEffect(() => {

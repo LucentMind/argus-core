@@ -4,8 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
 import { indexEvidenceText, deleteEvidenceIndex } from '../indexer'
+import type { DatabaseSync } from 'node:sqlite'
 
-function freshDb() {
+function freshDb(): DatabaseSync {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-idx-'))
   return openDb(path.join(dir, 'argus.db'))
 }
@@ -17,7 +18,9 @@ describe('indexEvidenceText', () => {
     const chunks = indexEvidenceText(db, 7, text, 400)
     expect(chunks).toBe(3)
     const rows = db
-      .prepare(`SELECT chunk_index, start_line, end_line FROM evidence_fts WHERE evidence_id = 7 ORDER BY chunk_index`)
+      .prepare(
+        `SELECT chunk_index, start_line, end_line FROM evidence_fts WHERE evidence_id = 7 ORDER BY chunk_index`
+      )
       .all() as { chunk_index: number; start_line: number; end_line: number }[]
     expect(rows).toEqual([
       { chunk_index: 0, start_line: 1, end_line: 400 },
@@ -34,7 +37,9 @@ describe('indexEvidenceText', () => {
       .get('"TileStore error"') as { evidence_id: number } | undefined
     expect(hit?.evidence_id).toBe(3)
     deleteEvidenceIndex(db, 3)
-    const after = db.prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = 3`).get() as { n: number }
+    const after = db
+      .prepare(`SELECT count(*) AS n FROM evidence_fts WHERE evidence_id = 3`)
+      .get() as { n: number }
     expect(after.n).toBe(0)
   })
 })

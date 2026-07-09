@@ -149,10 +149,13 @@ export function Composer({
     void window.argus.skills.list().then(setSkills)
   }, [])
 
-  // suggestion buttons (e.g. Analyze in the evidence library) overwrite the draft
-  useEffect(() => {
+  // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
+  // draft — adjust-state-during-render pattern instead of a setState effect
+  const [lastPrefill, setLastPrefill] = useState(prefill)
+  if (prefill !== lastPrefill) {
+    setLastPrefill(prefill)
     if (prefill) setText(prefill)
-  }, [prefill])
+  }
 
   const showSkills = text.startsWith('/') && !text.includes(' ')
   const matches = skills.filter((s) => s.name.startsWith(text.slice(1)))

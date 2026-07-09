@@ -78,7 +78,9 @@ export function CaseWorkspace({
               }}
               onPointerMove={(e) => {
                 if (!drag.current) return
-                uiStore.setFindingsWidth(drag.current.startWidth + (drag.current.startX - e.clientX))
+                uiStore.setFindingsWidth(
+                  drag.current.startWidth + (drag.current.startX - e.clientX)
+                )
               }}
               onPointerUp={() => {
                 drag.current = null

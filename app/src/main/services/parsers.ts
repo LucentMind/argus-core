@@ -3,7 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const BIN_NAMES =
-  process.platform === 'win32' ? ['sample-parse.exe', 'sample-parse'] : ['sample-parse', 'sample-parse.exe']
+  process.platform === 'win32'
+    ? ['sample-parse.exe', 'sample-parse']
+    : ['sample-parse', 'sample-parse.exe']
 
 function firstExisting(dir: string): string | null {
   for (const name of BIN_NAMES) {

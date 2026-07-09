@@ -66,7 +66,11 @@ function writeStored(
     data.workspaces = list
     fs.writeFileSync(cj, JSON.stringify(data, null, 2))
   }
-  updateClaudeMdWorkspaces(argusHome, caseSlug, list.map((w) => ({ path: w.path, branch: w.branch })))
+  updateClaudeMdWorkspaces(
+    argusHome,
+    caseSlug,
+    list.map((w) => ({ path: w.path, branch: w.branch }))
+  )
 }
 
 async function describeWorkspace(

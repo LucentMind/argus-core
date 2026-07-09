@@ -34,7 +34,10 @@ export function ChatPane({
         {state.items.map((item, i) => {
           if (item.kind === 'user') {
             return (
-              <div key={i} className="ml-12 rounded-r3 border border-hair bg-hi p-3 text-sm text-ink">
+              <div
+                key={i}
+                className="ml-12 rounded-r3 border border-hair bg-hi p-3 text-sm text-ink"
+              >
                 {item.text}
               </div>
             )
@@ -66,7 +69,11 @@ export function ChatPane({
           </button>
         </div>
       )}
-      <Composer disabled={false} prefill={prefill} onSend={(t) => void window.argus.agent.send(slug, t)} />
+      <Composer
+        disabled={false}
+        prefill={prefill}
+        onSend={(t) => void window.argus.agent.send(slug, t)}
+      />
     </div>
   )
 }

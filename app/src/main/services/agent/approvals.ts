@@ -37,7 +37,11 @@ export class PendingApprovals {
     })
   }
 
-  resolve(requestId: string, decision: 'allow' | 'allow-session' | 'deny', comment?: string): boolean {
+  resolve(
+    requestId: string,
+    decision: 'allow' | 'allow-session' | 'deny',
+    comment?: string
+  ): boolean {
     const p = this.pending.get(requestId)
     if (!p) return false
     p.settle({ decision, comment })

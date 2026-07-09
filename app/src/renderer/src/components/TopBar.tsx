@@ -81,7 +81,10 @@ export function TopBar({
         </span>
       </button>
       <div className="mx-1 h-4 w-px bg-hair" />
-      <nav aria-label="Recent cases" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <nav
+        aria-label="Recent cases"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+      >
         {ui.recentTabs.map((slug) => {
           const active = slug === activeSlug
           return (

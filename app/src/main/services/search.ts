@@ -12,7 +12,7 @@ function escapeFtsQuery(q: string): string {
   const trimmed = q.trim()
   // Escape problematic FTS syntax characters by wrapping terms in quotes
   // Split by whitespace and wrap each term in quotes
-  const terms = trimmed.split(/\s+/).map(term => {
+  const terms = trimmed.split(/\s+/).map((term) => {
     // Escape internal quotes by doubling them
     const escaped = term.replace(/"/g, '""')
     // Wrap in quotes to protect special characters
@@ -48,7 +48,11 @@ interface HitRow {
   chunkContent: string
 }
 
-export function searchEvidence(db: DatabaseSync, query: string, filters: SearchFilters = {}): SearchHit[] {
+export function searchEvidence(
+  db: DatabaseSync,
+  query: string,
+  filters: SearchFilters = {}
+): SearchHit[] {
   if (!query.trim()) return []
   const caseSlug = filters.caseSlug ?? null
   const artifactType = filters.artifactType ?? null
@@ -71,7 +75,13 @@ export function searchEvidence(db: DatabaseSync, query: string, filters: SearchF
        ORDER BY bm25(evidence_fts)
        LIMIT 50`
     )
-    .all(escapeFtsQuery(query), caseSlug, caseSlug, artifactType, artifactType) as unknown as HitRow[]
+    .all(
+      escapeFtsQuery(query),
+      caseSlug,
+      caseSlug,
+      artifactType,
+      artifactType
+    ) as unknown as HitRow[]
   return rows.map((r) => ({
     evidenceId: Number(r.evidenceId),
     caseSlug: r.caseSlug,

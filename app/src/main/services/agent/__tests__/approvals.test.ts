@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { PendingApprovals, SessionGrants } from '../approvals'
 
-const req = (id: string) => ({
+const req = (id: string): Parameters<PendingApprovals['open']>[0] => ({
   requestId: id,
   tool: 'Bash',
   risk: 'MEDIUM' as const,

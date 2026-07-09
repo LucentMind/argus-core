@@ -44,7 +44,11 @@ describe('AgentService', () => {
   it('keeps concurrent sessions per case and routes events with the right caseSlug', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
-      db, argusHome, skillsRoots: [], onEvent: (e) => events.push(e), createQuery
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: (e) => events.push(e),
+      createQuery
     })
     await svc.send('NAV-1', 'hello 1')
     await svc.send('NAV-2', 'hello 2')
@@ -57,12 +61,24 @@ describe('AgentService', () => {
   it('reaps the least-recently-used idle session beyond maxSessions', async () => {
     const { createQuery, queues } = fakeCreateQuery()
     const svc = new AgentService({
-      db, argusHome, skillsRoots: [], onEvent: (e) => events.push(e), createQuery, maxSessions: 2
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: (e) => events.push(e),
+      createQuery,
+      maxSessions: 2
     })
     await svc.send('NAV-1', 'a')
     // complete NAV-1's turn so it is idle
-    queues[0].push({ type: 'result', subtype: 'success', session_id: '11111111-1111-4111-8111-111111111111',
-      usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0, duration_ms: 1, is_error: false })
+    queues[0].push({
+      type: 'result',
+      subtype: 'success',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      total_cost_usd: 0,
+      duration_ms: 1,
+      is_error: false
+    })
     await new Promise((r) => setTimeout(r, 10))
     await svc.send('NAV-2', 'b')
     await svc.send('NAV-3', 'c')
@@ -76,18 +92,34 @@ describe('AgentService', () => {
   it('a reaped case restarts with its resume cursor', async () => {
     const { createQuery, queues } = fakeCreateQuery()
     const svc = new AgentService({
-      db, argusHome, skillsRoots: [], onEvent: (e) => events.push(e), createQuery, maxSessions: 1
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: (e) => events.push(e),
+      createQuery,
+      maxSessions: 1
     })
     await svc.send('NAV-1', 'a')
-    queues[0].push({ type: 'system', subtype: 'init', session_id: '22222222-2222-4222-8222-222222222222', model: 'm' })
+    queues[0].push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '22222222-2222-4222-8222-222222222222',
+      model: 'm'
+    })
     await new Promise((r) => setTimeout(r, 10))
     await svc.stopAll()
     // new service instance = app restart
     const svc2 = new AgentService({
-      db, argusHome, skillsRoots: [], onEvent: () => undefined, createQuery
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: () => undefined,
+      createQuery
     })
     await svc2.send('NAV-1', 'b')
-    const sess = db.prepare(`SELECT sdk_session_id FROM sessions`).get() as { sdk_session_id: string }
+    const sess = db.prepare(`SELECT sdk_session_id FROM sessions`).get() as {
+      sdk_session_id: string
+    }
     expect(sess.sdk_session_id).toBe('22222222-2222-4222-8222-222222222222')
     await svc2.stopAll()
   })

@@ -16,7 +16,10 @@ export function resolveTraceBinDir(appRoot: string): string | null {
   const override = process.env.ARGUS_TRACE_DIR
   if (override && fs.existsSync(override)) return override
   const venvBin = path.resolve(
-    appRoot, '..', 'trace-tools', '.venv',
+    appRoot,
+    '..',
+    'trace-tools',
+    '.venv',
     process.platform === 'win32' ? 'Scripts' : 'bin'
   )
   if (fs.existsSync(venvBin)) return venvBin

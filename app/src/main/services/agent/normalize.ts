@@ -34,7 +34,9 @@ function previewOf(content: unknown): string {
       ? content
       : Array.isArray(content)
         ? content
-            .map((b) => (typeof b === 'object' && b && 'text' in b ? String((b as { text: unknown }).text) : ''))
+            .map((b) =>
+              typeof b === 'object' && b && 'text' in b ? String((b as { text: unknown }).text) : ''
+            )
             .join('')
         : content === null || content === undefined
           ? ''
@@ -49,7 +51,9 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
   switch (msg.type) {
     case 'system':
       if (msg.subtype === 'init') {
-        return [makeEvent(ctx, 'session.started', { model: String(msg.model ?? ''), resumed: false })]
+        return [
+          makeEvent(ctx, 'session.started', { model: String(msg.model ?? ''), resumed: false })
+        ]
       }
       return []
 

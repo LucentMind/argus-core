@@ -8,7 +8,9 @@ beforeEach(() => {
   localStorage.clear()
   uiStore.setFindingsCollapsed(false)
   window.argus = {
-    cases: { readFindings: vi.fn(async () => '# Findings\n\n## Tile crash\nsee [evidence/log.txt:3]') },
+    cases: {
+      readFindings: vi.fn(async () => '# Findings\n\n## Tile crash\nsee [evidence/log.txt:3]')
+    },
     agent: { onEvent: vi.fn(() => () => undefined) }
   } as never
 })

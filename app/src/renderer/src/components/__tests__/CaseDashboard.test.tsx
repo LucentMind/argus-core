@@ -6,8 +6,14 @@ import type { CaseRecord } from '../../../../shared/types'
 
 const cases: CaseRecord[] = [
   {
-    id: 1, slug: 'NAV-1', title: 'Bearing jumps', jiraKey: 'NAV-1', status: 'analyzing',
-    tags: [], createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-08T00:00:00Z'
+    id: 1,
+    slug: 'NAV-1',
+    title: 'Bearing jumps',
+    jiraKey: 'NAV-1',
+    status: 'analyzing',
+    tags: [],
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-08T00:00:00Z'
   }
 ]
 
@@ -28,6 +34,10 @@ describe('CaseDashboard', () => {
     })
     fireEvent.change(screen.getByPlaceholderText('title'), { target: { value: 'New defect' } })
     fireEvent.click(screen.getByRole('button', { name: /create case/i }))
-    expect(onCreate).toHaveBeenCalledWith({ slug: 'NAV-9', title: 'New defect', jiraKey: undefined })
+    expect(onCreate).toHaveBeenCalledWith({
+      slug: 'NAV-9',
+      title: 'New defect',
+      jiraKey: undefined
+    })
   })
 })

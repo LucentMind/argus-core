@@ -26,7 +26,9 @@ describe('ingestArtifact', () => {
     expect(rec.relPath).toBe('evidence/sample-applog.txt')
     expect(rec.sha256).toMatch(/^[0-9a-f]{64}$/)
     expect(fs.existsSync(path.join(home, 'cases/NAVAPI-1', rec.relPath))).toBe(true)
-    expect(fs.existsSync(path.join(home, 'cases/NAVAPI-1/evidence/.meta/sample-applog.txt.json'))).toBe(true)
+    expect(
+      fs.existsSync(path.join(home, 'cases/NAVAPI-1/evidence/.meta/sample-applog.txt.json'))
+    ).toBe(true)
     const hit = db
       .prepare(`SELECT evidence_id FROM evidence_fts WHERE evidence_fts MATCH ?`)
       .get('"TileStore error"') as { evidence_id: number } | undefined

@@ -1,8 +1,9 @@
 const CITE_RE = /\[((?:evidence\/|findings\.md|\.rca\/)[^\][:]*?):(\d+)\](?!\()/g
 
 export function linkifyCitations(markdown: string): string {
-  return markdown.replace(CITE_RE, (_m, relPath: string, line: string) =>
-    `[${relPath}:${line}](cite://${relPath}?line=${line})`
+  return markdown.replace(
+    CITE_RE,
+    (_m, relPath: string, line: string) => `[${relPath}:${line}](cite://${relPath}?line=${line})`
   )
 }
 

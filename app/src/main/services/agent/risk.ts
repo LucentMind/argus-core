@@ -35,8 +35,31 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
 const FS_READ_TOOLS = ['Read', 'Glob', 'Grep', 'NotebookRead']
 const FS_WRITE_TOOLS = ['Write', 'Edit', 'NotebookEdit']
 
-const GIT_READ = new Set(['log', 'show', 'diff', 'blame', 'status', 'grep', 'rev-parse', 'ls-files', 'remote', 'branch', 'describe', 'shortlog'])
-const GIT_WS_MUT = new Set(['fetch', 'pull', 'switch', 'checkout', 'stash', 'worktree', 'reset', 'restore', 'clean'])
+const GIT_READ = new Set([
+  'log',
+  'show',
+  'diff',
+  'blame',
+  'status',
+  'grep',
+  'rev-parse',
+  'ls-files',
+  'remote',
+  'branch',
+  'describe',
+  'shortlog'
+])
+const GIT_WS_MUT = new Set([
+  'fetch',
+  'pull',
+  'switch',
+  'checkout',
+  'stash',
+  'worktree',
+  'reset',
+  'restore',
+  'clean'
+])
 const GH_READ = new Set(['view', 'list', 'diff', 'status', 'checks'])
 
 function withinAny(p: string, roots: string[]): boolean {
@@ -60,26 +83,50 @@ function classifyGit(tokens: string[]): RiskVerdict {
     else break
   }
   const sub = tokens[i] ?? ''
-  if (sub === 'push') return { action: 'ask', risk: 'HIGH', grantKey: null, reason: 'Remote mutation: git push' }
+  if (sub === 'push')
+    return { action: 'ask', risk: 'HIGH', grantKey: null, reason: 'Remote mutation: git push' }
   if (GIT_WS_MUT.has(sub))
-    return { action: 'ask', risk: 'MEDIUM', grantKey: `ws:${repo}`, reason: `Workspace mutation: git ${sub}` }
+    return {
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: `ws:${repo}`,
+      reason: `Workspace mutation: git ${sub}`
+    }
   if (GIT_READ.has(sub)) return { action: 'allow', risk: 'LOW' }
-  return { action: 'ask', risk: 'MEDIUM', grantKey: `ws:${repo}`, reason: `Unrecognized git subcommand: ${sub}` }
+  return {
+    action: 'ask',
+    risk: 'MEDIUM',
+    grantKey: `ws:${repo}`,
+    reason: `Unrecognized git subcommand: ${sub}`
+  }
 }
 
 function classifyGh(tokens: string[]): RiskVerdict {
   const [, group, sub] = tokens
   if (group === 'auth' && sub === 'status') return { action: 'allow', risk: 'LOW' }
   if (group === 'api') {
-    const hasMutMethod = tokens.some((t, i) => (t === '-X' || t === '--method') && /^(POST|PUT|PATCH|DELETE)$/i.test(tokens[i + 1] ?? ''))
+    const hasMutMethod = tokens.some(
+      (t, i) =>
+        (t === '-X' || t === '--method') && /^(POST|PUT|PATCH|DELETE)$/i.test(tokens[i + 1] ?? '')
+    )
     return hasMutMethod
       ? { action: 'ask', risk: 'HIGH', grantKey: null, reason: 'Remote mutation: gh api non-GET' }
       : { action: 'allow', risk: 'LOW' }
   }
   if (group === 'pr' && sub === 'checkout')
-    return { action: 'ask', risk: 'MEDIUM', grantKey: 'ws:cwd', reason: 'Workspace mutation: gh pr checkout' }
+    return {
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: 'ws:cwd',
+      reason: 'Workspace mutation: gh pr checkout'
+    }
   if (GH_READ.has(sub)) return { action: 'allow', risk: 'LOW' }
-  return { action: 'ask', risk: 'HIGH', grantKey: null, reason: `Remote mutation: gh ${group} ${sub ?? ''}`.trim() }
+  return {
+    action: 'ask',
+    risk: 'HIGH',
+    grantKey: null,
+    reason: `Remote mutation: gh ${group} ${sub ?? ''}`.trim()
+  }
 }
 
 function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
@@ -101,7 +148,9 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
     return { action: 'allow', risk: 'LOW' }
   }
   if (['grep', 'rg', 'cat', 'awk', 'sed', 'head', 'tail'].includes(prog)) {
-    const touchesEvidence = tokens.slice(1).some((t) => t.startsWith('evidence/') || t.includes('/evidence/'))
+    const touchesEvidence = tokens
+      .slice(1)
+      .some((t) => t.startsWith('evidence/') || t.includes('/evidence/'))
     if (touchesEvidence)
       return {
         action: 'ask',
@@ -130,7 +179,8 @@ export function classifyToolCall(
     // The agent session's cwd is always ctx.caseDir, so a missing or relative path
     // resolves against it. A missing path means "cwd" -> caseDir -> allowed.
     const abs = p ? path.resolve(ctx.caseDir, p) : ctx.caseDir
-    if (!inSandbox(abs, ctx)) return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${p ?? abs}` }
+    if (!inSandbox(abs, ctx))
+      return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${p ?? abs}` }
     if (FS_WRITE_TOOLS.includes(toolName) && withinAny(abs, ctx.readonlyRoots))
       return { action: 'deny', risk: 'HIGH', reason: `Read-only root: ${p ?? abs}` }
     return { action: 'allow', risk: 'LOW' }
@@ -157,6 +207,12 @@ export function classifyToolCall(
   const last = toolName.split('__').pop() ?? toolName
   if (/(delete|remove|transition|merge)/.test(last))
     return { action: 'ask', risk: 'HIGH', grantKey: null, reason: `Destructive tool: ${toolName}` }
-  if (/^(get|list|read|search|view|find|check)(_|$)/.test(last)) return { action: 'allow', risk: 'LOW' }
-  return { action: 'ask', risk: 'MEDIUM', grantKey: `medium:${toolName}`, reason: `Write-capable tool: ${toolName}` }
+  if (/^(get|list|read|search|view|find|check)(_|$)/.test(last))
+    return { action: 'allow', risk: 'LOW' }
+  return {
+    action: 'ask',
+    risk: 'MEDIUM',
+    grantKey: `medium:${toolName}`,
+    reason: `Write-capable tool: ${toolName}`
+  }
 }
