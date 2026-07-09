@@ -44,6 +44,18 @@ describe('detectArtifactType', () => {
     )
     expect(detectArtifactType(p)).toBe('applog')
   })
+  it('detects tagged traces by filename', () => {
+    const p = write('session-tagged-json.json', JSON.stringify({ version: 1, events: [] }))
+    expect(detectArtifactType(p)).toBe('tagged-json')
+  })
+  it('detects tagged traces by top-level key', () => {
+    const p = write('nav-session.json', JSON.stringify({ tagged: { version: 1 }, events: [] }))
+    expect(detectArtifactType(p)).toBe('tagged-json')
+  })
+  it('keeps plain json as list-json/text', () => {
+    const p = write('plain.json', JSON.stringify({ hello: 1 }))
+    expect(detectArtifactType(p)).not.toBe('tagged-json')
+  })
   it('falls back to text then unknown', () => {
     expect(detectArtifactType(write('notes.md', 'just some notes\n'))).toBe('text')
     expect(detectArtifactType(write('blob.bin', Buffer.from([0, 1, 2, 3, 0, 5])))).toBe('unknown')

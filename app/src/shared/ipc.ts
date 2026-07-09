@@ -6,6 +6,7 @@ export const IPC = {
   evidenceIngest: 'evidence:ingest',
   evidenceList: 'evidence:list',
   evidenceRead: 'evidence:read',
+  evidenceChanged: 'evidence:changed',
   searchQuery: 'search:query',
   agentSend: 'agent:send',
   agentInterrupt: 'agent:interrupt',

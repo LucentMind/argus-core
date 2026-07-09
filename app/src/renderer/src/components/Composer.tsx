@@ -128,10 +128,12 @@ function Divider(): React.JSX.Element {
 
 export function Composer({
   disabled,
-  onSend
+  onSend,
+  prefill
 }: {
   disabled: boolean
   onSend: (text: string) => void
+  prefill?: string
 }): React.JSX.Element {
   const [text, setText] = useState('')
   const [skills, setSkills] = useState<SkillMeta[]>([])
@@ -146,6 +148,11 @@ export function Composer({
   useEffect(() => {
     void window.argus.skills.list().then(setSkills)
   }, [])
+
+  // suggestion buttons (e.g. Analyze in the evidence library) overwrite the draft
+  useEffect(() => {
+    if (prefill) setText(prefill)
+  }, [prefill])
 
   const showSkills = text.startsWith('/') && !text.includes(' ')
   const matches = skills.filter((s) => s.name.startsWith(text.slice(1)))

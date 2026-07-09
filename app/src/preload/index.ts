@@ -14,7 +14,12 @@ const argus = {
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) => ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
-    read: (evidenceId: number) => ipcRenderer.invoke(IPC.evidenceRead, evidenceId)
+    read: (evidenceId: number) => ipcRenderer.invoke(IPC.evidenceRead, evidenceId),
+    onChanged: (cb: (caseSlug: string) => void): (() => void) => {
+      const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
+      ipcRenderer.on(IPC.evidenceChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.evidenceChanged, listener)
+    }
   },
   search: {
     query: (q: string, filters?: SearchFilters) => ipcRenderer.invoke(IPC.searchQuery, q, filters)

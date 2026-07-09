@@ -8,10 +8,12 @@ import { ApprovalCard } from './ApprovalCard'
 
 export function ChatPane({
   slug,
-  onCite
+  onCite,
+  prefill
 }: {
   slug: string
   onCite: (relPath: string, line: number) => void
+  prefill?: string
 }): React.JSX.Element {
   const state = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
@@ -64,7 +66,7 @@ export function ChatPane({
           </button>
         </div>
       )}
-      <Composer disabled={false} onSend={(t) => void window.argus.agent.send(slug, t)} />
+      <Composer disabled={false} prefill={prefill} onSend={(t) => void window.argus.agent.send(slug, t)} />
     </div>
   )
 }
