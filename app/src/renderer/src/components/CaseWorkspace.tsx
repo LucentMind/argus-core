@@ -3,6 +3,8 @@ import { SearchBar } from './SearchBar'
 import { EvidenceLibrary } from './EvidenceLibrary'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
+import { FindingsPane } from './FindingsPane'
+import { WorkspacesStrip } from './WorkspacesStrip'
 import { Btn } from './ui'
 import { wireAgentStore } from '../lib/agentStore'
 import type { SearchHit } from '../../../shared/types'
@@ -32,6 +34,7 @@ export function CaseWorkspace({
           <HeaderChips slug={slug} />
         </div>
       </header>
+      <WorkspacesStrip slug={slug} />
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 flex-col gap-3 overflow-y-auto border-r border-hair p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
@@ -40,7 +43,9 @@ export function CaseWorkspace({
         <main className="flex min-w-0 flex-1 flex-col">
           <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
         </main>
-        <aside className="w-96 overflow-y-auto border-l border-hair p-3" data-testid="findings-slot" />
+        <aside className="w-96 overflow-y-auto border-l border-hair p-3">
+          <FindingsPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
+        </aside>
       </div>
     </div>
   )
