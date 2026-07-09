@@ -19,5 +19,11 @@ export const IPC = {
   workspacesLink: 'workspaces:link',
   workspacesUnlink: 'workspaces:unlink',
   workspacesList: 'workspaces:list',
-  skillsList: 'skills:list'
+  skillsList: 'skills:list',
+  settingsGet: 'settings:get',
+  settingsPatch: 'settings:patch',
+  settingsChanged: 'settings:changed',
+  settingsProbeTools: 'settings:probe-tools',
+  settingsPickPath: 'settings:pick-path',
+  settingsReveal: 'settings:reveal'
 } as const
