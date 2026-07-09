@@ -1,1 +1,6 @@
 @import 'tailwindcss';
+@import './theme.css';
+
+body {
+  @apply bg-void text-ink font-sans antialiased;
+}
