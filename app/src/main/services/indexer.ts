@@ -30,7 +30,13 @@ export function indexEvidenceFile(
 
     const flush = (): void => {
       if (pending.length === 0) return
-      ins.run(pending.join('\n'), evidenceId, chunkIndex, chunkStart, chunkStart + pending.length - 1)
+      ins.run(
+        pending.join('\n'),
+        evidenceId,
+        chunkIndex,
+        chunkStart,
+        chunkStart + pending.length - 1
+      )
       chunkIndex++
       chunkStart = lineNo + 1
       pending = []
