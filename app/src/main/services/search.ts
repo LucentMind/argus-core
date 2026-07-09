@@ -178,5 +178,11 @@ export function readEvidenceText(
     }
   }
   const truncated = windowStart > 1 || !reachedEof
-  return { relPath: row.relPath, caseSlug: row.caseSlug, content, startLine: windowStart, truncated }
+  return {
+    relPath: row.relPath,
+    caseSlug: row.caseSlug,
+    content,
+    startLine: windowStart,
+    truncated
+  }
 }
