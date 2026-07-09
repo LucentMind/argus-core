@@ -3,6 +3,8 @@ import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { SearchBar } from './components/SearchBar'
 import { TextViewer } from './components/TextViewer'
+import { TopBar } from './components/TopBar'
+import { uiStore } from './lib/uiStore'
 import type { CaseRecord, NewCaseInput, SearchHit } from '../../shared/types'
 
 type View = { kind: 'home' } | { kind: 'case'; slug: string }
@@ -20,40 +22,49 @@ function App(): React.JSX.Element {
     void reload()
   }, [reload])
 
+  const openCase = useCallback((slug: string) => {
+    uiStore.openTab(slug)
+    setView({ kind: 'case', slug })
+  }, [])
+
   async function handleCreate(input: NewCaseInput): Promise<void> {
     await window.argus.cases.create(input)
     await reload()
-    setView({ kind: 'case', slug: input.slug })
+    openCase(input.slug)
   }
 
   function handleOpenHit(hit: SearchHit): void {
     setViewer({ evidenceId: hit.evidenceId, focusLine: hit.matchLine })
   }
 
+  function goHome(): void {
+    setView({ kind: 'home' })
+    void reload()
+  }
+
   return (
-    <div className="h-screen overflow-auto bg-void text-ink">
-      {view.kind === 'home' ? (
-        <>
-          <CaseDashboard
-            cases={cases}
-            onOpen={(slug) => setView({ kind: 'case', slug })}
-            onCreate={(i) => void handleCreate(i)}
+    <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">
+      <TopBar
+        activeSlug={view.kind === 'case' ? view.slug : null}
+        onHome={goHome}
+        onSelect={openCase}
+      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {view.kind === 'home' ? (
+          <>
+            <CaseDashboard cases={cases} onOpen={openCase} onCreate={(i) => void handleCreate(i)} />
+            <div className="mx-auto w-full max-w-5xl px-8 pb-8">
+              <SearchBar caseSlug={null} onOpen={handleOpenHit} />
+            </div>
+          </>
+        ) : (
+          <CaseWorkspace
+            slug={view.slug}
+            onOpenHit={handleOpenHit}
+            onOpenCitation={(id, line) => setViewer({ evidenceId: id, focusLine: line })}
           />
-          <div className="mx-auto max-w-5xl px-8 pb-8">
-            <SearchBar caseSlug={null} onOpen={handleOpenHit} />
-          </div>
-        </>
-      ) : (
-        <CaseWorkspace
-          slug={view.slug}
-          onBack={() => {
-            setView({ kind: 'home' })
-            void reload()
-          }}
-          onOpenHit={handleOpenHit}
-          onOpenCitation={(id, line) => setViewer({ evidenceId: id, focusLine: line })}
-        />
-      )}
+        )}
+      </div>
       {viewer && (
         <TextViewer
           evidenceId={viewer.evidenceId}
