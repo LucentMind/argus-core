@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Chip } from './ui'
 
 interface Props {
   evidenceId: number
@@ -8,14 +9,23 @@ interface Props {
 
 export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX.Element {
   const [doc, setDoc] = useState<{ relPath: string; caseSlug: string; content: string } | null>(null)
+  const [derivedFrom, setDerivedFrom] = useState<string | null>(null)
 
   useEffect(() => {
     void window.argus.evidence.read(evidenceId).then(setDoc)
   }, [evidenceId])
 
+  // provenance: when this evidence was derived from a binary source, name it
   useEffect(() => {
-    if (doc) document.getElementById(`line-${focusLine}`)?.scrollIntoView({ block: 'center' })
-  }, [doc, focusLine])
+    if (!doc) return
+    void window.argus.evidence.list(doc.caseSlug).then((records) => {
+      const rec = records.find((r) => r.id === evidenceId)
+      const sourceId = rec?.meta.derivedFrom
+      if (typeof sourceId !== 'number') return
+      const source = records.find((r) => r.id === sourceId)
+      setDerivedFrom(source?.relPath ?? `evidence #${sourceId}`)
+    })
+  }, [doc, evidenceId])
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-void/60" onClick={onClose}>
@@ -24,8 +34,9 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">
-          <span className="font-mono text-sm text-ink">
+          <span className="flex items-center gap-2 font-mono text-sm text-ink">
             {doc ? `${doc.caseSlug} / ${doc.relPath}` : 'Loading…'}
+            {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
           </span>
           <button
             className="rounded-r1 border border-hair px-2 py-0.5 text-xs text-dim transition-colors hover:bg-overlay hover:text-ink"

@@ -37,6 +37,20 @@ describe('EvidenceLibrary', () => {
     expect(screen.getByText('binlog')).toBeTruthy()
   })
 
+  it('renders derived rows with a chip and an Analyze suggestion for binary types', async () => {
+    window.argus.evidence.list = vi.fn(async () => [
+      { id: 1, caseId: 1, relPath: 'evidence/trace.binlog', sha256: 'x', artifactType: 'binlog',
+        size: 10, origin: 'upload', meta: {}, createdAt: '2026-07-09' },
+      { id: 2, caseId: 1, relPath: 'evidence/.derived/trace.binlog.txt', sha256: 'y', artifactType: 'text',
+        size: 5, origin: 'agent', meta: { derivedFrom: 1 }, createdAt: '2026-07-09' }
+    ]) as never
+    const onSuggest = vi.fn()
+    render(<EvidenceLibrary caseSlug="NAV-1" onSuggest={onSuggest} />)
+    expect(await screen.findByText('derived')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /analyze/i }))
+    expect(onSuggest).toHaveBeenCalledWith('/analyze-binlog evidence/trace.binlog')
+  })
+
   it('filters by artifact type', async () => {
     render(<EvidenceLibrary caseSlug="NAVAPI-1" />)
     await waitFor(() => expect(screen.getByText('evidence/log.txt')).toBeTruthy())
