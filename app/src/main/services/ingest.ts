@@ -115,6 +115,47 @@ export function ingestArtifact(
   return record
 }
 
+/**
+ * Register a file already living under evidence/ (e.g. evidence/.derived/<name>)
+ * in place — no copy. Used by the extraction pipeline for derived text.
+ */
+export function ingestDerived(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  absPath: string,
+  derivedFromId: number
+): EvidenceRecord {
+  const kase = getCase(db, caseSlug)
+  if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
+  const rel = path.relative(evidenceDir, absPath)
+  if (rel.startsWith('..')) throw new Error(`Derived file must live under evidence/: ${absPath}`)
+
+  const sha256 = sha256File(absPath)
+  const size = fs.statSync(absPath).size
+  const now = new Date().toISOString()
+  const indexable = size <= MAX_INDEX_BYTES
+  const meta = { derivedFrom: derivedFromId, indexed: indexable }
+  const relPath = `evidence/${rel.split(path.sep).join('/')}`
+
+  const res = db
+    .prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, meta, created_at)
+       VALUES (?, ?, ?, 'text', ?, 'agent', ?, ?)`
+    )
+    .run(kase.id, relPath, sha256, size, JSON.stringify(meta), now)
+  const id = Number(res.lastInsertRowid)
+  if (indexable) indexEvidenceText(db, id, fs.readFileSync(absPath, 'utf8'))
+
+  const record: EvidenceRecord = {
+    id, caseId: kase.id, relPath, sha256, artifactType: 'text', size, origin: 'agent', meta, createdAt: now
+  }
+  fs.mkdirSync(path.join(evidenceDir, '.meta', path.dirname(rel)), { recursive: true })
+  fs.writeFileSync(path.join(evidenceDir, '.meta', `${rel}.json`), JSON.stringify(record, null, 2))
+  return record
+}
+
 export function listEvidence(db: DatabaseSync, caseSlug: string): EvidenceRecord[] {
   const rows = db
     .prepare(
