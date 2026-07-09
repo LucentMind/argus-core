@@ -25,6 +25,22 @@ import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '
 
 let agentService: AgentService | null = null
 
+// D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
+// main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
+// with two sessions streaming.
+if (process.env.ARGUS_LOOP_METRICS) {
+  const { monitorEventLoopDelay } = require('node:perf_hooks') as typeof import('node:perf_hooks')
+  const h = monitorEventLoopDelay({ resolution: 10 })
+  h.enable()
+  setInterval(() => {
+    console.log(
+      `[loop] p50=${(h.percentile(50) / 1e6).toFixed(1)}ms ` +
+        `p99=${(h.percentile(99) / 1e6).toFixed(1)}ms max=${(h.max / 1e6).toFixed(1)}ms`
+    )
+    h.reset()
+  }, 30_000)
+}
+
 function broadcast(channel: string, payload: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
 }
