@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
-import { createCase, listCases, getCase } from '../caseService'
+import { createCase, listCases, getCase, setCaseJira } from '../caseService'
 import type { DatabaseSync } from 'node:sqlite'
 
 let home: string
@@ -78,5 +78,24 @@ describe('listCases / getCase', () => {
     expect(all.map((c) => c.slug)).toEqual(['B-2', 'A-1'])
     expect(getCase(db, 'A-1')?.title).toBe('first')
     expect(getCase(db, 'missing')).toBeNull()
+  })
+})
+
+describe('setCaseJira', () => {
+  it('updates jira_key and merges the jira block into case.json', () => {
+    createCase(db, home, { slug: 'NAV-9', title: 't' })
+    const rec = setCaseJira(db, home, 'NAV-9', {
+      key: 'NAV-9',
+      site: 'https://acme.atlassian.net',
+      lastSyncedAt: '2026-07-10T10:00:00Z'
+    })
+    expect(rec.jiraKey).toBe('NAV-9')
+    const onDisk = JSON.parse(fs.readFileSync(path.join(home, 'cases/NAV-9/case.json'), 'utf8'))
+    expect(onDisk.jira).toEqual({
+      key: 'NAV-9',
+      site: 'https://acme.atlassian.net',
+      lastSyncedAt: '2026-07-10T10:00:00Z'
+    })
+    expect(onDisk.title).toBe('t') // existing keys preserved
   })
 })

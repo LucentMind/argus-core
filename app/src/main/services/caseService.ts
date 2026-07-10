@@ -121,3 +121,39 @@ export function getCase(db: DatabaseSync, slug: string): CaseRecord | null {
     CaseRow | undefined
   return row ? rowToCase(row) : null
 }
+
+export interface CaseJiraLink {
+  key: string
+  site: string
+  lastSyncedAt: string
+}
+
+/** Link/refresh the Jira binding: DB jira_key + a `jira` block merged into case.json. */
+export function setCaseJira(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  jira: CaseJiraLink
+): CaseRecord {
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+  const now = new Date().toISOString()
+  db.prepare(`UPDATE cases SET jira_key = ?, updated_at = ? WHERE slug = ?`).run(
+    jira.key,
+    now,
+    slug
+  )
+
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown> = {}
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    /* recreate from the DB record below */
+  }
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ ...onDisk, jiraKey: jira.key, updatedAt: now, jira }, null, 2)
+  )
+  return getCase(db, slug)!
+}

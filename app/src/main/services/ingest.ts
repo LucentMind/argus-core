@@ -6,7 +6,7 @@ import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { detectArtifactType } from './detect'
-import { indexEvidenceFile } from './indexer'
+import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 
 const TEXT_TYPES: ArtifactType[] = ['applog', 'text', 'list-json', 'tagged-json']
 
@@ -72,30 +72,22 @@ function rowToEvidence(r: EvidenceRow): EvidenceRecord {
   }
 }
 
-export function ingestArtifact(
+function registerEvidenceFile(
   db: DatabaseSync,
-  argusHome: string,
-  caseSlug: string,
-  sourcePath: string,
-  origin: EvidenceOrigin = 'upload'
+  caseId: number,
+  evidenceDir: string,
+  destName: string,
+  originalName: string,
+  origin: EvidenceOrigin,
+  extraMeta: Record<string, unknown>
 ): EvidenceRecord {
-  const kase = getCase(db, caseSlug)
-  if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-
-  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const destName = collisionFreeName(evidenceDir, path.basename(sourcePath))
   const destPath = path.join(evidenceDir, destName)
-  fs.copyFileSync(sourcePath, destPath)
-
   const sha256 = sha256File(destPath)
   const artifactType = detectArtifactType(destPath)
   const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
   const indexable = TEXT_TYPES.includes(artifactType)
-  const meta: Record<string, unknown> = {
-    originalName: path.basename(sourcePath),
-    indexed: indexable
-  }
+  const meta: Record<string, unknown> = { originalName, indexed: indexable, ...extraMeta }
   const relPath = `evidence/${destName}`
 
   const res = db
@@ -103,14 +95,13 @@ export function ingestArtifact(
       `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, meta, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(kase.id, relPath, sha256, artifactType, size, origin, JSON.stringify(meta), now)
+    .run(caseId, relPath, sha256, artifactType, size, origin, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-
   if (indexable) indexEvidenceFile(db, id, destPath)
 
   const record: EvidenceRecord = {
     id,
-    caseId: kase.id,
+    caseId,
     relPath,
     sha256,
     artifactType,
@@ -124,6 +115,86 @@ export function ingestArtifact(
     JSON.stringify(record, null, 2)
   )
   return record
+}
+
+export function ingestArtifact(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  sourcePath: string,
+  origin: EvidenceOrigin = 'upload',
+  extraMeta: Record<string, unknown> = {}
+): EvidenceRecord {
+  const kase = getCase(db, caseSlug)
+  if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
+  const destName = collisionFreeName(evidenceDir, path.basename(sourcePath))
+  fs.copyFileSync(sourcePath, path.join(evidenceDir, destName))
+  return registerEvidenceFile(
+    db,
+    kase.id,
+    evidenceDir,
+    destName,
+    path.basename(sourcePath),
+    origin,
+    extraMeta
+  )
+}
+
+/** Ingest in-memory content (e.g. a fetched Jira ticket) as an evidence file. */
+export function ingestContent(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  fileName: string,
+  content: string | Buffer,
+  origin: EvidenceOrigin,
+  extraMeta: Record<string, unknown> = {}
+): EvidenceRecord {
+  const kase = getCase(db, caseSlug)
+  if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
+  const destName = collisionFreeName(evidenceDir, fileName)
+  fs.writeFileSync(path.join(evidenceDir, destName), content)
+  return registerEvidenceFile(db, kase.id, evidenceDir, destName, fileName, origin, extraMeta)
+}
+
+/** Overwrite an existing evidence file in place (ticket refresh): re-hash, re-detect, re-index. */
+export function updateEvidenceContent(
+  db: DatabaseSync,
+  argusHome: string,
+  evidenceId: number,
+  content: string | Buffer,
+  extraMeta: Record<string, unknown> = {}
+): EvidenceRecord {
+  const row = db
+    .prepare(
+      `SELECT e.*, c.slug AS case_slug FROM evidence e JOIN cases c ON c.id = e.case_id WHERE e.id = ?`
+    )
+    .get(evidenceId) as unknown as (EvidenceRow & { case_slug: string }) | undefined
+  if (!row) throw new Error(`Unknown evidence id: ${evidenceId}`)
+  const rec = rowToEvidence(row)
+  const absPath = path.join(caseDir(argusHome, row.case_slug), ...rec.relPath.split('/'))
+  fs.writeFileSync(absPath, content)
+
+  const sha256 = sha256File(absPath)
+  const artifactType = detectArtifactType(absPath)
+  const size = fs.statSync(absPath).size
+  const indexable = TEXT_TYPES.includes(artifactType)
+  const meta: Record<string, unknown> = { ...rec.meta, ...extraMeta, indexed: indexable }
+  db.prepare(
+    `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
+  ).run(sha256, artifactType, size, JSON.stringify(meta), evidenceId)
+  deleteEvidenceIndex(db, evidenceId)
+  if (indexable) indexEvidenceFile(db, evidenceId, absPath)
+
+  const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
+  const destName = rec.relPath.slice('evidence/'.length)
+  fs.writeFileSync(
+    path.join(caseDir(argusHome, row.case_slug), 'evidence', '.meta', `${destName}.json`),
+    JSON.stringify(updated, null, 2)
+  )
+  return updated
 }
 
 /**
