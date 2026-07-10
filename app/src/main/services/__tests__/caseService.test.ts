@@ -23,6 +23,7 @@ describe('createCase', () => {
     })
     expect(rec.slug).toBe('NAVAPI-12345')
     expect(rec.status).toBe('open')
+    expect(rec.jiraSyncedAt).toBeNull() // never refreshed yet
     const dir = path.join(home, 'cases', 'NAVAPI-12345')
     for (const p of [
       'evidence',
@@ -90,6 +91,8 @@ describe('setCaseJira', () => {
       lastSyncedAt: '2026-07-10T10:00:00Z'
     })
     expect(rec.jiraKey).toBe('NAV-9')
+    expect(rec.jiraSyncedAt).toBe('2026-07-10T10:00:00Z') // persisted on the case row
+    expect(getCase(db, 'NAV-9')!.jiraSyncedAt).toBe('2026-07-10T10:00:00Z')
     const onDisk = JSON.parse(fs.readFileSync(path.join(home, 'cases/NAV-9/case.json'), 'utf8'))
     expect(onDisk.jira).toEqual({
       key: 'NAV-9',

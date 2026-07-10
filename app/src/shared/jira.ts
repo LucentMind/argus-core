@@ -35,6 +35,8 @@ export interface JiraRefreshSummary {
   newAttachments: JiraAttachmentInfo[]
   /** Noted only — evidence is append-only, nothing is removed locally. */
   deletedOnJira: Array<{ attachmentId: string; filename: string }>
+  /** When this refresh ran (also persisted as CaseRecord.jiraSyncedAt). */
+  syncedAt: string
 }
 
 export const ATLASSIAN_ERROR_CODES = [

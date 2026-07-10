@@ -48,7 +48,15 @@ beforeEach(() => {
 })
 
 function renderWorkspace(): void {
-  render(<CaseWorkspace slug="NAV-1" jiraKey={null} onOpenHit={vi.fn()} onOpenCitation={vi.fn()} />)
+  render(
+    <CaseWorkspace
+      slug="NAV-1"
+      jiraKey={null}
+      jiraSyncedAt={null}
+      onOpenHit={vi.fn()}
+      onOpenCitation={vi.fn()}
+    />
+  )
 }
 
 describe('CaseWorkspace findings pane', () => {

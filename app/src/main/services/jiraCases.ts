@@ -222,7 +222,8 @@ export class JiraCases {
       statusChange:
         oldStatus && oldStatus !== preview.status ? { from: oldStatus, to: preview.status } : null,
       newAttachments: fresh,
-      deletedOnJira
+      deletedOnJira,
+      syncedAt: now
     }
   }
 }

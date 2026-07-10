@@ -3,7 +3,12 @@ import http from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { AtlassianClient, AtlassianError, resolveAtlassianCreds } from '../atlassian'
+import {
+  AtlassianClient,
+  AtlassianError,
+  atlassianRestConfigured,
+  resolveAtlassianCreds
+} from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
 
 const ISSUE = {
@@ -133,6 +138,24 @@ describe('resolveAtlassianCreds', () => {
     expect(() =>
       resolveAtlassianCreds(reg({ siteUrl: 'https://a.atlassian.net' }), () => null)
     ).toThrowError(expect.objectContaining({ code: 'no-token', instanceId: 'rovo' }))
+  })
+})
+
+describe('atlassianRestConfigured', () => {
+  const reg = (cfg: Record<string, unknown>): ConnectorMap =>
+    ({ rovo: { kind: 'http', preset: 'rovo', enabled: true, config: cfg } }) as never
+
+  it('is false with no rovo connector or an untouched REST config (MCP-only usage)', () => {
+    expect(atlassianRestConfigured({} as never)).toBe(false)
+    expect(atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }))).toBe(false)
+    expect(atlassianRestConfigured(reg({ siteUrl: '   ' }))).toBe(false)
+  })
+
+  it('is true once REST configuration has begun (siteUrl or token set)', () => {
+    expect(atlassianRestConfigured(reg({ siteUrl: 'https://acme.atlassian.net' }))).toBe(true)
+    expect(atlassianRestConfigured(reg({ apiToken: { $secret: 'connector/rovo/apiToken' } }))).toBe(
+      true
+    )
   })
 })
 

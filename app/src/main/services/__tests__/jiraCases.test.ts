@@ -156,6 +156,7 @@ describe('JiraCases.refresh', () => {
     const summary = await svc.refresh('NAV-7')
 
     expect(summary.statusChange).toEqual({ from: 'Open', to: 'Resolved' })
+    expect(summary.syncedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/) // refresh timestamp for the header
     expect(summary.newAttachments.map((a) => a.id)).toEqual(['10002'])
     expect(summary.deletedOnJira).toEqual([{ attachmentId: '10001', filename: 'log.txt' }])
 

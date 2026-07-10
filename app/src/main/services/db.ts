@@ -83,5 +83,8 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'workspaces')) {
     db.exec(`ALTER TABLE cases ADD COLUMN workspaces TEXT NOT NULL DEFAULT '[]'`)
   }
+  if (!caseCols.some((c) => c.name === 'jira_synced_at')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN jira_synced_at TEXT`)
+  }
   return db
 }
