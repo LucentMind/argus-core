@@ -11,6 +11,7 @@ import {
   defaultSettings,
   deepMerge,
   stripDefaults,
+  SETTINGS_ATOMIC_PATHS,
   type AppSettings,
   type ResolvedTool,
   type SettingsPayload,
@@ -82,7 +83,9 @@ export class SettingsService {
 
   patch(partial: unknown): AppSettings {
     this.settings = settingsSchema.parse(deepMerge(this.settings, partial))
-    this.store.write(stripDefaults(this.settings, defaultSettings()))
+    this.store.write(
+      stripDefaults(this.settings, defaultSettings(), { atomicPaths: SETTINGS_ATOMIC_PATHS })
+    )
     this.error = null // an explicit save replaces a previously broken file
     this.notify()
     return this.settings

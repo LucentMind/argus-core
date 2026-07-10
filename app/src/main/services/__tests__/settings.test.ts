@@ -137,6 +137,22 @@ describe('SettingsService', () => {
     expect(r.traceDir.found).toBe(false)
   })
 
+  it('instance edits survive a reload (sparse file re-parses)', () => {
+    svc = new SettingsService(argusHome, appRoot, noEnv)
+    svc.patch({
+      agent: { providerInstances: { 'claude-default': { config: { model: 'claude-sonnet-5' } } } }
+    })
+    const model = (svc.get().agent.providerInstances['claude-default'].config as { model?: string })
+      .model
+    expect(model).toBe('claude-sonnet-5')
+    svc.close()
+    svc = new SettingsService(argusHome, appRoot, noEnv) // simulated restart
+    expect(svc.loadError()).toBeNull()
+    expect(
+      (svc.get().agent.providerInstances['claude-default'].config as { model?: string }).model
+    ).toBe('claude-sonnet-5')
+  })
+
   it('resolvedTools ignores app-set live env when captured env is empty', () => {
     svc = new SettingsService(argusHome, appRoot, noEnv)
     const bin = path.join(tmp, 'app-exported.exe')
