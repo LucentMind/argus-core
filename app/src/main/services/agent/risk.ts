@@ -22,6 +22,8 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__ingest_artifact: { action: 'allow', risk: 'LOW' },
   mcp__argus__append_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
+  // Inert until accepted on the Skills page (spec §2.4) — writing a proposal steers nothing.
+  mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },
   mcp__argus__update_case_status: {
     action: 'ask',
     risk: 'MEDIUM',

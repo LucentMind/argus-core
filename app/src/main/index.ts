@@ -24,6 +24,7 @@ import {
 } from './services/memory'
 import { resolveSkills } from './services/agent/skillsResolver'
 import { HivemindService } from './services/hivemind'
+import { listProposals, acceptProposal, rejectProposal } from './services/proposals'
 import type { MemoryTopicsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
@@ -355,6 +356,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC.hivemindPush, (_e, kind: 'skill' | 'reference', name: string, title: string) =>
     hivemind.push(kind, name, title)
   )
+
+  // — proposals (spec §2.4) —
+  ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
+  ipcMain.handle(IPC.proposalsAccept, (_e, file: string) => {
+    acceptProposal(argusHome, file)
+    return { proposals: listProposals(argusHome) }
+  })
+  ipcMain.handle(IPC.proposalsReject, (_e, file: string) => {
+    rejectProposal(argusHome, file)
+    return { proposals: listProposals(argusHome) }
+  })
 
   // — agent access + memory —
   ipcMain.handle(IPC.accessGet, () => agentAccessStore.payload())

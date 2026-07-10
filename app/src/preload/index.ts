@@ -22,6 +22,7 @@ import type {
   BundleWorkspaceRef
 } from '../shared/bundle'
 import type { HivemindPayload, HivemindPushResult } from '../shared/hivemind'
+import type { ProposalsPayload } from '../shared/proposals'
 
 // Custom API for renderer
 const argus = {
@@ -92,6 +93,13 @@ const argus = {
       ipcRenderer.invoke(IPC.hivemindPushPreview, kind, name),
     push: (kind: 'skill' | 'reference', name: string, title: string): Promise<HivemindPushResult> =>
       ipcRenderer.invoke(IPC.hivemindPush, kind, name, title)
+  },
+  proposals: {
+    list: (): Promise<ProposalsPayload> => ipcRenderer.invoke(IPC.proposalsList),
+    accept: (file: string): Promise<ProposalsPayload> =>
+      ipcRenderer.invoke(IPC.proposalsAccept, file),
+    reject: (file: string): Promise<ProposalsPayload> =>
+      ipcRenderer.invoke(IPC.proposalsReject, file)
   },
   access: {
     get: (): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessGet),
