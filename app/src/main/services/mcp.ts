@@ -21,6 +21,17 @@ import {
 
 const PROBE_TIMEOUT_MS = 15000
 
+/**
+ * Hand-edited mcp-servers.json can carry non-string env/header values (a bare
+ * number, a boolean); resolveSecretRefs passes them through untouched, and the
+ * SDK transports throw deep inside on non-strings — coerce at this boundary.
+ */
+function toStringRecord(v: unknown): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries((v ?? {}) as Record<string, unknown>).map(([k, val]) => [k, String(val)])
+  )
+}
+
 /** Filled by McpOAuth (Task 7); optional so Tasks 5–6 test without OAuth. */
 export interface McpOAuthLike {
   accessToken(instanceId: string): string | null
@@ -102,14 +113,19 @@ export class McpService {
           const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
           const { value, missing } = resolveSecretRefs(cfg.env, (n) => this.deps.secrets.resolve(n))
           if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
-          servers[id] = { type: 'stdio', command: cfg.command, args: cfg.args, env: value }
+          servers[id] = {
+            type: 'stdio',
+            command: cfg.command,
+            args: cfg.args,
+            env: toStringRecord(value)
+          }
         } else if (inst.kind === 'http') {
           const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
           const { value, missing } = resolveSecretRefs(cfg.headers, (n) =>
             this.deps.secrets.resolve(n)
           )
           if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
-          const headers = value as Record<string, string>
+          const headers = toStringRecord(value)
           if (cfg.oauth) {
             const token = this.deps.oauth?.accessToken(id) ?? null
             if (token == null) {
@@ -201,7 +217,7 @@ export class McpService {
         new StdioClientTransport({
           command: cfg.command,
           args: cfg.args,
-          env: { ...(process.env as Record<string, string>), ...(value as Record<string, string>) }
+          env: { ...(process.env as Record<string, string>), ...toStringRecord(value) }
         })
       )
       return
@@ -227,7 +243,7 @@ export class McpService {
   ): Promise<Record<string, string>> {
     const { value, missing } = resolveSecretRefs(cfg.headers, (n) => this.deps.secrets.resolve(n))
     if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
-    const headers = value as Record<string, string>
+    const headers = toStringRecord(value)
     if (cfg.oauth && this.deps.oauth) {
       let token = this.deps.oauth.accessToken(instanceId)
       if (token == null && opts.refreshOnExpiry) {
