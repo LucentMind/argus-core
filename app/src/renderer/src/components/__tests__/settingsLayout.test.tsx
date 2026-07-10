@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-import { SettingsSection, SettingRow, Switch, DraftInput } from '../settings/settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  Switch,
+  DraftInput,
+  DraftTextarea
+} from '../settings/settingsLayout'
 import { AnnotatedForm } from '../settings/AnnotatedForm'
 import { DRIVERS } from '../../../../shared/drivers'
 
@@ -139,6 +145,19 @@ describe('DraftInput', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(input.value).toBe('abc')
     fireEvent.blur(input)
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+})
+
+describe('DraftTextarea', () => {
+  it('Escape reverts the draft; the following blur does not commit', () => {
+    const onCommit = vi.fn()
+    render(<DraftTextarea value={'line1\nline2'} onCommit={onCommit} aria-label="Draft notes" />)
+    const ta = screen.getByLabelText('Draft notes') as HTMLTextAreaElement
+    fireEvent.change(ta, { target: { value: 'edited' } })
+    fireEvent.keyDown(ta, { key: 'Escape' })
+    expect(ta.value).toBe('line1\nline2')
+    fireEvent.blur(ta)
     expect(onCommit).not.toHaveBeenCalled()
   })
 })
