@@ -26,6 +26,7 @@ export function SettingRow({
   onReset,
   badge,
   stacked,
+  trailing,
   children
 }: {
   label: string
@@ -35,6 +36,8 @@ export function SettingRow({
   badge?: ReactNode
   /** Uncramped variant for rows whose controls need more than a shrink-to-fit column (e.g. a growing path input + Browse button). */
   stacked?: boolean
+  /** Rendered at the far right of line 1 (after reset), stacked variant only — e.g. a status chip that shouldn't crowd the control row. */
+  trailing?: ReactNode
   children: ReactNode
 }): React.JSX.Element {
   if (stacked) {
@@ -54,6 +57,7 @@ export function SettingRow({
               reset
             </button>
           )}
+          {trailing}
         </div>
         {description && <span className="text-xs text-mute">{description}</span>}
         <div className="flex flex-wrap items-center gap-2 pt-2">{children}</div>

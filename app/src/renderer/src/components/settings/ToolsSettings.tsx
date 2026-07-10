@@ -42,18 +42,20 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         isDefault={t.parseBin === ''}
         onReset={() => void settingsStore.patch({ tools: { parseBin: null } })}
         stacked
-      >
-        {report ? (
-          report.parseBin.path ? (
-            <Chip tone="review">
-              {report.parseBin.version ? `found · ${report.parseBin.version}` : 'found'}
-            </Chip>
+        trailing={
+          report ? (
+            report.parseBin.path ? (
+              <Chip tone="review">
+                {report.parseBin.version ? `found · ${report.parseBin.version}` : 'found'}
+              </Chip>
+            ) : (
+              <Chip tone="danger">not found</Chip>
+            )
           ) : (
-            <Chip tone="danger">not found</Chip>
+            <Chip>checking…</Chip>
           )
-        ) : (
-          <Chip>checking…</Chip>
-        )}
+        }
+      >
         <DraftInput
           aria-label="sample-parse path"
           className={`${FIELD} flex-1 min-w-40 font-mono`}
@@ -74,16 +76,18 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         isDefault={t.traceDir === ''}
         onReset={() => void settingsStore.patch({ tools: { traceDir: null } })}
         stacked
-      >
-        {report ? (
-          report.traceDir.found ? (
-            <Chip tone="review">found</Chip>
+        trailing={
+          report ? (
+            report.traceDir.found ? (
+              <Chip tone="review">found</Chip>
+            ) : (
+              <Chip tone="danger">not found</Chip>
+            )
           ) : (
-            <Chip tone="danger">not found</Chip>
+            <Chip>checking…</Chip>
           )
-        ) : (
-          <Chip>checking…</Chip>
-        )}
+        }
+      >
         <DraftInput
           aria-label="trace tools directory"
           className={`${FIELD} flex-1 min-w-40 font-mono`}
