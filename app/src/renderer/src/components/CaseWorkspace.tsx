@@ -5,16 +5,19 @@ import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
 import { WorkspacesStrip } from './WorkspacesStrip'
+import { JiraRefreshButton } from './JiraRefreshButton'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import type { SearchHit } from '../../../shared/types'
 
 export function CaseWorkspace({
   slug,
+  jiraKey,
   onOpenHit,
   onOpenCitation
 }: {
   slug: string
+  jiraKey: string | null
   onOpenHit: (hit: SearchHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
 }): React.JSX.Element {
@@ -41,6 +44,7 @@ export function CaseWorkspace({
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
         <h1 className="font-mono text-sm text-defect">{slug}</h1>
+        <JiraRefreshButton slug={slug} jiraKey={jiraKey} />
         <div className="ml-auto">
           <HeaderChips slug={slug} />
         </div>
