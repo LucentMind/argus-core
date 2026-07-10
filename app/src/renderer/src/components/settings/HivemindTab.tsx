@@ -80,14 +80,23 @@ export function HivemindTab(): React.JSX.Element {
     if (!confirm || confirm.mode !== 'push' || busy) return
     setBusy(true)
     setError(null)
-    const r = await window.argus.hivemind.push(confirm.item.kind, confirm.item.name, confirm.title)
-    setBusy(false)
-    if (!r.ok) {
-      setError(r.error)
-      return
+    try {
+      const r = await window.argus.hivemind.push(
+        confirm.item.kind,
+        confirm.item.name,
+        confirm.title
+      )
+      if (!r.ok) {
+        setError(r.error)
+        return
+      }
+      setConfirm(null)
+      setPrUrl(r.prUrl)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
     }
-    setConfirm(null)
-    setPrUrl(r.prUrl)
   }
 
   if (!payload) return <div className="text-dim">loading…</div>
