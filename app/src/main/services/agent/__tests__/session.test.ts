@@ -34,7 +34,10 @@ function fakeSdk(): FakeSdk {
 let tmp: string, argusHome: string, db: DatabaseSync
 let events: AgentEvent[]
 
-function makeSession(sdk: ReturnType<typeof fakeSdk>): CaseSession {
+function makeSession(
+  sdk: ReturnType<typeof fakeSdk>,
+  overrides: Partial<ConstructorParameters<typeof CaseSession>[0]> = {}
+): CaseSession {
   const rec = createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
   return new CaseSession({
     db,
@@ -45,7 +48,8 @@ function makeSession(sdk: ReturnType<typeof fakeSdk>): CaseSession {
     skillsRoots: [],
     emit: (e) => events.push(e),
     createQuery: sdk.createQuery,
-    resumeSdkSessionId: null
+    resumeSdkSessionId: null,
+    ...overrides
   })
 }
 
@@ -313,5 +317,21 @@ describe('CaseSession', () => {
     })
     expect(sdk2.captured.options!.permissionMode).toBeUndefined()
     await s2.stop('stopped')
+  })
+
+  it('canUseTool consults the live toolRisk getter per call', async () => {
+    const sdk = fakeSdk()
+    const overrides: Record<string, 'low' | 'medium' | 'high'> = {}
+    const s = makeSession(sdk, { toolRisk: () => overrides }) // extend makeSession to spread extra deps
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string }>
+    // frobnicate is unmatched → MEDIUM → would ask; override flips it live to LOW → auto-allow
+    overrides['fix/frobnicate'] = 'low'
+    const r = await canUseTool('mcp__fix__frobnicate', {}, { signal: new AbortController().signal })
+    expect(r.behavior).toBe('allow')
+    await s.stop('stopped')
   })
 })

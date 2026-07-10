@@ -140,3 +140,52 @@ describe('classifyToolCall — unknown-tool fallback', () => {
     })
   })
 })
+
+describe('MCP connector tools (spec 2.5)', () => {
+  const ctx = { caseDir: 'C:\\t\\case', workspaceRoots: [], readonlyRoots: [] }
+
+  it('classifies mcp__<instance>__<tool> by name convention', () => {
+    expect(classifyToolCall('mcp__rovo__getJiraIssue', {}, ctx)).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+    expect(classifyToolCall('mcp__rovo__addCommentToJiraIssue', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: 'medium:mcp__rovo__addCommentToJiraIssue'
+    })
+    expect(classifyToolCall('mcp__rovo__deleteJiraIssue', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      grantKey: null
+    })
+    expect(classifyToolCall('mcp__rovo__frobnicate', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM' // unmatched → MEDIUM (safe default)
+    })
+  })
+
+  it('tool-risk overrides win over the convention', () => {
+    const withOverrides = {
+      ...ctx,
+      toolRisk: { 'rovo/deleteJiraIssue': 'low', 'rovo/getJiraIssue': 'high' } as const
+    }
+    expect(classifyToolCall('mcp__rovo__deleteJiraIssue', {}, withOverrides)).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+    expect(classifyToolCall('mcp__rovo__getJiraIssue', {}, withOverrides)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH'
+    })
+  })
+
+  it('native argus table entries are untouched by the MCP branch', () => {
+    expect(
+      classifyToolCall('mcp__argus__update_case_status', { status: 'open' }, ctx)
+    ).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM'
+    })
+  })
+})

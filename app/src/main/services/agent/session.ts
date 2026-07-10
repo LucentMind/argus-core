@@ -6,6 +6,7 @@ import type { PermissionMode } from '../../../shared/settings'
 import { AsyncQueue } from './asyncQueue'
 import { normalizeSdkMessage, makeEvent, type NormalizeCtx } from './normalize'
 import { classifyToolCall, type RiskContext } from './risk'
+import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
 import { caseDir } from '../paths'
@@ -41,6 +42,8 @@ export interface SessionDeps {
   resumeSdkSessionId: string | null
   mirror?: SessionMirrorLike
   agentOptions?: SessionAgentOptions
+  /** Live tool-risk overrides, re-read on every permission decision. */
+  toolRisk?: () => Record<string, RiskLevel>
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -187,7 +190,10 @@ export class CaseSession {
     | { behavior: 'deny'; message: string }
   > {
     const started = Date.now()
-    const verdict = classifyToolCall(toolName, input, this.riskCtx)
+    const verdict = classifyToolCall(toolName, input, {
+      ...this.riskCtx,
+      toolRisk: this.deps.toolRisk?.()
+    })
     const log = (decision: string): void => {
       this.deps.db
         .prepare(
