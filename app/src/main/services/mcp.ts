@@ -62,6 +62,15 @@ export class McpService {
   }
 
   /**
+   * Drop a connector's runtime state (back to never-connected). Called after a
+   * successful authorize so a compose-set needs-auth latch can't outlive the
+   * condition that set it.
+   */
+  clearRuntime(instanceId: string): void {
+    this.runtime.delete(instanceId)
+  }
+
+  /**
    * Build the Agent SDK mcpServers additions for a NEW session (spec §2.3).
    * Sync on purpose — called inside AgentService.getOrCreate. Enabled,
    * non-error connectors only; $secret refs resolved now; every non-silent

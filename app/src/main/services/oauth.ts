@@ -97,7 +97,8 @@ class StoreBackedProvider implements OAuthClientProvider {
     // from the run that registered it; a later run picks a different ephemeral
     // port, and strict servers reject the mismatched redirect_uri. Discard the
     // stale registration so the SDK re-registers against the current redirect.
-    if (info && !info.redirect_uris.includes(this.redirect)) return undefined
+    // (optional-chained: a hand-corrupted blob without redirect_uris must not throw)
+    if (info && !info.redirect_uris?.includes(this.redirect)) return undefined
     return info
   }
 
@@ -168,10 +169,23 @@ export class McpOAuth {
   /** Non-interactive refresh; a demand for the browser counts as failure → error state. */
   async refresh(instanceId: string, serverUrl: string): Promise<boolean> {
     try {
+      // No loopback runs here, so anchor the provider on the STORED client's own
+      // redirect so clientInformation()'s stale-port guard self-matches — the
+      // refresh_token grant is client-bound and must present the registered
+      // client_id, never a fresh dynamic registration.
+      let storedRedirect: string | undefined
+      const rawClient = this.secrets.resolve(`mcp/${instanceId}/client`)
+      if (rawClient != null) {
+        try {
+          storedRedirect = (JSON.parse(rawClient) as OAuthClientInformationFull).redirect_uris?.[0]
+        } catch {
+          /* corrupt blob — fall through to the placeholder */
+        }
+      }
       const provider = new StoreBackedProvider(
         instanceId,
         this.secrets,
-        'http://127.0.0.1/callback',
+        storedRedirect ?? 'http://127.0.0.1/callback',
         () => {
           throw new Error('interactive authorization required')
         }
