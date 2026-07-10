@@ -22,7 +22,7 @@ beforeEach(() => {
   localStorage.clear()
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
-  // CaseWorkspace renders EvidenceLibrary, which now reads the timestamp format via
+  // CaseWorkspace renders CaseFiles, which now reads the timestamp format via
   // useSettingsPayload() and starts the shared settingsStore singleton.
   settingsStore.reset()
   window.argus = {
@@ -34,7 +34,20 @@ beforeEach(() => {
       preflight: vi.fn(async () => ({ ok: true, checks: [] }))
     },
     cases: { readFindings: vi.fn(async () => '') },
-    evidence: { list: vi.fn(async () => []) },
+    evidence: {
+      list: vi.fn(async () => []),
+      ingest: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {}),
+      onParsing: vi.fn(() => () => {})
+    },
+    files: {
+      list: vi.fn(async () => []),
+      read: vi.fn(),
+      open: vi.fn(async () => undefined),
+      reveal: vi.fn(async () => undefined),
+      onChanged: vi.fn(() => () => {})
+    },
+    pathForFile: vi.fn(),
     workspaces: { list: vi.fn(async () => []) },
     skills: { list: vi.fn(async () => ({ skills: [] })) },
     search: { query: vi.fn(async () => []) },
@@ -55,6 +68,7 @@ function renderWorkspace(): void {
       jiraSyncedAt={null}
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
+      onOpenFile={vi.fn()}
     />
   )
 }
