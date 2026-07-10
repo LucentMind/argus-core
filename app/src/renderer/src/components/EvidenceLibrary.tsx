@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Chip, SectionLabel } from './ui'
+import { useSettingsPayload } from '../lib/settingsStore'
+import { formatTimestamp } from '../lib/time'
 import type { ArtifactType, EvidenceRecord } from '../../../shared/types'
 
 const ALL_TYPES: ArtifactType[] = [
@@ -60,6 +62,7 @@ export function EvidenceLibrary({
   const [rows, setRows] = useState<EvidenceRecord[]>([])
   const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
   const [dragOver, setDragOver] = useState(false)
+  const tsFmt = useSettingsPayload()?.settings.general.timestampFormat ?? 'locale'
 
   const reload = useCallback(
     (): Promise<void> => window.argus.evidence.list(caseSlug).then(setRows),
@@ -155,7 +158,7 @@ export function EvidenceLibrary({
                 </td>
                 <td className="text-dim">{r.size.toLocaleString()} B</td>
                 <td className="truncate text-dim">
-                  {new Date(r.createdAt).toLocaleString()}
+                  {formatTimestamp(r.createdAt, tsFmt)}
                   {skill && onSuggest && (
                     <button
                       className="ml-2 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink"
