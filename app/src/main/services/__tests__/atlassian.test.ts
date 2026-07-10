@@ -102,6 +102,27 @@ describe('resolveAtlassianCreds', () => {
       token: 'PAT123'
     })
   })
+  it('resolves the optional email for Basic auth (Jira Cloud); blank email is omitted', () => {
+    const withEmail = resolveAtlassianCreds(
+      reg({
+        siteUrl: 'https://acme.atlassian.net',
+        email: 'ada@acme.test',
+        apiToken: { $secret: 'connector/rovo/apiToken' }
+      }),
+      () => 'PAT123'
+    )
+    expect(withEmail.email).toBe('ada@acme.test')
+    const blank = resolveAtlassianCreds(
+      reg({
+        siteUrl: 'https://acme.atlassian.net',
+        email: '   ',
+        apiToken: { $secret: 'connector/rovo/apiToken' }
+      }),
+      () => 'PAT123'
+    )
+    expect(blank.email).toBeUndefined()
+  })
+
   it('throws typed errors: not-configured / no-site-url / no-token', () => {
     expect(() => resolveAtlassianCreds({} as never, () => null)).toThrowError(
       expect.objectContaining({ code: 'not-configured' })
@@ -137,6 +158,17 @@ describe('AtlassianClient', () => {
     ])
     expect(descriptionMarkdown).toBe('desc here')
     expect((raw as { key: string }).key).toBe('NAV-7')
+  })
+
+  it('sends Basic auth (email:token) when the creds carry an email — the Jira Cloud path', async () => {
+    const basic = new AtlassianClient(() => ({
+      instanceId: 'rovo',
+      siteUrl: base,
+      token: 'PAT123',
+      email: 'ada@acme.test'
+    }))
+    await basic.myself()
+    expect(lastAuthHeader).toBe(`Basic ${Buffer.from('ada@acme.test:PAT123').toString('base64')}`)
   })
 
   it('downloadAttachment follows the redirect and writes the bytes; auth is not forwarded cross-origin', async () => {

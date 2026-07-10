@@ -109,7 +109,7 @@ export class HealthService {
             ? {}
             : {
                 fixHint:
-                  'Set the Site URL and API token on the Atlassian connector (Settings → Connectors).'
+                  'Set the Site URL, email, and API token on the Atlassian connector (Settings → Connectors); Jira Cloud requires the email.'
               })
         }
       }
