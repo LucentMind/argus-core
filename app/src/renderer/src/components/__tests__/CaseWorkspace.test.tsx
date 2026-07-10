@@ -73,6 +73,30 @@ function renderWorkspace(): void {
   )
 }
 
+describe('CaseWorkspace case switching', () => {
+  it('remounts CaseFiles on slug change so per-case state (type filter) resets', async () => {
+    function workspace(slug: string): React.JSX.Element {
+      return (
+        <CaseWorkspace
+          slug={slug}
+          jiraKey={null}
+          jiraSyncedAt={null}
+          onOpenHit={vi.fn()}
+          onOpenCitation={vi.fn()}
+          onOpenFile={vi.fn()}
+        />
+      )
+    }
+    const { rerender } = render(workspace('NAV-1'))
+    const select = (await screen.findByLabelText('type-filter')) as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'binlog' } })
+    expect(select.value).toBe('binlog')
+    // switching tabs must not leak case A's filter/collapse/parsing state into case B
+    rerender(workspace('NAV-2'))
+    expect((screen.getByLabelText('type-filter') as HTMLSelectElement).value).toBe('')
+  })
+})
+
 describe('CaseWorkspace findings pane', () => {
   it('drag on the separator resizes the pane (leftwards widens)', () => {
     renderWorkspace()
