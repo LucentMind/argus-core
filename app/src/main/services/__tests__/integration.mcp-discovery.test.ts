@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -95,5 +97,38 @@ describe('McpService discovery against the fixture stdio server', () => {
     expect(svc.runtimeStates().bad).toMatchObject({ state: 'error' })
     expect((await svc.probe('ghost')).error).toMatch(/unknown connector/)
     expect((await svc.probe('odd')).error).toMatch(/unsupported kind/)
+  }, 30000)
+
+  it('probe against a hanging server resolves with a timeout error (client torn down)', async () => {
+    // spawns fine but never speaks MCP — connect() would await initialize forever
+    registry.patch({
+      hang: {
+        kind: 'stdio',
+        config: { command: process.execPath, args: ['-e', 'setInterval(()=>{},1e3)'] }
+      }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}), probeTimeoutMs: 500 })
+    const r = await svc.probe('hang')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/timed out/)
+    expect(svc.runtimeStates().hang).toMatchObject({ state: 'error' })
+  }, 10000)
+
+  it('HTTP 401 → needs-auth via the structured error code (message carries no "401")', async () => {
+    const server = http.createServer((_req, res) => {
+      res.statusCode = 401
+      res.end() // empty body: the SDK error message contains no "401"/"unauthorized" text
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    try {
+      registry.patch({ web: { kind: 'http', config: { url: `http://127.0.0.1:${port}/mcp` } } })
+      const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+      const r = await svc.probe('web')
+      expect(r.ok).toBe(false)
+      expect(svc.runtimeStates().web).toMatchObject({ state: 'needs-auth' })
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   }, 30000)
 })

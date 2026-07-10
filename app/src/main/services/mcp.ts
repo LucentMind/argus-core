@@ -31,6 +31,8 @@ export interface McpServiceDeps {
   secrets: SecretStore
   toolRisk: () => Record<string, RiskLevel>
   oauth?: McpOAuthLike
+  /** Per-step probe budget (connect / listTools each); tests inject a small value. */
+  probeTimeoutMs?: number
 }
 
 /**
@@ -63,9 +65,12 @@ export class McpService {
   ): Promise<{ ok: boolean; tools?: DiscoveredTool[]; error?: string }> {
     const inst = this.deps.registry.get()[instanceId]
     if (!inst) return { ok: false, error: `unknown connector: ${instanceId}` }
-    let client: Client | null = null
+    // Constructed here (not inside connect()) so the finally can always tear it
+    // down — even when connect() loses the timeout race with a transport already
+    // attached and a stdio child already spawned.
+    const client = new Client({ name: 'argus-health', version: '1.0.0' })
     try {
-      client = await this.withTimeout(this.connect(instanceId, inst), 'connect')
+      await this.withTimeout(this.connect(client, instanceId, inst), 'connect')
       const listed = await this.withTimeout(client.listTools(), 'listTools')
       const overrides = this.deps.toolRisk()
       const tools: DiscoveredTool[] = listed.tools.map((t) => ({
@@ -82,34 +87,37 @@ export class McpService {
       return { ok: true, tools }
     } catch (err) {
       const message = (err as Error).message
+      // SDK transport errors (StreamableHTTPError / SseError) carry the HTTP
+      // status as a structured .code; the message regex is only a fallback.
+      const code = (err as { code?: unknown }).code
       this.runtime.set(
         instanceId,
-        /401|unauthorized/i.test(message)
+        code === 401 || /401|unauthorized/i.test(message)
           ? { state: 'needs-auth' }
           : { state: 'error', reason: message }
       )
       return { ok: false, error: message }
     } finally {
       // spec §2.3: probe processes/connections are torn down after the probe
-      await client?.close().catch(() => {})
+      await client.close().catch(() => {})
     }
   }
 
   private withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
-    return Promise.race([
-      p,
-      new Promise<T>((_, rej) => {
-        const t = setTimeout(
-          () => rej(new Error(`${what} timed out after ${PROBE_TIMEOUT_MS}ms`)),
-          PROBE_TIMEOUT_MS
-        )
-        if (typeof t.unref === 'function') t.unref()
-      })
-    ])
+    const timeoutMs = this.deps.probeTimeoutMs ?? PROBE_TIMEOUT_MS
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<T>((_, rej) => {
+      timer = setTimeout(() => rej(new Error(`${what} timed out after ${timeoutMs}ms`)), timeoutMs)
+      if (typeof timer.unref === 'function') timer.unref()
+    })
+    return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
   }
 
-  private async connect(instanceId: string, inst: ConnectorInstance): Promise<Client> {
-    const client = new Client({ name: 'argus-health', version: '1.0.0' })
+  private async connect(
+    client: Client,
+    instanceId: string,
+    inst: ConnectorInstance
+  ): Promise<void> {
     if (inst.kind === 'stdio') {
       const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
       const { value, missing } = resolveSecretRefs(cfg.env, (n) => this.deps.secrets.resolve(n))
@@ -121,7 +129,7 @@ export class McpService {
           env: { ...(process.env as Record<string, string>), ...(value as Record<string, string>) }
         })
       )
-      return client
+      return
     }
     if (inst.kind === 'http') {
       const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
@@ -131,7 +139,7 @@ export class McpService {
         await client.connect(new SSEClientTransport(url, { requestInit: { headers } }))
       else
         await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers } }))
-      return client
+      return
     }
     throw new Error(`unsupported kind: ${inst.kind}`)
   }
