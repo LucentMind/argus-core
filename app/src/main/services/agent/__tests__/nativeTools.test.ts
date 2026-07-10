@@ -6,6 +6,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
 import { argusToolHandlers } from '../nativeTools'
+import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
 
 let tmp: string, argusHome: string, db: DatabaseSync
@@ -76,6 +77,31 @@ describe('argus native tools', () => {
     }
     expect(row.status).toBe('analyzing')
     await expect(handlers.update_case_status({ status: 'bogus' })).rejects.toThrow(/status/i)
+  })
+
+  it('read_memory returns an enabled topic body', async () => {
+    await handlers.write_memory({ topic: 'binder-crashes', content: 'check binder pool first' })
+    const out = await handlers.read_memory({ topic: 'binder-crashes' })
+    expect(out).toContain('check binder pool first')
+  })
+
+  it('read_memory refuses a disabled topic', async () => {
+    await handlers.write_memory({ topic: 'binder-crashes', content: 'check binder pool first' })
+    const gated = argusToolHandlers({
+      db,
+      argusHome,
+      caseId: 1,
+      caseSlug: 'NAV-1',
+      sessionId: 1,
+      emitFinding,
+      agentAccess: () => agentAccessSchema.parse({ memory: { 'binder-crashes': false } })
+    })
+    await expect(gated.read_memory({ topic: 'binder-crashes' })).rejects.toThrow(/disabled/i)
+  })
+
+  it('read_memory rejects _index and unknown topics', async () => {
+    await expect(handlers.read_memory({ topic: '_index' })).rejects.toThrow(/not a topic/i)
+    await expect(handlers.read_memory({ topic: 'nope' })).rejects.toThrow(/no such topic/i)
   })
 
   it('write_memory appends topic content, index line, and audit entry', async () => {

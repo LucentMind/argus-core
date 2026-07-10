@@ -8,7 +8,8 @@ import { searchEvidence } from '../search'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
-import { applyMemoryWrite } from '../memory'
+import { applyMemoryWrite, readTopic } from '../memory'
+import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -17,6 +18,8 @@ export interface NativeToolDeps {
   caseSlug: string
   sessionId: number
   emitFinding: (markdown: string) => void
+  /** Live agent-access overrides; read per read_memory call so mid-session toggles bite. */
+  agentAccess?: () => AgentAccess
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -80,6 +83,24 @@ export function argusToolHandlers(
       data.status = status
       fs.writeFileSync(cj, JSON.stringify(data, null, 2))
       return `status → ${status}`
+    },
+
+    async read_memory(args) {
+      const topic = String(args.topic ?? '')
+      if (topic === '_index') {
+        throw new Error(
+          'read_memory: "_index" is not a topic — its enabled lines are already in your context'
+        )
+      }
+      const access = deps.agentAccess?.() ?? defaultAgentAccess()
+      if (!topicEnabled(access, topic)) {
+        throw new Error(`read_memory: topic "${topic}" is disabled by agent-access settings`)
+      }
+      const content = readTopic(argusHome, topic) // validates the topic name
+      if (!content) {
+        throw new Error(`read_memory: no such topic "${topic}" — see the index lines in your context`)
+      }
+      return content
     },
 
     async write_memory(args) {
@@ -151,6 +172,12 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'Move the case through its lifecycle (open|analyzing|rca-drafted|closed).',
         { status: z.string() },
         async (a) => asText(await h.update_case_status(a))
+      ),
+      tool(
+        'read_memory',
+        'Load a lesson from agent memory by topic name (the names appear in the Agent memory index lines in your context).',
+        { topic: z.string() },
+        async (a) => asText(await h.read_memory(a))
       ),
       tool(
         'write_memory',
