@@ -34,16 +34,20 @@ const audit = [
 
 beforeEach(() => {
   accessStore.reset()
+  let currentAccess: { skills: Record<string, boolean>; memory: Record<string, boolean> } = {
+    skills: {},
+    memory: { binder: false }
+  }
   window.argus = {
     access: {
-      get: vi.fn(async () => ({
-        access: { skills: {}, memory: { binder: false } },
-        loadError: null
-      })),
-      patch: vi.fn(async () => ({
-        access: { skills: {}, memory: {} },
-        loadError: null
-      })),
+      get: vi.fn(async () => ({ access: currentAccess, loadError: null })),
+      patch: vi.fn(async (p: { memory?: Record<string, boolean> }) => {
+        currentAccess = {
+          ...currentAccess,
+          memory: { ...currentAccess.memory, ...(p.memory ?? {}) }
+        }
+        return { access: currentAccess, loadError: null }
+      }),
       onChanged: vi.fn(() => () => {})
     },
     memory: {
@@ -70,10 +74,12 @@ describe('MemorySettings', () => {
 
   it('toggle patches agent-access memory map', async () => {
     render(<MemorySettings />)
-    fireEvent.click(await screen.findByRole('switch', { name: 'enabled · tile-blocks' }))
+    const toggle = await screen.findByRole('switch', { name: 'enabled · tile-blocks' })
+    fireEvent.click(toggle)
     await waitFor(() =>
       expect(window.argus.access.patch).toHaveBeenCalledWith({ memory: { 'tile-blocks': false } })
     )
+    await waitFor(() => expect(toggle).toHaveProperty('ariaChecked', 'false'))
   })
 
   it('delete confirms then calls remove', async () => {
