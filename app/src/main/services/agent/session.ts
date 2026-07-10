@@ -10,6 +10,7 @@ import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
 import { caseDir } from '../paths'
+import { isEditableTool } from '../../../shared/editableTools'
 import { ARGUS_PERSONA } from './persona'
 
 export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
@@ -280,11 +281,12 @@ export class CaseSession {
       // Defense in depth: edited inputs are only a connector-tool (MCP) feature —
       // never substitute args on Bash/native asks, whatever the IPC caller sent.
       // Argus's own native tools are exposed as an `mcp__argus__*` server too, so
-      // they're excluded from the editable set alongside Bash.
+      // they're excluded from the editable set alongside Bash — except the narrow
+      // allowlist in shared/editableTools (currently just write_memory), where the
+      // args are pure reviewed content and editing is the review mechanism.
       return {
         behavior: 'allow',
-        updatedInput:
-          (/^mcp__(?!argus__)/.test(toolName) ? outcome.updatedInput : undefined) ?? input
+        updatedInput: (isEditableTool(toolName) ? outcome.updatedInput : undefined) ?? input
       }
     }
     log(outcome.decision === 'cancelled' ? 'cancelled' : 'denied')

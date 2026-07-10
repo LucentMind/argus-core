@@ -32,6 +32,12 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
     risk: 'MEDIUM',
     grantKey: 'ws:workspace_checkout',
     reason: 'Materialize a case worktree at a specific ref'
+  },
+  mcp__argus__write_memory: {
+    action: 'ask',
+    risk: 'MEDIUM',
+    grantKey: null,
+    reason: 'Write to agent memory (steers all future sessions)'
   }
 }
 

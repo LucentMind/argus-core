@@ -8,6 +8,7 @@ import { searchEvidence } from '../search'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
+import { applyMemoryWrite } from '../memory'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -81,6 +82,14 @@ export function argusToolHandlers(
       return `status → ${status}`
     },
 
+    async write_memory(args) {
+      return applyMemoryWrite(argusHome, caseSlug, {
+        topic: String(args.topic ?? ''),
+        content: String(args.content ?? ''),
+        indexEntry: args.index_entry == null ? undefined : String(args.index_entry)
+      })
+    },
+
     async workspace_checkout(args) {
       const wt = await ensureWorktree(
         argusHome,
@@ -142,6 +151,12 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'Move the case through its lifecycle (open|analyzing|rca-drafted|closed).',
         { status: z.string() },
         async (a) => asText(await h.update_case_status(a))
+      ),
+      tool(
+        'write_memory',
+        'Record a durable cross-case lesson in agent memory (memory/<topic>.md). Provide index_entry when creating a topic so future sessions can discover it via _index.md.',
+        { topic: z.string(), content: z.string(), index_entry: z.string().optional() },
+        async (a) => asText(await h.write_memory(a))
       ),
       tool(
         'workspace_checkout',
