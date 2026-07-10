@@ -33,11 +33,23 @@ async function* onePing(): AsyncGenerator<unknown> {
   await new Promise(() => undefined)
 }
 
+type Account = { email?: string; subscriptionType?: string; tokenSource?: string }
+
+// Ground truth (verified live against @anthropic-ai/claude-agent-sdk@0.3.205,
+// authenticated CLI): the system/init stream message carries NO `account`
+// field at all — only `claude_code_version` (not `version`). Account info
+// (email/subscriptionType/tokenSource/...) lives exclusively on the response
+// of the query handle's `initializationResult()` control-channel call. We
+// still fall back to reading `account`/`version` off the init message itself
+// for forward/backward compat with SDK builds that might carry it there.
+type InitHandle = { initializationResult?: () => Promise<{ account?: Account } | undefined> }
+
 export async function probeAuth(
   createQuery: CreateQueryFn,
   opts: { timeoutMs?: number } = {}
 ): Promise<AuthStatus> {
   const timeoutMs = opts.timeoutMs ?? 10000
+  const deadline = Date.now() + timeoutMs
   let q: ReturnType<CreateQueryFn> | null = null
   try {
     q = createQuery({
@@ -60,16 +72,30 @@ export async function probeAuth(
     if (first && typeof first === 'object') {
       const m = first as {
         model?: string
+        claude_code_version?: string
         version?: string
-        account?: { email?: string; subscriptionType?: string; tokenSource?: string }
+        account?: Account
       }
-      const subscription = subscriptionLabel(m.account?.subscriptionType, m.account?.tokenSource)
+
+      let account = m.account
+      const getInitResult = (q as unknown as InitHandle).initializationResult
+      if (typeof getInitResult === 'function') {
+        const remaining = Math.max(0, deadline - Date.now())
+        const initResult = await Promise.race([
+          getInitResult.call(q).catch(() => undefined),
+          new Promise<undefined>((r) => setTimeout(() => r(undefined), remaining))
+        ])
+        if (initResult?.account) account = initResult.account
+      }
+
+      const subscription = subscriptionLabel(account?.subscriptionType, account?.tokenSource)
+      const version = m.claude_code_version ?? m.version
       return {
         ok: true,
         detail: `claude ready (${m.model ?? 'unknown model'})`,
-        ...(m.account?.email ? { email: m.account.email } : {}),
+        ...(account?.email ? { email: account.email } : {}),
         ...(subscription ? { subscription } : {}),
-        ...(m.version ? { version: m.version } : {})
+        ...(version ? { version } : {})
       }
     }
     return { ok: false, detail: 'claude CLI exited before initializing' }
