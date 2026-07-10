@@ -127,6 +127,36 @@ describe('ConnectorsSettings', () => {
     )
   })
 
+  it('resetting a set secret deletes the stored secret and nulls the config ref', async () => {
+    currentPayload = basePayload()
+    currentPayload.connectors.rovo.config = {
+      ...(currentPayload.connectors.rovo.config as Record<string, unknown>),
+      restApiToken: { $secret: 'connector/rovo/restApiToken' }
+    } as never
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · rovo/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (REST)' }))
+    expect(window.argus.secrets.delete).toHaveBeenCalledWith('connector/rovo/restApiToken')
+    expect(window.argus.connectors.patch).toHaveBeenCalledWith({
+      rovo: { config: { restApiToken: null } }
+    })
+    expect(window.argus.secrets.set).not.toHaveBeenCalled()
+  })
+
+  it('invalid JSON in the env field commits nothing; valid JSON commits the parsed object', async () => {
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit · local/i }))
+    const env = screen.getByLabelText(/Environment \(JSON object/)
+    fireEvent.change(env, { target: { value: '{not json' } })
+    fireEvent.blur(env)
+    expect(window.argus.connectors.patch).not.toHaveBeenCalled()
+    fireEvent.change(env, { target: { value: '{"A":"1"}' } })
+    fireEvent.blur(env)
+    expect(window.argus.connectors.patch).toHaveBeenCalledWith({
+      local: { config: { env: { A: '1' } } }
+    })
+  })
+
   it('banner on loadError; secret-store chip when unavailable and config references secrets', async () => {
     currentPayload = basePayload({
       loadError: 'mcp-servers.json could not be parsed',
