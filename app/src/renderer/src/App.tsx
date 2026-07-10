@@ -78,6 +78,7 @@ function App(): React.JSX.Element {
         ) : (
           <CaseWorkspace
             slug={view.slug}
+            jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
             onOpenHit={handleOpenHit}
             onOpenCitation={(id, line) => setViewer({ evidenceId: id, focusLine: line })}
           />
