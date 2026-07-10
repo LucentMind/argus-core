@@ -85,12 +85,23 @@ describe('SettingsService', () => {
 
   it('resolvedTools: env > settings > default', () => {
     svc = new SettingsService(argusHome, appRoot, { traceDir: 'C:\\envdir', parseBin: undefined })
-    svc.patch({ tools: { traceDir: 'C:\\setdir', parseBin: 'C:\\set-parse.exe' } })
+    const setParseBin = path.join(tmp, 'set-parse.exe')
+    fs.writeFileSync(setParseBin, '')
+    svc.patch({ tools: { traceDir: 'C:\\setdir', parseBin: setParseBin } })
     const rt = svc.resolvedTools()
     expect(rt.traceDir).toEqual({ value: 'C:\\envdir', source: 'env' })
-    expect(rt.parseBin).toEqual({ value: 'C:\\set-parse.exe', source: 'settings' })
+    expect(rt.parseBin).toEqual({ value: setParseBin, source: 'settings' })
     svc.patch({ tools: { parseBin: null } })
     expect(svc.resolvedTools().parseBin.source).toBe('default') // auto-resolve (null here — bare appRoot)
+  })
+
+  it('a configured settings path that does not exist falls back to default resolution', () => {
+    svc = new SettingsService(argusHome, appRoot, noEnv)
+    svc.patch({
+      tools: { parseBin: path.join(tmp, 'missing.exe'), traceDir: path.join(tmp, 'missing-dir') }
+    })
+    expect(svc.resolvedTools().parseBin.source).toBe('default')
+    expect(svc.resolvedTools().traceDir.source).toBe('default')
   })
 
   it('external file change reloads and notifies', async () => {

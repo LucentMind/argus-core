@@ -65,7 +65,9 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
               className="flex items-center gap-3 rounded-r2 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
             >
               <span className="flex-1">
-                settings.json could not be parsed — using defaults. ({payload.loadError})
+                {payload.loadError.startsWith('settings save failed')
+                  ? payload.loadError
+                  : `settings.json could not be parsed — using defaults. (${payload.loadError})`}
               </span>
               <button
                 className="underline transition-colors hover:text-ink"

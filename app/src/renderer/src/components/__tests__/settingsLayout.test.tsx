@@ -128,4 +128,38 @@ describe('DraftInput', () => {
     expect(onCommit).toHaveBeenCalledTimes(1)
     expect(onCommit).toHaveBeenCalledWith('abc')
   })
+
+  it('blur without change does not commit; Escape reverts the draft', () => {
+    const onCommit = vi.fn()
+    render(<DraftInput value="abc" onCommit={onCommit} aria-label="f" />)
+    const input = screen.getByLabelText('f') as HTMLInputElement
+    fireEvent.blur(input)
+    expect(onCommit).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: 'xyz' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.value).toBe('abc')
+    fireEvent.blur(input)
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+})
+
+describe('AnnotatedForm reset affordance', () => {
+  it('a select at its defaultValue shows no reset affordance', () => {
+    render(
+      <AnnotatedForm
+        annotations={{
+          transport: {
+            control: 'select',
+            label: 'Transport',
+            options: ['http', 'sse'],
+            order: 1,
+            defaultValue: 'http'
+          }
+        }}
+        value={{ transport: 'http' }}
+        onChange={vi.fn()}
+      />
+    )
+    expect(screen.queryByRole('button', { name: /reset/i })).toBeNull()
+  })
 })

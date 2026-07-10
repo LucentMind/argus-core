@@ -9,6 +9,8 @@ export interface FieldAnnotation {
   order: number
   /** RESERVED — no driver field may set this until the keychain secret store lands (Wave 2 Part 2). */
   sensitive?: boolean
+  /** Value treated as "default" by the reset affordance (besides null/''). */
+  defaultValue?: unknown
 }
 
 export interface CatalogModel {

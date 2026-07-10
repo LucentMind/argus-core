@@ -181,4 +181,10 @@ describe('settings schema', () => {
       (nulledAgent.modelPreferences as Record<string, unknown>)['claude-default']
     ).toBeUndefined()
   })
+
+  it('deepMerge tolerates null / non-object patches (returns base unchanged)', () => {
+    const base = { a: 1 }
+    expect(deepMerge(base, null)).toEqual({ a: 1 })
+    expect(deepMerge(base, undefined)).toEqual({ a: 1 })
+  })
 })

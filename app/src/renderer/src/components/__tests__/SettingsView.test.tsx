@@ -79,4 +79,12 @@ describe('SettingsView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open file' }))
     expect(window.argus.settings.reveal).toHaveBeenCalledWith('settingsFile')
   })
+
+  it('a save-failure loadError renders its own message, not the parse-failure copy', async () => {
+    currentPayload = payload({ loadError: 'settings save failed: EACCES' })
+    render(<SettingsView onClose={vi.fn()} />)
+    const alert = await screen.findByRole('alert')
+    expect(screen.queryByText(/could not be parsed/)).toBeNull()
+    expect(alert.textContent).toContain('settings save failed: EACCES')
+  })
 })
