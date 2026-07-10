@@ -29,6 +29,11 @@ describe('classifyToolCall — native and FS tools', () => {
     expect(v).toEqual({ action: 'allow', risk: 'LOW' })
   })
 
+  it('write_proposal is LOW allow (inert until accepted)', () => {
+    const v = classifyToolCall('mcp__argus__write_proposal', {}, ctx)
+    expect(v).toEqual({ action: 'allow', risk: 'LOW' })
+  })
+
   it('write_memory is MEDIUM ask with no session grant', () => {
     const v = classifyToolCall('mcp__argus__write_memory', { topic: 't', content: 'c' }, ctx)
     expect(v).toEqual({

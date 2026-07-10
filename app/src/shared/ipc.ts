@@ -61,5 +61,8 @@ export const IPC = {
   hivemindInstall: 'hivemind:install',
   hivemindDiff: 'hivemind:diff',
   hivemindPushPreview: 'hivemind:push-preview',
-  hivemindPush: 'hivemind:push'
+  hivemindPush: 'hivemind:push',
+  proposalsList: 'proposals:list',
+  proposalsAccept: 'proposals:accept',
+  proposalsReject: 'proposals:reject'
 } as const

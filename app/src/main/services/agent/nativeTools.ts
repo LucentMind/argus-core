@@ -9,6 +9,7 @@ import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
+import { writeProposal } from '../proposals'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 
 export interface NativeToolDeps {
@@ -111,6 +112,19 @@ export function argusToolHandlers(
       })
     },
 
+    async write_proposal(args) {
+      const file = writeProposal(argusHome, caseSlug, {
+        type: String(args.type ?? ''),
+        target: String(args.target ?? ''),
+        title: String(args.title ?? ''),
+        content: String(args.content ?? '')
+      })
+      return (
+        `Proposal drafted: proposals/${file}. It is inert — nothing changes until the user ` +
+        `accepts it on the Skills page (Proposals tab). Do not apply the change yourself.`
+      )
+    },
+
     async workspace_checkout(args) {
       const wt = await ensureWorktree(
         argusHome,
@@ -184,6 +198,17 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'Record a durable cross-case lesson in agent memory (memory/<topic>.md). Provide index_entry when creating a topic so future sessions can discover it via _index.md.',
         { topic: z.string(), content: z.string(), index_entry: z.string().optional() },
         async (a) => asText(await h.write_memory(a))
+      ),
+      tool(
+        'write_proposal',
+        'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Skills page. Provide the FULL proposed file content, not a diff.',
+        {
+          type: z.enum(['skill-new', 'skill-edit', 'reference-edit', 'recipe']),
+          target: z.string(),
+          title: z.string(),
+          content: z.string()
+        },
+        async (a) => asText(await h.write_proposal(a))
       ),
       tool(
         'workspace_checkout',
