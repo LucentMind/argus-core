@@ -112,8 +112,8 @@ describe('forms and preset', () => {
     expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
   })
 
-  it('ROVO extras are a single sensitive PAT field', () => {
-    expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['apiToken'])
+  it('ROVO extras are the site URL plus a sensitive PAT field', () => {
+    expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['siteUrl', 'apiToken'])
     expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
     expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
     expect(ROVO_FORM_EXTRAS.apiToken.label).toContain('PAT')
@@ -141,5 +141,18 @@ describe('forms and preset', () => {
     expect(p.s3.kind).toBe('future-kind')
     expect((p.s3 as Record<string, unknown>).extra).toBe(1)
     expect(p.s3.links).toEqual({})
+  })
+
+  it('httpConfigSchema accepts and round-trips siteUrl (Rovo REST, Part 3)', () => {
+    const cfg = connectorConfig<HttpConnectorConfig>('http', {
+      url: 'https://mcp.atlassian.com/v1/mcp/authv2',
+      siteUrl: 'https://acme.atlassian.net'
+    })
+    expect(cfg.siteUrl).toBe('https://acme.atlassian.net')
+  })
+
+  it('ROVO_FORM_EXTRAS renders siteUrl (plain text) before apiToken (sensitive)', () => {
+    expect(ROVO_FORM_EXTRAS.siteUrl).toMatchObject({ control: 'text', order: 9 })
+    expect(ROVO_FORM_EXTRAS.apiToken).toMatchObject({ sensitive: true, order: 10 })
   })
 })

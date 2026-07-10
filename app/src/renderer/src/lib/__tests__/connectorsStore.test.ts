@@ -7,6 +7,7 @@ const payload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload => ({
   connectors: {},
   runtime: {},
   oauth: {},
+  rest: {},
   loadError: null,
   secretsAvailable: true,
   secretsLoadError: null,

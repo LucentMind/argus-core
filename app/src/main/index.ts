@@ -92,6 +92,7 @@ function registerIpc(): void {
     oauth: Object.fromEntries(
       Object.keys(connectorRegistry.get()).map((id) => [id, mcpOauth.status(id)])
     ),
+    rest: {},
     loadError: connectorRegistry.loadError(),
     secretsAvailable: secretStore.available(),
     secretsLoadError: secretStore.loadError(),
