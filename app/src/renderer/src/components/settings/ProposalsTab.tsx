@@ -37,12 +37,20 @@ export function ProposalsTab({
 
   useEffect(() => {
     let mounted = true
-    void window.argus.proposals.list().then((p) => {
-      if (mounted) {
-        setPayload(p)
-        onCountChange(p.proposals.length)
-      }
-    })
+    void window.argus.proposals
+      .list()
+      .then((p) => {
+        if (mounted) {
+          setPayload(p)
+          onCountChange(p.proposals.length)
+        }
+      })
+      .catch((e) => {
+        if (mounted) {
+          setPayload({ proposals: [] })
+          setError(e instanceof Error ? e.message : String(e))
+        }
+      })
     return () => {
       mounted = false
     }
@@ -64,14 +72,6 @@ export function ProposalsTab({
 
   if (!payload) return <div className="text-dim">loading…</div>
 
-  if (payload.proposals.length === 0) {
-    return (
-      <div className="px-1 py-2 text-sm text-dim">
-        No pending proposals — the agent drafts them via /contribute-back (write_proposal).
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-4">
       {error && (
@@ -82,36 +82,42 @@ export function ProposalsTab({
           {error}
         </div>
       )}
-      {payload.proposals.map((p) => (
-        <SettingsSection key={p.file} title={p.title}>
-          <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
-            <Chip tone="neutral">{p.type}</Chip>
-            <Chip tone="neutral">→ {p.target}</Chip>
-            <Chip tone="neutral">{p.caseSlug}</Chip>
-            <span className="text-xs text-mute">{new Date(p.date).toLocaleString()}</span>
-            {p.current === null && <Chip tone="review">new file</Chip>}
-          </div>
-          <ProposalDiff p={p} />
-          <div className="flex items-center gap-2 px-4 py-3">
-            <Btn
-              variant="primary"
-              aria-label={`Accept ${p.title}`}
-              disabled={busy}
-              onClick={() => void act(() => window.argus.proposals.accept(p.file))}
-            >
-              Accept
-            </Btn>
-            <Btn
-              variant="danger"
-              aria-label={`Reject ${p.title}`}
-              disabled={busy}
-              onClick={() => void act(() => window.argus.proposals.reject(p.file))}
-            >
-              Reject
-            </Btn>
-          </div>
-        </SettingsSection>
-      ))}
+      {payload.proposals.length === 0 ? (
+        <div className="px-1 py-2 text-sm text-dim">
+          No pending proposals — the agent drafts them via /contribute-back (write_proposal).
+        </div>
+      ) : (
+        payload.proposals.map((p) => (
+          <SettingsSection key={p.file} title={p.title}>
+            <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+              <Chip tone="neutral">{p.type}</Chip>
+              <Chip tone="neutral">→ {p.target}</Chip>
+              <Chip tone="neutral">{p.caseSlug}</Chip>
+              <span className="text-xs text-mute">{new Date(p.date).toLocaleString()}</span>
+              {p.current === null && <Chip tone="review">new file</Chip>}
+            </div>
+            <ProposalDiff p={p} />
+            <div className="flex items-center gap-2 px-4 py-3">
+              <Btn
+                variant="primary"
+                aria-label={`Accept ${p.title}`}
+                disabled={busy}
+                onClick={() => void act(() => window.argus.proposals.accept(p.file))}
+              >
+                Accept
+              </Btn>
+              <Btn
+                variant="danger"
+                aria-label={`Reject ${p.title}`}
+                disabled={busy}
+                onClick={() => void act(() => window.argus.proposals.reject(p.file))}
+              >
+                Reject
+              </Btn>
+            </div>
+          </SettingsSection>
+        ))
+      )}
     </div>
   )
 }

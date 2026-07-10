@@ -60,4 +60,21 @@ describe('ProposalsTab', () => {
       ).toHaveBeenCalled()
     )
   })
+
+  it('mount fetch error surfaces in alert banner instead of hanging', async () => {
+    ;(window as unknown as { argus: unknown }).argus = {
+      proposals: {
+        list: vi.fn().mockRejectedValue(new Error('ipc dead')),
+        accept: vi.fn().mockResolvedValue({ proposals: [] }),
+        reject: vi.fn().mockResolvedValue({ proposals: [] })
+      }
+    }
+    const onCountChange = vi.fn()
+    render(<ProposalsTab onCountChange={onCountChange} />)
+    // Assert loading text is gone and error banner appears
+    await waitFor(() => {
+      expect(screen.queryByText('loading…')).not.toBeInTheDocument()
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/ipc dead/)
+  })
 })
