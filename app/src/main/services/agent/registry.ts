@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
+import type { RiskLevel } from '../../../shared/connectors'
 import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
@@ -18,6 +19,8 @@ export interface AgentServiceDeps {
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
   /** Live settings read at each session construction; falls back to maxSessions/defaults when absent (tests). */
   agentSettings?: () => AgentSettings
+  /** Live tool-risk overrides threaded into every session (consulted per call). */
+  toolRisk?: () => Record<string, RiskLevel>
 }
 
 const defaultCreateQuery: CreateQueryFn = (args) =>
@@ -67,6 +70,7 @@ export class AgentService {
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
       resumeSdkSessionId: cursor?.sdk_session_id ?? null,
+      toolRisk: this.deps.toolRisk,
       agentOptions: as
         ? (() => {
             const parsed = settingsSchema.parse({ agent: as })

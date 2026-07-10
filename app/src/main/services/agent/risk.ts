@@ -1,10 +1,13 @@
 import path from 'node:path'
 import type { Risk } from '../../../shared/agent-events'
+import { classifyToolName, type RiskLevel } from '../../../shared/connectors'
 
 export interface RiskContext {
   caseDir: string
   workspaceRoots: string[]
   readonlyRoots: string[]
+  /** Live overrides from config/tool-risk.json, keyed '<instanceId>/<toolName>'. */
+  toolRisk?: Record<string, RiskLevel>
 }
 
 export type RiskVerdict =
@@ -201,9 +204,27 @@ export function classifyToolCall(
     return worst
   }
 
-  // Unknown MCP/other tools: convention default by name.
-  // Destructive check runs first so e.g. "checkout" (read-ish prefix "check" would
-  // otherwise collide with) still falls through to ask, not auto-allow.
+  // Connector (MCP) tools: tool-risk.json overrides, else spec §2.5 name convention.
+  const mcp = toolName.match(/^mcp__(.+?)__(.+)$/)
+  if (mcp) {
+    const level = ctx.toolRisk?.[`${mcp[1]}/${mcp[2]}`] ?? classifyToolName(mcp[2])
+    if (level === 'low') return { action: 'allow', risk: 'LOW' }
+    if (level === 'high')
+      return {
+        action: 'ask',
+        risk: 'HIGH',
+        grantKey: null,
+        reason: `Destructive connector tool: ${toolName}`
+      }
+    return {
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: `medium:${toolName}`,
+      reason: `Write-capable connector tool: ${toolName}`
+    }
+  }
+
+  // Non-MCP unknown tools: legacy heuristic, unchanged.
   const last = toolName.split('__').pop() ?? toolName
   if (/(delete|remove|transition|merge)/.test(last))
     return { action: 'ask', risk: 'HIGH', grantKey: null, reason: `Destructive tool: ${toolName}` }
