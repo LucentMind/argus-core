@@ -5,6 +5,7 @@ import {
   RESERVED_INSTANCE_IDS,
   collectSecretRefs,
   type ConnectorInstance,
+  type ConnectorPresets,
   type ConnectorRuntimeState,
   type HttpConnectorConfig,
   type OAuthStatus
@@ -12,7 +13,7 @@ import {
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
 import { AnnotatedForm } from './AnnotatedForm'
 import { SettingsSection, SettingRow, Switch, DraftInput, FIELD } from './settingsLayout'
-import { Btn, Card, Chip } from '../ui'
+import { Btn, Card, Chip, MenuButton } from '../ui'
 
 function statusChip(
   inst: ConnectorInstance,
@@ -93,6 +94,7 @@ function ConnectorCard({
   rt,
   oauthStatus,
   secretsAvailable,
+  presets,
   editing,
   onToggleEdit
 }: {
@@ -101,11 +103,13 @@ function ConnectorCard({
   rt: ConnectorRuntimeState | undefined
   oauthStatus: OAuthStatus | undefined
   secretsAvailable: boolean
+  presets: ConnectorPresets
   editing: boolean
   onToggleEdit: () => void
 }): React.JSX.Element {
   const [toolsOpen, setToolsOpen] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
   const supported = Boolean(CONNECTOR_FORMS[inst.kind])
   const cfg = (inst.config ?? {}) as Record<string, unknown>
   const isOauth = inst.kind === 'http' && (cfg as Partial<HttpConnectorConfig>).oauth === true
@@ -138,21 +142,50 @@ function ConnectorCard({
         )}
         {statusChip(inst, rt)}
         {rt?.state === 'error' && <span className="text-xs text-dim">{rt.reason}</span>}
-        {isOauth &&
-          (oauthStatus === 'authorized' ? (
-            <>
-              <Chip tone="review">authorized</Chip>
-              <Btn variant="ghost" onClick={() => void window.argus.connectors.oauth(id)}>
-                Re-authorize
-              </Btn>
-            </>
-          ) : (
-            <Btn variant="primary" onClick={() => void window.argus.connectors.oauth(id)}>
-              {oauthStatus === 'error' ? 'Re-authorize' : 'Authorize…'}
+        {isOauth && oauthStatus === 'authorized' && <Chip tone="review">authorized</Chip>}
+        {isOauth && oauthStatus !== 'authorized' && (
+          <>
+            <Btn
+              variant="primary"
+              disabled={!String((cfg as Partial<HttpConnectorConfig>).url ?? '')}
+              aria-label={`authorize · ${id}`}
+              onClick={() => {
+                setAuthError(null)
+                void window.argus.connectors
+                  .oauth(id)
+                  .then((r: { ok: boolean; error?: string }) => {
+                    if (!r.ok) setAuthError(r.error ?? 'authorization failed')
+                  })
+              }}
+            >
+              Authorize…
             </Btn>
-          ))}
+            {authError && <span className="text-xs text-danger">{authError}</span>}
+          </>
+        )}
         {secretGap && <Chip tone="danger">secret store unavailable</Chip>}
         <div className="ml-auto flex items-center gap-2">
+          <MenuButton
+            label="Edit"
+            aria-label={`actions · ${id}`}
+            items={[
+              { label: 'Edit details', onSelect: onToggleEdit },
+              {
+                label: testing ? 'Testing…' : 'Test connection',
+                onSelect: test,
+                disabled: testing || !supported
+              },
+              ...(isOauth && oauthStatus === 'authorized'
+                ? [
+                    {
+                      label: 'Re-authorize',
+                      onSelect: () => void window.argus.connectors.oauth(id)
+                    }
+                  ]
+                : []),
+              { label: 'Remove', onSelect: remove, tone: 'danger' as const }
+            ]}
+          />
           <Switch
             // renders off for an unsupported kind even if enabled:true is persisted
             checked={inst.enabled && supported}
@@ -162,15 +195,6 @@ function ConnectorCard({
             }}
             aria-label={`enabled · ${id}`}
           />
-          <Btn variant="outline" onClick={test} disabled={testing || !supported}>
-            {testing ? 'Testing…' : 'Test connection'}
-          </Btn>
-          <Btn variant="ghost" onClick={onToggleEdit} aria-label={`edit · ${id}`}>
-            Edit
-          </Btn>
-          <Btn variant="danger" onClick={remove} aria-label={`remove · ${id}`}>
-            Remove
-          </Btn>
         </div>
       </div>
       {summary && (
@@ -188,7 +212,6 @@ function ConnectorCard({
             <li key={t.name} className="flex items-center gap-2 py-0.5">
               <span className="font-mono text-xs">{t.name}</span>
               <Chip tone={RISK_TONE[t.risk]}>{t.risk}</Chip>
-              {t.description && <span className="truncate text-xs text-dim">{t.description}</span>}
             </li>
           ))}
         </ul>
@@ -209,6 +232,17 @@ function ConnectorCard({
             onChange={(k, v) => commitField(id, inst.kind, k, v)}
             onSecret={(k, v) => commitSecret(id, k, v)}
           />
+          {inst.preset && presets[inst.preset]?.links?.createApiToken && (
+            <button
+              className="mt-2 text-xs text-defect underline"
+              aria-label={`create api token · ${id}`}
+              onClick={() =>
+                void window.argus.openExternal(presets[inst.preset!].links.createApiToken)
+              }
+            >
+              Create API token ↗
+            </button>
+          )}
         </div>
       )}
     </Card>
@@ -218,24 +252,22 @@ function ConnectorCard({
 export function ConnectorsSettings(): React.JSX.Element {
   const payload = useConnectorsPayload()
   const [editing, setEditing] = useState<string | null>(null)
-  const [chooserOpen, setChooserOpen] = useState(false)
   if (!payload) return <div className="text-dim">loading…</div>
 
-  // The chooser stays open across selections (so several instances can be added
-  // in one sitting) — it only closes via the explicit Cancel button.
-  function addRovo(): void {
-    const p = payload!.presets.rovo
-    if (!payload!.connectors.rovo)
+  function addPreset(pid: string): void {
+    if (!payload!.connectors[pid]) {
+      const p = payload!.presets[pid]
       void connectorsStore.patch({
-        rovo: {
+        [pid]: {
           kind: p.kind,
           displayName: p.displayName,
-          preset: 'rovo',
+          preset: pid,
           enabled: true,
           config: p.config
         }
       })
-    setEditing('rovo')
+    }
+    setEditing(pid)
   }
 
   function addCustom(kind: 'http' | 'stdio'): void {
@@ -278,6 +310,7 @@ export function ConnectorsSettings(): React.JSX.Element {
             rt={payload.runtime[id]}
             oauthStatus={payload.oauth[id]}
             secretsAvailable={payload.secretsAvailable}
+            presets={payload.presets}
             editing={editing === id}
             onToggleEdit={() => setEditing((e) => (e === id ? null : id))}
           />
@@ -286,28 +319,21 @@ export function ConnectorsSettings(): React.JSX.Element {
           <div className="p-3 text-sm text-dim">No connectors yet.</div>
         )}
       </SettingsSection>
-      {chooserOpen ? (
-        <div className="flex items-center gap-2">
-          <Btn variant="primary" onClick={addRovo}>
-            Atlassian Rovo
-          </Btn>
-          <Btn variant="outline" onClick={() => addCustom('http')}>
-            Custom remote (HTTP)
-          </Btn>
-          <Btn variant="outline" onClick={() => addCustom('stdio')}>
-            Custom local (stdio)
-          </Btn>
-          <Btn variant="ghost" onClick={() => setChooserOpen(false)}>
-            Cancel
-          </Btn>
-        </div>
-      ) : (
-        <div>
-          <Btn variant="primary" onClick={() => setChooserOpen(true)}>
-            Add connector
-          </Btn>
-        </div>
-      )}
+      <div>
+        <MenuButton
+          label="Add connector"
+          variant="primary"
+          aria-label="add connector"
+          items={[
+            ...Object.entries(payload.presets).map(([pid, p]) => ({
+              label: p.displayName,
+              onSelect: () => addPreset(pid)
+            })),
+            { label: 'Custom remote (HTTP)', onSelect: () => addCustom('http') },
+            { label: 'Custom local (stdio)', onSelect: () => addCustom('stdio') }
+          ]}
+        />
+      </div>
     </div>
   )
 }

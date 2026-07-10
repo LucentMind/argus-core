@@ -16,7 +16,11 @@ const basePayload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload =
       lastDiscovered: {
         at: '2026-07-10T00:00:00Z',
         tools: [
-          { name: 'getJiraIssue', risk: 'low' },
+          {
+            name: 'getJiraIssue',
+            risk: 'low',
+            description: 'Search across the Docs and issues in Jira.'
+          },
           { name: 'addCommentToJiraIssue', risk: 'medium' },
           { name: 'deleteJiraIssue', risk: 'high' }
         ]
@@ -56,7 +60,8 @@ beforeEach(() => {
       set: vi.fn().mockResolvedValue(undefined),
       has: vi.fn().mockResolvedValue(false),
       delete: vi.fn().mockResolvedValue(undefined)
-    }
+    },
+    openExternal: vi.fn()
   } as never
 })
 
@@ -70,6 +75,14 @@ describe('ConnectorsSettings', () => {
     expect(screen.getByText(/unsupported kind: future-kind/)).toBeTruthy()
   })
 
+  it('line 1 shows name/kind/status + menu + switch; standalone Test/Remove buttons are gone', async () => {
+    render(<ConnectorsSettings />)
+    await screen.findByText('Atlassian Rovo')
+    expect(screen.queryByRole('button', { name: /test connection/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^remove · /i })).toBeNull()
+    expect(screen.getAllByRole('button', { name: /actions · /i })).toHaveLength(3)
+  })
+
   it('expanding the tool list shows per-tool risk chips', async () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: /tools · rovo/i }))
@@ -78,40 +91,111 @@ describe('ConnectorsSettings', () => {
     expect(screen.getAllByText('high')).not.toHaveLength(0)
   })
 
-  it('enable switch patches enabled; remove confirms then patches null', async () => {
+  it('tool list rows are name + chip only', async () => {
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: /tools · rovo/i }))
+    expect(screen.getByText('getJiraIssue')).toBeTruthy()
+    expect(screen.queryByText(/Search across/)).toBeNull() // fixture description not rendered
+  })
+
+  it('enable switch patches enabled; remove via the menu confirms then patches null', async () => {
     render(<ConnectorsSettings />)
     fireEvent.click((await screen.findAllByRole('switch'))[0])
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: { enabled: false } })
-    fireEvent.click(screen.getAllByRole('button', { name: /remove/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
     expect(window.confirm).toHaveBeenCalled()
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: null })
   })
 
-  it('Test connection calls the probe IPC; Authorize calls oauth', async () => {
+  it('menu actions: Edit details toggles the form, Test connection probes, Remove confirms', async () => {
     render(<ConnectorsSettings />)
-    fireEvent.click((await screen.findAllByRole('button', { name: /test connection/i }))[0])
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Test connection' }))
     expect(window.argus.connectors.test).toHaveBeenCalledWith('rovo')
-    fireEvent.click(screen.getByRole('button', { name: /re-authorize/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
+    expect(window.confirm).toHaveBeenCalled()
+    expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: null })
+  })
+
+  it('authorized oauth card: no Authorize on the face, Re-authorize in the menu', async () => {
+    render(<ConnectorsSettings />) // fixture rovo oauth: 'authorized'
+    await screen.findByText('Atlassian Rovo')
+    expect(screen.queryByRole('button', { name: /authorize · rovo/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Re-authorize' }))
     expect(window.argus.connectors.oauth).toHaveBeenCalledWith('rovo')
   })
 
-  it('add chooser creates the Rovo preset or a unique custom instance', async () => {
+  it('unauthorized oauth card shows Authorize…, disabled without url, inline error on failure', async () => {
+    currentPayload = basePayload({
+      oauth: { rovo: 'not-authorized', nourl: 'not-authorized' },
+      connectors: {
+        rovo: {
+          kind: 'http',
+          preset: 'rovo',
+          enabled: true,
+          config: { url: 'https://x', oauth: true }
+        },
+        nourl: { kind: 'http', enabled: true, config: { url: '', oauth: true } }
+      },
+      runtime: { rovo: { state: 'never-connected' }, nourl: { state: 'never-connected' } }
+    })
+    ;(window.argus.connectors.oauth as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      error: 'redirect_uri mismatch'
+    })
+    render(<ConnectorsSettings />)
+    const auth = (await screen.findByRole('button', {
+      name: 'authorize · rovo'
+    })) as HTMLButtonElement
+    expect(auth.textContent).toContain('Authorize')
+    expect(auth.textContent).not.toContain('Re-authorize')
+    expect(
+      (screen.getByRole('button', { name: 'authorize · nourl' }) as HTMLButtonElement).disabled
+    ).toBe(true)
+    fireEvent.click(auth)
+    expect(await screen.findByText(/redirect_uri mismatch/)).toBeTruthy()
+  })
+
+  it('Add connector is a dropdown built from presets + customs', async () => {
     currentPayload = basePayload({ connectors: {}, runtime: {}, oauth: {} })
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: /add connector/i }))
-    fireEvent.click(screen.getByRole('button', { name: /atlassian rovo/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Atlassian Rovo' }))
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
-      rovo: expect.objectContaining({ kind: 'http', preset: 'rovo' })
+      rovo: expect.objectContaining({
+        kind: 'http',
+        preset: 'rovo',
+        config: expect.objectContaining({
+          oauth: true,
+          url: expect.stringContaining('atlassian.com')
+        })
+      })
     })
-    fireEvent.click(screen.getByRole('button', { name: /custom local \(stdio\)/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add connector/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Custom local (stdio)' }))
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
       'stdio-1': expect.objectContaining({ kind: 'stdio' })
     })
   })
 
-  it('editing the Rovo card shows the PAT extra; committing the token writes the secret then the ref', async () => {
+  it('edit form shows the PAT field and the create-token link', async () => {
     render(<ConnectorsSettings />)
-    fireEvent.click(await screen.findByRole('button', { name: /edit · rovo/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
+    expect(screen.getByLabelText('Atlassian API token (PAT)')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'create api token · rovo' }))
+    expect(window.argus.openExternal).toHaveBeenCalledWith(
+      'https://id.atlassian.com/manage-profile/security/api-tokens'
+    )
+  })
+
+  it('committing the token writes the secret then the ref', async () => {
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
     const token = screen.getByLabelText('Atlassian API token (PAT)')
     fireEvent.change(token, { target: { value: 'atl-tok' } })
     fireEvent.blur(token)
@@ -132,7 +216,8 @@ describe('ConnectorsSettings', () => {
       apiToken: { $secret: 'connector/rovo/apiToken' }
     } as never
     render(<ConnectorsSettings />)
-    fireEvent.click(await screen.findByRole('button', { name: /edit · rovo/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
     fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (PAT)' }))
     expect(window.argus.secrets.delete).toHaveBeenCalledWith('connector/rovo/apiToken')
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
@@ -143,7 +228,8 @@ describe('ConnectorsSettings', () => {
 
   it('invalid JSON in the env field commits nothing; valid JSON commits the parsed object', async () => {
     render(<ConnectorsSettings />)
-    fireEvent.click(await screen.findByRole('button', { name: /edit · local/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · local' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
     const env = screen.getByLabelText(/Environment \(JSON object/)
     fireEvent.change(env, { target: { value: '{not json' } })
     fireEvent.blur(env)
