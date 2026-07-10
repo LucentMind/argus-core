@@ -2,7 +2,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { EvidenceLibrary } from '../EvidenceLibrary'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { EvidenceRecord } from '../../../../shared/types'
+
+function payload(): SettingsPayload {
+  return {
+    settings: defaultSettings(),
+    resolvedTools: {
+      traceDir: { value: null, source: 'default' },
+      parseBin: { value: null, source: 'default' }
+    },
+    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: true },
+    loadError: null
+  }
+}
 
 const rows: EvidenceRecord[] = [
   {
@@ -31,6 +45,10 @@ const rows: EvidenceRecord[] = [
 
 beforeEach(() => {
   vi.stubGlobal('argus', undefined) // ensure clean slate
+  // EvidenceLibrary reads the timestamp format via useSettingsPayload(), which
+  // starts the shared settingsStore singleton — reset it so this file's mocked
+  // window.argus.settings is refetched instead of a stale payload from another test.
+  settingsStore.reset()
   window.argus = {
     evidence: {
       list: vi.fn().mockResolvedValue(rows),
@@ -39,7 +57,13 @@ beforeEach(() => {
     },
     cases: { create: vi.fn(), list: vi.fn() },
     search: { query: vi.fn() },
-    pathForFile: vi.fn()
+    pathForFile: vi.fn(),
+    settings: {
+      get: vi.fn(async () => payload()),
+      patch: vi.fn(async () => payload()),
+      reveal: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
   } as unknown as typeof window.argus
 })
 

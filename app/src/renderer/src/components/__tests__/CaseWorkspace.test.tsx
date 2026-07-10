@@ -3,11 +3,28 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+
+function payload(): SettingsPayload {
+  return {
+    settings: defaultSettings(),
+    resolvedTools: {
+      traceDir: { value: null, source: 'default' },
+      parseBin: { value: null, source: 'default' }
+    },
+    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: true },
+    loadError: null
+  }
+}
 
 beforeEach(() => {
   localStorage.clear()
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
+  // CaseWorkspace renders EvidenceLibrary, which now reads the timestamp format via
+  // useSettingsPayload() and starts the shared settingsStore singleton.
+  settingsStore.reset()
   window.argus = {
     agent: {
       history: vi.fn(async () => []),
@@ -20,7 +37,13 @@ beforeEach(() => {
     evidence: { list: vi.fn(async () => []) },
     workspaces: { list: vi.fn(async () => []) },
     skills: { list: vi.fn(async () => []) },
-    search: { query: vi.fn(async () => []) }
+    search: { query: vi.fn(async () => []) },
+    settings: {
+      get: vi.fn(async () => payload()),
+      patch: vi.fn(async () => payload()),
+      reveal: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
