@@ -15,6 +15,12 @@ import type {
   JiraRefreshSummary,
   JiraResult
 } from '../shared/jira'
+import type {
+  BundleExportResult,
+  BundleInspectResult,
+  BundleImportResult,
+  BundleWorkspaceRef
+} from '../shared/bundle'
 
 // Custom API for renderer
 const argus = {
@@ -60,10 +66,19 @@ const argus = {
       ipcRenderer.invoke(IPC.workspacesLink, caseSlug, repoPath),
     unlink: (caseSlug: string, repoPath: string) =>
       ipcRenderer.invoke(IPC.workspacesUnlink, caseSlug, repoPath),
-    list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug)
+    list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug),
+    refs: (caseSlug: string): Promise<BundleWorkspaceRef[]> =>
+      ipcRenderer.invoke(IPC.workspacesRefs, caseSlug)
   },
   skills: {
     list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList)
+  },
+  bundle: {
+    export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
+      ipcRenderer.invoke(IPC.bundleExport, caseSlug, includeTranscripts),
+    inspect: (): Promise<BundleInspectResult | null> => ipcRenderer.invoke(IPC.bundleInspect),
+    import: (zipPath: string, slug: string): Promise<BundleImportResult> =>
+      ipcRenderer.invoke(IPC.bundleImport, zipPath, slug)
   },
   access: {
     get: (): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessGet),
