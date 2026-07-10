@@ -23,7 +23,7 @@ const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
   { tier: 'bundled', root: sharedSkillsDir }
 ]
 
-function frontmatterDescription(skillDir: string): string {
+export function frontmatterDescription(skillDir: string): string {
   try {
     const raw = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
     const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)
