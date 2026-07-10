@@ -53,10 +53,11 @@ export function NewCaseDialog({
   }, [onClose])
 
   // per-file progress stream (main keeps downloading even if the dialog closes)
+  const ingestSlug = step.step === 'ingest' ? step.slug : null
   useEffect(() => {
-    if (step.step !== 'ingest') return
+    if (ingestSlug === null) return
     return window.argus.jira.onAttachmentProgress((p) => {
-      if (p.caseSlug !== step.slug) return
+      if (p.caseSlug !== ingestSlug) return
       setStep((s) =>
         s.step === 'ingest'
           ? {
@@ -68,7 +69,7 @@ export function NewCaseDialog({
           : s
       )
     })
-  }, [step.step === 'ingest' ? step.slug : null])
+  }, [ingestSlug])
 
   async function fetchTicket(): Promise<void> {
     const key = ticketKey.trim()
@@ -77,11 +78,13 @@ export function NewCaseDialog({
     // Clear the entry field synchronously (same render as setBusy) so its value
     // can't transiently collide with the fetched key's displayed value once the
     // preview step mounts — the two fields would otherwise briefly show the same
-    // text while the async fetch is in flight.
+    // text while the async fetch is in flight. Restored below if the fetch fails,
+    // so a failed lookup doesn't cost the user their typed key.
     setTicketKey('')
     const r = await window.argus.jira.preview(key)
     setBusy(false)
     if (!r.ok) {
+      setTicketKey(key)
       setError(
         r.code === 'not-configured' || r.code === 'no-site-url' || r.code === 'no-token'
           ? `${r.message} (Settings → Connectors)`
@@ -95,6 +98,20 @@ export function NewCaseDialog({
     setCaseTitle(r.value.summary)
     setChecked(new Set(r.value.attachments.map((a) => a.id)))
     setStep({ step: 'preview', ticketKey: r.value.key, preview: r.value })
+  }
+
+  async function createBlank(): Promise<void> {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onCreateBlank({ slug, title, jiraKey: jira || undefined })
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function createFromTicket(): Promise<void> {
@@ -211,9 +228,7 @@ export function NewCaseDialog({
                 variant="outline"
                 className="justify-center"
                 disabled={!slug || !title || busy}
-                onClick={() =>
-                  void onCreateBlank({ slug, title, jiraKey: jira || undefined }).then(onClose)
-                }
+                onClick={() => void createBlank()}
               >
                 Create blank case
               </Btn>
