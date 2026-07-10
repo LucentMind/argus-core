@@ -30,6 +30,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource/geist-sans": "^5.2.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/vite": "^4.3.2",
     "react-markdown": "^10.1.0",
     "tailwindcss": "^4.3.2",
