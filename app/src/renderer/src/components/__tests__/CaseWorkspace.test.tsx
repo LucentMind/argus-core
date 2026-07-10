@@ -47,10 +47,10 @@ beforeEach(() => {
   } as never
 })
 
-function renderWorkspace(): void {
-  render(
+function workspace(slug: string): React.JSX.Element {
+  return (
     <CaseWorkspace
-      slug="NAV-1"
+      slug={slug}
       jiraKey={null}
       jiraSyncedAt={null}
       onOpenHit={vi.fn()}
@@ -58,6 +58,66 @@ function renderWorkspace(): void {
     />
   )
 }
+
+function renderWorkspace(): ReturnType<typeof render> {
+  return render(workspace('NAV-1'))
+}
+
+describe('CaseWorkspace composer prefill', () => {
+  it('clears an Analyze prefill when switching to another case', async () => {
+    window.argus.evidence.list = vi.fn(async () => [
+      {
+        id: 1,
+        caseId: 1,
+        relPath: 'evidence/trace.binlog',
+        sha256: 'x',
+        artifactType: 'binlog',
+        size: 10,
+        origin: 'upload',
+        meta: {},
+        createdAt: '2026-07-09'
+      }
+    ]) as never
+    const view = renderWorkspace()
+    fireEvent.click(await screen.findByRole('button', { name: /analyze/i }))
+    const box = screen.getByPlaceholderText<HTMLTextAreaElement>(
+      'Message the analyst — / for skills'
+    )
+    expect(box.value).toBe('/analyze-binlog evidence/trace.binlog')
+    // switching tabs rerenders with the new slug — case A's suggestion must not leak into case B
+    view.rerender(workspace('NAV-2'))
+    const boxAfter = screen.getByPlaceholderText<HTMLTextAreaElement>(
+      'Message the analyst — / for skills'
+    )
+    expect(boxAfter.value).toBe('')
+  })
+
+  it('Analyze works in the new case even for an identical suggestion string', async () => {
+    // both cases hold an identically-named file, so both suggest the same text; the
+    // stale prefill from case A must not swallow case B's click as a state no-op
+    window.argus.evidence.list = vi.fn(async () => [
+      {
+        id: 1,
+        caseId: 1,
+        relPath: 'evidence/trace.binlog',
+        sha256: 'x',
+        artifactType: 'binlog',
+        size: 10,
+        origin: 'upload',
+        meta: {},
+        createdAt: '2026-07-09'
+      }
+    ]) as never
+    const view = renderWorkspace()
+    fireEvent.click(await screen.findByRole('button', { name: /analyze/i }))
+    view.rerender(workspace('NAV-2'))
+    fireEvent.click(await screen.findByRole('button', { name: /analyze/i }))
+    const box = screen.getByPlaceholderText<HTMLTextAreaElement>(
+      'Message the analyst — / for skills'
+    )
+    expect(box.value).toBe('/analyze-binlog evidence/trace.binlog')
+  })
+})
 
 describe('CaseWorkspace findings pane', () => {
   it('drag on the separator resizes the pane (leftwards widens)', () => {
