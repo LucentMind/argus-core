@@ -5,6 +5,7 @@ import { AgentSettings } from './AgentSettings'
 import { ToolsSettings } from './ToolsSettings'
 import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
+import { MemorySettings } from './MemorySettings'
 
 const PAGES = [
   { id: 'general', label: 'General', enabled: true },
@@ -13,7 +14,7 @@ const PAGES = [
   { id: 'health', label: 'Health', enabled: true },
   { id: 'connectors', label: 'Connectors', enabled: true },
   { id: 'skills', label: 'Skills', enabled: false },
-  { id: 'memory', label: 'Memory', enabled: false },
+  { id: 'memory', label: 'Memory', enabled: true },
   { id: 'observability', label: 'Observability', enabled: false }
 ] as const
 type PageId = (typeof PAGES)[number]['id']
@@ -84,6 +85,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
           {payload && page === 'tools' && <ToolsSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
+          {page === 'memory' && <MemorySettings />}
         </div>
       </div>
     </div>

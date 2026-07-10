@@ -86,14 +86,14 @@ beforeEach(() => {
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 5 active pages, 3 coming-soon entries', async () => {
+  it('renders the rail: 6 active pages, 2 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
-    for (const label of ['General', 'Agent', 'Analysis Tools', 'Health', 'Connectors'])
+    for (const label of ['General', 'Agent', 'Analysis Tools', 'Health', 'Connectors', 'Memory'])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(false)
-    for (const label of ['Skills', 'Memory', 'Observability'])
+    for (const label of ['Skills', 'Observability'])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(true)
