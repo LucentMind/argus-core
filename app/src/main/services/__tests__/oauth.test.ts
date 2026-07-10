@@ -127,6 +127,57 @@ describe('McpOAuth', () => {
     expect(oauth2.status('rovo2')).toBe('error')
   })
 
+  it('clientInformation: stale redirect_uris (old loopback port) → undefined, forcing re-registration', async () => {
+    secrets.set(
+      'mcp/x/client',
+      JSON.stringify({
+        client_id: 'c1',
+        redirect_uris: ['http://127.0.0.1:1111/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none'
+      })
+    )
+    let captured: unknown
+    const authFn: AuthLike = async (provider) => {
+      captured = provider.clientInformation()
+      await provider.saveTokens({ access_token: 'tok', token_type: 'bearer', expires_in: 3600 })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    const r = await oauth.authorize('x', SERVER)
+    expect(r.ok).toBe(true)
+    // the loopback picks a fresh ephemeral port each run, which never matches
+    // the stored 1111 — the stale client info must be discarded
+    expect(captured).toBeUndefined()
+  })
+
+  it('clientInformation: matching redirect_uris → the stored client info is returned', async () => {
+    let capturedRedirect = ''
+    let captured: unknown
+    const authFn: AuthLike = async (provider) => {
+      capturedRedirect = String(provider.redirectUrl)
+      // seed AFTER the loopback picked its port, using that exact redirect url
+      secrets.set(
+        'mcp/y/client',
+        JSON.stringify({
+          client_id: 'c2',
+          redirect_uris: [capturedRedirect],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          token_endpoint_auth_method: 'none'
+        })
+      )
+      captured = provider.clientInformation()
+      await provider.saveTokens({ access_token: 'tok', token_type: 'bearer', expires_in: 3600 })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    const r = await oauth.authorize('y', SERVER)
+    expect(r.ok).toBe(true)
+    expect((captured as { client_id: string })?.client_id).toBe('c2')
+  })
+
   it('clear removes tokens/client/verifier and resets status', async () => {
     secrets.set('mcp/rovo/tokens', JSON.stringify({ access_token: 't', token_type: 'bearer' }))
     secrets.set('mcp/rovo/client', '{}')

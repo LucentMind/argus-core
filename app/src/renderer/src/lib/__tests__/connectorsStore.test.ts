@@ -42,6 +42,17 @@ describe('connectorsStore', () => {
     expect(connectorsStore.get()?.loadError).toBe('boom')
   })
 
+  it('start: get() rejection is caught, logged, and leaves the store null (no unhandled rejection)', async () => {
+    const err = new Error('boom')
+    ;(window.argus.connectors.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(err)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    connectorsStore.start()
+    await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+    expect(connectorsStore.get()).toBeNull()
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('connectors load failed'), err)
+    spy.mockRestore()
+  })
+
   it('patch stores the returned payload; failure synthesizes a banner', async () => {
     connectorsStore.start()
     await vi.waitFor(() => expect(connectorsStore.get()).not.toBeNull())

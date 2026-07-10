@@ -103,10 +103,12 @@ export class McpService {
           const headers = value as Record<string, string>
           if (cfg.oauth) {
             const token = this.deps.oauth?.accessToken(id) ?? null
-            if (token == null)
+            if (token == null) {
+              this.runtime.set(id, { state: 'needs-auth' })
               throw new Error(
                 'OAuth token missing or expired — run Test connection or Re-authorize'
               )
+            }
             headers.Authorization = `Bearer ${token}`
           }
           servers[id] =

@@ -178,7 +178,7 @@ describe('composeForSession', () => {
     )
   })
 
-  it('error-state connectors are skipped; oauth connectors without a token are skipped', () => {
+  it('error-state connectors are skipped; oauth connectors without a token are skipped and marked needs-auth', () => {
     registry.patch({
       dead: { kind: 'stdio', config: { command: 'x' } },
       rovo: {
@@ -198,7 +198,28 @@ describe('composeForSession', () => {
     expect(skipped).toContainEqual({ instanceId: 'dead', reason: 'spawn failed' })
     expect(servers.rovo).toBeUndefined()
     expect(skipped.find((s) => s.instanceId === 'rovo')?.reason).toMatch(/OAuth/)
+    expect(svc.runtimeStates().rovo).toEqual({ state: 'needs-auth' })
   })
+
+  it('a connector already marked needs-auth (e.g. from a prior 401 probe) is skipped with the auth-card reason', async () => {
+    const server = http.createServer((_req, res) => {
+      res.statusCode = 401
+      res.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    try {
+      registry.patch({ web: { kind: 'http', config: { url: `http://127.0.0.1:${port}/mcp` } } })
+      const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+      await svc.probe('web') // observes the 401 and marks runtime state needs-auth
+      expect(svc.runtimeStates().web).toMatchObject({ state: 'needs-auth' })
+      const { servers, skipped } = svc.composeForSession()
+      expect(servers.web).toBeUndefined()
+      expect(skipped.find((s) => s.instanceId === 'web')?.reason).toMatch(/needs authorization/)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }, 30000)
 
   it('oauth connector with a valid token gets the bearer header', () => {
     registry.patch({

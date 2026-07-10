@@ -250,7 +250,15 @@ function registerIpc(): void {
   // — connectors + secrets —
   ipcMain.handle(IPC.connectorsGet, () => connectorsPayload())
   ipcMain.handle(IPC.connectorsPatch, (_e, p: unknown) => {
+    const before = Object.keys(connectorRegistry.get())
     connectorRegistry.patch(p)
+    const after = new Set(Object.keys(connectorRegistry.get()))
+    for (const id of before) {
+      if (!after.has(id)) {
+        mcpOauth.clear(id)
+        secretStore.deletePrefix(`connector/${id}/`)
+      }
+    }
     return connectorsPayload()
   })
   ipcMain.handle(IPC.connectorsTest, async (_e, id: string) => {
@@ -283,7 +291,10 @@ function registerIpc(): void {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
       return probeAuth(
         (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
-        { timeoutMs: settingsService.get().agent.probeTimeoutMs }
+        {
+          timeoutMs: settingsService.get().agent.probeTimeoutMs,
+          cliPath: activeInstanceConfig(settingsService.get()).cliPath
+        }
       )
     },
     enabledConnectors: () =>
