@@ -5,6 +5,7 @@ import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
+import type { SourceControlStatus } from '../shared/sourcecontrol'
 
 // Custom API for renderer
 const argus = {
@@ -91,6 +92,9 @@ const argus = {
       ipcRenderer.on(IPC.healthResult, listener)
       return () => ipcRenderer.removeListener(IPC.healthResult, listener)
     }
+  },
+  sourceControl: {
+    status: (): Promise<SourceControlStatus> => ipcRenderer.invoke(IPC.sourceControlStatus)
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)

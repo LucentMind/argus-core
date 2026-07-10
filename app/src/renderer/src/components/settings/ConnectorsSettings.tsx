@@ -13,6 +13,7 @@ import {
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
 import { AnnotatedForm } from './AnnotatedForm'
 import { SettingsSection, SettingRow, Switch, DraftInput, FIELD } from './settingsLayout'
+import { SourceControl } from './SourceControl'
 import { Btn, Card, Chip, MenuButton } from '../ui'
 
 function statusChip(
@@ -334,6 +335,7 @@ export function ConnectorsSettings(): React.JSX.Element {
           ]}
         />
       </div>
+      <SourceControl />
     </div>
   )
 }

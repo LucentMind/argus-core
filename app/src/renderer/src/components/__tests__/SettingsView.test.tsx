@@ -72,6 +72,15 @@ beforeEach(() => {
       list: vi.fn().mockResolvedValue([]),
       run: vi.fn().mockResolvedValue(undefined),
       onResult: vi.fn(() => () => {})
+    },
+    sourceControl: {
+      status: vi.fn().mockResolvedValue({
+        installed: true,
+        version: 'gh version 2.96.0 (2026-07-02)',
+        authenticated: true,
+        login: 'jiawiehan',
+        detail: 'Logged in to github.com account jiawiehan'
+      })
     }
   } as never
 })
