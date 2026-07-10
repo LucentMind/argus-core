@@ -1,0 +1,1 @@
+- [data-version-blocks](data-version-blocks.md) — BLOCKED_VERSION tile region rejections: check server-side dataVersion allowlist first
