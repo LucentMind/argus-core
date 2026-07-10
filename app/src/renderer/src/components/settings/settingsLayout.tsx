@@ -25,6 +25,7 @@ export function SettingRow({
   isDefault = true,
   onReset,
   badge,
+  stacked,
   children
 }: {
   label: string
@@ -32,8 +33,33 @@ export function SettingRow({
   isDefault?: boolean
   onReset?: () => void
   badge?: ReactNode
+  /** Uncramped variant for rows whose controls need more than a shrink-to-fit column (e.g. a growing path input + Browse button). */
+  stacked?: boolean
   children: ReactNode
 }): React.JSX.Element {
+  if (stacked) {
+    return (
+      <div className="flex flex-col gap-0.5 px-4 py-3">
+        <div className="flex items-center gap-4">
+          <span className="flex min-w-0 flex-1 items-center gap-2 text-sm text-ink">
+            {label}
+            {badge}
+          </span>
+          {!isDefault && onReset && (
+            <button
+              aria-label={`Reset ${label}`}
+              className="text-xs text-mute transition-colors hover:text-ink"
+              onClick={onReset}
+            >
+              reset
+            </button>
+          )}
+        </div>
+        {description && <span className="text-xs text-mute">{description}</span>}
+        <div className="flex flex-wrap items-center gap-2 pt-2">{children}</div>
+      </div>
+    )
+  }
   return (
     <div className="flex items-center gap-4 px-4 py-3">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">

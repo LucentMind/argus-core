@@ -41,6 +41,7 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         }
         isDefault={t.parseBin === ''}
         onReset={() => void settingsStore.patch({ tools: { parseBin: null } })}
+        stacked
       >
         {report ? (
           report.parseBin.path ? (
@@ -55,7 +56,7 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         )}
         <DraftInput
           aria-label="sample-parse path"
-          className={`${FIELD} w-64 font-mono`}
+          className={`${FIELD} flex-1 min-w-40 font-mono`}
           placeholder="auto-resolve"
           value={t.parseBin}
           onCommit={(v) => void settingsStore.patch({ tools: { parseBin: v || null } })}
@@ -72,6 +73,7 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         }
         isDefault={t.traceDir === ''}
         onReset={() => void settingsStore.patch({ tools: { traceDir: null } })}
+        stacked
       >
         {report ? (
           report.traceDir.found ? (
@@ -84,7 +86,7 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         )}
         <DraftInput
           aria-label="trace tools directory"
-          className={`${FIELD} w-64 font-mono`}
+          className={`${FIELD} flex-1 min-w-40 font-mono`}
           placeholder="auto-resolve"
           value={t.traceDir}
           onCommit={(v) => void settingsStore.patch({ tools: { traceDir: v || null } })}

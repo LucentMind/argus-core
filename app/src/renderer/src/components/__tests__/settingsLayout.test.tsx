@@ -24,6 +24,48 @@ describe('SettingRow', () => {
   })
 })
 
+describe('SettingRow stacked variant', () => {
+  it('stacked: label/reset share line 1, description is its own full-width line, children wrap on line 3', () => {
+    const onReset = vi.fn()
+    render(
+      <SettingRow
+        label="Trace tools directory"
+        description="Directory containing sample-trace"
+        isDefault={false}
+        onReset={onReset}
+        stacked
+      >
+        <span>child-a</span>
+        <span>child-b</span>
+      </SettingRow>
+    )
+    const label = screen.getByText('Trace tools directory')
+    const description = screen.getByText('Directory containing sample-trace')
+    const childA = screen.getByText('child-a')
+
+    // description is not in the same row div as the label/reset line
+    expect(label.closest('div')).not.toBe(description.parentElement)
+    // children live in their own full-width, wrapping row
+    const childrenRow = childA.parentElement
+    expect(childrenRow?.className).toContain('flex-wrap')
+    expect(childrenRow?.className).toContain('pt-2')
+    expect(childrenRow).not.toBe(description.parentElement)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Trace tools directory' }))
+    expect(onReset).toHaveBeenCalled()
+  })
+
+  it('non-stacked row keeps its existing single flex-row structure (unaffected by the stacked variant)', () => {
+    render(
+      <SettingRow label="Max sessions" description="desc">
+        <span>3</span>
+      </SettingRow>
+    )
+    const outer = screen.getByText('Max sessions').closest('div')?.parentElement
+    expect(outer?.className).toBe('flex items-center gap-4 px-4 py-3')
+  })
+})
+
 describe('Switch', () => {
   it('is a role=switch reflecting and toggling state', () => {
     const onChange = vi.fn()
