@@ -59,6 +59,41 @@ describe('memory service', () => {
     )
   })
 
+  it('rejects an indexEntry containing interior newlines', () => {
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 't1',
+        content: 'a',
+        indexEntry: 'line one\nline two'
+      })
+    ).toThrow(/write_memory/)
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', {
+        topic: 't1',
+        content: 'a',
+        indexEntry: 'line one\r\nline two'
+      })
+    ).toThrow(/write_memory/)
+    // rejected write must not have touched the index at all
+    expect(readIndex(argusHome)).toBe('')
+  })
+
+  it('rejects an indexEntry over 200 characters', () => {
+    const long = 'x'.repeat(201)
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: 't1', content: 'a', indexEntry: long })
+    ).toThrow(/write_memory/)
+    expect(readIndex(argusHome)).toBe('')
+  })
+
+  it('accepts an indexEntry at exactly 200 characters', () => {
+    const exact = 'x'.repeat(200)
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: 't1', content: 'a', indexEntry: exact })
+    ).not.toThrow()
+    expect(readIndex(argusHome)).toContain(exact)
+  })
+
   it('refuses a NEW index entry at the cap with consolidation guidance', () => {
     const lines = Array.from(
       { length: MEMORY_INDEX_MAX_LINES },

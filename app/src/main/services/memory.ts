@@ -90,6 +90,12 @@ export function applyMemoryWrite(
 
   const indexEntry = input.indexEntry?.trim() || null
   if (indexEntry) {
+    if (/[\r\n]/.test(indexEntry)) {
+      throw new Error('write_memory: index_entry must be a single line (no interior newlines)')
+    }
+    if (indexEntry.length > 200) {
+      throw new Error('write_memory: index_entry must be at most 200 characters')
+    }
     const idx = readIndex(argusHome)
     const lines = idx.split('\n').filter((l) => l.trim() !== '')
     const lineRe = indexLineFor(topic)
