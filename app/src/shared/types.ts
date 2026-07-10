@@ -77,6 +77,12 @@ export interface ApprovalDecision {
 export interface AuthStatus {
   ok: boolean
   detail: string // "logged in as x@y (subscription)" | "not logged in" | error text
+  /** From the SDK init message's `account` object. Absent on older CLIs or when not logged in. */
+  email?: string
+  /** Human-readable subscription/auth-method label, e.g. "Claude Max Subscription" or "API key". */
+  subscription?: string
+  /** CLI version reported by the init message, e.g. "2.1.204". */
+  version?: string
 }
 
 export interface SkillMeta {

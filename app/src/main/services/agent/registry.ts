@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
-import { activeInstanceConfig } from '../../../shared/drivers'
+import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
 import { getCase } from '../caseService'
@@ -69,9 +69,11 @@ export class AgentService {
       resumeSdkSessionId: cursor?.sdk_session_id ?? null,
       agentOptions: as
         ? (() => {
-            const cfg = activeInstanceConfig(settingsSchema.parse({ agent: as }))
+            const parsed = settingsSchema.parse({ agent: as })
+            const cfg = activeInstanceConfig(parsed)
             return {
-              model: cfg.model,
+              // explicit config.model wins (back-compat); else the top ordered visible model
+              model: cfg.model ?? effectiveDefaultModel(parsed),
               cliPath: cfg.cliPath,
               permissionMode: as.defaultPermissionMode,
               personaAppend: as.personaAppend || undefined

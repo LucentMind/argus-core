@@ -124,4 +124,61 @@ describe('settings schema', () => {
       stripDefaults(defaultSettings(), defaultSettings(), { atomicPaths: SETTINGS_ATOMIC_PATHS })
     ).toEqual({})
   })
+
+  it('parses {} to an empty modelPreferences map', () => {
+    expect(settingsSchema.parse({}).agent.modelPreferences).toEqual({})
+  })
+
+  it('modelPreferences entries round-trip through stripDefaults + parse with NO atomic treatment', () => {
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), {
+        agent: {
+          modelPreferences: {
+            'claude-default': {
+              hiddenModels: [],
+              favoriteModels: ['claude-opus-4-8'],
+              modelOrder: ['claude-sonnet-5']
+            }
+          }
+        }
+      })
+    )
+    // deliberately NOT passing atomicPaths — unlike providerInstances (whose `driver` field has
+    // no schema default and would break reparse if partially stripped), every modelPreferences
+    // leaf is a defaultable array, so plain leaf-by-leaf stripping round-trips safely either way.
+    const sparse = stripDefaults(patched, defaultSettings())
+    expect(settingsSchema.parse(sparse)).toEqual(patched)
+  })
+
+  it('an emptied modelPreferences entry is NOT auto-dropped by stripDefaults — the caller must send null', () => {
+    // The record's own default is {} (no known entries), so a runtime instance key is always an
+    // "unknown key" to stripDefaultsAt and is preserved verbatim, even when every leaf is default.
+    // This is why the UI (Task B) sends null for the whole entry once all three lists go empty.
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), {
+        agent: {
+          modelPreferences: {
+            'claude-default': { hiddenModels: [], favoriteModels: [], modelOrder: [] }
+          }
+        }
+      })
+    )
+    const sparse = stripDefaults(patched, defaultSettings()) as Record<string, unknown>
+    const agent = sparse.agent as Record<string, unknown>
+    const prefs = agent.modelPreferences as Record<string, unknown>
+    expect(prefs['claude-default']).toEqual({
+      hiddenModels: [],
+      favoriteModels: [],
+      modelOrder: []
+    })
+
+    // explicit null deletion (the UI's job) does remove it, proving the escape hatch works
+    const nulled = deepMerge(patched, {
+      agent: { modelPreferences: { 'claude-default': null } }
+    }) as Record<string, unknown>
+    const nulledAgent = nulled.agent as Record<string, unknown>
+    expect(
+      (nulledAgent.modelPreferences as Record<string, unknown>)['claude-default']
+    ).toBeUndefined()
+  })
 })

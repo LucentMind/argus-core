@@ -32,22 +32,22 @@ beforeEach(() => {
 })
 
 describe('AgentSettings', () => {
-  it('renders the driver badge and annotation-driven config fields', () => {
+  it('renders the driver badge and annotation-driven config fields (model excluded — Models section owns it)', () => {
     render(<AgentSettings payload={payload()} />)
     expect(screen.getByText('Claude Agent SDK')).toBeTruthy()
-    expect(screen.getByLabelText('Model')).toBeTruthy()
+    expect(screen.queryByLabelText('Model')).toBeNull()
     expect(screen.getByLabelText('Claude CLI path')).toBeTruthy()
   })
 
-  it('editing the model patches the instance config envelope', () => {
+  it('editing the CLI path patches the instance config envelope', () => {
     render(<AgentSettings payload={payload()} />)
-    const model = screen.getByLabelText('Model')
-    fireEvent.change(model, { target: { value: 'claude-sonnet-5' } })
-    fireEvent.blur(model)
+    const cliPath = screen.getByLabelText('Claude CLI path')
+    fireEvent.change(cliPath, { target: { value: '/usr/local/bin/claude' } })
+    fireEvent.blur(cliPath)
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       agent: {
         providerInstances: {
-          'claude-default': { config: { model: 'claude-sonnet-5' } }
+          'claude-default': { config: { cliPath: '/usr/local/bin/claude' } }
         }
       }
     })
@@ -84,6 +84,6 @@ describe('AgentSettings', () => {
     })
     render(<AgentSettings payload={p} />)
     expect(screen.getByText(/unavailable driver/i)).toBeTruthy()
-    expect(screen.queryByLabelText('Model')).toBeNull()
+    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
   })
 })

@@ -162,7 +162,8 @@ describe('AgentService', () => {
             enabled: true,
             config: { model: 'claude-opus-4-8' }
           }
-        }
+        },
+        modelPreferences: {}
       })
     })
     createCase(db, argusHome, { slug: 'C-1', title: 'a' })
@@ -183,6 +184,47 @@ describe('AgentService', () => {
     maxSessions = 3
     await svc.send('C-1', 'hi') // live read: no reap now
     expect(svc.states().filter((s) => s.state === 'running')).toHaveLength(2)
+    await svc.stopAll()
+  })
+
+  it('falls back to the top ordered visible model when config.model is unset', async () => {
+    const captured: Record<string, unknown>[] = []
+    const createQuery: CreateQueryFn = (args) => {
+      captured.push(args.options as Record<string, unknown>)
+      const q = new AsyncQueue<unknown>()
+      return Object.assign(
+        { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
+        { interrupt: async () => q.end() }
+      )
+    }
+    const svc = new AgentService({
+      db,
+      argusHome,
+      skillsRoots: [],
+      onEvent: () => {},
+      createQuery,
+      agentSettings: () => ({
+        activeInstanceId: 'claude-default',
+        maxSessions: 3,
+        probeTimeoutMs: 10000,
+        defaultPermissionMode: 'default' as const,
+        personaAppend: '',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} }
+        },
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: [],
+            favoriteModels: ['claude-opus-4-8'],
+            modelOrder: ['claude-sonnet-5', 'claude-opus-4-8']
+          }
+        }
+      })
+    })
+    createCase(db, argusHome, { slug: 'C-1', title: 'a' })
+    await svc.send('C-1', 'hi')
+    // favorites group first regardless of modelOrder rank → claude-opus-4-8 is the top model
+    expect(captured[0].model).toBe('claude-opus-4-8')
     await svc.stopAll()
   })
 })

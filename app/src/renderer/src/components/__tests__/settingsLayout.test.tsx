@@ -42,20 +42,20 @@ describe('AnnotatedForm', () => {
       <SettingsSection title="Provider">
         <AnnotatedForm
           annotations={DRIVERS['claude-agent-sdk'].formAnnotations}
-          value={{ model: 'claude-sonnet-5' }}
+          value={{ cliPath: '/usr/bin/claude' }}
           onChange={onChange}
         />
       </SettingsSection>
     )
-    const model = screen.getByLabelText('Model') as HTMLInputElement
-    expect(model.value).toBe('claude-sonnet-5')
-    fireEvent.change(model, { target: { value: 'claude-opus-4-8' } })
-    fireEvent.blur(model)
-    expect(onChange).toHaveBeenCalledWith('model', 'claude-opus-4-8')
-    fireEvent.change(model, { target: { value: '' } })
-    fireEvent.blur(model)
-    expect(onChange).toHaveBeenCalledWith('model', null)
-    expect(screen.getByLabelText('Claude CLI path')).toBeTruthy()
+    // model is intentionally absent from formAnnotations — it's rendered by the Models section
+    const cliPath = screen.getByLabelText('Claude CLI path') as HTMLInputElement
+    expect(cliPath.value).toBe('/usr/bin/claude')
+    fireEvent.change(cliPath, { target: { value: '/opt/claude' } })
+    fireEvent.blur(cliPath)
+    expect(onChange).toHaveBeenCalledWith('cliPath', '/opt/claude')
+    fireEvent.change(cliPath, { target: { value: '' } })
+    fireEvent.blur(cliPath)
+    expect(onChange).toHaveBeenCalledWith('cliPath', null)
   })
 })
 

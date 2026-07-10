@@ -27,6 +27,14 @@ const generalSchema = z.looseObject({
   confirmCaseDelete: z.boolean().default(true)
 })
 
+/** Per-instance model list customization (favorite/hide/reorder). All three lists default empty. */
+const modelPreferencesSchema = z.looseObject({
+  hiddenModels: z.array(z.string()).default([]),
+  favoriteModels: z.array(z.string()).default([]),
+  modelOrder: z.array(z.string()).default([])
+})
+export type ModelPreferences = z.infer<typeof modelPreferencesSchema>
+
 const agentSchema = z.looseObject({
   activeInstanceId: z.string().default('claude-default'),
   maxSessions: z.number().int().min(1).max(16).default(3),
@@ -35,7 +43,9 @@ const agentSchema = z.looseObject({
   personaAppend: z.string().default(''),
   providerInstances: z.record(z.string(), providerInstanceSchema).default(() => ({
     'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} }
-  }))
+  })),
+  /** Keyed by provider instance id. An entry whose lists are all empty is equivalent to absent. */
+  modelPreferences: z.record(z.string(), modelPreferencesSchema).default({})
 })
 
 const toolsSchema = z.looseObject({
