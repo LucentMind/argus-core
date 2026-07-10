@@ -21,6 +21,7 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__get_artifact_meta: { action: 'allow', risk: 'LOW' },
   mcp__argus__ingest_artifact: { action: 'allow', risk: 'LOW' },
   mcp__argus__append_finding: { action: 'allow', risk: 'LOW' },
+  mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   mcp__argus__update_case_status: {
     action: 'ask',
     risk: 'MEDIUM',

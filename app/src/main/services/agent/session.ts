@@ -1,5 +1,4 @@
 import crypto from 'node:crypto'
-import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
@@ -10,11 +9,11 @@ import { classifyToolCall, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
-import { caseDir, memoryDir } from '../paths'
+import { caseDir } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
 import { ARGUS_PERSONA } from './persona'
-import { filteredIndex, listTopics } from '../memory'
-import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
+import { filteredIndex } from '../memory'
+import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 
 export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
 export type CreateQueryFn = (args: {
@@ -95,15 +94,12 @@ export class CaseSession {
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
     const memIndex = filteredIndex(deps.argusHome, access)
     const memoryAppend = memIndex.trim()
-      ? `\n\n## Agent memory\nLessons from previous cases. Topic files live in ${memoryDir(deps.argusHome)} — read a topic file when its index line is relevant to this case.\n\n${memIndex.trim()}`
+      ? `\n\n## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.\n\n${memIndex.trim()}`
       : ''
-    const enabledTopicPaths = listTopics(deps.argusHome)
-      .filter((t) => topicEnabled(access, t.name))
-      .map((t) => path.join(memoryDir(deps.argusHome), `${t.name}.md`))
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
-      readonlyRoots: [...deps.skillsRoots, ...enabledTopicPaths]
+      readonlyRoots: [...deps.skillsRoots]
     }
     const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({
@@ -133,7 +129,8 @@ export class CaseSession {
             caseSlug: deps.caseSlug,
             sessionId: this.sessionId,
             emitFinding: (markdown) =>
-              this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown }))
+              this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
+            agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess()
           })
         },
         canUseTool: this.canUseTool.bind(this),
