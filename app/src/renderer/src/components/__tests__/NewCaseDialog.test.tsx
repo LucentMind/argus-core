@@ -75,6 +75,20 @@ describe('NewCaseDialog', () => {
     expect(screen.getByRole('button', { name: /create blank case/i })).toBeInTheDocument()
   })
 
+  it('a failed fetch keeps the typed key in the entry field for retry', async () => {
+    jira.preview.mockResolvedValueOnce({
+      ok: false,
+      code: 'network',
+      message: 'fetch failed'
+    })
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/NAVSDK-1234/i), { target: { value: 'NAV-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByRole('alert')
+    expect(screen.getByPlaceholderText(/NAVSDK-1234/i)).toHaveDisplayValue('NAV-7')
+    expect(screen.getByRole('button', { name: /fetch ticket/i })).toBeEnabled()
+  })
+
   it('creates the case, ingests checked attachments with per-file progress, offers Start triage', async () => {
     render(<NewCaseDialog {...noop} />)
     fireEvent.change(screen.getByPlaceholderText(/NAVSDK-1234/i), { target: { value: 'NAV-7' } })
@@ -136,5 +150,20 @@ describe('NewCaseDialog', () => {
         jiraKey: undefined
       })
     )
+  })
+
+  it('a rejected blank-path create surfaces in the error alert and keeps the dialog open', async () => {
+    const onClose = vi.fn()
+    const onCreateBlank = vi.fn(async () => {
+      throw new Error('slug already exists')
+    })
+    render(<NewCaseDialog onClose={onClose} onCreateBlank={onCreateBlank} onOpenCase={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText(/^slug/i), { target: { value: 'adhoc-1' } })
+    fireEvent.change(screen.getByPlaceholderText(/^title/i), { target: { value: 'Ad hoc' } })
+    fireEvent.click(screen.getByRole('button', { name: /create blank case/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/slug already exists/i)
+    expect(onClose).not.toHaveBeenCalled()
+    // form is usable again after the failure
+    expect(screen.getByRole('button', { name: /create blank case/i })).toBeEnabled()
   })
 })
