@@ -1,17 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MenuButton } from '../ui'
+import { MenuButton, type MenuItem } from '../ui'
 
-const items = (
-  onA = vi.fn(),
-  onB = vi.fn()
-): Array<{
-  label: string
-  onSelect: ReturnType<typeof vi.fn>
-  tone?: 'danger'
-  disabled?: boolean
-}> => [
+const items = (onA = vi.fn(), onB = vi.fn()): MenuItem[] => [
   { label: 'Action A', onSelect: onA },
   { label: 'Danger B', onSelect: onB, tone: 'danger' as const },
   { label: 'Disabled C', onSelect: vi.fn(), disabled: true }
