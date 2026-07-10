@@ -121,15 +121,18 @@ export class JiraCases {
             jira: { key, attachmentId: a.id, filename: a.filename }
           })
           // detector chain ran inside ingestArtifact; kick extraction like evidence:ingest does.
-          // extractDerivedText never rejects (it catches internally), so a single .then
-          // safely brackets start/stop without a separate .finally hop.
+          // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
+          // outside its internal try/catch), so parsing(false) must sit in .finally and
+          // the fire-and-forget rejection is swallowed explicitly.
           this.deps.parsing(caseSlug, rec.id, true)
-          void extractDerivedText(db, argusHome, rec, { argusParse: this.deps.argusParse() }).then(
-            (derived) => {
+          void extractDerivedText(db, argusHome, rec, { argusParse: this.deps.argusParse() })
+            .then((derived) => {
               if (derived) this.deps.evidenceChanged(caseSlug)
-              this.deps.parsing(caseSlug, rec.id, false)
-            }
-          )
+            })
+            .catch((err) =>
+              console.warn(`[jira] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+            )
+            .finally(() => this.deps.parsing(caseSlug, rec.id, false))
           this.deps.evidenceChanged(caseSlug)
           const done: JiraAttachmentProgress = { ...base, status: 'done', evidenceId: rec.id }
           this.deps.emitProgress(done)
