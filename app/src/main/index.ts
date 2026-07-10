@@ -51,7 +51,12 @@ import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
 import { resolveArgusParse } from './services/parsers'
-import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
+import {
+  linkWorkspace,
+  unlinkWorkspace,
+  listWorkspaces,
+  autoLinkDefaultRepo
+} from './services/workspaces'
 import { activeInstanceConfig } from '../shared/drivers'
 import {
   seedSharedDirs,
@@ -170,7 +175,11 @@ function registerIpc(): void {
   })
 
   // — wave 0 handlers unchanged —
-  ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
+  ipcMain.handle(IPC.casesCreate, async (_e, input: NewCaseInput) => {
+    const rec = createCase(db, argusHome, input)
+    await autoLinkDefaultRepo(db, argusHome, rec.slug, settingsService.get().general.defaultRepo)
+    return rec
+  })
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
     const records = absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
@@ -435,8 +444,19 @@ function registerIpc(): void {
   }
 
   ipcMain.handle(IPC.jiraPreview, (_e, key: string) => jiraResult(() => jiraCases.preview(key)))
-  ipcMain.handle(IPC.jiraCreateCase, (_e, input: { slug: string; title: string; key: string }) =>
-    jiraResult(() => jiraCases.createFromTicket(input))
+  ipcMain.handle(
+    IPC.jiraCreateCase,
+    async (_e, input: { slug: string; title: string; key: string }) => {
+      const r = await jiraResult(() => jiraCases.createFromTicket(input))
+      if (r.ok)
+        await autoLinkDefaultRepo(
+          db,
+          argusHome,
+          input.slug,
+          settingsService.get().general.defaultRepo
+        )
+      return r
+    }
   )
   ipcMain.handle(IPC.jiraIngestAttachments, (_e, caseSlug: string, atts: JiraAttachmentInfo[]) =>
     jiraResult(() => jiraCases.ingestAttachments(caseSlug, atts))
