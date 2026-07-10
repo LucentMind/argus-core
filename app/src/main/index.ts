@@ -15,6 +15,7 @@ import { loadPresets } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
 import { HealthService } from './services/health'
+import { ghStatus } from './services/sourceControl'
 import {
   connectorConfig,
   type ConnectorsPayload,
@@ -317,6 +318,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.healthRun, async (_e, ids?: string[]) => {
     await healthService.run(ids ?? null, (r) => broadcast(IPC.healthResult, r))
   })
+  ipcMain.handle(IPC.sourceControlStatus, () => ghStatus())
 }
 
 function createWindow(): void {

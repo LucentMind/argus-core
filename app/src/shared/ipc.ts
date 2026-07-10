@@ -37,5 +37,6 @@ export const IPC = {
   healthList: 'health:list',
   healthRun: 'health:run',
   healthResult: 'health:result',
+  sourceControlStatus: 'sourcecontrol:status',
   appOpenExternal: 'app:open-external'
 } as const
