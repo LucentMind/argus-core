@@ -1,5 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { uiStore } from '../lib/uiStore'
+import { useSettingsPayload } from '../lib/settingsStore'
+import { activeInstanceConfig } from '../../../shared/drivers'
+import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
 import type { SkillMeta } from '../../../shared/types'
 
 const ICON = {
@@ -149,6 +152,18 @@ export function Composer({
     void window.argus.skills.list().then(setSkills)
   }, [])
 
+  // seed the pickers from settings once the payload first arrives — adjust-
+  // state-during-render, matching the `prefill` idiom below; user changes
+  // stay session-local after that (not wired to the SDK yet)
+  const settingsPayload = useSettingsPayload()
+  const [seeded, setSeeded] = useState(false)
+  if (!seeded && settingsPayload) {
+    setSeeded(true)
+    const cfg = activeInstanceConfig(settingsPayload.settings)
+    if (cfg.model) setModel(cfg.model)
+    setPermission(PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode])
+  }
+
   // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
   // draft — adjust-state-during-render pattern instead of a setState effect
   const [lastPrefill, setLastPrefill] = useState(prefill)
@@ -220,7 +235,7 @@ export function Composer({
             menuLabel="Permission mode"
             value={permission}
             onChange={setPermission}
-            options={['Ask approvals', 'Auto-approve MEDIUM', 'Read-only']}
+            options={Object.values(PERMISSION_MODE_LABELS)}
           />
           <Divider />
           <button

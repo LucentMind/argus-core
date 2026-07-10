@@ -3,11 +3,29 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
 import { uiStore } from '../../lib/uiStore'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 
 beforeEach(() => {
   localStorage.clear()
   uiStore.setShowToolCalls(true)
-  window.argus = { skills: { list: vi.fn(async () => []) } } as never
+  settingsStore.reset()
+  window.argus = {
+    skills: { list: vi.fn(async () => []) },
+    settings: {
+      get: vi.fn(async () => ({
+        settings: defaultSettings(),
+        resolvedTools: {
+          traceDir: { value: null, source: 'default' },
+          parseBin: { value: null, source: 'default' }
+        },
+        dataRoot: { path: 'C:\\x', fromEnv: false },
+        loadError: null
+      })),
+      patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
+  } as never
 })
 
 describe('Composer', () => {
@@ -42,5 +60,25 @@ describe('Composer', () => {
     expect((sendBtn as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(sendBtn)
     expect(onSend).toHaveBeenCalledWith('hello')
+  })
+
+  it('seeds model and permission pickers from settings once loaded', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        s.agent.defaultPermissionMode = 'plan'
+        s.agent.providerInstances['claude-default'].config = { model: 'claude-opus-4-8' }
+        return s
+      })(),
+      resolvedTools: {
+        traceDir: { value: null, source: 'default' },
+        parseBin: { value: null, source: 'default' }
+      },
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    expect(await screen.findByText('claude-opus-4-8')).toBeTruthy()
+    expect(screen.getByText('Plan mode')).toBeTruthy()
   })
 })

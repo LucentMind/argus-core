@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
 import { uiStore } from '../../lib/uiStore'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 const base = {
@@ -18,9 +20,23 @@ const ev = (type: string, payload: unknown): AgentEvent =>
   ({ ...base, type, payload }) as AgentEvent
 
 beforeEach(() => {
+  settingsStore.reset()
   window.argus = {
     agent: { send: vi.fn(), onEvent: vi.fn(() => () => undefined) },
-    skills: { list: vi.fn(async () => []) }
+    skills: { list: vi.fn(async () => []) },
+    settings: {
+      get: vi.fn(async () => ({
+        settings: defaultSettings(),
+        resolvedTools: {
+          traceDir: { value: null, source: 'default' },
+          parseBin: { value: null, source: 'default' }
+        },
+        dataRoot: { path: 'C:\\x', fromEnv: false },
+        loadError: null
+      })),
+      patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
