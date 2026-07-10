@@ -5,15 +5,19 @@ import type { ApprovalDecision } from '../../../shared/types'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
+import type { AgentAccess } from '../../../shared/agentAccess'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
+import { materializeSessionSkills } from './skillsResolver'
 
 export interface AgentServiceDeps {
   db: DatabaseSync
   argusHome: string
   skillsRoots: string[]
   onEvent: (e: AgentEvent) => void
+  /** Live agent-access overrides (skills/memory); consulted at each session construction. */
+  agentAccess: () => AgentAccess
   createQuery?: CreateQueryFn
   maxSessions?: number
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -29,7 +33,9 @@ const defaultCreateQuery: CreateQueryFn = (args) =>
   query({ prompt: args.prompt as never, options: args.options as never }) as never
 
 export class AgentService {
-  private deps: Required<Pick<AgentServiceDeps, 'db' | 'argusHome' | 'skillsRoots' | 'onEvent'>> &
+  private deps: Required<
+    Pick<AgentServiceDeps, 'db' | 'argusHome' | 'skillsRoots' | 'onEvent' | 'agentAccess'>
+  > &
     AgentServiceDeps
   private sessions = new Map<string, CaseSession>()
 
@@ -63,6 +69,9 @@ export class AgentService {
       .prepare(`SELECT sdk_session_id FROM sessions WHERE case_id = ?`)
       .get(rec.id) as { sdk_session_id: string | null } | undefined
 
+    const access = this.deps.agentAccess()
+    materializeSessionSkills(this.deps.argusHome, caseSlug, access)
+
     const session = new CaseSession({
       db: this.deps.db,
       argusHome: this.deps.argusHome,
@@ -74,6 +83,7 @@ export class AgentService {
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
       resumeSdkSessionId: cursor?.sdk_session_id ?? null,
       toolRisk: this.deps.toolRisk,
+      agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,
       mcpSkipped: mcp?.skipped,
       agentOptions: as

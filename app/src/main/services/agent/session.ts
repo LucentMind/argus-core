@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
@@ -9,9 +10,11 @@ import { classifyToolCall, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
-import { caseDir } from '../paths'
+import { caseDir, memoryDir, memoryIndexPath } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
 import { ARGUS_PERSONA } from './persona'
+import { filteredIndex, listTopics } from '../memory'
+import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 
 export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
 export type CreateQueryFn = (args: {
@@ -45,6 +48,8 @@ export interface SessionDeps {
   agentOptions?: SessionAgentOptions
   /** Live tool-risk overrides, re-read on every permission decision. */
   toolRisk?: () => Record<string, RiskLevel>
+  /** Live agent-access overrides (skills/memory), re-read at construction. */
+  agentAccess?: () => AgentAccess
   /** Connector servers composed for this session (new sessions only). */
   extraMcpServers?: Record<string, unknown>
   /** Connectors that could not be composed; logged to the event stream at start. */
@@ -87,22 +92,39 @@ export class CaseSession {
       ).id
     )
     const dir = caseDir(deps.argusHome, deps.caseSlug)
+    const access = deps.agentAccess?.() ?? defaultAgentAccess()
+    const memIndex = filteredIndex(deps.argusHome, access)
+    const memoryAppend = memIndex.trim()
+      ? `\n\n## Agent memory\nLessons from previous cases. Topic files live in ${memoryDir(deps.argusHome)} — read a topic file when its index line is relevant to this case.\n\n${memIndex.trim()}`
+      : ''
+    const enabledTopicPaths = listTopics(deps.argusHome)
+      .filter((t) => topicEnabled(access, t.name))
+      .map((t) => path.join(memoryDir(deps.argusHome), `${t.name}.md`))
+    const memoryReadRoots = memIndex.trim()
+      ? [memoryIndexPath(deps.argusHome), ...enabledTopicPaths]
+      : enabledTopicPaths
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
-      readonlyRoots: deps.skillsRoots
+      readonlyRoots: [...deps.skillsRoots, ...memoryReadRoots]
     }
     const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({
       prompt: this.promptQueue,
       options: {
         cwd: dir,
-        additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
+        additionalDirectories: [
+          ...deps.workspaceRoots,
+          ...deps.skillsRoots,
+          memoryDir(deps.argusHome)
+        ],
         includePartialMessages: true,
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: ao.personaAppend ? `${ARGUS_PERSONA}\n\n${ao.personaAppend}` : ARGUS_PERSONA
+          append:
+            (ao.personaAppend ? `${ARGUS_PERSONA}\n\n${ao.personaAppend}` : ARGUS_PERSONA) +
+            memoryAppend
         },
         ...(ao.model ? { model: ao.model } : {}),
         ...(ao.cliPath ? { pathToClaudeCodeExecutable: ao.cliPath } : {}),

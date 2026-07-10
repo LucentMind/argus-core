@@ -6,6 +6,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { AgentService } from '../registry'
 import { AsyncQueue } from '../asyncQueue'
+import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { CreateQueryFn } from '../session'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
@@ -47,6 +48,7 @@ describe('AgentService', () => {
       db,
       argusHome,
       skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
       createQuery
     })
@@ -64,6 +66,7 @@ describe('AgentService', () => {
       db,
       argusHome,
       skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
       createQuery,
       maxSessions: 2
@@ -95,6 +98,7 @@ describe('AgentService', () => {
       db,
       argusHome,
       skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
       createQuery,
       maxSessions: 1
@@ -113,6 +117,7 @@ describe('AgentService', () => {
       db,
       argusHome,
       skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
       onEvent: () => undefined,
       createQuery
     })
@@ -148,6 +153,7 @@ describe('AgentService', () => {
       db,
       argusHome,
       skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
       onEvent: () => {},
       createQuery,
       agentSettings: () => ({
@@ -201,6 +207,7 @@ describe('AgentService', () => {
       db,
       argusHome,
       skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
       onEvent: () => {},
       createQuery,
       agentSettings: () => ({
