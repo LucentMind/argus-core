@@ -63,4 +63,53 @@ describe('HealthSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /re-run · agent/i }))
     expect(window.argus.health.run).toHaveBeenLastCalledWith(['agent'])
   })
+
+  it('a stale result from a superseded run does not overwrite a fresh running state', async () => {
+    render(<HealthSettings />)
+    await screen.findByText('sample-parse binary')
+    // the mount run's result lands normally
+    act(() => onResultCb!({ id: 'parse', label: 'sample-parse binary', ok: true, detail: 'v1' }))
+    expect(screen.getByText('v1')).toBeTruthy()
+    // two per-row re-runs: the first is superseded by the second
+    fireEvent.click(screen.getByRole('button', { name: /re-run · parse/i }))
+    fireEvent.click(screen.getByRole('button', { name: /re-run · parse/i }))
+    act(() => onResultCb!({ id: 'parse', label: 'sample-parse binary', ok: false, detail: 'stale' }))
+    expect(screen.queryByText('stale')).toBeNull() // superseded run: keep 'checking…'
+    act(() => onResultCb!({ id: 'parse', label: 'sample-parse binary', ok: true, detail: 'fresh' }))
+    expect(screen.getByText('fresh')).toBeTruthy()
+  })
+
+  it('unmounting before list() resolves does not start the run', async () => {
+    let resolveList!: (rs: HealthRow[]) => void
+    window.argus.health.list = vi.fn(
+      () =>
+        new Promise<HealthRow[]>((res) => {
+          resolveList = res
+        })
+    ) as typeof window.argus.health.list
+    const { unmount } = render(<HealthSettings />)
+    unmount()
+    await act(async () => resolveList(ROWS))
+    expect(window.argus.health.run).not.toHaveBeenCalled()
+  })
+
+  it('Run all is disabled while a run is in flight, from mount and from click', async () => {
+    let resolveRun!: () => void
+    window.argus.health.run = vi.fn(
+      () =>
+        new Promise<void>((res) => {
+          resolveRun = res
+        })
+    ) as typeof window.argus.health.run
+    render(<HealthSettings />)
+    await screen.findByText('Agent auth')
+    const btn = screen.getByRole('button', { name: /run all checks/i }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true) // mount auto-run still in flight
+    await act(async () => resolveRun())
+    expect(btn.disabled).toBe(false)
+    fireEvent.click(btn)
+    expect(btn.disabled).toBe(true)
+    await act(async () => resolveRun())
+    expect(btn.disabled).toBe(false)
+  })
 })
