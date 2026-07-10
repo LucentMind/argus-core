@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { NewCaseInput, SearchFilters, ApprovalDecision, CaseRecord } from '../shared/types'
+import type {
+  NewCaseInput,
+  SearchFilters,
+  ApprovalDecision,
+  CaseRecord,
+  FileNode,
+  FileReadResult
+} from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
 import type { ConnectorsPayload } from '../shared/connectors'
@@ -34,6 +41,30 @@ const argus = {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.evidenceChanged, listener)
       return () => ipcRenderer.removeListener(IPC.evidenceChanged, listener)
+    },
+    onParsing: (
+      cb: (p: { slug: string; evidenceId: number; active: boolean }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        p: { slug: string; evidenceId: number; active: boolean }
+      ): void => cb(p)
+      ipcRenderer.on(IPC.evidenceParsing, listener)
+      return () => ipcRenderer.removeListener(IPC.evidenceParsing, listener)
+    }
+  },
+  files: {
+    list: (slug: string): Promise<FileNode[]> => ipcRenderer.invoke(IPC.filesList, slug),
+    read: (slug: string, relPath: string): Promise<FileReadResult> =>
+      ipcRenderer.invoke(IPC.filesRead, slug, relPath),
+    open: (slug: string, relPath: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.filesOpen, slug, relPath),
+    reveal: (slug: string, relPath?: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.filesReveal, slug, relPath),
+    onChanged: (cb: (slug: string) => void): (() => void) => {
+      const listener = (_e: unknown, slug: string): void => cb(slug)
+      ipcRenderer.on(IPC.filesChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.filesChanged, listener)
     }
   },
   search: {
