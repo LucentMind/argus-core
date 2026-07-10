@@ -29,6 +29,7 @@ export interface JiraCasesDeps {
   argusParse: () => string | null
   emitProgress: (p: JiraAttachmentProgress) => void
   evidenceChanged: (caseSlug: string) => void
+  parsing: (caseSlug: string, evidenceId: number, active: boolean) => void
 }
 
 interface JiraEvidenceMeta {
@@ -119,12 +120,19 @@ export class JiraCases {
           const rec = ingestArtifact(db, argusHome, caseSlug, tmpFile, 'jira', {
             jira: { key, attachmentId: a.id, filename: a.filename }
           })
-          // detector chain ran inside ingestArtifact; kick extraction like evidence:ingest does
-          void extractDerivedText(db, argusHome, rec, { argusParse: this.deps.argusParse() }).then(
-            (derived) => {
+          // detector chain ran inside ingestArtifact; kick extraction like evidence:ingest does.
+          // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
+          // outside its internal try/catch), so parsing(false) must sit in .finally and
+          // the fire-and-forget rejection is swallowed explicitly.
+          this.deps.parsing(caseSlug, rec.id, true)
+          void extractDerivedText(db, argusHome, rec, { argusParse: this.deps.argusParse() })
+            .then((derived) => {
               if (derived) this.deps.evidenceChanged(caseSlug)
-            }
-          )
+            })
+            .catch((err) =>
+              console.warn(`[jira] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+            )
+            .finally(() => this.deps.parsing(caseSlug, rec.id, false))
           this.deps.evidenceChanged(caseSlug)
           const done: JiraAttachmentProgress = { ...base, status: 'done', evidenceId: rec.id }
           this.deps.emitProgress(done)

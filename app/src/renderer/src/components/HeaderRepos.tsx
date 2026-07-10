@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
-import { Btn, Chip } from './ui'
+import { Chip } from './ui'
 
-export function WorkspacesStrip({ slug }: { slug: string }): React.JSX.Element {
+export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const reload = useCallback(
     (): Promise<void> => window.argus.workspaces.list(slug).then(setWorkspaces),
@@ -21,26 +21,30 @@ export function WorkspacesStrip({ slug }: { slug: string }): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-hair bg-deep px-4 py-1.5">
+    <div className="flex min-w-0 items-center gap-1.5">
       {workspaces.map((w) => (
-        <span key={w.path} className="flex items-center gap-1.5">
+        <span key={w.path} className="flex items-center gap-1">
           <Chip tone={w.worktreePath ? 'defect' : 'signal'}>
             {w.path.split(/[\\/]/).pop()} @ {w.currentRef}
             {w.dirty ? ' ●' : ''}
             {w.worktreePath ? ' · worktree' : ''}
           </Chip>
           <button
-            className="text-xs text-mute transition-colors hover:text-danger"
+            aria-label="Unlink repo"
             title="Unlink repo"
+            className="text-xs text-mute transition-colors hover:text-danger"
             onClick={() => void window.argus.workspaces.unlink(slug, w.path).then(reload)}
           >
             ×
           </button>
         </span>
       ))}
-      <Btn variant="ghost" className="ml-auto" onClick={() => void link()}>
-        Link repo…
-      </Btn>
+      <button
+        className="rounded-r2 px-1.5 py-0.5 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        onClick={() => void link()}
+      >
+        + repo
+      </button>
     </div>
   )
 }
