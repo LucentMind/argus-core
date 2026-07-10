@@ -85,7 +85,7 @@ const EMPTY_PREFS: ModelPreferences = {
 export function instanceModels(s: AppSettings, instanceId?: string): CatalogModel[] {
   const id = instanceId ?? s.agent.activeInstanceId
   const inst = s.agent.providerInstances[id]
-  if (!inst) return []
+  if (!inst || !inst.enabled) return [] // same gate as activeInstanceConfig
   const driver = getDriver(inst.driver)
   const catalog = driver?.models ?? []
   const cfg = driverConfig<Record<string, unknown>>(inst.driver, inst.config)

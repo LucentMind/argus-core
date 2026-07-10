@@ -45,7 +45,7 @@ const agentSchema = z.looseObject({
     'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} }
   })),
   /** Keyed by provider instance id. An entry whose lists are all empty is equivalent to absent. */
-  modelPreferences: z.record(z.string(), modelPreferencesSchema).default({})
+  modelPreferences: z.record(z.string(), modelPreferencesSchema).default(() => ({}))
 })
 
 const toolsSchema = z.looseObject({

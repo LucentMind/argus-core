@@ -156,6 +156,19 @@ describe('model ordering helpers', () => {
     expect(effectiveDefaultModel(s)).toBe('claude-haiku-4-5')
   })
 
+  it('effectiveDefaultModel: undefined when the active instance is disabled (matches activeInstanceConfig gate)', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: false, config: {} }
+        }
+      }
+    })
+    expect(instanceModels(s)).toEqual([])
+    expect(effectiveDefaultModel(s)).toBeUndefined()
+  })
+
   it('effectiveDefaultModel: undefined when the instance has no models and no config.model', () => {
     const s = settingsSchema.parse({
       agent: {
