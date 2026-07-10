@@ -3,7 +3,10 @@ import { probeAuth } from '../probe'
 import { AsyncQueue } from '../asyncQueue'
 import type { CreateQueryFn } from '../session'
 
-function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
+function fake(
+  messages: unknown[] | 'hang' | 'throw',
+  opts: { initializationResult?: () => Promise<unknown> } = {}
+): CreateQueryFn {
   return (args) => {
     const q = new AsyncQueue<unknown>()
     if (messages === 'throw') {
@@ -26,7 +29,8 @@ function fake(messages: unknown[] | 'hang' | 'throw'): CreateQueryFn {
     }
     return Object.assign(
       { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
-      { interrupt: async () => q.end() }
+      { interrupt: async () => q.end() },
+      opts.initializationResult ? { initializationResult: opts.initializationResult } : {}
     )
   }
 }
@@ -52,7 +56,33 @@ describe('probeAuth', () => {
     expect(st.detail).toContain('ENOENT')
   })
 
-  it('extracts email, subscription label, and version from an init message carrying an account', async () => {
+  it('extracts email, subscription label, and version via initializationResult() (real SDK shape: init message carries no account)', async () => {
+    const st = await probeAuth(
+      fake(
+        [
+          {
+            type: 'system',
+            subtype: 'init',
+            model: 'claude-sonnet-5',
+            claude_code_version: '2.1.205'
+            // no `account` here — verified against the real SDK, account never
+            // rides on the init message; it comes from initializationResult()
+          }
+        ],
+        {
+          initializationResult: async () => ({
+            account: { email: 'dev@example.com', subscriptionType: 'max20x' }
+          })
+        }
+      )
+    )
+    expect(st.ok).toBe(true)
+    expect(st.email).toBe('dev@example.com')
+    expect(st.subscription).toBe('Claude Max Subscription')
+    expect(st.version).toBe('2.1.205')
+  })
+
+  it('falls back to an account carried directly on the init message when the handle has no initializationResult()', async () => {
     const st = await probeAuth(
       fake([
         {
@@ -60,17 +90,17 @@ describe('probeAuth', () => {
           subtype: 'init',
           model: 'claude-sonnet-5',
           version: '2.1.204',
-          account: { email: 'dev@example.com', subscriptionType: 'max20x' }
+          account: { email: 'dev@example.com', subscriptionType: 'pro' }
         }
       ])
     )
     expect(st.ok).toBe(true)
     expect(st.email).toBe('dev@example.com')
-    expect(st.subscription).toBe('Claude Max Subscription')
+    expect(st.subscription).toBe('Claude Pro Subscription')
     expect(st.version).toBe('2.1.204')
   })
 
-  it('tolerates an init message with no account or version (older CLIs) — new fields stay undefined', async () => {
+  it('tolerates an init message with no account or version and no initializationResult() (older CLIs) — new fields stay undefined', async () => {
     const st = await probeAuth(
       fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])
     )
@@ -78,6 +108,17 @@ describe('probeAuth', () => {
     expect(st.email).toBeUndefined()
     expect(st.subscription).toBeUndefined()
     expect(st.version).toBeUndefined()
+  })
+
+  it('ignores an initializationResult() that resolves without an account (ok-detection unaffected)', async () => {
+    const st = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }], {
+        initializationResult: async () => ({})
+      })
+    )
+    expect(st.ok).toBe(true)
+    expect(st.email).toBeUndefined()
+    expect(st.subscription).toBeUndefined()
   })
 
   it('maps subscription prefixes and apiKey token source per the label table', async () => {
