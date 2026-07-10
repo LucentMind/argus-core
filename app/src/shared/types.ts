@@ -89,11 +89,6 @@ export interface AuthStatus {
   version?: string
 }
 
-export interface SkillMeta {
-  name: string
-  description: string
-}
-
 export interface PreflightCheck {
   name: string
   ok: boolean

@@ -43,5 +43,13 @@ export const IPC = {
   jiraCreateCase: 'jira:create-case',
   jiraIngestAttachments: 'jira:ingest-attachments',
   jiraRefreshCase: 'jira:refresh-case',
-  jiraAttachmentProgress: 'jira:attachment-progress'
+  jiraAttachmentProgress: 'jira:attachment-progress',
+  accessGet: 'access:get',
+  accessPatch: 'access:patch',
+  accessChanged: 'access:changed',
+  memoryTopics: 'memory:topics',
+  memoryRead: 'memory:read',
+  memoryWrite: 'memory:write',
+  memoryDelete: 'memory:delete',
+  memoryAudit: 'memory:audit'
 } as const

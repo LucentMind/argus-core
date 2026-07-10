@@ -115,4 +115,39 @@ describe('ApprovalCard editable MCP preview', () => {
     expect(screen.getByText('git push')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'command' })).toBeNull()
   })
+
+  it('write_memory (allowlisted native tool) renders editable field editors at MEDIUM', () => {
+    render(
+      <ApprovalCard
+        slug="NAV-7"
+        request={{
+          requestId: 'r3',
+          tool: 'mcp__argus__write_memory',
+          risk: 'MEDIUM',
+          grantKey: null,
+          argsPreview: '{"topic":"t","content":"draft"}',
+          input: { topic: 't', content: 'draft' }
+        }}
+      />
+    )
+    expect(screen.getByLabelText('content')).toBeTruthy()
+  })
+
+  it('update_case_status (non-allowlisted native tool) stays read-only at MEDIUM', () => {
+    render(
+      <ApprovalCard
+        slug="NAV-7"
+        request={{
+          requestId: 'r4',
+          tool: 'mcp__argus__update_case_status',
+          risk: 'MEDIUM',
+          grantKey: null,
+          argsPreview: '{"status":"closed"}',
+          input: { status: 'closed' }
+        }}
+      />
+    )
+    expect(screen.queryByLabelText('status')).toBeNull()
+    expect(screen.getByText('{"status":"closed"}')).toBeInTheDocument()
+  })
 })

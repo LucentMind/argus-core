@@ -8,6 +8,7 @@ import { SettingsService } from '../settings'
 import { resolveArgusParse } from '../parsers'
 import { AgentService } from '../agent/registry'
 import { AsyncQueue } from '../agent/asyncQueue'
+import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { CreateQueryFn } from '../agent/session'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -53,6 +54,7 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
       argusHome,
       skillsRoots: [],
       onEvent: () => {},
+      agentAccess: () => defaultAgentAccess(),
       createQuery,
       agentSettings: () => svc.get().agent
     })

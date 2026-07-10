@@ -37,4 +37,46 @@ describe('SearchBar', () => {
     fireEvent.click(screen.getByText(/evidence\/log\.txt/))
     expect(onOpen).toHaveBeenCalledWith(hit)
   })
+
+  it('All cases scope sends empty filters and groups results by case', async () => {
+    window.argus.search.query = vi.fn(async () => [
+      {
+        evidenceId: 1,
+        caseSlug: 'NAV-2',
+        relPath: 'a.txt',
+        artifactType: 'applog',
+        snippet: 's',
+        startLine: 1,
+        endLine: 4,
+        matchLine: 2
+      },
+      {
+        evidenceId: 2,
+        caseSlug: 'NAVAPI-1',
+        relPath: 'b.txt',
+        artifactType: 'applog',
+        snippet: 's',
+        startLine: 1,
+        endLine: 4,
+        matchLine: 3
+      }
+    ]) as never
+    render(<SearchBar caseSlug="NAVAPI-1" onOpen={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'All cases' }))
+    fireEvent.change(screen.getByPlaceholderText('Search evidence…'), {
+      target: { value: 'TileStore' }
+    })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() => expect(window.argus.search.query).toHaveBeenCalledWith('TileStore', {}))
+    const headers = await screen.findAllByText(/NAV(API)?-\d/, { selector: 'span,div,h3' })
+    expect(headers.length).toBeGreaterThan(0)
+    // current case group renders before the other case
+    const text = document.body.textContent!
+    expect(text.indexOf('NAVAPI-1')).toBeLessThan(text.indexOf('NAV-2'))
+  })
+
+  it('no toggle on the dashboard (caseSlug null)', () => {
+    render(<SearchBar caseSlug={null} onOpen={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'All cases' })).toBeNull()
+  })
 })

@@ -36,3 +36,27 @@ export function toolRiskPath(argusHome: string): string {
 export function presetsPath(argusHome: string): string {
   return path.join(configDir(argusHome), 'connector-presets.json')
 }
+
+export function agentAccessPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'agent-access.json')
+}
+
+export function memoryDir(argusHome: string): string {
+  return path.join(argusHome, 'memory')
+}
+
+export function memoryIndexPath(argusHome: string): string {
+  return path.join(memoryDir(argusHome), '_index.md')
+}
+
+export function memoryAuditPath(argusHome: string): string {
+  return path.join(memoryDir(argusHome), '.audit.jsonl')
+}
+
+export function userSkillsDir(argusHome: string): string {
+  return path.join(argusHome, 'skills-user')
+}
+
+export function hivemindSkillsDir(argusHome: string): string {
+  return path.join(argusHome, 'skills-hivemind')
+}

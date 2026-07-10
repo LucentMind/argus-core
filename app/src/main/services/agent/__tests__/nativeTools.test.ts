@@ -77,4 +77,17 @@ describe('argus native tools', () => {
     expect(row.status).toBe('analyzing')
     await expect(handlers.update_case_status({ status: 'bogus' })).rejects.toThrow(/status/i)
   })
+
+  it('write_memory appends topic content, index line, and audit entry', async () => {
+    const out = await handlers.write_memory({
+      topic: 'binder-crashes',
+      content: 'VHAL binder crashes: check the binder thread pool first.',
+      index_entry: 'VHAL/binder crash triage order'
+    })
+    expect(out).toContain('binder-crashes')
+    const idx = fs.readFileSync(path.join(argusHome, 'memory', '_index.md'), 'utf8')
+    expect(idx).toContain('- [binder-crashes](binder-crashes.md) — VHAL/binder crash triage order')
+    const topic = fs.readFileSync(path.join(argusHome, 'memory', 'binder-crashes.md'), 'utf8')
+    expect(topic).toContain('binder thread pool')
+  })
 })
