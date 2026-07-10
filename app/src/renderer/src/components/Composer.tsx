@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
-import { activeInstanceConfig } from '../../../shared/drivers'
+import { orderedVisibleModels, effectiveDefaultModel } from '../../../shared/drivers'
 import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
 import type { SkillMeta } from '../../../shared/types'
 
@@ -159,10 +159,16 @@ export function Composer({
   const [seeded, setSeeded] = useState(false)
   if (!seeded && settingsPayload) {
     setSeeded(true)
-    const cfg = activeInstanceConfig(settingsPayload.settings)
-    if (cfg.model) setModel(cfg.model)
+    setModel(effectiveDefaultModel(settingsPayload.settings) ?? 'Claude Fable 5')
     setPermission(PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode])
   }
+
+  // static display-name fallback until the settings payload first arrives;
+  // once loaded, the picker follows the driver's model catalog ordering
+  // (favorites first, hidden excluded) instead of this placeholder list
+  const modelOptions = settingsPayload
+    ? orderedVisibleModels(settingsPayload.settings).map((m) => m.slug)
+    : ['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']
 
   // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
   // draft — adjust-state-during-render pattern instead of a setState effect
@@ -219,7 +225,7 @@ export function Composer({
             menuLabel="Model"
             value={model}
             onChange={setModel}
-            options={['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']}
+            options={modelOptions}
           />
           <Divider />
           <OptionChip
