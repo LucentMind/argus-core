@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import type { ConnectorsPayload } from '../../../shared/connectors'
 
 /**
@@ -53,7 +53,9 @@ class ConnectorsStore {
 export const connectorsStore = new ConnectorsStore()
 
 export function useConnectorsPayload(): ConnectorsPayload | null {
-  connectorsStore.start()
+  useEffect(() => {
+    connectorsStore.start()
+  }, [])
   return useSyncExternalStore(
     (cb) => connectorsStore.subscribe(cb),
     () => connectorsStore.get()
