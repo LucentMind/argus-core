@@ -125,8 +125,7 @@ export function acceptProposal(argusHome: string, file: string): void {
 }
 
 export function rejectProposal(argusHome: string, file: string): void {
-  if (!fs.existsSync(path.join(proposalsDir(argusHome), file))) {
-    throw new Error(`Unknown proposal: ${file}`)
-  }
-  archive(argusHome, file, 'rejected')
+  const p = listProposals(argusHome).find((x) => x.file === file)
+  if (!p) throw new Error(`Unknown proposal: ${file}`)
+  archive(argusHome, p.file, 'rejected')
 }

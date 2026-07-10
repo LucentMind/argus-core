@@ -139,4 +139,17 @@ describe('accept / reject', () => {
     expect(() => acceptProposal(home, 'nope.md')).toThrow(/Unknown proposal/)
     expect(() => rejectProposal(home, 'nope.md')).toThrow(/Unknown proposal/)
   })
+
+  it('reject blocks path traversal to files outside proposals/', () => {
+    // Create a decoy file outside proposals/ (in home root)
+    const decoyPath = path.join(home, 'decoy.md')
+    fs.writeFileSync(decoyPath, 'status: pending\n')
+    expect(fs.existsSync(decoyPath)).toBe(true)
+
+    // Attempt to reject via path traversal
+    expect(() => rejectProposal(home, '../decoy.md')).toThrow(/Unknown proposal/)
+
+    // Verify the decoy file was NOT deleted
+    expect(fs.existsSync(decoyPath)).toBe(true)
+  })
 })
