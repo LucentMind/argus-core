@@ -42,8 +42,12 @@ describe('startLoopback', () => {
     const lb = await startLoopback()
     try {
       const codeP = lb.waitForCode(5000)
+      // Attach the rejection handler BEFORE the fetch that triggers it —
+      // otherwise codeP rejects during the fetch await with no handler yet
+      // attached, and Node/Vitest flags a (transiently) unhandled rejection.
+      const assertion = expect(codeP).rejects.toThrow(/access_denied/)
       await fetch(`${lb.redirectUrl}?error=access_denied`)
-      await expect(codeP).rejects.toThrow(/access_denied/)
+      await assertion
     } finally {
       lb.close()
     }
