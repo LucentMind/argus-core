@@ -92,7 +92,8 @@ const argus = {
       return () => ipcRenderer.removeListener(IPC.healthResult, listener)
     }
   },
-  pathForFile: (file: File) => webUtils.getPathForFile(file)
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
+  openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

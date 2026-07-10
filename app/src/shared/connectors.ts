@@ -42,8 +42,7 @@ export const httpConfigSchema = z.looseObject({
   transport: z.enum(['http', 'sse']).default('http'),
   oauth: z.boolean().default(false),
   headers: z.record(z.string(), z.unknown()).default(() => ({})), // values may be $secret refs
-  restEmail: z.string().optional(), // Rovo preset: Atlassian REST credentials (consumed in Part 3)
-  restApiToken: z.unknown().optional() // $secret ref
+  apiToken: z.unknown().optional() // Rovo preset: Atlassian PAT ($secret ref)
 })
 export type HttpConnectorConfig = z.infer<typeof httpConfigSchema>
 
@@ -158,32 +157,32 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
   }
 }
 
-/** Extra fields shown only on the Rovo preset card (REST credentials for Part 3). */
+/** Extra fields shown only on preset cards (REST credentials for Part 3). */
 export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
-  restEmail: {
-    control: 'text',
-    label: 'Atlassian email (REST)',
-    placeholder: 'you@example.com',
-    order: 10
-  },
-  restApiToken: {
-    control: 'password',
-    label: 'Atlassian API token (REST)',
-    order: 11,
-    sensitive: true
-  }
+  apiToken: { control: 'password', label: 'Atlassian API token (PAT)', order: 10, sensitive: true }
 }
 
-export const ROVO_PRESET = {
-  instanceId: 'rovo',
-  instance: {
-    kind: 'http',
+// --- presets (config/connector-presets.json over these built-ins) ------------
+
+export const presetSchema = z.looseObject({
+  displayName: z.string(),
+  kind: z.string(),
+  config: z.unknown().optional(),
+  links: z.record(z.string(), z.string()).default(() => ({}))
+})
+export type ConnectorPreset = z.infer<typeof presetSchema>
+
+export const presetsSchema = z.record(z.string(), presetSchema)
+export type ConnectorPresets = z.infer<typeof presetsSchema>
+
+export const DEFAULT_PRESETS: ConnectorPresets = {
+  rovo: {
     displayName: 'Atlassian Rovo',
-    preset: 'rovo',
-    enabled: true,
-    config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+    kind: 'http',
+    config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true },
+    links: { createApiToken: 'https://id.atlassian.com/manage-profile/security/api-tokens' }
   }
-} as const
+}
 
 // --- runtime + IPC payload shapes --------------------------------------------
 
@@ -202,6 +201,7 @@ export interface ConnectorsPayload {
   loadError: string | null
   secretsAvailable: boolean
   secretsLoadError: string | null
+  presets: ConnectorPresets
 }
 
 /** Result of composing enabled connectors for a new session (Agent SDK mcpServers map + logged skips). */

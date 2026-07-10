@@ -32,3 +32,7 @@ export function secretsPath(argusHome: string): string {
 export function toolRiskPath(argusHome: string): string {
   return path.join(configDir(argusHome), 'tool-risk.json')
 }
+
+export function presetsPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'connector-presets.json')
+}

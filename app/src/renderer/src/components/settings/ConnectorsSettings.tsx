@@ -2,7 +2,6 @@ import { useState } from 'react'
 import {
   CONNECTOR_FORMS,
   ROVO_FORM_EXTRAS,
-  ROVO_PRESET,
   RESERVED_INSTANCE_IDS,
   collectSecretRefs,
   type ConnectorInstance,
@@ -225,9 +224,18 @@ export function ConnectorsSettings(): React.JSX.Element {
   // The chooser stays open across selections (so several instances can be added
   // in one sitting) — it only closes via the explicit Cancel button.
   function addRovo(): void {
-    if (!payload!.connectors[ROVO_PRESET.instanceId])
-      void connectorsStore.patch({ [ROVO_PRESET.instanceId]: ROVO_PRESET.instance })
-    setEditing(ROVO_PRESET.instanceId)
+    const p = payload!.presets.rovo
+    if (!payload!.connectors.rovo)
+      void connectorsStore.patch({
+        rovo: {
+          kind: p.kind,
+          displayName: p.displayName,
+          preset: 'rovo',
+          enabled: true,
+          config: p.config
+        }
+      })
+    setEditing('rovo')
   }
 
   function addCustom(kind: 'http' | 'stdio'): void {

@@ -11,6 +11,7 @@ import { SettingsService } from './services/settings'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
+import { loadPresets } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
 import { HealthService } from './services/health'
@@ -75,6 +76,7 @@ function registerIpc(): void {
   const secretStore = new SecretStore(argusHome, safeStorage)
   const connectorRegistry = new ConnectorRegistry(argusHome)
   const toolRiskStore = new ToolRiskStore(argusHome)
+  const connectorPresets = loadPresets(argusHome)
   const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
   const mcpService = new McpService({
     registry: connectorRegistry,
@@ -91,7 +93,8 @@ function registerIpc(): void {
     ),
     loadError: connectorRegistry.loadError(),
     secretsAvailable: secretStore.available(),
-    secretsLoadError: secretStore.loadError()
+    secretsLoadError: secretStore.loadError(),
+    presets: connectorPresets
   })
 
   connectorRegistry.subscribe(() => broadcast(IPC.connectorsChanged, connectorsPayload()))
@@ -275,6 +278,10 @@ function registerIpc(): void {
     if (r.ok) mcpService.clearRuntime(id)
     broadcast(IPC.connectorsChanged, connectorsPayload())
     return r
+  })
+  ipcMain.handle(IPC.appOpenExternal, (_e, url: string) => {
+    if (!/^https?:\/\//.test(url)) return
+    void shell.openExternal(url)
   })
   ipcMain.handle(IPC.secretsSet, (_e, name: string, value: string) => {
     secretStore.set(name, value) // throws when safeStorage is unavailable → renderer surfaces the message
