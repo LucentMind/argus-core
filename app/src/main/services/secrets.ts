@@ -56,6 +56,18 @@ export class SecretStore {
     if (this.names.delete(name)) this.persist()
   }
 
+  /** Delete every name starting with `prefix` (e.g. `connector/<id>/`); persists once if any matched. */
+  deletePrefix(prefix: string): void {
+    let changed = false
+    for (const name of [...this.names.keys()]) {
+      if (name.startsWith(prefix)) {
+        this.names.delete(name)
+        changed = true
+      }
+    }
+    if (changed) this.persist()
+  }
+
   /** MAIN-PROCESS ONLY. null when absent or undecryptable (key changed / corrupt). */
   resolve(name: string): string | null {
     const b64 = this.names.get(name)

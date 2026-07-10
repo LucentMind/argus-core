@@ -92,7 +92,13 @@ class StoreBackedProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformationFull | undefined {
-    return this.read('client')
+    const info = this.read<OAuthClientInformationFull>('client')
+    // a dynamically-registered client's redirect_uris embeds the loopback port
+    // from the run that registered it; a later run picks a different ephemeral
+    // port, and strict servers reject the mismatched redirect_uri. Discard the
+    // stale registration so the SDK re-registers against the current redirect.
+    if (info && !info.redirect_uris.includes(this.redirect)) return undefined
+    return info
   }
 
   saveClientInformation(info: OAuthClientInformationFull): void {

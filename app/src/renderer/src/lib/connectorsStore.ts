@@ -15,7 +15,10 @@ class ConnectorsStore {
   start(): void {
     if (this.started) return
     this.started = true
-    void window.argus.connectors.get().then((p: ConnectorsPayload) => this.set(p))
+    void window.argus.connectors
+      .get()
+      .then((p: ConnectorsPayload) => this.set(p))
+      .catch((err) => console.error('connectors load failed', err))
     window.argus.connectors.onChanged((p: ConnectorsPayload) => this.set(p))
   }
 

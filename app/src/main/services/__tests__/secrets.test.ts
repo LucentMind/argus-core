@@ -73,6 +73,28 @@ describe('SecretStore', () => {
     expect(store.has('t')).toBe(false)
   })
 
+  it('deletePrefix removes only matching names and persists; others survive', () => {
+    store = new SecretStore(argusHome, fakeCrypto())
+    store.set('connector/rovo/restApiToken', 'a')
+    store.set('connector/rovo/other', 'b')
+    store.set('connector/jira/restApiToken', 'c')
+    store.set('mcp/rovo/tokens', 'd')
+    store.deletePrefix('connector/rovo/')
+    expect(store.has('connector/rovo/restApiToken')).toBe(false)
+    expect(store.has('connector/rovo/other')).toBe(false)
+    expect(store.has('connector/jira/restApiToken')).toBe(true)
+    expect(store.has('mcp/rovo/tokens')).toBe(true)
+    const raw = JSON.parse(fs.readFileSync(secretsPath(argusHome), 'utf8'))
+    expect(Object.keys(raw).sort()).toEqual(['connector/jira/restApiToken', 'mcp/rovo/tokens'])
+  })
+
+  it('deletePrefix with no matches is a no-op (no spurious persist)', () => {
+    store = new SecretStore(argusHome, fakeCrypto())
+    store.set('connector/jira/restApiToken', 'c')
+    store.deletePrefix('connector/rovo/')
+    expect(store.has('connector/jira/restApiToken')).toBe(true)
+  })
+
   it('broken secrets.json → loadError + empty store; file untouched until a save', () => {
     fs.mkdirSync(path.dirname(secretsPath(argusHome)), { recursive: true })
     fs.writeFileSync(secretsPath(argusHome), '{broken', 'utf8')
