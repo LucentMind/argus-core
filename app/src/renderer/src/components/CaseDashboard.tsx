@@ -18,7 +18,7 @@ export function CaseDashboard({
   onNew: () => void
 }): React.JSX.Element {
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-8">
+    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
       <div className="flex flex-col gap-1">
         <SectionLabel>Cases · {cases.length} total</SectionLabel>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Chip, SectionLabel } from './ui'
-import { useSettingsPayload } from '../lib/settingsStore'
-import { formatTimestamp } from '../lib/time'
+import { displayName, formatMb } from '../lib/evidenceDisplay'
 import type { ArtifactType, EvidenceRecord } from '../../../shared/types'
 
 const ALL_TYPES: ArtifactType[] = [
@@ -62,7 +61,6 @@ export function EvidenceLibrary({
   const [rows, setRows] = useState<EvidenceRecord[]>([])
   const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
   const [dragOver, setDragOver] = useState(false)
-  const tsFmt = useSettingsPayload()?.settings.general.timestampFormat ?? 'locale'
 
   const reload = useCallback(
     (): Promise<void> => window.argus.evidence.list(caseSlug).then(setRows),
@@ -113,73 +111,56 @@ export function EvidenceLibrary({
           <option value="">all types</option>
           {ALL_TYPES.map((t) => (
             <option key={t} value={t}>
-              {/* uppercase so option labels never collide with the lowercase type badges in the table */}
+              {/* uppercase so option labels never collide with the lowercase type badges in the list */}
               {t.toUpperCase()}
             </option>
           ))}
         </select>
       </div>
-      <table className="w-full table-fixed text-left text-xs">
-        <colgroup>
-          <col className="w-[46%]" />
-          <col className="w-[14%]" />
-          <col className="w-[14%]" />
-          <col className="w-[26%]" />
-        </colgroup>
-        <thead>
-          <tr className="font-mono text-[10.5px] uppercase tracking-wide text-mute">
-            <th className="py-1 font-medium">file</th>
-            <th className="font-medium">type</th>
-            <th className="font-medium">size</th>
-            <th className="font-medium">added</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((r) => {
-            const skill = ANALYZE_SKILLS[r.artifactType]
-            return (
-              <tr key={r.id} className="border-t border-hair">
-                <td className={`py-1 font-mono text-dim ${r.derived ? 'pl-6' : ''}`}>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 truncate" title={r.relPath}>
-                      {r.relPath}
+      <ul className="text-xs">
+        {visible.map((r) => {
+          const skill = ANALYZE_SKILLS[r.artifactType]
+          return (
+            <li
+              key={r.id}
+              className={`group flex items-center gap-2 border-t border-hair py-1.5 ${
+                r.derived ? 'pl-6' : ''
+              }`}
+              title={r.relPath}
+            >
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate font-mono text-dim">
+                    {displayName(r.relPath)}
+                  </span>
+                  {r.derived && (
+                    <span className="flex-shrink-0">
+                      <Chip tone="neutral">derived</Chip>
                     </span>
-                    {r.derived && (
-                      <span className="flex-shrink-0">
-                        <Chip tone="neutral">derived</Chip>
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-mute">
                   <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
                     {r.artifactType}
                   </span>
-                </td>
-                <td className="text-dim">{r.size.toLocaleString()} B</td>
-                <td className="truncate text-dim">
-                  {formatTimestamp(r.createdAt, tsFmt)}
-                  {skill && onSuggest && (
-                    <button
-                      className="ml-2 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink"
-                      onClick={() => onSuggest(`/${skill} ${r.relPath}`)}
-                    >
-                      Analyze
-                    </button>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-          {visible.length === 0 && (
-            <tr>
-              <td colSpan={4} className="py-2 text-mute">
-                No evidence yet.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                  <span>{formatMb(r.size)}</span>
+                </div>
+              </div>
+              {skill && onSuggest && (
+                <button
+                  className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                  onClick={() => onSuggest(`/${skill} ${r.relPath}`)}
+                >
+                  Analyze
+                </button>
+              )}
+            </li>
+          )
+        })}
+        {visible.length === 0 && (
+          <li className="border-t border-hair py-2 text-mute">No evidence yet.</li>
+        )}
+      </ul>
     </section>
   )
 }
