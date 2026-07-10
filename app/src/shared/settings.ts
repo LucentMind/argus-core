@@ -99,21 +99,56 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false
 }
 
-/** Remove every leaf equal to its default (deep); unknown keys are always kept. */
-export function stripDefaults(value: unknown, defaults: unknown): unknown {
+/**
+ * Object paths (dotted, from the settings root) whose entries must be
+ * stripped/kept ATOMICALLY rather than recursed into leaf-by-leaf. Used for
+ * maps like `agent.providerInstances` where a sparse partial entry (e.g. only
+ * `config` surviving because `driver`/`enabled` equal the schema defaults)
+ * would fail re-validation on reload (`driver` is required).
+ */
+export const SETTINGS_ATOMIC_PATHS: readonly string[] = ['agent.providerInstances']
+
+function stripDefaultsAt(
+  value: unknown,
+  defaults: unknown,
+  atomicPaths: readonly string[],
+  currentPath: string
+): unknown {
   if (!isPlainObject(value) || !isPlainObject(defaults)) return value
   const out: Record<string, unknown> = {}
+  const atomicHere = atomicPaths.includes(currentPath)
   for (const [k, v] of Object.entries(value)) {
     if (!(k in defaults)) {
       out[k] = v // unknown key — preserve verbatim
-    } else if (isPlainObject(v) && isPlainObject(defaults[k])) {
-      const sub = stripDefaults(v, defaults[k])
+      continue
+    }
+    if (atomicHere) {
+      if (!deepEqual(v, defaults[k])) out[k] = v // whole entry kept verbatim, or dropped
+      continue
+    }
+    const childPath = currentPath ? `${currentPath}.${k}` : k
+    if (isPlainObject(v) && isPlainObject(defaults[k])) {
+      const sub = stripDefaultsAt(v, defaults[k], atomicPaths, childPath)
       if (isPlainObject(sub) && Object.keys(sub).length > 0) out[k] = sub
     } else if (!deepEqual(v, defaults[k])) {
       out[k] = v
     }
   }
   return out
+}
+
+/**
+ * Remove every leaf equal to its default (deep); unknown keys are always
+ * kept. Pass `atomicPaths` (dotted, from the root) to compare an object's
+ * entries as whole units instead of recursing into them — see
+ * `SETTINGS_ATOMIC_PATHS`.
+ */
+export function stripDefaults(
+  value: unknown,
+  defaults: unknown,
+  opts?: { atomicPaths?: readonly string[] }
+): unknown {
+  return stripDefaultsAt(value, defaults, opts?.atomicPaths ?? [], '')
 }
 
 // --- IPC payload shapes -----------------------------------------------------

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { settingsSchema, defaultSettings, deepMerge, stripDefaults } from '../settings'
+import {
+  settingsSchema,
+  defaultSettings,
+  deepMerge,
+  stripDefaults,
+  SETTINGS_ATOMIC_PATHS
+} from '../settings'
 
 describe('settings schema', () => {
   it('parses {} to full defaults including the claude-default instance', () => {
@@ -85,5 +91,37 @@ describe('settings schema', () => {
 
   it('stripDefaults drops array leaves equal to default regardless of inner key order', () => {
     expect(stripDefaults({ a: [{ y: 2, x: 1 }] }, { a: [{ x: 1, y: 2 }] })).toEqual({})
+  })
+
+  it('round-trips a config-level instance patch through strip + parse', () => {
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), {
+        agent: { providerInstances: { 'claude-default': { config: { model: 'claude-sonnet-5' } } } }
+      })
+    )
+    const sparse = stripDefaults(patched, defaultSettings(), {
+      atomicPaths: SETTINGS_ATOMIC_PATHS
+    }) as Record<string, unknown>
+    expect(settingsSchema.parse(sparse)).toEqual(patched)
+    // the kept entry is verbatim — driver survives
+    const agent = sparse.agent as Record<string, unknown>
+    const providerInstances = agent.providerInstances as Record<string, Record<string, unknown>>
+    expect(providerInstances['claude-default'].driver).toBe('claude-agent-sdk')
+  })
+
+  it('round-trips a displayName-level instance patch', () => {
+    const patched = settingsSchema.parse(
+      deepMerge(defaultSettings(), {
+        agent: { providerInstances: { 'claude-default': { displayName: 'My Claude' } } }
+      })
+    )
+    const sparse = stripDefaults(patched, defaultSettings(), { atomicPaths: SETTINGS_ATOMIC_PATHS })
+    expect(settingsSchema.parse(sparse)).toEqual(patched)
+  })
+
+  it('still strips a pure-default instance map to {} with atomicPaths', () => {
+    expect(
+      stripDefaults(defaultSettings(), defaultSettings(), { atomicPaths: SETTINGS_ATOMIC_PATHS })
+    ).toEqual({})
   })
 })
