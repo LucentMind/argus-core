@@ -52,13 +52,16 @@ export function AnnotatedForm({
   annotations,
   value,
   onChange,
-  onSecret
+  onSecret,
+  badges
 }: {
   annotations: Record<string, FieldAnnotation>
   value: Record<string, unknown>
   onChange: (key: string, v: unknown | null) => void
   /** Required to render `sensitive` fields; they commit plaintext here, never through onChange. */
   onSecret?: (key: string, plaintext: string | null) => void
+  /** Extra node rendered beside a field's label (e.g. a "Create API token" link), keyed by annotation key. */
+  badges?: Record<string, React.ReactNode>
 }): React.JSX.Element {
   const fields = Object.entries(annotations).sort((a, b) => a[1].order - b[1].order)
   return (
@@ -72,6 +75,8 @@ export function AnnotatedForm({
               label={a.label}
               isDefault={!isSet}
               onReset={() => onSecret(key, null)}
+              hint={a.help}
+              badge={badges?.[key]}
             >
               <SecretInput
                 placeholder={isSet ? '•••• (set)' : (a.placeholder ?? '(not set)')}
@@ -87,6 +92,8 @@ export function AnnotatedForm({
             label={a.label}
             isDefault={value[key] == null || value[key] === '' || value[key] === a.defaultValue}
             onReset={() => onChange(key, null)}
+            hint={a.help}
+            badge={badges?.[key]}
           >
             {a.control === 'switch' ? (
               <Switch

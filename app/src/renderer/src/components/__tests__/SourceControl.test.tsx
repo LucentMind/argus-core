@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { SourceControl } from '../settings/SourceControl'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
 
@@ -24,8 +24,18 @@ describe('SourceControl', () => {
     render(<SourceControl />)
     expect(await screen.findByText('GitHub')).toBeTruthy()
     expect(screen.getByText('gh version 2.96.0 (2026-07-02)')).toBeTruthy()
-    expect(screen.getByText(/Authenticated as jiawiehan/)).toBeTruthy()
+    expect(screen.getByText('Authenticated as')).toBeTruthy()
+    expect(screen.getByLabelText('Toggle GitHub login visibility')).toBeTruthy()
     expect(screen.getByTestId('sc-dot-github').dataset.state).toBe('ok')
+  })
+
+  it('blurs the github login and reveals the real value on click', async () => {
+    render(<SourceControl />)
+    await screen.findByText('GitHub')
+    const loginBtn = screen.getByLabelText('Toggle GitHub login visibility')
+    expect(loginBtn.textContent).not.toBe('jiawiehan')
+    fireEvent.click(loginBtn)
+    expect(loginBtn.textContent).toBe('jiawiehan')
   })
 
   it('unauthenticated: red state + hint', async () => {

@@ -159,7 +159,13 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
 
 /** Extra fields shown only on preset cards (REST credentials for Part 3). */
 export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
-  apiToken: { control: 'password', label: 'Atlassian API token (PAT)', order: 10, sensitive: true }
+  apiToken: {
+    control: 'password',
+    label: 'Atlassian API token (PAT)',
+    order: 10,
+    sensitive: true,
+    help: 'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
+  }
 }
 
 // --- presets (config/connector-presets.json over these built-ins) ------------

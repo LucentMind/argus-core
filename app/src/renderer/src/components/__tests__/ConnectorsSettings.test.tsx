@@ -217,15 +217,29 @@ describe('ConnectorsSettings', () => {
     expect(screen.queryByRole('menuitem', { name: 'Argus (reserved)' })).toBeNull()
   })
 
-  it('edit form shows the PAT field and the create-token link', async () => {
+  it('edit form shows the PAT field and the create-token link beside its label', async () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
     expect(screen.getByLabelText('Atlassian API token (PAT)')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'create api token · rovo' }))
+    const createTokenBtn = screen.getByRole('button', { name: 'create api token · rovo' })
+    // the link now sits beside the PAT label rather than below the whole form
+    expect(createTokenBtn.closest('span')?.textContent).toContain('Atlassian API token (PAT)')
+    fireEvent.click(createTokenBtn)
     expect(window.argus.openExternal).toHaveBeenCalledWith(
       'https://id.atlassian.com/manage-profile/security/api-tokens'
     )
+  })
+
+  it('PAT label carries a tooltip explaining REST vs OAuth usage', async () => {
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
+    expect(
+      screen.getByTitle(
+        'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
+      )
+    ).toBeTruthy()
   })
 
   it('committing the token writes the secret then the ref', async () => {
