@@ -165,4 +165,19 @@ describe('HivemindTab', () => {
     expect(await screen.findByText(/GitHub CLI/)).toBeInTheDocument()
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
   })
+
+  it('rejected push clears busy and surfaces error, keeping Sync enabled', async () => {
+    const argus = mockArgus(ready)
+    ;(argus.hivemind as { push: ReturnType<typeof vi.fn> }).push = vi
+      .fn()
+      .mockRejectedValue(new Error('push exploded'))
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindTab />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
+    expect(await screen.findByText('# my-skill')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/push exploded/)
+    expect(screen.getByRole('button', { name: 'Sync' })).not.toBeDisabled()
+  })
 })
