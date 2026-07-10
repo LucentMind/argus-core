@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { SkillMeta } from '../../shared/types'
 
 export function sharedSkillsDir(argusHome: string): string {
   return path.join(argusHome, 'skills')
@@ -32,22 +31,6 @@ export function seedSharedDirs(
       fs.mkdirSync(dest, { recursive: true })
     }
   }
-}
-
-export function listSkills(argusHome: string): SkillMeta[] {
-  const dir = sharedSkillsDir(argusHome)
-  if (!fs.existsSync(dir)) return []
-  const out: SkillMeta[] = []
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
-    const file = path.join(dir, entry.name, 'SKILL.md')
-    if (!fs.existsSync(file)) continue
-    const head = fs.readFileSync(file, 'utf8').split('\n---')[0]
-    const name = /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() ?? entry.name
-    const description = /^description:\s*(.+)$/m.exec(head)?.[1]?.trim() ?? ''
-    out.push({ name, description })
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export function updateClaudeMdWorkspaces(
