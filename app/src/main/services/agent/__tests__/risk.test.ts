@@ -24,6 +24,16 @@ describe('classifyToolCall — native and FS tools', () => {
     expect(v.risk).toBe(risk)
   })
 
+  it('write_memory is MEDIUM ask with no session grant', () => {
+    const v = classifyToolCall('mcp__argus__write_memory', { topic: 't', content: 'c' }, ctx)
+    expect(v).toEqual({
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: null,
+      reason: 'Write to agent memory (steers all future sessions)'
+    })
+  })
+
   it('allows Read inside the case dir, denies outside the sandbox', () => {
     expect(
       classifyToolCall('Read', { file_path: `${ctx.caseDir}/evidence/a.txt` }, ctx).action

@@ -7,6 +7,7 @@ import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
 import { AgentService } from '../registry'
 import { AsyncQueue } from '../asyncQueue'
+import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { CreateQueryFn } from '../session'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
@@ -57,6 +58,7 @@ describe('two concurrent case sessions', () => {
       argusHome,
       skillsRoots: [],
       onEvent: (e) => events.push(e),
+      agentAccess: () => defaultAgentAccess(),
       createQuery
     })
 

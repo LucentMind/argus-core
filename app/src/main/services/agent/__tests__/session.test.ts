@@ -6,6 +6,8 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { CaseSession, type CreateQueryFn } from '../session'
 import { AsyncQueue } from '../asyncQueue'
+import { applyMemoryWrite } from '../../memory'
+import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -564,6 +566,100 @@ describe('CaseSession', () => {
     expect(r2.behavior).toBe('allow')
     expect(r2.updatedInput).toEqual({ issueKey: 'NAV-7', body: 'draft RCA' })
     expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(before)
+    await s.stop('stopped')
+  })
+
+  it('write_memory approval carries edited input back (allowlisted native tool)', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'mcp__argus__write_memory',
+      { topic: 't', content: 'draft', index_entry: 'e' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { topic: 't', content: 'EDITED', index_entry: 'e' }
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ topic: 't', content: 'EDITED', index_entry: 'e' })
+    await s.stop('stopped')
+  })
+
+  it('other native tools remain non-editable', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'mcp__argus__update_case_status',
+      { status: 'analyzing' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { status: 'closed' }
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ status: 'analyzing' })
+    await s.stop('stopped')
+  })
+
+  it('injects the filtered memory index into the system prompt append', async () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'keep', content: 'k', indexEntry: 'kept lesson' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'drop',
+      content: 'd',
+      indexEntry: 'dropped lesson'
+    })
+    const access = agentAccessSchema.parse({ memory: { drop: false } })
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { agentAccess: () => access })
+    const sys = sdk.captured.options!.systemPrompt as { append: string }
+    expect(sys.append).toContain('## Agent memory')
+    expect(sys.append).toContain('(keep.md)')
+    expect(sys.append).not.toContain('(drop.md)')
+    await s.stop('stopped')
+  })
+
+  it('adds enabled topic files (not disabled ones) to readonly sandbox roots', async () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'keep', content: 'k' })
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'drop', content: 'd' })
+    const access = agentAccessSchema.parse({ memory: { drop: false } })
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { agentAccess: () => access })
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string }>
+    const keepPath = path.join(argusHome, 'memory', 'keep.md')
+    const dropPath = path.join(argusHome, 'memory', 'drop.md')
+    const ac = new AbortController()
+    expect(
+      (await canUseTool('Read', { file_path: keepPath }, { signal: ac.signal })).behavior
+    ).toBe('allow')
+    expect(
+      (await canUseTool('Read', { file_path: dropPath }, { signal: ac.signal })).behavior
+    ).not.toBe('allow')
     await s.stop('stopped')
   })
 })

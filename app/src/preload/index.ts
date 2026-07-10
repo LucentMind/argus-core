@@ -6,6 +6,8 @@ import type { SettingsPayload } from '../shared/settings'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
+import type { AgentAccessPayload } from '../shared/agentAccess'
+import type { MemoryTopicsPayload, MemoryAuditEntry, SkillsPayload } from '../shared/memoryIpc'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
@@ -61,7 +63,25 @@ const argus = {
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug)
   },
   skills: {
-    list: () => ipcRenderer.invoke(IPC.skillsList)
+    list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList)
+  },
+  access: {
+    get: (): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessGet),
+    patch: (p: unknown): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessPatch, p),
+    onChanged: (cb: (p: AgentAccessPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: AgentAccessPayload): void => cb(p)
+      ipcRenderer.on(IPC.accessChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.accessChanged, listener)
+    }
+  },
+  memory: {
+    topics: (): Promise<MemoryTopicsPayload> => ipcRenderer.invoke(IPC.memoryTopics),
+    read: (name: string): Promise<string> => ipcRenderer.invoke(IPC.memoryRead, name),
+    write: (name: string, content: string): Promise<MemoryTopicsPayload> =>
+      ipcRenderer.invoke(IPC.memoryWrite, name, content),
+    remove: (name: string): Promise<MemoryTopicsPayload> =>
+      ipcRenderer.invoke(IPC.memoryDelete, name),
+    audit: (): Promise<MemoryAuditEntry[]> => ipcRenderer.invoke(IPC.memoryAudit)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
