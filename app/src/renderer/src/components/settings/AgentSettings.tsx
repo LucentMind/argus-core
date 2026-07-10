@@ -12,6 +12,7 @@ import {
 import { AnnotatedForm } from './AnnotatedForm'
 import { ProviderModels } from './ProviderModels'
 import { RedactedText } from './RedactedText'
+import { ClaudeIcon } from './ClaudeIcon'
 import { getDriver } from '../../../../shared/drivers'
 import {
   PERMISSION_MODES,
@@ -119,11 +120,15 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
               className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(auth, probing)}`}
             />
             {driver ? (
-              <Chip tone="signal">{driver.label}</Chip>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ClaudeIcon className="text-ink" />
+                <span className="truncate text-sm text-ink">
+                  {inst?.displayName?.trim() || (driver.shortLabel ?? driver.label)}
+                </span>
+              </span>
             ) : (
               <Chip tone="danger">unavailable driver: {inst?.driver ?? 'none'}</Chip>
             )}
-            <span className="font-mono text-xs text-mute">{instId}</span>
             {auth?.version && <span className="font-mono text-xs text-mute">v{auth.version}</span>}
             <span className="ml-auto flex items-center gap-2">
               <Btn disabled={probing} onClick={() => void testConnection()}>

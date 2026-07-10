@@ -20,6 +20,8 @@ export interface CatalogModel {
 export interface DriverDefinition {
   kind: string
   label: string
+  /** Short display form for compact UI (e.g. the settings provider-card header). Falls back to `label`. */
+  shortLabel?: string
   configSchema: z.ZodType
   formAnnotations: Record<string, FieldAnnotation>
   models: readonly CatalogModel[]
@@ -46,6 +48,7 @@ export const DRIVERS: Record<string, DriverDefinition> = {
   'claude-agent-sdk': {
     kind: 'claude-agent-sdk',
     label: 'Claude Agent SDK',
+    shortLabel: 'Claude',
     configSchema: claudeConfigSchema,
     // model is rendered by the dedicated Models section (ProviderModels), not the generic form
     formAnnotations: {
