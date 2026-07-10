@@ -51,4 +51,65 @@ describe('probeAuth', () => {
     expect(st.ok).toBe(false)
     expect(st.detail).toContain('ENOENT')
   })
+
+  it('extracts email, subscription label, and version from an init message carrying an account', async () => {
+    const st = await probeAuth(
+      fake([
+        {
+          type: 'system',
+          subtype: 'init',
+          model: 'claude-sonnet-5',
+          version: '2.1.204',
+          account: { email: 'dev@example.com', subscriptionType: 'max20x' }
+        }
+      ])
+    )
+    expect(st.ok).toBe(true)
+    expect(st.email).toBe('dev@example.com')
+    expect(st.subscription).toBe('Claude Max Subscription')
+    expect(st.version).toBe('2.1.204')
+  })
+
+  it('tolerates an init message with no account or version (older CLIs) — new fields stay undefined', async () => {
+    const st = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])
+    )
+    expect(st.ok).toBe(true)
+    expect(st.email).toBeUndefined()
+    expect(st.subscription).toBeUndefined()
+    expect(st.version).toBeUndefined()
+  })
+
+  it('maps subscription prefixes and apiKey token source per the label table', async () => {
+    const pro = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', account: { subscriptionType: 'pro' } }])
+    )
+    expect(pro.subscription).toBe('Claude Pro Subscription')
+
+    const team = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', account: { subscriptionType: 'team_standard' } }])
+    )
+    expect(team.subscription).toBe('Claude Team Subscription')
+
+    const enterprise = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', account: { subscriptionType: 'enterprise' } }])
+    )
+    expect(enterprise.subscription).toBe('Claude Enterprise')
+
+    const apiKey = await probeAuth(
+      fake([
+        {
+          type: 'system',
+          subtype: 'init',
+          account: { subscriptionType: 'max', tokenSource: 'apiKey' }
+        }
+      ])
+    )
+    expect(apiKey.subscription).toBe('API key')
+
+    const other = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', account: { subscriptionType: 'free_tier' } }])
+    )
+    expect(other.subscription).toBe('Free Tier')
+  })
 })
