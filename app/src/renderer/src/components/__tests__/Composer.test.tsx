@@ -11,7 +11,7 @@ beforeEach(() => {
   uiStore.setShowToolCalls(true)
   settingsStore.reset()
   window.argus = {
-    skills: { list: vi.fn(async () => []) },
+    skills: { list: vi.fn(async () => ({ skills: [] })) },
     settings: {
       get: vi.fn(async () => ({
         settings: defaultSettings(),
