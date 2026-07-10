@@ -16,6 +16,9 @@ import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
 import { HealthService } from './services/health'
 import { ghStatus } from './services/sourceControl'
+import { AtlassianClient, AtlassianError, resolveAtlassianCreds } from './services/atlassian'
+import { JiraCases } from './services/jiraCases'
+import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
 import {
   connectorConfig,
   type ConnectorsPayload,
@@ -86,13 +89,19 @@ function registerIpc(): void {
     oauth: mcpOauth
   })
 
+  // — Atlassian REST (UI-native; the agent uses Rovo MCP) —
+  const atlassianCreds = (): ReturnType<typeof resolveAtlassianCreds> =>
+    resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n))
+  const atlassian = new AtlassianClient(atlassianCreds)
+  const restErrors: Record<string, string> = {} // instanceId → last auth-error message
+
   const connectorsPayload = (): ConnectorsPayload => ({
     connectors: connectorRegistry.get(),
     runtime: mcpService.runtimeStates(),
     oauth: Object.fromEntries(
       Object.keys(connectorRegistry.get()).map((id) => [id, mcpOauth.status(id)])
     ),
-    rest: {},
+    rest: { ...restErrors },
     loadError: connectorRegistry.loadError(),
     secretsAvailable: secretStore.available(),
     secretsLoadError: secretStore.loadError(),
@@ -320,6 +329,50 @@ function registerIpc(): void {
     await healthService.run(ids ?? null, (r) => broadcast(IPC.healthResult, r))
   })
   ipcMain.handle(IPC.sourceControlStatus, () => ghStatus())
+
+  // — jira case lifecycle (Part 3) —
+  const jiraCases = new JiraCases({
+    db,
+    argusHome,
+    client: atlassian,
+    site: () => atlassianCreds().siteUrl,
+    argusParse: () => argusParseBin,
+    emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
+    evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug)
+  })
+
+  // Typed-result boundary: AtlassianError → { ok: false, code }, auth errors also
+  // land on the connector card (payload.rest) + are cleared on the next success.
+  const jiraResult = async <T>(fn: () => Promise<T>): Promise<JiraResult<T>> => {
+    try {
+      const value = await fn()
+      if (Object.keys(restErrors).length) {
+        for (const k of Object.keys(restErrors)) delete restErrors[k]
+        broadcast(IPC.connectorsChanged, connectorsPayload())
+      }
+      return { ok: true, value }
+    } catch (err) {
+      if (err instanceof AtlassianError) {
+        if (err.code === 'auth' && err.instanceId) {
+          restErrors[err.instanceId] = err.message
+          broadcast(IPC.connectorsChanged, connectorsPayload())
+        }
+        return { ok: false, code: err.code, message: err.message }
+      }
+      return { ok: false, code: 'internal', message: (err as Error).message }
+    }
+  }
+
+  ipcMain.handle(IPC.jiraPreview, (_e, key: string) => jiraResult(() => jiraCases.preview(key)))
+  ipcMain.handle(IPC.jiraCreateCase, (_e, input: { slug: string; title: string; key: string }) =>
+    jiraResult(() => jiraCases.createFromTicket(input))
+  )
+  ipcMain.handle(IPC.jiraIngestAttachments, (_e, caseSlug: string, atts: JiraAttachmentInfo[]) =>
+    jiraResult(() => jiraCases.ingestAttachments(caseSlug, atts))
+  )
+  ipcMain.handle(IPC.jiraRefreshCase, (_e, caseSlug: string) =>
+    jiraResult(() => jiraCases.refresh(caseSlug))
+  )
 }
 
 function createWindow(): void {

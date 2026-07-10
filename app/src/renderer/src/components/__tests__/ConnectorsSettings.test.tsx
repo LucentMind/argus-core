@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { ConnectorsSettings } from '../settings/ConnectorsSettings'
 import { connectorsStore } from '../../lib/connectorsStore'
@@ -290,6 +291,15 @@ describe('ConnectorsSettings', () => {
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
       local: { config: { env: { A: '1' } } }
     })
+  })
+
+  it('shows a REST auth chip when payload.rest carries an error for the instance', async () => {
+    currentPayload.rest = {
+      rovo: 'Atlassian rejected the API token (HTTP 401) — check the token and Site URL on the connector.'
+    }
+    render(<ConnectorsSettings />)
+    const chip = await screen.findByText('REST auth')
+    expect(chip).toHaveAttribute('title', expect.stringContaining('HTTP 401'))
   })
 
   it('banner on loadError; secret-store chip when unavailable and config references secrets', async () => {
