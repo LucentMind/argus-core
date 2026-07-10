@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path, { join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
@@ -8,6 +8,16 @@ import { IPC } from '../shared/ipc'
 import { resolveArgusHome, dbPath, caseDir, settingsPath, configDir } from './services/paths'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
+import { SecretStore } from './services/secrets'
+import { ConnectorRegistry } from './services/connectors'
+import { ToolRiskStore } from './services/toolRisk'
+import { McpService } from './services/mcp'
+import { McpOAuth } from './services/oauth'
+import {
+  connectorConfig,
+  type ConnectorsPayload,
+  type HttpConnectorConfig
+} from '../shared/connectors'
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
@@ -60,6 +70,30 @@ function registerIpc(): void {
     parseBin: process.env.ARGUS_PARSE_BIN
   }
   const settingsService = new SettingsService(argusHome, app.getAppPath(), envOverrides)
+
+  const secretStore = new SecretStore(argusHome, safeStorage)
+  const connectorRegistry = new ConnectorRegistry(argusHome)
+  const toolRiskStore = new ToolRiskStore(argusHome)
+  const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
+  const mcpService = new McpService({
+    registry: connectorRegistry,
+    secrets: secretStore,
+    toolRisk: () => toolRiskStore.get(),
+    oauth: mcpOauth
+  })
+
+  const connectorsPayload = (): ConnectorsPayload => ({
+    connectors: connectorRegistry.get(),
+    runtime: mcpService.runtimeStates(),
+    oauth: Object.fromEntries(
+      Object.keys(connectorRegistry.get()).map((id) => [id, mcpOauth.status(id)])
+    ),
+    loadError: connectorRegistry.loadError(),
+    secretsAvailable: secretStore.available(),
+    secretsLoadError: secretStore.loadError()
+  })
+
+  connectorRegistry.subscribe(() => broadcast(IPC.connectorsChanged, connectorsPayload()))
 
   // agent sessions and preflight inherit this process env — make sample-trace findable
   ensureTraceOnPath(app.getAppPath(), settingsService.get().tools.traceDir || undefined)
@@ -116,6 +150,8 @@ function registerIpc(): void {
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     onEvent: (e) => broadcast(IPC.agentEventChannel, e),
     agentSettings: () => settingsService.get().agent,
+    composeMcp: () => mcpService.composeForSession(),
+    toolRisk: () => toolRiskStore.get(),
     mirrorFactory: (caseSlug, sessionId) =>
       new SessionMirror(
         db,
@@ -208,6 +244,33 @@ function registerIpc(): void {
       if (fs.existsSync(p)) shell.showItemInFolder(p)
       else void shell.openPath(configDir(argusHome))
     } else void shell.openPath(argusHome)
+  })
+
+  // — connectors + secrets —
+  ipcMain.handle(IPC.connectorsGet, () => connectorsPayload())
+  ipcMain.handle(IPC.connectorsPatch, (_e, p: unknown) => {
+    connectorRegistry.patch(p)
+    return connectorsPayload()
+  })
+  ipcMain.handle(IPC.connectorsTest, async (_e, id: string) => {
+    const r = await mcpService.probe(id)
+    broadcast(IPC.connectorsChanged, connectorsPayload())
+    return r
+  })
+  ipcMain.handle(IPC.connectorsOauth, async (_e, id: string) => {
+    const inst = connectorRegistry.get()[id]
+    if (!inst) return { ok: false, error: `unknown connector: ${id}` }
+    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+    const r = await mcpOauth.authorize(id, cfg.url)
+    broadcast(IPC.connectorsChanged, connectorsPayload())
+    return r
+  })
+  ipcMain.handle(IPC.secretsSet, (_e, name: string, value: string) => {
+    secretStore.set(name, value) // throws when safeStorage is unavailable → renderer surfaces the message
+  })
+  ipcMain.handle(IPC.secretsHas, (_e, name: string) => secretStore.has(name))
+  ipcMain.handle(IPC.secretsDelete, (_e, name: string) => {
+    secretStore.delete(name)
   })
 }
 

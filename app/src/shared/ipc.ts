@@ -25,5 +25,13 @@ export const IPC = {
   settingsChanged: 'settings:changed',
   settingsProbeTools: 'settings:probe-tools',
   settingsPickPath: 'settings:pick-path',
-  settingsReveal: 'settings:reveal'
+  settingsReveal: 'settings:reveal',
+  connectorsGet: 'connectors:get',
+  connectorsPatch: 'connectors:patch',
+  connectorsChanged: 'connectors:changed',
+  connectorsTest: 'connectors:test',
+  connectorsOauth: 'connectors:oauth',
+  secretsSet: 'secrets:set',
+  secretsHas: 'secrets:has',
+  secretsDelete: 'secrets:delete'
 } as const
