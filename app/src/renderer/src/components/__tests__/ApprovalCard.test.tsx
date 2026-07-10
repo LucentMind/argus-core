@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { ApprovalCard } from '../ApprovalCard'
 
 const request = {
@@ -38,5 +39,67 @@ describe('ApprovalCard', () => {
       kind: 'deny',
       comment: 'not now'
     })
+  })
+})
+
+const mcpRequest = {
+  requestId: 'r1',
+  tool: 'mcp__rovo__addCommentToJiraIssue',
+  risk: 'MEDIUM',
+  grantKey: 'medium:mcp__rovo__addCommentToJiraIssue',
+  argsPreview: '{"issueKey":"NAV-7","body":"draft RCA"}',
+  input: { issueKey: 'NAV-7', body: 'draft RCA' }
+}
+
+describe('ApprovalCard editable MCP preview', () => {
+  it('renders string fields as editors and sends edits as updatedInput on approve', () => {
+    render(<ApprovalCard slug="NAV-7" request={mcpRequest} />)
+    const body = screen.getByLabelText('body')
+    fireEvent.change(body, { target: { value: 'edited RCA' } })
+    fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', {
+      requestId: 'r1',
+      kind: 'allow',
+      comment: undefined,
+      updatedInput: { issueKey: 'NAV-7', body: 'edited RCA' }
+    })
+  })
+
+  it('sends no updatedInput when nothing was edited', () => {
+    render(<ApprovalCard slug="NAV-7" request={mcpRequest} />)
+    fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', {
+      requestId: 'r1',
+      kind: 'allow',
+      comment: undefined,
+      updatedInput: undefined
+    })
+  })
+
+  it('deny never sends updatedInput even after edits', () => {
+    render(<ApprovalCard slug="NAV-7" request={mcpRequest} />)
+    fireEvent.change(screen.getByLabelText('body'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: /deny/i }))
+    expect(window.argus.agent.respond).toHaveBeenCalledWith(
+      'NAV-7',
+      expect.objectContaining({ kind: 'deny', updatedInput: undefined })
+    )
+  })
+
+  it('non-MCP tools and requests without input keep the read-only preview', () => {
+    render(
+      <ApprovalCard
+        slug="NAV-7"
+        request={{
+          requestId: 'r2',
+          tool: 'Bash',
+          risk: 'HIGH',
+          grantKey: null,
+          argsPreview: 'git push'
+        }}
+      />
+    )
+    expect(screen.getByText('git push')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'command' })).toBeNull()
   })
 })

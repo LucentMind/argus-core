@@ -72,6 +72,8 @@ export interface ApprovalDecision {
   requestId: string
   kind: 'allow' | 'allow-session' | 'deny'
   comment?: string
+  /** Edited tool input (MCP MEDIUM preview, spec §3.4); honored on allow only. */
+  updatedInput?: Record<string, unknown>
 }
 
 export interface AuthStatus {

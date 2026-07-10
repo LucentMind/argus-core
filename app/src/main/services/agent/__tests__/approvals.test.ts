@@ -40,6 +40,17 @@ describe('PendingApprovals', () => {
     await expect(p1).resolves.toMatchObject({ decision: 'cancelled' })
     await expect(p2).resolves.toMatchObject({ decision: 'cancelled' })
   })
+
+  it('resolve carries updatedInput back to the opener', async () => {
+    const pa = new PendingApprovals()
+    const p = pa.open(req('r3'))
+    pa.resolve('r3', 'allow', undefined, { body: 'edited RCA text' })
+    await expect(p).resolves.toEqual({
+      decision: 'allow',
+      comment: undefined,
+      updatedInput: { body: 'edited RCA text' }
+    })
+  })
 })
 
 describe('SessionGrants', () => {

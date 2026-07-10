@@ -12,6 +12,7 @@ export type ResolvedDecision = 'allow' | 'allow-session' | 'deny' | 'cancelled'
 export interface ApprovalOutcome {
   decision: ResolvedDecision
   comment?: string
+  updatedInput?: Record<string, unknown>
 }
 
 interface Pending {
@@ -40,11 +41,12 @@ export class PendingApprovals {
   resolve(
     requestId: string,
     decision: 'allow' | 'allow-session' | 'deny',
-    comment?: string
+    comment?: string,
+    updatedInput?: Record<string, unknown>
   ): boolean {
     const p = this.pending.get(requestId)
     if (!p) return false
-    p.settle({ decision, comment })
+    p.settle({ decision, comment, updatedInput })
     return true
   }
 
