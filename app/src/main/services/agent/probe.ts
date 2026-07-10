@@ -46,7 +46,7 @@ type InitHandle = { initializationResult?: () => Promise<{ account?: Account } |
 
 export async function probeAuth(
   createQuery: CreateQueryFn,
-  opts: { timeoutMs?: number } = {}
+  opts: { timeoutMs?: number; cliPath?: string } = {}
 ): Promise<AuthStatus> {
   const timeoutMs = opts.timeoutMs ?? 10000
   const deadline = Date.now() + timeoutMs
@@ -54,7 +54,11 @@ export async function probeAuth(
   try {
     q = createQuery({
       prompt: onePing(),
-      options: { maxTurns: 0, allowedTools: [] }
+      options: {
+        maxTurns: 0,
+        allowedTools: [],
+        ...(opts.cliPath ? { pathToClaudeCodeExecutable: opts.cliPath } : {})
+      }
     })
     const first = await Promise.race([
       (async (): Promise<unknown> => {
