@@ -1,0 +1,56 @@
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { connectorsStore } from '../connectorsStore'
+import type { ConnectorsPayload } from '../../../../shared/connectors'
+
+const payload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload => ({
+  connectors: {},
+  runtime: {},
+  oauth: {},
+  loadError: null,
+  secretsAvailable: true,
+  secretsLoadError: null,
+  ...over
+})
+
+let onChangedCb: ((p: ConnectorsPayload) => void) | null = null
+
+beforeEach(() => {
+  connectorsStore.reset()
+  onChangedCb = null
+  window.argus = {
+    connectors: {
+      get: vi.fn().mockResolvedValue(payload()),
+      patch: vi.fn().mockResolvedValue(payload({ loadError: null })),
+      test: vi.fn(),
+      oauth: vi.fn(),
+      onChanged: vi.fn((cb: (p: ConnectorsPayload) => void) => {
+        onChangedCb = cb
+        return () => {}
+      })
+    }
+  } as never
+})
+
+describe('connectorsStore', () => {
+  it('start fetches once and subscribes to pushes', async () => {
+    connectorsStore.start()
+    connectorsStore.start() // idempotent
+    await vi.waitFor(() => expect(connectorsStore.get()).not.toBeNull())
+    expect(window.argus.connectors.get).toHaveBeenCalledTimes(1)
+    onChangedCb!(payload({ loadError: 'boom' }))
+    expect(connectorsStore.get()?.loadError).toBe('boom')
+  })
+
+  it('patch stores the returned payload; failure synthesizes a banner', async () => {
+    connectorsStore.start()
+    await vi.waitFor(() => expect(connectorsStore.get()).not.toBeNull())
+    await connectorsStore.patch({ a: { kind: 'stdio', config: {} } })
+    expect(window.argus.connectors.patch).toHaveBeenCalledWith({ a: { kind: 'stdio', config: {} } })
+    ;(window.argus.connectors.patch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('nope')
+    )
+    await connectorsStore.patch({ b: null })
+    expect(connectorsStore.get()?.loadError).toMatch(/connector save failed: .*nope/)
+  })
+})
