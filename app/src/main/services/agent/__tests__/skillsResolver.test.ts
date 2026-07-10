@@ -17,6 +17,15 @@ function addSkill(root: string, name: string, description: string): void {
   )
 }
 
+function addSkillWithCRLF(root: string, name: string, description: string): void {
+  const dir = path.join(root, name)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    ['---', `name: ${name}`, `description: ${description}`, '---', '', `# ${name}`, ''].join('\r\n')
+  )
+}
+
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-sk-'))
   argusHome = path.join(tmp, 'home')
@@ -44,6 +53,13 @@ describe('resolveSkills', () => {
     const rca = resolveSkills(argusHome, access).find((s) => s.name === 'rca')!
     expect(rca.enabled).toBe(false)
   })
+
+  it('parses frontmatter description from CRLF-line SKILL.md files', () => {
+    addSkillWithCRLF(path.join(argusHome, 'skills'), 'crlf-test', 'crlf description')
+    const skills = resolveSkills(argusHome, defaultAgentAccess())
+    const crlfSkill = skills.find((s) => s.name === 'crlf-test')!
+    expect(crlfSkill.description).toBe('crlf description')
+  })
 })
 
 describe('materializeSessionSkills', () => {
@@ -65,5 +81,8 @@ describe('materializeSessionSkills', () => {
     materializeSessionSkills(argusHome, 'NAV-2', defaultAgentAccess())
     const entries = fs.readdirSync(path.join(claude, 'skills')).sort()
     expect(entries).toEqual(['analyze-applog', 'rca'])
+    // rmSync must unlink the junction only, never delete through it — SHARED skills dir survives
+    const sharedSkills = fs.readdirSync(path.join(argusHome, 'skills')).sort()
+    expect(sharedSkills).toEqual(['analyze-applog', 'rca'])
   })
 })

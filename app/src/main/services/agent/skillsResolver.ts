@@ -26,9 +26,11 @@ const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
 function frontmatterDescription(skillDir: string): string {
   try {
     const raw = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
-    const fm = raw.match(/^---\n([\s\S]*?)\n---/)
-    const m = fm?.[1].match(/^description:\s*(.+)$/m)
-    return m ? m[1].trim() : ''
+    const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    const fmContent = fm?.[1]
+    if (!fmContent) return ''
+    const m = fmContent.match(/^description:\s*(.+)$/m)
+    return m ? m[1].replace(/\r$/, '').trim() : ''
   } catch {
     return ''
   }
