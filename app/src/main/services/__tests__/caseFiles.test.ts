@@ -6,7 +6,13 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
-import { listCaseFiles, readCaseFile, resolveCasePath, FILE_READ_CAP } from '../caseFiles'
+import {
+  listCaseFiles,
+  readCaseFile,
+  resolveCasePath,
+  assertSlug,
+  FILE_READ_CAP
+} from '../caseFiles'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 
@@ -39,6 +45,15 @@ const junctionsWork = ((): boolean => {
     fs.rmSync(probe, { recursive: true, force: true })
   }
 })()
+
+describe('assertSlug', () => {
+  it('accepts a valid slug', () => {
+    expect(() => assertSlug('NAV-1')).not.toThrow()
+  })
+  it.each(['..', '../../x', 'a/b'])('rejects %s', (slug) => {
+    expect(() => assertSlug(slug)).toThrow(/invalid case slug/i)
+  })
+})
 
 describe('resolveCasePath', () => {
   it('resolves paths inside the case dir', () => {

@@ -45,7 +45,7 @@ import {
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
-import { listCaseFiles, readCaseFile, resolveCasePath } from './services/caseFiles'
+import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
@@ -294,12 +294,21 @@ function registerIpc(): void {
   const caseWatchers = new Map<string, fs.FSWatcher>()
   const watchCaseDir = (slug: string): void => {
     if (caseWatchers.has(slug)) return
+    assertSlug(slug) // a hostile slug ('..') must not become a recursive watch over argusHome
     const root = caseDir(argusHome, slug)
     try {
       let t: NodeJS.Timeout | null = null
       const w = fs.watch(root, { recursive: true }, () => {
         if (t) clearTimeout(t)
         t = setTimeout(() => broadcast(IPC.filesChanged, slug), 300)
+      })
+      // fs.watch's try/catch only covers sync setup; on Windows, deleting the
+      // watched dir out from under the watcher emits an async 'error' event —
+      // unhandled, that crashes the main process.
+      w.on('error', (err) => {
+        console.warn(`[files] watcher error for ${slug}: ${(err as Error).message}`)
+        w.close()
+        caseWatchers.delete(slug)
       })
       caseWatchers.set(slug, w)
     } catch (err) {
@@ -309,8 +318,11 @@ function registerIpc(): void {
   }
 
   ipcMain.handle(IPC.filesList, (_e, slug: string) => {
+    // Validate via listCaseFiles (unknown/invalid slugs throw) before a watcher
+    // is ever started — an unknown or malicious slug must not leave one behind.
+    const out = listCaseFiles(db, argusHome, slug)
     watchCaseDir(slug)
-    return listCaseFiles(db, argusHome, slug)
+    return out
   })
   ipcMain.handle(IPC.filesRead, (_e, slug: string, relPath: string) =>
     readCaseFile(argusHome, slug, relPath)
@@ -320,7 +332,10 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.filesReveal, (_e, slug: string, relPath?: string) => {
     if (relPath) shell.showItemInFolder(resolveCasePath(argusHome, slug, relPath))
-    else void shell.openPath(caseDir(argusHome, slug))
+    else {
+      assertSlug(slug)
+      void shell.openPath(caseDir(argusHome, slug))
+    }
   })
 
   // — skills —

@@ -10,10 +10,17 @@ export const FILE_READ_CAP = 2 * 1024 * 1024
 /** Entries never shown or walked: junction farm + evidence sidecar metadata. */
 const HIDDEN = new Set(['.claude', '.meta'])
 
-export function resolveCasePath(argusHome: string, slug: string, relPath: string): string {
-  // A hostile slug ('../..') relocates the root itself, so validate it before
-  // building any path from it — same rule createCase enforces.
+/**
+ * A hostile slug ('..', '../../x') relocates the case root itself — validate
+ * before building any path (or starting a watcher) from it. Same rule
+ * createCase enforces.
+ */
+export function assertSlug(slug: string): void {
   if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
+}
+
+export function resolveCasePath(argusHome: string, slug: string, relPath: string): string {
+  assertSlug(slug)
   const root = path.resolve(caseDir(argusHome, slug))
   const target = path.resolve(root, relPath)
   if (target !== root && !target.startsWith(root + path.sep)) {
