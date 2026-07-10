@@ -51,5 +51,11 @@ export const IPC = {
   memoryRead: 'memory:read',
   memoryWrite: 'memory:write',
   memoryDelete: 'memory:delete',
-  memoryAudit: 'memory:audit'
+  memoryAudit: 'memory:audit',
+  filesList: 'files:list',
+  filesRead: 'files:read',
+  filesOpen: 'files:open',
+  filesReveal: 'files:reveal',
+  filesChanged: 'files:changed',
+  evidenceParsing: 'evidence:parsing'
 } as const

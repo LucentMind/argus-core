@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GeneralSettings } from '../settings/GeneralSettings'
 import { uiStore } from '../../lib/uiStore'
@@ -30,6 +30,9 @@ beforeEach(() => {
       patch: vi.fn(async () => payload()),
       reveal: vi.fn(),
       onChanged: vi.fn(() => () => {})
+    },
+    workspaces: {
+      pick: vi.fn()
     }
   } as never
 })
@@ -61,5 +64,24 @@ describe('GeneralSettings', () => {
     expect(screen.getByText(/ARGUS_HOME/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Open folder' }))
     expect(window.argus.settings.reveal).toHaveBeenCalledWith('dataRoot')
+  })
+
+  it('shows "not set" and browses for a default repository', async () => {
+    window.argus.workspaces.pick = vi.fn(async () => 'C:\\code\\navigator')
+    render(<GeneralSettings payload={payload()} />)
+    expect(screen.getByText('not set')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        general: { defaultRepo: 'C:\\code\\navigator' }
+      })
+    )
+  })
+
+  it('renders the configured default repo path', () => {
+    const p = payload()
+    p.settings.general.defaultRepo = 'C:\\code\\navigator'
+    render(<GeneralSettings payload={p} />)
+    expect(screen.getByText('C:\\code\\navigator')).toBeTruthy()
   })
 })

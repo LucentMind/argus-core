@@ -187,4 +187,11 @@ describe('settings schema', () => {
     expect(deepMerge(base, null)).toEqual({ a: 1 })
     expect(deepMerge(base, undefined)).toEqual({ a: 1 })
   })
+
+  it('defaults general.defaultRepo to null and round-trips a set value', () => {
+    const s = settingsSchema.parse({})
+    expect(s.general.defaultRepo).toBeNull()
+    const s2 = settingsSchema.parse({ general: { defaultRepo: 'C:/code/navigator' } })
+    expect(s2.general.defaultRepo).toBe('C:/code/navigator')
+  })
 })
