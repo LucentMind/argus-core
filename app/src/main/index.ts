@@ -321,7 +321,17 @@ function registerIpc(): void {
       Object.entries(connectorRegistry.get())
         .filter(([, i]) => i.enabled)
         .map(([id]) => id),
-    probeConnector: (id) => mcpService.probe(id)
+    probeConnector: (id) => mcpService.probe(id),
+    atlassianConfigured: () =>
+      Object.values(connectorRegistry.get()).some((i) => i.preset === 'rovo'),
+    atlassianCheck: async () => {
+      try {
+        const me = await atlassian.myself()
+        return { ok: true, detail: `authenticated as ${me.displayName}` }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
+    }
   })
 
   ipcMain.handle(IPC.healthList, () => healthService.rows())

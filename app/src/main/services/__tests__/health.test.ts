@@ -26,6 +26,8 @@ const deps = (over: Partial<HealthDeps> = {}): HealthDeps => ({
   gh: async () => ({ ok: true, detail: 'Logged in to github.com' }),
   enabledConnectors: () => ['rovo'],
   probeConnector: async () => ({ ok: true, tools: [{ name: 'get_x', risk: 'low' }] }),
+  atlassianConfigured: () => false,
+  atlassianCheck: async () => ({ ok: false, detail: 'unset' }),
   ...over
 })
 
@@ -95,5 +97,35 @@ describe('HealthService', () => {
     const out = await runAll(deps(), ['data-root'])
     expect(out[0].ok).toBe(true)
     expect(fs.readdirSync(tmp).filter((f) => f.includes('.health-'))).toHaveLength(0)
+  })
+
+  it('adds the atlassian-rest row only when a rovo connector is configured', () => {
+    const none = new HealthService(deps({ atlassianConfigured: () => false }))
+    expect(none.rows().some((r) => r.id === 'atlassian-rest')).toBe(false)
+    const some = new HealthService(deps({ atlassianConfigured: () => true }))
+    expect(some.rows().some((r) => r.id === 'atlassian-rest')).toBe(true)
+  })
+
+  it('atlassian-rest check reports ok detail and failure fix hint', async () => {
+    const results: HealthCheckResult[] = []
+    const ok = new HealthService(
+      deps({
+        atlassianConfigured: () => true,
+        atlassianCheck: async () => ({ ok: true, detail: 'authenticated as Ada' })
+      })
+    )
+    await ok.run(['atlassian-rest'], (r) => results.push(r))
+    expect(results[0]).toMatchObject({ ok: true, detail: 'authenticated as Ada' })
+
+    results.length = 0
+    const bad = new HealthService(
+      deps({
+        atlassianConfigured: () => true,
+        atlassianCheck: async () => ({ ok: false, detail: 'HTTP 401' })
+      })
+    )
+    await bad.run(['atlassian-rest'], (r) => results.push(r))
+    expect(results[0]).toMatchObject({ ok: false, detail: 'HTTP 401' })
+    expect(results[0].fixHint).toMatch(/Site URL and API token/)
   })
 })
