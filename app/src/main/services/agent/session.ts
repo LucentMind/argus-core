@@ -10,7 +10,7 @@ import { classifyToolCall, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
-import { caseDir, memoryDir, memoryIndexPath } from '../paths'
+import { caseDir, memoryDir } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
 import { ARGUS_PERSONA } from './persona'
 import { filteredIndex, listTopics } from '../memory'
@@ -100,24 +100,17 @@ export class CaseSession {
     const enabledTopicPaths = listTopics(deps.argusHome)
       .filter((t) => topicEnabled(access, t.name))
       .map((t) => path.join(memoryDir(deps.argusHome), `${t.name}.md`))
-    const memoryReadRoots = memIndex.trim()
-      ? [memoryIndexPath(deps.argusHome), ...enabledTopicPaths]
-      : enabledTopicPaths
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
-      readonlyRoots: [...deps.skillsRoots, ...memoryReadRoots]
+      readonlyRoots: [...deps.skillsRoots, ...enabledTopicPaths]
     }
     const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({
       prompt: this.promptQueue,
       options: {
         cwd: dir,
-        additionalDirectories: [
-          ...deps.workspaceRoots,
-          ...deps.skillsRoots,
-          memoryDir(deps.argusHome)
-        ],
+        additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
         includePartialMessages: true,
         systemPrompt: {
           type: 'preset',
