@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
 import { uiStore } from '../../lib/uiStore'
@@ -80,5 +80,41 @@ describe('Composer', () => {
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(await screen.findByText('claude-opus-4-8')).toBeTruthy()
     expect(screen.getByText('Plan mode')).toBeTruthy()
+  })
+
+  it('model picker follows ordering + visibility: favorites/order first, hidden excluded, seed = top model', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        s.agent.modelPreferences['claude-default'] = {
+          hiddenModels: ['claude-haiku-4-5'],
+          favoriteModels: ['claude-sonnet-5'],
+          modelOrder: []
+        }
+        return s
+      })(),
+      resolvedTools: {
+        traceDir: { value: null, source: 'default' },
+        parseBin: { value: null, source: 'default' }
+      },
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    // seeded chip shows the top ordered visible model (favorite pinned first)
+    expect(await screen.findByText('claude-sonnet-5')).toBeTruthy()
+    fireEvent.click(screen.getByText('claude-sonnet-5'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toEqual([
+      'claude-sonnet-5',
+      'claude-fable-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-sonnet-4-6'
+    ])
+    expect(items).not.toContain('claude-haiku-4-5')
   })
 })
