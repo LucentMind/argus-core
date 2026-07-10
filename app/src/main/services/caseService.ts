@@ -4,7 +4,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRecord, CaseStatus, NewCaseInput } from '../../shared/types'
 import { caseDir } from './paths'
 
-const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+/** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
+export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 function claudeMdTemplate(input: NewCaseInput, now: string): string {
   return `# Case: ${input.slug}
