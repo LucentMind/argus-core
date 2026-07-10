@@ -325,7 +325,7 @@ function registerIpc(): void {
     enabledConnectors: () =>
       Object.entries(connectorRegistry.get())
         .filter(([, i]) => i.enabled)
-        .map(([id]) => id),
+        .map(([id, i]) => ({ id, name: i.displayName?.trim() || id })),
     probeConnector: (id) => mcpService.probe(id),
     // REST is optional for MCP-only Rovo usage — the row appears only once REST
     // configuration has begun (siteUrl or token set), never as a failure before that.

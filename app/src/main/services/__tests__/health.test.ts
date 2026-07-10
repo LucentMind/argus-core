@@ -24,7 +24,7 @@ const deps = (over: Partial<HealthDeps> = {}): HealthDeps => ({
   preflight: async () => ({ ok: true, checks: [{ name: 'python', ok: true, detail: '3.11' }] }),
   agentAuth: async () => ({ ok: true, detail: 'logged in as x@y' }),
   gh: async () => ({ ok: true, detail: 'Logged in to github.com' }),
-  enabledConnectors: () => ['rovo'],
+  enabledConnectors: () => [{ id: 'rovo', name: 'Atlassian Rovo' }],
   probeConnector: async () => ({ ok: true, tools: [{ name: 'get_x', risk: 'low' }] }),
   atlassianConfigured: () => false,
   atlassianCheck: async () => ({ ok: false, detail: 'unset' }),
@@ -48,6 +48,23 @@ describe('HealthService', () => {
       'data-root',
       'connector:rovo'
     ])
+  })
+
+  it('connector rows are labeled with the display name, falling back to the instance id', () => {
+    const svc = new HealthService(
+      deps({
+        enabledConnectors: () => [
+          { id: 'rovo', name: 'Atlassian Rovo' },
+          { id: 'http-1', name: 'Langchain' },
+          { id: 'bare', name: 'bare' } // no displayName configured → id
+        ]
+      })
+    )
+    const labels = svc
+      .rows()
+      .filter((r) => r.id.startsWith('connector:'))
+      .map((r) => r.label)
+    expect(labels).toEqual(['Atlassian Rovo', 'Langchain', 'bare'])
   })
 
   it('run(null) emits a result per row; all green with healthy deps', async () => {

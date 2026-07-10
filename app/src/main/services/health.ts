@@ -16,7 +16,8 @@ export interface HealthDeps {
   agentAuth: () => Promise<AuthStatus>
   /** Injectable for tests; defaults to spawning `gh auth status`. */
   gh?: () => Promise<{ ok: boolean; detail: string }>
-  enabledConnectors: () => string[]
+  /** Enabled connector instances: id + human label (displayName, id as fallback). */
+  enabledConnectors: () => Array<{ id: string; name: string }>
   probeConnector: (id: string) => Promise<{ ok: boolean; tools?: DiscoveredTool[]; error?: string }>
   atlassianConfigured: () => boolean
   atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
@@ -40,9 +41,7 @@ export class HealthService {
       ...(this.deps.atlassianConfigured()
         ? [{ id: 'atlassian-rest', label: 'Atlassian REST (Jira)' }]
         : []),
-      ...this.deps
-        .enabledConnectors()
-        .map((id) => ({ id: `connector:${id}`, label: `Connector: ${id}` }))
+      ...this.deps.enabledConnectors().map((c) => ({ id: `connector:${c.id}`, label: c.name }))
     ]
   }
 
