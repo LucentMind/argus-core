@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
+import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { NewCaseDialog } from './components/NewCaseDialog'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
@@ -17,6 +18,7 @@ function App(): React.JSX.Element {
   const [prevView, setPrevView] = useState<View>({ kind: 'home' })
   const [viewer, setViewer] = useState<{ evidenceId: number; focusLine: number } | null>(null)
   const [newCaseOpen, setNewCaseOpen] = useState(false)
+  const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null)
 
   // setState happens in the promise callback (external-system subscription
   // shape), not synchronously in effects — keeps react-hooks/set-state-in-effect happy
@@ -39,6 +41,12 @@ function App(): React.JSX.Element {
 
   function handleOpenHit(hit: SearchHit): void {
     setViewer({ evidenceId: hit.evidenceId, focusLine: hit.matchLine })
+  }
+
+  async function pickBundle(): Promise<void> {
+    const r = await window.argus.bundle.inspect()
+    if (!r) return // open dialog canceled
+    setImportDialog(r.ok ? { inspection: r.inspection } : { error: r.error })
   }
 
   function goHome(): void {
@@ -68,7 +76,12 @@ function App(): React.JSX.Element {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {view.kind === 'home' ? (
           <>
-            <CaseDashboard cases={cases} onOpen={openCase} onNew={() => setNewCaseOpen(true)} />
+            <CaseDashboard
+              cases={cases}
+              onOpen={openCase}
+              onNew={() => setNewCaseOpen(true)}
+              onImport={() => void pickBundle()}
+            />
             <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
               <SearchBar caseSlug={null} onOpen={handleOpenHit} />
             </div>
@@ -97,6 +110,17 @@ function App(): React.JSX.Element {
           onClose={() => setNewCaseOpen(false)}
           onCreateBlank={handleCreate}
           onOpenCase={(slug) => {
+            void reload()
+            openCase(slug)
+          }}
+        />
+      )}
+      {importDialog && (
+        <ImportCaseDialog
+          state={importDialog}
+          onClose={() => setImportDialog(null)}
+          onImported={(slug) => {
+            setImportDialog(null)
             void reload()
             openCase(slug)
           }}

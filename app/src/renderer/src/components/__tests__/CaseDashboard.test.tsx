@@ -21,7 +21,7 @@ const cases: CaseRecord[] = [
 describe('CaseDashboard', () => {
   it('renders case cards with status chip and opens on click', () => {
     const onOpen = vi.fn()
-    render(<CaseDashboard cases={cases} onOpen={onOpen} onNew={vi.fn()} />)
+    render(<CaseDashboard cases={cases} onOpen={onOpen} onNew={vi.fn()} onImport={vi.fn()} />)
     fireEvent.click(screen.getByText('Bearing jumps'))
     expect(onOpen).toHaveBeenCalledWith('NAV-1')
     expect(screen.getByText('analyzing')).toBeTruthy()
@@ -29,7 +29,7 @@ describe('CaseDashboard', () => {
 
   it('New case card opens the dialog via onNew', () => {
     const onNew = vi.fn()
-    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={onNew} />)
+    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={onNew} onImport={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /new case/i }))
     expect(onNew).toHaveBeenCalled()
   })

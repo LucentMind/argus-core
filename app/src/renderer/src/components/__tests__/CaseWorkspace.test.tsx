@@ -35,7 +35,7 @@ beforeEach(() => {
     },
     cases: { readFindings: vi.fn(async () => '') },
     evidence: { list: vi.fn(async () => []) },
-    workspaces: { list: vi.fn(async () => []) },
+    workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) },
     skills: { list: vi.fn(async () => ({ skills: [] })) },
     search: { query: vi.fn(async () => []) },
     settings: {

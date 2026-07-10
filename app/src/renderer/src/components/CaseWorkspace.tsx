@@ -6,6 +6,7 @@ import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
 import { WorkspacesStrip } from './WorkspacesStrip'
 import { JiraRefreshButton } from './JiraRefreshButton'
+import { MenuButton } from './ui'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import type { SearchHit } from '../../../shared/types'
@@ -29,6 +30,7 @@ export function CaseWorkspace({
   )
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
+  const [exportNote, setExportNote] = useState<string | null>(null)
 
   useEffect(() => {
     wireAgentStore()
@@ -42,12 +44,28 @@ export function CaseWorkspace({
     if (rec) onOpenCitation(rec.id, line)
   }
 
+  async function exportBundle(includeTranscripts: boolean): Promise<void> {
+    setExportNote(null)
+    const r = await window.argus.bundle.export(slug, includeTranscripts)
+    if (!r) return // save dialog canceled
+    setExportNote(r.ok ? `exported ${r.fileCount} files` : r.error)
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
         <h1 className="font-mono text-sm text-defect">{slug}</h1>
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
+        <MenuButton
+          label="Export"
+          aria-label="Export case"
+          items={[
+            { label: 'Export case…', onSelect: () => void exportBundle(true) },
+            { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
+          ]}
+        />
+        {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <div className="ml-auto">
           <HeaderChips slug={slug} />
         </div>
