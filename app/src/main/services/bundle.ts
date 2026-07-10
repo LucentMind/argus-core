@@ -8,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import {
   BUNDLE_FORMAT,
   bundleManifestSchema,
+  bundleWorkspaceRefSchema,
   type BundleManifest,
   type BundleWorkspaceRef
 } from '../../shared/bundle'
@@ -42,8 +43,17 @@ export function collectCaseFiles(dir: string, opts: { includeTranscripts: boolea
   return out.sort()
 }
 
-/** Capture linked repos as remote+branch+commit refs — checkouts are never copied. */
-async function workspaceRefs(db: DatabaseSync, slug: string): Promise<BundleWorkspaceRef[]> {
+/**
+ * Capture linked repos as remote+branch+commit refs — checkouts are never copied.
+ * Combines DB-linked workspaces (live checkouts, re-resolved to HEAD) with any
+ * `workspaceRefs` already carried in case.json (an imported case's refs — those
+ * never get a DB row since the checkout never existed on this machine).
+ */
+async function workspaceRefs(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string
+): Promise<BundleWorkspaceRef[]> {
   const row = db.prepare(`SELECT workspaces FROM cases WHERE slug = ?`).get(slug) as
     { workspaces: string } | undefined
   const stored = JSON.parse(row?.workspaces ?? '[]') as Array<{
@@ -60,6 +70,22 @@ async function workspaceRefs(db: DatabaseSync, slug: string): Promise<BundleWork
       // repo missing/moved — the ref still travels without a commit
     }
     refs.push({ remote: w.remote, branch: w.branch, commit })
+  }
+  try {
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(caseDir(argusHome, slug), 'case.json'), 'utf8')
+    ) as { workspaceRefs?: unknown }
+    if (Array.isArray(onDisk.workspaceRefs)) {
+      for (const entry of onDisk.workspaceRefs) {
+        try {
+          refs.push(bundleWorkspaceRefSchema.parse(entry))
+        } catch {
+          // malformed entry — skip rather than fail the whole export
+        }
+      }
+    }
+  } catch {
+    // missing/corrupt case.json — DB-linked refs still travel
   }
   return refs
 }
@@ -83,7 +109,7 @@ export async function exportCase(
     argusVersion: deps.argusVersion,
     createdAt: new Date().toISOString(),
     includesTranscripts: opts.includeTranscripts,
-    workspaces: await workspaceRefs(db, slug),
+    workspaces: await workspaceRefs(db, argusHome, slug),
     files: rels.map((rel) => {
       const abs = path.join(dir, ...rel.split('/'))
       return { path: rel, sha256: sha256File(abs), size: fs.statSync(abs).size }

@@ -108,6 +108,11 @@ function archive(argusHome: string, file: string, status: 'accepted' | 'rejected
 export function acceptProposal(argusHome: string, file: string): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
+  // defense-in-depth: p.target came from on-disk frontmatter (trusted only because
+  // writeProposal validated it at write time) — re-validate before it joins a write path.
+  if (!NAME_RE.test(p.target)) {
+    throw new Error(`Invalid proposal target: ${JSON.stringify(p.target)}`)
+  }
   if (p.type === 'skill-new' || p.type === 'skill-edit') {
     const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
