@@ -70,6 +70,30 @@ describe('exportCase', () => {
     fs.rmSync(out, { recursive: true, force: true })
   })
 
+  it('carries imported workspaceRefs from case.json into the re-exported manifest', async () => {
+    const caseJsonPath = path.join(home, 'cases', 'NAV-100', 'case.json')
+    const onDisk = JSON.parse(fs.readFileSync(caseJsonPath, 'utf8')) as Record<string, unknown>
+    onDisk.workspaceRefs = [
+      { remote: 'https://github.com/org/x.git', branch: 'main', commit: 'abc' }
+    ]
+    fs.writeFileSync(caseJsonPath, JSON.stringify(onDisk, null, 2))
+
+    const dest = path.join(home, 'NAV-100.arguscase')
+    const manifest = await exportCase(
+      db,
+      home,
+      'NAV-100',
+      dest,
+      { includeTranscripts: true },
+      { argusVersion: '1.0.0' }
+    )
+    expect(manifest.workspaces).toContainEqual({
+      remote: 'https://github.com/org/x.git',
+      branch: 'main',
+      commit: 'abc'
+    })
+  })
+
   it('throws on an unknown case', async () => {
     await expect(
       exportCase(

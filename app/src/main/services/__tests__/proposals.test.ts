@@ -140,6 +140,38 @@ describe('accept / reject', () => {
     expect(() => rejectProposal(home, 'nope.md')).toThrow(/Unknown proposal/)
   })
 
+  it('accept re-validates target and refuses a hand-written traversal frontmatter', () => {
+    // Bypass writeProposal's validation entirely: hand-write a proposal file whose
+    // frontmatter target escapes proposals/ — defense-in-depth against anything else
+    // that might one day write into proposals/ without going through writeProposal.
+    const dir = path.join(home, 'proposals')
+    fs.mkdirSync(dir, { recursive: true })
+    const file = '2026-07-10-NAV-100-evil.md'
+    fs.writeFileSync(
+      path.join(dir, file),
+      [
+        '---',
+        'type: skill-edit',
+        'target: ../evil',
+        'case: NAV-100',
+        'date: 2026-07-10',
+        'title: Evil',
+        'status: pending',
+        '---',
+        '',
+        '# pwned\n'
+      ].join('\n')
+    )
+
+    expect(() => acceptProposal(home, file)).toThrow(/Invalid proposal target/)
+
+    // nothing should have been written outside proposals/
+    expect(fs.existsSync(path.join(home, 'evil'))).toBe(false)
+    expect(fs.existsSync(path.join(home, 'skills-user', 'evil'))).toBe(false)
+    // and the bad proposal is left untouched (not archived) since accept threw before archiving
+    expect(fs.existsSync(path.join(dir, file))).toBe(true)
+  })
+
   it('reject blocks path traversal to files outside proposals/', () => {
     // Create a decoy file outside proposals/ (in home root)
     const decoyPath = path.join(home, 'decoy.md')
