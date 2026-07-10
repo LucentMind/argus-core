@@ -31,7 +31,7 @@ function collisionFreeName(evidenceDir: string, baseName: string): string {
   return candidate
 }
 
-function sha256File(filePath: string): string {
+export function sha256File(filePath: string): string {
   const hash = crypto.createHash('sha256')
   const fd = fs.openSync(filePath, 'r')
   try {

@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRecord, CaseStatus, NewCaseInput } from '../../shared/types'
 import { caseDir } from './paths'
 
-const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 function claudeMdTemplate(input: NewCaseInput, now: string): string {
   return `# Case: ${input.slug}
@@ -57,6 +57,26 @@ function rowToCase(r: CaseRow): CaseRecord {
   }
 }
 
+/**
+ * (Re)create the machine-local `.claude` junctions (skills, references).
+ * Idempotent; used by createCase and by bundle import (bundles never carry
+ * the junction farm).
+ */
+export function scaffoldCaseLinks(argusHome: string, dir: string): void {
+  const dotClaude = path.join(dir, '.claude')
+  fs.mkdirSync(dotClaude, { recursive: true })
+  for (const [name, target] of [
+    ['skills', path.join(argusHome, 'skills')],
+    ['references', path.join(argusHome, 'references')]
+  ] as const) {
+    const link = path.join(dotClaude, name)
+    // 'dir' symlinks need elevation on Windows; junctions don't and lstat still
+    // reports them as symbolic links.
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+    if (!fs.existsSync(link) && fs.existsSync(target)) fs.symlinkSync(target, link, linkType)
+  }
+}
+
 export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseInput): CaseRecord {
   if (!SLUG_RE.test(input.slug)) {
     throw new Error(`Invalid case slug: ${JSON.stringify(input.slug)}`)
@@ -92,18 +112,7 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       JSON.stringify({ ...rec, id: undefined }, null, 2)
     )
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMdTemplate(input, now))
-    const dotClaude = path.join(dir, '.claude')
-    fs.mkdirSync(dotClaude, { recursive: true })
-    for (const [name, target] of [
-      ['skills', path.join(argusHome, 'skills')],
-      ['references', path.join(argusHome, 'references')]
-    ] as const) {
-      const link = path.join(dotClaude, name)
-      // 'dir' symlinks need elevation on Windows; junctions don't and lstat still
-      // reports them as symbolic links.
-      const linkType = process.platform === 'win32' ? 'junction' : 'dir'
-      if (!fs.existsSync(link) && fs.existsSync(target)) fs.symlinkSync(target, link, linkType)
-    }
+    scaffoldCaseLinks(argusHome, dir)
     fs.writeFileSync(path.join(dir, 'findings.md'), `# Findings — ${input.slug}\n`)
     return rec
   } catch (err) {
