@@ -30,6 +30,15 @@ export function CaseWorkspace({
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
 
+  // case switch: drop the previous case's Analyze suggestion so a re-click of an
+  // identical suggestion in the new case isn't a setState no-op — adjust-state-
+  // during-render; the composer draft itself resets via key={slug} in ChatPane
+  const [lastSlug, setLastSlug] = useState(slug)
+  if (slug !== lastSlug) {
+    setLastSlug(slug)
+    setPrefill('')
+  }
+
   useEffect(() => {
     wireAgentStore()
     // restore the persisted transcript after an app restart
