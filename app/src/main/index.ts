@@ -6,6 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC } from '../shared/ipc'
 import { resolveArgusHome, dbPath, caseDir, settingsPath, configDir } from './services/paths'
+import { defaultAgentAccess } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { SecretStore } from './services/secrets'
@@ -164,6 +165,8 @@ function registerIpc(): void {
     argusHome,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     onEvent: (e) => broadcast(IPC.agentEventChannel, e),
+    // Task 8 wires the real store
+    agentAccess: () => defaultAgentAccess(),
     agentSettings: () => settingsService.get().agent,
     composeMcp: () => mcpService.composeForSession(),
     toolRisk: () => toolRiskStore.get(),
