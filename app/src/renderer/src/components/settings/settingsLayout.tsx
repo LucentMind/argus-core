@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Card, SectionLabel } from '../ui'
 
 export const FIELD =
@@ -83,6 +83,88 @@ export function Switch({
         }`}
       />
     </button>
+  )
+}
+
+interface DraftFieldProps {
+  value: string
+  onCommit: (v: string) => void
+  'aria-label': string
+  className?: string
+  placeholder?: string
+}
+
+/**
+ * Local-draft text input: typing only updates local state, so the store
+ * patch (and the disk write it triggers) fires once on blur/Enter instead of
+ * per keystroke. Resyncs from the `value` prop when not focused — the same
+ * adjust-state-during-render idiom Composer uses for its `prefill` prop —
+ * so external changes (reset buttons, another window) still show up.
+ */
+export function DraftInput({
+  value,
+  onCommit,
+  'aria-label': ariaLabel,
+  className,
+  placeholder,
+  type
+}: DraftFieldProps & { type?: string }): React.JSX.Element {
+  const [draft, setDraft] = useState(value)
+  const [lastValue, setLastValue] = useState(value)
+  const [focused, setFocused] = useState(false)
+  if (value !== lastValue) {
+    setLastValue(value)
+    if (!focused) setDraft(value)
+  }
+  return (
+    <input
+      type={type ?? 'text'}
+      aria-label={ariaLabel}
+      className={className}
+      placeholder={placeholder}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false)
+        onCommit(draft)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onCommit(draft)
+      }}
+    />
+  )
+}
+
+/** Textarea counterpart of {@link DraftInput}: commits on blur only (no Enter commit — newlines are valid input). */
+export function DraftTextarea({
+  value,
+  onCommit,
+  'aria-label': ariaLabel,
+  className,
+  placeholder
+}: DraftFieldProps): React.JSX.Element {
+  const [draft, setDraft] = useState(value)
+  const [lastValue, setLastValue] = useState(value)
+  const [focused, setFocused] = useState(false)
+  if (value !== lastValue) {
+    setLastValue(value)
+    if (!focused) setDraft(value)
+  }
+  return (
+    <textarea
+      rows={3}
+      aria-label={ariaLabel}
+      className={className}
+      placeholder={placeholder}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false)
+        onCommit(draft)
+      }}
+    />
   )
 }
 

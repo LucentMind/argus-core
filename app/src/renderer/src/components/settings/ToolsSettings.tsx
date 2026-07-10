@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { settingsStore } from '../../lib/settingsStore'
 import { Btn, Chip } from '../ui'
-import { SettingsSection, SettingRow, FIELD } from './settingsLayout'
+import { SettingsSection, SettingRow, FIELD, DraftInput } from './settingsLayout'
 import type { ProbeToolsReport, SettingsPayload } from '../../../../shared/settings'
 
 export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
@@ -53,14 +53,12 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         ) : (
           <Chip>checking…</Chip>
         )}
-        <input
+        <DraftInput
           aria-label="sample-parse path"
           className={`${FIELD} w-64 font-mono`}
           placeholder="auto-resolve"
           value={t.parseBin}
-          onChange={(e) =>
-            void settingsStore.patch({ tools: { parseBin: e.target.value || null } })
-          }
+          onCommit={(v) => void settingsStore.patch({ tools: { parseBin: v || null } })}
         />
         <Btn onClick={() => void browse('parseBin', 'file')}>Browse</Btn>
       </SettingRow>
@@ -84,14 +82,12 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
         ) : (
           <Chip>checking…</Chip>
         )}
-        <input
+        <DraftInput
           aria-label="trace tools directory"
           className={`${FIELD} w-64 font-mono`}
           placeholder="auto-resolve"
           value={t.traceDir}
-          onChange={(e) =>
-            void settingsStore.patch({ tools: { traceDir: e.target.value || null } })
-          }
+          onCommit={(v) => void settingsStore.patch({ tools: { traceDir: v || null } })}
         />
         <Btn onClick={() => void browse('traceDir', 'directory')}>Browse</Btn>
       </SettingRow>
