@@ -8,6 +8,8 @@ import {
   classifyToolName,
   connectorConfig,
   resolveSecretRefs,
+  RESERVED_INSTANCE_IDS,
+  type ComposedMcp,
   type ConnectorInstance,
   type ConnectorRuntimeState,
   type DiscoveredTool,
@@ -57,6 +59,68 @@ export class McpService {
   /** Mark a connector failed outside a probe (e.g. OAuth refresh failure). */
   markError(instanceId: string, reason: string): void {
     this.runtime.set(instanceId, { state: 'error', reason })
+  }
+
+  /**
+   * Build the Agent SDK mcpServers additions for a NEW session (spec §2.3).
+   * Sync on purpose — called inside AgentService.getOrCreate. Enabled,
+   * non-error connectors only; $secret refs resolved now; every non-silent
+   * skip is returned so the session can log it to its event stream.
+   */
+  composeForSession(): ComposedMcp {
+    const servers: Record<string, unknown> = {}
+    const skipped: ComposedMcp['skipped'] = []
+    for (const [id, inst] of Object.entries(this.deps.registry.get())) {
+      if ((RESERVED_INSTANCE_IDS as readonly string[]).includes(id)) {
+        skipped.push({ instanceId: id, reason: 'reserved instance id' })
+        continue
+      }
+      if (!inst.enabled) continue // disabled by the user: silent
+      const rt = this.runtime.get(id)
+      if (rt?.state === 'error') {
+        skipped.push({ instanceId: id, reason: rt.reason })
+        continue
+      }
+      if (rt?.state === 'needs-auth') {
+        skipped.push({
+          instanceId: id,
+          reason: 'needs authorization — use Authorize on the connector card'
+        })
+        continue
+      }
+      try {
+        if (inst.kind === 'stdio') {
+          const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
+          const { value, missing } = resolveSecretRefs(cfg.env, (n) => this.deps.secrets.resolve(n))
+          if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
+          servers[id] = { type: 'stdio', command: cfg.command, args: cfg.args, env: value }
+        } else if (inst.kind === 'http') {
+          const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+          const { value, missing } = resolveSecretRefs(cfg.headers, (n) =>
+            this.deps.secrets.resolve(n)
+          )
+          if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
+          const headers = value as Record<string, string>
+          if (cfg.oauth) {
+            const token = this.deps.oauth?.accessToken(id) ?? null
+            if (token == null)
+              throw new Error(
+                'OAuth token missing or expired — run Test connection or Re-authorize'
+              )
+            headers.Authorization = `Bearer ${token}`
+          }
+          servers[id] =
+            cfg.transport === 'sse'
+              ? { type: 'sse', url: cfg.url, headers }
+              : { type: 'http', url: cfg.url, headers }
+        } else {
+          throw new Error(`unsupported kind: ${inst.kind}`)
+        }
+      } catch (err) {
+        skipped.push({ instanceId: id, reason: (err as Error).message })
+      }
+    }
+    return { servers, skipped }
   }
 
   /** Test connection: connect → listTools → classify → cache → tear down. */
