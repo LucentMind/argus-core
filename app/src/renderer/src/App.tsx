@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
+import { NewCaseDialog } from './components/NewCaseDialog'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
@@ -15,6 +16,7 @@ function App(): React.JSX.Element {
   const [view, setView] = useState<View>({ kind: 'home' })
   const [prevView, setPrevView] = useState<View>({ kind: 'home' })
   const [viewer, setViewer] = useState<{ evidenceId: number; focusLine: number } | null>(null)
+  const [newCaseOpen, setNewCaseOpen] = useState(false)
 
   // setState happens in the promise callback (external-system subscription
   // shape), not synchronously in effects — keeps react-hooks/set-state-in-effect happy
@@ -61,11 +63,12 @@ function App(): React.JSX.Element {
         onHome={goHome}
         onSelect={openCase}
         onSettings={openSettings}
+        onNewCase={() => setNewCaseOpen(true)}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {view.kind === 'home' ? (
           <>
-            <CaseDashboard cases={cases} onOpen={openCase} onCreate={(i) => void handleCreate(i)} />
+            <CaseDashboard cases={cases} onOpen={openCase} onNew={() => setNewCaseOpen(true)} />
             <div className="mx-auto w-full max-w-5xl px-8 pb-8">
               <SearchBar caseSlug={null} onOpen={handleOpenHit} />
             </div>
@@ -85,6 +88,16 @@ function App(): React.JSX.Element {
           evidenceId={viewer.evidenceId}
           focusLine={viewer.focusLine}
           onClose={() => setViewer(null)}
+        />
+      )}
+      {newCaseOpen && (
+        <NewCaseDialog
+          onClose={() => setNewCaseOpen(false)}
+          onCreateBlank={handleCreate}
+          onOpenCase={(slug) => {
+            void reload()
+            openCase(slug)
+          }}
         />
       )}
     </div>
