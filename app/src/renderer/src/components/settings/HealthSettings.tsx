@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { HealthCheckResult, HealthRow } from '../../../../shared/health'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Chip } from '../ui'
@@ -7,28 +7,48 @@ export function HealthSettings(): React.JSX.Element {
   const [rows, setRows] = useState<HealthRow[]>([])
   const [results, setResults] = useState<Record<string, HealthCheckResult | 'running'>>({})
   const [running, setRunning] = useState(false)
+  // In-flight runs per row (results carry no run id). A result is applied only
+  // when it belongs to the latest run, so a stale result from a superseded run
+  // can't overwrite a fresh 'running' chip.
+  const pending = useRef<Record<string, number>>({})
+
+  function markRunning(ids: string[]): void {
+    for (const id of ids) pending.current[id] = (pending.current[id] ?? 0) + 1
+    setResults((m) => ({
+      ...m,
+      ...Object.fromEntries(ids.map((id) => [id, 'running' as const]))
+    }))
+  }
 
   useEffect(() => {
-    const off = window.argus.health.onResult((r: HealthCheckResult) =>
-      setResults((m) => ({ ...m, [r.id]: r }))
-    )
-    void window.argus.health.list().then((rs: HealthRow[]) => {
-      setRows(rs)
-      setResults(Object.fromEntries(rs.map((r) => [r.id, 'running' as const])))
-      setRunning(true)
-      void window.argus.health.run().finally(() => setRunning(false))
+    let mounted = true
+    const off = window.argus.health.onResult((r: HealthCheckResult) => {
+      // count down this row's in-flight runs; only the last one's result lands
+      const left = Math.max(0, (pending.current[r.id] ?? 1) - 1)
+      pending.current[r.id] = left
+      if (left === 0) setResults((m) => ({ ...m, [r.id]: r }))
     })
-    return off
+    void window.argus.health.list().then((rs: HealthRow[]) => {
+      if (!mounted) return
+      setRows(rs)
+      markRunning(rs.map((r) => r.id))
+      setRunning(true)
+      void window.argus.health.run().finally(() => mounted && setRunning(false))
+    })
+    return () => {
+      mounted = false
+      off()
+    }
   }, [])
 
   function runAll(): void {
-    setResults(Object.fromEntries(rows.map((r) => [r.id, 'running' as const])))
+    markRunning(rows.map((r) => r.id))
     setRunning(true)
     void window.argus.health.run().finally(() => setRunning(false))
   }
 
   function runOne(id: string): void {
-    setResults((m) => ({ ...m, [id]: 'running' }))
+    markRunning([id])
     void window.argus.health.run([id])
   }
 
