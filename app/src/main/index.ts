@@ -187,10 +187,15 @@ function registerIpc(): void {
     // fire-and-forget: derived text appears via evidence:changed when ready
     for (const rec of records) {
       broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
+      // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
+      // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
       void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin })
         .then((derived) => {
           if (derived) broadcast(IPC.evidenceChanged, caseSlug)
         })
+        .catch((err) =>
+          console.warn(`[ingest] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+        )
         .finally(() =>
           broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: false })
         )
