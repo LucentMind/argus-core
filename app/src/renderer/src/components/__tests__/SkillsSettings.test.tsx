@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SkillsSettings } from '../settings/SkillsSettings'
+import { InstalledSkills } from '../settings/InstalledSkills'
 import { accessStore } from '../../lib/accessStore'
 
 const skills = {
@@ -29,9 +29,9 @@ beforeEach(() => {
   } as never
 })
 
-describe('SkillsSettings', () => {
+describe('InstalledSkills', () => {
   it('groups by tier and badges shadowing', async () => {
-    render(<SkillsSettings />)
+    render(<InstalledSkills />)
     expect(await screen.findByText('User skills')).toBeTruthy()
     expect(screen.getByText('Bundled skills')).toBeTruthy()
     expect(screen.getByText(/overrides bundled/i)).toBeTruthy()
@@ -41,12 +41,29 @@ describe('SkillsSettings', () => {
     )
   })
 
-  it('toggle patches tier-qualified access key and refetches', async () => {
-    render(<SkillsSettings />)
-    fireEvent.click(await screen.findByRole('switch', { name: 'enabled · user/rca' }))
+  it('toggle patches tier-qualified access key and refetches with the flipped state', async () => {
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(skills)
+      .mockResolvedValueOnce({
+        skills: [{ ...skills.skills[0], enabled: false }, skills.skills[1]]
+      })
+    window.argus.skills.list = list
+
+    render(<InstalledSkills />)
+    const toggle = await screen.findByRole('switch', { name: 'enabled · user/rca' })
+    expect(toggle).toHaveProperty('ariaChecked', 'true')
+
+    fireEvent.click(toggle)
     await waitFor(() =>
       expect(window.argus.access.patch).toHaveBeenCalledWith({ skills: { 'user/rca': false } })
     )
-    await waitFor(() => expect(window.argus.skills.list).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'enabled · user/rca' })).toHaveProperty(
+        'ariaChecked',
+        'false'
+      )
+    )
   })
 })

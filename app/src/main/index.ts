@@ -23,6 +23,7 @@ import {
   MEMORY_INDEX_MAX_LINES
 } from './services/memory'
 import { resolveSkills } from './services/agent/skillsResolver'
+import { HivemindService } from './services/hivemind'
 import type { MemoryTopicsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
@@ -331,6 +332,29 @@ function registerIpc(): void {
       shadows: s.shadows
     }))
   }))
+
+  // — hivemind (spec §2.3) —
+  const hivemind = new HivemindService({
+    argusHome,
+    repo: () => settingsService.get().hivemind.repo
+  })
+  ipcMain.handle(IPC.hivemindGet, () => hivemind.payload())
+  ipcMain.handle(IPC.hivemindSync, () => hivemind.sync())
+  ipcMain.handle(IPC.hivemindInstall, async (_e, kind: 'skill' | 'reference', name: string) => {
+    const p = await hivemind.install(kind, name)
+    // install implies intent → clear any lingering disable override (sparse store keeps only false)
+    if (kind === 'skill') agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
+    return p
+  })
+  ipcMain.handle(IPC.hivemindDiff, (_e, kind: 'skill' | 'reference', name: string) =>
+    hivemind.diff(kind, name)
+  )
+  ipcMain.handle(IPC.hivemindPushPreview, (_e, kind: 'skill' | 'reference', name: string) =>
+    hivemind.pushPreview(kind, name)
+  )
+  ipcMain.handle(IPC.hivemindPush, (_e, kind: 'skill' | 'reference', name: string, title: string) =>
+    hivemind.push(kind, name, title)
+  )
 
   // — agent access + memory —
   ipcMain.handle(IPC.accessGet, () => agentAccessStore.payload())
