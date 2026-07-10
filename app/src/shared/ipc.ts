@@ -36,5 +36,6 @@ export const IPC = {
   secretsDelete: 'secrets:delete',
   healthList: 'health:list',
   healthRun: 'health:run',
-  healthResult: 'health:result'
+  healthResult: 'health:result',
+  appOpenExternal: 'app:open-external'
 } as const

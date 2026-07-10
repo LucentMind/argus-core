@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { connectorsStore } from '../connectorsStore'
-import type { ConnectorsPayload } from '../../../../shared/connectors'
+import { DEFAULT_PRESETS, type ConnectorsPayload } from '../../../../shared/connectors'
 
 const payload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload => ({
   connectors: {},
@@ -10,6 +10,7 @@ const payload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload => ({
   loadError: null,
   secretsAvailable: true,
   secretsLoadError: null,
+  presets: DEFAULT_PRESETS,
   ...over
 })
 

@@ -8,7 +8,8 @@ import {
   resolveSecretRefs,
   CONNECTOR_FORMS,
   ROVO_FORM_EXTRAS,
-  ROVO_PRESET,
+  DEFAULT_PRESETS,
+  presetsSchema,
   type StdioConnectorConfig,
   type HttpConnectorConfig
 } from '../connectors'
@@ -107,16 +108,38 @@ describe('forms and preset', () => {
       expect(orders).toEqual([...orders].sort((a, b) => a - b))
       for (const a of Object.values(form)) expect(a.sensitive).toBeFalsy()
     }
-    expect(ROVO_FORM_EXTRAS.restApiToken.sensitive).toBe(true)
-    expect(ROVO_FORM_EXTRAS.restApiToken.control).toBe('password')
+    expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
+    expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
   })
 
-  it('ROVO preset is an http+sse+oauth instance', () => {
-    expect(ROVO_PRESET.instanceId).toBe('rovo')
-    expect(ROVO_PRESET.instance.kind).toBe('http')
-    expect(ROVO_PRESET.instance.preset).toBe('rovo')
-    expect(ROVO_PRESET.instance.config.transport).toBe('sse')
-    expect(ROVO_PRESET.instance.config.oauth).toBe(true)
-    expect(ROVO_PRESET.instance.config.url).toContain('atlassian.com')
+  it('ROVO extras are a single sensitive PAT field', () => {
+    expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['apiToken'])
+    expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
+    expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
+    expect(ROVO_FORM_EXTRAS.apiToken.label).toContain('PAT')
+  })
+
+  it('DEFAULT_PRESETS carries the preconfigurable rovo defaults', () => {
+    const rovo = DEFAULT_PRESETS.rovo
+    expect(rovo.kind).toBe('http')
+    expect(rovo.displayName).toBe('Atlassian Rovo')
+    expect(rovo.config).toMatchObject({
+      url: 'https://mcp.atlassian.com/v1/mcp/authv2',
+      transport: 'http',
+      oauth: true
+    })
+    expect(rovo.links.createApiToken).toBe(
+      'https://id.atlassian.com/manage-profile/security/api-tokens'
+    )
+    expect(presetsSchema.parse(DEFAULT_PRESETS)).toMatchObject(DEFAULT_PRESETS)
+  })
+
+  it('presetsSchema round-trips unknown presets and keys', () => {
+    const p = presetsSchema.parse({
+      s3: { displayName: 'S3 traces', kind: 'future-kind', config: { bucket: 'x' }, extra: 1 }
+    })
+    expect(p.s3.kind).toBe('future-kind')
+    expect((p.s3 as Record<string, unknown>).extra).toBe(1)
+    expect(p.s3.links).toEqual({})
   })
 })

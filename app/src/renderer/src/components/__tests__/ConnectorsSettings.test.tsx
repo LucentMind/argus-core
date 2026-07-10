@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { ConnectorsSettings } from '../settings/ConnectorsSettings'
 import { connectorsStore } from '../../lib/connectorsStore'
-import type { ConnectorsPayload } from '../../../../shared/connectors'
+import { DEFAULT_PRESETS, type ConnectorsPayload } from '../../../../shared/connectors'
 
 const basePayload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload => ({
   connectors: {
@@ -34,6 +34,7 @@ const basePayload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload =
   loadError: null,
   secretsAvailable: true,
   secretsLoadError: null,
+  presets: DEFAULT_PRESETS,
   ...over
 })
 
@@ -108,21 +109,18 @@ describe('ConnectorsSettings', () => {
     })
   })
 
-  it('editing the Rovo card shows REST extras; committing the token writes the secret then the ref', async () => {
+  it('editing the Rovo card shows the PAT extra; committing the token writes the secret then the ref', async () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: /edit · rovo/i }))
-    const token = screen.getByLabelText('Atlassian API token (REST)')
+    const token = screen.getByLabelText('Atlassian API token (PAT)')
     fireEvent.change(token, { target: { value: 'atl-tok' } })
     fireEvent.blur(token)
     await vi.waitFor(() =>
-      expect(window.argus.secrets.set).toHaveBeenCalledWith(
-        'connector/rovo/restApiToken',
-        'atl-tok'
-      )
+      expect(window.argus.secrets.set).toHaveBeenCalledWith('connector/rovo/apiToken', 'atl-tok')
     )
     await vi.waitFor(() =>
       expect(window.argus.connectors.patch).toHaveBeenCalledWith({
-        rovo: { config: { restApiToken: { $secret: 'connector/rovo/restApiToken' } } }
+        rovo: { config: { apiToken: { $secret: 'connector/rovo/apiToken' } } }
       })
     )
   })
@@ -131,14 +129,14 @@ describe('ConnectorsSettings', () => {
     currentPayload = basePayload()
     currentPayload.connectors.rovo.config = {
       ...(currentPayload.connectors.rovo.config as Record<string, unknown>),
-      restApiToken: { $secret: 'connector/rovo/restApiToken' }
+      apiToken: { $secret: 'connector/rovo/apiToken' }
     } as never
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: /edit · rovo/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (REST)' }))
-    expect(window.argus.secrets.delete).toHaveBeenCalledWith('connector/rovo/restApiToken')
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (PAT)' }))
+    expect(window.argus.secrets.delete).toHaveBeenCalledWith('connector/rovo/apiToken')
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
-      rovo: { config: { restApiToken: null } }
+      rovo: { config: { apiToken: null } }
     })
     expect(window.argus.secrets.set).not.toHaveBeenCalled()
   })
