@@ -45,9 +45,10 @@ beforeEach(() => {
 })
 
 describe('AgentSettings', () => {
-  it('fetches cached auth on mount, shows the driver badge, and keeps the body collapsed by default', async () => {
+  it('fetches cached auth on mount, shows the Claude header, and keeps the body collapsed by default', async () => {
     render(<AgentSettings payload={payload()} />)
-    expect(screen.getByText('Claude Agent SDK')).toBeTruthy()
+    expect(screen.getByText('Claude')).toBeTruthy()
+    expect(screen.queryByText('claude-default')).toBeNull()
     expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
     expect(screen.queryByText(/Models ·/)).toBeNull()
     await vi.waitFor(() => expect(window.argus.agent.authStatus).toHaveBeenCalledWith())
