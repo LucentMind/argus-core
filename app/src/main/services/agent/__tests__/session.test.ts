@@ -566,4 +566,58 @@ describe('CaseSession', () => {
     expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(before)
     await s.stop('stopped')
   })
+
+  it('write_memory approval carries edited input back (allowlisted native tool)', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'mcp__argus__write_memory',
+      { topic: 't', content: 'draft', index_entry: 'e' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { topic: 't', content: 'EDITED', index_entry: 'e' }
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ topic: 't', content: 'EDITED', index_entry: 'e' })
+    await s.stop('stopped')
+  })
+
+  it('other native tools remain non-editable', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'mcp__argus__update_case_status',
+      { status: 'analyzing' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { status: 'closed' }
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ status: 'analyzing' })
+    await s.stop('stopped')
+  })
 })

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Chip, Btn, SectionLabel } from './ui'
+import { isEditableTool } from '../../../shared/editableTools'
 
 export function ApprovalCard({
   slug,
@@ -19,9 +20,11 @@ export function ApprovalCard({
   const [draft, setDraft] = useState<Record<string, string>>({})
   // Editable per-field preview for connector (MCP) asks at MEDIUM risk — the RCA
   // comment path (spec §3.4). Excludes Argus's own native tools (also `mcp__*`,
-  // e.g. `mcp__argus__update_case_status`) and HIGH-risk asks, which stay read-only.
+  // e.g. `mcp__argus__update_case_status`) and HIGH-risk asks, which stay read-only,
+  // except the narrow allowlist in shared/editableTools (e.g. write_memory), where
+  // the args are pure reviewed content and editing is the review mechanism.
   const editable =
-    request.input != null && request.risk === 'MEDIUM' && /^mcp__(?!argus__)/.test(request.tool)
+    request.input != null && request.risk === 'MEDIUM' && isEditableTool(request.tool)
   const edited = Object.entries(draft).some(([k, v]) => v !== request.input?.[k])
 
   const respond = (kind: 'allow' | 'allow-session' | 'deny'): void => {
