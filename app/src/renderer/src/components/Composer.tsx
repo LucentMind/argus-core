@@ -3,7 +3,7 @@ import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { orderedVisibleModels, effectiveDefaultModel } from '../../../shared/drivers'
 import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
-import type { SkillMeta } from '../../../shared/types'
+import type { SkillListItem } from '../../../shared/memoryIpc'
 
 const ICON = {
   fill: 'none',
@@ -139,7 +139,7 @@ export function Composer({
   prefill?: string
 }): React.JSX.Element {
   const [text, setText] = useState('')
-  const [skills, setSkills] = useState<SkillMeta[]>([])
+  const [skills, setSkills] = useState<SkillListItem[]>([])
   const [model, setModel] = useState('Claude Fable 5')
   const [reasoning, setReasoning] = useState('High · 200k')
   const [permission, setPermission] = useState('Ask approvals')
@@ -179,7 +179,7 @@ export function Composer({
   }
 
   const showSkills = text.startsWith('/') && !text.includes(' ')
-  const matches = skills.filter((s) => s.name.startsWith(text.slice(1)))
+  const matches = skills.filter((s) => s.name.startsWith(text.slice(1)) && s.enabled)
 
   function send(): void {
     const t = text.trim()
