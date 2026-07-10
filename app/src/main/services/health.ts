@@ -18,6 +18,8 @@ export interface HealthDeps {
   gh?: () => Promise<{ ok: boolean; detail: string }>
   enabledConnectors: () => string[]
   probeConnector: (id: string) => Promise<{ ok: boolean; tools?: DiscoveredTool[]; error?: string }>
+  atlassianConfigured: () => boolean
+  atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
 }
 
 const STATIC_ROWS: HealthRow[] = [
@@ -35,6 +37,9 @@ export class HealthService {
   rows(): HealthRow[] {
     return [
       ...STATIC_ROWS,
+      ...(this.deps.atlassianConfigured()
+        ? [{ id: 'atlassian-rest', label: 'Atlassian REST (Jira)' }]
+        : []),
       ...this.deps
         .enabledConnectors()
         .map((id) => ({ id: `connector:${id}`, label: `Connector: ${id}` }))
@@ -94,6 +99,20 @@ export class HealthService {
         }
       }
       if (row.id === 'data-root') return this.checkDataRoot(row)
+      if (row.id === 'atlassian-rest') {
+        const r = await this.deps.atlassianCheck()
+        return {
+          ...row,
+          ok: r.ok,
+          detail: r.detail,
+          ...(r.ok
+            ? {}
+            : {
+                fixHint:
+                  'Set the Site URL and API token on the Atlassian connector (Settings → Connectors).'
+              })
+        }
+      }
       if (row.id.startsWith('connector:')) {
         const id = row.id.slice('connector:'.length)
         const r = await this.deps.probeConnector(id)
