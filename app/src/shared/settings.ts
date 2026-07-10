@@ -53,10 +53,16 @@ const toolsSchema = z.looseObject({
   parseBin: z.string().default('') // '' = auto-resolve
 })
 
+const hivemindSchema = z.looseObject({
+  /** GitHub 'org/name' of the shared HiveMind repo; '' keeps HiveMind features dormant. */
+  repo: z.string().default('')
+})
+
 export const settingsSchema = z.looseObject({
   general: generalSchema.default(() => generalSchema.parse({})),
   agent: agentSchema.default(() => agentSchema.parse({})),
-  tools: toolsSchema.default(() => toolsSchema.parse({}))
+  tools: toolsSchema.default(() => toolsSchema.parse({})),
+  hivemind: hivemindSchema.default(() => hivemindSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>

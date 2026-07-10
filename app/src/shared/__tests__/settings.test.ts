@@ -187,4 +187,11 @@ describe('settings schema', () => {
     expect(deepMerge(base, null)).toEqual({ a: 1 })
     expect(deepMerge(base, undefined)).toEqual({ a: 1 })
   })
+
+  it('hivemind.repo defaults to empty (dormant)', () => {
+    const s = defaultSettings()
+    expect(s.hivemind.repo).toBe('')
+    const parsed = settingsSchema.parse({ hivemind: { repo: 'acme/hivemind' } })
+    expect(parsed.hivemind.repo).toBe('acme/hivemind')
+  })
 })
