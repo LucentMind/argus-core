@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SettingsView } from '../settings/SettingsView'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+import { DEFAULT_PRESETS } from '../../../../shared/connectors'
 
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -46,7 +47,8 @@ beforeEach(() => {
         oauth: {},
         loadError: null,
         secretsAvailable: true,
-        secretsLoadError: null
+        secretsLoadError: null,
+        presets: DEFAULT_PRESETS
       })),
       patch: vi.fn(async () => ({
         connectors: {},
@@ -54,7 +56,8 @@ beforeEach(() => {
         oauth: {},
         loadError: null,
         secretsAvailable: true,
-        secretsLoadError: null
+        secretsLoadError: null,
+        presets: DEFAULT_PRESETS
       })),
       test: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
       oauth: vi.fn().mockResolvedValue({ ok: true }),
