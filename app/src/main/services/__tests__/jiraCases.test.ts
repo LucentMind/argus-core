@@ -135,6 +135,9 @@ describe('JiraCases.ingestAttachments', () => {
     expect(results[1]).toMatchObject({ attachmentId: '10002', status: 'done' })
   })
 
+  // extraction is fire-and-forget: flush pending microtasks/timers before asserting
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
   it('emits parsing start/stop around extraction', async () => {
     const parsing: Array<{ evidenceId: number; active: boolean }> = []
     const svc = service(
@@ -143,10 +146,29 @@ describe('JiraCases.ingestAttachments', () => {
     )
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
     await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    await settle()
     expect(parsing.length).toBe(2)
     expect(parsing[0].active).toBe(true)
     expect(parsing[1].active).toBe(false)
     expect(parsing[0].evidenceId).toBe(parsing[1].evidenceId)
+  })
+
+  it('emits parsing stop even when extraction rejects (sync setup failure)', async () => {
+    const parsing: Array<{ evidenceId: number; active: boolean }> = []
+    const svc = service(
+      fakeClient(() => issue()),
+      (evidenceId, active) => parsing.push({ evidenceId, active })
+    )
+    await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
+    // extractDerivedText's fs.mkdirSync(evidence/.derived) sits OUTSIDE its try/catch;
+    // planting a file there makes the async fn reject before its internal error handling.
+    fs.writeFileSync(path.join(caseDir(argusHome, 'NAV-7'), 'evidence', '.derived'), 'not a dir')
+    // .binlog filename → artifactType 'binlog' → extraction actually runs (log.txt short-circuits)
+    await svc.ingestAttachments('NAV-7', [att('10004', 'trace.binlog')])
+    await settle()
+    expect(parsing.length).toBe(2)
+    expect(parsing[0].active).toBe(true)
+    expect(parsing[1].active).toBe(false)
   })
 
   it('sanitizes hostile filenames into the evidence dir', async () => {
