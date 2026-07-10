@@ -15,7 +15,10 @@ export class SettingsStore {
   start(): void {
     if (this.started) return
     this.started = true
-    void window.argus.settings.get().then((p: SettingsPayload) => this.set(p))
+    void window.argus.settings
+      .get()
+      .then((p: SettingsPayload) => this.set(p))
+      .catch((err) => console.error('settings load failed', err))
     window.argus.settings.onChanged((p: SettingsPayload) => this.set(p))
   }
 
@@ -40,7 +43,13 @@ export class SettingsStore {
   }
 
   async patch(p: DeepPatch<AppSettings>): Promise<void> {
-    this.set(await window.argus.settings.patch(p))
+    try {
+      this.set(await window.argus.settings.patch(p))
+    } catch (err) {
+      console.error('settings patch failed', err)
+      const message = err instanceof Error ? err.message : String(err)
+      if (this.payload) this.set({ ...this.payload, loadError: 'settings save failed: ' + message })
+    }
   }
 }
 

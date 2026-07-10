@@ -41,8 +41,11 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
 
   async function testConnection(): Promise<void> {
     setProbing(true)
-    setAuth(await window.argus.agent.authStatus(true))
-    setProbing(false)
+    try {
+      setAuth(await window.argus.agent.authStatus(true))
+    } finally {
+      setProbing(false)
+    }
   }
 
   return (

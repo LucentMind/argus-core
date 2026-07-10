@@ -65,4 +65,19 @@ describe('SettingsStore', () => {
     onChangedCb!(p)
     expect(store.get()!.loadError).toBe('boom')
   })
+
+  it('patch() failure surfaces a loadError banner and notifies subscribers', async () => {
+    const store = new SettingsStore()
+    store.start()
+    await vi.waitFor(() => expect(store.get()).not.toBeNull())
+    let notified = 0
+    store.subscribe(() => notified++)
+    ;(window.argus.settings.patch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('disk full')
+    )
+    await store.patch({ agent: { maxSessions: 7 } })
+    expect(store.get()!.loadError).toContain('save failed')
+    expect(store.get()!.loadError).toContain('disk full')
+    expect(notified).toBe(1)
+  })
 })
