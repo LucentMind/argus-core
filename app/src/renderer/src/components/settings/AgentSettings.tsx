@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { settingsStore } from '../../lib/settingsStore'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, IconBtn } from '../ui'
 import {
   SettingsSection,
   SettingRow,
@@ -10,6 +10,8 @@ import {
   DraftTextarea
 } from './settingsLayout'
 import { AnnotatedForm } from './AnnotatedForm'
+import { ProviderModels } from './ProviderModels'
+import { RedactedText } from './RedactedText'
 import { getDriver } from '../../../../shared/drivers'
 import {
   PERMISSION_MODES,
@@ -23,6 +25,54 @@ const MODE_BY_LABEL = Object.fromEntries(
   PERMISSION_MODES.map((m) => [PERMISSION_MODE_LABELS[m], m])
 ) as Record<string, PermissionMode>
 
+const CHEVRON_ICON = {
+  size: 14,
+  common: {
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const
+  }
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
+  return (
+    <svg
+      width={CHEVRON_ICON.size}
+      height={CHEVRON_ICON.size}
+      viewBox="0 0 24 24"
+      {...CHEVRON_ICON.common}
+      className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  )
+}
+
+/** `bg-review` when auth is confirmed ok, `bg-danger` when it's confirmed failed, `bg-faint` while probing/unknown. */
+function statusDotClass(auth: AuthStatus | null, probing: boolean): string {
+  if (probing || !auth) return 'bg-faint'
+  return auth.ok ? 'bg-review' : 'bg-danger'
+}
+
+function AuthLine({ auth }: { auth: AuthStatus | null }): React.JSX.Element | null {
+  if (!auth) return null
+  if (auth.ok && auth.email) {
+    return (
+      <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-mute">
+        <span>Authenticated as</span>
+        <RedactedText value={auth.email} aria-label="Toggle account email visibility" />
+        {auth.subscription && <span>· {auth.subscription}</span>}
+      </span>
+    )
+  }
+  if (!auth.ok) {
+    return <span className="text-xs text-danger">{auth.detail}</span>
+  }
+  return <span className="text-xs text-mute">{auth.detail}</span>
+}
+
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
   const instId = a.activeInstanceId
@@ -31,6 +81,17 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
   const cfg = (inst?.config ?? {}) as Record<string, unknown>
   const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [probing, setProbing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    void window.argus.agent.authStatus().then((status) => {
+      if (alive) setAuth(status)
+    })
+    return () => {
+      alive = false
+    }
+  }, [instId])
 
   function patchAgent(p: Record<string, unknown>): void {
     void settingsStore.patch({ agent: p })
@@ -51,42 +112,57 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
   return (
     <>
       <SettingsSection title="Provider">
-        <div className="flex items-center gap-2 px-4 py-3">
-          {driver ? (
-            <Chip tone="signal">{driver.label}</Chip>
-          ) : (
-            <Chip tone="danger">unavailable driver: {inst?.driver ?? 'none'}</Chip>
-          )}
-          <span className="font-mono text-xs text-mute">{instId}</span>
-          <span className="ml-auto flex items-center gap-2">
-            {auth && (
-              <span title={auth.detail}>
-                <Chip tone={auth.ok ? 'review' : 'danger'}>{auth.ok ? 'auth ✓' : 'auth ✗'}</Chip>
-              </span>
+        <div className="flex flex-col gap-1 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(auth, probing)}`}
+            />
+            {driver ? (
+              <Chip tone="signal">{driver.label}</Chip>
+            ) : (
+              <Chip tone="danger">unavailable driver: {inst?.driver ?? 'none'}</Chip>
             )}
-            <Btn disabled={probing} onClick={() => void testConnection()}>
-              {probing ? 'Testing…' : 'Test connection'}
-            </Btn>
-          </span>
+            <span className="font-mono text-xs text-mute">{instId}</span>
+            {auth?.version && <span className="font-mono text-xs text-mute">v{auth.version}</span>}
+            <span className="ml-auto flex items-center gap-2">
+              <Btn disabled={probing} onClick={() => void testConnection()}>
+                {probing ? 'Testing…' : 'Test connection'}
+              </Btn>
+              <IconBtn
+                aria-label={expanded ? 'Collapse provider details' : 'Expand provider details'}
+                title={expanded ? 'Collapse' : 'Expand'}
+                onClick={() => setExpanded((e) => !e)}
+              >
+                <ChevronIcon expanded={expanded} />
+              </IconBtn>
+            </span>
+          </div>
+          <AuthLine auth={auth} />
         </div>
-        <SettingRow
-          label="Display name"
-          isDefault={!inst?.displayName}
-          onReset={() => patchInstance({ displayName: null })}
-        >
-          <DraftInput
-            aria-label="Display name"
-            className={`${FIELD} w-56`}
-            value={inst?.displayName ?? ''}
-            onCommit={(v) => patchInstance({ displayName: v || null })}
-          />
-        </SettingRow>
-        {driver && (
-          <AnnotatedForm
-            annotations={driver.formAnnotations}
-            value={cfg}
-            onChange={(k, v) => patchInstance({ config: { [k]: v } })}
-          />
+        {expanded && (
+          <>
+            <SettingRow
+              label="Display name"
+              isDefault={!inst?.displayName}
+              onReset={() => patchInstance({ displayName: null })}
+            >
+              <DraftInput
+                aria-label="Display name"
+                className={`${FIELD} w-56`}
+                value={inst?.displayName ?? ''}
+                onCommit={(v) => patchInstance({ displayName: v || null })}
+              />
+            </SettingRow>
+            {driver && (
+              <AnnotatedForm
+                annotations={driver.formAnnotations}
+                value={cfg}
+                onChange={(k, v) => patchInstance({ config: { [k]: v } })}
+              />
+            )}
+            <ProviderModels settings={payload.settings} instanceId={instId} />
+          </>
         )}
       </SettingsSection>
 
