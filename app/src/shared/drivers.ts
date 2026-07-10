@@ -9,6 +9,8 @@ export interface FieldAnnotation {
   order: number
   /** Renders as a secret-store-backed password field (AnnotatedForm `onSecret`); config holds a $secret ref. */
   sensitive?: boolean
+  /** Tooltip text shown on the label (title attr) explaining the field's purpose. */
+  help?: string
   /** Value treated as "default" by the reset affordance (besides null/''). */
   defaultValue?: unknown
 }

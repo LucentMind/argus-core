@@ -25,6 +25,7 @@ export function SettingRow({
   isDefault = true,
   onReset,
   badge,
+  hint,
   stacked,
   trailing,
   children
@@ -34,17 +35,20 @@ export function SettingRow({
   isDefault?: boolean
   onReset?: () => void
   badge?: ReactNode
+  /** Tooltip text for the label (title attr) — e.g. explaining a field's purpose. */
+  hint?: string
   /** Uncramped variant for rows whose controls need more than a shrink-to-fit column (e.g. a growing path input + Browse button). */
   stacked?: boolean
   /** Rendered at the far right of line 1 (after reset), stacked variant only — e.g. a status chip that shouldn't crowd the control row. */
   trailing?: ReactNode
   children: ReactNode
 }): React.JSX.Element {
+  const labelClass = `flex items-center gap-2 text-sm text-ink${hint ? ' cursor-help underline decoration-dotted decoration-mute underline-offset-2' : ''}`
   if (stacked) {
     return (
       <div className="flex flex-col gap-0.5 px-4 py-3">
         <div className="flex items-center gap-4">
-          <span className="flex min-w-0 flex-1 items-center gap-2 text-sm text-ink">
+          <span className={`min-w-0 flex-1 ${labelClass}`} title={hint}>
             {label}
             {badge}
           </span>
@@ -67,7 +71,7 @@ export function SettingRow({
   return (
     <div className="flex items-center gap-4 px-4 py-3">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-center gap-2 text-sm text-ink">
+        <span className={labelClass} title={hint}>
           {label}
           {badge}
         </span>

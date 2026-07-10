@@ -225,18 +225,24 @@ function ConnectorCard({
             value={formValue(inst.kind, cfg)}
             onChange={(k, v) => commitField(id, inst.kind, k, v)}
             onSecret={(k, v) => commitSecret(id, k, v)}
+            badges={
+              inst.preset && presets[inst.preset]?.links?.createApiToken
+                ? {
+                    apiToken: (
+                      <button
+                        className="text-xs text-defect underline"
+                        aria-label={`create api token · ${id}`}
+                        onClick={() =>
+                          void window.argus.openExternal(presets[inst.preset!].links.createApiToken)
+                        }
+                      >
+                        Create API token ↗
+                      </button>
+                    )
+                  }
+                : undefined
+            }
           />
-          {inst.preset && presets[inst.preset]?.links?.createApiToken && (
-            <button
-              className="mt-2 text-xs text-defect underline"
-              aria-label={`create api token · ${id}`}
-              onClick={() =>
-                void window.argus.openExternal(presets[inst.preset!].links.createApiToken)
-              }
-            >
-              Create API token ↗
-            </button>
-          )}
         </div>
       )}
     </Card>

@@ -30,6 +30,27 @@ describe('SettingRow', () => {
   })
 })
 
+describe('SettingRow hint', () => {
+  it('renders a title attribute on the label when hint is set', () => {
+    render(
+      <SettingRow label="Atlassian API token (PAT)" hint="Used for REST attachments">
+        <span>child</span>
+      </SettingRow>
+    )
+    const label = screen.getByText('Atlassian API token (PAT)')
+    expect(label.getAttribute('title')).toBe('Used for REST attachments')
+  })
+
+  it('no title attribute when hint is absent', () => {
+    render(
+      <SettingRow label="Max sessions">
+        <span>3</span>
+      </SettingRow>
+    )
+    expect(screen.getByText('Max sessions').getAttribute('title')).toBeNull()
+  })
+})
+
 describe('SettingRow stacked variant', () => {
   it('stacked: label/reset share line 1, description is its own full-width line, children wrap on line 3', () => {
     const onReset = vi.fn()
