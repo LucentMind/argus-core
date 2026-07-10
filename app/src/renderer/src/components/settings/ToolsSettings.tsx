@@ -11,6 +11,7 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
   const [running, setRunning] = useState(false)
 
   function runChecks(): void {
+    setReport(null)
     setRunning(true)
     void window.argus.settings.probeTools().then((r: ProbeToolsReport) => {
       setReport(r)
