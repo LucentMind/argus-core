@@ -38,22 +38,55 @@ beforeEach(() => {
       reveal: vi.fn(),
       onChanged: vi.fn(() => () => {})
     },
-    agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })) }
+    agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })) },
+    connectors: {
+      get: vi.fn(async () => ({
+        connectors: {},
+        runtime: {},
+        oauth: {},
+        loadError: null,
+        secretsAvailable: true,
+        secretsLoadError: null
+      })),
+      patch: vi.fn(async () => ({
+        connectors: {},
+        runtime: {},
+        oauth: {},
+        loadError: null,
+        secretsAvailable: true,
+        secretsLoadError: null
+      })),
+      test: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
+      oauth: vi.fn().mockResolvedValue({ ok: true }),
+      onChanged: vi.fn(() => () => {})
+    },
+    secrets: {
+      set: vi.fn().mockResolvedValue(undefined),
+      has: vi.fn().mockResolvedValue(false),
+      delete: vi.fn().mockResolvedValue(undefined)
+    }
   } as never
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 3 active pages, 5 coming-soon entries', async () => {
+  it('renders the rail: 4 active pages, 4 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
-    for (const label of ['General', 'Agent', 'Analysis Tools'])
+    for (const label of ['General', 'Agent', 'Analysis Tools', 'Connectors'])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(false)
-    for (const label of ['Health', 'Connectors', 'Skills', 'Memory', 'Observability'])
+    for (const label of ['Health', 'Skills', 'Memory', 'Observability'])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(true)
+  })
+
+  it('clicking Connectors renders the connectors page', async () => {
+    render(<SettingsView onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: /General/ })
+    fireEvent.click(screen.getByRole('button', { name: /Connectors/ }))
+    expect(await screen.findByRole('button', { name: /add connector/i })).toBeTruthy()
   })
 
   it('switches pages via the rail', async () => {
