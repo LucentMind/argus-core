@@ -60,3 +60,19 @@ export function userSkillsDir(argusHome: string): string {
 export function hivemindSkillsDir(argusHome: string): string {
   return path.join(argusHome, 'skills-hivemind')
 }
+
+export function hivemindCloneDir(argusHome: string): string {
+  return path.join(argusHome, 'hivemind')
+}
+
+export function hivemindStatePath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'hivemind-state.json')
+}
+
+export function proposalsDir(argusHome: string): string {
+  return path.join(argusHome, 'proposals')
+}
+
+export function proposalsArchiveDir(argusHome: string): string {
+  return path.join(proposalsDir(argusHome), 'archive')
+}
