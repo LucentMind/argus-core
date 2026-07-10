@@ -20,24 +20,16 @@ const cases: CaseRecord[] = [
 describe('CaseDashboard', () => {
   it('renders case cards with status chip and opens on click', () => {
     const onOpen = vi.fn()
-    render(<CaseDashboard cases={cases} onOpen={onOpen} onCreate={vi.fn()} />)
+    render(<CaseDashboard cases={cases} onOpen={onOpen} onNew={vi.fn()} />)
     fireEvent.click(screen.getByText('Bearing jumps'))
     expect(onOpen).toHaveBeenCalledWith('NAV-1')
     expect(screen.getByText('analyzing')).toBeTruthy()
   })
 
-  it('creates a case from the new-case card', () => {
-    const onCreate = vi.fn()
-    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onCreate={onCreate} />)
-    fireEvent.change(screen.getByPlaceholderText('slug (e.g. NAVAPI-123)'), {
-      target: { value: 'NAV-9' }
-    })
-    fireEvent.change(screen.getByPlaceholderText('title'), { target: { value: 'New defect' } })
-    fireEvent.click(screen.getByRole('button', { name: /create case/i }))
-    expect(onCreate).toHaveBeenCalledWith({
-      slug: 'NAV-9',
-      title: 'New defect',
-      jiraKey: undefined
-    })
+  it('New case card opens the dialog via onNew', () => {
+    const onNew = vi.fn()
+    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={onNew} />)
+    fireEvent.click(screen.getByRole('button', { name: /new case/i }))
+    expect(onNew).toHaveBeenCalled()
   })
 })

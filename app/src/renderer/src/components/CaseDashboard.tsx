@@ -1,6 +1,5 @@
-import { useState } from 'react'
-import type { CaseRecord, CaseStatus, NewCaseInput } from '../../../shared/types'
-import { Card, Chip, SectionLabel, Btn } from './ui'
+import type { CaseRecord, CaseStatus } from '../../../shared/types'
+import { Card, Chip, SectionLabel } from './ui'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
   open: 'signal',
@@ -9,22 +8,15 @@ const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'
   closed: 'neutral'
 }
 
-const INPUT =
-  'h-8 rounded-r2 border border-hair bg-overlay px-2.5 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2'
-
 export function CaseDashboard({
   cases,
   onOpen,
-  onCreate
+  onNew
 }: {
   cases: CaseRecord[]
   onOpen: (slug: string) => void
-  onCreate: (input: NewCaseInput) => void
+  onNew: () => void
 }): React.JSX.Element {
-  const [slug, setSlug] = useState('')
-  const [title, setTitle] = useState('')
-  const [jira, setJira] = useState('')
-
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-8">
       <div className="flex flex-col gap-1">
@@ -45,39 +37,10 @@ export function CaseDashboard({
             </div>
           </Card>
         ))}
-        <Card className="flex flex-col gap-2 p-4">
-          <SectionLabel>New case</SectionLabel>
-          <input
-            className={`${INPUT} font-mono`}
-            placeholder="slug (e.g. NAVAPI-123)"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-          />
-          <input
-            className={INPUT}
-            placeholder="title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <input
-            className={`${INPUT} font-mono`}
-            placeholder="jira key (optional)"
-            value={jira}
-            onChange={(e) => setJira(e.target.value)}
-          />
-          <Btn
-            variant="primary"
-            className="justify-center"
-            disabled={!slug || !title}
-            onClick={() => {
-              onCreate({ slug, title, jiraKey: jira || undefined })
-              setSlug('')
-              setTitle('')
-              setJira('')
-            }}
-          >
-            Create case
-          </Btn>
+        <Card onClick={onNew} className="flex min-h-24 items-center justify-center p-4">
+          <span role="button" className="text-sm text-dim transition-colors hover:text-ink">
+            + New case
+          </span>
         </Card>
       </div>
     </div>

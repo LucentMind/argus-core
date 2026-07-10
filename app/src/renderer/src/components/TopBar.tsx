@@ -49,6 +49,14 @@ function MoonIcon(): React.JSX.Element {
   )
 }
 
+function PlusIcon(): React.JSX.Element {
+  return (
+    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
 function GearIcon(): React.JSX.Element {
   return (
     <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
@@ -62,12 +70,14 @@ export function TopBar({
   activeSlug,
   onHome,
   onSelect,
-  onSettings
+  onSettings,
+  onNewCase
 }: {
   activeSlug: string | null
   onHome: () => void
   onSelect: (slug: string) => void
   onSettings: () => void
+  onNewCase: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -121,6 +131,9 @@ export function TopBar({
           )
         })}
       </nav>
+      <IconBtn aria-label="New case" title="New case" onClick={onNewCase}>
+        <PlusIcon />
+      </IconBtn>
       <IconBtn aria-label="Settings" title="Settings" onClick={onSettings}>
         <GearIcon />
       </IconBtn>
