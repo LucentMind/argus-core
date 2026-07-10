@@ -13,11 +13,13 @@ import type { SearchHit } from '../../../shared/types'
 export function CaseWorkspace({
   slug,
   jiraKey,
+  jiraSyncedAt,
   onOpenHit,
   onOpenCitation
 }: {
   slug: string
   jiraKey: string | null
+  jiraSyncedAt: string | null
   onOpenHit: (hit: SearchHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
 }): React.JSX.Element {
@@ -44,7 +46,8 @@ export function CaseWorkspace({
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
         <h1 className="font-mono text-sm text-defect">{slug}</h1>
-        <JiraRefreshButton slug={slug} jiraKey={jiraKey} />
+        {/* key: reset refresh state (summary note, last-synced) when switching cases */}
+        <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         <div className="ml-auto">
           <HeaderChips slug={slug} />
         </div>

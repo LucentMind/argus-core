@@ -25,6 +25,8 @@ export interface CaseRecord {
   slug: string
   title: string
   jiraKey: string | null
+  /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */
+  jiraSyncedAt: string | null
   status: CaseStatus
   tags: string[]
   createdAt: string // ISO 8601

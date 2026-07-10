@@ -13,11 +13,23 @@ beforeEach(() => {
 
 describe('JiraRefreshButton', () => {
   it('renders nothing without a jira link', () => {
-    const { container } = render(<JiraRefreshButton slug="X-1" jiraKey={null} />)
+    const { container } = render(<JiraRefreshButton slug="X-1" jiraKey={null} syncedAt={null} />)
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('refreshes and shows the change summary', async () => {
+  it('shows the last-refreshed datetime from the stored value', () => {
+    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt="2026-07-10T10:00:00.000Z" />)
+    const stamp = screen.getByText(/last refreshed/i)
+    expect(stamp).toHaveTextContent(new Date('2026-07-10T10:00:00.000Z').toLocaleString())
+  })
+
+  it('shows no datetime before the first refresh', () => {
+    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt={null} />)
+    expect(screen.queryByText(/last refreshed/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /refresh from jira/i })).toBeInTheDocument()
+  })
+
+  it('refreshes, shows the change summary, and advances the datetime', async () => {
     refreshCase.mockResolvedValue({
       ok: true,
       value: {
@@ -27,23 +39,40 @@ describe('JiraRefreshButton', () => {
           { id: '1', filename: 'a', size: 1, mimeType: '', createdAt: '' },
           { id: '2', filename: 'b', size: 1, mimeType: '', createdAt: '' }
         ],
-        deletedOnJira: [{ attachmentId: '3', filename: 'gone.txt' }]
+        deletedOnJira: [{ attachmentId: '3', filename: 'gone.txt' }],
+        syncedAt: '2026-07-11T12:30:00.000Z'
       }
     })
-    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" />)
+    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt="2026-07-10T10:00:00.000Z" />)
     fireEvent.click(screen.getByRole('button', { name: /refresh from jira/i }))
     const note = await screen.findByText(/2 new attachments/i)
     expect(note).toHaveTextContent('status Open → Resolved')
     expect(note).toHaveTextContent('1 attachment deleted on Jira (kept locally)')
     expect(refreshCase).toHaveBeenCalledWith('NAV-7')
+    expect(screen.getByText(/last refreshed/i)).toHaveTextContent(
+      new Date('2026-07-11T12:30:00.000Z').toLocaleString()
+    )
+  })
+
+  it('renders a real button with a refresh icon', () => {
+    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt={null} />)
+    const btn = screen.getByRole('button', { name: /refresh from jira/i })
+    expect(btn.tagName).toBe('BUTTON')
+    expect(btn.querySelector('svg')).not.toBeNull()
   })
 
   it('reports "no changes" and surfaces typed errors', async () => {
     refreshCase.mockResolvedValueOnce({
       ok: true,
-      value: { key: 'NAV-7', statusChange: null, newAttachments: [], deletedOnJira: [] }
+      value: {
+        key: 'NAV-7',
+        statusChange: null,
+        newAttachments: [],
+        deletedOnJira: [],
+        syncedAt: '2026-07-11T12:30:00.000Z'
+      }
     })
-    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" />)
+    render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt={null} />)
     fireEvent.click(screen.getByRole('button', { name: /refresh from jira/i }))
     expect(await screen.findByText(/no changes/i)).toBeInTheDocument()
 

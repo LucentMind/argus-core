@@ -10,6 +10,7 @@ const cases: CaseRecord[] = [
     slug: 'NAV-1',
     title: 'Bearing jumps',
     jiraKey: 'NAV-1',
+    jiraSyncedAt: null,
     status: 'analyzing',
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',

@@ -36,6 +36,7 @@ interface CaseRow {
   slug: string
   title: string
   jira_key: string | null
+  jira_synced_at: string | null
   status: string
   tags: string
   created_at: string
@@ -48,6 +49,7 @@ function rowToCase(r: CaseRow): CaseRecord {
     slug: r.slug,
     title: r.title,
     jiraKey: r.jira_key,
+    jiraSyncedAt: r.jira_synced_at ?? null,
     status: r.status as CaseStatus,
     tags: JSON.parse(r.tags) as string[],
     createdAt: r.created_at,
@@ -79,6 +81,7 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       slug: input.slug,
       title: input.title,
       jiraKey: input.jiraKey ?? null,
+      jiraSyncedAt: null,
       status: 'open',
       tags: [],
       createdAt: now,
@@ -138,11 +141,9 @@ export function setCaseJira(
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
   const now = new Date().toISOString()
-  db.prepare(`UPDATE cases SET jira_key = ?, updated_at = ? WHERE slug = ?`).run(
-    jira.key,
-    now,
-    slug
-  )
+  db.prepare(
+    `UPDATE cases SET jira_key = ?, jira_synced_at = ?, updated_at = ? WHERE slug = ?`
+  ).run(jira.key, jira.lastSyncedAt, now, slug)
 
   const file = path.join(caseDir(argusHome, slug), 'case.json')
   let onDisk: Record<string, unknown>

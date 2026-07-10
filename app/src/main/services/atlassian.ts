@@ -63,6 +63,20 @@ export function resolveAtlassianCreds(
   return { instanceId, siteUrl, token, ...(email ? { email } : {}) }
 }
 
+/**
+ * True once REST configuration has begun on a rovo-preset connector (siteUrl or
+ * token set). Gates the Health page's Atlassian REST row: a Rovo connector used
+ * MCP-only is fully healthy without REST, so an untouched REST config is not a
+ * failure — it simply has no row.
+ */
+export function atlassianRestConfigured(connectors: ConnectorMap): boolean {
+  return Object.values(connectors).some((inst) => {
+    if (inst.preset !== 'rovo') return false
+    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+    return Boolean((cfg.siteUrl ?? '').trim()) || isSecretRef(cfg.apiToken)
+  })
+}
+
 export interface JiraIssueData {
   preview: JiraIssuePreview
   descriptionMarkdown: string

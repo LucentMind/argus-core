@@ -16,7 +16,12 @@ import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
 import { HealthService } from './services/health'
 import { ghStatus } from './services/sourceControl'
-import { AtlassianClient, AtlassianError, resolveAtlassianCreds } from './services/atlassian'
+import {
+  AtlassianClient,
+  AtlassianError,
+  atlassianRestConfigured,
+  resolveAtlassianCreds
+} from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
 import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
 import {
@@ -322,8 +327,9 @@ function registerIpc(): void {
         .filter(([, i]) => i.enabled)
         .map(([id]) => id),
     probeConnector: (id) => mcpService.probe(id),
-    atlassianConfigured: () =>
-      Object.values(connectorRegistry.get()).some((i) => i.preset === 'rovo'),
+    // REST is optional for MCP-only Rovo usage — the row appears only once REST
+    // configuration has begun (siteUrl or token set), never as a failure before that.
+    atlassianConfigured: () => atlassianRestConfigured(connectorRegistry.get()),
     atlassianCheck: async () => {
       try {
         const me = await atlassian.myself()
