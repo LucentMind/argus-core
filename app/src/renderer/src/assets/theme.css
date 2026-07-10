@@ -16,7 +16,8 @@
   --hair: rgba(255, 255, 255, 0.06);
   --hair-2: rgba(255, 255, 255, 0.1);
 
-  /* Agent accents (theme-invariant) */
+  /* Agent accents — signal/defect get darker light-theme overrides below,
+     the pale dark-theme values are unreadable as text on paper */
   --signal: #7ec4ff;
   --defect: #f3c352;
   --review: #8bdca5;
@@ -42,6 +43,9 @@
   --faint: rgba(24, 24, 27, 0.25);
   --hair: rgba(0, 0, 0, 0.06);
   --hair-2: rgba(0, 0, 0, 0.12);
+
+  --signal: #1567b3;
+  --defect: #9a6700;
 }
 
 @theme inline {

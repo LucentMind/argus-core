@@ -60,7 +60,7 @@ const BTN_BASE =
   'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-r2 border px-3 text-xs font-medium transition-colors disabled:opacity-40'
 
 const BTN_VARIANTS = {
-  primary: 'border-transparent bg-signal text-[#001020] hover:bg-[#a8d7ff]',
+  primary: 'border-transparent bg-signal text-void transition-all hover:brightness-110',
   ghost: 'border-transparent text-dim hover:bg-hair hover:text-ink',
   outline: 'border-hair2 text-ink hover:border-faint hover:bg-hair',
   danger: 'border-danger/40 text-danger hover:bg-danger/10'

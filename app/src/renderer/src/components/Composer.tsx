@@ -213,7 +213,7 @@ export function Composer({
             <button
               key={s.name}
               className={`block w-full rounded-r1 px-2 py-1 text-left transition-colors hover:bg-hi ${
-                i === highlighted ? 'bg-hi' : ''
+                i === highlighted ? 'bg-signal/20' : ''
               }`}
               onClick={() => completeSkill(s.name)}
             >
@@ -301,7 +301,7 @@ export function Composer({
             aria-label="Send"
             title="Send (⏎)"
             disabled={disabled || !text.trim()}
-            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-[#001020] transition-colors hover:bg-[#a8d7ff] disabled:opacity-40"
+            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
             onClick={send}
           >
             <ArrowUpIcon />
