@@ -77,7 +77,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 /** Non-mutating deep merge. Objects merge; scalars/arrays replace; null deletes the key. */
 export function deepMerge(base: unknown, patch: unknown): unknown {
-  if (!isPlainObject(base) || !isPlainObject(patch)) return patch
+  if (!isPlainObject(patch)) return patch == null ? base : patch
+  if (!isPlainObject(base)) return patch
   const out: Record<string, unknown> = { ...base }
   for (const [k, v] of Object.entries(patch)) {
     if (v === null) delete out[k]

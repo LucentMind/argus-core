@@ -96,12 +96,12 @@ export class SettingsService {
     const t = this.settings.tools
     const traceDir: ResolvedTool = this.env.traceDir
       ? { value: this.env.traceDir, source: 'env' }
-      : t.traceDir
+      : t.traceDir && fs.existsSync(t.traceDir)
         ? { value: t.traceDir, source: 'settings' }
         : { value: resolveTraceBinDir(this.appRoot, t.traceDir || undefined), source: 'default' }
     const parseBin: ResolvedTool = this.env.parseBin
       ? { value: this.env.parseBin, source: 'env' }
-      : t.parseBin
+      : t.parseBin && fs.existsSync(t.parseBin)
         ? { value: t.parseBin, source: 'settings' }
         : {
             value: resolveArgusParse(

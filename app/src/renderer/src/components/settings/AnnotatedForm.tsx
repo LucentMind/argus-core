@@ -22,7 +22,7 @@ export function AnnotatedForm({
         <SettingRow
           key={key}
           label={a.label}
-          isDefault={value[key] == null || value[key] === ''}
+          isDefault={value[key] == null || value[key] === '' || value[key] === a.defaultValue}
           onReset={() => onChange(key, null)}
         >
           {a.control === 'switch' ? (

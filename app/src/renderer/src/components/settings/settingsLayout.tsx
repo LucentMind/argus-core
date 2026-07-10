@@ -157,10 +157,17 @@ export function DraftInput({
       onFocus={() => setFocused(true)}
       onBlur={() => {
         setFocused(false)
+        if (draft === value) return
         onCommit(draft)
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onCommit(draft)
+        if (e.key === 'Enter') {
+          if (draft === value) return
+          onCommit(draft)
+        } else if (e.key === 'Escape') {
+          setDraft(value)
+          e.currentTarget.blur()
+        }
       }}
     />
   )
@@ -192,7 +199,14 @@ export function DraftTextarea({
       onFocus={() => setFocused(true)}
       onBlur={() => {
         setFocused(false)
+        if (draft === value) return
         onCommit(draft)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          setDraft(value)
+          e.currentTarget.blur()
+        }
       }}
     />
   )
