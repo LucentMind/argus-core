@@ -50,7 +50,7 @@ describe('TopBar', () => {
     expect(uiStore.get().recentTabs).toEqual([])
   })
 
-  it('toggles theme and tool-call visibility from the bar', () => {
+  it('toggles theme from the bar; tool-call visibility lives in the composer only', () => {
     render(
       <TopBar
         activeSlug={null}
@@ -63,11 +63,10 @@ describe('TopBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
     expect(uiStore.get().theme).toBe('light')
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
-    fireEvent.click(screen.getByRole('button', { name: 'Hide tool calls' }))
-    expect(uiStore.get().showToolCalls).toBe(false)
-    // labels flip with state
+    // label flips with state
     expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Show tool calls' })).toBeTruthy()
+    // the tool-call toggle moved to the composer control row
+    expect(screen.queryByRole('button', { name: /tool calls/i })).toBeNull()
   })
 
   it('brand button goes home', () => {

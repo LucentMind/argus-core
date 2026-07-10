@@ -13,25 +13,6 @@ const ICON = {
   }
 } as const
 
-function TermIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="m4 7 4 4-4 4M10 15h10" />
-      <rect x="2" y="3" width="20" height="18" rx="2" />
-    </svg>
-  )
-}
-
-function TermOffIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="m4 7 4 4-4 4M10 15h10" />
-      <rect x="2" y="3" width="20" height="18" rx="2" />
-      <path d="M2 2l20 20" />
-    </svg>
-  )
-}
-
 function SunIcon(): React.JSX.Element {
   return (
     <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
@@ -136,13 +117,6 @@ export function TopBar({
       </IconBtn>
       <IconBtn aria-label="Settings" title="Settings" onClick={onSettings}>
         <GearIcon />
-      </IconBtn>
-      <IconBtn
-        aria-label={ui.showToolCalls ? 'Hide tool calls' : 'Show tool calls'}
-        title={ui.showToolCalls ? 'Hide tool calls' : 'Show tool calls'}
-        onClick={() => uiStore.toggleToolCalls()}
-      >
-        {ui.showToolCalls ? <TermIcon /> : <TermOffIcon />}
       </IconBtn>
       <IconBtn
         aria-label={ui.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
