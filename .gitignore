@@ -12,3 +12,5 @@ __pycache__/
 /argus.db*
 /cases/
 /worktrees/
+/config/
+/memory/
