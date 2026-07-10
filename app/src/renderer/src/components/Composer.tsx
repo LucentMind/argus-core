@@ -181,6 +181,23 @@ export function Composer({
   const showSkills = text.startsWith('/') && !text.includes(' ')
   const matches = skills.filter((s) => s.name.startsWith(text.slice(1)) && s.enabled)
 
+  // keyboard state for the skills popup: highlight follows Arrow keys, Tab
+  // completes, Escape hides the popup until the text next changes
+  const [highlight, setHighlight] = useState(0)
+  const [skillsDismissed, setSkillsDismissed] = useState(false)
+  const popupOpen = showSkills && !skillsDismissed && matches.length > 0
+  const highlighted = Math.min(highlight, matches.length - 1)
+
+  function updateText(v: string): void {
+    setText(v)
+    setHighlight(0)
+    setSkillsDismissed(false)
+  }
+
+  function completeSkill(name: string): void {
+    setText(`/${name} `)
+  }
+
   function send(): void {
     const t = text.trim()
     if (!t) return
@@ -190,13 +207,15 @@ export function Composer({
 
   return (
     <div className="relative border-t border-hair bg-deep p-3">
-      {showSkills && matches.length > 0 && (
+      {popupOpen && (
         <div className="absolute bottom-full left-3 z-20 mb-1 w-96 rounded-r2 border border-hair bg-overlay p-1 shadow-lg">
-          {matches.map((s) => (
+          {matches.map((s, i) => (
             <button
               key={s.name}
-              className="block w-full rounded-r1 px-2 py-1 text-left transition-colors hover:bg-hi"
-              onClick={() => setText(`/${s.name} `)}
+              className={`block w-full rounded-r1 px-2 py-1 text-left transition-colors hover:bg-hi ${
+                i === highlighted ? 'bg-hi' : ''
+              }`}
+              onClick={() => completeSkill(s.name)}
             >
               <span className="font-mono text-xs text-defect">/{s.name}</span>
               <span className="ml-2 text-xs text-mute">{s.description}</span>
@@ -211,8 +230,26 @@ export function Composer({
           placeholder="Message the analyst — / for skills"
           value={text}
           disabled={disabled}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => updateText(e.target.value)}
           onKeyDown={(e) => {
+            if (popupOpen) {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                const delta = e.key === 'ArrowDown' ? 1 : -1
+                setHighlight((highlighted + delta + matches.length) % matches.length)
+                return
+              }
+              if (e.key === 'Tab' && !e.shiftKey) {
+                e.preventDefault()
+                completeSkill(matches[highlighted].name)
+                return
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setSkillsDismissed(true)
+                return
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               send()

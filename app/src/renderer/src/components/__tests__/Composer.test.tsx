@@ -145,4 +145,71 @@ describe('Composer', () => {
     // analyze-applog should NOT be offered (enabled: false)
     expect(screen.queryByText('/analyze-applog')).toBeNull()
   })
+
+  describe('skill popup keyboard completion', () => {
+    const twoSkills = (): void => {
+      window.argus.skills.list = vi.fn(async () => ({
+        skills: [
+          {
+            name: 'rca',
+            tier: 'bundled' as const,
+            description: 'Root cause',
+            enabled: true,
+            shadows: []
+          },
+          {
+            name: 'analyze-applog',
+            tier: 'bundled' as const,
+            description: 'Analyze Android logs',
+            enabled: true,
+            shadows: []
+          }
+        ]
+      }))
+    }
+
+    it('Tab completes the top match', async () => {
+      twoSkills()
+      render(<Composer disabled={false} onSend={vi.fn()} />)
+      const textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/' } })
+      await screen.findByText('/rca')
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+      expect((textarea as HTMLTextAreaElement).value).toBe('/rca ')
+    })
+
+    it('arrow keys move the highlight; Tab completes the highlighted skill', async () => {
+      twoSkills()
+      render(<Composer disabled={false} onSend={vi.fn()} />)
+      const textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/' } })
+      await screen.findByText('/rca')
+      fireEvent.keyDown(textarea, { key: 'ArrowDown' })
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+      expect((textarea as HTMLTextAreaElement).value).toBe('/analyze-applog ')
+    })
+
+    it('Escape dismisses the popup until the text changes', async () => {
+      twoSkills()
+      render(<Composer disabled={false} onSend={vi.fn()} />)
+      const textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/' } })
+      await screen.findByText('/rca')
+      fireEvent.keyDown(textarea, { key: 'Escape' })
+      expect(screen.queryByText('/rca')).toBeNull()
+      fireEvent.change(textarea, { target: { value: '/r' } })
+      expect(await screen.findByText('/rca')).toBeTruthy()
+    })
+
+    it('Enter still sends the raw text while the popup is open', async () => {
+      twoSkills()
+      const onSend = vi.fn()
+      render(<Composer disabled={false} onSend={onSend} />)
+      const textarea = screen.getByPlaceholderText(/message the analyst/i)
+      fireEvent.change(textarea, { target: { value: '/rca' } })
+      await screen.findByText('/rca')
+      fireEvent.keyDown(textarea, { key: 'Enter' })
+      expect(onSend).toHaveBeenCalledWith('/rca')
+    })
+  })
 })

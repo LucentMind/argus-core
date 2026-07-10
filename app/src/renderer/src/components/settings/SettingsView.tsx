@@ -62,7 +62,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
         ))}
       </nav>
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-8">
           {payload?.loadError && (
             <div
               role="alert"

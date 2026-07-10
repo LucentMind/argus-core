@@ -45,9 +45,8 @@ const rows: EvidenceRecord[] = [
 
 beforeEach(() => {
   vi.stubGlobal('argus', undefined) // ensure clean slate
-  // EvidenceLibrary reads the timestamp format via useSettingsPayload(), which
-  // starts the shared settingsStore singleton — reset it so this file's mocked
-  // window.argus.settings is refetched instead of a stale payload from another test.
+  // reset the shared settingsStore singleton so other test files' payloads
+  // never leak into this one
   settingsStore.reset()
   window.argus = {
     evidence: {
@@ -68,14 +67,29 @@ beforeEach(() => {
 })
 
 describe('EvidenceLibrary', () => {
-  it('lists evidence with type badges', async () => {
+  it('lists evidence with stripped display names and type badges', async () => {
     render(<EvidenceLibrary caseSlug="NAVAPI-1" />)
-    await waitFor(() => expect(screen.getByText('evidence/log.txt')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('log.txt')).toBeTruthy())
+    // the evidence/ storage prefix is display-stripped but kept in the hover title
+    expect(screen.queryByText('evidence/log.txt')).toBeNull()
+    expect(screen.getByText('log.txt').closest('[title]')?.getAttribute('title')).toBe(
+      'evidence/log.txt'
+    )
     expect(screen.getByText('applog')).toBeTruthy()
     expect(screen.getByText('binlog')).toBeTruthy()
   })
 
-  it('renders derived rows with a chip and an Analyze suggestion for binary types', async () => {
+  it('shows size in MB and no added date', async () => {
+    render(<EvidenceLibrary caseSlug="NAVAPI-1" />)
+    await waitFor(() => expect(screen.getByText('log.txt')).toBeTruthy())
+    // both fixture rows are far below 0.1 MB
+    expect(screen.getAllByText('<0.1 MB')).toHaveLength(2)
+    // no raw byte counts, no timestamp column
+    expect(screen.queryByText(/\d+ B$/)).toBeNull()
+    expect(screen.queryByText(/2026/)).toBeNull()
+  })
+
+  it('renders derived rows with a chip, stripped .derived/ prefix, and an Analyze suggestion', async () => {
     window.argus.evidence.list = vi.fn(async () => [
       {
         id: 1,
@@ -103,15 +117,18 @@ describe('EvidenceLibrary', () => {
     const onSuggest = vi.fn()
     render(<EvidenceLibrary caseSlug="NAV-1" onSuggest={onSuggest} />)
     expect(await screen.findByText('derived')).toBeTruthy()
+    // .derived/ storage prefix is display-stripped too
+    expect(screen.getByText('trace.binlog.txt')).toBeTruthy()
+    // Analyze still suggests the real (unstripped) relPath
     fireEvent.click(screen.getByRole('button', { name: /analyze/i }))
     expect(onSuggest).toHaveBeenCalledWith('/analyze-binlog evidence/trace.binlog')
   })
 
   it('filters by artifact type', async () => {
     render(<EvidenceLibrary caseSlug="NAVAPI-1" />)
-    await waitFor(() => expect(screen.getByText('evidence/log.txt')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('log.txt')).toBeTruthy())
     fireEvent.change(screen.getByLabelText('type-filter'), { target: { value: 'binlog' } })
-    expect(screen.queryByText('evidence/log.txt')).toBeNull()
-    expect(screen.getByText('evidence/trace.binlog')).toBeTruthy()
+    expect(screen.queryByText('log.txt')).toBeNull()
+    expect(screen.getByText('trace.binlog')).toBeTruthy()
   })
 })

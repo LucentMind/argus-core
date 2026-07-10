@@ -69,7 +69,7 @@ function App(): React.JSX.Element {
         {view.kind === 'home' ? (
           <>
             <CaseDashboard cases={cases} onOpen={openCase} onNew={() => setNewCaseOpen(true)} />
-            <div className="mx-auto w-full max-w-5xl px-8 pb-8">
+            <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
               <SearchBar caseSlug={null} onOpen={handleOpenHit} />
             </div>
           </>
