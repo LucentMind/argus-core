@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { InstalledSkills } from './InstalledSkills'
 import { HivemindTab } from './HivemindTab'
+import { ProposalsTab } from './ProposalsTab'
 
 const TABS = [
   { id: 'installed', label: 'Installed' },
@@ -11,21 +12,19 @@ type SkillsTab = (typeof TABS)[number]['id']
 
 export function SkillsSettings(): React.JSX.Element {
   const [tab, setTab] = useState<SkillsTab>('installed')
-  // enabled in Task 12 when proposals IPC lands — window.argus.proposals doesn't exist yet.
-  // const [pending, setPending] = useState(0)
-  // useEffect(() => {
-  //   let mounted = true
-  //   void window.argus.proposals
-  //     .list()
-  //     .then((p) => {
-  //       if (mounted) setPending(p.proposals.length)
-  //     })
-  //     .catch(() => undefined)
-  //   return () => {
-  //     mounted = false
-  //   }
-  // }, [tab])
-  const pending = 0
+  const [pending, setPending] = useState(0)
+  useEffect(() => {
+    let mounted = true
+    void window.argus.proposals
+      .list()
+      .then((p) => {
+        if (mounted) setPending(p.proposals.length)
+      })
+      .catch(() => undefined)
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   return (
     <div className="flex flex-col gap-4">
@@ -47,7 +46,7 @@ export function SkillsSettings(): React.JSX.Element {
       </div>
       {tab === 'installed' && <InstalledSkills />}
       {tab === 'hivemind' && <HivemindTab />}
-      {tab === 'proposals' && <div className="text-dim">Proposals tab lands in Task 12.</div>}
+      {tab === 'proposals' && <ProposalsTab onCountChange={setPending} />}
     </div>
   )
 }
