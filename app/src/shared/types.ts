@@ -45,6 +45,17 @@ export interface EvidenceRecord {
   createdAt: string
 }
 
+export interface FileNode {
+  name: string
+  relPath: string // forward-slash relative path from the case dir
+  kind: 'dir' | 'file'
+  size: number // 0 for dirs
+  children?: FileNode[] // present iff kind === 'dir'
+  evidence?: { id: number; artifactType: ArtifactType; derived: boolean }
+}
+
+export type FileReadResult = { content: string; tooLarge?: never } | { tooLarge: true }
+
 export interface SearchFilters {
   caseSlug?: string
   artifactType?: ArtifactType
