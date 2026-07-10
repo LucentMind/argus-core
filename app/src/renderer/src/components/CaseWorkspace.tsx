@@ -4,7 +4,7 @@ import { EvidenceLibrary } from './EvidenceLibrary'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
-import { WorkspacesStrip } from './WorkspacesStrip'
+import { HeaderRepos } from './HeaderRepos'
 import { JiraRefreshButton } from './JiraRefreshButton'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
@@ -48,11 +48,11 @@ export function CaseWorkspace({
         <h1 className="font-mono text-sm text-defect">{slug}</h1>
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
+        <HeaderRepos slug={slug} />
         <div className="ml-auto">
           <HeaderChips slug={slug} />
         </div>
       </header>
-      <WorkspacesStrip slug={slug} />
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
