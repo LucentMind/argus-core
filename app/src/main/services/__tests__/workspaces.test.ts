@@ -10,7 +10,8 @@ import {
   unlinkWorkspace,
   listWorkspaces,
   ensureWorktree,
-  worktreesRoot
+  worktreesRoot,
+  autoLinkDefaultRepo
 } from '../workspaces'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -105,5 +106,23 @@ describe('workspace service', () => {
     // Second call should not detach the worktree
     await ensureWorktree(argusHome, 'NAV-1', repo, 'feature/x')
     expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature/x')
+  })
+})
+
+describe('autoLinkDefaultRepo', () => {
+  it('links the default repo to a new case', async () => {
+    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', repo)
+    const list = await listWorkspaces(db, argusHome, 'NAV-1')
+    expect(list.map((w) => w.path)).toEqual([repo])
+  })
+
+  it('is a no-op when defaultRepo is null', async () => {
+    await autoLinkDefaultRepo(db, argusHome, 'NAV-1', null)
+    expect(await listWorkspaces(db, argusHome, 'NAV-1')).toEqual([])
+  })
+
+  it('never throws for an invalid repo path', async () => {
+    await expect(autoLinkDefaultRepo(db, argusHome, 'NAV-1', tmp)).resolves.toBeUndefined()
+    expect(await listWorkspaces(db, argusHome, 'NAV-1')).toEqual([])
   })
 })

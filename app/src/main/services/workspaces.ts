@@ -192,3 +192,19 @@ export async function workspaceSandboxRoots(
 ): Promise<string[]> {
   return [...readStored(db, caseSlug).map((w) => w.path), worktreesRoot(argusHome)]
 }
+
+/** Auto-link the settings-default repo at case creation. Best-effort:
+ *  failures (missing dir, not a git repo) warn-log and never block creation. */
+export async function autoLinkDefaultRepo(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  defaultRepo: string | null
+): Promise<void> {
+  if (!defaultRepo) return
+  try {
+    await linkWorkspace(db, argusHome, caseSlug, defaultRepo)
+  } catch (err) {
+    console.warn(`[workspaces] default-repo auto-link failed: ${(err as Error).message}`)
+  }
+}
