@@ -132,3 +132,97 @@ describe('McpService discovery against the fixture stdio server', () => {
     }
   }, 30000)
 })
+
+describe('composeForSession', () => {
+  it('composes enabled connectors, resolves secrets, skips the rest with reasons', () => {
+    secrets.set('hdr-token', 'tok123')
+    registry.patch({
+      fix: {
+        kind: 'stdio',
+        config: { command: 'node', args: ['s.mjs'], env: { T: { $secret: 'hdr-token' } } }
+      },
+      remote: {
+        kind: 'http',
+        config: {
+          url: 'https://mcp.example.com/v1',
+          headers: { 'X-Api-Key': { $secret: 'hdr-token' } }
+        }
+      },
+      ssehost: { kind: 'http', config: { url: 'https://sse.example.com/v1', transport: 'sse' } },
+      off: { kind: 'stdio', enabled: false, config: { command: 'x' } },
+      odd: { kind: 'future-kind', config: {} },
+      argus: { kind: 'stdio', config: { command: 'evil' } }, // reserved name
+      nosecret: { kind: 'http', config: { url: 'https://x', headers: { K: { $secret: 'gone' } } } }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    svc.markError('remote-broken', 'noop') // marking an unknown id must not throw
+    const { servers, skipped } = svc.composeForSession()
+    expect(servers.fix).toEqual({
+      type: 'stdio',
+      command: 'node',
+      args: ['s.mjs'],
+      env: { T: 'tok123' }
+    })
+    expect(servers.remote).toEqual({
+      type: 'http',
+      url: 'https://mcp.example.com/v1',
+      headers: { 'X-Api-Key': 'tok123' }
+    })
+    expect(servers.ssehost).toEqual({ type: 'sse', url: 'https://sse.example.com/v1', headers: {} })
+    expect(servers.off).toBeUndefined() // disabled: silent (user choice, not an error)
+    expect(servers.argus).toBeUndefined()
+    expect(skipped).toContainEqual({ instanceId: 'argus', reason: 'reserved instance id' })
+    expect(skipped).toContainEqual({ instanceId: 'odd', reason: 'unsupported kind: future-kind' })
+    expect(skipped.find((s) => s.instanceId === 'nosecret')?.reason).toMatch(
+      /missing secrets: gone/
+    )
+  })
+
+  it('error-state connectors are skipped; oauth connectors without a token are skipped', () => {
+    registry.patch({
+      dead: { kind: 'stdio', config: { command: 'x' } },
+      rovo: {
+        kind: 'http',
+        config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+      }
+    })
+    const svc = new McpService({
+      registry,
+      secrets,
+      toolRisk: () => ({}),
+      oauth: { accessToken: () => null, refresh: async () => false, status: () => 'not-authorized' }
+    })
+    svc.markError('dead', 'spawn failed')
+    const { servers, skipped } = svc.composeForSession()
+    expect(servers.dead).toBeUndefined()
+    expect(skipped).toContainEqual({ instanceId: 'dead', reason: 'spawn failed' })
+    expect(servers.rovo).toBeUndefined()
+    expect(skipped.find((s) => s.instanceId === 'rovo')?.reason).toMatch(/OAuth/)
+  })
+
+  it('oauth connector with a valid token gets the bearer header', () => {
+    registry.patch({
+      rovo: {
+        kind: 'http',
+        config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+      }
+    })
+    const svc = new McpService({
+      registry,
+      secrets,
+      toolRisk: () => ({}),
+      oauth: {
+        accessToken: () => 'live-token',
+        refresh: async () => true,
+        status: () => 'authorized'
+      }
+    })
+    const { servers, skipped } = svc.composeForSession()
+    expect(servers.rovo).toEqual({
+      type: 'sse',
+      url: 'https://mcp.atlassian.com/v1/sse',
+      headers: { Authorization: 'Bearer live-token' }
+    })
+    expect(skipped).toEqual([])
+  })
+})

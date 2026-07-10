@@ -44,6 +44,10 @@ export interface SessionDeps {
   agentOptions?: SessionAgentOptions
   /** Live tool-risk overrides, re-read on every permission decision. */
   toolRisk?: () => Record<string, RiskLevel>
+  /** Connector servers composed for this session (new sessions only). */
+  extraMcpServers?: Record<string, unknown>
+  /** Connectors that could not be composed; logged to the event stream at start. */
+  mcpSkipped?: Array<{ instanceId: string; reason: string }>
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -105,6 +109,7 @@ export class CaseSession {
           ? { permissionMode: ao.permissionMode }
           : {}),
         mcpServers: {
+          ...(deps.extraMcpServers ?? {}),
           argus: createArgusMcpServer({
             db: deps.db,
             argusHome: deps.argusHome,
@@ -121,6 +126,10 @@ export class CaseSession {
           : {})
       }
     })
+    for (const s of deps.mcpSkipped ?? [])
+      this.emit(
+        makeEvent(this.ctx(), 'session.mcp.skipped', { instanceId: s.instanceId, reason: s.reason })
+      )
     void this.consume()
   }
 

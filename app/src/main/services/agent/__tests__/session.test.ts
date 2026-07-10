@@ -334,4 +334,53 @@ describe('CaseSession', () => {
     expect(r.behavior).toBe('allow')
     await s.stop('stopped')
   })
+
+  it('merges extraMcpServers alongside the argus server and emits mcp-skipped events', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, {
+      extraMcpServers: { rovo: { type: 'sse', url: 'https://x', headers: {} } },
+      mcpSkipped: [{ instanceId: 'dead', reason: 'spawn failed' }]
+    })
+    const servers = sdk.captured.options!.mcpServers as Record<string, unknown>
+    expect(servers.rovo).toEqual({ type: 'sse', url: 'https://x', headers: {} })
+    expect(servers.argus).toBeDefined() // the native server always wins the 'argus' key
+    const skipEvents = events.filter((e) => e.type === 'session.mcp.skipped')
+    expect(skipEvents).toHaveLength(1)
+    expect(skipEvents[0].payload).toEqual({ instanceId: 'dead', reason: 'spawn failed' })
+    await s.stop('stopped')
+  })
+
+  it('a LOW connector tool auto-approves and logs; a MEDIUM one asks (case-bound request event)', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string }>
+    const low = await canUseTool(
+      'mcp__rovo__getJiraIssue',
+      { key: 'NAV-1' },
+      { signal: new AbortController().signal }
+    )
+    expect(low.behavior).toBe('allow')
+    const rows = db
+      .prepare(`SELECT tool, risk, decision FROM tool_calls WHERE tool = ?`)
+      .all('mcp__rovo__getJiraIssue')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ risk: 'LOW', decision: 'auto' })
+    const ac = new AbortController()
+    const pending = canUseTool(
+      'mcp__rovo__addCommentToJiraIssue',
+      { body: 'hi' },
+      { signal: ac.signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const req = events.find((e) => e.type === 'request.opened')!
+    expect(req.payload).toMatchObject({ tool: 'mcp__rovo__addCommentToJiraIssue', risk: 'MEDIUM' })
+    expect(req.caseSlug).toBeTruthy() // case-bound (spec §8)
+    ac.abort() // cancel instead of answering — resolves the pending promise
+    await pending
+    await s.stop('stopped')
+  })
 })
