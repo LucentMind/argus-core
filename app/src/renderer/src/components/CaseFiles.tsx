@@ -28,10 +28,10 @@ const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 function filterTree(nodes: FileNode[], type: ArtifactType | ''): FileNode[] {
   if (!type) return nodes
   return nodes
-    .map((n) =>
-      n.kind === 'dir' ? { ...n, children: filterTree(n.children ?? [], type) } : n
+    .map((n) => (n.kind === 'dir' ? { ...n, children: filterTree(n.children ?? [], type) } : n))
+    .filter((n) =>
+      n.kind === 'dir' ? (n.children?.length ?? 0) > 0 : n.evidence?.artifactType === type
     )
-    .filter((n) => (n.kind === 'dir' ? (n.children?.length ?? 0) > 0 : n.evidence?.artifactType === type))
 }
 
 export function CaseFiles({

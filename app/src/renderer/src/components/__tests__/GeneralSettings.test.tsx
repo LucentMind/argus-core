@@ -67,7 +67,7 @@ describe('GeneralSettings', () => {
   })
 
   it('shows "not set" and browses for a default repository', async () => {
-    ;(window.argus.workspaces.pick as any) = vi.fn(async () => 'C:\\code\\navigator')
+    window.argus.workspaces.pick = vi.fn(async () => 'C:\\code\\navigator')
     render(<GeneralSettings payload={payload()} />)
     expect(screen.getByText('not set')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Browse' }))

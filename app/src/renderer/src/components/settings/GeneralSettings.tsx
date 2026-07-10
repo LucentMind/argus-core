@@ -58,7 +58,10 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
         isDefault={g.defaultRepo === null}
         onReset={() => void settingsStore.patch({ general: { defaultRepo: null } })}
       >
-        <span className="max-w-64 truncate font-mono text-xs text-dim" title={g.defaultRepo ?? undefined}>
+        <span
+          className="max-w-64 truncate font-mono text-xs text-dim"
+          title={g.defaultRepo ?? undefined}
+        >
           {g.defaultRepo ?? 'not set'}
         </span>
         <Btn
