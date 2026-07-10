@@ -155,6 +155,17 @@ export async function inspectBundle(
   }
 }
 
+/**
+ * True if `rel` is a same-tree relative path: not absolute, no `..` or empty
+ * segments, and (when given) prefixed by `requiredPrefix`. Guards both the
+ * manifest's file list and sidecar `relPath` values against path traversal.
+ */
+function safeRelPath(rel: string, requiredPrefix?: string): boolean {
+  if (typeof rel !== 'string' || !rel || path.isAbsolute(rel)) return false
+  if (requiredPrefix && !rel.startsWith(requiredPrefix)) return false
+  return rel.split('/').every((seg) => seg !== '..' && seg !== '')
+}
+
 /** Rebuild evidence rows + FTS from the bundled .meta sidecars (old ids remapped). */
 function reindexImportedEvidence(db: DatabaseSync, caseId: number, dir: string): void {
   const metaRoot = path.join(dir, 'evidence', '.meta')
@@ -174,7 +185,9 @@ function reindexImportedEvidence(db: DatabaseSync, caseId: number, dir: string):
       const rec = JSON.parse(
         fs.readFileSync(path.join(metaRoot, ...rel.split('/')), 'utf8')
       ) as EvidenceRecord
-      return typeof rec.relPath === 'string' && rec.relPath ? [{ rel, rec }] : []
+      return typeof rec.relPath === 'string' && safeRelPath(rec.relPath, 'evidence/')
+        ? [{ rel, rec }]
+        : []
     } catch {
       return [] // orphan/corrupt sidecar — the evidence file stays on disk, just unindexed
     }
@@ -236,6 +249,7 @@ export async function importCase(
     const staged = path.join(tmp, 'case')
     // integrity: every manifest entry present with the recorded hash — nothing lands otherwise
     for (const f of manifest.files) {
+      if (!safeRelPath(f.path)) throw new Error(`Bundle is corrupt: unsafe path ${f.path}`)
       const abs = path.join(staged, ...f.path.split('/'))
       if (!fs.existsSync(abs)) throw new Error(`Bundle is corrupt: missing ${f.path}`)
       if (sha256File(abs) !== f.sha256) {
@@ -274,8 +288,8 @@ export async function importCase(
         now
       )
     const caseId = Number(res.lastInsertRowid)
+    const dir = caseDir(argusHome, slug)
     try {
-      const dir = caseDir(argusHome, slug)
       fs.renameSync(staged, dir)
       for (const sub of ['evidence/.meta', 'sessions', '.rca']) {
         fs.mkdirSync(path.join(dir, sub), { recursive: true })
@@ -293,7 +307,14 @@ export async function importCase(
       reindexImportedEvidence(db, caseId, dir)
       return getCase(db, slug)!
     } catch (err) {
+      // the rename may have already landed the dir on disk, and reindex may have
+      // written evidence_fts rows that the evidence->cases FK cascade won't touch
+      // (FTS5 virtual tables don't support foreign keys) — clean up both explicitly.
+      db.prepare(
+        `DELETE FROM evidence_fts WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
+      ).run(caseId)
       db.prepare('DELETE FROM cases WHERE id = ?').run(caseId)
+      fs.rmSync(dir, { recursive: true, force: true })
       throw err
     }
   } finally {

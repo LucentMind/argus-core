@@ -145,4 +145,78 @@ describe('importCase', () => {
     )
     expect(cj.slug).toBe('NAV-100-2')
   })
+
+  it('rolls back the landed directory and orphan FTS rows when a post-rename step fails', async () => {
+    // exploit: the integrity loop only verifies manifest-LISTED files, so an extra
+    // staged sidecar (not in the manifest) sails through untouched. Duplicate a sidecar
+    // so reindex hits a UNIQUE(case_id, rel_path) violation AFTER the rename has landed.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper3-'))
+    await extract(bundle, tmp)
+    const metaDir = path.join(tmp, 'case', 'evidence', '.meta')
+    fs.copyFileSync(path.join(metaDir, 'boot.txt.json'), path.join(metaDir, 'boot-dup.txt.json'))
+    const bad = path.join(tmp, 'dup-sidecar.arguscase')
+    const zip = new Zip()
+    zip.addFile(path.join(tmp, 'manifest.json'), 'manifest.json')
+    zip.addFolder(path.join(tmp, 'case'), 'case')
+    await zip.archive(bad)
+
+    await expect(importCase(dbB, homeB, bad, 'NAV-100')).rejects.toThrow()
+    expect(getCase(dbB, 'NAV-100')).toBeNull()
+    expect(fs.existsSync(path.join(homeB, 'cases', 'NAV-100'))).toBe(false)
+    const ftsCount = dbB.prepare('SELECT COUNT(*) AS n FROM evidence_fts').get() as { n: number }
+    expect(ftsCount.n).toBe(0)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('rejects a manifest listing an unsafe (traversal) path and writes nothing', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-manifest-'))
+    await extract(bundle, tmp)
+    const mf = JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'))
+    mf.files.push({ path: '../escape.txt', sha256: '0', size: 1 })
+    fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(mf))
+    const bad = path.join(tmp, 'bad-manifest.arguscase')
+    const zip = new Zip()
+    zip.addFile(path.join(tmp, 'manifest.json'), 'manifest.json')
+    zip.addFolder(path.join(tmp, 'case'), 'case')
+    await zip.archive(bad)
+
+    await expect(importCase(dbB, homeB, bad, 'NAV-100')).rejects.toThrow(/unsafe path/)
+    expect(getCase(dbB, 'NAV-100')).toBeNull()
+    expect(fs.existsSync(path.join(homeB, 'cases', 'NAV-100'))).toBe(false)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('skips a sidecar with an unsafe (traversal) relPath, leaving no rogue rows', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-sidecar-'))
+    await extract(bundle, tmp)
+    const metaDir = path.join(tmp, 'case', 'evidence', '.meta')
+    const good = JSON.parse(fs.readFileSync(path.join(metaDir, 'boot.txt.json'), 'utf8'))
+    const evil = { ...good, id: 9999, relPath: '../../outside.txt', meta: { indexed: true } }
+    fs.writeFileSync(path.join(metaDir, 'evil.json'), JSON.stringify(evil, null, 2))
+    const bad = path.join(tmp, 'evil-sidecar.arguscase')
+    const zip = new Zip()
+    zip.addFile(path.join(tmp, 'manifest.json'), 'manifest.json')
+    zip.addFolder(path.join(tmp, 'case'), 'case')
+    await zip.archive(bad)
+
+    const rec = await importCase(dbB, homeB, bad, 'NAV-100')
+    expect(rec.slug).toBe('NAV-100')
+    const evs = listEvidence(dbB, 'NAV-100')
+    expect(evs.every((e) => !e.relPath.includes('..'))).toBe(true)
+
+    // FTS row count matches a clean import — no extra index rows landed for the hostile sidecar
+    const homeC = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-imp-c-'))
+    const dbC = openDb(path.join(homeC, 'argus.db'))
+    await importCase(dbC, homeC, bundle, 'NAV-100')
+    const cleanCount = (
+      dbC.prepare('SELECT COUNT(*) AS n FROM evidence_fts').get() as { n: number }
+    ).n
+    const hostileCount = (
+      dbB.prepare('SELECT COUNT(*) AS n FROM evidence_fts').get() as { n: number }
+    ).n
+    expect(hostileCount).toBe(cleanCount)
+    dbC.close()
+    fs.rmSync(homeC, { recursive: true, force: true })
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
 })
