@@ -13,6 +13,7 @@ import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
+import { HealthService } from './services/health'
 import {
   connectorConfig,
   type ConnectorsPayload,
@@ -271,6 +272,30 @@ function registerIpc(): void {
   ipcMain.handle(IPC.secretsHas, (_e, name: string) => secretStore.has(name))
   ipcMain.handle(IPC.secretsDelete, (_e, name: string) => {
     secretStore.delete(name)
+  })
+
+  // — health —
+  const healthService = new HealthService({
+    argusHome,
+    probeTools: () => settingsService.probeTools(),
+    preflight: () => runPreflight(argusParseBin),
+    agentAuth: async () => {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+      return probeAuth(
+        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
+        { timeoutMs: settingsService.get().agent.probeTimeoutMs }
+      )
+    },
+    enabledConnectors: () =>
+      Object.entries(connectorRegistry.get())
+        .filter(([, i]) => i.enabled)
+        .map(([id]) => id),
+    probeConnector: (id) => mcpService.probe(id)
+  })
+
+  ipcMain.handle(IPC.healthList, () => healthService.rows())
+  ipcMain.handle(IPC.healthRun, async (_e, ids?: string[]) => {
+    await healthService.run(ids ?? null, (r) => broadcast(IPC.healthResult, r))
   })
 }
 

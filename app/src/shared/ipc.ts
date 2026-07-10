@@ -33,5 +33,8 @@ export const IPC = {
   connectorsOauth: 'connectors:oauth',
   secretsSet: 'secrets:set',
   secretsHas: 'secrets:has',
-  secretsDelete: 'secrets:delete'
+  secretsDelete: 'secrets:delete',
+  healthList: 'health:list',
+  healthRun: 'health:run',
+  healthResult: 'health:result'
 } as const
