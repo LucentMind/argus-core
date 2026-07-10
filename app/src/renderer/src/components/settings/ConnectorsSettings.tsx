@@ -94,6 +94,7 @@ function ConnectorCard({
   inst,
   rt,
   oauthStatus,
+  restError,
   secretsAvailable,
   presets,
   editing,
@@ -103,6 +104,7 @@ function ConnectorCard({
   inst: ConnectorInstance
   rt: ConnectorRuntimeState | undefined
   oauthStatus: OAuthStatus | undefined
+  restError: string | undefined
   secretsAvailable: boolean
   presets: ConnectorPresets
   editing: boolean
@@ -149,6 +151,11 @@ function ConnectorCard({
           <Chip tone="danger">unsupported kind: {inst.kind}</Chip>
         )}
         {statusChip(inst, rt)}
+        {restError && (
+          <Chip tone="danger" title={restError}>
+            REST auth
+          </Chip>
+        )}
         {rt?.state === 'error' && <span className="text-xs text-dim">{rt.reason}</span>}
         {isOauth && oauthStatus === 'authorized' && <Chip tone="review">authorized</Chip>}
         {isOauth && oauthStatus !== 'authorized' && (
@@ -309,6 +316,7 @@ export function ConnectorsSettings(): React.JSX.Element {
             inst={inst}
             rt={payload.runtime[id]}
             oauthStatus={payload.oauth[id]}
+            restError={payload.rest[id]}
             secretsAvailable={payload.secretsAvailable}
             presets={payload.presets}
             editing={editing === id}

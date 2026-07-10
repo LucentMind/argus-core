@@ -6,6 +6,7 @@ import type { SettingsPayload } from '../shared/settings'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
+import type { JiraAttachmentInfo, JiraAttachmentProgress } from '../shared/jira'
 
 // Custom API for renderer
 const argus = {
@@ -83,6 +84,19 @@ const argus = {
     set: (name: string, value: string) => ipcRenderer.invoke(IPC.secretsSet, name, value),
     has: (name: string) => ipcRenderer.invoke(IPC.secretsHas, name),
     delete: (name: string) => ipcRenderer.invoke(IPC.secretsDelete, name)
+  },
+  jira: {
+    preview: (key: string) => ipcRenderer.invoke(IPC.jiraPreview, key),
+    createCase: (input: { slug: string; title: string; key: string }) =>
+      ipcRenderer.invoke(IPC.jiraCreateCase, input),
+    ingestAttachments: (caseSlug: string, attachments: JiraAttachmentInfo[]) =>
+      ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
+    refreshCase: (caseSlug: string) => ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+    onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
+      ipcRenderer.on(IPC.jiraAttachmentProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.jiraAttachmentProgress, listener)
+    }
   },
   health: {
     list: () => ipcRenderer.invoke(IPC.healthList),

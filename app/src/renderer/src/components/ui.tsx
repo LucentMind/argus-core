@@ -11,13 +11,16 @@ const CHIP_TONES = {
 
 export function Chip({
   tone = 'neutral',
+  title,
   children
 }: {
   tone?: keyof typeof CHIP_TONES
+  title?: string
   children: ReactNode
 }): React.JSX.Element {
   return (
     <span
+      title={title}
       className={`inline-flex items-center gap-1 rounded-r1 border bg-hair/50 px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${CHIP_TONES[tone]}`}
     >
       {children}
