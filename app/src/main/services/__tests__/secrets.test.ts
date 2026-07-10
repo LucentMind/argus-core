@@ -73,6 +73,33 @@ describe('SecretStore', () => {
     expect(store.has('t')).toBe(false)
   })
 
+  it('delete of an absent name is a no-op (no throw, no spurious persist)', () => {
+    store = new SecretStore(argusHome, fakeCrypto())
+    expect(() => store.delete('ghost')).not.toThrow()
+    expect(fs.existsSync(secretsPath(argusHome))).toBe(false)
+    store.set('keep', 'v')
+    const before = fs.statSync(secretsPath(argusHome)).mtimeMs
+    store.delete('ghost')
+    expect(store.has('keep')).toBe(true)
+    expect(fs.statSync(secretsPath(argusHome)).mtimeMs).toBe(before)
+  })
+
+  it('multiple secrets persist independently across instances', () => {
+    store = new SecretStore(argusHome, fakeCrypto())
+    store.set('a', '1')
+    store.set('b', '2')
+    store.set('c', '3')
+    store.delete('b')
+    store.close()
+    store = new SecretStore(argusHome, fakeCrypto())
+    expect(store.resolve('a')).toBe('1')
+    expect(store.has('b')).toBe(false)
+    expect(store.resolve('c')).toBe('3')
+    expect(Object.keys(JSON.parse(fs.readFileSync(secretsPath(argusHome), 'utf8'))).sort()).toEqual(
+      ['a', 'c']
+    )
+  })
+
   it('deletePrefix removes only matching names and persists; others survive', () => {
     store = new SecretStore(argusHome, fakeCrypto())
     store.set('connector/rovo/restApiToken', 'a')
