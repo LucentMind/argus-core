@@ -67,7 +67,7 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
     const bin = path.join(tmp, 'sample-parse.exe')
     fs.writeFileSync(bin, '')
     svc.patch({ tools: { parseBin: bin } })
-    expect(resolveArgusParse(appRoot, svc.get().tools.parseBin)).toBe(bin)
+    expect(resolveArgusParse(appRoot, svc.get().tools.parseBin, null)).toBe(bin)
     expect(svc.resolvedTools().parseBin).toEqual({ value: bin, source: 'settings' })
   })
 })

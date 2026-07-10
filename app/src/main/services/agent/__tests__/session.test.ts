@@ -296,5 +296,22 @@ describe('CaseSession', () => {
     expect(o.permissionMode).toBeUndefined()
     expect(o.pathToClaudeCodeExecutable).toBeUndefined()
     await s.stop('stopped')
+
+    const sdk2 = fakeSdk()
+    const rec2 = createCase(db, argusHome, { slug: 'NAV-DEF', title: 't' })
+    const s2 = new CaseSession({
+      db,
+      argusHome,
+      caseId: rec2.id,
+      caseSlug: 'NAV-DEF',
+      workspaceRoots: [],
+      skillsRoots: [],
+      emit: (e) => events.push(e),
+      createQuery: sdk2.createQuery,
+      resumeSdkSessionId: null,
+      agentOptions: { permissionMode: 'default' }
+    })
+    expect(sdk2.captured.options!.permissionMode).toBeUndefined()
+    await s2.stop('stopped')
   })
 })
