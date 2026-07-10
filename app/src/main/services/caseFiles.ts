@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, FileNode, FileReadResult } from '../../shared/types'
-import { getCase } from './caseService'
+import { getCase, SLUG_RE } from './caseService'
 import { caseDir } from './paths'
 
 export const FILE_READ_CAP = 2 * 1024 * 1024
@@ -11,10 +11,22 @@ export const FILE_READ_CAP = 2 * 1024 * 1024
 const HIDDEN = new Set(['.claude', '.meta'])
 
 export function resolveCasePath(argusHome: string, slug: string, relPath: string): string {
+  // A hostile slug ('../..') relocates the root itself, so validate it before
+  // building any path from it — same rule createCase enforces.
+  if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
   const root = path.resolve(caseDir(argusHome, slug))
   const target = path.resolve(root, relPath)
   if (target !== root && !target.startsWith(root + path.sep)) {
     throw new Error(`Path is outside the case directory: ${relPath}`)
+  }
+  // The lexical check above can't see symlinks/junctions planted inside the case
+  // dir; when the target exists, its real path must also stay under the real root.
+  if (fs.existsSync(target)) {
+    const realRoot = fs.realpathSync(root)
+    const realTarget = fs.realpathSync(target)
+    if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
+      throw new Error(`Path is outside the case directory: ${relPath}`)
+    }
   }
   return target
 }
@@ -84,6 +96,8 @@ export function listCaseFiles(db: DatabaseSync, argusHome: string, slug: string)
 
 export function readCaseFile(argusHome: string, slug: string, relPath: string): FileReadResult {
   const p = resolveCasePath(argusHome, slug, relPath)
-  if (fs.statSync(p).size > FILE_READ_CAP) return { tooLarge: true }
+  const stat = fs.statSync(p)
+  if (!stat.isFile()) throw new Error(`Not a file: ${relPath}`)
+  if (stat.size > FILE_READ_CAP) return { tooLarge: true }
   return { content: fs.readFileSync(p, 'utf8') }
 }

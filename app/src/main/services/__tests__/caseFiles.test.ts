@@ -24,6 +24,22 @@ afterEach(() => {
 
 const caseRoot = (): string => path.join(argusHome, 'cases', 'NAV-1')
 
+// Junction creation can be denied by policy on some machines; probe once so the
+// symlink-escape test skips instead of failing there.
+const junctionsWork = ((): boolean => {
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-cf-jn-'))
+  try {
+    const target = path.join(probe, 'target')
+    fs.mkdirSync(target)
+    fs.symlinkSync(target, path.join(probe, 'link'), 'junction')
+    return true
+  } catch {
+    return false
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true })
+  }
+})()
+
 describe('resolveCasePath', () => {
   it('resolves paths inside the case dir', () => {
     expect(resolveCasePath(argusHome, 'NAV-1', 'findings.md')).toBe(
@@ -36,6 +52,9 @@ describe('resolveCasePath', () => {
       expect(() => resolveCasePath(argusHome, 'NAV-1', p)).toThrow(/outside the case directory/i)
     }
   )
+  it.each(['../../../x', '..'])('rejects traversal via the slug: %s', (slug) => {
+    expect(() => resolveCasePath(argusHome, slug, 'hosts')).toThrow(/invalid case slug/i)
+  })
 })
 
 describe('listCaseFiles', () => {
@@ -71,5 +90,20 @@ describe('readCaseFile', () => {
   it('caps oversized files', () => {
     fs.writeFileSync(path.join(caseRoot(), 'big.txt'), Buffer.alloc(FILE_READ_CAP + 1))
     expect(readCaseFile(argusHome, 'NAV-1', 'big.txt')).toEqual({ tooLarge: true })
+  })
+  it.each(['../../../x', '..'])('rejects traversal via the slug: %s', (slug) => {
+    expect(() => readCaseFile(argusHome, slug, 'hosts')).toThrow(/invalid case slug/i)
+  })
+  it.skipIf(!junctionsWork)('rejects reads through a junction escaping the case dir', () => {
+    const outside = path.join(tmp, 'outside')
+    fs.mkdirSync(outside)
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'top secret\n')
+    fs.symlinkSync(outside, path.join(caseRoot(), 'dir-link'), 'junction')
+    expect(() => readCaseFile(argusHome, 'NAV-1', 'dir-link/secret.txt')).toThrow(
+      /outside the case directory/i
+    )
+  })
+  it('rejects a directory relPath', () => {
+    expect(() => readCaseFile(argusHome, 'NAV-1', 'evidence')).toThrow(/not a file/i)
   })
 })
