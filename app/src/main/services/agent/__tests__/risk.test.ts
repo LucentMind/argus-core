@@ -121,8 +121,8 @@ describe('classifyToolCall — Bash', () => {
   })
 })
 
-describe('classifyToolCall — unknown-tool fallback', () => {
-  it('does not let "checkout" collide with the read-ish "check" prefix', () => {
+describe('classifyToolCall — MCP branch edge names', () => {
+  it('does not let "checkout" auto-allow (first word not a LOW/MEDIUM convention word → MEDIUM)', () => {
     expect(classifyToolCall('mcp__foo__checkout_worktree', {}, ctx)).toMatchObject({
       action: 'ask',
       risk: 'MEDIUM'
@@ -133,10 +133,47 @@ describe('classifyToolCall — unknown-tool fallback', () => {
     })
   })
 
-  it('classifies destructive-named tools as HIGH ask even before the read-ish check', () => {
+  it('classifies destructive-named tools as HIGH ask (HIGH verbs win anywhere in the name)', () => {
     expect(classifyToolCall('mcp__foo__delete_thing', {}, ctx)).toMatchObject({
       action: 'ask',
       risk: 'HIGH'
+    })
+  })
+})
+
+describe('classifyToolCall — legacy non-MCP unknown-tool fallback', () => {
+  it('classifies destructive names as HIGH ask with no grant key', () => {
+    expect(classifyToolCall('delete_all_records', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      grantKey: null
+    })
+    expect(classifyToolCall('merge_branches', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH',
+      grantKey: null
+    })
+  })
+
+  it('auto-allows read-ish prefixes, including legacy-only find/check words', () => {
+    expect(classifyToolCall('get_weather', {}, ctx)).toEqual({ action: 'allow', risk: 'LOW' })
+    // find/check are legacy-only LOW words (not in the MCP convention's LOW set)
+    expect(classifyToolCall('find_symbols', {}, ctx)).toEqual({ action: 'allow', risk: 'LOW' })
+    expect(classifyToolCall('check_status', {}, ctx)).toEqual({ action: 'allow', risk: 'LOW' })
+  })
+
+  it('does not let "checkout" collide with the read-ish "check" prefix', () => {
+    expect(classifyToolCall('checkout_worktree', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM'
+    })
+  })
+
+  it('defaults unmatched names to MEDIUM ask with a medium grant key', () => {
+    expect(classifyToolCall('frobnicate_widget', {}, ctx)).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: 'medium:frobnicate_widget'
     })
   })
 })
