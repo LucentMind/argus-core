@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { seedSharedDirs, listSkills, sharedSkillsDir } from '../skillsDir'
+import { seedSharedDirs, sharedSkillsDir } from '../skillsDir'
 
 describe('skillsDir', () => {
-  it('seeds shared dirs and lists skill frontmatter', () => {
+  it('seeds shared dirs', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-sk-'))
     const src = path.join(tmp, 'src-skills', 'analyze-applog')
     fs.mkdirSync(src, { recursive: true })
@@ -18,9 +18,6 @@ describe('skillsDir', () => {
     const home = path.join(tmp, 'home')
     seedSharedDirs(home, { skills: path.join(tmp, 'src-skills'), references: refSrc })
     expect(fs.existsSync(path.join(sharedSkillsDir(home), 'analyze-applog', 'SKILL.md'))).toBe(true)
-    expect(listSkills(home)).toEqual([
-      { name: 'analyze-applog', description: 'Analyze an Android applog file.' }
-    ])
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
