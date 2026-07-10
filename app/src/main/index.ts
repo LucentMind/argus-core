@@ -45,6 +45,7 @@ import {
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
+import { listCaseFiles, readCaseFile, resolveCasePath } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
@@ -185,9 +186,14 @@ function registerIpc(): void {
     const records = absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
     // fire-and-forget: derived text appears via evidence:changed when ready
     for (const rec of records) {
-      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin }).then((derived) => {
-        if (derived) broadcast(IPC.evidenceChanged, caseSlug)
-      })
+      broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
+      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin })
+        .then((derived) => {
+          if (derived) broadcast(IPC.evidenceChanged, caseSlug)
+        })
+        .finally(() =>
+          broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: false })
+        )
     }
     return records
   })
@@ -278,6 +284,39 @@ function registerIpc(): void {
   ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) =>
     listWorkspaces(db, argusHome, caseSlug)
   )
+
+  // — files (case-dir explorer) —
+  const caseWatchers = new Map<string, fs.FSWatcher>()
+  const watchCaseDir = (slug: string): void => {
+    if (caseWatchers.has(slug)) return
+    const root = caseDir(argusHome, slug)
+    try {
+      let t: NodeJS.Timeout | null = null
+      const w = fs.watch(root, { recursive: true }, () => {
+        if (t) clearTimeout(t)
+        t = setTimeout(() => broadcast(IPC.filesChanged, slug), 300)
+      })
+      caseWatchers.set(slug, w)
+    } catch (err) {
+      // network drives / EPERM: degrade silently — tree still reloads on evidence:changed
+      console.warn(`[files] watch failed for ${slug}: ${(err as Error).message}`)
+    }
+  }
+
+  ipcMain.handle(IPC.filesList, (_e, slug: string) => {
+    watchCaseDir(slug)
+    return listCaseFiles(db, argusHome, slug)
+  })
+  ipcMain.handle(IPC.filesRead, (_e, slug: string, relPath: string) =>
+    readCaseFile(argusHome, slug, relPath)
+  )
+  ipcMain.handle(IPC.filesOpen, (_e, slug: string, relPath: string) =>
+    shell.openPath(resolveCasePath(argusHome, slug, relPath))
+  )
+  ipcMain.handle(IPC.filesReveal, (_e, slug: string, relPath?: string) => {
+    if (relPath) shell.showItemInFolder(resolveCasePath(argusHome, slug, relPath))
+    else void shell.openPath(caseDir(argusHome, slug))
+  })
 
   // — skills —
   ipcMain.handle(IPC.skillsList, () => ({
@@ -417,7 +456,8 @@ function registerIpc(): void {
     site: () => atlassianCreds().siteUrl,
     argusParse: () => argusParseBin,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
-    evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug)
+    evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug),
+    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
   })
 
   // Typed-result boundary: AtlassianError → { ok: false, code }, auth errors also

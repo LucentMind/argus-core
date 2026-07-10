@@ -50,7 +50,10 @@ function fakeClient(
   }
 }
 
-function service(client: AtlassianClientLike): JiraCases {
+function service(
+  client: AtlassianClientLike,
+  onParsing?: (evidenceId: number, active: boolean) => void
+): JiraCases {
   return new JiraCases({
     db,
     argusHome,
@@ -58,7 +61,8 @@ function service(client: AtlassianClientLike): JiraCases {
     site: () => 'https://acme.atlassian.net',
     argusParse: () => null,
     emitProgress: (p) => progress.push(p),
-    evidenceChanged: (slug) => changed.push(slug)
+    evidenceChanged: (slug) => changed.push(slug),
+    parsing: (_slug, evidenceId, active) => onParsing?.(evidenceId, active)
   })
 }
 
@@ -129,6 +133,20 @@ describe('JiraCases.ingestAttachments', () => {
     ])
     expect(results[0]).toMatchObject({ attachmentId: '10001', status: 'error' })
     expect(results[1]).toMatchObject({ attachmentId: '10002', status: 'done' })
+  })
+
+  it('emits parsing start/stop around extraction', async () => {
+    const parsing: Array<{ evidenceId: number; active: boolean }> = []
+    const svc = service(
+      fakeClient(() => issue()),
+      (evidenceId, active) => parsing.push({ evidenceId, active })
+    )
+    await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
+    await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    expect(parsing.length).toBe(2)
+    expect(parsing[0].active).toBe(true)
+    expect(parsing[1].active).toBe(false)
+    expect(parsing[0].evidenceId).toBe(parsing[1].evidenceId)
   })
 
   it('sanitizes hostile filenames into the evidence dir', async () => {
