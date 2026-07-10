@@ -20,3 +20,15 @@ export function configDir(argusHome: string): string {
 export function settingsPath(argusHome: string): string {
   return path.join(configDir(argusHome), 'settings.json')
 }
+
+export function mcpServersPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'mcp-servers.json')
+}
+
+export function secretsPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'secrets.json')
+}
+
+export function toolRiskPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'tool-risk.json')
+}
