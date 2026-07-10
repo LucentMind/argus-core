@@ -4,6 +4,7 @@ import type { NewCaseInput, SearchFilters, ApprovalDecision } from '../shared/ty
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
 import type { ConnectorsPayload } from '../shared/connectors'
+import type { HealthCheckResult } from '../shared/health'
 
 // Custom API for renderer
 const argus = {
@@ -81,6 +82,15 @@ const argus = {
     set: (name: string, value: string) => ipcRenderer.invoke(IPC.secretsSet, name, value),
     has: (name: string) => ipcRenderer.invoke(IPC.secretsHas, name),
     delete: (name: string) => ipcRenderer.invoke(IPC.secretsDelete, name)
+  },
+  health: {
+    list: () => ipcRenderer.invoke(IPC.healthList),
+    run: (ids?: string[]) => ipcRenderer.invoke(IPC.healthRun, ids),
+    onResult: (cb: (r: HealthCheckResult) => void): (() => void) => {
+      const listener = (_e: unknown, r: HealthCheckResult): void => cb(r)
+      ipcRenderer.on(IPC.healthResult, listener)
+      return () => ipcRenderer.removeListener(IPC.healthResult, listener)
+    }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file)
 }
