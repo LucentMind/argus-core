@@ -166,7 +166,13 @@ export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
     placeholder: 'https://your-site.atlassian.net',
     order: 9
   },
-  apiToken: { control: 'password', label: 'Atlassian API token (PAT)', order: 10, sensitive: true }
+  apiToken: {
+    control: 'password',
+    label: 'Atlassian API token (PAT)',
+    order: 10,
+    sensitive: true,
+    help: 'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
+  }
 }
 
 // --- presets (config/connector-presets.json over these built-ins) ------------

@@ -232,6 +232,17 @@ describe('ConnectorsSettings', () => {
     )
   })
 
+  it('PAT label carries a tooltip explaining REST vs OAuth usage', async () => {
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
+    expect(
+      screen.getByTitle(
+        'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
+      )
+    ).toBeTruthy()
+  })
+
   it('committing the token writes the secret then the ref', async () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
