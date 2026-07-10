@@ -16,7 +16,7 @@ describe('TopBar', () => {
     uiStore.openTab('NAV-1')
     uiStore.openTab('NAV-2')
     const onSelect = vi.fn()
-    render(<TopBar activeSlug="NAV-1" onHome={vi.fn()} onSelect={onSelect} />)
+    render(<TopBar activeSlug="NAV-1" onHome={vi.fn()} onSelect={onSelect} onSettings={vi.fn()} />)
     fireEvent.click(screen.getByText('NAV-2'))
     expect(onSelect).toHaveBeenCalledWith('NAV-2')
   })
@@ -25,7 +25,7 @@ describe('TopBar', () => {
     uiStore.openTab('NAV-1')
     uiStore.openTab('NAV-2')
     const onHome = vi.fn()
-    render(<TopBar activeSlug="NAV-1" onHome={onHome} onSelect={vi.fn()} />)
+    render(<TopBar activeSlug="NAV-1" onHome={onHome} onSelect={vi.fn()} onSettings={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Close NAV-2' }))
     expect(onHome).not.toHaveBeenCalled()
     expect(uiStore.get().recentTabs).toEqual(['NAV-1'])
@@ -35,7 +35,7 @@ describe('TopBar', () => {
   })
 
   it('toggles theme and tool-call visibility from the bar', () => {
-    render(<TopBar activeSlug={null} onHome={vi.fn()} onSelect={vi.fn()} />)
+    render(<TopBar activeSlug={null} onHome={vi.fn()} onSelect={vi.fn()} onSettings={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
     expect(uiStore.get().theme).toBe('light')
     expect(document.documentElement.getAttribute('data-theme')).toBe('light')
@@ -48,8 +48,15 @@ describe('TopBar', () => {
 
   it('brand button goes home', () => {
     const onHome = vi.fn()
-    render(<TopBar activeSlug={null} onHome={onHome} onSelect={vi.fn()} />)
+    render(<TopBar activeSlug={null} onHome={onHome} onSelect={vi.fn()} onSettings={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /argus/i }))
     expect(onHome).toHaveBeenCalled()
+  })
+
+  it('gear button fires onSettings', () => {
+    const onSettings = vi.fn()
+    render(<TopBar activeSlug={null} onHome={vi.fn()} onSelect={vi.fn()} onSettings={onSettings} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(onSettings).toHaveBeenCalled()
   })
 })

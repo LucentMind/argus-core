@@ -19,6 +19,12 @@ export class SettingsStore {
     window.argus.settings.onChanged((p: SettingsPayload) => this.set(p))
   }
 
+  /** Test-only escape hatch: forces the next start() to refetch against a fresh mock. */
+  reset(): void {
+    this.started = false
+    this.payload = null
+  }
+
   private set(p: SettingsPayload): void {
     this.payload = p
     for (const cb of this.listeners) cb()

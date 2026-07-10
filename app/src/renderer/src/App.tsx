@@ -2,16 +2,18 @@ import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { SearchBar } from './components/SearchBar'
+import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
 import { uiStore } from './lib/uiStore'
 import type { CaseRecord, NewCaseInput, SearchHit } from '../../shared/types'
 
-type View = { kind: 'home' } | { kind: 'case'; slug: string }
+type View = { kind: 'home' } | { kind: 'case'; slug: string } | { kind: 'settings' }
 
 function App(): React.JSX.Element {
   const [cases, setCases] = useState<CaseRecord[]>([])
   const [view, setView] = useState<View>({ kind: 'home' })
+  const [prevView, setPrevView] = useState<View>({ kind: 'home' })
   const [viewer, setViewer] = useState<{ evidenceId: number; focusLine: number } | null>(null)
 
   // setState happens in the promise callback (external-system subscription
@@ -42,12 +44,23 @@ function App(): React.JSX.Element {
     void reload()
   }
 
+  function openSettings(): void {
+    if (view.kind !== 'settings') {
+      setPrevView(view)
+      setView({ kind: 'settings' })
+    }
+  }
+  function closeSettings(): void {
+    setView(prevView)
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">
       <TopBar
         activeSlug={view.kind === 'case' ? view.slug : null}
         onHome={goHome}
         onSelect={openCase}
+        onSettings={openSettings}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {view.kind === 'home' ? (
@@ -57,6 +70,8 @@ function App(): React.JSX.Element {
               <SearchBar caseSlug={null} onOpen={handleOpenHit} />
             </div>
           </>
+        ) : view.kind === 'settings' ? (
+          <SettingsView onClose={closeSettings} />
         ) : (
           <CaseWorkspace
             slug={view.slug}
