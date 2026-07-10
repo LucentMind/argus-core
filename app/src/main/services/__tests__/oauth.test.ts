@@ -178,6 +178,41 @@ describe('McpOAuth', () => {
     expect((captured as { client_id: string })?.client_id).toBe('c2')
   })
 
+  it('refresh: presents the STORED client registration (guard self-matches via stored redirect_uris)', async () => {
+    secrets.set(
+      'mcp/x/client',
+      JSON.stringify({
+        client_id: 'c-keep',
+        redirect_uris: ['http://127.0.0.1:2222/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none'
+      })
+    )
+    let captured: unknown
+    const authFn: AuthLike = async (provider) => {
+      captured = provider.clientInformation()
+      await provider.saveTokens({ access_token: 'tok-r', token_type: 'bearer', expires_in: 3600 })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    expect(await oauth.refresh('x', SERVER)).toBe(true)
+    // refresh tokens are client-bound — the provider must present the stored
+    // registration, never discard it and re-register under a placeholder redirect
+    expect((captured as { client_id: string })?.client_id).toBe('c-keep')
+  })
+
+  it('refresh: a corrupted client blob without redirect_uris does not throw', async () => {
+    secrets.set('mcp/x/client', JSON.stringify({ client_id: 'c-broken' }))
+    const authFn: AuthLike = async (provider) => {
+      provider.clientInformation() // must not throw despite missing redirect_uris
+      await provider.saveTokens({ access_token: 'tok', token_type: 'bearer', expires_in: 3600 })
+      return 'AUTHORIZED'
+    }
+    const oauth = new McpOAuth(secrets, async () => {}, authFn)
+    expect(await oauth.refresh('x', SERVER)).toBe(true)
+  })
+
   it('clear removes tokens/client/verifier and resets status', async () => {
     secrets.set('mcp/rovo/tokens', JSON.stringify({ access_token: 't', token_type: 'bearer' }))
     secrets.set('mcp/rovo/client', '{}')

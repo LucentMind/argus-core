@@ -221,6 +221,41 @@ describe('composeForSession', () => {
     }
   }, 30000)
 
+  it('clearRuntime after a successful authorize releases the needs-auth latch — compose includes the connector', () => {
+    registry.patch({
+      rovo: {
+        kind: 'http',
+        config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+      }
+    })
+    let token: string | null = null
+    const svc = new McpService({
+      registry,
+      secrets,
+      toolRisk: () => ({}),
+      oauth: {
+        accessToken: () => token,
+        refresh: async () => token != null,
+        status: () => (token != null ? 'authorized' : 'not-authorized')
+      }
+    })
+    // first compose with no token sets the needs-auth latch
+    expect(svc.composeForSession().servers.rovo).toBeUndefined()
+    expect(svc.runtimeStates().rovo).toEqual({ state: 'needs-auth' })
+    // the user authorizes: token now valid — but the latch alone still skips
+    token = 'live-token'
+    expect(svc.composeForSession().servers.rovo).toBeUndefined()
+    // the connectors:oauth success path clears the latch → compose includes it
+    svc.clearRuntime('rovo')
+    const { servers, skipped } = svc.composeForSession()
+    expect(servers.rovo).toEqual({
+      type: 'sse',
+      url: 'https://mcp.atlassian.com/v1/sse',
+      headers: { Authorization: 'Bearer live-token' }
+    })
+    expect(skipped).toEqual([])
+  })
+
   it('oauth connector with a valid token gets the bearer header', () => {
     registry.patch({
       rovo: {

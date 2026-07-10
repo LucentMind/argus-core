@@ -271,6 +271,8 @@ function registerIpc(): void {
     if (!inst) return { ok: false, error: `unknown connector: ${id}` }
     const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
     const r = await mcpOauth.authorize(id, cfg.url)
+    // release a compose-set needs-auth latch so the next session includes the connector
+    if (r.ok) mcpService.clearRuntime(id)
     broadcast(IPC.connectorsChanged, connectorsPayload())
     return r
   })
