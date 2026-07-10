@@ -64,22 +64,34 @@ beforeEach(() => {
       set: vi.fn().mockResolvedValue(undefined),
       has: vi.fn().mockResolvedValue(false),
       delete: vi.fn().mockResolvedValue(undefined)
+    },
+    health: {
+      list: vi.fn().mockResolvedValue([]),
+      run: vi.fn().mockResolvedValue(undefined),
+      onResult: vi.fn(() => () => {})
     }
   } as never
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 4 active pages, 4 coming-soon entries', async () => {
+  it('renders the rail: 5 active pages, 3 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
-    for (const label of ['General', 'Agent', 'Analysis Tools', 'Connectors'])
+    for (const label of ['General', 'Agent', 'Analysis Tools', 'Health', 'Connectors'])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(false)
-    for (const label of ['Health', 'Skills', 'Memory', 'Observability'])
+    for (const label of ['Skills', 'Memory', 'Observability'])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(true)
+  })
+
+  it('clicking Health renders the health page', async () => {
+    render(<SettingsView onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: /General/ })
+    fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
+    expect(await screen.findByText('Health checks')).toBeTruthy()
   })
 
   it('clicking Connectors renders the connectors page', async () => {
