@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { SettingsSection, SettingRow, Switch, DraftTextarea } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
+import { topicEnabled } from '../../../../shared/agentAccess'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
 
 export function MemorySettings(): React.JSX.Element {
-  useAccessPayload() // keeps enablement live via access:changed
+  const access = useAccessPayload() // keeps enablement live via access:changed
   const [payload, setPayload] = useState<MemoryTopicsPayload | null>(null)
   const [audit, setAudit] = useState<MemoryAuditEntry[]>([])
   const [editing, setEditing] = useState<string | null>(null) // topic name or '_index'
@@ -17,9 +18,19 @@ export function MemorySettings(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refresh()
-  }, [refresh])
+    let mounted = true
+    void (async () => {
+      const topics = await window.argus.memory.topics()
+      if (!mounted) return
+      setPayload(topics)
+      const entries = await window.argus.memory.audit()
+      if (!mounted) return
+      setAudit(entries)
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   async function openEditor(name: string): Promise<void> {
     setDraft(await window.argus.memory.read(name))
@@ -75,7 +86,7 @@ export function MemorySettings(): React.JSX.Element {
               description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}`}
             >
               <Switch
-                checked={t.enabled}
+                checked={access ? topicEnabled(access.access, t.name) : t.enabled}
                 onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
                 aria-label={`enabled · ${t.name}`}
               />
