@@ -157,3 +157,91 @@ describe('browse + install pinning', () => {
     ).toBe(true)
   })
 })
+
+describe('pushable + push', () => {
+  function seedUserAssets(): void {
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'skills-user', 'my-skill', 'SKILL.md'),
+      '---\ndescription: mine\n---\n# my-skill\n'
+    )
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'team-tips.md'),
+      '---\ntrust_tier: team-knowledge\n---\ntips\n'
+    )
+    fs.writeFileSync(
+      path.join(home, 'references', 'synced.md'),
+      '---\ntrust_tier: confluence\n---\nsynced\n'
+    )
+  }
+
+  it('lists user-tier skills and team-knowledge references only', () => {
+    seedUserAssets()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner
+    })
+    expect(svc.pushable()).toEqual([
+      { kind: 'skill', name: 'my-skill' },
+      { kind: 'reference', name: 'team-tips.md' }
+    ])
+  })
+
+  it('push branches from origin default, commits, pushes without force, opens a PR', async () => {
+    seedClone()
+    seedUserAssets()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      return 'https://github.com/acme/hivemind/pull/7'
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' })
+    // the copy landed in the clone before commit
+    expect(fs.existsSync(path.join(home, 'hivemind', 'skills', 'my-skill', 'SKILL.md'))).toBe(true)
+    const flat = calls.map((c) => c.join(' '))
+    expect(flat.some((c) => c.startsWith('checkout -B argus/share-skill-my-skill-'))).toBe(true)
+    expect(flat).toContain('add -A')
+    expect(flat.some((c) => c.startsWith('push -u origin argus/share-'))).toBe(true)
+    expect(flat.every((c) => !c.includes('--force'))).toBe(true)
+    expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(true)
+    // clone restored to the default branch afterwards
+    expect(flat[flat.length - 1]).toBe('checkout main')
+  })
+
+  it('push failures surface as { ok: false } and still restore the branch', async () => {
+    seedClone()
+    seedUserAssets()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'push') throw new Error('remote rejected (non-fast-forward)')
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/remote rejected/)
+    expect(calls[calls.length - 1]).toEqual(['checkout', 'main'])
+  })
+
+  it('pushPreview returns the user-tier content', () => {
+    seedUserAssets()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: fakeGit().runner
+    })
+    expect(svc.pushPreview('skill', 'my-skill')).toContain('# my-skill')
+    expect(svc.pushPreview('reference', 'team-tips.md')).toContain('tips')
+  })
+})

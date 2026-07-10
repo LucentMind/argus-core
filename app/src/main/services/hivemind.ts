@@ -2,12 +2,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath } from './paths'
+import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { frontmatterDescription } from './agent/skillsResolver'
-import { withFrontmatter } from './frontmatter'
+import { withFrontmatter, fmBlock, fmField } from './frontmatter'
 import { JsonFileStore } from './fileStore'
-import type { HivemindItem, HivemindPayload, PushableItem } from '../../shared/hivemind'
+import type {
+  HivemindItem,
+  HivemindPayload,
+  HivemindPushResult,
+  PushableItem
+} from '../../shared/hivemind'
 
 const execFileAsync = promisify(execFile)
 
@@ -48,6 +53,10 @@ export class HivemindService {
 
   private git(args: string[], cwd?: string): Promise<string> {
     return (this.deps.git ?? defaultRun)('git', args, { cwd })
+  }
+
+  private gh(args: string[], cwd?: string): Promise<string> {
+    return (this.deps.gh ?? defaultRun)('gh', args, { cwd })
   }
 
   private state(): HivemindStateFile {
@@ -191,8 +200,98 @@ export class HivemindService {
     return this.git(['diff', pinned, 'HEAD', '--', rel], this.clone())
   }
 
+  /** User-tier assets eligible for sharing: skills-user/* + curated references. */
   pushable(): PushableItem[] {
-    // body lands in Task 9; keep a stub so payload() compiles
-    return []
+    const out: PushableItem[] = []
+    const uroot = userSkillsDir(this.deps.argusHome)
+    if (fs.existsSync(uroot)) {
+      for (const ent of fs.readdirSync(uroot, { withFileTypes: true })) {
+        if (ent.isDirectory() && fs.existsSync(path.join(uroot, ent.name, 'SKILL.md')))
+          out.push({ kind: 'skill', name: ent.name })
+      }
+    }
+    const rroot = sharedReferencesDir(this.deps.argusHome)
+    if (fs.existsSync(rroot)) {
+      for (const ent of fs.readdirSync(rroot, { withFileTypes: true })) {
+        if (!ent.isFile() || !ent.name.endsWith('.md')) continue
+        const block = fmBlock(fs.readFileSync(path.join(rroot, ent.name), 'utf8'))
+        const tier = block ? fmField(block.fm, 'trust_tier') : ''
+        if (tier === 'team-knowledge' || tier === 'user')
+          out.push({ kind: 'reference', name: ent.name })
+      }
+    }
+    return out
+  }
+
+  private pushSource(kind: 'skill' | 'reference', name: string): string {
+    return kind === 'skill'
+      ? path.join(userSkillsDir(this.deps.argusHome), name)
+      : path.join(sharedReferencesDir(this.deps.argusHome), name)
+  }
+
+  /** Content preview for the confirm dialog. */
+  pushPreview(kind: 'skill' | 'reference', name: string): string {
+    const src = this.pushSource(kind, name)
+    const file = kind === 'skill' ? path.join(src, 'SKILL.md') : src
+    return fs.readFileSync(file, 'utf8')
+  }
+
+  /** Branch in the clone → commit → push → gh pr create. Never force-pushes (spec §2.3). */
+  async push(
+    kind: 'skill' | 'reference',
+    name: string,
+    title: string
+  ): Promise<HivemindPushResult> {
+    const repo = this.deps.repo().trim()
+    if (!repo) return { ok: false, error: 'No HiveMind repo configured (Settings → General).' }
+    const clone = this.clone()
+    if (!fs.existsSync(path.join(clone, '.git')))
+      return { ok: false, error: 'HiveMind clone missing — Sync first.' }
+    const src = this.pushSource(kind, name)
+    if (!fs.existsSync(src)) return { ok: false, error: `Not found in the user tier: ${name}` }
+    const branch = `argus/share-${kind}-${name.replace(/\.md$/, '')}-${Date.now()}`
+    let defaultBranch = 'main'
+    try {
+      await this.git(['fetch', 'origin'], clone)
+      defaultBranch = (await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)).replace(
+        /^origin\//,
+        ''
+      )
+      await this.git(['checkout', '-B', branch, `origin/${defaultBranch}`], clone)
+      const dest = path.join(clone, kind === 'skill' ? 'skills' : 'references', name)
+      if (kind === 'skill') {
+        fs.rmSync(dest, { recursive: true, force: true })
+        fs.cpSync(src, dest, { recursive: true })
+      } else {
+        fs.mkdirSync(path.dirname(dest), { recursive: true })
+        fs.copyFileSync(src, dest)
+      }
+      await this.git(['add', '-A'], clone)
+      await this.git(['commit', '-m', `share ${kind}: ${name} (via Argus)`], clone)
+      await this.git(['push', '-u', 'origin', branch], clone)
+      const out = await this.gh(
+        [
+          'pr',
+          'create',
+          '--title',
+          title,
+          '--body',
+          `Shared from Argus (${kind}: ${name}).`,
+          '--head',
+          branch
+        ],
+        clone
+      )
+      const prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      return { ok: true, prUrl }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    } finally {
+      try {
+        await this.git(['checkout', defaultBranch], clone)
+      } catch {
+        // leave the clone as-is; the next sync/payload reports its state
+      }
+    }
   }
 }
