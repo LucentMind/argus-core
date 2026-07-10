@@ -153,4 +153,24 @@ describe('probeAuth', () => {
     )
     expect(other.subscription).toBe('Free Tier')
   })
+
+  it('passes pathToClaudeCodeExecutable through to the query options when cliPath is configured', async () => {
+    let captured: Record<string, unknown> | undefined
+    const spy: CreateQueryFn = (args) => {
+      captured = args.options as Record<string, unknown>
+      return fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])(args)
+    }
+    await probeAuth(spy, { cliPath: '/usr/local/bin/claude' })
+    expect(captured?.pathToClaudeCodeExecutable).toBe('/usr/local/bin/claude')
+  })
+
+  it('omits pathToClaudeCodeExecutable when no cliPath is configured', async () => {
+    let captured: Record<string, unknown> | undefined
+    const spy: CreateQueryFn = (args) => {
+      captured = args.options as Record<string, unknown>
+      return fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])(args)
+    }
+    await probeAuth(spy)
+    expect(captured?.pathToClaudeCodeExecutable).toBeUndefined()
+  })
 })

@@ -5,7 +5,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC } from '../shared/ipc'
-import { resolveArgusHome, dbPath, caseDir, settingsPath } from './services/paths'
+import { resolveArgusHome, dbPath, caseDir, settingsPath, configDir } from './services/paths'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { createCase, listCases } from './services/caseService'
@@ -18,6 +18,7 @@ import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
 import { resolveArgusParse } from './services/parsers'
 import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
+import { activeInstanceConfig } from '../shared/drivers'
 import {
   seedSharedDirs,
   resolveAssetSource,
@@ -78,8 +79,12 @@ function registerIpc(): void {
   }
   recomputeParseBin()
 
+  // shared with the agent:auth-status handler below — settings changes (e.g. a new
+  // cliPath) must invalidate the cached probe result so the next open re-probes
+  let cachedAuth: AuthStatus | null = null
   settingsService.subscribe(() => {
     recomputeParseBin()
+    cachedAuth = null
     broadcast(IPC.settingsChanged, settingsService.payload())
   })
 
@@ -128,14 +133,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) =>
     agentService!.respond(caseSlug, d)
   )
-  let cachedAuth: AuthStatus | null = null
   ipcMain.handle(IPC.agentAuthStatus, async (_e, force?: boolean) => {
     if (force) cachedAuth = null
     if (!cachedAuth) {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
       const status = await probeAuth(
         (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
-        { timeoutMs: settingsService.get().agent.probeTimeoutMs }
+        {
+          timeoutMs: settingsService.get().agent.probeTimeoutMs,
+          cliPath: activeInstanceConfig(settingsService.get()).cliPath
+        }
       )
       // only cache success — a failed probe should retry on the next case open
       if (status.ok) cachedAuth = status
@@ -196,8 +203,11 @@ function registerIpc(): void {
     return r.canceled ? null : r.filePaths[0]
   })
   ipcMain.handle(IPC.settingsReveal, (_e, what: 'dataRoot' | 'settingsFile') => {
-    if (what === 'settingsFile') shell.showItemInFolder(settingsPath(argusHome))
-    else void shell.openPath(argusHome)
+    if (what === 'settingsFile') {
+      const p = settingsPath(argusHome)
+      if (fs.existsSync(p)) shell.showItemInFolder(p)
+      else void shell.openPath(configDir(argusHome))
+    } else void shell.openPath(argusHome)
   })
 }
 
