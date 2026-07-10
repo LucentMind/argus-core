@@ -18,6 +18,9 @@ export function adfToMarkdown(description: unknown): string {
 }
 
 function blocks(nodes: AdfNode[]): string {
+  // `content` on a malformed/foreign ADF node can be anything (string, number, …);
+  // never throw — degrade to no text from that node rather than crash the sync.
+  if (!Array.isArray(nodes)) return ''
   return nodes.map(block).filter(Boolean).join('\n\n')
 }
 
@@ -55,6 +58,7 @@ function listItem(li: AdfNode): string {
 }
 
 function inline(nodes: AdfNode[]): string {
+  if (!Array.isArray(nodes)) return ''
   return nodes.map(inlineNode).join('')
 }
 

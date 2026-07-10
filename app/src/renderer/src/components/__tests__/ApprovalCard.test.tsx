@@ -29,9 +29,22 @@ describe('ApprovalCard', () => {
     })
   })
 
-  it('hides approve-for-session for HIGH risk and sends deny comments', () => {
-    render(<ApprovalCard slug="NAV-1" request={{ ...request, risk: 'HIGH', grantKey: null }} />)
+  it('hides approve-for-session for HIGH risk and sends deny comments; HIGH stays read-only even with MCP input', () => {
+    render(
+      <ApprovalCard
+        slug="NAV-1"
+        request={{
+          ...request,
+          tool: 'mcp__rovo__addCommentToJiraIssue',
+          risk: 'HIGH',
+          grantKey: null,
+          input: { body: 'x' }
+        }}
+      />
+    )
     expect(screen.queryByRole('button', { name: /approve for session/i })).toBeNull()
+    expect(screen.queryByLabelText('body')).toBeNull() // no editable field for the input
+    expect(screen.getByText('git fetch origin')).toBeInTheDocument() // read-only <pre>, no editors
     fireEvent.change(screen.getByPlaceholderText(/reason/i), { target: { value: 'not now' } })
     fireEvent.click(screen.getByRole('button', { name: /^deny$/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', {

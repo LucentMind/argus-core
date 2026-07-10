@@ -357,6 +357,7 @@ function registerIpc(): void {
     try {
       const value = await fn()
       if (Object.keys(restErrors).length) {
+        // single Atlassian instance today; revisit per-instance clearing if a second lands
         for (const k of Object.keys(restErrors)) delete restErrors[k]
         broadcast(IPC.connectorsChanged, connectorsPayload())
       }

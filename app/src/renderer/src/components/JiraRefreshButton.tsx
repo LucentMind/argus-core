@@ -43,9 +43,9 @@ export function JiraRefreshButton({
       <Btn variant="ghost" disabled={busy} onClick={() => void refresh()}>
         {busy ? 'Refreshing…' : 'Refresh from Jira'}
       </Btn>
-      {note && <span className="truncate text-xs text-dim">{note}</span>}
+      {note && <span className="min-w-0 truncate text-xs text-dim">{note}</span>}
       {error && (
-        <span role="alert" className="truncate text-xs text-danger">
+        <span role="alert" className="min-w-0 truncate text-xs text-danger">
           {error}
         </span>
       )}

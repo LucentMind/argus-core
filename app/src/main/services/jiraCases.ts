@@ -194,7 +194,12 @@ export class JiraCases {
       )
     this.deps.evidenceChanged(caseSlug)
 
-    // attachment diff by id — append-only: ingest new, only report deleted
+    // Attachment diff by id — append-only: ingest new, only report deleted.
+    // "New" is judged against local evidence, not against what the user selected at
+    // create time: an attachment deselected on the New Case dialog is simply absent
+    // from evidence, so refresh treats it as new and pulls it. This is intended —
+    // deselection at create time defers ingestion, it does not blocklist the file.
+    // See docs/superpowers/plans/2026-07-10-wave-2-part-3-exit-check.md step 5.
     const known = new Map<string, string>() // attachmentId → filename
     for (const e of evidence) {
       const m = jiraMeta(e.meta)

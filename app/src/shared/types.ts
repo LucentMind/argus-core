@@ -72,7 +72,7 @@ export interface ApprovalDecision {
   requestId: string
   kind: 'allow' | 'allow-session' | 'deny'
   comment?: string
-  /** Edited tool input (MCP MEDIUM preview, spec §3.4); honored on allow only. */
+  /** Edited tool input (connector-tool MEDIUM preview, spec §3.4); honored on allow/allow-session for the current call, connector MCP tools only. */
   updatedInput?: Record<string, unknown>
 }
 

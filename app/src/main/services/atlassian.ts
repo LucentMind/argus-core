@@ -32,6 +32,9 @@ export function resolveAtlassianCreds(
   connectors: ConnectorMap,
   resolveSecret: (name: string) => string | null
 ): AtlassianCreds {
+  // `inst.enabled` is deliberately ignored here: this REST path is UI-native (New
+  // Case / Refresh) and independent of the agent's MCP session — `enabled` only
+  // governs whether the connector is composed into that MCP session.
   const entry = Object.entries(connectors).find(([, inst]) => inst.preset === 'rovo')
   if (!entry)
     throw new AtlassianError(
@@ -101,11 +104,19 @@ export class AtlassianClient {
     return res
   }
 
+  private async parseJson<T>(res: Response): Promise<T> {
+    try {
+      return (await res.json()) as T
+    } catch {
+      throw new AtlassianError('http', 'Atlassian returned invalid JSON', this.creds().instanceId)
+    }
+  }
+
   async getIssue(key: string): Promise<JiraIssueData> {
     const res = await this.request(
       `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${ISSUE_FIELDS}`
     )
-    const raw = (await res.json()) as { key?: string; fields?: Record<string, unknown> }
+    const raw = await this.parseJson<{ key?: string; fields?: Record<string, unknown> }>(res)
     const f = raw.fields ?? {}
     const attachments: JiraAttachmentInfo[] = (
       (f.attachment as Array<Record<string, unknown>>) ?? []
@@ -138,7 +149,7 @@ export class AtlassianClient {
   /** Cheap auth probe for the Health page. */
   async myself(): Promise<{ displayName: string }> {
     const res = await this.request('/rest/api/3/myself')
-    const raw = (await res.json()) as { displayName?: string }
+    const raw = await this.parseJson<{ displayName?: string }>(res)
     return { displayName: raw.displayName ?? '(unknown)' }
   }
 }
