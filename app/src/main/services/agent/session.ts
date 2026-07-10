@@ -267,7 +267,12 @@ export class CaseSession {
       if (outcome.decision === 'allow-session' && verdict.grantKey)
         this.grants.add(verdict.grantKey)
       log(outcome.decision === 'allow-session' ? 'grant' : 'user')
-      return { behavior: 'allow', updatedInput: outcome.updatedInput ?? input }
+      // Defense in depth: edited inputs are only a connector-tool (MCP) feature —
+      // never substitute args on Bash/native asks, whatever the IPC caller sent.
+      return {
+        behavior: 'allow',
+        updatedInput: (/^mcp__/.test(toolName) ? outcome.updatedInput : undefined) ?? input
+      }
     }
     log(outcome.decision === 'cancelled' ? 'cancelled' : 'denied')
     return {

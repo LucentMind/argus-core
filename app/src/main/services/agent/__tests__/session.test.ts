@@ -440,4 +440,69 @@ describe('CaseSession', () => {
     expect(r.updatedInput).toEqual({ issueKey: 'NAV-7', body: 'edited RCA' })
     await s.stop('stopped')
   })
+
+  it('ignores updatedInput on non-MCP asks — the original input is returned', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'Bash',
+      { command: 'git push' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { command: 'rm -rf /' } // spoofed edit — must not be honored
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ command: 'git push' })
+    await s.stop('stopped')
+  })
+
+  it('allow-session with edits applies them to the current call; the grant then returns originals', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const first = canUseTool(
+      'mcp__rovo__addCommentToJiraIssue',
+      { issueKey: 'NAV-7', body: 'draft RCA' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow-session',
+      updatedInput: { issueKey: 'NAV-7', body: 'edited RCA' }
+    })
+    const r1 = await first
+    expect(r1.behavior).toBe('allow')
+    expect(r1.updatedInput).toEqual({ issueKey: 'NAV-7', body: 'edited RCA' })
+
+    // identical ask short-circuits via the session grant — no new request, original input
+    const before = events.filter((e) => e.type === 'request.opened').length
+    const r2 = await canUseTool(
+      'mcp__rovo__addCommentToJiraIssue',
+      { issueKey: 'NAV-7', body: 'draft RCA' },
+      { signal: new AbortController().signal }
+    )
+    expect(r2.behavior).toBe('allow')
+    expect(r2.updatedInput).toEqual({ issueKey: 'NAV-7', body: 'draft RCA' })
+    expect(events.filter((e) => e.type === 'request.opened')).toHaveLength(before)
+    await s.stop('stopped')
+  })
 })
