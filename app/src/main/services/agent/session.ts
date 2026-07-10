@@ -180,7 +180,7 @@ export class CaseSession {
   }
 
   respond(d: ApprovalDecision): boolean {
-    return this.approvals.resolve(d.requestId, d.kind, d.comment)
+    return this.approvals.resolve(d.requestId, d.kind, d.comment, d.updatedInput)
   }
 
   async interrupt(): Promise<void> {
@@ -253,7 +253,8 @@ export class CaseSession {
         tool: toolName,
         risk: verdict.risk,
         grantKey: verdict.grantKey,
-        argsPreview
+        argsPreview,
+        input
       })
     )
     const outcome = await this.approvals.open(
@@ -266,7 +267,7 @@ export class CaseSession {
       if (outcome.decision === 'allow-session' && verdict.grantKey)
         this.grants.add(verdict.grantKey)
       log(outcome.decision === 'allow-session' ? 'grant' : 'user')
-      return { behavior: 'allow', updatedInput: input }
+      return { behavior: 'allow', updatedInput: outcome.updatedInput ?? input }
     }
     log(outcome.decision === 'cancelled' ? 'cancelled' : 'denied')
     return {

@@ -40,6 +40,7 @@ export type AgentEvent = AgentEventBase &
           risk: Risk
           grantKey: string | null
           argsPreview: string // human-readable rendering of the args
+          input?: Record<string, unknown> // full args (asks only; absent in pre-Part-3 mirrors)
         }
       }
     | {

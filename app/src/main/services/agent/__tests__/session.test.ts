@@ -409,4 +409,35 @@ describe('CaseSession', () => {
     await pending
     await s.stop('stopped')
   })
+
+  it('request.opened carries the full input; an edited approval flows back as updatedInput', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'mcp__rovo__addCommentToJiraIssue',
+      { issueKey: 'NAV-7', body: 'draft RCA' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    expect((opened.payload as { input: unknown }).input).toEqual({
+      issueKey: 'NAV-7',
+      body: 'draft RCA'
+    })
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { issueKey: 'NAV-7', body: 'edited RCA' }
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ issueKey: 'NAV-7', body: 'edited RCA' })
+    await s.stop('stopped')
+  })
 })

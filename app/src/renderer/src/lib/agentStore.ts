@@ -20,6 +20,7 @@ export interface CaseAgentState {
     risk: string
     grantKey: string | null
     argsPreview: string
+    input?: Record<string, unknown>
   }[]
   running: boolean
   cost: { inputTokens: number; outputTokens: number; costUsd: number }
