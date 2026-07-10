@@ -50,7 +50,11 @@ export function CaseFiles({
   const [dragOver, setDragOver] = useState(false)
 
   const reload = useCallback(
-    (): Promise<void> => window.argus.files.list(caseSlug).then(setTree),
+    (): Promise<void> =>
+      window.argus.files.list(caseSlug).then(setTree, (err) => {
+        console.warn(`[files] list failed for ${caseSlug}: ${(err as Error).message}`)
+        setTree([])
+      }),
     [caseSlug]
   )
 
