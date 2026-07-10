@@ -55,6 +55,21 @@ describe('SettingRow stacked variant', () => {
     expect(onReset).toHaveBeenCalled()
   })
 
+  it('stacked: trailing renders on line 1 alongside the label, not in the children row', () => {
+    render(
+      <SettingRow label="sample-parse binary" stacked trailing={<span>found</span>}>
+        <span>child-a</span>
+      </SettingRow>
+    )
+    const label = screen.getByText('sample-parse binary')
+    const trailing = screen.getByText('found')
+    const childA = screen.getByText('child-a')
+
+    // trailing sits in the same line-1 row div as the label, not with the children
+    expect(trailing.closest('div')).toBe(label.closest('div'))
+    expect(trailing.closest('div')).not.toBe(childA.parentElement)
+  })
+
   it('non-stacked row keeps its existing single flex-row structure (unaffected by the stacked variant)', () => {
     render(
       <SettingRow label="Max sessions" description="desc">
