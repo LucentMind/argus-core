@@ -68,4 +68,23 @@ describe('ToolsSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Re-run checks' }))
     await vi.waitFor(() => expect(window.argus.settings.probeTools).toHaveBeenCalledTimes(2))
   })
+
+  it('Re-run clears chips to checking state while the probe is in flight', async () => {
+    render(<ToolsSettings payload={payload()} />)
+    await screen.findByText(/found · sample-parse 0\.3\.0/)
+    let resolveProbe!: (r: unknown) => void
+    ;(window.argus.settings.probeTools as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveProbe = r
+        })
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run checks' }))
+    expect(await screen.findAllByText('checking…')).toHaveLength(2)
+    resolveProbe({
+      parseBin: { path: 'C:\\bin\\sample-parse.exe', version: 'sample-parse 0.3.0' },
+      traceDir: { path: 'C:\\tools', found: true }
+    })
+    expect(await screen.findByText(/found · sample-parse 0\.3\.0/)).toBeTruthy()
+  })
 })
