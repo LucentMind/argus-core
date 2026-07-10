@@ -34,4 +34,29 @@ describe('FileViewer', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open externally' }))
     await waitFor(() => expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'huge.log'))
   })
+
+  it('shows an error state when the read rejects, and Close still works', async () => {
+    window.argus.files.read = vi.fn(async () => {
+      throw new Error('gone')
+    })
+    const onClose = vi.fn()
+    render(<FileViewer slug="NAV-1" relPath="deleted.log" onClose={onClose} />)
+    expect(await screen.findByText(/file could not be read/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('shows a loading placeholder in the markdown pane before the read resolves', async () => {
+    let resolveRead: (v: { content: string }) => void = () => {}
+    window.argus.files.read = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve
+        })
+    ) as never
+    render(<FileViewer slug="NAV-1" relPath="notes.md" onClose={vi.fn()} />)
+    expect(await screen.findByText(/loading/i)).toBeTruthy()
+    resolveRead({ content: '# Title\n\nbody text' })
+    expect(await screen.findByRole('heading', { name: 'Title' })).toBeTruthy()
+  })
 })

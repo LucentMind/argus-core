@@ -106,6 +106,15 @@ describe('CaseFiles', () => {
     expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1')
   })
 
+  it('leaves the tree empty when the list rejects, without an unhandled rejection', async () => {
+    window.argus.files.list = vi.fn(async () => {
+      throw new Error('case dir gone')
+    })
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(window.argus.files.list).toHaveBeenCalled())
+    expect(screen.getByText('No files yet.')).toBeTruthy()
+  })
+
   it('renders the derived chip for derived evidence nodes', async () => {
     window.argus.files.list = vi.fn(async () => [
       {

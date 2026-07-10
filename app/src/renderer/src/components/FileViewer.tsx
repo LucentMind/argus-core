@@ -13,6 +13,7 @@ export function FileViewer({
   onClose: () => void
 }): React.JSX.Element {
   const [doc, setDoc] = useState<FileReadResult | null>(null)
+  const [error, setError] = useState(false)
   const [raw, setRaw] = useState(false)
   const isMd = /\.md$/i.test(relPath)
 
@@ -22,10 +23,11 @@ export function FileViewer({
   if (key !== lastKey) {
     setLastKey(key)
     setDoc(null)
+    setError(false)
   }
 
   useEffect(() => {
-    void window.argus.files.read(slug, relPath).then(setDoc)
+    window.argus.files.read(slug, relPath).then(setDoc, () => setError(true))
   }, [slug, relPath])
 
   return (
@@ -52,14 +54,18 @@ export function FileViewer({
             </Btn>
           </span>
         </div>
-        {doc && 'tooLarge' in doc ? (
+        {error ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-dim">
+            File could not be read.
+          </div>
+        ) : doc && 'tooLarge' in doc ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-dim">
             File is larger than the in-app viewer limit.
             <Btn onClick={() => void window.argus.files.open(slug, relPath)}>Open externally</Btn>
           </div>
         ) : isMd && !raw ? (
           <div className="prose-sm flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink [&_code]:font-mono [&_code]:text-signal">
-            <Markdown>{doc && 'content' in doc ? doc.content : ''}</Markdown>
+            {doc && 'content' in doc ? <Markdown>{doc.content}</Markdown> : 'Loading…'}
           </div>
         ) : (
           <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
