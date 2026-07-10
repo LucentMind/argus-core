@@ -21,6 +21,7 @@ import type {
   BundleImportResult,
   BundleWorkspaceRef
 } from '../shared/bundle'
+import type { HivemindPayload, HivemindPushResult } from '../shared/hivemind'
 
 // Custom API for renderer
 const argus = {
@@ -79,6 +80,18 @@ const argus = {
     inspect: (): Promise<BundleInspectResult | null> => ipcRenderer.invoke(IPC.bundleInspect),
     import: (zipPath: string, slug: string): Promise<BundleImportResult> =>
       ipcRenderer.invoke(IPC.bundleImport, zipPath, slug)
+  },
+  hivemind: {
+    get: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindGet),
+    sync: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindSync),
+    install: (kind: 'skill' | 'reference', name: string): Promise<HivemindPayload> =>
+      ipcRenderer.invoke(IPC.hivemindInstall, kind, name),
+    diff: (kind: 'skill' | 'reference', name: string): Promise<string> =>
+      ipcRenderer.invoke(IPC.hivemindDiff, kind, name),
+    pushPreview: (kind: 'skill' | 'reference', name: string): Promise<string> =>
+      ipcRenderer.invoke(IPC.hivemindPushPreview, kind, name),
+    push: (kind: 'skill' | 'reference', name: string, title: string): Promise<HivemindPushResult> =>
+      ipcRenderer.invoke(IPC.hivemindPush, kind, name, title)
   },
   access: {
     get: (): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessGet),

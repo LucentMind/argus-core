@@ -1,77 +1,53 @@
-import { useCallback, useEffect, useState } from 'react'
-import { SettingsSection, SettingRow, Switch } from './settingsLayout'
-import { Chip } from '../ui'
-import { accessStore } from '../../lib/accessStore'
-import type { SkillsPayload, SkillListItem } from '../../../../shared/memoryIpc'
+import { useState } from 'react'
+import { InstalledSkills } from './InstalledSkills'
+import { HivemindTab } from './HivemindTab'
 
-const TIER_ORDER = ['user', 'hivemind', 'bundled'] as const
-const TIER_TITLE: Record<(typeof TIER_ORDER)[number], string> = {
-  user: 'User skills',
-  hivemind: 'HiveMind skills',
-  bundled: 'Bundled skills'
-}
-const TIER_EMPTY: Partial<Record<(typeof TIER_ORDER)[number], string>> = {
-  user: 'No user skills yet — accepted contribute-back proposals land here (Wave 3 Part 2).',
-  hivemind: 'No HiveMind skills installed — configure hivemind.repo in Wave 3 Part 2.'
-}
+const TABS = [
+  { id: 'installed', label: 'Installed' },
+  { id: 'hivemind', label: 'HiveMind' },
+  { id: 'proposals', label: 'Proposals' }
+] as const
+type SkillsTab = (typeof TABS)[number]['id']
 
 export function SkillsSettings(): React.JSX.Element {
-  const [payload, setPayload] = useState<SkillsPayload | null>(null)
-
-  const refresh = useCallback(async () => {
-    setPayload(await window.argus.skills.list())
-  }, [])
-
-  useEffect(() => {
-    let mounted = true
-    void (async () => {
-      const data = await window.argus.skills.list()
-      if (!mounted) return
-      setPayload(data)
-    })()
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  async function toggle(s: SkillListItem, v: boolean): Promise<void> {
-    await accessStore.patch({ skills: { [`${s.tier}/${s.name}`]: v } })
-    void refresh() // enablement is computed main-side
-  }
-
-  if (!payload) return <div className="text-dim">loading…</div>
+  const [tab, setTab] = useState<SkillsTab>('installed')
+  // enabled in Task 12 when proposals IPC lands — window.argus.proposals doesn't exist yet.
+  // const [pending, setPending] = useState(0)
+  // useEffect(() => {
+  //   let mounted = true
+  //   void window.argus.proposals
+  //     .list()
+  //     .then((p) => {
+  //       if (mounted) setPending(p.proposals.length)
+  //     })
+  //     .catch(() => undefined)
+  //   return () => {
+  //     mounted = false
+  //   }
+  // }, [tab])
+  const pending = 0
 
   return (
-    <div className="flex flex-col gap-6">
-      {TIER_ORDER.map((tier) => {
-        const items = payload.skills.filter((s) => s.tier === tier)
-        if (items.length === 0 && !TIER_EMPTY[tier]) return null
-        return (
-          <SettingsSection key={tier} title={TIER_TITLE[tier]}>
-            {items.length === 0 && (
-              <div className="px-3 py-2 text-xs text-dim">{TIER_EMPTY[tier]}</div>
-            )}
-            {items.map((s) => (
-              <SettingRow
-                key={s.name}
-                label={s.name}
-                description={s.description}
-                badge={
-                  s.shadows.length > 0 ? (
-                    <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>
-                  ) : undefined
-                }
-              >
-                <Switch
-                  checked={s.enabled}
-                  onChange={(v) => void toggle(s, v)}
-                  aria-label={`enabled · ${s.tier}/${s.name}`}
-                />
-              </SettingRow>
-            ))}
-          </SettingsSection>
-        )
-      })}
+    <div className="flex flex-col gap-4">
+      <div role="tablist" className="flex items-center gap-1 border-b border-hair">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`-mb-px border-b px-3 py-1.5 text-sm transition-colors ${
+              tab === t.id ? 'border-signal text-ink' : 'border-transparent text-dim hover:text-ink'
+            }`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+            {t.id === 'proposals' && pending > 0 ? ` (${pending})` : ''}
+          </button>
+        ))}
+      </div>
+      {tab === 'installed' && <InstalledSkills />}
+      {tab === 'hivemind' && <HivemindTab />}
+      {tab === 'proposals' && <div className="text-dim">Proposals tab lands in Task 12.</div>}
     </div>
   )
 }

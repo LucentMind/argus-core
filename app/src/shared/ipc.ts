@@ -55,5 +55,11 @@ export const IPC = {
   bundleExport: 'bundle:export',
   bundleInspect: 'bundle:inspect',
   bundleImport: 'bundle:import',
-  workspacesRefs: 'workspaces:refs'
+  workspacesRefs: 'workspaces:refs',
+  hivemindGet: 'hivemind:get',
+  hivemindSync: 'hivemind:sync',
+  hivemindInstall: 'hivemind:install',
+  hivemindDiff: 'hivemind:diff',
+  hivemindPushPreview: 'hivemind:push-preview',
+  hivemindPush: 'hivemind:push'
 } as const
