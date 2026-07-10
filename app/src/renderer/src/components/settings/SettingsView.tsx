@@ -3,13 +3,14 @@ import { useSettingsPayload } from '../../lib/settingsStore'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
 import { ToolsSettings } from './ToolsSettings'
+import { ConnectorsSettings } from './ConnectorsSettings'
 
 const PAGES = [
   { id: 'general', label: 'General', enabled: true },
   { id: 'agent', label: 'Agent', enabled: true },
   { id: 'tools', label: 'Analysis Tools', enabled: true },
   { id: 'health', label: 'Health', enabled: false },
-  { id: 'connectors', label: 'Connectors', enabled: false },
+  { id: 'connectors', label: 'Connectors', enabled: true },
   { id: 'skills', label: 'Skills', enabled: false },
   { id: 'memory', label: 'Memory', enabled: false },
   { id: 'observability', label: 'Observability', enabled: false }
@@ -80,6 +81,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
           {payload && page === 'general' && <GeneralSettings payload={payload} />}
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {payload && page === 'tools' && <ToolsSettings payload={payload} />}
+          {page === 'connectors' && <ConnectorsSettings />}
         </div>
       </div>
     </div>
