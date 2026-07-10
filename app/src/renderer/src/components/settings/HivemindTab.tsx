@@ -18,7 +18,14 @@ export function HivemindTab(): React.JSX.Element {
 
   useEffect(() => {
     let mounted = true
-    void window.argus.hivemind.get().then((p) => mounted && setPayload(p))
+    void window.argus.hivemind
+      .get()
+      .then((p) => {
+        if (!mounted) return
+        setPayload(p)
+        if (p.error) setError(p.error)
+      })
+      .catch((e) => mounted && setError(e instanceof Error ? e.message : String(e)))
     void window.argus.sourceControl.status().then((s) => mounted && setGh(s))
     return () => {
       mounted = false
@@ -41,14 +48,32 @@ export function HivemindTab(): React.JSX.Element {
   }
 
   async function openUpdate(kind: 'skill' | 'reference', name: string): Promise<void> {
-    const diff = await window.argus.hivemind.diff(kind, name)
-    setConfirm({ mode: 'update', kind, name, diff })
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const diff = await window.argus.hivemind.diff(kind, name)
+      setConfirm({ mode: 'update', kind, name, diff })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function openPush(item: PushableItem): Promise<void> {
+    if (busy) return
     setPrUrl(null)
-    const preview = await window.argus.hivemind.pushPreview(item.kind, item.name)
-    setConfirm({ mode: 'push', item, preview, title: `Add ${item.name}` })
+    setBusy(true)
+    setError(null)
+    try {
+      const preview = await window.argus.hivemind.pushPreview(item.kind, item.name)
+      setConfirm({ mode: 'push', item, preview, title: `Add ${item.name}` })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function doPush(): Promise<void> {
@@ -133,6 +158,7 @@ export function HivemindTab(): React.JSX.Element {
                 <Btn
                   variant="outline"
                   aria-label={`Update ${it.name}`}
+                  disabled={busy}
                   onClick={() => void openUpdate(it.kind, it.name)}
                 >
                   Update

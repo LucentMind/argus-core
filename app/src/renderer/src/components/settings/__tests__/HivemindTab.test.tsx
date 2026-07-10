@@ -121,6 +121,34 @@ describe('HivemindTab', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /pull\/7/ })).toBeInTheDocument())
   })
 
+  it('surfaces an initial-load error from a bad hivemind.get payload', async () => {
+    const argus = mockArgus(ready)
+    ;(argus.hivemind as { get: ReturnType<typeof vi.fn> }).get = vi.fn().mockResolvedValue({
+      ...ready,
+      state: 'error',
+      error: 'clone diverged',
+      items: [],
+      pushable: []
+    })
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindTab />)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/clone diverged/)
+  })
+
+  it('surfaces a rejected diff fetch when opening the update flow', async () => {
+    const argus = mockArgus(ready)
+    ;(argus.hivemind as { diff: ReturnType<typeof vi.fn> }).diff = vi
+      .fn()
+      .mockRejectedValue(new Error('git exploded'))
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindTab />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Update hive-probe' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/git exploded/)
+    expect(screen.queryByText('+ new line')).not.toBeInTheDocument()
+  })
+
   it('unauthenticated gh renders the Health pointer without hiding the browse list', async () => {
     const argus = mockArgus(ready)
     ;(argus.sourceControl as { status: ReturnType<typeof vi.fn> }).status = vi
