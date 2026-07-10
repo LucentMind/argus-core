@@ -92,4 +92,44 @@ describe('memory service', () => {
     writeTopicFile(argusHome, '_index', '- [x](x.md) — hand edit\n')
     expect(readTopic(argusHome, '_index')).toContain('hand edit')
   })
+
+  it('applyMemoryWrite rejects the reserved _index topic', () => {
+    expect(() =>
+      applyMemoryWrite(argusHome, 'NAV-1', { topic: '_index', content: 'sneaky' })
+    ).toThrow(/reserved/i)
+  })
+
+  it('deleteTopic does not remove an unrelated line whose description mentions the deleted filename', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 'foo', content: 'f', indexEntry: 'foo notes' })
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'bar',
+      content: 'b',
+      indexEntry: 'see also (foo.md) for background'
+    })
+    deleteTopic(argusHome, 'foo')
+    const idx = readIndex(argusHome)
+    expect(idx).not.toContain('[foo](foo.md)')
+    expect(idx).toContain('(bar.md)')
+    expect(idx).toContain('see also (foo.md) for background')
+  })
+
+  it('applyMemoryWrite duplicate-index detection is not fooled by description text referencing another topic filename', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'bar',
+      content: 'b1',
+      indexEntry: 'see also (baz.md) for background'
+    })
+    applyMemoryWrite(argusHome, 'NAV-2', { topic: 'baz', content: 'b2', indexEntry: 'baz notes' })
+    const idx = readIndex(argusHome)
+    expect(idx.split('\n').filter((l) => l.includes('(baz.md)'))).toHaveLength(2)
+    expect(idx).toContain('[baz](baz.md)')
+  })
+
+  it('readAudit returns entries newest-first', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', { topic: 't1', content: 'first' })
+    applyMemoryWrite(argusHome, 'NAV-2', { topic: 't2', content: 'second' })
+    applyMemoryWrite(argusHome, 'NAV-3', { topic: 't3', content: 'third' })
+    const audit = readAudit(argusHome, 10)
+    expect(audit.map((e) => e.caseSlug)).toEqual(['NAV-3', 'NAV-2', 'NAV-1'])
+  })
 })

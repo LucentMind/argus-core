@@ -27,6 +27,13 @@ function topicPath(argusHome: string, name: string): string {
   return path.join(memoryDir(argusHome), `${name}.md`)
 }
 
+/** Matches the markdown index-link line for a given topic, anchored at line start so free
+ *  text elsewhere on the line (e.g. a description mentioning another topic's filename) can't
+ *  cause a false match. */
+function indexLineFor(name: string): RegExp {
+  return new RegExp(`^-\\s*\\[[^\\]]*\\]\\(${name}\\.md\\)`)
+}
+
 export function listTopics(argusHome: string): MemoryTopic[] {
   const dir = memoryDir(argusHome)
   if (!fs.existsSync(dir)) return []
@@ -61,8 +68,9 @@ export function deleteTopic(argusHome: string, name: string): void {
   if (name === '_index') throw new Error('Cannot delete the memory index')
   if (fs.existsSync(p)) fs.rmSync(p)
   const idx = readIndex(argusHome)
-  if (idx.includes(`(${name}.md)`)) {
-    const kept = idx.split('\n').filter((l) => !l.includes(`(${name}.md)`))
+  const lineRe = indexLineFor(name)
+  if (idx.split('\n').some((l) => lineRe.test(l))) {
+    const kept = idx.split('\n').filter((l) => !lineRe.test(l))
     fs.writeFileSync(memoryIndexPath(argusHome), kept.join('\n'))
   }
 }
@@ -74,6 +82,9 @@ export function applyMemoryWrite(
   input: { topic: string; content: string; indexEntry?: string }
 ): string {
   const { topic, content } = input
+  if (topic === '_index') {
+    throw new Error('write_memory: "_index" is a reserved topic name and cannot be written to')
+  }
   const p = topicPath(argusHome, topic) // validates the name
   if (!content.trim()) throw new Error('write_memory: content must not be empty')
 
@@ -81,7 +92,8 @@ export function applyMemoryWrite(
   if (indexEntry) {
     const idx = readIndex(argusHome)
     const lines = idx.split('\n').filter((l) => l.trim() !== '')
-    const has = lines.some((l) => l.includes(`(${topic}.md)`))
+    const lineRe = indexLineFor(topic)
+    const has = lines.some((l) => lineRe.test(l))
     if (!has && lines.length >= MEMORY_INDEX_MAX_LINES) {
       throw new Error(
         `write_memory: _index.md is at its ${MEMORY_INDEX_MAX_LINES}-line cap — consolidate existing topics instead of adding new index entries`
