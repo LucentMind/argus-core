@@ -112,11 +112,16 @@ describe('forms and preset', () => {
     expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
   })
 
-  it('ROVO extras are the site URL plus a sensitive PAT field', () => {
-    expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['siteUrl', 'apiToken'])
+  it('ROVO extras are the site URL, an optional email, and a sensitive PAT field', () => {
+    expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['siteUrl', 'email', 'apiToken'])
     expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
     expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
     expect(ROVO_FORM_EXTRAS.apiToken.label).toContain('PAT')
+    // email is an identifier, not a secret — plain text, ordered between siteUrl and the PAT
+    expect(ROVO_FORM_EXTRAS.email.control).toBe('text')
+    expect(ROVO_FORM_EXTRAS.email.sensitive).toBeFalsy()
+    expect(ROVO_FORM_EXTRAS.email.order).toBeGreaterThan(ROVO_FORM_EXTRAS.siteUrl.order)
+    expect(ROVO_FORM_EXTRAS.email.order).toBeLessThan(ROVO_FORM_EXTRAS.apiToken.order)
   })
 
   it('DEFAULT_PRESETS carries the preconfigurable rovo defaults', () => {
@@ -143,12 +148,14 @@ describe('forms and preset', () => {
     expect(p.s3.links).toEqual({})
   })
 
-  it('httpConfigSchema accepts and round-trips siteUrl (Rovo REST, Part 3)', () => {
+  it('httpConfigSchema accepts and round-trips siteUrl + email (Rovo REST, Part 3)', () => {
     const cfg = connectorConfig<HttpConnectorConfig>('http', {
       url: 'https://mcp.atlassian.com/v1/mcp/authv2',
-      siteUrl: 'https://acme.atlassian.net'
+      siteUrl: 'https://acme.atlassian.net',
+      email: 'ada@acme.test'
     })
     expect(cfg.siteUrl).toBe('https://acme.atlassian.net')
+    expect(cfg.email).toBe('ada@acme.test')
   })
 
   it('ROVO_FORM_EXTRAS renders siteUrl (plain text) before apiToken (sensitive)', () => {

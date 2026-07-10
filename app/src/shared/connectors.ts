@@ -43,7 +43,8 @@ export const httpConfigSchema = z.looseObject({
   oauth: z.boolean().default(false),
   headers: z.record(z.string(), z.unknown()).default(() => ({})), // values may be $secret refs
   apiToken: z.unknown().optional(), // Rovo preset: Atlassian PAT ($secret ref)
-  siteUrl: z.string().optional() // Rovo preset: Atlassian site base URL for REST (Part 3)
+  siteUrl: z.string().optional(), // Rovo preset: Atlassian site base URL for REST (Part 3)
+  email: z.string().optional() // Rovo preset: Atlassian account email — REST uses Basic auth when set (Jira Cloud)
 })
 export type HttpConnectorConfig = z.infer<typeof httpConfigSchema>
 
@@ -165,6 +166,13 @@ export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
     label: 'Site URL (REST)',
     placeholder: 'https://your-site.atlassian.net',
     order: 9
+  },
+  email: {
+    control: 'text',
+    label: 'Email (REST)',
+    placeholder: 'you@example.com',
+    order: 9.5,
+    help: 'Jira Cloud (*.atlassian.net) authenticates API tokens with Basic auth (email + token) — set your Atlassian account email here. Leave empty only for Server/DC personal access tokens (Bearer).'
   },
   apiToken: {
     control: 'password',

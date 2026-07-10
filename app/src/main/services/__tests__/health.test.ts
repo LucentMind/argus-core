@@ -126,6 +126,6 @@ describe('HealthService', () => {
     )
     await bad.run(['atlassian-rest'], (r) => results.push(r))
     expect(results[0]).toMatchObject({ ok: false, detail: 'HTTP 401' })
-    expect(results[0].fixHint).toMatch(/Site URL and API token/)
+    expect(results[0].fixHint).toMatch(/Site URL, email, and API token/)
   })
 })

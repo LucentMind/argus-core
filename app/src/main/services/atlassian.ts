@@ -25,6 +25,8 @@ export interface AtlassianCreds {
   instanceId: string
   siteUrl: string // no trailing slash
   token: string
+  /** When set, REST auth is Basic (email:token) — required by Jira Cloud API tokens. */
+  email?: string
 }
 
 /** Find the rovo-preset connector and resolve its REST credentials. */
@@ -57,7 +59,8 @@ export function resolveAtlassianCreds(
       `Connector "${instanceId}" has no Atlassian API token — set it in Settings → Connectors.`,
       instanceId
     )
-  return { instanceId, siteUrl, token }
+  const email = (cfg.email ?? '').trim()
+  return { instanceId, siteUrl, token, ...(email ? { email } : {}) }
 }
 
 export interface JiraIssueData {
@@ -77,11 +80,15 @@ export class AtlassianClient {
   ) {}
 
   private async request(pathAndQuery: string): Promise<Response> {
-    const { instanceId, siteUrl, token } = this.creds()
+    const { instanceId, siteUrl, token, email } = this.creds()
+    // Jira Cloud accepts API tokens only via Basic (email:token); Bearer serves Server/DC PATs.
+    const authorization = email
+      ? `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`
+      : `Bearer ${token}`
     let res: Response
     try {
       res = await this.fetchImpl(`${siteUrl}${pathAndQuery}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        headers: { Authorization: authorization, Accept: 'application/json' },
         redirect: 'follow', // undici drops Authorization on cross-origin redirects (attachment CDN)
         signal: AbortSignal.timeout(this.timeoutMs)
       })
@@ -95,7 +102,7 @@ export class AtlassianClient {
     if (res.status === 401 || res.status === 403)
       throw new AtlassianError(
         'auth',
-        `Atlassian rejected the API token (HTTP ${res.status}) — check the token and Site URL on the connector.`,
+        `Atlassian rejected the API token (HTTP ${res.status}) — check the token, email, and Site URL on the connector (Jira Cloud requires the email).`,
         instanceId
       )
     if (res.status === 404) throw new AtlassianError('not-found', 'Not found on Jira', instanceId)
