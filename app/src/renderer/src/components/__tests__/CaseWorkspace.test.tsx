@@ -22,8 +22,8 @@ beforeEach(() => {
   localStorage.clear()
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
-  // CaseWorkspace renders CaseFiles, which now reads the timestamp format via
-  // useSettingsPayload() and starts the shared settingsStore singleton.
+  // CaseWorkspace renders Composer, which reads the shared settingsStore
+  // singleton — reset it so state doesn't leak across tests.
   settingsStore.reset()
   window.argus = {
     agent: {
