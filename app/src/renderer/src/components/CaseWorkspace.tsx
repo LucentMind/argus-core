@@ -58,7 +58,8 @@ export function CaseWorkspace({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-          <CaseFiles caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
+          {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
+          <CaseFiles key={slug} caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
           <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} prefill={prefill} />

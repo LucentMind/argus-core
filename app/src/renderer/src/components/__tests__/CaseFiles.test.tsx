@@ -105,4 +105,19 @@ describe('CaseFiles', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open in file explorer' }))
     expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1')
   })
+
+  it('renders the derived chip for derived evidence nodes', async () => {
+    window.argus.files.list = vi.fn(async () => [
+      {
+        name: 'trace.binlog.txt',
+        relPath: 'evidence/.derived/trace.binlog.txt',
+        kind: 'file',
+        size: 5,
+        evidence: { id: 3, artifactType: 'text', derived: true }
+      }
+    ]) as never
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    expect(await screen.findByText('trace.binlog.txt')).toBeTruthy()
+    expect(screen.getByText('derived')).toBeTruthy()
+  })
 })
