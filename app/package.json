@@ -34,6 +34,7 @@
     "@tailwindcss/vite": "^4.3.2",
     "react-markdown": "^10.1.0",
     "tailwindcss": "^4.3.2",
+    "zip-lib": "^1.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
