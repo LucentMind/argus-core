@@ -6,12 +6,24 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { IPC } from '../shared/ipc'
 import { resolveArgusHome, dbPath, caseDir, settingsPath, configDir } from './services/paths'
-import { defaultAgentAccess } from '../shared/agentAccess'
+import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
+import { AgentAccessStore } from './services/agentAccess'
+import {
+  listTopics,
+  readIndex,
+  readTopic,
+  writeTopicFile,
+  deleteTopic,
+  readAudit,
+  MEMORY_INDEX_MAX_LINES
+} from './services/memory'
+import { resolveSkills } from './services/agent/skillsResolver'
+import type { MemoryTopicsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
@@ -39,7 +51,6 @@ import { activeInstanceConfig } from '../shared/drivers'
 import {
   seedSharedDirs,
   resolveAssetSource,
-  listSkills,
   sharedSkillsDir,
   sharedReferencesDir
 } from './services/skillsDir'
@@ -81,6 +92,7 @@ function registerIpc(): void {
   const secretStore = new SecretStore(argusHome, safeStorage)
   const connectorRegistry = new ConnectorRegistry(argusHome)
   const toolRiskStore = new ToolRiskStore(argusHome)
+  const agentAccessStore = new AgentAccessStore(argusHome)
   const connectorPresets = loadPresets(argusHome)
   const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
   const mcpService = new McpService({
@@ -110,6 +122,20 @@ function registerIpc(): void {
   })
 
   connectorRegistry.subscribe(() => broadcast(IPC.connectorsChanged, connectorsPayload()))
+
+  const memoryTopicsPayload = (): MemoryTopicsPayload => {
+    const access = agentAccessStore.get()
+    const indexLines = readIndex(argusHome)
+      .split('\n')
+      .filter((l) => l.trim()).length
+    return {
+      topics: listTopics(argusHome).map((t) => ({ ...t, enabled: topicEnabled(access, t.name) })),
+      indexLines,
+      capLines: MEMORY_INDEX_MAX_LINES
+    }
+  }
+
+  agentAccessStore.subscribe(() => broadcast(IPC.accessChanged, agentAccessStore.payload()))
 
   // agent sessions and preflight inherit this process env — make sample-trace findable
   ensureTraceOnPath(app.getAppPath(), settingsService.get().tools.traceDir || undefined)
@@ -165,8 +191,7 @@ function registerIpc(): void {
     argusHome,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     onEvent: (e) => broadcast(IPC.agentEventChannel, e),
-    // Task 8 wires the real store
-    agentAccess: () => defaultAgentAccess(),
+    agentAccess: () => agentAccessStore.get(),
     agentSettings: () => settingsService.get().agent,
     composeMcp: () => mcpService.composeForSession(),
     toolRisk: () => toolRiskStore.get(),
@@ -241,7 +266,33 @@ function registerIpc(): void {
   )
 
   // — skills —
-  ipcMain.handle(IPC.skillsList, () => listSkills(argusHome))
+  ipcMain.handle(IPC.skillsList, () => ({
+    skills: resolveSkills(argusHome, agentAccessStore.get()).map((s) => ({
+      name: s.name,
+      tier: s.tier,
+      description: s.description,
+      enabled: s.enabled,
+      shadows: s.shadows
+    }))
+  }))
+
+  // — agent access + memory —
+  ipcMain.handle(IPC.accessGet, () => agentAccessStore.payload())
+  ipcMain.handle(IPC.accessPatch, (_e, p: unknown) => {
+    agentAccessStore.patch(p)
+    return agentAccessStore.payload()
+  })
+  ipcMain.handle(IPC.memoryTopics, () => memoryTopicsPayload())
+  ipcMain.handle(IPC.memoryRead, (_e, name: string) => readTopic(argusHome, name))
+  ipcMain.handle(IPC.memoryWrite, (_e, name: string, content: string) => {
+    writeTopicFile(argusHome, name, content)
+    return memoryTopicsPayload()
+  })
+  ipcMain.handle(IPC.memoryDelete, (_e, name: string) => {
+    deleteTopic(argusHome, name)
+    return memoryTopicsPayload()
+  })
+  ipcMain.handle(IPC.memoryAudit, () => readAudit(argusHome, 50))
 
   // — settings —
   ipcMain.handle(IPC.settingsGet, () => settingsService.payload())

@@ -23,7 +23,7 @@ beforeEach(() => {
   settingsStore.reset()
   window.argus = {
     agent: { send: vi.fn(), onEvent: vi.fn(() => () => undefined) },
-    skills: { list: vi.fn(async () => []) },
+    skills: { list: vi.fn(async () => ({ skills: [] })) },
     settings: {
       get: vi.fn(async () => ({
         settings: defaultSettings(),

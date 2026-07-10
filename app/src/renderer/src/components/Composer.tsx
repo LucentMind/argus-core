@@ -149,7 +149,7 @@ export function Composer({
   )
 
   useEffect(() => {
-    void window.argus.skills.list().then(setSkills)
+    void window.argus.skills.list().then((p) => setSkills(p.skills))
   }, [])
 
   // seed the pickers from settings once the payload first arrives — adjust-
