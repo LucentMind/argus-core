@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 const CHIP_TONES = {
@@ -82,5 +83,79 @@ export function IconBtn({
       {...props}
       className={`inline-flex h-7 w-7 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40 ${className}`}
     />
+  )
+}
+
+export interface MenuItem {
+  label: string
+  onSelect: () => void
+  tone?: 'default' | 'danger'
+  disabled?: boolean
+}
+
+/** Button + anchored dropdown menu. Closes on select, Escape, or outside click. */
+export function MenuButton({
+  label,
+  items,
+  variant = 'ghost',
+  'aria-label': ariaLabel
+}: {
+  label: React.ReactNode
+  items: MenuItem[]
+  variant?: 'primary' | 'ghost' | 'outline'
+  'aria-label'?: string
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div className="relative" ref={ref}>
+      <Btn
+        variant={variant}
+        onClick={() => setOpen((o) => !o)}
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {label} <span aria-hidden="true">▾</span>
+      </Btn>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-20 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
+        >
+          {items.map((it) => (
+            <button
+              key={it.label}
+              role="menuitem"
+              disabled={it.disabled}
+              className={`block w-full rounded-r2 px-3 py-1.5 text-left text-sm hover:bg-hair/50 disabled:opacity-50 ${
+                it.tone === 'danger' ? 'text-danger' : 'text-ink'
+              }`}
+              onClick={() => {
+                setOpen(false)
+                it.onSelect()
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
