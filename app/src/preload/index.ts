@@ -1,12 +1,18 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { NewCaseInput, SearchFilters, ApprovalDecision } from '../shared/types'
+import type { NewCaseInput, SearchFilters, ApprovalDecision, CaseRecord } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
-import type { JiraAttachmentInfo, JiraAttachmentProgress } from '../shared/jira'
+import type {
+  JiraAttachmentInfo,
+  JiraAttachmentProgress,
+  JiraIssuePreview,
+  JiraRefreshSummary,
+  JiraResult
+} from '../shared/jira'
 
 // Custom API for renderer
 const argus = {
@@ -86,12 +92,20 @@ const argus = {
     delete: (name: string) => ipcRenderer.invoke(IPC.secretsDelete, name)
   },
   jira: {
-    preview: (key: string) => ipcRenderer.invoke(IPC.jiraPreview, key),
-    createCase: (input: { slug: string; title: string; key: string }) =>
-      ipcRenderer.invoke(IPC.jiraCreateCase, input),
-    ingestAttachments: (caseSlug: string, attachments: JiraAttachmentInfo[]) =>
+    preview: (key: string): Promise<JiraResult<JiraIssuePreview>> =>
+      ipcRenderer.invoke(IPC.jiraPreview, key),
+    createCase: (input: {
+      slug: string
+      title: string
+      key: string
+    }): Promise<JiraResult<CaseRecord>> => ipcRenderer.invoke(IPC.jiraCreateCase, input),
+    ingestAttachments: (
+      caseSlug: string,
+      attachments: JiraAttachmentInfo[]
+    ): Promise<JiraResult<JiraAttachmentProgress[]>> =>
       ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
-    refreshCase: (caseSlug: string) => ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+    refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
+      ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)

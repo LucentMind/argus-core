@@ -58,6 +58,13 @@ describe('adfToMarkdown', () => {
     expect(md).toContain('```js\nx()\n```')
   })
 
+  it('never throws on malformed content (non-array) — degrades to a string', () => {
+    expect(() => adfToMarkdown(doc([{ type: 'paragraph', content: 'not-an-array' }]))).not.toThrow()
+    expect(typeof adfToMarkdown(doc([{ type: 'paragraph', content: 'not-an-array' }]))).toBe(
+      'string'
+    )
+  })
+
   it('degrades unknown nodes to their text content and never throws', () => {
     const md = adfToMarkdown(
       doc([

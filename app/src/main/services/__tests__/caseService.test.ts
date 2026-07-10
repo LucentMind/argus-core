@@ -98,4 +98,26 @@ describe('setCaseJira', () => {
     })
     expect(onDisk.title).toBe('t') // existing keys preserved
   })
+
+  it('rebuilds from the DB record when case.json is corrupt, instead of dropping fields', () => {
+    createCase(db, home, { slug: 'NAV-10', title: 'Route flicker' })
+    const file = path.join(home, 'cases/NAV-10/case.json')
+    fs.writeFileSync(file, '{ not valid json')
+
+    const rec = setCaseJira(db, home, 'NAV-10', {
+      key: 'NAV-10',
+      site: 'https://acme.atlassian.net',
+      lastSyncedAt: '2026-07-10T10:00:00Z'
+    })
+    expect(rec.jiraKey).toBe('NAV-10')
+
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
+    expect(onDisk.title).toBe('Route flicker') // survived the corrupt-file fallback
+    expect(onDisk.status).toBe('open')
+    expect(onDisk.jira).toEqual({
+      key: 'NAV-10',
+      site: 'https://acme.atlassian.net',
+      lastSyncedAt: '2026-07-10T10:00:00Z'
+    })
+  })
 })

@@ -368,6 +368,40 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  it('request.opened reaches an attached mirror without input; the live copy keeps it', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const appended: AgentEvent[] = []
+    ;(s as unknown as { deps: { mirror: unknown } }).deps.mirror = {
+      append: (e: AgentEvent) => appended.push(e),
+      indexText: () => {}
+    }
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string }>
+    const pending = canUseTool(
+      'mcp__rovo__addCommentToJiraIssue',
+      { issueKey: 'NAV-7', body: 'draft RCA' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const liveOpened = events.find((e) => e.type === 'request.opened')!
+    expect((liveOpened.payload as { input?: unknown }).input).toEqual({
+      issueKey: 'NAV-7',
+      body: 'draft RCA'
+    })
+    const mirroredOpened = appended.find((e) => e.type === 'request.opened')!
+    expect('input' in mirroredOpened.payload).toBe(false)
+    s.respond({
+      requestId: (liveOpened.payload as { requestId: string }).requestId,
+      kind: 'deny'
+    })
+    await pending
+    await s.stop('stopped')
+  })
+
   it('does not emit mcp-skipped events when the session dies before the deferred emission', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk, { mcpSkipped: [{ instanceId: 'dead', reason: 'spawn failed' }] })
@@ -465,6 +499,33 @@ describe('CaseSession', () => {
     const r = await pending
     expect(r.behavior).toBe('allow')
     expect(r.updatedInput).toEqual({ command: 'git push' })
+    await s.stop('stopped')
+  })
+
+  it('ignores updatedInput on Argus-native (mcp__argus__*) asks — the original input is returned', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      t: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string; updatedInput?: Record<string, unknown> }>
+
+    const pending = canUseTool(
+      'mcp__argus__update_case_status',
+      { status: 'analyzing' },
+      { signal: new AbortController().signal }
+    )
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'request.opened')).toBe(true))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    s.respond({
+      requestId: (opened.payload as { requestId: string }).requestId,
+      kind: 'allow',
+      updatedInput: { status: 'resolved' } // spoofed edit — must not be honored
+    })
+    const r = await pending
+    expect(r.behavior).toBe('allow')
+    expect(r.updatedInput).toEqual({ status: 'analyzing' })
     await s.stop('stopped')
   })
 

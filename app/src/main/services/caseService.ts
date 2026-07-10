@@ -145,11 +145,14 @@ export function setCaseJira(
   )
 
   const file = path.join(caseDir(argusHome, slug), 'case.json')
-  let onDisk: Record<string, unknown> = {}
+  let onDisk: Record<string, unknown>
   try {
     onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
   } catch {
-    /* recreate from the DB record below */
+    // case.json is corrupt/unreadable — rebuild the rewrite base from the DB record
+    // (same on-disk shape as createCase: the full record minus `id`) so title/status/
+    // tags survive instead of being dropped by an empty-object fallback.
+    onDisk = { ...existing, id: undefined }
   }
   fs.writeFileSync(
     file,

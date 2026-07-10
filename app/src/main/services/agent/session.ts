@@ -153,8 +153,18 @@ export class CaseSession {
 
   private emit(e: AgentEvent): void {
     this.lastActivity = Date.now()
-    this.deps.mirror?.append(e)
+    this.deps.mirror?.append(this.forMirror(e))
     this.deps.emit(e)
+  }
+
+  // The mirror is a durable per-case .jsonl log; the live broadcast keeps the full
+  // tool input so the approval UI can render/edit it, but persisting raw tool args
+  // (comment bodies, file paths, …) to disk is unnecessary — strip it for the
+  // mirrored copy only.
+  private forMirror(e: AgentEvent): AgentEvent {
+    if (e.type !== 'request.opened' || e.payload.input === undefined) return e
+    const { requestId, tool, risk, grantKey, argsPreview } = e.payload
+    return { ...e, payload: { requestId, tool, risk, grantKey, argsPreview } }
   }
 
   send(text: string): void {
@@ -269,9 +279,12 @@ export class CaseSession {
       log(outcome.decision === 'allow-session' ? 'grant' : 'user')
       // Defense in depth: edited inputs are only a connector-tool (MCP) feature —
       // never substitute args on Bash/native asks, whatever the IPC caller sent.
+      // Argus's own native tools are exposed as an `mcp__argus__*` server too, so
+      // they're excluded from the editable set alongside Bash.
       return {
         behavior: 'allow',
-        updatedInput: (/^mcp__/.test(toolName) ? outcome.updatedInput : undefined) ?? input
+        updatedInput:
+          (/^mcp__(?!argus__)/.test(toolName) ? outcome.updatedInput : undefined) ?? input
       }
     }
     log(outcome.decision === 'cancelled' ? 'cancelled' : 'denied')

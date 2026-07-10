@@ -17,8 +17,11 @@ export function ApprovalCard({
 }): React.JSX.Element {
   const [comment, setComment] = useState('')
   const [draft, setDraft] = useState<Record<string, string>>({})
-  // Editable per-field preview for connector (MCP) asks — the RCA comment path (spec §3.4).
-  const editable = request.input != null && /^mcp__/.test(request.tool)
+  // Editable per-field preview for connector (MCP) asks at MEDIUM risk — the RCA
+  // comment path (spec §3.4). Excludes Argus's own native tools (also `mcp__*`,
+  // e.g. `mcp__argus__update_case_status`) and HIGH-risk asks, which stay read-only.
+  const editable =
+    request.input != null && request.risk === 'MEDIUM' && /^mcp__(?!argus__)/.test(request.tool)
   const edited = Object.entries(draft).some(([k, v]) => v !== request.input?.[k])
 
   const respond = (kind: 'allow' | 'allow-session' | 'deny'): void => {
