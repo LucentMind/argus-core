@@ -155,6 +155,7 @@ function ConnectorCard({
         {secretGap && <Chip tone="danger">secret store unavailable</Chip>}
         <div className="ml-auto flex items-center gap-2">
           <Switch
+            // renders off for an unsupported kind even if enabled:true is persisted
             checked={inst.enabled && supported}
             onChange={(v) => {
               // spec §2.6: an unsupported kind can be disabled but never enabled
