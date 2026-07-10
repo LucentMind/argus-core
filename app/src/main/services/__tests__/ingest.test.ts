@@ -5,7 +5,7 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { ingestArtifact, listEvidence } from '../ingest'
+import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from '../ingest'
 import type { DatabaseSync } from 'node:sqlite'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
@@ -63,5 +63,71 @@ describe('ingestArtifact', () => {
     const all = listEvidence(db, 'NAVAPI-1')
     expect(all).toHaveLength(1)
     expect(all[0].artifactType).toBe('applog')
+  })
+
+  it('ingestArtifact merges extraMeta into meta', () => {
+    const src = path.join(home, 'a.txt')
+    fs.writeFileSync(src, 'hello')
+    const rec = ingestArtifact(db, home, 'NAVAPI-1', src, 'jira', {
+      jira: { key: 'NAVAPI-1', attachmentId: '10001' }
+    })
+    expect(rec.origin).toBe('jira')
+    expect(rec.meta.jira).toEqual({ key: 'NAVAPI-1', attachmentId: '10001' })
+    expect(rec.meta.originalName).toBe('a.txt')
+  })
+
+  it('ingestContent writes, detects, indexes and records provenance', () => {
+    const rec = ingestContent(
+      db,
+      home,
+      'NAVAPI-1',
+      'NAVAPI-1.ticket.md',
+      '# NAVAPI-1: crash\n\nsteering wheel fault text',
+      'jira',
+      {
+        jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Open', syncedAt: '2026-07-10T00:00:00Z' }
+      }
+    )
+    expect(rec.relPath).toBe('evidence/NAVAPI-1.ticket.md')
+    expect(rec.artifactType).toBe('text')
+    expect(rec.origin).toBe('jira')
+    // FTS-indexed (spec §3.2.3)
+    const hit = db
+      .prepare(`SELECT evidence_id FROM evidence_fts WHERE evidence_fts MATCH 'steering' LIMIT 1`)
+      .get() as { evidence_id: number }
+    expect(hit.evidence_id).toBe(rec.id)
+    // sidecar written
+    expect(
+      fs.existsSync(path.join(home, 'cases/NAVAPI-1/evidence/.meta/NAVAPI-1.ticket.md.json'))
+    ).toBe(true)
+  })
+
+  it('updateEvidenceContent overwrites in place, re-indexes, merges meta', () => {
+    const rec = ingestContent(
+      db,
+      home,
+      'NAVAPI-1',
+      'NAVAPI-1.ticket.md',
+      'old body alpha',
+      'jira',
+      {
+        jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Open' }
+      }
+    )
+    const upd = updateEvidenceContent(db, home, rec.id, 'new body omega', {
+      jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Resolved' }
+    })
+    expect(upd.id).toBe(rec.id)
+    expect(upd.relPath).toBe(rec.relPath) // same file, no new evidence row
+    expect(upd.sha256).not.toBe(rec.sha256)
+    expect((upd.meta.jira as { status: string }).status).toBe('Resolved')
+    const stale = db
+      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'alpha'`)
+      .get() as { c: number }
+    const fresh = db
+      .prepare(`SELECT count(*) c FROM evidence_fts WHERE evidence_fts MATCH 'omega'`)
+      .get() as { c: number }
+    expect(stale.c).toBe(0)
+    expect(fresh.c).toBe(1)
   })
 })
