@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { SearchBar } from './SearchBar'
-import { EvidenceLibrary } from './EvidenceLibrary'
+import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
@@ -8,20 +8,22 @@ import { HeaderRepos } from './HeaderRepos'
 import { JiraRefreshButton } from './JiraRefreshButton'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
-import type { SearchHit } from '../../../shared/types'
+import type { FileNode, SearchHit } from '../../../shared/types'
 
 export function CaseWorkspace({
   slug,
   jiraKey,
   jiraSyncedAt,
   onOpenHit,
-  onOpenCitation
+  onOpenCitation,
+  onOpenFile
 }: {
   slug: string
   jiraKey: string | null
   jiraSyncedAt: string | null
   onOpenHit: (hit: SearchHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
+  onOpenFile: (node: FileNode) => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -56,7 +58,7 @@ export function CaseWorkspace({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-          <EvidenceLibrary caseSlug={slug} onSuggest={setPrefill} />
+          <CaseFiles caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
           <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} prefill={prefill} />

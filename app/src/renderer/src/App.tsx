@@ -82,6 +82,7 @@ function App(): React.JSX.Element {
             jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
             onOpenHit={handleOpenHit}
             onOpenCitation={(id, line) => setViewer({ evidenceId: id, focusLine: line })}
+            onOpenFile={() => {}}
           />
         )}
       </div>
