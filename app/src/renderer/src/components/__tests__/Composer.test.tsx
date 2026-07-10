@@ -117,4 +117,32 @@ describe('Composer', () => {
     ])
     expect(items).not.toContain('claude-haiku-4-5')
   })
+
+  it('skill picker offers only enabled skills when typing /', async () => {
+    window.argus.skills.list = vi.fn(async () => ({
+      skills: [
+        {
+          name: 'rca',
+          tier: 'bundled' as const,
+          description: 'Root cause analysis',
+          enabled: true,
+          shadows: []
+        },
+        {
+          name: 'analyze-applog',
+          tier: 'bundled' as const,
+          description: 'Analyze Android logs',
+          enabled: false,
+          shadows: []
+        }
+      ]
+    }))
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    const textarea = screen.getByPlaceholderText(/message the analyst/i)
+    fireEvent.change(textarea, { target: { value: '/' } })
+    // rca should be offered (enabled: true)
+    expect(await screen.findByText('/rca')).toBeTruthy()
+    // analyze-applog should NOT be offered (enabled: false)
+    expect(screen.queryByText('/analyze-applog')).toBeNull()
+  })
 })
