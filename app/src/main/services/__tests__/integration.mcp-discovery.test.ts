@@ -178,6 +178,29 @@ describe('composeForSession', () => {
     )
   })
 
+  it('non-string plain env/header values (hand-edited JSON) are coerced to strings', () => {
+    registry.patch({
+      numenv: {
+        kind: 'stdio',
+        config: { command: 'node', env: { PORT: 8080, DEBUG: true } }
+      },
+      numhdr: {
+        kind: 'http',
+        config: { url: 'https://x.example/v1', headers: { 'X-Retries': 3 } }
+      }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    const { servers, skipped } = svc.composeForSession()
+    expect(skipped).toEqual([])
+    expect((servers.numenv as { env: Record<string, string> }).env).toEqual({
+      PORT: '8080',
+      DEBUG: 'true'
+    })
+    expect((servers.numhdr as { headers: Record<string, string> }).headers).toEqual({
+      'X-Retries': '3'
+    })
+  })
+
   it('error-state connectors are skipped; oauth connectors without a token are skipped and marked needs-auth', () => {
     registry.patch({
       dead: { kind: 'stdio', config: { command: 'x' } },
