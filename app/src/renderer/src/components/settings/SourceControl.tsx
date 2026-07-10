@@ -23,7 +23,16 @@ export function SourceControl(): React.JSX.Element {
       .then((s: SourceControlStatus) => {
         if (mounted) setStatus(s)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (mounted)
+          setStatus({
+            installed: false,
+            version: null,
+            authenticated: false,
+            login: null,
+            detail: 'status unavailable'
+          })
+      })
     return () => {
       mounted = false
     }

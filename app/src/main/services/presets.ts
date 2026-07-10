@@ -3,6 +3,11 @@ import { presetsPath } from './paths'
 import { deepMerge } from '../../shared/settings'
 import { DEFAULT_PRESETS, presetsSchema, type ConnectorPresets } from '../../shared/connectors'
 
+/** Guard for shell.openExternal: only http(s) URLs are openable (blocks javascript:, file:, etc). */
+export function isOpenableUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url)
+}
+
 /** Optional, preconfigurable connector presets. Loaded once at startup; restart to pick up edits. */
 export function loadPresets(argusHome: string): ConnectorPresets {
   const store = new JsonFileStore(presetsPath(argusHome))

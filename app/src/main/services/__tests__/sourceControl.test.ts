@@ -32,6 +32,20 @@ describe('ghStatus', () => {
     })
   })
 
+  it('tolerates older gh output ("Logged in to ... as ...")', async () => {
+    const s = await ghStatus(
+      exec({
+        version: { stdout: 'gh version 2.40.0 (2023-11-14)' },
+        auth: {
+          stdout: '',
+          stderr: 'github.com\n  ✓ Logged in to github.com as olduser (keyring)\n'
+        }
+      })
+    )
+    expect(s.authenticated).toBe(true)
+    expect(s.login).toBe('olduser')
+  })
+
   it('installed but not authenticated', async () => {
     const notLoggedIn = Object.assign(new Error('exit 1'), { code: 1 as unknown as string })
     const s = await ghStatus(

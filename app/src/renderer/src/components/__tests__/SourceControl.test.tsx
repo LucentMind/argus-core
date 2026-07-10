@@ -41,6 +41,15 @@ describe('SourceControl', () => {
     expect(screen.getByTestId('sc-dot-github').dataset.state).toBe('fail')
   })
 
+  it('status fetch rejects: falls back to "status unavailable", dim state', async () => {
+    window.argus = {
+      sourceControl: { status: vi.fn(() => Promise.reject(new Error('ipc failed'))) }
+    } as never
+    render(<SourceControl />)
+    expect(await screen.findByText('status unavailable')).toBeTruthy()
+    expect(screen.getByTestId('sc-dot-github').dataset.state).toBe('off')
+  })
+
   it('not installed: dim state', async () => {
     status = {
       installed: false,
