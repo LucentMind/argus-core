@@ -1,4 +1,5 @@
 import type { FieldAnnotation } from '../../../../shared/drivers'
+import { isSecretRef } from '../../../../shared/connectors'
 import { FIELD, SettingRow, SelectField, Switch, DraftInput, DraftTextarea } from './settingsLayout'
 
 /**
@@ -9,63 +10,92 @@ import { FIELD, SettingRow, SelectField, Switch, DraftInput, DraftTextarea } fro
 export function AnnotatedForm({
   annotations,
   value,
-  onChange
+  onChange,
+  onSecret
 }: {
   annotations: Record<string, FieldAnnotation>
   value: Record<string, unknown>
   onChange: (key: string, v: unknown | null) => void
+  /** Required to render `sensitive` fields; they commit plaintext here, never through onChange. */
+  onSecret?: (key: string, plaintext: string | null) => void
 }): React.JSX.Element {
   const fields = Object.entries(annotations).sort((a, b) => a[1].order - b[1].order)
   return (
     <>
-      {fields.map(([key, a]) => (
-        <SettingRow
-          key={key}
-          label={a.label}
-          isDefault={value[key] == null || value[key] === '' || value[key] === a.defaultValue}
-          onReset={() => onChange(key, null)}
-        >
-          {a.control === 'switch' ? (
-            <Switch
-              checked={Boolean(value[key])}
-              onChange={(v) => onChange(key, v)}
-              aria-label={a.label}
-            />
-          ) : a.control === 'select' ? (
-            <SelectField
-              aria-label={a.label}
-              value={String(value[key] ?? '')}
-              options={a.options ?? []}
-              onChange={(v) => onChange(key, v)}
-            />
-          ) : a.control === 'number' ? (
-            <input
-              type="number"
-              aria-label={a.label}
-              className={`${FIELD} w-24`}
-              value={value[key] == null ? '' : String(value[key])}
-              onChange={(e) => onChange(key, e.target.value === '' ? null : Number(e.target.value))}
-            />
-          ) : a.control === 'textarea' ? (
-            <DraftTextarea
-              aria-label={a.label}
-              className="w-72 rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
-              placeholder={a.placeholder}
-              value={String(value[key] ?? '')}
-              onCommit={(v) => onChange(key, v === '' ? null : v)}
-            />
-          ) : (
-            <DraftInput
-              type={a.control === 'password' ? 'password' : 'text'}
-              aria-label={a.label}
-              className={`${FIELD} w-56 font-mono`}
-              placeholder={a.placeholder}
-              value={String(value[key] ?? '')}
-              onCommit={(v) => onChange(key, v === '' ? null : v)}
-            />
-          )}
-        </SettingRow>
-      ))}
+      {fields.map(([key, a]) => {
+        if (a.sensitive && onSecret) {
+          const isSet = isSecretRef(value[key])
+          return (
+            <SettingRow
+              key={key}
+              label={a.label}
+              isDefault={!isSet}
+              onReset={() => onSecret(key, null)}
+            >
+              <DraftInput
+                value=""
+                type="password"
+                placeholder={isSet ? '•••• (set)' : (a.placeholder ?? '(not set)')}
+                onCommit={(v) => {
+                  if (v) onSecret(key, v)
+                }}
+                aria-label={a.label}
+                className={FIELD}
+              />
+            </SettingRow>
+          )
+        }
+        return (
+          <SettingRow
+            key={key}
+            label={a.label}
+            isDefault={value[key] == null || value[key] === '' || value[key] === a.defaultValue}
+            onReset={() => onChange(key, null)}
+          >
+            {a.control === 'switch' ? (
+              <Switch
+                checked={Boolean(value[key])}
+                onChange={(v) => onChange(key, v)}
+                aria-label={a.label}
+              />
+            ) : a.control === 'select' ? (
+              <SelectField
+                aria-label={a.label}
+                value={String(value[key] ?? '')}
+                options={a.options ?? []}
+                onChange={(v) => onChange(key, v)}
+              />
+            ) : a.control === 'number' ? (
+              <input
+                type="number"
+                aria-label={a.label}
+                className={`${FIELD} w-24`}
+                value={value[key] == null ? '' : String(value[key])}
+                onChange={(e) =>
+                  onChange(key, e.target.value === '' ? null : Number(e.target.value))
+                }
+              />
+            ) : a.control === 'textarea' ? (
+              <DraftTextarea
+                aria-label={a.label}
+                className="w-72 rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
+                placeholder={a.placeholder}
+                value={String(value[key] ?? '')}
+                onCommit={(v) => onChange(key, v === '' ? null : v)}
+              />
+            ) : (
+              <DraftInput
+                type={a.control === 'password' ? 'password' : 'text'}
+                aria-label={a.label}
+                className={`${FIELD} w-56 font-mono`}
+                placeholder={a.placeholder}
+                value={String(value[key] ?? '')}
+                onCommit={(v) => onChange(key, v === '' ? null : v)}
+              />
+            )}
+          </SettingRow>
+        )
+      })}
     </>
   )
 }

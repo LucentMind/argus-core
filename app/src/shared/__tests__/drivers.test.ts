@@ -44,7 +44,7 @@ describe('driver registry', () => {
     expect(orders).toEqual([...orders].sort((a, b) => a - b))
   })
 
-  it('reserves sensitive: no driver field may set it until the keychain store exists', () => {
+  it('no built-in agent driver sets sensitive (only connector forms use it)', () => {
     for (const d of Object.values(DRIVERS))
       for (const a of Object.values(d.formAnnotations)) expect(a.sensitive).toBeFalsy()
   })

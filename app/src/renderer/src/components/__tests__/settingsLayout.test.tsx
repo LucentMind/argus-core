@@ -163,3 +163,54 @@ describe('AnnotatedForm reset affordance', () => {
     expect(screen.queryByRole('button', { name: /reset/i })).toBeNull()
   })
 })
+
+describe('AnnotatedForm sensitive fields', () => {
+  const annotations = {
+    token: { control: 'password' as const, label: 'API token', order: 1, sensitive: true }
+  }
+
+  it('renders a password input that never echoes; set-state shows in the placeholder', () => {
+    const onSecret = vi.fn()
+    render(
+      <AnnotatedForm
+        annotations={annotations}
+        value={{ token: { $secret: 'connector/rovo/token' } }}
+        onChange={vi.fn()}
+        onSecret={onSecret}
+      />
+    )
+    const input = screen.getByLabelText('API token') as HTMLInputElement
+    expect(input.type).toBe('password')
+    expect(input.value).toBe('')
+    expect(input.placeholder).toContain('set')
+  })
+
+  it('committing plaintext calls onSecret, not onChange; reset sends null', () => {
+    const onSecret = vi.fn()
+    const onChange = vi.fn()
+    render(
+      <AnnotatedForm
+        annotations={annotations}
+        value={{ token: { $secret: 'connector/rovo/token' } }}
+        onChange={onChange}
+        onSecret={onSecret}
+      />
+    )
+    const input = screen.getByLabelText('API token')
+    fireEvent.change(input, { target: { value: 'hunter2' } })
+    fireEvent.blur(input)
+    expect(onSecret).toHaveBeenCalledWith('token', 'hunter2')
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /reset/i }))
+    expect(onSecret).toHaveBeenCalledWith('token', null)
+  })
+
+  it('not-set state: placeholder says not set, no reset button', () => {
+    render(
+      <AnnotatedForm annotations={annotations} value={{}} onChange={vi.fn()} onSecret={vi.fn()} />
+    )
+    const input = screen.getByLabelText('API token') as HTMLInputElement
+    expect(input.placeholder).toContain('not set')
+    expect(screen.queryByRole('button', { name: /reset/i })).toBeNull()
+  })
+})

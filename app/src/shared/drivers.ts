@@ -7,7 +7,7 @@ export interface FieldAnnotation {
   placeholder?: string
   options?: readonly string[]
   order: number
-  /** RESERVED — no driver field may set this until the keychain secret store lands (Wave 2 Part 2). */
+  /** Renders as a secret-store-backed password field (AnnotatedForm `onSecret`); config holds a $secret ref. */
   sensitive?: boolean
   /** Value treated as "default" by the reset affordance (besides null/''). */
   defaultValue?: unknown
