@@ -41,7 +41,9 @@ describe('AgentSettings', () => {
 
   it('editing the model patches the instance config envelope', () => {
     render(<AgentSettings payload={payload()} />)
-    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'claude-sonnet-5' } })
+    const model = screen.getByLabelText('Model')
+    fireEvent.change(model, { target: { value: 'claude-sonnet-5' } })
+    fireEvent.blur(model)
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       agent: {
         providerInstances: {
@@ -61,7 +63,9 @@ describe('AgentSettings', () => {
     })
     fireEvent.change(screen.getByLabelText('Max concurrent sessions'), { target: { value: '5' } })
     expect(window.argus.settings.patch).toHaveBeenCalledWith({ agent: { maxSessions: 5 } })
-    fireEvent.change(screen.getByLabelText('Persona append'), { target: { value: 'be brief' } })
+    const persona = screen.getByLabelText('Persona append')
+    fireEvent.change(persona, { target: { value: 'be brief' } })
+    fireEvent.blur(persona)
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       agent: { personaAppend: 'be brief' }
     })

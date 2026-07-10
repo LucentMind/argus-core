@@ -1,7 +1,14 @@
 import { useState } from 'react'
 import { settingsStore } from '../../lib/settingsStore'
 import { Btn, Chip } from '../ui'
-import { SettingsSection, SettingRow, SelectField, FIELD } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  SelectField,
+  FIELD,
+  DraftInput,
+  DraftTextarea
+} from './settingsLayout'
 import { AnnotatedForm } from './AnnotatedForm'
 import { getDriver } from '../../../../shared/drivers'
 import {
@@ -64,11 +71,11 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
           isDefault={!inst?.displayName}
           onReset={() => patchInstance({ displayName: null })}
         >
-          <input
+          <DraftInput
             aria-label="Display name"
             className={`${FIELD} w-56`}
             value={inst?.displayName ?? ''}
-            onChange={(e) => patchInstance({ displayName: e.target.value || null })}
+            onCommit={(v) => patchInstance({ displayName: v || null })}
           />
         </SettingRow>
         {driver && (
@@ -87,12 +94,11 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
           isDefault={a.personaAppend === ''}
           onReset={() => patchAgent({ personaAppend: null })}
         >
-          <textarea
-            rows={3}
+          <DraftTextarea
             aria-label="Persona append"
             className="w-72 rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
             value={a.personaAppend}
-            onChange={(e) => patchAgent({ personaAppend: e.target.value || null })}
+            onCommit={(v) => patchAgent({ personaAppend: v || null })}
           />
         </SettingRow>
         <SettingRow

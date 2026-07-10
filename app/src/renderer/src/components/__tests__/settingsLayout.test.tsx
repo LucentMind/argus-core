@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-import { SettingsSection, SettingRow, Switch } from '../settings/settingsLayout'
+import { SettingsSection, SettingRow, Switch, DraftInput } from '../settings/settingsLayout'
 import { AnnotatedForm } from '../settings/AnnotatedForm'
 import { DRIVERS } from '../../../../shared/drivers'
 
@@ -50,9 +50,25 @@ describe('AnnotatedForm', () => {
     const model = screen.getByLabelText('Model') as HTMLInputElement
     expect(model.value).toBe('claude-sonnet-5')
     fireEvent.change(model, { target: { value: 'claude-opus-4-8' } })
+    fireEvent.blur(model)
     expect(onChange).toHaveBeenCalledWith('model', 'claude-opus-4-8')
     fireEvent.change(model, { target: { value: '' } })
+    fireEvent.blur(model)
     expect(onChange).toHaveBeenCalledWith('model', null)
     expect(screen.getByLabelText('Claude CLI path')).toBeTruthy()
+  })
+})
+
+describe('DraftInput', () => {
+  it('does not commit while typing; blur commits once with the latest draft', () => {
+    const onCommit = vi.fn()
+    render(<DraftInput value="a" onCommit={onCommit} aria-label="Draft field" />)
+    const input = screen.getByLabelText('Draft field') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'ab' } })
+    fireEvent.change(input, { target: { value: 'abc' } })
+    expect(onCommit).not.toHaveBeenCalled()
+    fireEvent.blur(input)
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith('abc')
   })
 })

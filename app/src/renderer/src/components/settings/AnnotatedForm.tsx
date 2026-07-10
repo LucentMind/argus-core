@@ -1,5 +1,5 @@
 import type { FieldAnnotation } from '../../../../shared/drivers'
-import { FIELD, SettingRow, SelectField, Switch } from './settingsLayout'
+import { FIELD, SettingRow, SelectField, Switch, DraftInput, DraftTextarea } from './settingsLayout'
 
 /**
  * Generic settings form rendered from a driver's field annotations
@@ -47,22 +47,21 @@ export function AnnotatedForm({
               onChange={(e) => onChange(key, e.target.value === '' ? null : Number(e.target.value))}
             />
           ) : a.control === 'textarea' ? (
-            <textarea
-              rows={3}
+            <DraftTextarea
               aria-label={a.label}
               className="w-72 rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
               placeholder={a.placeholder}
               value={String(value[key] ?? '')}
-              onChange={(e) => onChange(key, e.target.value === '' ? null : e.target.value)}
+              onCommit={(v) => onChange(key, v === '' ? null : v)}
             />
           ) : (
-            <input
+            <DraftInput
               type={a.control === 'password' ? 'password' : 'text'}
               aria-label={a.label}
               className={`${FIELD} w-56 font-mono`}
               placeholder={a.placeholder}
               value={String(value[key] ?? '')}
-              onChange={(e) => onChange(key, e.target.value === '' ? null : e.target.value)}
+              onCommit={(v) => onChange(key, v === '' ? null : v)}
             />
           )}
         </SettingRow>
