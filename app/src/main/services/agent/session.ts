@@ -126,10 +126,19 @@ export class CaseSession {
           : {})
       }
     })
-    for (const s of deps.mcpSkipped ?? [])
-      this.emit(
-        makeEvent(this.ctx(), 'session.mcp.skipped', { instanceId: s.instanceId, reason: s.reason })
-      )
+    // Deferred past the synchronous construction+mirror-attach block: AgentService
+    // attaches the mirror right after `new CaseSession(...)` returns, and these
+    // events must land in the session's .jsonl mirror, not just the live broadcast.
+    queueMicrotask(() => {
+      if (this.state === 'dead') return
+      for (const s of deps.mcpSkipped ?? [])
+        this.emit(
+          makeEvent(this.ctx(), 'session.mcp.skipped', {
+            instanceId: s.instanceId,
+            reason: s.reason
+          })
+        )
+    })
     void this.consume()
   }
 

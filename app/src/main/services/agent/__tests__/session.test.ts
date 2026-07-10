@@ -344,10 +344,36 @@ describe('CaseSession', () => {
     const servers = sdk.captured.options!.mcpServers as Record<string, unknown>
     expect(servers.rovo).toEqual({ type: 'sse', url: 'https://x', headers: {} })
     expect(servers.argus).toBeDefined() // the native server always wins the 'argus' key
+    await flush() // skip emission is deferred past construction so a late-attached mirror sees it
     const skipEvents = events.filter((e) => e.type === 'session.mcp.skipped')
     expect(skipEvents).toHaveLength(1)
     expect(skipEvents[0].payload).toEqual({ instanceId: 'dead', reason: 'spawn failed' })
     await s.stop('stopped')
+  })
+
+  it('mcp-skipped events reach a mirror attached right after construction (registry pattern)', async () => {
+    const sdk = fakeSdk()
+    const appended: AgentEvent[] = []
+    const s = makeSession(sdk, { mcpSkipped: [{ instanceId: 'dead', reason: 'spawn failed' }] })
+    // AgentService.getOrCreate attaches the mirror synchronously right after the
+    // constructor returns — the skip events must not have been emitted before this.
+    ;(s as unknown as { deps: { mirror: unknown } }).deps.mirror = {
+      append: (e: AgentEvent) => appended.push(e),
+      indexText: () => {}
+    }
+    await flush()
+    const skip = appended.filter((e) => e.type === 'session.mcp.skipped')
+    expect(skip).toHaveLength(1)
+    expect(skip[0].payload).toEqual({ instanceId: 'dead', reason: 'spawn failed' })
+    await s.stop('stopped')
+  })
+
+  it('does not emit mcp-skipped events when the session dies before the deferred emission', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { mcpSkipped: [{ instanceId: 'dead', reason: 'spawn failed' }] })
+    await s.stop('stopped') // dies within the same synchronous block — before the microtask runs
+    await flush()
+    expect(events.filter((e) => e.type === 'session.mcp.skipped')).toHaveLength(0)
   })
 
   it('a LOW connector tool auto-approves and logs; a MEDIUM one asks (case-bound request event)', async () => {
