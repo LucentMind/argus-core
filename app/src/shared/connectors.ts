@@ -42,7 +42,8 @@ export const httpConfigSchema = z.looseObject({
   transport: z.enum(['http', 'sse']).default('http'),
   oauth: z.boolean().default(false),
   headers: z.record(z.string(), z.unknown()).default(() => ({})), // values may be $secret refs
-  apiToken: z.unknown().optional() // Rovo preset: Atlassian PAT ($secret ref)
+  apiToken: z.unknown().optional(), // Rovo preset: Atlassian PAT ($secret ref)
+  siteUrl: z.string().optional() // Rovo preset: Atlassian site base URL for REST (Part 3)
 })
 export type HttpConnectorConfig = z.infer<typeof httpConfigSchema>
 
@@ -157,15 +158,15 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
   }
 }
 
-/** Extra fields shown only on preset cards (REST credentials for Part 3). */
+/** Extra fields shown only on preset cards (REST credentials, Part 3). */
 export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
-  apiToken: {
-    control: 'password',
-    label: 'Atlassian API token (PAT)',
-    order: 10,
-    sensitive: true,
-    help: 'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
-  }
+  siteUrl: {
+    control: 'text',
+    label: 'Site URL (REST)',
+    placeholder: 'https://your-site.atlassian.net',
+    order: 9
+  },
+  apiToken: { control: 'password', label: 'Atlassian API token (PAT)', order: 10, sensitive: true }
 }
 
 // --- presets (config/connector-presets.json over these built-ins) ------------
@@ -204,6 +205,8 @@ export interface ConnectorsPayload {
   connectors: ConnectorMap
   runtime: Record<string, ConnectorRuntimeState>
   oauth: Record<string, OAuthStatus>
+  /** instanceId → last Atlassian REST auth-error message (absent = healthy). Part 3. */
+  rest: Record<string, string>
   loadError: string | null
   secretsAvailable: boolean
   secretsLoadError: string | null

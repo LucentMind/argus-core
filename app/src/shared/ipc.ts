@@ -38,5 +38,10 @@ export const IPC = {
   healthRun: 'health:run',
   healthResult: 'health:result',
   sourceControlStatus: 'sourcecontrol:status',
-  appOpenExternal: 'app:open-external'
+  appOpenExternal: 'app:open-external',
+  jiraPreview: 'jira:preview',
+  jiraCreateCase: 'jira:create-case',
+  jiraIngestAttachments: 'jira:ingest-attachments',
+  jiraRefreshCase: 'jira:refresh-case',
+  jiraAttachmentProgress: 'jira:attachment-progress'
 } as const
