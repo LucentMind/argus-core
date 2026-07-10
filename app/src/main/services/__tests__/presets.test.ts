@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { loadPresets } from '../presets'
+import { loadPresets, isOpenableUrl } from '../presets'
 import { presetsPath } from '../paths'
 import { DEFAULT_PRESETS } from '../../../shared/connectors'
 
@@ -42,5 +42,19 @@ describe('loadPresets', () => {
     fs.mkdirSync(path.dirname(presetsPath(argusHome)), { recursive: true })
     fs.writeFileSync(presetsPath(argusHome), '{broken', 'utf8')
     expect(loadPresets(argusHome)).toEqual(DEFAULT_PRESETS)
+  })
+})
+
+describe('isOpenableUrl', () => {
+  it('allows http(s) URLs, case-insensitively', () => {
+    expect(isOpenableUrl('https://x')).toBe(true)
+    expect(isOpenableUrl('http://x')).toBe(true)
+    expect(isOpenableUrl('HTTPS://x')).toBe(true)
+  })
+
+  it('blocks non-http(s) schemes and the empty string', () => {
+    expect(isOpenableUrl('javascript:alert(1)')).toBe(false)
+    expect(isOpenableUrl('file:///c')).toBe(false)
+    expect(isOpenableUrl('')).toBe(false)
   })
 })

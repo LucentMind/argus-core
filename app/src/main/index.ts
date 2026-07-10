@@ -11,7 +11,7 @@ import { SettingsService } from './services/settings'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
-import { loadPresets } from './services/presets'
+import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
 import { HealthService } from './services/health'
@@ -281,7 +281,7 @@ function registerIpc(): void {
     return r
   })
   ipcMain.handle(IPC.appOpenExternal, (_e, url: string) => {
-    if (!/^https?:\/\//.test(url)) return
+    if (!isOpenableUrl(url)) return
     void shell.openExternal(url)
   })
   ipcMain.handle(IPC.secretsSet, (_e, name: string, value: string) => {

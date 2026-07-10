@@ -138,9 +138,9 @@ export function MenuButton({
           role="menu"
           className="absolute right-0 z-20 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
         >
-          {items.map((it) => (
+          {items.map((it, i) => (
             <button
-              key={it.label}
+              key={`${i}-${it.label}`}
               role="menuitem"
               disabled={it.disabled}
               className={`block w-full rounded-r2 px-3 py-1.5 text-left text-sm hover:bg-hair/50 disabled:opacity-50 ${

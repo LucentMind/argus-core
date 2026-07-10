@@ -132,6 +132,13 @@ function ConnectorCard({
     }
   }
 
+  function authorize(): void {
+    setAuthError(null)
+    void window.argus.connectors.oauth(id).then((r: { ok: boolean; error?: string }) => {
+      if (!r.ok) setAuthError(r.error ?? 'authorization failed')
+    })
+  }
+
   return (
     <Card className="flex flex-col">
       <div className="flex items-center gap-2 p-3">
@@ -145,25 +152,16 @@ function ConnectorCard({
         {rt?.state === 'error' && <span className="text-xs text-dim">{rt.reason}</span>}
         {isOauth && oauthStatus === 'authorized' && <Chip tone="review">authorized</Chip>}
         {isOauth && oauthStatus !== 'authorized' && (
-          <>
-            <Btn
-              variant="primary"
-              disabled={!String((cfg as Partial<HttpConnectorConfig>).url ?? '')}
-              aria-label={`authorize · ${id}`}
-              onClick={() => {
-                setAuthError(null)
-                void window.argus.connectors
-                  .oauth(id)
-                  .then((r: { ok: boolean; error?: string }) => {
-                    if (!r.ok) setAuthError(r.error ?? 'authorization failed')
-                  })
-              }}
-            >
-              Authorize…
-            </Btn>
-            {authError && <span className="text-xs text-danger">{authError}</span>}
-          </>
+          <Btn
+            variant="primary"
+            disabled={!String((cfg as Partial<HttpConnectorConfig>).url ?? '')}
+            aria-label={`authorize · ${id}`}
+            onClick={authorize}
+          >
+            Authorize…
+          </Btn>
         )}
+        {isOauth && authError && <span className="text-xs text-danger">{authError}</span>}
         {secretGap && <Chip tone="danger">secret store unavailable</Chip>}
         <div className="ml-auto flex items-center gap-2">
           <MenuButton
@@ -177,12 +175,7 @@ function ConnectorCard({
                 disabled: testing || !supported
               },
               ...(isOauth && oauthStatus === 'authorized'
-                ? [
-                    {
-                      label: 'Re-authorize',
-                      onSelect: () => void window.argus.connectors.oauth(id)
-                    }
-                  ]
+                ? [{ label: 'Re-authorize', onSelect: authorize }]
                 : []),
               { label: 'Remove', onSelect: remove, tone: 'danger' as const }
             ]}
@@ -326,10 +319,12 @@ export function ConnectorsSettings(): React.JSX.Element {
           variant="primary"
           aria-label="add connector"
           items={[
-            ...Object.entries(payload.presets).map(([pid, p]) => ({
-              label: p.displayName,
-              onSelect: () => addPreset(pid)
-            })),
+            ...Object.entries(payload.presets)
+              .filter(([pid]) => !(RESERVED_INSTANCE_IDS as readonly string[]).includes(pid))
+              .map(([pid, p]) => ({
+                label: p.displayName,
+                onSelect: () => addPreset(pid)
+              })),
             { label: 'Custom remote (HTTP)', onSelect: () => addCustom('http') },
             { label: 'Custom local (stdio)', onSelect: () => addCustom('stdio') }
           ]}

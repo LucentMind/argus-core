@@ -137,6 +137,18 @@ describe('ConnectorsSettings', () => {
     expect(window.argus.connectors.oauth).toHaveBeenCalledWith('rovo')
   })
 
+  it('authorized oauth card: menu Re-authorize failure surfaces the inline error', async () => {
+    ;(window.argus.connectors.oauth as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      error: 'boom'
+    })
+    render(<ConnectorsSettings />) // fixture rovo oauth: 'authorized'
+    await screen.findByText('Atlassian Rovo')
+    fireEvent.click(screen.getByRole('button', { name: 'actions · rovo' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Re-authorize' }))
+    expect(await screen.findByText('boom')).toBeTruthy()
+  })
+
   it('unauthorized oauth card shows Authorize…, disabled without url, inline error on failure', async () => {
     currentPayload = basePayload({
       oauth: { rovo: 'not-authorized', nourl: 'not-authorized' },
@@ -188,6 +200,21 @@ describe('ConnectorsSettings', () => {
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
       'stdio-1': expect.objectContaining({ kind: 'stdio' })
     })
+  })
+
+  it('Add connector dropdown excludes reserved-id presets (e.g. "argus")', async () => {
+    currentPayload = basePayload({
+      connectors: {},
+      runtime: {},
+      oauth: {},
+      presets: {
+        ...DEFAULT_PRESETS,
+        argus: { displayName: 'Argus (reserved)', kind: 'http', config: {}, links: {} }
+      }
+    })
+    render(<ConnectorsSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: /add connector/i }))
+    expect(screen.queryByRole('menuitem', { name: 'Argus (reserved)' })).toBeNull()
   })
 
   it('edit form shows the PAT field and the create-token link', async () => {

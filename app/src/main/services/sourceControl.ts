@@ -38,7 +38,7 @@ export async function ghStatus(
   try {
     const { stdout, stderr } = await exec('gh', ['auth', 'status'], { timeout: 10000 })
     const text = stdout + stderr
-    const m = text.match(/Logged in to (\S+) account (\S+)/)
+    const m = text.match(/Logged in to (\S+) (?:account|as) (\S+)/)
     if (m)
       return {
         installed: true,
