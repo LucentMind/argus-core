@@ -51,6 +51,13 @@ describe('connectorsStore', () => {
       new Error('nope')
     )
     await connectorsStore.patch({ b: null })
-    expect(connectorsStore.get()?.loadError).toMatch(/connector save failed: .*nope/)
+    const after = connectorsStore.get()!
+    expect(after.loadError).toMatch(/connector save failed: .*nope/)
+    // the rest of the payload survives the synthesized banner
+    expect(after.connectors).toEqual({})
+    expect(after.runtime).toEqual({})
+    expect(after.oauth).toEqual({})
+    expect(after.secretsAvailable).toBe(true)
+    expect(after.secretsLoadError).toBeNull()
   })
 })

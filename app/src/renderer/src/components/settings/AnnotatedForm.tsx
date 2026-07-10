@@ -1,6 +1,47 @@
+import { useState } from 'react'
 import type { FieldAnnotation } from '../../../../shared/drivers'
 import { isSecretRef } from '../../../../shared/connectors'
 import { FIELD, SettingRow, SelectField, Switch, DraftInput, DraftTextarea } from './settingsLayout'
+
+/**
+ * Password input for `sensitive` fields. Unlike DraftInput it never mirrors a
+ * stored value: the draft starts empty and is cleared synchronously on commit
+ * (blur/Enter) and on Escape, so committed plaintext never lingers in
+ * renderer state or the DOM — only the placeholder signals set/not-set.
+ */
+function SecretInput({
+  placeholder,
+  onCommit,
+  'aria-label': ariaLabel
+}: {
+  placeholder: string
+  onCommit: (plaintext: string) => void
+  'aria-label': string
+}): React.JSX.Element {
+  const [draft, setDraft] = useState('')
+  const commit = (): void => {
+    if (draft) onCommit(draft)
+    setDraft('')
+  }
+  return (
+    <input
+      type="password"
+      aria-label={ariaLabel}
+      className={FIELD}
+      placeholder={placeholder}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit()
+        else if (e.key === 'Escape') {
+          setDraft('')
+          e.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
 
 /**
  * Generic settings form rendered from a driver's field annotations
@@ -32,15 +73,10 @@ export function AnnotatedForm({
               isDefault={!isSet}
               onReset={() => onSecret(key, null)}
             >
-              <DraftInput
-                value=""
-                type="password"
+              <SecretInput
                 placeholder={isSet ? '•••• (set)' : (a.placeholder ?? '(not set)')}
-                onCommit={(v) => {
-                  if (v) onSecret(key, v)
-                }}
+                onCommit={(v) => onSecret(key, v)}
                 aria-label={a.label}
-                className={FIELD}
               />
             </SettingRow>
           )

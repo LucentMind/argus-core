@@ -205,6 +205,36 @@ describe('AnnotatedForm sensitive fields', () => {
     expect(onSecret).toHaveBeenCalledWith('token', null)
   })
 
+  it('committed plaintext does not remain in the input after blur', () => {
+    const onSecret = vi.fn()
+    render(
+      <AnnotatedForm
+        annotations={annotations}
+        value={{ token: { $secret: 'connector/rovo/token' } }}
+        onChange={vi.fn()}
+        onSecret={onSecret}
+      />
+    )
+    const input = screen.getByLabelText('API token') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'hunter2' } })
+    fireEvent.blur(input)
+    expect(onSecret).toHaveBeenCalledWith('token', 'hunter2')
+    expect(input.value).toBe('')
+  })
+
+  it('Escape clears the sensitive draft without committing', () => {
+    const onSecret = vi.fn()
+    render(
+      <AnnotatedForm annotations={annotations} value={{}} onChange={vi.fn()} onSecret={onSecret} />
+    )
+    const input = screen.getByLabelText('API token') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'oops' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.value).toBe('')
+    fireEvent.blur(input)
+    expect(onSecret).not.toHaveBeenCalled()
+  })
+
   it('not-set state: placeholder says not set, no reset button', () => {
     render(
       <AnnotatedForm annotations={annotations} value={{}} onChange={vi.fn()} onSecret={vi.fn()} />
