@@ -3,6 +3,7 @@ import { IPC } from '../shared/ipc'
 import type { NewCaseInput, SearchFilters, ApprovalDecision } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
+import type { ConnectorsPayload } from '../shared/connectors'
 
 // Custom API for renderer
 const argus = {
@@ -64,6 +65,22 @@ const argus = {
       ipcRenderer.on(IPC.settingsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.settingsChanged, listener)
     }
+  },
+  connectors: {
+    get: () => ipcRenderer.invoke(IPC.connectorsGet),
+    patch: (p: unknown) => ipcRenderer.invoke(IPC.connectorsPatch, p),
+    test: (id: string) => ipcRenderer.invoke(IPC.connectorsTest, id),
+    oauth: (id: string) => ipcRenderer.invoke(IPC.connectorsOauth, id),
+    onChanged: (cb: (p: ConnectorsPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: ConnectorsPayload): void => cb(p)
+      ipcRenderer.on(IPC.connectorsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.connectorsChanged, listener)
+    }
+  },
+  secrets: {
+    set: (name: string, value: string) => ipcRenderer.invoke(IPC.secretsSet, name, value),
+    has: (name: string) => ipcRenderer.invoke(IPC.secretsHas, name),
+    delete: (name: string) => ipcRenderer.invoke(IPC.secretsDelete, name)
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file)
 }
