@@ -52,6 +52,7 @@ import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
 import { resolveArgusParse } from './services/parsers'
 import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
+import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig } from '../shared/drivers'
 import {
   seedSharedDirs,
@@ -269,6 +270,56 @@ function registerIpc(): void {
   ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) =>
     listWorkspaces(db, argusHome, caseSlug)
   )
+  ipcMain.handle(IPC.workspacesRefs, (_e, caseSlug: string) => {
+    const cj = path.join(caseDir(argusHome, caseSlug), 'case.json')
+    try {
+      const data = JSON.parse(fs.readFileSync(cj, 'utf8')) as { workspaceRefs?: unknown }
+      return Array.isArray(data.workspaceRefs) ? data.workspaceRefs : []
+    } catch {
+      return []
+    }
+  })
+
+  // — case bundles (.arguscase) —
+  ipcMain.handle(IPC.bundleExport, async (_e, caseSlug: string, includeTranscripts: boolean) => {
+    const r = await dialog.showSaveDialog({
+      defaultPath: `${caseSlug}.arguscase`,
+      filters: [{ name: 'Argus case bundle', extensions: ['arguscase'] }]
+    })
+    if (r.canceled || !r.filePath) return null
+    try {
+      const manifest = await exportCase(
+        db,
+        argusHome,
+        caseSlug,
+        r.filePath,
+        { includeTranscripts },
+        { argusVersion: app.getVersion() }
+      )
+      return { ok: true as const, path: r.filePath, fileCount: manifest.files.length }
+    } catch (err) {
+      return { ok: false as const, error: (err as Error).message }
+    }
+  })
+  ipcMain.handle(IPC.bundleInspect, async () => {
+    const r = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Argus case bundle', extensions: ['arguscase'] }]
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    try {
+      return { ok: true as const, inspection: await inspectBundle(db, argusHome, r.filePaths[0]) }
+    } catch (err) {
+      return { ok: false as const, error: (err as Error).message }
+    }
+  })
+  ipcMain.handle(IPC.bundleImport, async (_e, zipPath: string, slug: string) => {
+    try {
+      return { ok: true as const, record: await importCase(db, argusHome, zipPath, slug) }
+    } catch (err) {
+      return { ok: false as const, error: (err as Error).message }
+    }
+  })
 
   // — skills —
   ipcMain.handle(IPC.skillsList, () => ({

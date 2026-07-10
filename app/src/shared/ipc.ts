@@ -51,5 +51,9 @@ export const IPC = {
   memoryRead: 'memory:read',
   memoryWrite: 'memory:write',
   memoryDelete: 'memory:delete',
-  memoryAudit: 'memory:audit'
+  memoryAudit: 'memory:audit',
+  bundleExport: 'bundle:export',
+  bundleInspect: 'bundle:inspect',
+  bundleImport: 'bundle:import',
+  workspacesRefs: 'workspaces:refs'
 } as const
