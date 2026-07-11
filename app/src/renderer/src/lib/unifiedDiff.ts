@@ -1,8 +1,7 @@
 import type { DiffLine } from './lineDiff'
 
 export type UnifiedSegment =
-  | { meta: string }
-  | { meta?: undefined; leftStart: number; rightStart: number; lines: DiffLine[] }
+  { meta: string } | { meta?: undefined; leftStart: number; rightStart: number; lines: DiffLine[] }
 
 const DROPPED_HEADER =
   /^(index |--- |\+\+\+ |new file|deleted file|old mode|new mode|similarity|rename |copy |Binary files|\\ No newline)/

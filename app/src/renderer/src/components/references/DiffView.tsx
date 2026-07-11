@@ -90,7 +90,11 @@ export function DiffView({
     <div className="flex flex-col gap-1">
       <DiffModeToggle mode={mode} onChange={setMode} />
       <div className="max-h-64 overflow-auto rounded-r2 border border-hair">
-        {mode === 'split' ? <SplitDiffRows rows={pairRows(lines)} /> : <UnifiedLines lines={lines} />}
+        {mode === 'split' ? (
+          <SplitDiffRows rows={pairRows(lines)} />
+        ) : (
+          <UnifiedLines lines={lines} />
+        )}
       </div>
     </div>
   )
