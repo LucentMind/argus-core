@@ -18,7 +18,17 @@ export const packBinarySchema = z
     /** Key under settings.tools holding a user path override. */
     settingsKey: z.string().min(1).optional(),
     /** Executable base names (platform .exe variants handled by the resolver). */
-    names: z.array(z.string().min(1)).min(1),
+    names: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .refine(
+            (n) => !['git', 'gh', 'rm', 'cd'].includes(n),
+            'binary name collides with a risk-classified program'
+          )
+      )
+      .min(1),
     /** Dev-checkout locations, relative to the pack dir; '{platformBin}' → Scripts|bin. */
     devPaths: z.array(z.string()).default([]),
     /** exe: args that print a version string when run against the resolved binary. */

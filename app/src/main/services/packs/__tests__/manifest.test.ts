@@ -75,6 +75,33 @@ describe('packManifestSchema', () => {
     ).toThrow()
   })
 
+  it('rejects a binaries entry whose names collide with a risk-classified program', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['git'] }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['gh'] }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['rm'] }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['cd'] }]
+      })
+    ).toThrow()
+  })
+
   it('defaults binaries to empty and rejects a bad kind', () => {
     expect(packManifestSchema.parse(valid).binaries).toEqual([])
     expect(() =>
