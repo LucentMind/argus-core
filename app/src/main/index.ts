@@ -75,6 +75,7 @@ import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
+import { CodeGraphService, graphsRoot } from './services/codeGraph'
 import { createExtractors } from './services/packs/extractors'
 import type {
   ApprovalDecision,
@@ -152,6 +153,13 @@ function registerIpc(): void {
     settingsTools: () => settingsService.get().tools,
     resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
     capturedEnv: capturedBinaryEnv
+  })
+
+  const codeGraph = new CodeGraphService({
+    argusHome,
+    pathOf: (id) => binariesService.pathOf(id),
+    recompute: () => binariesService.recompute(),
+    broadcast
   })
 
   // 1d: pack-driven detection engine replaces the hardcoded detect.ts.
@@ -318,7 +326,11 @@ function registerIpc(): void {
     db,
     argusHome,
     detection,
-    skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
+    skillsRoots: [
+      sharedSkillsDir(argusHome),
+      sharedReferencesDir(argusHome),
+      graphsRoot(argusHome)
+    ],
     personaFragments: () => packRegistry.personaFragments(),
     packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
     onEvent: (e) => {
@@ -444,6 +456,11 @@ function registerIpc(): void {
       return []
     }
   })
+  ipcMain.handle(IPC.graphBuild, (_e, repoPath: string, scope: string | null) =>
+    codeGraph.build(repoPath, scope)
+  )
+  ipcMain.handle(IPC.graphStatus, (_e, repoPath: string) => codeGraph.status(repoPath))
+  ipcMain.handle(IPC.graphInstall, () => codeGraph.installTool())
 
   // — case bundles (.arguscase) —
   ipcMain.handle(IPC.bundleExport, async (_e, caseSlug: string, includeTranscripts: boolean) => {
