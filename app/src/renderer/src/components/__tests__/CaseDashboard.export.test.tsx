@@ -3,6 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseDashboard } from '../CaseDashboard'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseRecord } from '../../../../shared/types'
 
 const cases: CaseRecord[] = [
@@ -19,12 +21,23 @@ const cases: CaseRecord[] = [
   }
 ]
 
+function payload(): SettingsPayload {
+  return {
+    settings: defaultSettings(),
+    resolvedTools: [],
+    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
+    loadError: null
+  }
+}
+
 beforeEach(() => {
   ;(window as unknown as { argus: unknown }).argus = {
     bundle: {
       export: vi.fn().mockResolvedValue({ ok: true, path: 'C:/x.arguscase', fileCount: 12 })
-    }
+    },
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) }
   }
+  settingsStore.reset()
 })
 
 describe('CaseDashboard export button', () => {
@@ -36,6 +49,7 @@ describe('CaseDashboard export button', () => {
         onOpen={onOpen}
         onNew={() => undefined}
         onImport={() => undefined}
+        onDeleted={vi.fn()}
       />
     )
     fireEvent.click(screen.getByRole('button', { name: 'Export NAV-100' }))
@@ -59,6 +73,7 @@ describe('CaseDashboard export button', () => {
         onOpen={() => undefined}
         onNew={() => undefined}
         onImport={() => undefined}
+        onDeleted={vi.fn()}
       />
     )
     fireEvent.click(screen.getByRole('button', { name: 'Export NAV-100' }))

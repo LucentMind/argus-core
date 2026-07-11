@@ -107,6 +107,7 @@ function App(): React.JSX.Element {
               onOpen={openCase}
               onNew={() => setNewCaseOpen(true)}
               onImport={() => void pickBundle()}
+              onDeleted={() => void reload()}
             />
             <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
               <SearchBar caseSlug={null} onOpen={handleOpenHit} />
