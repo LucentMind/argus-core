@@ -23,6 +23,8 @@ export interface HealthDeps {
   atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
   refsyncConfigured: () => boolean
   confluenceCheck: () => Promise<{ ok: boolean; detail: string }>
+  langfuseConfigured: () => boolean
+  langfuseCheck: () => Promise<{ ok: boolean; detail: string }>
 }
 
 const STATIC_ROWS: HealthRow[] = [
@@ -45,6 +47,9 @@ export class HealthService {
         : []),
       ...(this.deps.refsyncConfigured()
         ? [{ id: 'confluence-rest', label: 'Atlassian REST (Confluence)' }]
+        : []),
+      ...(this.deps.langfuseConfigured()
+        ? [{ id: 'langfuse', label: 'Langfuse (observability)' }]
         : []),
       ...this.deps.enabledConnectors().map((c) => ({ id: `connector:${c.id}`, label: c.name }))
     ]
@@ -128,6 +133,20 @@ export class HealthService {
             : {
                 fixHint:
                   'Check siteUrl / API token (PAT) on the Atlassian connector (Connectors page).'
+              })
+        }
+      }
+      if (row.id === 'langfuse') {
+        const r = await this.deps.langfuseCheck()
+        return {
+          ...row,
+          ok: r.ok,
+          detail: r.detail,
+          ...(r.ok
+            ? {}
+            : {
+                fixHint:
+                  'Check host URL + keys on Settings → Observability, and that your Langfuse instance is reachable.'
               })
         }
       }

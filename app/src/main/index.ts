@@ -649,6 +649,22 @@ function registerIpc(): void {
       } catch (err) {
         return { ok: false, detail: (err as Error).message }
       }
+    },
+    langfuseConfigured: () => {
+      const s = settingsService.get().observability?.langfuse
+      return Boolean(s?.enabled && s.host && s.publicKey)
+    },
+    langfuseCheck: async () => {
+      const s = settingsService.get().observability?.langfuse
+      if (!s?.host) return { ok: false, detail: 'no host configured' }
+      try {
+        const res = await fetch(`${s.host.replace(/\/$/, '')}/api/public/health`)
+        return res.ok
+          ? { ok: true, detail: `reachable (${res.status})` }
+          : { ok: false, detail: `HTTP ${res.status}` }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
     }
   })
 
