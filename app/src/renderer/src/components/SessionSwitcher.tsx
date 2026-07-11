@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ChevronDown, Pencil, Plus } from 'lucide-react'
 import type { ChatSearchHit, SessionSummary } from '../../../shared/types'
 
 function displayTitle(s: { id: number; title: string }): string {
@@ -151,7 +152,7 @@ export function SessionSwitcher({
           onClick={() => setOpen((v) => !v)}
         >
           <span className="max-w-48 truncate">{activeTitle}</span>
-          <span aria-hidden="true">⌄</span>
+          <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
         </button>
         {open && (
           <>
@@ -232,7 +233,7 @@ export function SessionSwitcher({
                           className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
                           onClick={() => startRename(s)}
                         >
-                          ✎
+                          <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
                         </button>
                       )}
                     </div>
@@ -257,7 +258,7 @@ export function SessionSwitcher({
           className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
           onClick={() => void createChat()}
         >
-          <span aria-hidden="true">＋</span>
+          <Plus size={12} strokeWidth={1.5} aria-hidden="true" />
           <span>New chat</span>
         </button>
         <input

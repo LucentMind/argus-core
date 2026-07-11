@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
+import { ArrowUp, ArrowDown, X } from 'lucide-react'
 import type { TranscriptItem } from '../lib/agentStore'
 
 /**
@@ -94,7 +95,7 @@ export function ChatFind({
         className="rounded-r1 px-1 text-xs text-mute transition-colors hover:bg-hair hover:text-ink"
         onClick={() => step(-1)}
       >
-        ↑
+        <ArrowUp size={12} strokeWidth={1.5} aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -103,7 +104,7 @@ export function ChatFind({
         className="rounded-r1 px-1 text-xs text-mute transition-colors hover:bg-hair hover:text-ink"
         onClick={() => step(1)}
       >
-        ↓
+        <ArrowDown size={12} strokeWidth={1.5} aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -112,7 +113,7 @@ export function ChatFind({
         className="rounded-r1 px-1 text-xs text-mute transition-colors hover:bg-hair hover:text-ink"
         onClick={onClose}
       >
-        ✕
+        <X size={12} strokeWidth={1.5} aria-hidden="true" />
       </button>
     </div>
   )
