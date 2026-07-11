@@ -52,6 +52,11 @@ beforeEach(() => {
       reveal: vi.fn(async () => undefined),
       onChanged: vi.fn(() => () => {})
     },
+    packs: {
+      artifactMeta: vi.fn(async () => [
+        { type: 'binlog', displayName: 'Binary log', analyzeSkill: 'analyze-binlog', isText: false }
+      ])
+    },
     pathForFile: vi.fn(),
     workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) },
     skills: { list: vi.fn(async () => ({ skills: [] })) },

@@ -60,4 +60,14 @@ describe('PackRegistry', () => {
     expect(decls[0].decl.id).toBe('tool-a')
     expect(decls[0].packDir).toBe('/packs/alpha')
   })
+
+  it('flattens detector declarations in pack order', () => {
+    const a = lp('alpha', null)
+    a.manifest = packManifestSchema.parse({
+      id: 'alpha', displayName: 'A', version: '1', argusApi: '^1',
+      detectors: [{ type: 'binlog', match: [{ nameEndsWith: ['.binlog'] }] }]
+    })
+    const reg = new PackRegistry([a, lp('beta', null)])
+    expect(reg.detectorDecls().map((d) => d.type)).toEqual(['binlog'])
+  })
 })

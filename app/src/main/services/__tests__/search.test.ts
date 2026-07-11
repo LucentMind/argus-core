@@ -5,6 +5,7 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
+import { createDetection } from '../packs/detection'
 import { searchEvidence, readEvidenceText } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -12,14 +13,15 @@ const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-ap
 
 let home: string
 let db: DatabaseSync
+const detection = createDetection()
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-search-'))
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'NAVAPI-1', title: 'a' })
   createCase(db, home, { slug: 'NAVAPI-2', title: 'b' })
-  ingestArtifact(db, home, 'NAVAPI-1', FIXTURE)
-  ingestArtifact(db, home, 'NAVAPI-2', FIXTURE)
+  ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
+  ingestArtifact(db, home, detection, 'NAVAPI-2', FIXTURE)
 })
 
 describe('searchEvidence', () => {

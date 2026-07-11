@@ -11,6 +11,7 @@ import { packManifestSchema } from '../packs/manifest'
 import { AgentService } from '../agent/registry'
 import { createSession } from '../agent/sessionStore'
 import { AsyncQueue } from '../agent/asyncQueue'
+import { createDetection } from '../packs/detection'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { CreateQueryFn } from '../agent/session'
 import type { LoadedPack } from '../packs/loader'
@@ -65,6 +66,7 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
     const agents = new AgentService({
       db,
       argusHome,
+      detection: createDetection(),
       skillsRoots: [],
       onEvent: () => {},
       agentAccess: () => defaultAgentAccess(),

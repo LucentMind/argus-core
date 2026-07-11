@@ -11,10 +11,12 @@ import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
 import { writeProposal } from '../proposals'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
+import type { Detection } from '../packs/detection'
 
 export interface NativeToolDeps {
   db: DatabaseSync
   argusHome: string
+  detection: Detection
   caseId: number
   caseSlug: string
   sessionId: number
@@ -30,7 +32,7 @@ const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
 export function argusToolHandlers(
   deps: NativeToolDeps
 ): Record<string, (args: Record<string, unknown>) => Promise<string>> {
-  const { db, argusHome, caseSlug, sessionId } = deps
+  const { db, argusHome, detection, caseSlug, sessionId } = deps
   const dir = caseDir(argusHome, caseSlug)
 
   return {
@@ -58,7 +60,7 @@ export function argusToolHandlers(
       if (!p.startsWith(dir + path.sep)) {
         throw new Error(`ingest_artifact only accepts files inside the case dir: ${dir}`)
       }
-      const rec = ingestArtifact(db, argusHome, caseSlug, p, 'agent')
+      const rec = ingestArtifact(db, argusHome, detection, caseSlug, p, 'agent')
       return JSON.stringify(rec, null, 2)
     },
 

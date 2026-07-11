@@ -1,5 +1,5 @@
 import { loadPacks, type LoadedPack, type PackLoadError } from './loader'
-import type { PackBinary } from './manifest'
+import type { PackBinary, PackDetector } from './manifest'
 
 export class PackRegistry {
   private readonly _packs: LoadedPack[]
@@ -41,5 +41,22 @@ export class PackRegistry {
   /** All packs' binary declarations, flattened in pack (id-sorted) order. */
   binaryDecls(): Array<{ packDir: string; decl: PackBinary }> {
     return this._packs.flatMap((p) => p.manifest.binaries.map((decl) => ({ packDir: p.dir, decl })))
+  }
+
+  /** All packs' detector declarations, flattened in pack order; duplicate types → first wins. */
+  detectorDecls(): PackDetector[] {
+    const seen = new Set<string>()
+    const out: PackDetector[] = []
+    for (const p of this._packs) {
+      for (const d of p.manifest.detectors) {
+        if (seen.has(d.type)) {
+          console.warn(`[packs] duplicate detector type '${d.type}' — first declaration wins`)
+          continue
+        }
+        seen.add(d.type)
+        out.push(d)
+      }
+    }
+    return out
   }
 }

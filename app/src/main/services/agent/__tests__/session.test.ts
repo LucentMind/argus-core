@@ -8,6 +8,7 @@ import { CaseSession, type CreateQueryFn } from '../session'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
+import { createDetection } from '../../packs/detection'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
@@ -48,6 +49,7 @@ function makeSession(
   return new CaseSession({
     db,
     argusHome,
+    detection: createDetection(),
     caseId: rec.id,
     caseSlug: 'NAV-1',
     sessionId,
@@ -417,6 +419,7 @@ describe('CaseSession', () => {
     const s = new CaseSession({
       db,
       argusHome,
+      detection: createDetection(),
       caseId: rec.id,
       caseSlug: 'NAV-OPT',
       sessionId: createSession(db, 'NAV-OPT').id,
@@ -456,6 +459,7 @@ describe('CaseSession', () => {
     const s2 = new CaseSession({
       db,
       argusHome,
+      detection: createDetection(),
       caseId: rec2.id,
       caseSlug: 'NAV-DEF',
       sessionId: createSession(db, 'NAV-DEF').id,

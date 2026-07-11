@@ -9,7 +9,8 @@ import type {
   FileReadResult,
   SessionSummary,
   ChatSearchResult,
-  UnifiedHit
+  UnifiedHit,
+  ArtifactTypeMeta
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -86,6 +87,9 @@ const argus = {
       ipcRenderer.on(IPC.filesChanged, listener)
       return () => ipcRenderer.removeListener(IPC.filesChanged, listener)
     }
+  },
+  packs: {
+    artifactMeta: (): Promise<ArtifactTypeMeta[]> => ipcRenderer.invoke(IPC.packsArtifactMeta)
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>

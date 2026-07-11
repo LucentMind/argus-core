@@ -5,6 +5,7 @@ import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
+import { createDetection } from '../../packs/detection'
 import { AgentService } from '../registry'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
@@ -14,6 +15,7 @@ import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
+const detection = createDetection()
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 20))
 
 beforeEach(() => {
@@ -34,7 +36,7 @@ describe('two concurrent case sessions', () => {
       createCase(db, argusHome, { slug, title: slug })
       const src = path.join(tmp, `${slug}.txt`)
       fs.writeFileSync(src, `${slug} FATAL Navigator error\n`)
-      ingestArtifact(db, argusHome, slug, src)
+      ingestArtifact(db, argusHome, detection, slug, src)
     }
     const queues = new Map<number, AsyncQueue<unknown>>()
     const canUseTools: Array<
@@ -57,6 +59,7 @@ describe('two concurrent case sessions', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       onEvent: (e) => events.push(e),
       agentAccess: () => defaultAgentAccess(),

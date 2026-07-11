@@ -78,6 +78,7 @@ export const IPC = {
   filesReveal: 'files:reveal',
   filesChanged: 'files:changed',
   evidenceParsing: 'evidence:parsing',
+  packsArtifactMeta: 'packs:artifact-meta',
   refsyncGet: 'refsync:get',
   refsyncValidateSpace: 'refsync:validate-space',
   refsyncChildren: 'refsync:children',
