@@ -8,31 +8,6 @@ export function sharedReferencesDir(argusHome: string): string {
   return path.join(argusHome, 'references')
 }
 
-/** Dev default: repo-root skills/ + references/ next to app/. Overridable via env. */
-export function resolveAssetSource(appRoot: string): { skills: string; references: string } {
-  return {
-    skills: process.env.ARGUS_SKILLS_DIR ?? path.resolve(appRoot, '..', 'skills'),
-    references: process.env.ARGUS_REFERENCES_DIR ?? path.resolve(appRoot, '..', 'references')
-  }
-}
-
-export function seedSharedDirs(
-  argusHome: string,
-  source: { skills: string; references: string }
-): void {
-  for (const [src, dest] of [
-    [source.skills, sharedSkillsDir(argusHome)],
-    [source.references, sharedReferencesDir(argusHome)]
-  ] as const) {
-    // argusHome may be the asset source itself (dev default ~/Argus == repo checkout)
-    if (fs.existsSync(src) && path.resolve(src) !== path.resolve(dest)) {
-      fs.cpSync(src, dest, { recursive: true, force: true })
-    } else {
-      fs.mkdirSync(dest, { recursive: true })
-    }
-  }
-}
-
 /**
  * Seed the shared skills/ + references/ dirs from an ordered list of sources
  * (pack asset dirs first, optional env-override dir last — later sources
