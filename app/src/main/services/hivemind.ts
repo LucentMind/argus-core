@@ -17,10 +17,18 @@ import type {
 
 const execFileAsync = promisify(execFile)
 
-export type Runner = (cmd: string, args: string[], opts?: { cwd?: string }) => Promise<string>
+export type Runner = (
+  cmd: string,
+  args: string[],
+  opts?: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }
+) => Promise<string>
 
 const defaultRun: Runner = async (cmd, args, opts) => {
-  const { stdout } = await execFileAsync(cmd, args, { cwd: opts?.cwd })
+  const { stdout } = await execFileAsync(cmd, args, {
+    cwd: opts?.cwd,
+    env: opts?.env,
+    timeout: opts?.timeoutMs
+  })
   return stdout.trim()
 }
 
@@ -59,8 +67,12 @@ export class HivemindService {
     this.store = new JsonFileStore(hivemindStatePath(deps.argusHome))
   }
 
-  private git(args: string[], cwd?: string): Promise<string> {
-    return (this.deps.git ?? defaultRun)('git', args, { cwd })
+  private git(
+    args: string[],
+    cwd?: string,
+    opts?: { env?: NodeJS.ProcessEnv; timeoutMs?: number }
+  ): Promise<string> {
+    return (this.deps.git ?? defaultRun)('git', args, { cwd, ...opts })
   }
 
   private gh(args: string[], cwd?: string): Promise<string> {
@@ -124,7 +136,10 @@ export class HivemindService {
     const repo = this.deps.repo().trim()
     if (!repo) return { ok: false, error: 'No HiveMind repo configured.' }
     try {
-      await this.git(['ls-remote', cloneUrl(repo), 'HEAD'])
+      await this.git(['ls-remote', cloneUrl(repo), 'HEAD'], undefined, {
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+        timeoutMs: 15000
+      })
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }

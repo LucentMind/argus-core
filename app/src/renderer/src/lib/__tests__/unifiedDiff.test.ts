@@ -46,4 +46,71 @@ describe('parseUnifiedDiff', () => {
     expect(parseUnifiedDiff('just some file content\nwith lines')).toEqual([])
     expect(parseUnifiedDiff('')).toEqual([])
   })
+
+  it('keeps in-hunk lines that merely look like headers once serialized', () => {
+    // Original content "-- old" / "++ new" gets a diff marker prepended, so
+    // the raw serialized line is "--- old" / "+++ new" — which must NOT be
+    // treated as a `--- a/...` / `+++ b/...` file header.
+    const diff = [
+      'diff --git a/f.txt b/f.txt',
+      '@@ -1,2 +1,2 @@',
+      ' context',
+      '--- old',
+      '+++ new'
+    ].join('\n')
+    const segs = parseUnifiedDiff(diff)
+    expect(segs).toEqual([
+      { meta: 'a/f.txt b/f.txt' },
+      {
+        leftStart: 1,
+        rightStart: 1,
+        lines: [
+          { kind: 'same', text: 'context' },
+          { kind: 'del', text: '-- old' },
+          { kind: 'add', text: '++ new' }
+        ]
+      }
+    ])
+  })
+
+  it('drops a "\\ No newline at end of file" marker inside a hunk', () => {
+    const diff = [
+      'diff --git a/f.txt b/f.txt',
+      '@@ -1,2 +1,2 @@',
+      ' context',
+      '-old',
+      '\\ No newline at end of file',
+      '+new',
+      '\\ No newline at end of file'
+    ].join('\n')
+    const segs = parseUnifiedDiff(diff)
+    expect(segs).toEqual([
+      { meta: 'a/f.txt b/f.txt' },
+      {
+        leftStart: 1,
+        rightStart: 1,
+        lines: [
+          { kind: 'same', text: 'context' },
+          { kind: 'del', text: 'old' },
+          { kind: 'add', text: 'new' }
+        ]
+      }
+    ])
+  })
+
+  it('produces no spurious trailing empty line for input ending in a newline', () => {
+    const diff = ['diff --git a/f.txt b/f.txt', '@@ -1,1 +1,1 @@', '-old', '+new', ''].join('\n')
+    const segs = parseUnifiedDiff(diff)
+    expect(segs).toEqual([
+      { meta: 'a/f.txt b/f.txt' },
+      {
+        leftStart: 1,
+        rightStart: 1,
+        lines: [
+          { kind: 'del', text: 'old' },
+          { kind: 'add', text: 'new' }
+        ]
+      }
+    ])
+  })
 })

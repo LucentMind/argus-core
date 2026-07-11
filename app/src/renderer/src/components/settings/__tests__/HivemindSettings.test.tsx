@@ -58,7 +58,11 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
       sync: vi.fn().mockResolvedValue(payload),
       install: vi.fn().mockResolvedValue(payload),
       claimReference: vi.fn().mockResolvedValue(payload),
-      diff: vi.fn().mockResolvedValue('+ new line'),
+      diff: vi
+        .fn()
+        .mockResolvedValue(
+          'diff --git a/skills/x b/skills/x\n@@ -1,2 +1,2 @@\n context\n-old\n+new'
+        ),
       pushPreview: vi.fn().mockResolvedValue('# my-skill'),
       push: vi
         .fn()
@@ -140,7 +144,10 @@ describe('HivemindSettings', () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     const row = await screen.findByText('hive-probe')
     fireEvent.click(screen.getByRole('button', { name: 'Update hive-probe' }))
-    const diff = await screen.findByText('+ new line')
+    // real @@-bearing diff renders the split view, not the plain <pre> fallback
+    expect(await screen.findByRole('group', { name: 'diff view mode' })).toBeInTheDocument()
+    const diff = await screen.findByText('old')
+    expect(await screen.findByText('new')).toBeInTheDocument()
     // inline placement: the diff panel follows the item's row in DOM order
     expect(row.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Re-install hive-probe' }))
