@@ -310,4 +310,35 @@ describe('AgentService', () => {
     expect(captured[0].model).toBe('claude-opus-4-8')
     await svc.stopAll()
   })
+
+  it('stopSession evicts one live session; stopAllForCase evicts only that case (prefix-safe)', async () => {
+    const { createQuery } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      maxSessions: 10
+    })
+    const a = createSession(db, 'NAV-1')
+    const b = createSession(db, 'NAV-1')
+    const c = createSession(db, 'NAV-2')
+    await svc.send('NAV-1', a.id, 'a')
+    await svc.send('NAV-1', b.id, 'b')
+    await svc.send('NAV-2', c.id, 'c')
+    expect(svc.states()).toHaveLength(3)
+
+    await svc.stopSession('NAV-1', a.id)
+    expect(new Set(svc.states().map((s) => s.sessionId))).toEqual(new Set([b.id, c.id]))
+
+    await svc.stopSession('NAV-1', 999999) // not live: must be a silent no-op
+    expect(svc.states()).toHaveLength(2)
+
+    await svc.stopAllForCase('NAV-1')
+    expect(svc.states().map((s) => s.caseSlug)).toEqual(['NAV-2'])
+    await svc.stopAll()
+  })
 })
