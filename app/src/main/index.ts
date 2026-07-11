@@ -67,6 +67,7 @@ import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
+import { createDetection } from './services/packs/detection'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
@@ -138,6 +139,9 @@ function registerIpc(): void {
     resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
     capturedEnv: capturedBinaryEnv
   })
+
+  // 1d: pack-driven detection engine replaces the hardcoded detect.ts.
+  const detection = createDetection(packRegistry)
 
   const secretStore = new SecretStore(argusHome, safeStorage)
 
@@ -241,7 +245,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
-    const records = absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
+    const records = absPaths.map((p) => ingestArtifact(db, argusHome, detection, caseSlug, p))
     // fire-and-forget: derived text appears via evidence:changed when ready
     for (const rec of records) {
       broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
@@ -278,6 +282,7 @@ function registerIpc(): void {
   agentService = new AgentService({
     db,
     argusHome,
+    detection,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     personaFragments: () => packRegistry.personaFragments(),
     onEvent: (e) => {
@@ -682,6 +687,7 @@ function registerIpc(): void {
   const jiraCases = new JiraCases({
     db,
     argusHome,
+    detection,
     client: atlassian,
     site: () => atlassianCreds().siteUrl,
     // 1d removes this hardcoded id: detectors will declare their extract commands

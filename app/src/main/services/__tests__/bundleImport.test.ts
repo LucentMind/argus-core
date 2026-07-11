@@ -6,6 +6,7 @@ import { Zip, extract } from 'zip-lib'
 import { openDb } from '../db'
 import { createCase, getCase } from '../caseService'
 import { ingestContent, ingestDerived, listEvidence } from '../ingest'
+import { createDetection } from '../packs/detection'
 import { searchEvidence } from '../search'
 import { exportCase, importCase, inspectBundle, proposeSlug } from '../bundle'
 import { listSessions } from '../agent/sessionStore'
@@ -17,6 +18,7 @@ let homeB: string
 let dbA: DatabaseSync
 let dbB: DatabaseSync
 let bundle: string
+const detection = createDetection()
 
 beforeEach(async () => {
   homeA = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-imp-a-'))
@@ -24,7 +26,7 @@ beforeEach(async () => {
   dbA = openDb(path.join(homeA, 'argus.db'))
   dbB = openDb(path.join(homeB, 'argus.db'))
   createCase(dbA, homeA, { slug: 'NAV-100', title: 'Tile region fails' })
-  ingestContent(dbA, homeA, 'NAV-100', 'boot.txt', 'ERROR BLOCKED_VERSION tile=42\n', 'upload')
+  ingestContent(dbA, homeA, detection, 'NAV-100', 'boot.txt', 'ERROR BLOCKED_VERSION tile=42\n', 'upload')
   // a derived artifact so the id-remap path is exercised
   const parent = listEvidence(dbA, 'NAV-100')[0]
   const derivedDir = path.join(homeA, 'cases', 'NAV-100', 'evidence', '.derived')

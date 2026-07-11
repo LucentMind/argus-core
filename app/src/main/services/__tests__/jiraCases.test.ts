@@ -6,6 +6,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { caseDir } from '../paths'
 import { listEvidence } from '../ingest'
+import { createDetection } from '../packs/detection'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import type { JiraAttachmentProgress, JiraIssuePreview } from '../../../shared/jira'
 import type { JiraIssueData } from '../atlassian'
@@ -13,6 +15,7 @@ import type { JiraIssueData } from '../atlassian'
 let tmp: string, argusHome: string, db: DatabaseSync
 let progress: JiraAttachmentProgress[]
 let changed: string[]
+const detection = createDetection(samplePackRegistry())
 
 const att = (id: string, filename: string): JiraIssuePreview['attachments'][number] => ({
   id,
@@ -57,6 +60,7 @@ function service(
   return new JiraCases({
     db,
     argusHome,
+    detection,
     client,
     site: () => 'https://acme.atlassian.net',
     argusParse: () => null,

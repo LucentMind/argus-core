@@ -5,6 +5,7 @@ import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
+import { createDetection } from '../../packs/detection'
 import { argusToolHandlers } from '../nativeTools'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
@@ -12,6 +13,7 @@ import type { DatabaseSync } from 'node:sqlite'
 let tmp: string, argusHome: string, db: DatabaseSync, caseId: number
 let handlers: ReturnType<typeof argusToolHandlers>
 const emitFinding = vi.fn()
+const detection = createDetection()
 
 beforeEach(() => {
   emitFinding.mockClear()
@@ -22,10 +24,11 @@ beforeEach(() => {
   caseId = rec.id
   const src = path.join(tmp, 'log.txt')
   fs.writeFileSync(src, 'FATAL Navigator crashed at tile load\nline two\n')
-  ingestArtifact(db, argusHome, 'NAV-1', src)
+  ingestArtifact(db, argusHome, detection, 'NAV-1', src)
   handlers = argusToolHandlers({
     db,
     argusHome,
+    detection,
     caseId: rec.id,
     caseSlug: 'NAV-1',
     sessionId: 1,
@@ -75,6 +78,7 @@ describe('argus native tools', () => {
     const withTurn = argusToolHandlers({
       db,
       argusHome,
+      detection,
       caseId,
       caseSlug: 'NAV-1',
       sessionId: 1,
@@ -114,6 +118,7 @@ describe('argus native tools', () => {
     const gated = argusToolHandlers({
       db,
       argusHome,
+      detection,
       caseId: 1,
       caseSlug: 'NAV-1',
       sessionId: 1,
