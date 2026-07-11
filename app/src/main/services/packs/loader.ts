@@ -25,6 +25,8 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
     return { packs, errors }
   }
 
+  entries.sort((a, b) => a.name.localeCompare(b.name))
+
   for (const ent of entries) {
     if (!ent.isDirectory()) continue
     const dir = path.join(packsDir, ent.name)
@@ -34,6 +36,10 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
     try {
       const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
       const manifest = packManifestSchema.parse(raw)
+
+      if (manifest.id !== ent.name) {
+        throw new Error(`pack id '${manifest.id}' must match its directory name '${ent.name}'`)
+      }
 
       let personaText: string | null = null
       if (manifest.persona) {
