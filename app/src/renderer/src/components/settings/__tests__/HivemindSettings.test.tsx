@@ -62,7 +62,8 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
       pushPreview: vi.fn().mockResolvedValue('# my-skill'),
       push: vi
         .fn()
-        .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' })
+        .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' }),
+      check: vi.fn().mockResolvedValue({ ok: true })
     },
     sourceControl: {
       status: vi.fn().mockResolvedValue({
@@ -260,6 +261,25 @@ describe('HivemindSettings', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/push exploded/)
     expect(screen.getByRole('button', { name: 'Sync' })).not.toBeDisabled()
+  })
+
+  it('refetches the hivemind payload when the repo setting changes', async () => {
+    const { rerender } = render(<HivemindSettings payload={settingsPayload('org/hive')} />)
+    await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(1))
+    rerender(<HivemindSettings payload={settingsPayload('org/other')} />)
+    await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows readiness feedback for the configured repo', async () => {
+    window.argus.hivemind.check = vi.fn().mockResolvedValue({ ok: false, error: 'no access' })
+    render(<HivemindSettings payload={settingsPayload('org/hive')} />)
+    expect(await screen.findByText('not reachable')).toBeInTheDocument()
+  })
+
+  it('renders the repo as an external link for org/name slugs', async () => {
+    render(<HivemindSettings payload={settingsPayload('org/hive')} />)
+    fireEvent.click(await screen.findByRole('button', { name: /open org\/hive on github/i }))
+    expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/org/hive')
   })
 })
 
