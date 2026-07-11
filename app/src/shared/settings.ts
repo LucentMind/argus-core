@@ -171,19 +171,31 @@ export function stripDefaults(
 
 // --- IPC payload shapes -----------------------------------------------------
 
-export interface ResolvedTool {
+export interface ResolvedToolRow {
+  id: string
+  displayName: string
+  description: string
+  kind: 'exe' | 'pathDir'
+  envVar: string | null
+  settingsKey: string | null
+  /** Current settings.tools[settingsKey] ('' when unset). */
+  settingsValue: string
   value: string | null
   source: 'env' | 'settings' | 'default'
 }
 
-export interface ProbeToolsReport {
-  parseBin: { path: string | null; version: string | null }
-  traceDir: { path: string | null; found: boolean }
+export interface ProbeToolRow {
+  id: string
+  ok: boolean
+  /** Short badge text: 'found · <version>' | 'found' | 'not found'. */
+  chip: string
+  /** Long text (health): resolved path · version. */
+  detail: string
 }
 
 export interface SettingsPayload {
   settings: AppSettings
-  resolvedTools: { traceDir: ResolvedTool; parseBin: ResolvedTool }
+  resolvedTools: ResolvedToolRow[]
   dataRoot: { path: string; fromEnv: boolean }
   loadError: string | null
 }

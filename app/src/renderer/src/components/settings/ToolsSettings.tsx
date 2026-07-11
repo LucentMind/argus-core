@@ -2,18 +2,17 @@ import { useEffect, useState } from 'react'
 import { settingsStore } from '../../lib/settingsStore'
 import { Btn, Chip } from '../ui'
 import { SettingsSection, SettingRow, FIELD, DraftInput } from './settingsLayout'
-import type { ProbeToolsReport, SettingsPayload } from '../../../../shared/settings'
+import type { ProbeToolRow, SettingsPayload } from '../../../../shared/settings'
 
 export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
-  const t = payload.settings.tools
-  const rt = payload.resolvedTools
-  const [report, setReport] = useState<ProbeToolsReport | null>(null)
+  const rows = payload.resolvedTools
+  const [report, setReport] = useState<ProbeToolRow[] | null>(null)
   const [running, setRunning] = useState(false)
 
   function runChecks(): void {
     setReport(null)
     setRunning(true)
-    void window.argus.settings.probeTools().then((r: ProbeToolsReport) => {
+    void window.argus.settings.probeTools().then((r: ProbeToolRow[]) => {
       setReport(r)
       setRunning(false)
     })
@@ -24,79 +23,75 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
     runChecks()
   }, [])
 
-  async function browse(key: 'parseBin' | 'traceDir', mode: 'file' | 'directory'): Promise<void> {
+  async function browse(key: string, mode: 'file' | 'directory'): Promise<void> {
     const p = await window.argus.settings.pickPath(mode)
     if (p) void settingsStore.patch({ tools: { [key]: p } })
   }
 
   return (
     <SettingsSection title="Analysis tools">
-      <SettingRow
-        label="sample-parse binary"
-        description="Rust BINLOG decoder (overridable via environment variable)"
-        badge={
-          rt.parseBin.source === 'env' ? (
-            <Chip tone="neutral">env: ARGUS_PARSE_BIN</Chip>
-          ) : undefined
-        }
-        isDefault={t.parseBin === ''}
-        onReset={() => void settingsStore.patch({ tools: { parseBin: null } })}
-        stacked
-        trailing={
-          report ? (
-            report.parseBin.path ? (
-              <Chip tone="review">
-                {report.parseBin.version ? `found · ${report.parseBin.version}` : 'found'}
-              </Chip>
-            ) : (
-              <Chip tone="danger">not found</Chip>
-            )
-          ) : (
-            <Chip>checking…</Chip>
-          )
-        }
-      >
-        <DraftInput
-          aria-label="sample-parse path"
-          className={`${FIELD} flex-1 min-w-40 font-mono`}
-          placeholder="auto-resolve"
-          value={t.parseBin}
-          onCommit={(v) => void settingsStore.patch({ tools: { parseBin: v || null } })}
-        />
-        <Btn onClick={() => void browse('parseBin', 'file')}>Browse</Btn>
-      </SettingRow>
-      <SettingRow
-        label="Trace tools directory"
-        description="Directory containing sample-trace (overridable via environment variable)"
-        badge={
-          rt.traceDir.source === 'env' ? (
-            <Chip tone="neutral">env: ARGUS_TRACE_DIR</Chip>
-          ) : undefined
-        }
-        isDefault={t.traceDir === ''}
-        onReset={() => void settingsStore.patch({ tools: { traceDir: null } })}
-        stacked
-        trailing={
-          report ? (
-            report.traceDir.found ? (
-              <Chip tone="review">found</Chip>
-            ) : (
-              <Chip tone="danger">not found</Chip>
-            )
-          ) : (
-            <Chip>checking…</Chip>
-          )
-        }
-      >
-        <DraftInput
-          aria-label="trace tools directory"
-          className={`${FIELD} flex-1 min-w-40 font-mono`}
-          placeholder="auto-resolve"
-          value={t.traceDir}
-          onCommit={(v) => void settingsStore.patch({ tools: { traceDir: v || null } })}
-        />
-        <Btn onClick={() => void browse('traceDir', 'directory')}>Browse</Btn>
-      </SettingRow>
+      {rows.length === 0 && (
+        <div className="px-4 py-3 text-sm text-neutral-500">
+          No analysis tools declared by installed packs.
+        </div>
+      )}
+      {rows.map((row) => {
+        const probe = report?.find((r) => r.id === row.id)
+        return (
+          <SettingRow
+            key={row.id}
+            label={row.displayName}
+            description={row.description}
+            badge={
+              row.source === 'env' && row.envVar ? (
+                <Chip tone="neutral">env: {row.envVar}</Chip>
+              ) : undefined
+            }
+            isDefault={row.settingsValue === ''}
+            onReset={
+              row.settingsKey
+                ? () => void settingsStore.patch({ tools: { [row.settingsKey as string]: null } })
+                : undefined
+            }
+            stacked
+            trailing={
+              report ? (
+                probe?.ok ? (
+                  <Chip tone="review">{probe.chip}</Chip>
+                ) : (
+                  <Chip tone="danger">not found</Chip>
+                )
+              ) : (
+                <Chip>checking…</Chip>
+              )
+            }
+          >
+            {row.settingsKey && (
+              <>
+                <DraftInput
+                  aria-label={`${row.displayName} path`}
+                  className={`${FIELD} flex-1 min-w-40 font-mono`}
+                  placeholder="auto-resolve"
+                  value={row.settingsValue}
+                  onCommit={(v) =>
+                    void settingsStore.patch({ tools: { [row.settingsKey as string]: v || null } })
+                  }
+                />
+                <Btn
+                  onClick={() =>
+                    void browse(
+                      row.settingsKey as string,
+                      row.kind === 'exe' ? 'file' : 'directory'
+                    )
+                  }
+                >
+                  Browse
+                </Btn>
+              </>
+            )}
+          </SettingRow>
+        )
+      })}
       <div className="flex justify-end px-4 py-3">
         <Btn disabled={running} onClick={runChecks}>
           {running ? 'Checking…' : 'Re-run checks'}

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import type { PackBinary } from './manifest'
 import type { PreflightReport } from '../../../shared/types'
+import type { ResolvedToolRow, ProbeToolRow } from '../../../shared/settings'
 import type { PackRegistry } from './registry'
 
 const execFileAsync = promisify(execFile)
@@ -86,26 +87,6 @@ export function resolveBinary(decl: PackBinary, ctx: ResolveCtx): ResolvedBinary
     }
   }
   return found(null, null)
-}
-
-/** Moved to shared/settings.ts in the settings-seam task. */
-export interface ResolvedToolRow {
-  id: string
-  displayName: string
-  description: string
-  kind: 'exe' | 'pathDir'
-  envVar: string | null
-  settingsKey: string | null
-  settingsValue: string
-  value: string | null
-  source: 'env' | 'settings' | 'default'
-}
-
-export interface ProbeToolRow {
-  id: string
-  ok: boolean
-  chip: string
-  detail: string
 }
 
 export interface BinariesServiceDeps {
