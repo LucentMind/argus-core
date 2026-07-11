@@ -6,7 +6,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import {
-  listSessions, createSession, renameSession, setTitleIfEmpty, sessionCursor
+  listSessions,
+  createSession,
+  renameSession,
+  setTitleIfEmpty,
+  sessionCursor
 } from '../sessionStore'
 
 let tmp: string, db: DatabaseSync
@@ -16,7 +20,10 @@ beforeEach(() => {
   db = openDb(path.join(tmp, 'argus.db'))
   createCase(db, path.join(tmp, 'home'), { slug: 'NAV-1', title: 't' })
 })
-afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }) })
+afterEach(() => {
+  db.close()
+  fs.rmSync(tmp, { recursive: true, force: true })
+})
 
 describe('sessionStore', () => {
   it('listSessions creates a first session when none exist, then lists newest-first', () => {

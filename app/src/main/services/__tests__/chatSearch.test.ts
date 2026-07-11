@@ -10,17 +10,23 @@ import { searchMessages } from '../chatSearch'
 let tmp: string, db: DatabaseSync, caseId: number
 
 function indexMsg(sessionId: number, turnId: number, role: string, content: string): void {
-  db.prepare(`INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?,?,?,?,?)`)
-    .run(content, caseId, sessionId, turnId, role)
+  db.prepare(
+    `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?,?,?,?,?)`
+  ).run(content, caseId, sessionId, turnId, role)
 }
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-cs-'))
   db = openDb(path.join(tmp, 'argus.db'))
   createCase(db, path.join(tmp, 'home'), { slug: 'NAV-1', title: 't' })
-  caseId = Number((db.prepare(`SELECT id FROM cases WHERE slug='NAV-1'`).get() as { id: number }).id)
+  caseId = Number(
+    (db.prepare(`SELECT id FROM cases WHERE slug='NAV-1'`).get() as { id: number }).id
+  )
 })
-afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }) })
+afterEach(() => {
+  db.close()
+  fs.rmSync(tmp, { recursive: true, force: true })
+})
 
 describe('searchMessages', () => {
   it('finds hits scoped to the case with snippets, newest-relevant first', () => {

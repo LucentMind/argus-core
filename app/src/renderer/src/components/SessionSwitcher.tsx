@@ -68,21 +68,33 @@ export function SessionSwitcher({
     void window.argus.sessions.list(slug).then(setSessions)
   }, [open, slug])
 
-  // closing the panel drops any in-progress search so reopening starts fresh
-  useEffect(() => {
-    if (open) return
-    setQuery('')
-    setHits([])
-    setSearchError(null)
-  }, [open])
+  // closing the panel drops any in-progress search so reopening starts fresh —
+  // adjust-state-during-render, keyed on `open` (same idiom as the reset
+  // patterns in TextViewer/FileViewer)
+  const [lastOpen, setLastOpen] = useState(open)
+  if (open !== lastOpen) {
+    setLastOpen(open)
+    if (!open) {
+      setQuery('')
+      setHits([])
+      setSearchError(null)
+    }
+  }
 
-  // debounce cross-session search so we don't fire on every keystroke
-  useEffect(() => {
+  // clearing the query synchronously resets results — adjust-state-during-
+  // render, keyed on `query`; the debounced search itself stays in an effect
+  const [lastQuery, setLastQuery] = useState(query)
+  if (query !== lastQuery) {
+    setLastQuery(query)
     if (!query.trim()) {
       setHits([])
       setSearchError(null)
-      return
     }
+  }
+
+  // debounce cross-session search so we don't fire on every keystroke
+  useEffect(() => {
+    if (!query.trim()) return
     const t = setTimeout(() => {
       void window.argus.chat.search(slug, query).then((res) => {
         setHits(res.hits)

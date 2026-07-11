@@ -116,8 +116,18 @@ describe('AgentStore', () => {
   })
 
   it('keeps transcripts of two sessions in the same case separate', () => {
-    store.apply({ ...base, sessionId: 1, type: 'turn.started', payload: { userText: 'a' } } as AgentEvent)
-    store.apply({ ...base, sessionId: 2, type: 'turn.started', payload: { userText: 'b' } } as AgentEvent)
+    store.apply({
+      ...base,
+      sessionId: 1,
+      type: 'turn.started',
+      payload: { userText: 'a' }
+    } as AgentEvent)
+    store.apply({
+      ...base,
+      sessionId: 2,
+      type: 'turn.started',
+      payload: { userText: 'b' }
+    } as AgentEvent)
     expect(store.get('NAV-1', 1).items).toHaveLength(1)
     expect(store.get('NAV-1', 2).items).toHaveLength(1)
     expect((store.get('NAV-1', 1).items[0] as { text: string }).text).toBe('a')
