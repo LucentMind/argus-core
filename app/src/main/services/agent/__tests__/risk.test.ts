@@ -73,10 +73,7 @@ describe('classifyToolCall — native and FS tools', () => {
     // relative path that stays inside caseDir -> allow
     expect(classifyToolCall('Read', { file_path: 'evidence/a.txt' }, ctx()).action).toBe('allow')
     // relative path that escapes into a readonly root -> deny (write)
-    const relIntoReadonly = path.relative(
-      ctx().caseDir,
-      `${ctx().readonlyRoots[0]}/x/SKILL.md`
-    )
+    const relIntoReadonly = path.relative(ctx().caseDir, `${ctx().readonlyRoots[0]}/x/SKILL.md`)
     expect(classifyToolCall('Write', { file_path: relIntoReadonly }, ctx()).action).toBe('deny')
     // missing path input -> treated as cwd (caseDir) -> allow
     expect(classifyToolCall('Glob', {}, ctx()).action).toBe('allow')
