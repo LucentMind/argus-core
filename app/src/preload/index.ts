@@ -120,7 +120,9 @@ const argus = {
       ipcRenderer.invoke(IPC.workspacesRefs, caseSlug)
   },
   skills: {
-    list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList)
+    list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList),
+    deleteUser: (name: string): Promise<SkillsPayload> =>
+      ipcRenderer.invoke(IPC.skillsDeleteUser, name)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
