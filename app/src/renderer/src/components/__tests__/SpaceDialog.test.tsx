@@ -2,6 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { it, expect, vi, beforeEach } from 'vitest'
 import { SpaceDialog } from '../references/SpaceDialog'
+import { SyncReportView } from '../references/SyncReportView'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import type { TreeNodeVM, SyncReport } from '../../../../shared/referenceSync'
 
@@ -78,6 +79,16 @@ it('add flow: validate → curate → save & sync → approve drafts', async () 
   await waitFor(() =>
     expect(window.argus.refsync.applyDrafts).toHaveBeenCalledWith('sid', ['routing-flow.md'])
   )
+})
+
+it('SyncReportView surfaces a rejected applyDrafts as an alert instead of failing silently', async () => {
+  ;(window.argus.refsync.applyDrafts as ReturnType<typeof vi.fn>).mockRejectedValue(
+    new Error('Sync report expired — run Sync again')
+  )
+  render(<SyncReportView report={report} onClose={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Apply 1 file' }))
+  const message = await screen.findByText('Sync report expired — run Sync again')
+  expect(message.getAttribute('role')).toBe('alert')
 })
 
 it('validate failure shows the REST error inline (e.g. space not found)', async () => {

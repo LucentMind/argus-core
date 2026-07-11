@@ -65,6 +65,14 @@ export const STALE_AFTER_DAYS = 14
 export const REFERENCES_INDEX = 'INDEX.md'
 
 /**
+ * Basename guard for a routing rule's `target` (defense-in-depth, mirrors
+ * proposals.ts NAME_RE): no path separators, no leading dot, `.md` suffix.
+ * routingRules[].target is hand-editable JSON (plain z.string()) — a rule
+ * like `../../../evil.md` must never reach a write path.
+ */
+export const REF_TARGET_RE = /^[\w][\w.-]*\.md$/
+
+/**
  * Nearest marker (self first, then ancestors nearest-first) wins; an exclusion
  * on a node beats an include on the same node; no marker anywhere = unselected.
  */
@@ -98,11 +106,19 @@ export function toggleSelection(
   return next
 }
 
-/** First matching rule wins (list order = priority); case-insensitive substring on the title. */
+/**
+ * First matching rule wins (list order = priority); case-insensitive substring on the title.
+ * A matching rule whose target fails the basename guard (or targets the generated
+ * INDEX.md) is treated as non-routing — the page falls through to `unrouted`
+ * instead of reaching a write path with a bad target.
+ */
 export function routeTarget(title: string, rules: RoutingRule[]): string | null {
   const t = title.toLowerCase()
   for (const r of rules) {
-    if (r.keywords.some((k) => k && t.includes(k.toLowerCase()))) return r.target
+    if (r.keywords.some((k) => k && t.includes(k.toLowerCase()))) {
+      if (!REF_TARGET_RE.test(r.target) || r.target === REFERENCES_INDEX) return null
+      return r.target
+    }
   }
   return null
 }

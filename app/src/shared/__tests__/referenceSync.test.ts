@@ -72,6 +72,15 @@ describe('routing', () => {
     expect(routeTarget('Vector Tile datasets', DEFAULT_ROUTING_RULES)).toBe('data-versioning.md')
     expect(routeTarget('Quarterly planning', DEFAULT_ROUTING_RULES)).toBeNull() // unrouted
   })
+
+  it('rejects a matching rule whose target is a path traversal or the generated index (falls to unrouted)', () => {
+    const traversal = [{ keywords: ['routing'], target: '../../../evil.md' }]
+    expect(routeTarget('Routing deep dive', traversal)).toBeNull()
+    const indexTarget = [{ keywords: ['routing'], target: 'INDEX.md' }]
+    expect(routeTarget('Routing deep dive', indexTarget)).toBeNull()
+    const normal = [{ keywords: ['routing'], target: 'routing-flow.md' }]
+    expect(routeTarget('Routing deep dive', normal)).toBe('routing-flow.md')
+  })
 })
 
 describe('staleness', () => {

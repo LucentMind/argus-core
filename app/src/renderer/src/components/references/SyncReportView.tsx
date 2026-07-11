@@ -25,12 +25,16 @@ export function SyncReportView({
     written: string[]
     skipped: Array<{ target: string; reason: string }>
   } | null>(null)
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   const apply = async (): Promise<void> => {
     setApplying(true)
+    setApplyError(null)
     try {
       setApplied(await window.argus.refsync.applyDrafts(report.syncId, [...approved]))
       referenceSyncStore.set(await window.argus.refsync.get())
+    } catch (err) {
+      setApplyError((err as Error).message)
     } finally {
       setApplying(false)
     }
@@ -109,6 +113,11 @@ export function SyncReportView({
           ))}
         </div>
       ) : null}
+      {applyError && (
+        <div role="alert" className="text-danger text-xs">
+          {applyError}
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Btn variant="ghost" onClick={onClose}>
           Close

@@ -174,6 +174,16 @@ it('drafts carry must-keep misses; applyDrafts regenerates INDEX.md', async () =
   expect(svc.payload().references.map((r) => r.file)).not.toContain('INDEX.md')
 })
 
+it('applyDrafts rejects a forged path-traversal target without writing outside the references dir', async () => {
+  const report = await svc.sync('NAVNATIVE')
+  const forged = '../../../evil.md'
+  const applied = svc.applyDrafts(report.syncId, [forged])
+  expect(applied.written).toEqual([])
+  expect(applied.skipped).toEqual([{ target: forged, reason: 'invalid target name' }])
+  expect(fs.existsSync(path.join(tmp, 'evil.md'))).toBe(false)
+  expect(fs.existsSync(path.join(home, 'evil.md'))).toBe(false)
+})
+
 it('payload exposes cards with staleness and reference statuses', async () => {
   const before = svc.payload()
   expect(before.cards[0]).toMatchObject({ key: 'NAVNATIVE', stale: true, lastSyncedAt: null })
