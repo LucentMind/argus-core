@@ -73,6 +73,8 @@ import {
   sharedSkillsDir,
   sharedReferencesDir
 } from './services/skillsDir'
+import { PackRegistry } from './services/packs/registry'
+import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
 
 let agentService: AgentService | null = null
@@ -100,6 +102,8 @@ function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
   seedSharedDirs(argusHome, resolveAssetSource(app.getAppPath()))
+  seedPacks(argusHome, resolvePacksSource(app.getAppPath()))
+  const packRegistry = PackRegistry.load(packsDir(argusHome))
 
   // capture user-set env BEFORE this block mutates the process env (badge sources)
   const envOverrides = {
@@ -240,6 +244,7 @@ function registerIpc(): void {
     db,
     argusHome,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
+    personaFragments: () => packRegistry.personaFragments(),
     onEvent: (e) => broadcast(IPC.agentEventChannel, e),
     agentAccess: () => agentAccessStore.get(),
     agentSettings: () => settingsService.get().agent,
