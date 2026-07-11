@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
 import { InstalledSkills } from './InstalledSkills'
-import { HivemindTab } from './HivemindTab'
 import { ProposalsTab } from './ProposalsTab'
 
 const TABS = [
   { id: 'installed', label: 'Installed' },
-  { id: 'hivemind', label: 'HiveMind' },
   { id: 'proposals', label: 'Proposals' }
 ] as const
 type SkillsTab = (typeof TABS)[number]['id']
@@ -45,7 +43,6 @@ export function SkillsSettings(): React.JSX.Element {
         ))}
       </div>
       {tab === 'installed' && <InstalledSkills />}
-      {tab === 'hivemind' && <HivemindTab />}
       {tab === 'proposals' && <ProposalsTab onCountChange={setPending} />}
     </div>
   )
