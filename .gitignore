@@ -14,3 +14,7 @@ __pycache__/
 /worktrees/
 /config/
 /memory/
+
+# runtime seeded/synced data when ARGUS_HOME == repo checkout (sources live in packs/)
+/skills/
+/references/
