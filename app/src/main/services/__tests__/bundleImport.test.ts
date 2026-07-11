@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Zip, extract } from 'zip-lib'
 import { openDb } from '../db'
 import { createCase, getCase } from '../caseService'
-import { ingestContent, ingestDerived, listEvidence } from '../ingest'
+import { ingestContent, ingestDerived, listEvidence, sha256File } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { searchEvidence } from '../search'
 import { exportCase, importCase, inspectBundle, proposeSlug } from '../bundle'
@@ -62,6 +62,33 @@ afterEach(() => {
   dbB.close()
   for (const h of [homeA, homeB]) fs.rmSync(h, { recursive: true, force: true })
 })
+
+/**
+ * Stage a copy of the base `bundle` with `case.json` patched (e.g. status/
+ * resolution), re-hashing the manifest entry for the swapped file so the
+ * integrity check in importCase still passes.
+ */
+async function bundleWithCaseJson(patch: Record<string, unknown>): Promise<string> {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-resolution-'))
+  await extract(bundle, tmp)
+  const cjPath = path.join(tmp, 'case', 'case.json')
+  const cj = JSON.parse(fs.readFileSync(cjPath, 'utf8'))
+  fs.writeFileSync(cjPath, JSON.stringify({ ...cj, ...patch }, null, 2))
+  const mfPath = path.join(tmp, 'manifest.json')
+  const mf = JSON.parse(fs.readFileSync(mfPath, 'utf8')) as {
+    files: { path: string; sha256: string; size: number }[]
+  }
+  const entry = mf.files.find((f) => f.path === 'case.json')!
+  entry.sha256 = sha256File(cjPath)
+  entry.size = fs.statSync(cjPath).size
+  fs.writeFileSync(mfPath, JSON.stringify(mf))
+  const out = path.join(tmp, 'patched.arguscase')
+  const zip = new Zip()
+  zip.addFile(mfPath, 'manifest.json')
+  zip.addFolder(path.join(tmp, 'case'), 'case')
+  await zip.archive(out)
+  return out
+}
 
 describe('inspectBundle / proposeSlug', () => {
   it('reads the manifest and proposes the original slug on a fresh home', async () => {
@@ -312,5 +339,21 @@ describe('imported transcripts under the multi-session model (WP-D seam)', () =>
       )
       .get('NAV-100') as { n: number }
     expect(rows.n).toBe(0)
+  })
+})
+
+describe('imported case resolution', () => {
+  it('imports a closed case with its resolution', async () => {
+    const patched = await bundleWithCaseJson({ status: 'closed', resolution: 'duplicate' })
+    const rec = await importCase(dbB, homeB, patched, 'NAV-100')
+    expect(rec.status).toBe('closed')
+    expect(rec.resolution).toBe('duplicate')
+  })
+
+  it('drops a stray resolution on a non-closed imported case', async () => {
+    const patched = await bundleWithCaseJson({ status: 'open', resolution: 'duplicate' })
+    const rec = await importCase(dbB, homeB, patched, 'NAV-100')
+    expect(rec.status).toBe('open')
+    expect(rec.resolution).toBeNull()
   })
 })

@@ -12,7 +12,13 @@ import {
   type BundleManifest,
   type BundleWorkspaceRef
 } from '../../shared/bundle'
-import type { CaseRecord, CaseStatus, EvidenceRecord } from '../../shared/types'
+import {
+  CASE_RESOLUTIONS,
+  type CaseRecord,
+  type CaseResolution,
+  type CaseStatus,
+  type EvidenceRecord
+} from '../../shared/types'
 import type { BundleInspection } from '../../shared/bundle'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
@@ -363,20 +369,25 @@ export async function importCase(
     const status = STATUSES.includes(onDisk.status as CaseStatus)
       ? (onDisk.status as CaseStatus)
       : 'open'
+    const resolution =
+      status === 'closed' && CASE_RESOLUTIONS.includes(onDisk.resolution as CaseResolution)
+        ? (onDisk.resolution as CaseResolution)
+        : null
     const tags = Array.isArray(onDisk.tags) ? (onDisk.tags as string[]) : []
     const createdAt =
       typeof onDisk.createdAt === 'string' ? (onDisk.createdAt as string) : new Date().toISOString()
     const now = new Date().toISOString()
     const res = db
       .prepare(
-        `INSERT INTO cases (slug, title, jira_key, status, tags, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO cases (slug, title, jira_key, status, resolution, tags, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         slug,
         manifest.title,
         typeof onDisk.jiraKey === 'string' ? (onDisk.jiraKey as string) : null,
         status,
+        resolution,
         JSON.stringify(tags),
         createdAt,
         now
