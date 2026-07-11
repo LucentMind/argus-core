@@ -72,10 +72,13 @@ import { PackRegistry } from './services/packs/registry'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
+import { LangfuseExporter } from './services/observability/langfuse'
+import { buildLangfuseClient } from './services/observability/langfuseClient'
 import { listFindings, reviewFinding } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 
 let agentService: AgentService | null = null
+let langfuseExporter: LangfuseExporter | null = null
 
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
@@ -120,6 +123,26 @@ function registerIpc(): void {
   const settingsService = new SettingsService(argusHome, app.getAppPath(), envOverrides)
 
   const secretStore = new SecretStore(argusHome, safeStorage)
+
+  // — observability: Langfuse exporter (off by default; needs enabled+host+publicKey+secret) —
+  const buildExporter = (): void => {
+    const s = settingsService.get().observability?.langfuse
+    if (!s?.enabled || !s.host || !s.publicKey) {
+      langfuseExporter = null
+      return
+    }
+    const secretKey = secretStore.resolve('observability/langfuse/secret-key')
+    if (!secretKey) {
+      langfuseExporter = null
+      return
+    }
+    langfuseExporter = new LangfuseExporter(
+      buildLangfuseClient({ host: s.host, publicKey: s.publicKey, secretKey }),
+      { captureContent: s.captureContent }
+    )
+  }
+  buildExporter()
+
   const connectorRegistry = new ConnectorRegistry(argusHome)
   const toolRiskStore = new ToolRiskStore(argusHome)
   const agentAccessStore = new AgentAccessStore(argusHome)
@@ -205,6 +228,8 @@ function registerIpc(): void {
   settingsService.subscribe(() => {
     recomputeParseBin()
     cachedAuth = null
+    void langfuseExporter?.flush()
+    buildExporter()
     broadcast(IPC.settingsChanged, settingsService.payload())
   })
 
@@ -252,7 +277,10 @@ function registerIpc(): void {
     argusHome,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     personaFragments: () => packRegistry.personaFragments(),
-    onEvent: (e) => broadcast(IPC.agentEventChannel, e),
+    onEvent: (e) => {
+      langfuseExporter?.handle(e)
+      broadcast(IPC.agentEventChannel, e)
+    },
     agentAccess: () => agentAccessStore.get(),
     agentSettings: () => settingsService.get().agent,
     composeMcp: () => mcpService.composeForSession(),
@@ -330,9 +358,11 @@ function registerIpc(): void {
     caseMetrics(db, caseSlug, q)
   )
   ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, caseSlug))
-  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) =>
-    reviewFinding(db, id, state)
-  )
+  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
+    const row = reviewFinding(db, id, state)
+    langfuseExporter?.scoreFinding(row)
+    return row
+  })
 
   // — workspaces —
   ipcMain.handle(IPC.workspacesPick, async () => {
@@ -777,6 +807,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   void agentService?.stopAll()
+  void langfuseExporter?.flush()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
