@@ -3,13 +3,14 @@ import path from 'node:path'
 import { z } from 'zod'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { DatabaseSync } from 'node:sqlite'
-import type { CaseStatus } from '../../../shared/types'
+import { CASE_RESOLUTIONS, type CaseResolution, type CaseStatus } from '../../../shared/types'
 import { searchEvidence } from '../search'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
 import { writeProposal } from '../proposals'
+import { setCaseStatus } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 
@@ -82,16 +83,18 @@ export function argusToolHandlers(
       if (!STATUSES.includes(status as CaseStatus)) {
         throw new Error(`Invalid status ${JSON.stringify(status)}; expected ${STATUSES.join('|')}`)
       }
-      db.prepare(`UPDATE cases SET status = ?, updated_at = ? WHERE slug = ?`).run(
-        status,
-        new Date().toISOString(),
-        caseSlug
-      )
-      const cj = path.join(dir, 'case.json')
-      const data = JSON.parse(fs.readFileSync(cj, 'utf8'))
-      data.status = status
-      fs.writeFileSync(cj, JSON.stringify(data, null, 2))
-      return `status → ${status}`
+      let resolution: CaseResolution | null = null
+      if (status === 'closed') {
+        const r = String(args.resolution ?? '')
+        if (!CASE_RESOLUTIONS.includes(r as CaseResolution)) {
+          throw new Error(
+            `Closing requires a resolution; expected ${CASE_RESOLUTIONS.join('|')}`
+          )
+        }
+        resolution = r as CaseResolution
+      }
+      setCaseStatus(db, argusHome, caseSlug, status as CaseStatus, resolution)
+      return resolution ? `status → ${status} (${resolution})` : `status → ${status}`
     },
 
     async read_memory(args) {
@@ -193,8 +196,8 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
       ),
       tool(
         'update_case_status',
-        'Move the case through its lifecycle (open|analyzing|rca-drafted|closed).',
-        { status: z.string() },
+        'Move the case through its lifecycle (open|analyzing|rca-drafted|closed). When setting closed, you MUST pass resolution = solved|rejected|forwarded|wont-fix|duplicate|not-reproducible.',
+        { status: z.string(), resolution: z.string().optional() },
         async (a) => asText(await h.update_case_status(a))
       ),
       tool(
