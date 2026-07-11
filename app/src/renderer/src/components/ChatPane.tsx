@@ -19,7 +19,7 @@ export function ChatPane({
 }): React.JSX.Element {
   const state = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
-    () => agentStore.get(slug)
+    () => agentStore.get(slug, sessionId)
   )
   const showToolCalls = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -71,9 +71,9 @@ export function ChatPane({
           </button>
         </div>
       )}
-      {/* key: the draft (typed or Analyze-prefilled) belongs to one case — reset it on switch */}
+      {/* key: the draft (typed or Analyze-prefilled) belongs to one session — reset it on switch */}
       <Composer
-        key={slug}
+        key={`${slug}#${sessionId}`}
         disabled={false}
         prefill={prefill}
         onSend={(t) => void window.argus.agent.send(slug, sessionId, t)}

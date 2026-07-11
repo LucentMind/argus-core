@@ -58,7 +58,7 @@ export function CaseWorkspace({
     // restore the persisted transcript after an app restart
     void window.argus.agent
       .history(slug, sessionId)
-      .then((events) => agentStore.hydrate(slug, events))
+      .then((events) => agentStore.hydrate(slug, sessionId, events))
   }, [slug, sessionId])
 
   async function handleCite(relPath: string, line: number): Promise<void> {
@@ -91,7 +91,7 @@ export function CaseWorkspace({
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <HeaderRepos slug={slug} />
         <div className="ml-auto">
-          <HeaderChips slug={slug} />
+          <HeaderChips slug={slug} sessionId={sessionId} />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -146,7 +146,11 @@ export function CaseWorkspace({
               className="shrink-0 overflow-y-auto border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth }}
             >
-              <FindingsPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
+              <FindingsPane
+                slug={slug}
+                sessionId={sessionId}
+                onCite={(p, l) => void handleCite(p, l)}
+              />
             </aside>
           </>
         )}
