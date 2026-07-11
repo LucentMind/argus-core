@@ -10,12 +10,22 @@ import { JiraRefreshButton } from './JiraRefreshButton'
 import { MenuButton } from './ui'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
-import type { ChatJumpTarget, FileNode, UnifiedHit } from '../../../shared/types'
+import { CASE_RESOLUTIONS } from '../../../shared/types'
+import type {
+  CaseResolution,
+  CaseStatus,
+  ChatJumpTarget,
+  FileNode,
+  UnifiedHit
+} from '../../../shared/types'
 
 export function CaseWorkspace({
   slug,
   jiraKey,
   jiraSyncedAt,
+  status,
+  resolution,
+  onStatusChanged,
   onOpenHit,
   onOpenCitation,
   onOpenFile
@@ -23,6 +33,9 @@ export function CaseWorkspace({
   slug: string
   jiraKey: string | null
   jiraSyncedAt: string | null
+  status: CaseStatus
+  resolution: CaseResolution | null
+  onStatusChanged: () => void
   onOpenHit: (hit: UnifiedHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
   onOpenFile: (node: FileNode) => void
@@ -107,10 +120,28 @@ export function CaseWorkspace({
     setExportNote(r.ok ? `exported ${r.fileCount} files` : r.error)
   }
 
+  async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
+    await window.argus.cases.setStatus(slug, next, res)
+    onStatusChanged()
+  }
+  const statusItems = [
+    ...CASE_RESOLUTIONS.map((r) => ({
+      label: r,
+      onSelect: () => void applyStatus('closed', r)
+    })),
+    ...(status === 'closed'
+      ? [{ label: 'Reopen', onSelect: () => void applyStatus('open', null) }]
+      : [])
+  ]
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
         <h1 className="font-mono text-sm text-defect">{slug}</h1>
+        <MenuButton
+          label={status === 'closed' && resolution ? `Closed · ${resolution}` : 'Close as…'}
+          items={statusItems}
+        />
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         <MenuButton

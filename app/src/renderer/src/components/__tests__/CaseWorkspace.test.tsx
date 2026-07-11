@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+import type { CaseResolution, CaseStatus } from '../../../../shared/types'
 
 function payload(): SettingsPayload {
   return {
@@ -34,7 +35,7 @@ beforeEach(() => {
     sessions: {
       list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
     },
-    cases: { readFindings: vi.fn(async () => '') },
+    cases: { readFindings: vi.fn(async () => ''), setStatus: vi.fn(async () => undefined) },
     findings: {
       list: vi.fn(async () => []),
       review: vi.fn()
@@ -70,12 +71,22 @@ beforeEach(() => {
   } as never
 })
 
-function workspace(slug: string): React.JSX.Element {
+function workspace(
+  slug: string,
+  overrides?: {
+    status?: CaseStatus
+    resolution?: CaseResolution | null
+    onStatusChanged?: () => void
+  }
+): React.JSX.Element {
   return (
     <CaseWorkspace
       slug={slug}
       jiraKey={null}
       jiraSyncedAt={null}
+      status={overrides?.status ?? 'open'}
+      resolution={overrides?.resolution ?? null}
+      onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
@@ -83,8 +94,12 @@ function workspace(slug: string): React.JSX.Element {
   )
 }
 
-function renderWorkspace(): ReturnType<typeof render> {
-  return render(workspace('NAV-1'))
+function renderWorkspace(overrides?: {
+  status?: CaseStatus
+  resolution?: CaseResolution | null
+  onStatusChanged?: () => void
+}): ReturnType<typeof render> {
+  return render(workspace('NAV-1', overrides))
 }
 
 // post-WP-B the Analyze button is rendered by CaseFiles from files.list (not evidence.list)
@@ -184,5 +199,30 @@ describe('CaseWorkspace findings pane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand findings' }))
     expect(uiStore.get().findingsCollapsed).toBe(false)
     expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeTruthy()
+  })
+})
+
+describe('CaseWorkspace status menu', () => {
+  it('closes the case as duplicate from the header menu', async () => {
+    const setStatus = vi.fn().mockResolvedValue(undefined)
+    window.argus.cases.setStatus = setStatus
+    const onStatusChanged = vi.fn()
+    renderWorkspace({ status: 'open', resolution: null, onStatusChanged })
+    fireEvent.click(screen.getByRole('button', { name: /close as/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'duplicate' }))
+    await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'closed', 'duplicate'))
+    expect(onStatusChanged).toHaveBeenCalled()
+  })
+
+  it('shows Reopen and the resolution label when the case is closed', async () => {
+    const setStatus = vi.fn().mockResolvedValue(undefined)
+    window.argus.cases.setStatus = setStatus
+    const onStatusChanged = vi.fn()
+    renderWorkspace({ status: 'closed', resolution: 'wont-fix', onStatusChanged })
+    expect(screen.getByRole('button', { name: /closed · wont-fix/i })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /closed · wont-fix/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reopen' }))
+    await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'open', null))
+    expect(onStatusChanged).toHaveBeenCalled()
   })
 })
