@@ -50,6 +50,7 @@ import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
+import { listSessions } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
@@ -233,13 +234,21 @@ function registerIpc(): void {
         }
       )
   })
-  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) =>
-    agentService!.send(caseSlug, text)
-  )
-  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string) => agentService!.interrupt(caseSlug))
-  ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) =>
-    agentService!.respond(caseSlug, d)
-  )
+  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) => {
+    // Task 5 replaces: thread the session id through the IPC channel instead of defaulting.
+    const sessionId = listSessions(db, caseSlug)[0].id
+    return agentService!.send(caseSlug, sessionId, text)
+  })
+  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string) => {
+    // Task 5 replaces: thread the session id through the IPC channel instead of defaulting.
+    const sessionId = listSessions(db, caseSlug)[0].id
+    return agentService!.interrupt(caseSlug, sessionId)
+  })
+  ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) => {
+    // Task 5 replaces: thread the session id through the IPC channel instead of defaulting.
+    const sessionId = listSessions(db, caseSlug)[0].id
+    return agentService!.respond(caseSlug, sessionId, d)
+  })
   ipcMain.handle(IPC.agentAuthStatus, async (_e, force?: boolean) => {
     if (force) cachedAuth = null
     if (!cachedAuth) {
