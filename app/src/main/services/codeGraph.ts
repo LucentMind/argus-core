@@ -22,10 +22,13 @@ export function repoIdFor(repoPath: string, remote: string | null): string {
       .filter(Boolean)
       .slice(-2)
       .join('-')
-    if (tail) return slug(tail)
+    const sluggedTail = slug(tail)
+    if (sluggedTail) return sluggedTail
   }
   const hash = crypto.createHash('sha1').update(path.resolve(repoPath)).digest('hex').slice(0, 8)
-  return `${slug(path.basename(repoPath))}-${hash}`
+  const sluggedBasename = slug(path.basename(repoPath))
+  if (!sluggedBasename) return hash
+  return `${sluggedBasename}-${hash}`
 }
 
 /** '_root' for whole-repo; else a slug of the RELATIVE subpath. Rejects escapes. */
@@ -37,7 +40,9 @@ export function scopeKeyFor(scope: string | null): string {
     throw new Error('scope must be relative to the repo root')
   const parts = trimmed.split(/[\\/]+/)
   if (parts.some((p) => p === '..')) throw new Error('scope must not escape the repo')
-  return slug(parts.join('-'))
+  const result = slug(parts.join('-'))
+  if (!result) throw new Error('scope reduces to an empty key')
+  return result
 }
 
 export function graphCacheDir(argusHome: string, repoId: string, scopeKey: string): string {

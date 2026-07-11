@@ -47,6 +47,23 @@ describe('codeGraph helpers', () => {
     expect(() => scopeKeyFor('  ')).toThrow()
   })
 
+  it('graphCacheDir nests repoId/scopeKey under graphsRoot', () => {
+    expect(graphCacheDir('C:\\home', 'JiaweiHan88-hivemindtest', '_root')).toBe(
+      path.join('C:\\home', 'graphs', 'JiaweiHan88-hivemindtest', '_root')
+    )
+  })
+
+  it('scopeKeyFor rejects scopes that slug to nothing', () => {
+    expect(() => scopeKeyFor('.')).toThrow()
+    expect(() => scopeKeyFor('___')).toThrow()
+    expect(() => scopeKeyFor('!!!')).toThrow()
+  })
+
+  it('repoIdFor falls back to path hash when the remote tail slugs to nothing', () => {
+    const id = repoIdFor('C:\\code\\navigator', 'https://host/---/___.git')
+    expect(id).toMatch(/^navigator-[0-9a-f]{8}$/)
+  })
+
   it('meta round-trips through the cache dir', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-graph-'))
     expect(readMeta(dir)).toBeNull()
@@ -71,7 +88,8 @@ describe('codeGraph helpers', () => {
   })
 
   it('parseExtractCounts reads the graphify summary line', () => {
-    const out = '[graphify extract] wrote C:\\x\\graphify-out\\graph.json: 9171 nodes, 31372 edges, 304 communities'
+    const out =
+      '[graphify extract] wrote C:\\x\\graphify-out\\graph.json: 9171 nodes, 31372 edges, 304 communities'
     expect(parseExtractCounts(out)).toEqual({ nodes: 9171, edges: 31372 })
     expect(parseExtractCounts('no summary here')).toEqual({ nodes: null, edges: null })
   })
