@@ -18,6 +18,7 @@ import {
   emptySpaceState,
   missingMustKeep,
   REFERENCES_INDEX,
+  REF_TARGET_RE,
   type RefSyncPayload,
   type SyncReport,
   type DraftFile,
@@ -194,6 +195,13 @@ export class RefSyncService {
     const skipped: Array<{ target: string; reason: string }> = []
     const now = this.now()
     for (const target of targets) {
+      // defense-in-depth: target ultimately traces back to hand-editable
+      // routingRules[].target (plain z.string()) — re-validate the basename
+      // before it joins a write path, same philosophy as proposals.ts.
+      if (!REF_TARGET_RE.test(target) || target === REFERENCES_INDEX) {
+        skipped.push({ target, reason: 'invalid target name' })
+        continue
+      }
       const draft = report.drafts.find((d) => d.target === target)
       if (!draft) {
         skipped.push({ target, reason: 'no such draft in this sync' })
