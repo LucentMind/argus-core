@@ -34,6 +34,9 @@ export function CaseWorkspace({
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
+  const [focusTurn, setFocusTurn] = useState<{ sessionId: number; turnId: number | null } | null>(
+    null
+  )
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
   // identical suggestion in the new case isn't a setState no-op — adjust-state-
@@ -55,6 +58,13 @@ export function CaseWorkspace({
   function handleSwitchSession(id: number): void {
     uiStore.setActiveSession(slug, id)
     setSessionId(id)
+  }
+
+  // a search hit's jump target: switch to its session via the same path as a
+  // normal switcher click, then hand ChatPane the turn to scroll to + flash
+  function handleJumpToTurn(targetSessionId: number, turnId: number | null): void {
+    if (targetSessionId !== sessionId) handleSwitchSession(targetSessionId)
+    setFocusTurn({ sessionId: targetSessionId, turnId })
   }
 
   useEffect(() => {
@@ -111,6 +121,9 @@ export function CaseWorkspace({
               sessionId={sessionId}
               onSwitchSession={handleSwitchSession}
               onCite={(p, l) => void handleCite(p, l)}
+              onJumpToTurn={handleJumpToTurn}
+              focusTurnId={focusTurn?.turnId ?? null}
+              onFocusConsumed={() => setFocusTurn(null)}
               prefill={prefill}
             />
           )}

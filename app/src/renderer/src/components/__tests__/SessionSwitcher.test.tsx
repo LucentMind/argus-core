@@ -58,4 +58,24 @@ describe('SessionSwitcher', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(window.argus.sessions.rename).toHaveBeenCalledWith(2, 'Tunnel case'))
   })
+
+  it('typing switches the panel to grouped results; clicking a hit jumps', async () => {
+    window.argus.chat.search = vi.fn(async () => ({
+      hits: [{ sessionId: 2, turnId: 20, role: 'assistant', snippet: '«braking» pressure log' }]
+    }))
+    const onJump = vi.fn()
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={onJump} />)
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    fireEvent.change(screen.getByLabelText('Search chats'), { target: { value: 'braking' } })
+    fireEvent.click(await screen.findByText(/pressure log/))
+    expect(onJump).toHaveBeenCalledWith(2, 20)
+  })
+
+  it('shows the FTS error inline', async () => {
+    window.argus.chat.search = vi.fn(async () => ({ hits: [], error: 'fts5: syntax error' }))
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    fireEvent.change(screen.getByLabelText('Search chats'), { target: { value: '"bad' } })
+    expect(await screen.findByText(/syntax error/)).toBeTruthy()
+  })
 })

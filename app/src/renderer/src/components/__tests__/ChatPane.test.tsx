@@ -100,4 +100,15 @@ describe('ChatPane', () => {
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(window.argus.agent.send).toHaveBeenCalledWith('NAV-1', 1, 'run /analyze-applog')
   })
+
+  it('renders a data-turn-id anchor on user turns for jump-to-turn', () => {
+    const slug = 'NAV-ANCHOR'
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
+    agentStore.apply(at('turn.started', { userText: 'anchor me' }, 10))
+    const { container } = render(
+      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+    )
+    expect(container.querySelector('[data-turn-id="10"]')).toBeTruthy()
+  })
 })

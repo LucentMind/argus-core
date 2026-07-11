@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { agentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
@@ -12,12 +12,18 @@ export function ChatPane({
   sessionId,
   onSwitchSession,
   onCite,
+  onJumpToTurn,
+  focusTurnId = null,
+  onFocusConsumed,
   prefill
 }: {
   slug: string
   sessionId: number
   onSwitchSession: (id: number) => void
   onCite: (relPath: string, line: number) => void
+  onJumpToTurn?: (sessionId: number, turnId: number | null) => void
+  focusTurnId?: number | null
+  onFocusConsumed?: () => void
   prefill?: string
 }): React.JSX.Element {
   const state = useSyncExternalStore(
@@ -33,10 +39,37 @@ export function ChatPane({
     bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [state.items.length, state.pending.length])
 
-  // Search-driven navigation (Task 9) will consume the turnId and scroll to
-  // it; for now, jumping to a turn in another session just switches to it.
-  // The prop type still carries turnId — a narrower handler is assignable.
-  function handleJumpToTurn(targetSessionId: number): void {
+  const [flashTurnId, setFlashTurnId] = useState<number | null>(null)
+
+  // jump-to-turn: wait until the target turn's anchor is actually in the DOM
+  // (the target session's history may still be hydrating), then scroll +
+  // flash it and tell the parent the focus request has been consumed.
+  useEffect(() => {
+    if (focusTurnId == null) return
+    const el = document.querySelector(`[data-turn-id="${focusTurnId}"]`)
+    if (!el) return
+    el.scrollIntoView({ block: 'center' })
+    setFlashTurnId(focusTurnId)
+    onFocusConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTurnId, state.items.length])
+
+  // the flash fade-out timer is independent of the focus-consumption effect
+  // above so that clearing focusTurnId (via onFocusConsumed) doesn't cancel it
+  useEffect(() => {
+    if (flashTurnId == null) return
+    const t = setTimeout(() => setFlashTurnId(null), 1200)
+    return () => clearTimeout(t)
+  }, [flashTurnId])
+
+  // A default routing so ChatPane still works when no onJumpToTurn is wired
+  // (e.g. existing tests); CaseWorkspace overrides this with the real
+  // switch-then-focus handler.
+  function handleJumpToTurn(targetSessionId: number, turnId: number | null): void {
+    if (onJumpToTurn) {
+      onJumpToTurn(targetSessionId, turnId)
+      return
+    }
     if (targetSessionId !== sessionId) onSwitchSession(targetSessionId)
   }
 
@@ -53,10 +86,14 @@ export function ChatPane({
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {state.items.map((item, i) => {
           if (item.kind === 'user') {
+            const isFlashing = item.turnId != null && item.turnId === flashTurnId
             return (
               <div
                 key={i}
-                className="ml-12 rounded-r3 border border-hair bg-hi p-3 text-sm text-ink"
+                data-turn-id={item.turnId ?? undefined}
+                className={`ml-12 rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
+                  isFlashing ? 'bg-signal/20' : 'bg-hi'
+                }`}
               >
                 {item.text}
               </div>

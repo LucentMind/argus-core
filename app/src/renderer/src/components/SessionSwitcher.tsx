@@ -1,8 +1,29 @@
 import { useEffect, useState } from 'react'
-import type { SessionSummary } from '../../../shared/types'
+import type { ChatSearchHit, SessionSummary } from '../../../shared/types'
 
 function displayTitle(s: { id: number; title: string }): string {
   return s.title || `Chat ${s.id}`
+}
+
+// Same «»-marker convention as evidence search (SearchBar) — matched terms
+// come back wrapped in guillemets; render them as <mark>.
+function hitSnippetHtml(snippet: string): string {
+  return snippet
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/«/g, '<mark>')
+    .replace(/»/g, '</mark>')
+}
+
+function groupHitsBySession(hits: ChatSearchHit[]): Array<[number, ChatSearchHit[]]> {
+  const m = new Map<number, ChatSearchHit[]>()
+  for (const h of hits) {
+    const g = m.get(h.sessionId) ?? []
+    g.push(h)
+    m.set(h.sessionId, g)
+  }
+  return [...m.entries()]
 }
 
 // Coarse relative-time label for the session list — good enough for "which
@@ -21,7 +42,8 @@ function relativeTime(iso: string): string {
 export function SessionSwitcher({
   slug,
   sessionId,
-  onSwitch
+  onSwitch,
+  onJumpToTurn
 }: {
   slug: string
   sessionId: number
@@ -32,6 +54,9 @@ export function SessionSwitcher({
   const [open, setOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<ChatSearchHit[]>([])
+  const [searchError, setSearchError] = useState<string | null>(null)
 
   // the trigger needs the active title even before the popup is ever opened
   useEffect(() => {
@@ -43,11 +68,45 @@ export function SessionSwitcher({
     void window.argus.sessions.list(slug).then(setSessions)
   }, [open, slug])
 
+  // closing the panel drops any in-progress search so reopening starts fresh
+  useEffect(() => {
+    if (open) return
+    setQuery('')
+    setHits([])
+    setSearchError(null)
+  }, [open])
+
+  // debounce cross-session search so we don't fire on every keystroke
+  useEffect(() => {
+    if (!query.trim()) {
+      setHits([])
+      setSearchError(null)
+      return
+    }
+    const t = setTimeout(() => {
+      void window.argus.chat.search(slug, query).then((res) => {
+        setHits(res.hits)
+        setSearchError(res.error ?? null)
+      })
+    }, 200)
+    return () => clearTimeout(t)
+  }, [query, slug])
+
   const active = sessions.find((s) => s.id === sessionId)
   const activeTitle = active ? displayTitle(active) : `Chat ${sessionId}`
   const sorted = [...sessions].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   )
+
+  function titleForSession(id: number): string {
+    const s = sessions.find((x) => x.id === id)
+    return s ? displayTitle(s) : `Chat ${id}`
+  }
+
+  function jumpTo(hit: ChatSearchHit): void {
+    setOpen(false)
+    onJumpToTurn(hit.sessionId, hit.turnId)
+  }
 
   async function createChat(): Promise<void> {
     const created = await window.argus.sessions.create(slug)
@@ -92,53 +151,82 @@ export function SessionSwitcher({
               aria-label="Sessions"
               className="absolute left-0 top-full z-20 mt-1 w-72 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
             >
-              {sorted.map((s) => {
-                const title = displayTitle(s)
-                const isRenaming = renamingId === s.id
-                return (
-                  <div key={s.id} className="flex items-center gap-1 rounded-r1 px-1 hover:bg-hi">
-                    {isRenaming ? (
-                      <input
-                        autoFocus
-                        aria-label={`Rename ${title}`}
-                        className="flex-1 rounded-r1 bg-panel px-1.5 py-1 text-xs text-ink outline-none"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void commitRename(s.id)
-                          if (e.key === 'Escape') setRenamingId(null)
-                        }}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        aria-label={`Switch to ${title}`}
-                        className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
-                        onClick={() => {
-                          setOpen(false)
-                          onSwitch(s.id)
-                        }}
-                      >
-                        <span className="block truncate text-xs text-ink">{title}</span>
-                        <span className="block truncate text-[10.5px] text-mute">
-                          {relativeTime(s.updatedAt)} · {s.turnCount} turns
-                        </span>
-                      </button>
-                    )}
-                    {!isRenaming && (
-                      <button
-                        type="button"
-                        aria-label={`Rename ${title}`}
-                        title="Rename"
-                        className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
-                        onClick={() => startRename(s)}
-                      >
-                        ✎
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
+              {query.trim() ? (
+                <>
+                  {searchError && <p className="px-1.5 py-1 text-xs text-danger">{searchError}</p>}
+                  {!searchError && hits.length === 0 && (
+                    <p className="px-1.5 py-1 text-xs text-mute">No matches.</p>
+                  )}
+                  {!searchError && hits.length > 0 && (
+                    <div role="group" aria-label="Search results" className="flex flex-col gap-2">
+                      {groupHitsBySession(hits).map(([sid, groupHits]) => (
+                        <div key={sid} className="flex flex-col gap-1">
+                          <div className="px-1.5 text-[10.5px] uppercase tracking-wide text-mute">
+                            {titleForSession(sid)}
+                          </div>
+                          {groupHits.map((h, i) => (
+                            <button
+                              key={`${h.sessionId}-${h.turnId}-${i}`}
+                              type="button"
+                              className="block w-full rounded-r1 px-1.5 py-1 text-left text-xs text-ink hover:bg-hi [&_mark]:bg-signal/30 [&_mark]:text-ink"
+                              onClick={() => jumpTo(h)}
+                              dangerouslySetInnerHTML={{ __html: hitSnippetHtml(h.snippet) }}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                sorted.map((s) => {
+                  const title = displayTitle(s)
+                  const isRenaming = renamingId === s.id
+                  return (
+                    <div key={s.id} className="flex items-center gap-1 rounded-r1 px-1 hover:bg-hi">
+                      {isRenaming ? (
+                        <input
+                          autoFocus
+                          aria-label={`Rename ${title}`}
+                          className="flex-1 rounded-r1 bg-panel px-1.5 py-1 text-xs text-ink outline-none"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void commitRename(s.id)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label={`Switch to ${title}`}
+                          className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
+                          onClick={() => {
+                            setOpen(false)
+                            onSwitch(s.id)
+                          }}
+                        >
+                          <span className="block truncate text-xs text-ink">{title}</span>
+                          <span className="block truncate text-[10.5px] text-mute">
+                            {relativeTime(s.updatedAt)} · {s.turnCount} turns
+                          </span>
+                        </button>
+                      )}
+                      {!isRenaming && (
+                        <button
+                          type="button"
+                          aria-label={`Rename ${title}`}
+                          title="Rename"
+                          className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
+                          onClick={() => startRename(s)}
+                        >
+                          ✎
+                        </button>
+                      )}
+                    </div>
+                  )
+                })
+              )}
             </div>
           </>
         )}
@@ -154,10 +242,12 @@ export function SessionSwitcher({
         <span>New chat</span>
       </button>
       <input
-        disabled
         aria-label="Search chats"
         placeholder="Search chats"
-        className="w-40 rounded-r2 border border-hair bg-panel px-2 py-1 text-xs text-mute placeholder:text-mute disabled:opacity-50"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setOpen(true)}
+        className="w-40 rounded-r2 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
       />
     </div>
   )
