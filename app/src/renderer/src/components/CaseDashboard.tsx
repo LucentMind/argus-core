@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
 import { Btn, Card, Chip, SectionLabel } from './ui'
+import { FolderInput, Plus } from 'lucide-react'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
   open: 'signal',
@@ -74,15 +75,19 @@ export function CaseDashboard({
             </div>
           </Card>
         ))}
-        <Card onClick={onNew} className="flex min-h-24 items-center justify-center p-4">
-          <span role="button" className="text-sm text-dim transition-colors hover:text-ink">
-            + New case
-          </span>
-        </Card>
-        <Card onClick={onImport} className="flex min-h-24 items-center justify-center p-4">
-          <span role="button" className="text-sm text-dim transition-colors hover:text-ink">
-            ⤓ Import case…
-          </span>
+        <Card className="flex min-h-24 flex-col items-stretch divide-y divide-hair p-0">
+          <button
+            onClick={onNew}
+            className="flex flex-1 items-center justify-center gap-2 rounded-t-r3 text-sm text-dim transition-colors hover:bg-hi hover:text-ink"
+          >
+            <Plus size={14} aria-hidden="true" /> New case
+          </button>
+          <button
+            onClick={onImport}
+            className="flex flex-1 items-center justify-center gap-2 rounded-b-r3 text-sm text-dim transition-colors hover:bg-hi hover:text-ink"
+          >
+            <FolderInput size={14} aria-hidden="true" /> Import case…
+          </button>
         </Card>
       </div>
     </div>

@@ -33,4 +33,18 @@ describe('CaseDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: /new case/i }))
     expect(onNew).toHaveBeenCalled()
   })
+
+  it('Import case button calls onImport', () => {
+    const onImport = vi.fn()
+    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={vi.fn()} onImport={onImport} />)
+    fireEvent.click(screen.getByRole('button', { name: /import case/i }))
+    expect(onImport).toHaveBeenCalled()
+  })
+
+  it('New and Import actions share one tile', () => {
+    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={vi.fn()} onImport={vi.fn()} />)
+    const newBtn = screen.getByRole('button', { name: /new case/i })
+    const importBtn = screen.getByRole('button', { name: /import case/i })
+    expect(newBtn.parentElement).toBe(importBtn.parentElement)
+  })
 })
