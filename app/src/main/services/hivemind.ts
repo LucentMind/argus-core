@@ -8,6 +8,7 @@ import { frontmatterDescription } from './agent/skillsResolver'
 import { withFrontmatter, fmBlock, fmField } from './frontmatter'
 import { JsonFileStore } from './fileStore'
 import type {
+  HivemindCheckResult,
   HivemindItem,
   HivemindPayload,
   HivemindPushResult,
@@ -115,6 +116,18 @@ export class HivemindService {
     } catch (err) {
       const p = await this.payload()
       return { ...p, state: 'error', error: (err as Error).message }
+    }
+  }
+
+  /** Cheap reachability probe for instant settings feedback — no clone, no state change. */
+  async check(): Promise<HivemindCheckResult> {
+    const repo = this.deps.repo().trim()
+    if (!repo) return { ok: false, error: 'No HiveMind repo configured.' }
+    try {
+      await this.git(['ls-remote', cloneUrl(repo), 'HEAD'])
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
     }
   }
 
