@@ -1,0 +1,29 @@
+name: "argus-pack build"
+description: "Assemble + checksum + zip an Argus pack bundle from a source dir and prebuilt binaries."
+inputs:
+  pack:
+    description: "Pack source dir (contains argus-pack.json)."
+    required: true
+  bin:
+    description: "Dir of already-built binaries for this platform."
+    required: true
+  platform:
+    description: "Target platform, <os>-<arch> (e.g. mac-arm64)."
+    required: true
+  out:
+    description: "Output dir for the bundle .zip."
+    required: true
+    default: "dist"
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci && npm run build
+    - shell: bash
+      run: >
+        node ${{ github.action_path }}/dist/cli.js build
+        --pack "${{ inputs.pack }}"
+        --bin "${{ inputs.bin }}"
+        --platform "${{ inputs.platform }}"
+        --out "${{ inputs.out }}"
