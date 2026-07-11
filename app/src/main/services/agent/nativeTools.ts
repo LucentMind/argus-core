@@ -87,9 +87,7 @@ export function argusToolHandlers(
       if (status === 'closed') {
         const r = String(args.resolution ?? '')
         if (!CASE_RESOLUTIONS.includes(r as CaseResolution)) {
-          throw new Error(
-            `Closing requires a resolution; expected ${CASE_RESOLUTIONS.join('|')}`
-          )
+          throw new Error(`Closing requires a resolution; expected ${CASE_RESOLUTIONS.join('|')}`)
         }
         resolution = r as CaseResolution
       }
