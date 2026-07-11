@@ -150,4 +150,26 @@ describe('CaseDashboard delete', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     await waitFor(() => expect(onDeleted).toHaveBeenCalled())
   })
+
+  it('shows an inline error and still resyncs when the confirm-off delete fails', async () => {
+    setup(payload((p) => (p.settings.general.confirmCaseDelete = false)))
+    deleteMock.mockImplementation(async () => {
+      throw new Error('case locked')
+    })
+    const onDeleted = vi.fn()
+    render(
+      <CaseDashboard
+        cases={cases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={onDeleted}
+      />
+    )
+    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
+    expect(await screen.findByText('case locked')).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled())
+  })
 })

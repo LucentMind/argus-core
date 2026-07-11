@@ -17,6 +17,7 @@ export function FindingsPane({
 }): React.JSX.Element {
   const [md, setMd] = useState('')
   const [findings, setFindings] = useState<FindingRow[]>([])
+  const [clearError, setClearError] = useState<string | null>(null)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -39,13 +40,20 @@ export function FindingsPane({
   }
 
   async function clearAll(): Promise<void> {
+    const count = findings.length
     const ok = window.confirm(
-      `Clear all findings for this case? ${findings.length} finding(s) and findings.md are reset.`
+      `Clear all findings for this case? ${count} finding${count === 1 ? '' : 's'} and findings.md are reset.`
     )
     if (!ok) return
-    await window.argus.findings.clear(slug)
-    setFindings([])
-    void window.argus.cases.readFindings(slug).then(setMd)
+    setClearError(null)
+    try {
+      await window.argus.findings.clear(slug)
+    } catch (err) {
+      setClearError((err as Error).message)
+    } finally {
+      await window.argus.findings.list(slug).then(setFindings)
+      await window.argus.cases.readFindings(slug).then(setMd)
+    }
   }
 
   // the seeded file is just "# Findings — <slug>" — nothing worth rendering or clearing
@@ -76,6 +84,7 @@ export function FindingsPane({
           </button>
         </div>
       </div>
+      {clearError && <p className="text-xs text-danger">{clearError}</p>}
       {findings.length > 0 && (
         <ul className="flex flex-col gap-1">
           {findings.map((f) => (

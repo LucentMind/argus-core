@@ -180,4 +180,17 @@ describe('CaseFiles', () => {
     await screen.findByText('findings.md')
     expect(screen.queryByRole('button', { name: 'Delete findings.md' })).toBeNull()
   })
+
+  it('shows an inline error and still reloads the tree when evidence.delete rejects', async () => {
+    window.confirm = vi.fn(() => true)
+    window.argus.evidence.delete = vi.fn(async () => {
+      throw new Error('evidence locked')
+    })
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await screen.findByText('trace.binlog')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete trace.binlog' }))
+    expect(await screen.findByText('evidence locked')).toBeTruthy()
+    // initial mount + the finally-block reload after the failed delete
+    await waitFor(() => expect(window.argus.files.list).toHaveBeenCalledTimes(2))
+  })
 })

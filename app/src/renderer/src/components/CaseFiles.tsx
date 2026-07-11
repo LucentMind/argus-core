@@ -29,6 +29,7 @@ export function CaseFiles({
   const [parsing, setParsing] = useState<Set<number>>(new Set())
   const [dragOver, setDragOver] = useState(false)
   const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     void window.argus.packs.artifactMeta().then(setArtifactMeta, (err) => {
@@ -106,8 +107,15 @@ export function CaseFiles({
     const derived = doomed.size - 1
     const extra = derived > 0 ? ` and ${derived} derived file${derived > 1 ? 's' : ''}` : ''
     if (!window.confirm(`Delete "${displayName(n.name)}"${extra}? This cannot be undone.`)) return
-    await window.argus.evidence.delete(caseSlug, id)
-    await reload()
+    setDeleteError(null)
+    try {
+      await window.argus.evidence.delete(caseSlug, id)
+    } catch (err) {
+      setDeleteError((err as Error).message)
+    } finally {
+      // a post-commit filesystem failure still needs the tree resynced — the DB row is gone either way
+      await reload()
+    }
   }
 
   function renderNodes(nodes: FileNode[], depth: number): React.JSX.Element[] {
@@ -236,6 +244,7 @@ export function CaseFiles({
           </button>
         </div>
       </div>
+      {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
       <ul className="text-xs">
         {renderNodes(visible, 0)}
         {visible.length === 0 && (

@@ -26,6 +26,7 @@ export function CaseDashboard({
   onDeleted: () => void
 }): React.JSX.Element {
   const [exportNote, setExportNote] = useState<{ slug: string; text: string } | null>(null)
+  const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const settings = useSettingsPayload()
 
@@ -40,8 +41,15 @@ export function CaseDashboard({
     // default true — also while the settings payload is still loading
     const confirm = settings?.settings.general.confirmCaseDelete ?? true
     if (!confirm) {
-      await window.argus.cases.delete(slug)
-      onDeleted()
+      setDeleteError(null)
+      try {
+        await window.argus.cases.delete(slug)
+      } catch (err) {
+        setDeleteError({ slug, text: (err as Error).message })
+      } finally {
+        // resync the list even on failure — the deletion may have partially committed
+        onDeleted()
+      }
       return
     }
     setDeleting(slug)
@@ -91,7 +99,11 @@ export function CaseDashboard({
             </div>
             <div className="text-sm text-ink">{c.title}</div>
             <div className="mt-auto text-xs text-mute">
-              {exportNote?.slug === c.slug ? (
+              {deleteError?.slug === c.slug ? (
+                <span className="truncate text-danger" title={deleteError.text}>
+                  {deleteError.text}
+                </span>
+              ) : exportNote?.slug === c.slug ? (
                 <span className="truncate" title={exportNote.text}>
                   {exportNote.text}
                 </span>
