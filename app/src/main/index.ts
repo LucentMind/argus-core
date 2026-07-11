@@ -61,7 +61,10 @@ import {
   autoLinkDefaultRepo
 } from './services/workspaces'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
-import { activeInstanceConfig } from '../shared/drivers'
+import { activeInstanceConfig, effectiveDefaultModel } from '../shared/drivers'
+import { settingsSchema } from '../shared/settings'
+import { ReferenceSyncStore } from './services/referenceSyncStore'
+import { RefSyncService } from './services/refSync/service'
 import {
   seedSharedDirs,
   resolveAssetSource,
@@ -107,6 +110,7 @@ function registerIpc(): void {
   const connectorRegistry = new ConnectorRegistry(argusHome)
   const toolRiskStore = new ToolRiskStore(argusHome)
   const agentAccessStore = new AgentAccessStore(argusHome)
+  const refSyncStore = new ReferenceSyncStore(argusHome)
   const connectorPresets = loadPresets(argusHome)
   const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
   const mcpService = new McpService({
@@ -121,6 +125,19 @@ function registerIpc(): void {
     resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n))
   const atlassian = new AtlassianClient(atlassianCreds)
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
+
+  // — reference sync (Wave 3 Part 3; UI-native REST + headless distillation) —
+  const refSync = new RefSyncService({
+    argusHome,
+    store: refSyncStore,
+    reader: atlassian,
+    distillOptions: () => {
+      const parsed = settingsSchema.parse({ agent: settingsService.get().agent })
+      const cfg = activeInstanceConfig(parsed)
+      return { model: cfg.model ?? effectiveDefaultModel(parsed), cliPath: cfg.cliPath }
+    }
+  })
+  refSyncStore.subscribe(() => broadcast(IPC.refsyncChanged, refSync.payload()))
 
   const connectorsPayload = (): ConnectorsPayload => ({
     connectors: connectorRegistry.get(),
@@ -611,6 +628,33 @@ function registerIpc(): void {
   ipcMain.handle(IPC.jiraRefreshCase, (_e, caseSlug: string) =>
     jiraResult(() => jiraCases.refresh(caseSlug))
   )
+
+  // — reference sync handlers —
+  ipcMain.handle(IPC.refsyncGet, () => refSync.payload())
+  ipcMain.handle(IPC.refsyncValidateSpace, (_e, key: string) =>
+    jiraResult(() => refSync.validateSpace(key))
+  )
+  ipcMain.handle(IPC.refsyncChildren, (_e, spaceKey: string, pageId: string) =>
+    jiraResult(() => refSync.children(spaceKey, pageId))
+  )
+  ipcMain.handle(IPC.refsyncSaveSpace, (_e, space: unknown) => {
+    refSync.saveSpace(space)
+    return refSync.payload()
+  })
+  ipcMain.handle(IPC.refsyncRemoveSpace, (_e, key: string) => {
+    refSync.removeSpace(key)
+    return refSync.payload()
+  })
+  ipcMain.handle(IPC.refsyncSync, (_e, key: string) =>
+    jiraResult(() =>
+      refSync.sync(key, (m) => broadcast(IPC.refsyncProgress, { spaceKey: key, message: m }))
+    )
+  )
+  ipcMain.handle(IPC.refsyncApplyDrafts, (_e, syncId: string, targets: string[]) => {
+    const r = refSync.applyDrafts(syncId, targets)
+    broadcast(IPC.refsyncChanged, refSync.payload())
+    return r
+  })
 }
 
 function createWindow(): void {

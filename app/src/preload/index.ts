@@ -30,6 +30,8 @@ import type {
 } from '../shared/bundle'
 import type { HivemindPayload, HivemindPushResult } from '../shared/hivemind'
 import type { ProposalsPayload } from '../shared/proposals'
+import type { RefSyncPayload, SyncReport, SyncProgress, TreeNodeVM } from '../shared/referenceSync'
+import type { ConfluenceSpace } from '../shared/confluence'
 
 // Custom API for renderer
 const argus = {
@@ -139,6 +141,36 @@ const argus = {
       const listener = (_e: unknown, p: AgentAccessPayload): void => cb(p)
       ipcRenderer.on(IPC.accessChanged, listener)
       return () => ipcRenderer.removeListener(IPC.accessChanged, listener)
+    }
+  },
+  refsync: {
+    get: (): Promise<RefSyncPayload> => ipcRenderer.invoke(IPC.refsyncGet),
+    validateSpace: (
+      key: string
+    ): Promise<JiraResult<{ space: ConfluenceSpace; root: TreeNodeVM }>> =>
+      ipcRenderer.invoke(IPC.refsyncValidateSpace, key),
+    children: (spaceKey: string, pageId: string): Promise<JiraResult<TreeNodeVM[]>> =>
+      ipcRenderer.invoke(IPC.refsyncChildren, spaceKey, pageId),
+    saveSpace: (space: unknown): Promise<RefSyncPayload> =>
+      ipcRenderer.invoke(IPC.refsyncSaveSpace, space),
+    removeSpace: (key: string): Promise<RefSyncPayload> =>
+      ipcRenderer.invoke(IPC.refsyncRemoveSpace, key),
+    sync: (key: string): Promise<JiraResult<SyncReport>> =>
+      ipcRenderer.invoke(IPC.refsyncSync, key),
+    applyDrafts: (
+      syncId: string,
+      targets: string[]
+    ): Promise<{ written: string[]; skipped: Array<{ target: string; reason: string }> }> =>
+      ipcRenderer.invoke(IPC.refsyncApplyDrafts, syncId, targets),
+    onChanged: (cb: (p: RefSyncPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: RefSyncPayload): void => cb(p)
+      ipcRenderer.on(IPC.refsyncChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.refsyncChanged, listener)
+    },
+    onProgress: (cb: (p: SyncProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: SyncProgress): void => cb(p)
+      ipcRenderer.on(IPC.refsyncProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.refsyncProgress, listener)
     }
   },
   memory: {
