@@ -3,6 +3,22 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ObservabilityView } from '../ObservabilityView'
+import { settingsStore } from '../../../lib/settingsStore'
+import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
+
+function settingsPayloadWith(hiddenCards: string[]): SettingsPayload {
+  const settings = defaultSettings()
+  settings.observability.dashboard.hiddenCards = hiddenCards
+  return {
+    settings,
+    resolvedTools: {
+      traceDir: { value: null, source: 'default' },
+      parseBin: { value: null, source: 'default' }
+    },
+    dataRoot: { path: 'C:\\x', fromEnv: false },
+    loadError: null
+  }
+}
 
 const sample = {
   totalCostUsd: 1.23,
@@ -18,9 +34,15 @@ const sample = {
 }
 
 beforeEach(() => {
+  settingsStore.reset()
   window.argus = {
     cases: { list: vi.fn().mockResolvedValue([]) },
-    metrics: { global: vi.fn().mockResolvedValue(sample), case: vi.fn() }
+    metrics: { global: vi.fn().mockResolvedValue(sample), case: vi.fn() },
+    settings: {
+      get: vi.fn().mockResolvedValue(settingsPayloadWith([])),
+      patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
@@ -82,5 +104,21 @@ describe('ObservabilityView', () => {
     resolveC2(bySlug.c2)
     expect(await screen.findByText(/\$9\.90/)).toBeInTheDocument()
     expect(screen.queryByText(/\$0\.50/)).not.toBeInTheDocument()
+  })
+
+  it('hides a card whose id is in the hiddenCards setting but keeps others visible', async () => {
+    window.argus.settings.get = vi.fn().mockResolvedValue(settingsPayloadWith(['toolDenials']))
+    render(<ObservabilityView onOpenCase={() => {}} />)
+    expect(await screen.findByText(/Total cost/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Tool denials/i)).not.toBeInTheDocument()
+  })
+
+  it('still fetches metrics data even when a card is hidden', async () => {
+    const globalSpy = vi.fn().mockResolvedValue(sample)
+    window.argus.metrics.global = globalSpy
+    window.argus.settings.get = vi.fn().mockResolvedValue(settingsPayloadWith(['toolDenials']))
+    render(<ObservabilityView onOpenCase={() => {}} />)
+    await screen.findByText(/Total cost/i)
+    expect(globalSpy).toHaveBeenCalled()
   })
 })

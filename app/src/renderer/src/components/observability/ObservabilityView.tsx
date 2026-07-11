@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CaseRecord } from '../../../../shared/types'
 import { useCaseMetrics, useGlobalMetrics } from '../../lib/metricsStore'
+import { useSettingsPayload } from '../../lib/settingsStore'
 import { StatCard, pct, usd } from './MetricCards'
 
 const RANGES = [
@@ -32,6 +33,9 @@ export function ObservabilityView({
   const since = useMemo(() => sinceFor(range), [range])
   const { data } = useGlobalMetrics(since ? { since } : undefined)
   const { data: caseData } = useCaseMetrics(scope === 'global' ? '' : scope)
+  const settingsPayload = useSettingsPayload()
+  const hiddenCards = settingsPayload?.settings.observability.dashboard.hiddenCards ?? []
+  const isHidden = (id: string): boolean => hiddenCards.includes(id)
 
   useEffect(() => {
     void window.argus.cases.list().then(setCases)
@@ -123,40 +127,76 @@ export function ObservabilityView({
         <p className="text-sm text-mute">Loading metrics…</p>
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatCard
-            label="Total cost"
-            value={usd(data.totalCostUsd)}
-            sub={`${data.turns.total} turns`}
-          />
-          <StatCard label="Tokens (in/out)" value={`${data.inputTokens} / ${data.outputTokens}`} />
-          <StatCard
-            label="HITL approval"
-            value={pct(
-              (data.tools.byDecision.user ?? 0) + (data.tools.byDecision['allow-session'] ?? 0),
-              data.tools.total
-            )}
-            sub={`${data.tools.total} asks`}
-          />
-          <StatCard label="Tool denials" value={pct(data.tools.denied, data.tools.total)} />
-          <StatCard
-            label="Findings"
-            value={String(data.findings.total)}
-            sub={`${data.findings.accepted} accepted`}
-          />
-          <StatCard
-            label="Finding acceptance"
-            value={pct(data.findings.accepted, data.findings.accepted + data.findings.rejected)}
-          />
-          <StatCard label="Turn error rate" value={pct(data.turns.error, data.turns.total)} />
-          <StatCard
-            label="Cost / resolved case"
-            value={usd(data.costPerResolvedCaseUsd)}
-            sub={`${data.resolvedCases} closed`}
-          />
-          <StatCard
-            label="Turn latency p50 / p95"
-            value={`${data.latencyMs.turnP50 ?? '—'} / ${data.latencyMs.turnP95 ?? '—'} ms`}
-          />
+          {!isHidden('cost') && (
+            <StatCard
+              id="cost"
+              label="Total cost"
+              value={usd(data.totalCostUsd)}
+              sub={`${data.turns.total} turns`}
+            />
+          )}
+          {!isHidden('tokens') && (
+            <StatCard
+              id="tokens"
+              label="Tokens (in/out)"
+              value={`${data.inputTokens} / ${data.outputTokens}`}
+            />
+          )}
+          {!isHidden('hitlApproval') && (
+            <StatCard
+              id="hitlApproval"
+              label="HITL approval"
+              value={pct(
+                (data.tools.byDecision.user ?? 0) + (data.tools.byDecision['allow-session'] ?? 0),
+                data.tools.total
+              )}
+              sub={`${data.tools.total} asks`}
+            />
+          )}
+          {!isHidden('toolDenials') && (
+            <StatCard
+              id="toolDenials"
+              label="Tool denials"
+              value={pct(data.tools.denied, data.tools.total)}
+            />
+          )}
+          {!isHidden('findings') && (
+            <StatCard
+              id="findings"
+              label="Findings"
+              value={String(data.findings.total)}
+              sub={`${data.findings.accepted} accepted`}
+            />
+          )}
+          {!isHidden('findingAcceptance') && (
+            <StatCard
+              id="findingAcceptance"
+              label="Finding acceptance"
+              value={pct(data.findings.accepted, data.findings.accepted + data.findings.rejected)}
+            />
+          )}
+          {!isHidden('turnErrorRate') && (
+            <StatCard
+              id="turnErrorRate"
+              label="Turn error rate"
+              value={pct(data.turns.error, data.turns.total)}
+            />
+          )}
+          {!isHidden('costPerCase') && (
+            <StatCard
+              id="costPerCase"
+              label="Cost / resolved case"
+              value={usd(data.costPerResolvedCaseUsd)}
+              sub={`${data.resolvedCases} closed`}
+            />
+          )}
+          {!isHidden('turnLatency') && (
+            <StatCard
+              id="turnLatency"
+              label="Turn latency p50 / p95"
+              value={`${data.latencyMs.turnP50 ?? '—'} / ${data.latencyMs.turnP95 ?? '—'} ms`}
+            />
+          )}
         </div>
       )}
     </div>
