@@ -16,6 +16,7 @@ import { createCase, getCase, setCaseJira } from './caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
 import { extractDerivedText } from './extraction'
 import type { Detection } from './packs/detection'
+import type { Extractors } from './packs/extractors'
 
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
@@ -28,7 +29,7 @@ export interface JiraCasesDeps {
   detection: Detection
   client: AtlassianClientLike
   site: () => string
-  argusParse: () => string | null
+  extractors: Extractors
   emitProgress: (p: JiraAttachmentProgress) => void
   evidenceChanged: (caseSlug: string) => void
   parsing: (caseSlug: string, evidenceId: number, active: boolean) => void
@@ -129,7 +130,7 @@ export class JiraCases {
           // outside its internal try/catch), so parsing(false) must sit in .finally and
           // the fire-and-forget rejection is swallowed explicitly.
           this.deps.parsing(caseSlug, rec.id, true)
-          void extractDerivedText(db, argusHome, rec, { argusParse: this.deps.argusParse() })
+          void extractDerivedText(db, argusHome, rec, this.deps.extractors)
             .then((derived) => {
               if (derived) this.deps.evidenceChanged(caseSlug)
             })

@@ -70,6 +70,7 @@ import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
+import { createExtractors } from './services/packs/extractors'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
@@ -142,6 +143,8 @@ function registerIpc(): void {
 
   // 1d: pack-driven detection engine replaces the hardcoded detect.ts.
   const detection = createDetection(packRegistry)
+  // 1d: extraction commands are resolved from pack detector declarations, not hardcoded ids.
+  const extractors = createExtractors(packRegistry, binariesService)
 
   const secretStore = new SecretStore(argusHome, safeStorage)
 
@@ -251,10 +254,7 @@ function registerIpc(): void {
       broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
       // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
       // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
-      void extractDerivedText(db, argusHome, rec, {
-        // 1d removes this hardcoded id: detectors will declare their extract commands
-        argusParse: binariesService.pathOf('sample-parse')
-      })
+      void extractDerivedText(db, argusHome, rec, extractors)
         .then((derived) => {
           if (derived) broadcast(IPC.evidenceChanged, caseSlug)
         })
@@ -690,8 +690,7 @@ function registerIpc(): void {
     detection,
     client: atlassian,
     site: () => atlassianCreds().siteUrl,
-    // 1d removes this hardcoded id: detectors will declare their extract commands
-    argusParse: () => binariesService.pathOf('sample-parse'),
+    extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug),
     parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })

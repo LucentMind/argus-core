@@ -6,7 +6,7 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { extractDerivedText } from '../extraction'
 import { searchEvidence, readEvidenceText } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
@@ -57,7 +57,11 @@ it('wave-1 part-2 exit shape: binary → derived text → FTS hit → viewer tex
   const src = path.join(tmp, 'drive.binlog')
   fs.writeFileSync(src, Buffer.from('BINLOG\x01' + 'x'.repeat(64)))
   const rec = ingestArtifact(db, argusHome, detection, 'NAV-9', src)
-  const derived = await extractDerivedText(db, argusHome, rec, { argusParse: bin })
+  const extractors = stubExtractors('binlog', {
+    binPath: bin,
+    args: ['binlog-to-text', '{input}', '--output', '{output}']
+  })
+  const derived = await extractDerivedText(db, argusHome, rec, extractors)
   expect(derived).not.toBeNull()
 
   const hits = searchEvidence(db, 'bearing jump', { caseSlug: 'NAV-9' })
