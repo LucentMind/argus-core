@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS cases (
   title TEXT NOT NULL,
   jira_key TEXT,
   status TEXT NOT NULL DEFAULT 'open',
+  resolution TEXT,
   tags TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -96,6 +97,9 @@ export function openDb(file: string): DatabaseSync {
   }
   if (!caseCols.some((c) => c.name === 'jira_synced_at')) {
     db.exec(`ALTER TABLE cases ADD COLUMN jira_synced_at TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'resolution')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN resolution TEXT`)
   }
   // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
   // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
