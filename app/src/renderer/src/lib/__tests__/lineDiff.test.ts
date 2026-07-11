@@ -19,4 +19,14 @@ describe('diffLines', () => {
       { kind: 'add', text: 'y' }
     ])
   })
+
+  it('is line-ending agnostic (CRLF before vs LF after)', () => {
+    const d = diffLines('a\r\nb\r\nc', 'a\nB\nc')
+    expect(d).toEqual([
+      { kind: 'same', text: 'a' },
+      { kind: 'del', text: 'b' },
+      { kind: 'add', text: 'B' },
+      { kind: 'same', text: 'c' }
+    ])
+  })
 })
