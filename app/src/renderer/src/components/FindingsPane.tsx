@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Check, PanelRight, X } from 'lucide-react'
+import { Check, PanelRight, Trash2, X } from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import type { FindingRow } from '../../../shared/observability'
@@ -37,18 +37,44 @@ export function FindingsPane({
     await window.argus.findings.review(id, state)
     setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, reviewState: state } : f)))
   }
+
+  async function clearAll(): Promise<void> {
+    const ok = window.confirm(
+      `Clear all findings for this case? ${findings.length} finding(s) and findings.md are reset.`
+    )
+    if (!ok) return
+    await window.argus.findings.clear(slug)
+    setFindings([])
+    void window.argus.cases.readFindings(slug).then(setMd)
+  }
+
+  // the seeded file is just "# Findings — <slug>" — nothing worth rendering or clearing
+  const hasBody = md.split('\n').some((l) => l.trim() !== '' && !/^#\s/.test(l.trim()))
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <SectionLabel>Findings</SectionLabel>
-        <button
-          aria-label="Collapse findings"
-          title="Collapse findings"
-          className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
-          onClick={() => uiStore.setFindingsCollapsed(true)}
-        >
-          <PanelRight size={14} strokeWidth={1.5} />
-        </button>
+        <div className="flex items-center gap-1">
+          {(findings.length > 0 || hasBody) && (
+            <button
+              aria-label="Clear findings"
+              title="Clear all findings"
+              className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-danger"
+              onClick={() => void clearAll()}
+            >
+              <Trash2 size={14} strokeWidth={1.5} />
+            </button>
+          )}
+          <button
+            aria-label="Collapse findings"
+            title="Collapse findings"
+            className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
+            onClick={() => uiStore.setFindingsCollapsed(true)}
+          >
+            <PanelRight size={14} strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
       {findings.length > 0 && (
         <ul className="flex flex-col gap-1">
@@ -77,7 +103,7 @@ export function FindingsPane({
           ))}
         </ul>
       )}
-      {md.trim() ? (
+      {hasBody ? (
         <MessageView markdown={md} onCite={onCite} />
       ) : (
         <p className="text-xs text-mute">No findings yet.</p>
