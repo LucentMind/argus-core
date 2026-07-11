@@ -182,6 +182,10 @@ const argus = {
       targets: string[]
     ): Promise<{ written: string[]; skipped: Array<{ target: string; reason: string }> }> =>
       ipcRenderer.invoke(IPC.refsyncApplyDrafts, syncId, targets),
+    readRef: (file: string): Promise<{ file: string; content: string }> =>
+      ipcRenderer.invoke(IPC.refsyncReadRef, file),
+    searchRefs: (query: string): Promise<string[]> =>
+      ipcRenderer.invoke(IPC.refsyncSearchRefs, query),
     onChanged: (cb: (p: RefSyncPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: RefSyncPayload): void => cb(p)
       ipcRenderer.on(IPC.refsyncChanged, listener)

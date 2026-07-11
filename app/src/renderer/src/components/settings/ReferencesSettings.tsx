@@ -1,22 +1,45 @@
-import { useState } from 'react'
-import { SettingsSection, SettingRow } from './settingsLayout'
-import { Btn, Card, Chip, MenuButton } from '../ui'
+import { useEffect, useState } from 'react'
+import { RefreshCw, Pencil, Trash2 } from 'lucide-react'
+import { SettingsSection } from './settingsLayout'
+import { Btn, Card, Chip, IconBtn } from '../ui'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
+import { RefViewer } from '../references/RefViewer'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
 
 /**
  * References settings page (spec §3.2 step 5): Confluence space cards (sync,
- * manage selection, remove) plus a reference-file list showing per-file
- * staleness. Loads via the shared referenceSyncStore mirror (Task 8).
+ * manage selection, remove) plus a searchable reference-file list showing
+ * per-file staleness; rows open the in-app markdown viewer.
  */
 export function ReferencesSettings(): React.JSX.Element {
   const payload = useRefSyncPayload()
   const [dialog, setDialog] = useState<null | { existing?: SpaceConfig }>(null)
   const [report, setReport] = useState<SyncReport | null>(null)
+  const [viewer, setViewer] = useState<string | null>(null)
   const [syncErrors, setSyncErrors] = useState<Record<string, string>>({})
   const [syncing, setSyncing] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  // null = no active search (show all); otherwise the set of matching file names
+  const [matches, setMatches] = useState<Set<string> | null>(null)
+
+  useEffect(() => {
+    if (!query.trim()) return
+    let cancelled = false
+    const t = setTimeout(() => {
+      void window.argus.refsync.searchRefs(query).then((names) => {
+        if (!cancelled) setMatches(new Set(names))
+      })
+    }, 200)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [query])
+
+  // blank query = no active filter; stale `matches` are ignored rather than cleared in-effect
+  const activeMatches = query.trim() ? matches : null
 
   const syncNow = async (key: string): Promise<void> => {
     setSyncing(key)
@@ -29,6 +52,10 @@ export function ReferencesSettings(): React.JSX.Element {
       setSyncing(null)
     }
   }
+
+  const references = (payload?.references ?? []).filter(
+    (r) => activeMatches === null || activeMatches.has(r.file)
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -46,57 +73,66 @@ export function ReferencesSettings(): React.JSX.Element {
         {(payload?.cards ?? []).map((card) => {
           const space = payload?.config.spaces.find((s) => s.key === card.key)
           return (
-            <Card key={card.key} className="flex flex-col gap-2 p-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{card.name}</span>
-                <span className="text-xs text-faint">{card.key}</span>
-                {card.stale ? <Chip tone="danger">stale</Chip> : <Chip tone="review">synced</Chip>}
-                {card.driftTargets.length > 0 && (
-                  <Chip tone="neutral">{card.driftTargets.length} drifted</Chip>
+            <Card key={card.key} className="flex items-center gap-3 p-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{card.name}</span>
+                  <span className="text-xs text-faint">{card.key}</span>
+                  {card.stale ? (
+                    <Chip tone="danger">stale</Chip>
+                  ) : (
+                    <Chip tone="review">synced</Chip>
+                  )}
+                  {card.driftTargets.length > 0 && (
+                    <Chip tone="neutral">{card.driftTargets.length} drifted</Chip>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-dim">
+                  <span>
+                    {card.pageCount ?? '—'} pages ·{' '}
+                    {card.lastSyncedAt
+                      ? `last sync ${card.lastSyncedAt.slice(0, 10)}`
+                      : 'never synced'}
+                  </span>
+                  <button
+                    aria-label={`sync · ${card.key}`}
+                    disabled={syncing === card.key}
+                    onClick={() => void syncNow(card.key)}
+                    className="inline-flex items-center gap-1 rounded-r2 px-1.5 py-0.5 text-xs text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40"
+                  >
+                    <RefreshCw size={12} className={syncing === card.key ? 'animate-spin' : ''} />
+                    Sync
+                  </button>
+                </div>
+                {syncErrors[card.key] && (
+                  <div role="alert" className="text-xs text-danger">
+                    {syncErrors[card.key]}
+                  </div>
                 )}
-                <span className="flex-1" />
-                <Btn
-                  variant="outline"
-                  aria-label={`sync · ${card.key}`}
-                  disabled={syncing === card.key}
-                  onClick={() => void syncNow(card.key)}
-                >
-                  {syncing === card.key ? 'Syncing…' : 'Sync now'}
-                </Btn>
-                <Btn
-                  variant="ghost"
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <IconBtn
                   aria-label={`manage · ${card.key}`}
+                  title="Manage selection"
                   onClick={() => space && setDialog({ existing: space })}
                 >
-                  Manage selection
-                </Btn>
-                <MenuButton
-                  label="⋯"
-                  aria-label={`space menu · ${card.key}`}
-                  items={[
-                    {
-                      label: 'Remove space',
-                      tone: 'danger',
-                      onSelect: () => {
-                        if (window.confirm(`Remove ${card.key}? Synced reference files stay.`)) {
-                          void window.argus.refsync
-                            .removeSpace(card.key)
-                            .then((p) => referenceSyncStore.set(p))
-                        }
-                      }
+                  <Pencil size={14} />
+                </IconBtn>
+                <IconBtn
+                  aria-label={`remove · ${card.key}`}
+                  title="Remove space"
+                  className="hover:text-danger"
+                  onClick={() => {
+                    if (window.confirm(`Remove ${card.key}? Synced reference files stay.`)) {
+                      void window.argus.refsync
+                        .removeSpace(card.key)
+                        .then((p) => referenceSyncStore.set(p))
                     }
-                  ]}
-                />
+                  }}
+                >
+                  <Trash2 size={14} />
+                </IconBtn>
               </div>
-              <div className="text-xs text-dim">
-                {card.pageCount ?? '—'} pages ·{' '}
-                {card.lastSyncedAt ? `last sync ${card.lastSyncedAt.slice(0, 10)}` : 'never synced'}
-              </div>
-              {syncErrors[card.key] && (
-                <div role="alert" className="text-xs text-danger">
-                  {syncErrors[card.key]}
-                </div>
-              )}
             </Card>
           )
         })}
@@ -105,27 +141,47 @@ export function ReferencesSettings(): React.JSX.Element {
             No spaces yet — add one to start syncing references.
           </div>
         )}
-        <div className="px-3 py-2">
-          <Btn variant="primary" onClick={() => setDialog({})}>
-            Add Confluence space
-          </Btn>
-        </div>
       </SettingsSection>
+      <div>
+        <Btn variant="primary" onClick={() => setDialog({})}>
+          Add Confluence space
+        </Btn>
+      </div>
       <SettingsSection title="Reference files">
-        {(payload?.references ?? []).map((r) => (
-          <SettingRow
+        <div className="px-3 py-2">
+          <input
+            aria-label="search references"
+            placeholder="Search file names and content…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full rounded-r2 bg-black/20 px-2 py-1 text-sm outline-none placeholder:text-faint"
+          />
+        </div>
+        {references.map((r) => (
+          <button
             key={r.file}
-            label={r.file}
-            description={r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
+            aria-label={`open · ${r.file}`}
+            onClick={() => setViewer(r.file)}
+            className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-hair"
           >
-            <div className="flex items-center gap-2">
-              {r.tier && <Chip tone="neutral">{r.tier}</Chip>}
-              {r.stale && <Chip tone="danger">stale</Chip>}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="text-sm text-ink">{r.file}</span>
+              <span className="text-xs text-dim">
+                {r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
+              </span>
             </div>
-          </SettingRow>
+            {r.tier && <Chip tone="neutral">{r.tier}</Chip>}
+            {r.stale && <Chip tone="danger">stale</Chip>}
+          </button>
         ))}
+        {references.length === 0 && (
+          <div className="px-3 py-2 text-xs text-faint">
+            {activeMatches === null ? 'No reference files yet.' : 'No matches.'}
+          </div>
+        )}
       </SettingsSection>
       {dialog && <SpaceDialog existing={dialog.existing} onClose={() => setDialog(null)} />}
+      {viewer && <RefViewer file={viewer} onClose={() => setViewer(null)} />}
       {report && (
         <div
           className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"

@@ -51,7 +51,9 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => undefined),
       onProgress: vi.fn(() => () => undefined),
       sync: vi.fn(async () => ({ ok: false, code: 'auth', message: 'PAT rejected' })),
-      removeSpace: vi.fn(async () => payload)
+      removeSpace: vi.fn(async () => payload),
+      searchRefs: vi.fn(async () => ['routing-flow.md']),
+      readRef: vi.fn(async () => ({ file: 'glossary.md', content: '# Glossary\n\nterms\n' }))
     }
   }
 })
@@ -78,4 +80,38 @@ it('shows the broken-config banner from loadError', async () => {
   })
   render(<ReferencesSettings />)
   expect(await screen.findByRole('alert')).toBeTruthy()
+})
+
+it('search filters the reference list via refsync:search-refs (name + content)', async () => {
+  render(<ReferencesSettings />)
+  expect(await screen.findByText('glossary.md')).toBeTruthy()
+  fireEvent.change(screen.getByRole('textbox', { name: 'search references' }), {
+    target: { value: 'valhalla' }
+  })
+  await waitFor(() => expect(window.argus.refsync.searchRefs).toHaveBeenCalledWith('valhalla'))
+  await waitFor(() => expect(screen.queryByText('glossary.md')).toBeNull())
+  expect(screen.getByText('routing-flow.md')).toBeTruthy()
+  // clearing the query restores the unfiltered list without another IPC call
+  fireEvent.change(screen.getByRole('textbox', { name: 'search references' }), {
+    target: { value: '' }
+  })
+  expect(await screen.findByText('glossary.md')).toBeTruthy()
+})
+
+it('clicking a reference row opens the markdown viewer', async () => {
+  render(<ReferencesSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: 'open · glossary.md' }))
+  await waitFor(() => expect(window.argus.refsync.readRef).toHaveBeenCalledWith('glossary.md'))
+  expect(await screen.findByRole('dialog', { name: 'reference · glossary.md' })).toBeTruthy()
+  expect(await screen.findByText('terms')).toBeTruthy()
+})
+
+it('manage and remove are icon buttons; remove confirms before calling', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  render(<ReferencesSettings />)
+  expect(await screen.findByRole('button', { name: 'manage · NAVNATIVE' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'remove · NAVNATIVE' }))
+  expect(confirmSpy).toHaveBeenCalled()
+  await waitFor(() => expect(window.argus.refsync.removeSpace).toHaveBeenCalledWith('NAVNATIVE'))
+  confirmSpy.mockRestore()
 })
