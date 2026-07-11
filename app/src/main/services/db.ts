@@ -114,5 +114,9 @@ export function openDb(file: string): DatabaseSync {
   if (!sessCols.some((c) => c.name === 'title')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
   }
+  const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
+  if (!turnCols.some((c) => c.name === 'model')) {
+    db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
+  }
   return db
 }

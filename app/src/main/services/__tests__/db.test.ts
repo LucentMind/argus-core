@@ -26,6 +26,18 @@ describe('openDb', () => {
     db2.close()
   })
 
+  it('adds a nullable turns.model column', () => {
+    const db = openDb(tmpDbPath())
+    const cols = db.prepare(`PRAGMA table_info(turns)`).all() as {
+      name: string
+      notnull: number
+    }[]
+    const model = cols.find((c) => c.name === 'model')
+    expect(model).toBeDefined()
+    expect(model!.notnull).toBe(0)
+    db.close()
+  })
+
   it('enforces unique case slug', () => {
     const db = openDb(tmpDbPath())
     const ins = db.prepare(
