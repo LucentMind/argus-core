@@ -38,6 +38,10 @@ beforeEach(() => {
       list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
     },
     cases: { readFindings: vi.fn(async () => '') },
+    findings: {
+      list: vi.fn(async () => []),
+      review: vi.fn()
+    },
     evidence: {
       list: vi.fn(async () => []),
       ingest: vi.fn(async () => []),
