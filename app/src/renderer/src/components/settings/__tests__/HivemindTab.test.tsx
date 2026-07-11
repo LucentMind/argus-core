@@ -19,6 +19,7 @@ const ready: HivemindPayload = {
       commit: 'sha-2',
       installed: true,
       installedCommit: 'sha-1',
+      localTier: null,
       updateAvailable: true
     },
     {
@@ -28,6 +29,7 @@ const ready: HivemindPayload = {
       commit: 'sha-3',
       installed: false,
       installedCommit: null,
+      localTier: null,
       updateAvailable: false
     }
   ],

@@ -6,6 +6,8 @@ export interface HivemindItem {
   commit: string
   installed: boolean
   installedCommit: string | null
+  /** trust_tier of the locally installed copy (references only; null for skills / not installed). */
+  localTier: string | null
   updateAvailable: boolean
 }
 export interface PushableItem {
