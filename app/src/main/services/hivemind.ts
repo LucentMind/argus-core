@@ -212,6 +212,17 @@ export class HivemindService {
     return this.git(['diff', pinned, 'HEAD', '--', rel], this.clone())
   }
 
+  /** Reclaim authorship: restamp a hivemind-tier installed reference as user tier (pushable again). */
+  async claimReference(name: string): Promise<HivemindPayload> {
+    if (!name || /[/\\]/.test(name) || name.startsWith('.') || !name.endsWith('.md'))
+      throw new Error(`Invalid reference name: ${name}`)
+    const file = path.join(sharedReferencesDir(this.deps.argusHome), name)
+    if (referenceTier(file) !== 'hivemind')
+      throw new Error(`Not an installed HiveMind reference: ${name}`)
+    fs.writeFileSync(file, withFrontmatter(fs.readFileSync(file, 'utf8'), { trust_tier: 'user' }))
+    return this.payload()
+  }
+
   /** User-tier assets eligible for sharing: skills-user/* + curated references. */
   pushable(): PushableItem[] {
     const out: PushableItem[] = []
