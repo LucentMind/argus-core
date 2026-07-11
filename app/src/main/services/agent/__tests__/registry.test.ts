@@ -63,6 +63,42 @@ describe('AgentService', () => {
     await svc.stopAll()
   })
 
+  it('rejects a bad sessionId without reaping any live session', async () => {
+    const { createQuery, queues } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      maxSessions: 2
+    })
+    const s1 = createSession(db, 'NAV-1')
+    const s2 = createSession(db, 'NAV-2')
+    await svc.send('NAV-1', s1.id, 'a')
+    await svc.send('NAV-2', s2.id, 'b')
+    // finish both turns so the sessions are idle — eligible for LRU reaping
+    for (const q of queues) q.push({ type: 'result', is_error: false })
+    await new Promise((r) => setTimeout(r, 10))
+
+    // nonexistent session id: must throw before any eviction happens
+    await expect(svc.send('NAV-1', 999999, 'x')).rejects.toThrow(
+      'Unknown session 999999 for case NAV-1'
+    )
+    // foreign session id (belongs to NAV-2): same contract
+    await expect(svc.send('NAV-1', s2.id, 'x')).rejects.toThrow(
+      `Unknown session ${s2.id} for case NAV-1`
+    )
+
+    const states = svc.states()
+    expect(states).toHaveLength(2)
+    expect(states.every((s) => s.state === 'running')).toBe(true)
+    expect(new Set(states.map((s) => s.sessionId))).toEqual(new Set([s1.id, s2.id]))
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
   it('keeps concurrent sessions per case and routes events with the right caseSlug', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({

@@ -44,11 +44,27 @@ export class AgentService {
     this.deps = { maxSessions: 3, createQuery: defaultCreateQuery, ...deps }
   }
 
+  private keyOf(caseSlug: string, sessionId: number): string {
+    return `${caseSlug}::${sessionId}`
+  }
+
   private async getOrCreate(caseSlug: string, sessionId: number): Promise<CaseSession> {
-    const key = `${caseSlug}::${sessionId}`
+    const key = this.keyOf(caseSlug, sessionId)
     const existing = this.sessions.get(key)
     if (existing && existing.state === 'running') return existing
     if (existing) this.sessions.delete(key)
+
+    // Validate before any side effects: sessionId is caller-provided (Task 5 threads it
+    // from the renderer), so verify the row exists and actually belongs to this case —
+    // a doomed request must never evict (reap) a legitimate live session below.
+    const rec = getCase(this.deps.db, caseSlug)
+    if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
+    const owner = this.deps.db
+      .prepare(`SELECT case_id FROM sessions WHERE id = ?`)
+      .get(sessionId) as { case_id: number } | undefined
+    if (!owner || owner.case_id !== rec.id) {
+      throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
+    }
 
     const as = this.deps.agentSettings?.()
     const mcp = this.deps.composeMcp?.()
@@ -65,17 +81,6 @@ export class AgentService {
       }
     }
 
-    const rec = getCase(this.deps.db, caseSlug)
-    if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
-    // Explicit session-row ownership check: sessionId is caller-provided (Task 5 threads it
-    // from the renderer), so verify the row exists and actually belongs to this case before
-    // constructing a CaseSession against it.
-    const owner = this.deps.db
-      .prepare(`SELECT case_id FROM sessions WHERE id = ?`)
-      .get(sessionId) as { case_id: number } | undefined
-    if (!owner || owner.case_id !== rec.id) {
-      throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
-    }
     const cursor = sessionCursor(this.deps.db, sessionId)
 
     const access = this.deps.agentAccess()
@@ -125,11 +130,11 @@ export class AgentService {
   }
 
   respond(caseSlug: string, sessionId: number, d: ApprovalDecision): boolean {
-    return this.sessions.get(`${caseSlug}::${sessionId}`)?.respond(d) ?? false
+    return this.sessions.get(this.keyOf(caseSlug, sessionId))?.respond(d) ?? false
   }
 
   async interrupt(caseSlug: string, sessionId: number): Promise<void> {
-    await this.sessions.get(`${caseSlug}::${sessionId}`)?.interrupt()
+    await this.sessions.get(this.keyOf(caseSlug, sessionId))?.interrupt()
   }
 
   async stopAll(): Promise<void> {
