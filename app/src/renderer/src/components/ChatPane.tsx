@@ -33,10 +33,10 @@ export function ChatPane({
     bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [state.items.length, state.pending.length])
 
-  // Search-driven navigation (Task 9) will pass a turnId to scroll to; for now,
-  // jumping to a turn in a different session just switches to it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- turnId is wired for Task 9's scroll-to-turn
-  function handleJumpToTurn(targetSessionId: number, _turnId: number | null): void {
+  // Search-driven navigation (Task 9) will consume the turnId and scroll to
+  // it; for now, jumping to a turn in another session just switches to it.
+  // The prop type still carries turnId — a narrower handler is assignable.
+  function handleJumpToTurn(targetSessionId: number): void {
     if (targetSessionId !== sessionId) onSwitchSession(targetSessionId)
   }
 

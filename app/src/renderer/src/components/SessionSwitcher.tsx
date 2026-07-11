@@ -51,6 +51,8 @@ export function SessionSwitcher({
 
   async function createChat(): Promise<void> {
     const created = await window.argus.sessions.create(slug)
+    // refresh so the list is never stale if the popup stays/reopens
+    void window.argus.sessions.list(slug).then(setSessions)
     setOpen(false)
     onSwitch(created.id)
   }
@@ -83,8 +85,10 @@ export function SessionSwitcher({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+            {/* role=group (not menu/listbox): each row holds two independent
+                buttons (switch + rename), which menuitem/option can't express */}
             <div
-              role="menu"
+              role="group"
               aria-label="Sessions"
               className="absolute left-0 top-full z-20 mt-1 w-72 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
             >
@@ -108,6 +112,7 @@ export function SessionSwitcher({
                     ) : (
                       <button
                         type="button"
+                        aria-label={`Switch to ${title}`}
                         className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
                         onClick={() => {
                           setOpen(false)
