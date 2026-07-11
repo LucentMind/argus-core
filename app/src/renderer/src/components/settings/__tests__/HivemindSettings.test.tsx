@@ -55,11 +55,16 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
       sync: vi.fn().mockResolvedValue(payload),
       install: vi.fn().mockResolvedValue(payload),
       claimReference: vi.fn().mockResolvedValue(payload),
-      diff: vi.fn().mockResolvedValue('+ new line'),
+      diff: vi
+        .fn()
+        .mockResolvedValue(
+          'diff --git a/skills/x b/skills/x\n@@ -1,2 +1,2 @@\n context\n-old\n+new'
+        ),
       pushPreview: vi.fn().mockResolvedValue('# my-skill'),
       push: vi
         .fn()
-        .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' })
+        .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' }),
+      check: vi.fn().mockResolvedValue({ ok: true })
     },
     sourceControl: {
       status: vi.fn().mockResolvedValue({
@@ -136,7 +141,10 @@ describe('HivemindSettings', () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     const row = await screen.findByText('hive-probe')
     fireEvent.click(screen.getByRole('button', { name: 'Update hive-probe' }))
-    const diff = await screen.findByText('+ new line')
+    // real @@-bearing diff renders the split view, not the plain <pre> fallback
+    expect(await screen.findByRole('group', { name: 'diff view mode' })).toBeInTheDocument()
+    const diff = await screen.findByText('old')
+    expect(await screen.findByText('new')).toBeInTheDocument()
     // inline placement: the diff panel follows the item's row in DOM order
     expect(row.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Re-install hive-probe' }))
@@ -257,6 +265,25 @@ describe('HivemindSettings', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/push exploded/)
     expect(screen.getByRole('button', { name: 'Sync' })).not.toBeDisabled()
+  })
+
+  it('refetches the hivemind payload when the repo setting changes', async () => {
+    const { rerender } = render(<HivemindSettings payload={settingsPayload('org/hive')} />)
+    await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(1))
+    rerender(<HivemindSettings payload={settingsPayload('org/other')} />)
+    await waitFor(() => expect(window.argus.hivemind.get).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows readiness feedback for the configured repo', async () => {
+    window.argus.hivemind.check = vi.fn().mockResolvedValue({ ok: false, error: 'no access' })
+    render(<HivemindSettings payload={settingsPayload('org/hive')} />)
+    expect(await screen.findByText('not reachable')).toBeInTheDocument()
+  })
+
+  it('renders the repo as an external link for org/name slugs', async () => {
+    render(<HivemindSettings payload={settingsPayload('org/hive')} />)
+    fireEvent.click(await screen.findByRole('button', { name: /open org\/hive on github/i }))
+    expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/org/hive')
   })
 })
 

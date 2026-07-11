@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import type { SearchHit } from '../../../shared/types'
+import { FileText, MessageSquare } from 'lucide-react'
+import type { SearchFilters, UnifiedHit } from '../../../shared/types'
 import { SectionLabel } from './ui'
 
 interface Props {
   caseSlug: string | null
-  onOpen: (hit: SearchHit) => void
+  onOpen: (hit: UnifiedHit) => void
 }
 
-function groupByCase(hits: SearchHit[], first: string | null): Array<[string, SearchHit[]]> {
-  const m = new Map<string, SearchHit[]>()
+function groupByCase(hits: UnifiedHit[], first: string | null): Array<[string, UnifiedHit[]]> {
+  const m = new Map<string, UnifiedHit[]>()
   for (const h of hits) {
     const g = m.get(h.caseSlug) ?? []
     g.push(h)
@@ -19,8 +20,8 @@ function groupByCase(hits: SearchHit[], first: string | null): Array<[string, Se
   )
 }
 
-function hitSnippet(h: SearchHit): string {
-  return h.snippet
+function markSnippet(snippet: string): string {
+  return snippet
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -28,27 +29,44 @@ function hitSnippet(h: SearchHit): string {
     .replace(/»/g, '</mark>')
 }
 
+function hitKey(h: UnifiedHit, i: number): string {
+  return h.kind === 'chat' ? `c-${h.sessionId}-${i}` : `e-${h.evidenceId}-${i}`
+}
+
 function HitItem({
   h,
   onOpen
 }: {
-  h: SearchHit
-  onOpen: (hit: SearchHit) => void
+  h: UnifiedHit
+  onOpen: (hit: UnifiedHit) => void
 }): React.JSX.Element {
   return (
     <li
       onClick={() => onOpen(h)}
       className="cursor-pointer rounded-r2 border border-hair bg-panel p-2 text-xs transition-colors hover:border-hair2 hover:bg-hi"
     >
-      <div className="font-mono font-medium text-ink">
-        {h.caseSlug} / {h.relPath}{' '}
-        <span className="text-mute">
-          ({h.artifactType}, lines {h.startLine}–{h.endLine})
-        </span>
-      </div>
+      {h.kind === 'chat' ? (
+        <div className="flex items-center gap-1.5 font-mono font-medium text-ink">
+          <MessageSquare size={12} className="shrink-0 text-mute" aria-hidden="true" />
+          <span>
+            {h.caseSlug} / {h.sessionTitle || `session ${h.sessionId}`}{' '}
+            <span className="text-mute">({h.role})</span>
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 font-mono font-medium text-ink">
+          <FileText size={12} className="shrink-0 text-mute" aria-hidden="true" />
+          <span>
+            {h.caseSlug} / {h.relPath}{' '}
+            <span className="text-mute">
+              ({h.artifactType}, lines {h.startLine}–{h.endLine})
+            </span>
+          </span>
+        </div>
+      )}
       <div
         className="font-mono text-dim [&_mark]:bg-defect/30 [&_mark]:text-ink"
-        dangerouslySetInnerHTML={{ __html: hitSnippet(h) }}
+        dangerouslySetInnerHTML={{ __html: markSnippet(h.snippet) }}
       />
     </li>
   )
@@ -56,25 +74,30 @@ function HitItem({
 
 export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
   const [q, setQ] = useState('')
-  const [hits, setHits] = useState<SearchHit[]>([])
+  const [hits, setHits] = useState<UnifiedHit[]>([])
   const [searched, setSearched] = useState(false)
   const [scope, setScope] = useState<'case' | 'all'>('case')
 
   async function run(e: React.FormEvent): Promise<void> {
     e.preventDefault()
-    const filters = caseSlug && scope === 'case' ? { caseSlug } : {}
+    const filters: SearchFilters = caseSlug
+      ? scope === 'case'
+        ? { caseSlug }
+        : {}
+      : { sources: ['evidence', 'chat'] }
     setHits(await window.argus.search.query(q, filters))
     setSearched(true)
   }
 
-  const showGrouped = scope === 'all' && !!caseSlug
+  // grouped whenever results can span cases: in-case "all" scope, or the dashboard
+  const showGrouped = caseSlug ? scope === 'all' : true
 
   return (
     <div className="flex flex-col gap-2">
       <form role="search" onSubmit={(e) => void run(e)}>
         <input
           className="h-8 w-full rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
-          placeholder="Search evidence…"
+          placeholder={caseSlug ? 'Search evidence…' : 'Search evidence & chats…'}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -103,7 +126,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
                 <SectionLabel>{slug}</SectionLabel>
                 <ul className="flex flex-col gap-1">
                   {groupHits.map((h, i) => (
-                    <HitItem key={`${h.evidenceId}-${i}`} h={h} onOpen={onOpen} />
+                    <HitItem key={hitKey(h, i)} h={h} onOpen={onOpen} />
                   ))}
                 </ul>
               </div>
@@ -112,7 +135,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
         ) : (
           <ul className="flex flex-col gap-1">
             {hits.map((h, i) => (
-              <HitItem key={`${h.evidenceId}-${i}`} h={h} onOpen={onOpen} />
+              <HitItem key={hitKey(h, i)} h={h} onOpen={onOpen} />
             ))}
           </ul>
         ))}

@@ -8,7 +8,8 @@ import type {
   FileNode,
   FileReadResult,
   SessionSummary,
-  ChatSearchResult
+  ChatSearchResult,
+  UnifiedHit
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -30,7 +31,7 @@ import type {
   BundleImportResult,
   BundleWorkspaceRef
 } from '../shared/bundle'
-import type { HivemindPayload, HivemindPushResult } from '../shared/hivemind'
+import type { HivemindCheckResult, HivemindPayload, HivemindPushResult } from '../shared/hivemind'
 import type { ProposalsPayload } from '../shared/proposals'
 import type { RefSyncPayload, SyncReport, SyncProgress, TreeNodeVM } from '../shared/referenceSync'
 import type { ConfluenceSpace } from '../shared/confluence'
@@ -87,7 +88,8 @@ const argus = {
     }
   },
   search: {
-    query: (q: string, filters?: SearchFilters) => ipcRenderer.invoke(IPC.searchQuery, q, filters)
+    query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>
+      ipcRenderer.invoke(IPC.searchQuery, q, filters)
   },
   chat: {
     search: (caseSlug: string, q: string): Promise<ChatSearchResult> =>
@@ -142,6 +144,7 @@ const argus = {
   },
   hivemind: {
     get: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindGet),
+    check: (): Promise<HivemindCheckResult> => ipcRenderer.invoke(IPC.hivemindCheck),
     sync: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindSync),
     install: (kind: 'skill' | 'reference', name: string): Promise<HivemindPayload> =>
       ipcRenderer.invoke(IPC.hivemindInstall, kind, name),
