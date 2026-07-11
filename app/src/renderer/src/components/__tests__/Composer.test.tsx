@@ -15,10 +15,7 @@ beforeEach(() => {
     settings: {
       get: vi.fn(async () => ({
         settings: defaultSettings(),
-        resolvedTools: {
-          traceDir: { value: null, source: 'default' },
-          parseBin: { value: null, source: 'default' }
-        },
+        resolvedTools: [],
         dataRoot: { path: 'C:\\x', fromEnv: false },
         loadError: null
       })),
@@ -70,10 +67,7 @@ describe('Composer', () => {
         s.agent.providerInstances['claude-default'].config = { model: 'claude-opus-4-8' }
         return s
       })(),
-      resolvedTools: {
-        traceDir: { value: null, source: 'default' },
-        parseBin: { value: null, source: 'default' }
-      },
+      resolvedTools: [],
       dataRoot: { path: 'C:\\x', fromEnv: false },
       loadError: null
     }))
@@ -93,10 +87,7 @@ describe('Composer', () => {
         }
         return s
       })(),
-      resolvedTools: {
-        traceDir: { value: null, source: 'default' },
-        parseBin: { value: null, source: 'default' }
-      },
+      resolvedTools: [],
       dataRoot: { path: 'C:\\x', fromEnv: false },
       loadError: null
     }))

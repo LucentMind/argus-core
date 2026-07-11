@@ -1,11 +1,5 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { JsonFileStore } from './fileStore'
 import { settingsPath } from './paths'
-import { resolveTraceBinDir } from './agent/preflight'
-import { resolveArgusParse } from './parsers'
 import {
   settingsSchema,
   defaultSettings,
@@ -13,21 +7,9 @@ import {
   stripDefaults,
   SETTINGS_ATOMIC_PATHS,
   type AppSettings,
-  type ResolvedTool,
-  type SettingsPayload,
-  type ProbeToolsReport
+  type ResolvedToolRow,
+  type SettingsPayload
 } from '../../shared/settings'
-
-const execFileAsync = promisify(execFile)
-
-/**
- * User-set env values captured at startup, BEFORE index.ts mutates the
- * process env (it sets ARGUS_PARSE_BIN and prepends the trace dir to PATH).
- */
-export interface EnvOverrides {
-  traceDir: string | undefined
-  parseBin: string | undefined
-}
 
 export class SettingsService {
   private store: JsonFileStore
@@ -38,12 +20,7 @@ export class SettingsService {
 
   constructor(
     private argusHome: string,
-    private appRoot: string,
-    private env: EnvOverrides = {
-      traceDir: process.env.ARGUS_TRACE_DIR,
-      parseBin: process.env.ARGUS_PARSE_BIN
-    },
-    private opts: { argusHomeFromEnv?: boolean } = {
+    private opts: { argusHomeFromEnv?: boolean; resolvedTools?: () => ResolvedToolRow[] } = {
       argusHomeFromEnv: process.env.ARGUS_HOME != null
     }
   ) {
@@ -91,62 +68,10 @@ export class SettingsService {
     return this.settings
   }
 
-  /** env var > settings.json > auto-resolve; 'default' value may be null (nothing found). */
-  resolvedTools(): { traceDir: ResolvedTool; parseBin: ResolvedTool } {
-    const t = this.settings.tools
-    const traceDir: ResolvedTool = this.env.traceDir
-      ? { value: this.env.traceDir, source: 'env' }
-      : t.traceDir && fs.existsSync(t.traceDir)
-        ? { value: t.traceDir, source: 'settings' }
-        : { value: resolveTraceBinDir(this.appRoot, t.traceDir || undefined), source: 'default' }
-    const parseBin: ResolvedTool = this.env.parseBin
-      ? { value: this.env.parseBin, source: 'env' }
-      : t.parseBin && fs.existsSync(t.parseBin)
-        ? { value: t.parseBin, source: 'settings' }
-        : {
-            value: resolveArgusParse(
-              this.appRoot,
-              t.parseBin || undefined,
-              this.env.parseBin ?? null
-            ),
-            source: 'default'
-          }
-    return { traceDir, parseBin }
-  }
-
-  /** Re-run tool resolution + liveness checks for the Analysis Tools page. */
-  async probeTools(): Promise<ProbeToolsReport> {
-    const { traceDir, parseBin } = this.resolvedTools()
-    let version: string | null = null
-    if (parseBin.value && fs.existsSync(parseBin.value)) {
-      try {
-        const { stdout } = await execFileAsync(parseBin.value, ['--version'], { timeout: 3000 })
-        version = stdout.trim() || null
-      } catch {
-        version = null // binary exists but --version failed; path still reported
-      }
-    }
-    const found = traceDir.value
-      ? fs.existsSync(
-          path.join(
-            traceDir.value,
-            process.platform === 'win32' ? 'sample-trace.exe' : 'sample-trace'
-          )
-        )
-      : false
-    return {
-      parseBin: {
-        path: parseBin.value && fs.existsSync(parseBin.value) ? parseBin.value : null,
-        version
-      },
-      traceDir: { path: traceDir.value, found }
-    }
-  }
-
   payload(): SettingsPayload {
     return {
       settings: this.settings,
-      resolvedTools: this.resolvedTools(),
+      resolvedTools: this.opts.resolvedTools?.() ?? [],
       dataRoot: { path: this.argusHome, fromEnv: Boolean(this.opts.argusHomeFromEnv) },
       loadError: this.error
     }

@@ -39,10 +39,7 @@ beforeEach(() => {
     settings: {
       get: vi.fn(async () => ({
         settings: defaultSettings(),
-        resolvedTools: {
-          traceDir: { value: null, source: 'default' },
-          parseBin: { value: null, source: 'default' }
-        },
+        resolvedTools: [],
         dataRoot: { path: 'C:\\x', fromEnv: false },
         loadError: null
       })),

@@ -11,10 +11,7 @@ function settingsPayloadWith(hiddenCards: string[]): SettingsPayload {
   settings.observability.dashboard.hiddenCards = hiddenCards
   return {
     settings,
-    resolvedTools: {
-      traceDir: { value: null, source: 'default' },
-      parseBin: { value: null, source: 'default' }
-    },
+    resolvedTools: [],
     dataRoot: { path: 'C:\\x', fromEnv: false },
     loadError: null
   }

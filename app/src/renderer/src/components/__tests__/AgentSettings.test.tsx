@@ -9,10 +9,7 @@ import type { AuthStatus } from '../../../../shared/types'
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   const p: SettingsPayload = {
     settings: defaultSettings(),
-    resolvedTools: {
-      traceDir: { value: null, source: 'default' },
-      parseBin: { value: null, source: 'default' }
-    },
+    resolvedTools: [],
     dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
     loadError: null
   }

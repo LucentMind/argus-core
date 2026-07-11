@@ -54,8 +54,6 @@ import { AgentService } from './services/agent/registry'
 import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
-import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
-import { resolveArgusParse } from './services/parsers'
 import {
   linkWorkspace,
   unlinkWorkspace,
@@ -70,6 +68,7 @@ import { RefSyncService } from './services/refSync/service'
 import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
+import { BinariesService } from './services/packs/binaries'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
@@ -115,12 +114,30 @@ function registerIpc(): void {
     ]
   })
 
-  // capture user-set env BEFORE this block mutates the process env (badge sources)
-  const envOverrides = {
-    traceDir: process.env.ARGUS_TRACE_DIR,
-    parseBin: process.env.ARGUS_PARSE_BIN
-  }
-  const settingsService = new SettingsService(argusHome, app.getAppPath(), envOverrides)
+  // settingsService and binariesService are mutually dependent (settingsService.payload()
+  // embeds binariesService.settingsRows(); binariesService reads settingsService.get().tools).
+  // Break the cycle with a `let` closed over by the settings callback — it only runs at
+  // payload() time, by which point binariesService has been assigned below.
+  // eslint-disable-next-line prefer-const -- forward declaration; assigned once below, read only via closure
+  let binariesService: BinariesService
+  const settingsService = new SettingsService(argusHome, {
+    resolvedTools: () => binariesService.settingsRows()
+  })
+
+  // Capture declared user env BEFORE anything mutates process.env, then let the
+  // service export resolved values / prepend pathDirs for spawned children.
+  const capturedBinaryEnv = Object.fromEntries(
+    packRegistry
+      .binaryDecls()
+      .filter(({ decl }) => decl.envVar)
+      .map(({ decl }) => [decl.envVar as string, process.env[decl.envVar as string]])
+  )
+  binariesService = new BinariesService({
+    registry: packRegistry,
+    settingsTools: () => settingsService.get().tools,
+    resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
+    capturedEnv: capturedBinaryEnv
+  })
 
   const secretStore = new SecretStore(argusHome, safeStorage)
 
@@ -204,29 +221,11 @@ function registerIpc(): void {
 
   agentAccessStore.subscribe(() => broadcast(IPC.accessChanged, agentAccessStore.payload()))
 
-  // agent sessions and preflight inherit this process env — make sample-trace findable
-  ensureTraceOnPath(app.getAppPath(), settingsService.get().tools.traceDir || undefined)
-  // …and sample-parse (Python delegation + agent Bash read ARGUS_PARSE_BIN)
-  let argusParseBin: string | null = null
-  const recomputeParseBin = (): void => {
-    argusParseBin = resolveArgusParse(
-      app.getAppPath(),
-      settingsService.get().tools.parseBin || undefined,
-      envOverrides.parseBin ?? null
-    )
-    // export for spawned children (agent Bash, extraction CLIs); never clobber a user-set env
-    if (!envOverrides.parseBin) {
-      if (argusParseBin) process.env.ARGUS_PARSE_BIN = argusParseBin
-      else delete process.env.ARGUS_PARSE_BIN
-    }
-  }
-  recomputeParseBin()
-
   // shared with the agent:auth-status handler below — settings changes (e.g. a new
   // cliPath) must invalidate the cached probe result so the next open re-probes
   let cachedAuth: AuthStatus | null = null
   settingsService.subscribe(() => {
-    recomputeParseBin()
+    binariesService.recompute()
     cachedAuth = null
     const old = langfuseExporter
     void old?.shutdown()
@@ -248,7 +247,10 @@ function registerIpc(): void {
       broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
       // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
       // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
-      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin })
+      void extractDerivedText(db, argusHome, rec, {
+        // 1d removes this hardcoded id: detectors will declare their extract commands
+        argusParse: binariesService.pathOf('sample-parse')
+      })
         .then((derived) => {
           if (derived) broadcast(IPC.evidenceChanged, caseSlug)
         })
@@ -325,7 +327,7 @@ function registerIpc(): void {
     }
     return cachedAuth
   })
-  ipcMain.handle(IPC.agentPreflight, () => runPreflight(argusParseBin))
+  ipcMain.handle(IPC.agentPreflight, () => binariesService.preflight())
   ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
@@ -553,7 +555,7 @@ function registerIpc(): void {
     settingsService.patch(p)
     return settingsService.payload()
   })
-  ipcMain.handle(IPC.settingsProbeTools, () => settingsService.probeTools())
+  ipcMain.handle(IPC.settingsProbeTools, () => binariesService.probe())
   ipcMain.handle(IPC.settingsPickPath, async (_e, mode: 'file' | 'directory') => {
     const r = await dialog.showOpenDialog({
       properties: [mode === 'file' ? 'openFile' : 'openDirectory']
@@ -612,8 +614,9 @@ function registerIpc(): void {
   // — health —
   const healthService = new HealthService({
     argusHome,
-    probeTools: () => settingsService.probeTools(),
-    preflight: () => runPreflight(argusParseBin),
+    binaries: () =>
+      binariesService.all().map((r) => ({ id: r.decl.id, label: r.decl.displayName })),
+    checkBinary: (id) => binariesService.healthCheck(id),
     agentAuth: async () => {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
       return probeAuth(
@@ -681,7 +684,8 @@ function registerIpc(): void {
     argusHome,
     client: atlassian,
     site: () => atlassianCreds().siteUrl,
-    argusParse: () => argusParseBin,
+    // 1d removes this hardcoded id: detectors will declare their extract commands
+    argusParse: () => binariesService.pathOf('sample-parse'),
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug),
     parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
