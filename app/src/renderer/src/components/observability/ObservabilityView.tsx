@@ -19,6 +19,19 @@ function sinceFor(range: (typeof RANGES)[number]['id']): string | undefined {
   return new Date(Date.now() - r.days * 86_400_000).toISOString()
 }
 
+// HITL approval rate must be computed over decision-requiring calls only:
+// 'auto' (never asked) is excluded from the denominator, and both direct
+// ('user') and session-scoped ('grant' — session.ts logs allow-session as
+// 'grant', never as 'allow-session') approvals count toward the numerator.
+function hitlApproval(byDecision: Record<string, number>): {
+  approved: number
+  decisions: number
+} {
+  const approved = (byDecision.user ?? 0) + (byDecision.grant ?? 0)
+  const decisions = approved + (byDecision.denied ?? 0) + (byDecision.cancelled ?? 0)
+  return { approved, decisions }
+}
+
 export function ObservabilityView({
   onOpenCase
 }: {
@@ -33,6 +46,8 @@ export function ObservabilityView({
   const since = useMemo(() => sinceFor(range), [range])
   const { data } = useGlobalMetrics(since ? { since } : undefined)
   const { data: caseData } = useCaseMetrics(scope === 'global' ? '' : scope)
+  const globalHitl = data ? hitlApproval(data.tools.byDecision) : null
+  const caseHitl = caseData ? hitlApproval(caseData.tools.byDecision) : null
   const settingsPayload = useSettingsPayload()
   const hiddenCards = settingsPayload?.settings.observability.dashboard.hiddenCards ?? []
   const isHidden = (id: string): boolean => hiddenCards.includes(id)
@@ -90,12 +105,8 @@ export function ObservabilityView({
             />
             <StatCard
               label="HITL approval"
-              value={pct(
-                (caseData.tools.byDecision.user ?? 0) +
-                  (caseData.tools.byDecision['allow-session'] ?? 0),
-                caseData.tools.total
-              )}
-              sub={`${caseData.tools.total} asks`}
+              value={pct(caseHitl!.approved, caseHitl!.decisions)}
+              sub={`${caseHitl!.decisions} decisions`}
             />
             <StatCard
               label="Tool denials"
@@ -146,11 +157,8 @@ export function ObservabilityView({
             <StatCard
               id="hitlApproval"
               label="HITL approval"
-              value={pct(
-                (data.tools.byDecision.user ?? 0) + (data.tools.byDecision['allow-session'] ?? 0),
-                data.tools.total
-              )}
-              sub={`${data.tools.total} asks`}
+              value={pct(globalHitl!.approved, globalHitl!.decisions)}
+              sub={`${globalHitl!.decisions} decisions`}
             />
           )}
           {!isHidden('toolDenials') && (

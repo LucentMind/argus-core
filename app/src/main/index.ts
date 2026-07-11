@@ -228,7 +228,8 @@ function registerIpc(): void {
   settingsService.subscribe(() => {
     recomputeParseBin()
     cachedAuth = null
-    void langfuseExporter?.flush()
+    const old = langfuseExporter
+    void old?.shutdown()
     buildExporter()
     broadcast(IPC.settingsChanged, settingsService.payload())
   })

@@ -26,7 +26,12 @@ const sample = {
   outputTokens: 500,
   byModel: [],
   turns: { total: 4, error: 1 },
-  tools: { total: 3, denied: 1, byDecision: {}, byRisk: {} },
+  tools: {
+    total: 8,
+    denied: 1,
+    byDecision: { user: 1, grant: 1, denied: 1, auto: 5 },
+    byRisk: {}
+  },
   findings: { total: 2, accepted: 1, rejected: 0, pending: 1 },
   latencyMs: { turnP50: 900, turnP95: 1500 },
   resolvedCases: 1,
@@ -51,6 +56,17 @@ describe('ObservabilityView', () => {
     render(<ObservabilityView onOpenCase={() => {}} />)
     expect(await screen.findByText(/\$1\.23/)).toBeInTheDocument()
     expect(await screen.findByText(/Total cost/i)).toBeInTheDocument()
+  })
+
+  it('computes HITL approval from grant+user decisions over decision-requiring calls, excluding auto', async () => {
+    render(<ObservabilityView onOpenCase={() => {}} />)
+    // 2 approved (1 user + 1 grant) / 3 decisions (user + grant + denied) = 67%.
+    // auto (5) must be excluded from the denominator, and 'grant' (the real
+    // stored value for session-scoped approvals) must be counted -- a bug
+    // computing `2/8` (via tools.total) would show 25%, and dropping `grant`
+    // would show 33% (1/3).
+    expect(await screen.findByText('67%')).toBeInTheDocument()
+    expect(await screen.findByText(/3 decisions/i)).toBeInTheDocument()
   })
 
   it('shows per-case metrics when a case is selected', async () => {

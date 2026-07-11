@@ -96,6 +96,29 @@ describe('LangfuseExporter', () => {
     expect(calls.score).toContainEqual(expect.objectContaining({ name: 'turn_error', value: 1 }))
   })
 
+  it('evicts session state on session.exited so a later turn.completed for that session is a no-op', () => {
+    const { client, calls } = fakeClient()
+    const ex = new LangfuseExporter(client, { captureContent: false })
+    ex.handle({
+      ...base,
+      type: 'session.started',
+      payload: { model: 'm', resumed: false }
+    } as AgentEvent)
+    ex.handle({
+      ...base,
+      type: 'session.exited',
+      payload: { reason: 'stopped' }
+    } as AgentEvent)
+    // Session state was evicted, so a stray turn.completed after exit must
+    // not produce a generation call (there's no trace to attach it to).
+    ex.handle({
+      ...base,
+      type: 'turn.completed',
+      payload: { status: 'success', inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1 }
+    } as AgentEvent)
+    expect(calls.generation).toHaveLength(0)
+  })
+
   it('never throws when the client throws', () => {
     const client = {
       trace: () => {
