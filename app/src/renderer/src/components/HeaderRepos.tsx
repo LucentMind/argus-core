@@ -3,6 +3,7 @@ import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
 import { FolderGit2, Unlink } from 'lucide-react'
 import { Chip, IconBtn } from './ui'
+import { RepoGraphControl } from './RepoGraphControl'
 
 export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
@@ -43,6 +44,7 @@ export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
           >
             <Unlink size={12} />
           </IconBtn>
+          <RepoGraphControl repoPath={w.path} />
         </span>
       ))}
       {refs.map((r, i) => (
