@@ -38,6 +38,16 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('cases table has a nullable resolution column', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-db-'))
+    const db = openDb(path.join(dir, 'a.db'))
+    const cols = db.prepare(`PRAGMA table_info(cases)`).all() as { name: string; notnull: number }[]
+    const res = cols.find((c) => c.name === 'resolution')
+    expect(res).toBeDefined()
+    expect(res!.notnull).toBe(0)
+    db.close()
+  })
+
   it('enforces unique case slug', () => {
     const db = openDb(tmpDbPath())
     const ins = db.prepare(
