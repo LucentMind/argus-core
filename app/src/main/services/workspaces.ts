@@ -7,7 +7,6 @@ import type { WorkspaceInfo } from '../../shared/types'
 import { getCase } from './caseService'
 import { caseDir } from './paths'
 import { updateClaudeMdWorkspaces } from './skillsDir'
-import { graphsRoot } from './codeGraph'
 
 const execFileAsync = promisify(execFile)
 
@@ -191,11 +190,7 @@ export async function workspaceSandboxRoots(
   argusHome: string,
   caseSlug: string
 ): Promise<string[]> {
-  return [
-    ...readStored(db, caseSlug).map((w) => w.path),
-    worktreesRoot(argusHome),
-    graphsRoot(argusHome)
-  ]
+  return [...readStored(db, caseSlug).map((w) => w.path), worktreesRoot(argusHome)]
 }
 
 /** Auto-link the settings-default repo at case creation. Best-effort:

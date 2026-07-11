@@ -75,7 +75,7 @@ import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
-import { CodeGraphService } from './services/codeGraph'
+import { CodeGraphService, graphsRoot } from './services/codeGraph'
 import { createExtractors } from './services/packs/extractors'
 import type {
   ApprovalDecision,
@@ -319,7 +319,11 @@ function registerIpc(): void {
     db,
     argusHome,
     detection,
-    skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
+    skillsRoots: [
+      sharedSkillsDir(argusHome),
+      sharedReferencesDir(argusHome),
+      graphsRoot(argusHome)
+    ],
     personaFragments: () => packRegistry.personaFragments(),
     packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
     onEvent: (e) => {

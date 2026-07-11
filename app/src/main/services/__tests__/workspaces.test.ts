@@ -109,10 +109,13 @@ describe('workspace service', () => {
     expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature/x')
   })
 
-  it('workspaceSandboxRoots includes the graphs directory', async () => {
+  // Regression guard: the graphs cache must stay read-only to the agent. It is exposed via
+  // skillsRoots -> readonlyRoots (session.ts), never via workspaceSandboxRoots, which feeds
+  // riskCtx.workspaceRoots where FS Write/Edit are auto-allowed.
+  it('workspaceSandboxRoots does not include the graphs directory', async () => {
     await linkWorkspace(db, argusHome, 'NAV-1', repo)
     const roots = await workspaceSandboxRoots(db, argusHome, 'NAV-1')
-    expect(roots).toContain(path.join(argusHome, 'graphs'))
+    expect(roots).not.toContain(path.join(argusHome, 'graphs'))
   })
 })
 
