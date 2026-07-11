@@ -36,6 +36,11 @@ const report: SyncReport = {
 beforeEach(() => {
   referenceSyncStore.reset()
   ;(window as unknown as { argus: unknown }).argus = {
+    packs: {
+      referenceRouting: vi.fn(async () => [
+        { keywords: ['binlog', 'automotive'], target: 'binlog-protocol.md' }
+      ])
+    },
     refsync: {
       get: vi.fn(async () => null),
       onChanged: vi.fn(() => () => undefined),
@@ -60,6 +65,9 @@ beforeEach(() => {
 it('add flow: validate → curate → save & sync → approve drafts', async () => {
   const onClose = vi.fn()
   render(<SpaceDialog onClose={onClose} />)
+  // let the mount-time referenceRouting() fetch resolve before validating,
+  // so the seed lands in the `validate` closure used by the click below
+  await waitFor(() => expect(window.argus.packs.referenceRouting).toHaveBeenCalledTimes(1))
   fireEvent.change(screen.getByRole('textbox', { name: 'space key' }), {
     target: { value: 'NAVNATIVE' }
   })
@@ -69,7 +77,11 @@ it('add flow: validate → curate → save & sync → approve drafts', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Save & Sync' }))
   await waitFor(() =>
     expect(window.argus.refsync.saveSpace).toHaveBeenCalledWith(
-      expect.objectContaining({ key: 'NAVNATIVE', includeRoots: ['100'] })
+      expect.objectContaining({
+        key: 'NAVNATIVE',
+        includeRoots: ['100'],
+        routingRules: [{ keywords: ['binlog', 'automotive'], target: 'binlog-protocol.md' }]
+      })
     )
   )
   expect(await screen.findByText('routing-flow.md')).toBeTruthy() // report step
@@ -89,6 +101,23 @@ it('SyncReportView surfaces a rejected applyDrafts as an alert instead of failin
   fireEvent.click(screen.getByRole('button', { name: 'Apply 1 file' }))
   const message = await screen.findByText('Sync report expired — run Sync again')
   expect(message.getAttribute('role')).toBe('alert')
+})
+
+it('fetches reference-routing seeds once on mount and falls back to [] when empty', async () => {
+  ;(window.argus.packs.referenceRouting as ReturnType<typeof vi.fn>).mockResolvedValue([])
+  render(<SpaceDialog onClose={vi.fn()} />)
+  await waitFor(() => expect(window.argus.packs.referenceRouting).toHaveBeenCalledTimes(1))
+  fireEvent.change(screen.getByRole('textbox', { name: 'space key' }), {
+    target: { value: 'NAVNATIVE' }
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'select · Home' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(window.argus.refsync.saveSpace).toHaveBeenCalledWith(
+      expect.objectContaining({ routingRules: [] })
+    )
+  )
 })
 
 it('validate failure shows the REST error inline (e.g. space not found)', async () => {

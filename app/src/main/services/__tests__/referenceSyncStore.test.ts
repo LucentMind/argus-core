@@ -4,7 +4,29 @@ import os from 'node:os'
 import path from 'node:path'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import { refSyncPath } from '../paths'
-import { DEFAULT_ROUTING_RULES, emptySpaceState } from '../../../shared/referenceSync'
+import { emptySpaceState, type RoutingRule } from '../../../shared/referenceSync'
+
+// Fixture standing in for pack-supplied routing rules (moved to
+// packs/sample/argus-pack.json `referenceRouting` — see packs/manifest.ts).
+const ROUTING_RULES_FIXTURE: RoutingRule[] = [
+  { keywords: ['applog', 'log', 'tag', 'signal'], target: 'log-patterns.md' },
+  {
+    keywords: ['history recording', 'rec', 'navigator history', 'telemetry'],
+    target: 'recording-schema.md'
+  },
+  {
+    keywords: ['routing', 'directions', 'parallel hybrid', 'graph hopper', 'valhalla request'],
+    target: 'routing-flow.md'
+  },
+  {
+    keywords: ['tile', 'vector tile', 'datasets', 'dataset version'],
+    target: 'data-versioning.md'
+  },
+  { keywords: ['valhalla', 'routing engine update'], target: 'valhalla-runbook.md' },
+  { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' },
+  { keywords: ['adasis', 'electronic horizon'], target: 'adasis.md' },
+  { keywords: ['tool', 'mcp', 'debugging tool'], target: 'tool-selection-guide.md' }
+]
 
 let tmp: string, home: string, store: ReferenceSyncStore
 
@@ -27,7 +49,7 @@ it('starts with defaults and round-trips a space (full write, arrays intact)', (
     homepageId: '100',
     includeRoots: ['100'],
     excludedSubtrees: ['b'],
-    routingRules: DEFAULT_ROUTING_RULES
+    routingRules: ROUTING_RULES_FIXTURE
   })
   const onDisk = JSON.parse(fs.readFileSync(refSyncPath(home), 'utf8'))
   expect(onDisk.spaces[0].excludedSubtrees).toEqual(['b'])

@@ -42,4 +42,16 @@ describe('sample pack binaries (real manifest)', () => {
     expect(det.find((d) => d.type === 'applog')?.isText).toBe(true)
     expect(det.find((d) => d.type === 'binlog')?.analyzeSkill).toBe('analyze-binlog')
   })
+
+  it('ships 8 reference-routing rules, including a binlog rule targeting binlog-protocol.md', () => {
+    const repoPacks = path.resolve(process.cwd(), '..', 'packs')
+    const { packs } = loadPacks(repoPacks)
+    const nav = packs.find((p) => p.id === 'sample')!
+    const rules = nav.manifest.referenceRouting
+    expect(rules).toHaveLength(8)
+    expect(rules).toContainEqual({
+      keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'],
+      target: 'binlog-protocol.md'
+    })
+  })
 })

@@ -130,4 +130,38 @@ describe('packManifestSchema', () => {
       })
     ).toThrow()
   })
+
+  it('parses referenceRouting[] declarations and defaults to empty', () => {
+    expect(packManifestSchema.parse(valid).referenceRouting).toEqual([])
+    const m = packManifestSchema.parse({
+      ...valid,
+      referenceRouting: [
+        { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' }
+      ]
+    })
+    expect(m.referenceRouting).toEqual([
+      { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' }
+    ])
+  })
+
+  it('rejects a referenceRouting rule with a bad target (not a .md basename)', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        referenceRouting: [{ keywords: ['x'], target: '../../../evil.md' }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        referenceRouting: [{ keywords: ['x'], target: 'no-extension' }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        referenceRouting: [{ keywords: [], target: 'x.md' }]
+      })
+    ).toThrow() // keywords must be non-empty
+  })
 })

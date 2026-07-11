@@ -38,27 +38,6 @@ export function defaultReferenceSync(): ReferenceSyncConfig {
   return referenceSyncSchema.parse({})
 }
 
-/** Migrated verbatim from references/confluence-pages.md ("Page → reference file mapping"). */
-export const DEFAULT_ROUTING_RULES: RoutingRule[] = [
-  { keywords: ['applog', 'log', 'tag', 'signal'], target: 'log-patterns.md' },
-  {
-    keywords: ['history recording', 'rec', 'navigator history', 'telemetry'],
-    target: 'recording-schema.md'
-  },
-  {
-    keywords: ['routing', 'directions', 'parallel hybrid', 'graph hopper', 'valhalla request'],
-    target: 'routing-flow.md'
-  },
-  {
-    keywords: ['tile', 'vector tile', 'datasets', 'dataset version'],
-    target: 'data-versioning.md'
-  },
-  { keywords: ['valhalla', 'routing engine update'], target: 'valhalla-runbook.md' },
-  { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' },
-  { keywords: ['adasis', 'electronic horizon'], target: 'adasis.md' },
-  { keywords: ['tool', 'mcp', 'debugging tool'], target: 'tool-selection-guide.md' }
-]
-
 export const STALE_AFTER_DAYS = 14
 
 /** Generated router file in the references dir — never a distill target, never listed in statuses. */
