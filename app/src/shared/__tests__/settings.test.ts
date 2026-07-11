@@ -194,4 +194,11 @@ describe('settings schema', () => {
     const parsed = settingsSchema.parse({ hivemind: { repo: 'acme/hivemind' } })
     expect(parsed.hivemind.repo).toBe('acme/hivemind')
   })
+
+  it('defaults general.defaultRepo to null and round-trips a set value', () => {
+    const s = settingsSchema.parse({})
+    expect(s.general.defaultRepo).toBeNull()
+    const s2 = settingsSchema.parse({ general: { defaultRepo: 'C:/code/navigator' } })
+    expect(s2.general.defaultRepo).toBe('C:/code/navigator')
+  })
 })

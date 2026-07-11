@@ -24,7 +24,8 @@ export type ProviderInstance = z.infer<typeof providerInstanceSchema>
 
 const generalSchema = z.looseObject({
   timestampFormat: z.enum(TIMESTAMP_FORMATS).default('locale'),
-  confirmCaseDelete: z.boolean().default(true)
+  confirmCaseDelete: z.boolean().default(true),
+  defaultRepo: z.string().nullable().default(null)
 })
 
 /** Per-instance model list customization (favorite/hide/reorder). All three lists default empty. */

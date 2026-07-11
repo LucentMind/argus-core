@@ -61,6 +61,28 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           />
         </SettingRow>
         <SettingRow
+          label="Default repository"
+          description="Automatically linked to new cases"
+          isDefault={g.defaultRepo === null}
+          onReset={() => void settingsStore.patch({ general: { defaultRepo: null } })}
+        >
+          <span
+            className="max-w-64 truncate font-mono text-xs text-dim"
+            title={g.defaultRepo ?? undefined}
+          >
+            {g.defaultRepo ?? 'not set'}
+          </span>
+          <Btn
+            onClick={() =>
+              void window.argus.workspaces.pick().then((p) => {
+                if (p) void settingsStore.patch({ general: { defaultRepo: p } })
+              })
+            }
+          >
+            Browse
+          </Btn>
+        </SettingRow>
+        <SettingRow
           label="Show tool calls"
           description="Default visibility of tool-call cards (stored locally)"
         >

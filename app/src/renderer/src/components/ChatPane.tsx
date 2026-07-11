@@ -69,7 +69,9 @@ export function ChatPane({
           </button>
         </div>
       )}
+      {/* key: the draft (typed or Analyze-prefilled) belongs to one case — reset it on switch */}
       <Composer
+        key={slug}
         disabled={false}
         prefill={prefill}
         onSend={(t) => void window.argus.agent.send(slug, t)}
