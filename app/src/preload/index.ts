@@ -7,7 +7,8 @@ import type {
   CaseRecord,
   FileNode,
   FileReadResult,
-  SessionSummary
+  SessionSummary,
+  ChatSearchResult
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -78,6 +79,10 @@ const argus = {
   },
   search: {
     query: (q: string, filters?: SearchFilters) => ipcRenderer.invoke(IPC.searchQuery, q, filters)
+  },
+  chat: {
+    search: (caseSlug: string, q: string): Promise<ChatSearchResult> =>
+      ipcRenderer.invoke(IPC.chatSearch, caseSlug, q)
   },
   agent: {
     send: (caseSlug: string, sessionId: number, text: string) =>

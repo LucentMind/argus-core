@@ -8,6 +8,7 @@ export const IPC = {
   evidenceRead: 'evidence:read',
   evidenceChanged: 'evidence:changed',
   searchQuery: 'search:query',
+  chatSearch: 'chat:search',
   agentSend: 'agent:send',
   agentInterrupt: 'agent:interrupt',
   agentRespond: 'agent:respond',
