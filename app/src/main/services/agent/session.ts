@@ -11,7 +11,7 @@ import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
 import { caseDir } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
-import { ARGUS_PERSONA } from './persona'
+import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import { touchSession, setTitleIfEmpty } from './sessionStore'
@@ -42,6 +42,8 @@ export interface SessionDeps {
   sessionId: number
   workspaceRoots: string[]
   skillsRoots: string[]
+  /** Pack-contributed persona fragments (from PackRegistry), injected after the base persona. */
+  personaFragments?: string[]
   emit: (e: AgentEvent) => void
   createQuery: CreateQueryFn
   resumeSdkSessionId: string | null
@@ -100,9 +102,7 @@ export class CaseSession {
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append:
-            (ao.personaAppend ? `${ARGUS_PERSONA}\n\n${ao.personaAppend}` : ARGUS_PERSONA) +
-            memoryAppend
+          append: composePersona(deps.personaFragments ?? [], ao.personaAppend) + memoryAppend
         },
         ...(ao.model ? { model: ao.model } : {}),
         ...(ao.cliPath ? { pathToClaudeCodeExecutable: ao.cliPath } : {}),

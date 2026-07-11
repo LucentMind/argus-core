@@ -16,6 +16,8 @@ export interface AgentServiceDeps {
   db: DatabaseSync
   argusHome: string
   skillsRoots: string[]
+  /** Live pack persona fragments (PackRegistry); read at each session construction. */
+  personaFragments?: () => string[]
   onEvent: (e: AgentEvent) => void
   /** Live agent-access overrides (skills/memory); consulted at each session construction. */
   agentAccess: () => AgentAccess
@@ -94,6 +96,7 @@ export class AgentService {
       sessionId,
       workspaceRoots: await workspaceSandboxRoots(this.deps.db, this.deps.argusHome, caseSlug),
       skillsRoots: this.deps.skillsRoots,
+      personaFragments: this.deps.personaFragments?.() ?? [],
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
       resumeSdkSessionId: cursor,
