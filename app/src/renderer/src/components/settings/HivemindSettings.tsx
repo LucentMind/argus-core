@@ -3,6 +3,7 @@ import { ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
+import { UnifiedDiffView } from '../UnifiedDiffView'
 import type { HivemindItem, HivemindPayload, PushableItem } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
@@ -79,9 +80,11 @@ function BrowseRow({
       </SettingRow>
       {open && confirm && (
         <div className="flex flex-col gap-2 px-4 py-3">
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs text-dim">
-            {confirm.diff || '(no content diff — metadata only)'}
-          </pre>
+          {confirm.diff ? (
+            <UnifiedDiffView diff={confirm.diff} />
+          ) : (
+            <span className="font-mono text-xs text-dim">(no content diff — metadata only)</span>
+          )}
           <div className="flex items-center gap-2">
             <Btn
               variant="primary"
