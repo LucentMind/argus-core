@@ -87,6 +87,50 @@ describe('CaseDashboard delete', () => {
     expect(deleteMock).not.toHaveBeenCalled()
   })
 
+  it('Escape closes the dialog without deleting, regardless of focus', async () => {
+    render(
+      <CaseDashboard
+        cases={cases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
+    await screen.findByRole('dialog')
+    // move focus off the slug input — Escape must still close the dialog
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the error and re-enables Delete when the delete call fails', async () => {
+    const onDeleted = vi.fn()
+    render(
+      <CaseDashboard
+        cases={cases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={onDeleted}
+      />
+    )
+    deleteMock.mockImplementation(async () => {
+      throw new Error('locked file')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete NAV-1' }))
+    fireEvent.change(await screen.findByLabelText('Confirm slug'), {
+      target: { value: 'NAV-1' }
+    })
+    const confirmBtn = screen.getByRole('button', { name: 'Delete case' })
+    fireEvent.click(confirmBtn)
+    expect(await screen.findByText('locked file')).toBeTruthy()
+    expect((confirmBtn as HTMLButtonElement).disabled).toBe(false) // not busy — retry possible
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
+
   it('deletes without the dialog when confirmCaseDelete is off', async () => {
     setup(payload((p) => (p.settings.general.confirmCaseDelete = false)))
     const onDeleted = vi.fn()
