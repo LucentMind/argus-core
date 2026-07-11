@@ -7,7 +7,7 @@ import { openDb } from '../db'
 import { caseDir } from '../paths'
 import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import type { JiraAttachmentProgress, JiraIssuePreview } from '../../../shared/jira'
 import type { JiraIssueData } from '../atlassian'
@@ -63,7 +63,9 @@ function service(
     detection,
     client,
     site: () => 'https://acme.atlassian.net',
-    argusParse: () => null,
+    // resolvable so the mkdirSync-failure test below still reaches the extraction attempt;
+    // no test here asserts on successful derived text (see extraction.test.ts for that).
+    extractors: stubExtractors('binlog'),
     emitProgress: (p) => progress.push(p),
     evidenceChanged: (slug) => changed.push(slug),
     parsing: (_slug, evidenceId, active) => onParsing?.(evidenceId, active)
