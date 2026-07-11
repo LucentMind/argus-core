@@ -8,6 +8,11 @@ import {
   type HttpConnectorConfig
 } from '../../shared/connectors'
 import type { AtlassianErrorCode, JiraAttachmentInfo, JiraIssuePreview } from '../../shared/jira'
+import type {
+  ConfluenceSpace,
+  ConfluencePageNode,
+  ConfluencePageContent
+} from '../../shared/confluence'
 import { adfToMarkdown } from './adf'
 
 export class AtlassianError extends Error {
@@ -172,5 +177,73 @@ export class AtlassianClient {
     const res = await this.request('/rest/api/3/myself')
     const raw = await this.parseJson<{ displayName?: string }>(res)
     return { displayName: raw.displayName ?? '(unknown)' }
+  }
+
+  // — Confluence (Wave 3 Part 3; same request()/auth/error mapping as Jira) —
+
+  async getConfluenceSpace(key: string): Promise<ConfluenceSpace> {
+    const res = await this.request(
+      `/wiki/rest/api/space/${encodeURIComponent(key)}?expand=homepage`
+    )
+    const s = await this.parseJson<{ key: string; name?: string; homepage?: { id?: unknown } }>(res)
+    return { key: s.key, name: s.name ?? s.key, homepageId: String(s.homepage?.id ?? '') }
+  }
+
+  async getConfluencePage(pageId: string): Promise<ConfluencePageNode> {
+    const res = await this.request(
+      `/wiki/rest/api/content/${encodeURIComponent(pageId)}?expand=${CONFLUENCE_NODE_EXPAND}`
+    )
+    return confluenceNode(await this.parseJson<RawConfluenceContent>(res))
+  }
+
+  async getConfluenceChildren(pageId: string): Promise<ConfluencePageNode[]> {
+    const res = await this.request(
+      `/wiki/rest/api/content/${encodeURIComponent(pageId)}/child/page?limit=200&expand=${CONFLUENCE_NODE_EXPAND}`
+    )
+    const body = await this.parseJson<{ results?: RawConfluenceContent[] }>(res)
+    return (body.results ?? []).map(confluenceNode)
+  }
+
+  async getConfluencePageContent(pageId: string): Promise<ConfluencePageContent> {
+    const res = await this.request(
+      `/wiki/rest/api/content/${encodeURIComponent(pageId)}?expand=body.atlas_doc_format,${CONFLUENCE_NODE_EXPAND}`
+    )
+    const c = await this.parseJson<
+      RawConfluenceContent & {
+        body?: { atlas_doc_format?: { value?: string } }
+        _links?: { base?: string; webui?: string }
+      }
+    >(res)
+    let doc: unknown = null
+    try {
+      doc = JSON.parse(c.body?.atlas_doc_format?.value ?? 'null')
+    } catch {
+      doc = null
+    }
+    return {
+      node: confluenceNode(c),
+      url: `${c._links?.base ?? ''}${c._links?.webui ?? ''}`,
+      markdown: adfToMarkdown(doc)
+    }
+  }
+}
+
+const CONFLUENCE_NODE_EXPAND = 'version,history.lastUpdated,children.page'
+
+interface RawConfluenceContent {
+  id: unknown
+  title?: string
+  version?: { number?: number }
+  history?: { lastUpdated?: { when?: string } }
+  children?: { page?: { size?: number } }
+}
+
+function confluenceNode(c: RawConfluenceContent): ConfluencePageNode {
+  return {
+    id: String(c.id),
+    title: c.title ?? '',
+    version: c.version?.number ?? 0,
+    lastModified: c.history?.lastUpdated?.when ?? null,
+    hasChildren: (c.children?.page?.size ?? 0) > 0
   }
 }
