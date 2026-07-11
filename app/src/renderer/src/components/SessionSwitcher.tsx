@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, Pencil, Plus } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
 
 function displayTitle(s: { id: number; title: string }): string {
@@ -157,6 +157,20 @@ export function SessionSwitcher({
     void window.argus.sessions.list(slug).then(setSessions)
   }
 
+  async function deleteChat(s: SessionSummary): Promise<void> {
+    const title = displayTitle(s)
+    if (!window.confirm(`Delete "${title}"? Its transcript and turn history are removed.`)) return
+    await window.argus.sessions.delete(slug, s.id)
+    const list = await window.argus.sessions.list(slug)
+    setSessions(list)
+    // deleted the active chat → land on the newest remaining one (listSessions
+    // auto-creates when none are left, so list[0] always exists)
+    if (s.id === sessionId && list.length > 0) {
+      setOpen(false)
+      onSwitch(list[0].id)
+    }
+  }
+
   return (
     <div className="flex items-center gap-2">
       <div className="relative">
@@ -241,15 +255,26 @@ export function SessionSwitcher({
                         </button>
                       )}
                       {!isRenaming && (
-                        <button
-                          type="button"
-                          aria-label={`Rename ${title}`}
-                          title="Rename"
-                          className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
-                          onClick={() => startRename(s)}
-                        >
-                          <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            aria-label={`Rename ${title}`}
+                            title="Rename"
+                            className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
+                            onClick={() => startRename(s)}
+                          >
+                            <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${title}`}
+                            title="Delete"
+                            className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-danger"
+                            onClick={() => void deleteChat(s)}
+                          >
+                            <Trash2 size={12} strokeWidth={1.5} aria-hidden="true" />
+                          </button>
+                        </>
                       )}
                     </div>
                   )
