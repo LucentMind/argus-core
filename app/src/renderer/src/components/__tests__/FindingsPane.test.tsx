@@ -17,13 +17,13 @@ beforeEach(() => {
 
 describe('FindingsPane', () => {
   it('renders findings markdown with citations', async () => {
-    render(<FindingsPane slug="NAV-1" onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     expect(await screen.findByText('Tile crash')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'evidence/log.txt:3' })).toBeTruthy()
   })
 
   it('collapse button collapses the pane via the ui store', () => {
-    render(<FindingsPane slug="NAV-1" onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse findings' }))
     expect(uiStore.get().findingsCollapsed).toBe(true)
   })

@@ -18,11 +18,11 @@ beforeEach(() => {
 
 describe('ApprovalCard', () => {
   it('shows case slug, risk and args; approve-for-session only with grantKey', () => {
-    render(<ApprovalCard slug="NAV-1" request={request} />)
+    render(<ApprovalCard slug="NAV-1" sessionId={1} request={request} />)
     expect(screen.getByText('NAV-1')).toBeTruthy()
     expect(screen.getByText('git fetch origin')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /approve for session/i }))
-    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', {
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', 1, {
       requestId: 'r1',
       kind: 'allow-session',
       comment: undefined
@@ -33,6 +33,7 @@ describe('ApprovalCard', () => {
     render(
       <ApprovalCard
         slug="NAV-1"
+        sessionId={1}
         request={{
           ...request,
           tool: 'mcp__rovo__addCommentToJiraIssue',
@@ -47,7 +48,7 @@ describe('ApprovalCard', () => {
     expect(screen.getByText('git fetch origin')).toBeInTheDocument() // read-only <pre>, no editors
     fireEvent.change(screen.getByPlaceholderText(/reason/i), { target: { value: 'not now' } })
     fireEvent.click(screen.getByRole('button', { name: /^deny$/i }))
-    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', {
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-1', 1, {
       requestId: 'r1',
       kind: 'deny',
       comment: 'not now'
@@ -66,11 +67,11 @@ const mcpRequest = {
 
 describe('ApprovalCard editable MCP preview', () => {
   it('renders string fields as editors and sends edits as updatedInput on approve', () => {
-    render(<ApprovalCard slug="NAV-7" request={mcpRequest} />)
+    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
     const body = screen.getByLabelText('body')
     fireEvent.change(body, { target: { value: 'edited RCA' } })
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
-    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', {
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
       requestId: 'r1',
       kind: 'allow',
       comment: undefined,
@@ -79,9 +80,9 @@ describe('ApprovalCard editable MCP preview', () => {
   })
 
   it('sends no updatedInput when nothing was edited', () => {
-    render(<ApprovalCard slug="NAV-7" request={mcpRequest} />)
+    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
-    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', {
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
       requestId: 'r1',
       kind: 'allow',
       comment: undefined,
@@ -90,11 +91,12 @@ describe('ApprovalCard editable MCP preview', () => {
   })
 
   it('deny never sends updatedInput even after edits', () => {
-    render(<ApprovalCard slug="NAV-7" request={mcpRequest} />)
+    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
     fireEvent.change(screen.getByLabelText('body'), { target: { value: 'x' } })
     fireEvent.click(screen.getByRole('button', { name: /deny/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith(
       'NAV-7',
+      2,
       expect.objectContaining({ kind: 'deny', updatedInput: undefined })
     )
   })
@@ -103,6 +105,7 @@ describe('ApprovalCard editable MCP preview', () => {
     render(
       <ApprovalCard
         slug="NAV-7"
+        sessionId={2}
         request={{
           requestId: 'r2',
           tool: 'Bash',
@@ -120,6 +123,7 @@ describe('ApprovalCard editable MCP preview', () => {
     render(
       <ApprovalCard
         slug="NAV-7"
+        sessionId={2}
         request={{
           requestId: 'r3',
           tool: 'mcp__argus__write_memory',
@@ -137,6 +141,7 @@ describe('ApprovalCard editable MCP preview', () => {
     render(
       <ApprovalCard
         slug="NAV-7"
+        sessionId={2}
         request={{
           requestId: 'r4',
           tool: 'mcp__argus__update_case_status',

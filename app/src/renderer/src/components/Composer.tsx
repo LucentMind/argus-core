@@ -1,67 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { ChevronDown, Sparkles, Lock, Gauge, SquareTerminal, ArrowUp } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { orderedVisibleModels, effectiveDefaultModel } from '../../../shared/drivers'
 import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
 import type { SkillListItem } from '../../../shared/memoryIpc'
-
-const ICON = {
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.5,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round'
-} as const
-
-function Chevron(): React.JSX.Element {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" {...ICON}>
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  )
-}
-
-function SparkleIcon(): React.JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" {...ICON}>
-      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
-    </svg>
-  )
-}
-
-function LockIcon(): React.JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" {...ICON}>
-      <rect x="4" y="11" width="16" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  )
-}
-
-function GaugeIcon(): React.JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" {...ICON}>
-      <path d="M12 14 8 8M20 13a8 8 0 1 0-16 0" />
-    </svg>
-  )
-}
-
-function TermIcon(): React.JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" {...ICON}>
-      <path d="m4 7 4 4-4 4M10 15h10" />
-      <rect x="2" y="3" width="20" height="18" rx="2" />
-    </svg>
-  )
-}
-
-function ArrowUpIcon(): React.JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" {...ICON} strokeWidth={2}>
-      <path d="M12 19V5M5 12l7-7 7 7" />
-    </svg>
-  )
-}
 
 /**
  * Placeholder session-option pickers (model / reasoning / permission mode).
@@ -92,7 +35,7 @@ function OptionChip({
       >
         {icon}
         <span>{value}</span>
-        <Chevron />
+        <ChevronDown size={10} strokeWidth={1.5} />
       </button>
       {open && (
         <>
@@ -258,7 +201,7 @@ export function Composer({
         />
         <div className="flex items-center gap-2">
           <OptionChip
-            icon={<SparkleIcon />}
+            icon={<Sparkles size={12} strokeWidth={1.5} />}
             menuLabel="Model"
             value={model}
             onChange={setModel}
@@ -266,7 +209,7 @@ export function Composer({
           />
           <Divider />
           <OptionChip
-            icon={<GaugeIcon />}
+            icon={<Gauge size={12} strokeWidth={1.5} />}
             menuLabel="Reasoning"
             value={reasoning}
             onChange={setReasoning}
@@ -274,7 +217,7 @@ export function Composer({
           />
           <Divider />
           <OptionChip
-            icon={<LockIcon />}
+            icon={<Lock size={12} strokeWidth={1.5} />}
             menuLabel="Permission mode"
             value={permission}
             onChange={setPermission}
@@ -290,7 +233,7 @@ export function Composer({
             }`}
             onClick={() => uiStore.toggleToolCalls()}
           >
-            <TermIcon />
+            <SquareTerminal size={12} strokeWidth={1.5} />
             <span>Tool results</span>
             <span
               className={`h-1.5 w-1.5 rounded-full ${showToolCalls ? 'bg-review' : 'bg-faint'}`}
@@ -304,7 +247,7 @@ export function Composer({
             className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
             onClick={send}
           >
-            <ArrowUpIcon />
+            <ArrowUp size={14} strokeWidth={2} />
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Star, ArrowUp, ArrowDown, Eye, EyeOff, X } from 'lucide-react'
 import { settingsStore } from '../../lib/settingsStore'
 import { IconBtn, Chip, Btn } from '../ui'
 import { FIELD } from './settingsLayout'
@@ -9,73 +10,8 @@ const MAX_CUSTOM_MODEL_LENGTH = 100
 
 const EMPTY_PREFS: ModelPreferences = { hiddenModels: [], favoriteModels: [], modelOrder: [] }
 
-/* Small inline SVGs, matching TopBar's icon idiom (stroke=currentColor, 14px). */
-const ICON = {
-  size: 14,
-  common: {
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.5,
-    strokeLinecap: 'round',
-    strokeLinejoin: 'round'
-  }
-} as const
-
 function StarIcon({ filled }: { filled: boolean }): React.JSX.Element {
-  return (
-    <svg
-      width={ICON.size}
-      height={ICON.size}
-      viewBox="0 0 24 24"
-      {...ICON.common}
-      fill={filled ? 'currentColor' : 'none'}
-    >
-      <path d="M12 2.5 15.1 8.8 22 9.8l-5 4.9 1.2 6.9L12 18.3l-6.2 3.3L7 14.7l-5-4.9 6.9-1z" />
-    </svg>
-  )
-}
-
-function ArrowUpIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="M12 19V5M5 12l7-7 7 7" />
-    </svg>
-  )
-}
-
-function ArrowDownIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="M12 5v14M5 12l7 7 7-7" />
-    </svg>
-  )
-}
-
-function EyeIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  )
-}
-
-function EyeOffIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z" />
-      <circle cx="12" cy="12" r="3" />
-      <path d="M2 2l20 20" />
-    </svg>
-  )
-}
-
-function XIcon(): React.JSX.Element {
-  return (
-    <svg width={ICON.size} height={ICON.size} viewBox="0 0 24 24" {...ICON.common}>
-      <path d="M5 5l14 14M19 5 5 19" />
-    </svg>
-  )
+  return <Star size={14} strokeWidth={1.5} fill={filled ? 'currentColor' : 'none'} />
 }
 
 /**
@@ -214,7 +150,7 @@ export function ProviderModels({
                   disabled={!canMoveUp}
                   onClick={() => handleMove(m.slug, -1)}
                 >
-                  <ArrowUpIcon />
+                  <ArrowUp size={14} strokeWidth={1.5} />
                 </IconBtn>
                 <IconBtn
                   aria-label={`Move ${m.name} down`}
@@ -222,7 +158,7 @@ export function ProviderModels({
                   disabled={!canMoveDown}
                   onClick={() => handleMove(m.slug, 1)}
                 >
-                  <ArrowDownIcon />
+                  <ArrowDown size={14} strokeWidth={1.5} />
                 </IconBtn>
                 {!m.isCustom && (
                   <IconBtn
@@ -230,7 +166,11 @@ export function ProviderModels({
                     title={isHidden ? 'Show in picker' : 'Hide from picker'}
                     onClick={() => handleToggleHidden(m.slug)}
                   >
-                    {isHidden ? <EyeIcon /> : <EyeOffIcon />}
+                    {isHidden ? (
+                      <Eye size={14} strokeWidth={1.5} />
+                    ) : (
+                      <EyeOff size={14} strokeWidth={1.5} />
+                    )}
                   </IconBtn>
                 )}
                 {m.isCustom && (
@@ -239,7 +179,7 @@ export function ProviderModels({
                     title="Remove custom model"
                     onClick={() => handleRemove(m.slug)}
                   >
-                    <XIcon />
+                    <X size={14} strokeWidth={1.5} />
                   </IconBtn>
                 )}
               </div>

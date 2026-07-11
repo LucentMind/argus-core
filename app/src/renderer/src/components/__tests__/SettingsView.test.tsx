@@ -86,7 +86,7 @@ beforeEach(() => {
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 7 active pages, 1 coming-soon entry', async () => {
+  it('renders the rail: 8 active pages, 1 coming-soon entry', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
@@ -96,6 +96,7 @@ describe('SettingsView', () => {
       'Health',
       'Connectors',
       'Skills',
+      'HiveMind',
       'Memory'
     ])
       expect(

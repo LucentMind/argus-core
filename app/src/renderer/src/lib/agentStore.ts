@@ -1,8 +1,8 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 
 export type TranscriptItem =
-  | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; streaming: boolean }
+  | { kind: 'user'; text: string; turnId: number | null }
+  | { kind: 'assistant'; text: string; streaming: boolean; turnId: number | null }
   | {
       kind: 'tool'
       toolCallId: string
@@ -28,7 +28,7 @@ export interface CaseAgentState {
   findingsBump: number
 }
 
-const EMPTY: CaseAgentState = {
+export const EMPTY_CASE_AGENT_STATE: CaseAgentState = {
   items: [],
   pending: [],
   running: false,
@@ -37,12 +37,16 @@ const EMPTY: CaseAgentState = {
   findingsBump: 0
 }
 
+const keyOf = (slug: string, sessionId: number): string => `${slug}#${sessionId}`
+
 export class AgentStore {
+  // Keyed by `${caseSlug}#${sessionId}` — two sessions in the same case keep
+  // fully separate transcripts, running/pending state, and hydrate guards.
   private byCase = new Map<string, CaseAgentState>()
   private listeners = new Set<() => void>()
 
-  get(caseSlug: string): CaseAgentState {
-    return this.byCase.get(caseSlug) ?? EMPTY
+  get(caseSlug: string, sessionId: number): CaseAgentState {
+    return this.byCase.get(keyOf(caseSlug, sessionId)) ?? EMPTY_CASE_AGENT_STATE
   }
 
   subscribe(cb: () => void): () => void {
@@ -50,28 +54,35 @@ export class AgentStore {
     return () => this.listeners.delete(cb)
   }
 
-  private update(caseSlug: string, mut: (s: CaseAgentState) => CaseAgentState): void {
-    this.byCase.set(caseSlug, mut(this.get(caseSlug)))
+  private update(
+    caseSlug: string,
+    sessionId: number,
+    mut: (s: CaseAgentState) => CaseAgentState
+  ): void {
+    this.byCase.set(keyOf(caseSlug, sessionId), mut(this.get(caseSlug, sessionId)))
     for (const cb of this.listeners) cb()
   }
 
   /**
-   * Replay persisted history into a case that has no live state yet.
+   * Replay persisted history into a session that has no live state yet.
    * Stale pending approvals are dropped (unanswerable after a restart) and
-   * running is cleared — only live events may set them.
+   * running is cleared — only live events may set them. The guard is per
+   * session, not per case, so hydrating one session never no-ops a sibling
+   * session in the same case.
    */
-  hydrate(caseSlug: string, events: AgentEvent[]): void {
-    if (this.byCase.get(caseSlug)?.items.length) return
+  hydrate(caseSlug: string, sessionId: number, events: AgentEvent[]): void {
+    if (this.byCase.get(keyOf(caseSlug, sessionId))?.items.length) return
     for (const e of events) this.applyToState(e)
-    this.update(caseSlug, (s) => ({ ...s, pending: [], running: false }))
+    this.update(caseSlug, sessionId, (s) => ({ ...s, pending: [], running: false }))
   }
 
   private applyToState(e: AgentEvent): void {
-    this.byCase.set(e.caseSlug, this.reduce(this.get(e.caseSlug), e))
+    const key = keyOf(e.caseSlug, e.sessionId)
+    this.byCase.set(key, this.reduce(this.byCase.get(key) ?? EMPTY_CASE_AGENT_STATE, e))
   }
 
   apply(e: AgentEvent): void {
-    this.update(e.caseSlug, (s) => this.reduce(s, e))
+    this.update(e.caseSlug, e.sessionId, (s) => this.reduce(s, e))
   }
 
   private reduce(s: CaseAgentState, e: AgentEvent): CaseAgentState {
@@ -83,21 +94,36 @@ export class AgentStore {
           return {
             ...s,
             running: true,
-            items: [...items, { kind: 'user', text: e.payload.userText }]
+            items: [...items, { kind: 'user', text: e.payload.userText, turnId: e.turnId }]
           }
         case 'content.delta': {
           if (last?.kind === 'assistant' && last.streaming) {
             items[items.length - 1] = { ...last, text: last.text + e.payload.text }
           } else {
-            items.push({ kind: 'assistant', text: e.payload.text, streaming: true })
+            items.push({
+              kind: 'assistant',
+              text: e.payload.text,
+              streaming: true,
+              turnId: e.turnId
+            })
           }
           return { ...s, items }
         }
         case 'assistant.message': {
           if (last?.kind === 'assistant' && last.streaming) {
-            items[items.length - 1] = { kind: 'assistant', text: e.payload.text, streaming: false }
+            items[items.length - 1] = {
+              kind: 'assistant',
+              text: e.payload.text,
+              streaming: false,
+              turnId: e.turnId
+            }
           } else {
-            items.push({ kind: 'assistant', text: e.payload.text, streaming: false })
+            items.push({
+              kind: 'assistant',
+              text: e.payload.text,
+              streaming: false,
+              turnId: e.turnId
+            })
           }
           return { ...s, items }
         }

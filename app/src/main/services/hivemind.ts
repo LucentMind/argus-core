@@ -30,6 +30,13 @@ export function cloneUrl(repo: string): string {
   return GITHUB_SHORTHAND.test(repo) ? `https://github.com/${repo}.git` : repo
 }
 
+/** trust_tier of a local reference file; '' when the file is absent or tier-less. */
+function referenceTier(file: string): string {
+  if (!fs.existsSync(file)) return ''
+  const block = fmBlock(fs.readFileSync(file, 'utf8'))
+  return block ? fmField(block.fm, 'trust_tier') : ''
+}
+
 /** Pinned installs + last sync stamp — app-managed, not user-edited. */
 interface HivemindStateFile {
   lastSynced: string | null
@@ -135,6 +142,7 @@ export class HivemindService {
           commit,
           installed,
           installedCommit,
+          localTier: null,
           updateAvailable: installed && installedCommit !== null && installedCommit !== commit
         })
       }
@@ -145,9 +153,8 @@ export class HivemindService {
         if (!ent.isFile() || !ent.name.endsWith('.md')) continue
         const commit = await this.itemCommit(`references/${ent.name}`)
         const installedCommit = state.references[ent.name] ?? null
-        const installed = fs.existsSync(
-          path.join(sharedReferencesDir(this.deps.argusHome), ent.name)
-        )
+        const localPath = path.join(sharedReferencesDir(this.deps.argusHome), ent.name)
+        const installed = fs.existsSync(localPath)
         items.push({
           kind: 'reference',
           name: ent.name,
@@ -155,6 +162,7 @@ export class HivemindService {
           commit,
           installed,
           installedCommit,
+          localTier: installed ? referenceTier(localPath) || null : null,
           updateAvailable: installed && installedCommit !== null && installedCommit !== commit
         })
       }
@@ -178,14 +186,18 @@ export class HivemindService {
       const src = path.join(this.clone(), 'references', name)
       if (!fs.existsSync(src)) throw new Error(`No such HiveMind reference: ${name}`)
       const sha = await this.itemCommit(`references/${name}`)
+      const dest = path.join(sharedReferencesDir(this.deps.argusHome), name)
+      // A pushable local copy means this machine authored/curated it — keep that
+      // tier (and push rights); everything else is stamped hivemind as before.
+      const prior = referenceTier(dest)
+      const tier = prior === 'user' || prior === 'team-knowledge' ? prior : 'hivemind'
       const stamped = withFrontmatter(fs.readFileSync(src, 'utf8'), {
-        trust_tier: 'hivemind',
+        trust_tier: tier,
         source_repo: this.deps.repo().trim(),
         source_commit: sha
       })
-      const destDir = sharedReferencesDir(this.deps.argusHome)
-      fs.mkdirSync(destDir, { recursive: true })
-      fs.writeFileSync(path.join(destDir, name), stamped)
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.writeFileSync(dest, stamped)
       state.references[name] = sha
     }
     this.store.write(state)
@@ -198,6 +210,17 @@ export class HivemindService {
     const pinned = kind === 'skill' ? this.state().skills[name] : this.state().references[name]
     if (!pinned) return ''
     return this.git(['diff', pinned, 'HEAD', '--', rel], this.clone())
+  }
+
+  /** Reclaim authorship: restamp a hivemind-tier installed reference as user tier (pushable again). */
+  async claimReference(name: string): Promise<HivemindPayload> {
+    if (!name || /[/\\]/.test(name) || name.startsWith('.') || !name.endsWith('.md'))
+      throw new Error(`Invalid reference name: ${name}`)
+    const file = path.join(sharedReferencesDir(this.deps.argusHome), name)
+    if (referenceTier(file) !== 'hivemind')
+      throw new Error(`Not an installed HiveMind reference: ${name}`)
+    fs.writeFileSync(file, withFrontmatter(fs.readFileSync(file, 'utf8'), { trust_tier: 'user' }))
+    return this.payload()
   }
 
   /** User-tier assets eligible for sharing: skills-user/* + curated references. */

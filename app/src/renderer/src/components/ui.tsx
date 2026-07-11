@@ -139,7 +139,7 @@ export function MenuButton({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-20 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
+          className="absolute right-0 z-30 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
         >
           {items.map((it, i) => (
             <button

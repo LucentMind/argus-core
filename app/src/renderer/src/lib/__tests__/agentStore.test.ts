@@ -23,10 +23,26 @@ describe('AgentStore', () => {
     store.apply(ev('turn.started', { userText: 'hi' }))
     store.apply(ev('content.delta', { text: 'Hel' }))
     store.apply(ev('content.delta', { text: 'lo' }))
-    const st = store.get('NAV-1')
+    const st = store.get('NAV-1', 1)
     expect(st.running).toBe(true)
     expect(st.items).toHaveLength(2)
     expect(st.items[1]).toMatchObject({ kind: 'assistant', text: 'Hello', streaming: true })
+  })
+
+  // search jumps resolve a hit's (turnId, role) to a transcript item, so
+  // assistant items must carry the turn id just like user items do
+  it('carries the turn id on assistant items (streamed and finalized)', () => {
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, type, payload, turnId }) as AgentEvent
+    store.apply(at('turn.started', { userText: 'q' }, 7))
+    store.apply(at('content.delta', { text: 'par' }, 7))
+    const streaming = store.get('NAV-1', 1).items[1]
+    expect(streaming).toMatchObject({ kind: 'assistant', turnId: 7 })
+    store.apply(at('assistant.message', { text: 'partial done' }, 7))
+    store.apply(at('assistant.message', { text: 'second block' }, 7))
+    const st = store.get('NAV-1', 1)
+    expect(st.items[1]).toMatchObject({ kind: 'assistant', text: 'partial done', turnId: 7 })
+    expect(st.items[2]).toMatchObject({ kind: 'assistant', text: 'second block', turnId: 7 })
   })
 
   it('finalizes assistant text on assistant.message and stops on turn.completed', () => {
@@ -42,7 +58,7 @@ describe('AgentStore', () => {
         durationMs: 5
       })
     )
-    const st = store.get('NAV-1')
+    const st = store.get('NAV-1', 1)
     expect(st.items[1]).toMatchObject({ kind: 'assistant', text: 'final text', streaming: false })
     expect(st.running).toBe(false)
     expect(st.cost).toMatchObject({ inputTokens: 10, outputTokens: 5 })
@@ -67,21 +83,21 @@ describe('AgentStore', () => {
         argsPreview: 'git push'
       })
     )
-    let st = store.get('NAV-1')
+    let st = store.get('NAV-1', 1)
     expect(st.items[0]).toMatchObject({ kind: 'tool', name: 'Bash', done: true })
     expect(st.pending).toHaveLength(1)
     store.apply(ev('request.resolved', { requestId: 'r1', decision: 'deny' }))
-    st = store.get('NAV-1')
+    st = store.get('NAV-1', 1)
     expect(st.pending).toHaveLength(0)
   })
 
   it('isolates cases', () => {
     store.apply(ev('content.delta', { text: 'a' }))
-    expect(store.get('OTHER').items).toHaveLength(0)
+    expect(store.get('OTHER', 1).items).toHaveLength(0)
   })
 
   it('hydrate replays history into an empty case, dropping stale pending/running', () => {
-    store.hydrate('NAV-1', [
+    store.hydrate('NAV-1', 1, [
       ev('turn.started', { userText: 'hi' }),
       ev('assistant.message', { text: 'answer [evidence/log.txt:1]' }),
       ev('request.opened', {
@@ -100,7 +116,7 @@ describe('AgentStore', () => {
       }),
       ev('turn.started', { userText: 'again' })
     ])
-    const st = store.get('NAV-1')
+    const st = store.get('NAV-1', 1)
     expect(st.items).toHaveLength(3)
     expect(st.cost.inputTokens).toBe(7)
     expect(st.pending).toHaveLength(0) // stale approvals are unanswerable after restart
@@ -109,9 +125,37 @@ describe('AgentStore', () => {
 
   it('hydrate is a no-op when the case already has live state', () => {
     store.apply(ev('turn.started', { userText: 'live' }))
-    store.hydrate('NAV-1', [ev('assistant.message', { text: 'old history' })])
-    const st = store.get('NAV-1')
+    store.hydrate('NAV-1', 1, [ev('assistant.message', { text: 'old history' })])
+    const st = store.get('NAV-1', 1)
     expect(st.items).toHaveLength(1)
     expect(st.items[0]).toMatchObject({ kind: 'user', text: 'live' })
+  })
+
+  it('keeps transcripts of two sessions in the same case separate', () => {
+    store.apply({
+      ...base,
+      sessionId: 1,
+      type: 'turn.started',
+      payload: { userText: 'a' }
+    } as AgentEvent)
+    store.apply({
+      ...base,
+      sessionId: 2,
+      type: 'turn.started',
+      payload: { userText: 'b' }
+    } as AgentEvent)
+    expect(store.get('NAV-1', 1).items).toHaveLength(1)
+    expect(store.get('NAV-1', 2).items).toHaveLength(1)
+    expect((store.get('NAV-1', 1).items[0] as { text: string }).text).toBe('a')
+  })
+
+  it('hydrate guard is per session, not per case', () => {
+    store.hydrate('NAV-1', 1, [
+      { ...base, sessionId: 1, type: 'turn.started', payload: { userText: 'a' } } as AgentEvent
+    ])
+    store.hydrate('NAV-1', 2, [
+      { ...base, sessionId: 2, type: 'turn.started', payload: { userText: 'b' } } as AgentEvent
+    ])
+    expect(store.get('NAV-1', 2).items).toHaveLength(1)
   })
 })

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { AgentService } from '../registry'
+import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { CreateQueryFn } from '../session'
@@ -42,6 +43,62 @@ afterEach(() => {
 })
 
 describe('AgentService', () => {
+  it('runs two live sessions of the same case independently', async () => {
+    const { createQuery } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery
+    })
+    const a = createSession(db, 'NAV-1')
+    const b = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', a.id, 'hello a')
+    await svc.send('NAV-1', b.id, 'hello b')
+    const states = svc.states()
+    expect(states.filter((s) => s.caseSlug === 'NAV-1')).toHaveLength(2)
+    expect(new Set(states.map((s) => s.sessionId))).toEqual(new Set([a.id, b.id]))
+    await svc.stopAll()
+  })
+
+  it('rejects a bad sessionId without reaping any live session', async () => {
+    const { createQuery, queues } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      maxSessions: 2
+    })
+    const s1 = createSession(db, 'NAV-1')
+    const s2 = createSession(db, 'NAV-2')
+    await svc.send('NAV-1', s1.id, 'a')
+    await svc.send('NAV-2', s2.id, 'b')
+    // finish both turns so the sessions are idle — eligible for LRU reaping
+    for (const q of queues) q.push({ type: 'result', is_error: false })
+    await new Promise((r) => setTimeout(r, 10))
+
+    // nonexistent session id: must throw before any eviction happens
+    await expect(svc.send('NAV-1', 999999, 'x')).rejects.toThrow(
+      'Unknown session 999999 for case NAV-1'
+    )
+    // foreign session id (belongs to NAV-2): same contract
+    await expect(svc.send('NAV-1', s2.id, 'x')).rejects.toThrow(
+      `Unknown session ${s2.id} for case NAV-1`
+    )
+
+    const states = svc.states()
+    expect(states).toHaveLength(2)
+    expect(states.every((s) => s.state === 'running')).toBe(true)
+    expect(new Set(states.map((s) => s.sessionId))).toEqual(new Set([s1.id, s2.id]))
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
   it('keeps concurrent sessions per case and routes events with the right caseSlug', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
@@ -52,8 +109,10 @@ describe('AgentService', () => {
       onEvent: (e) => events.push(e),
       createQuery
     })
-    await svc.send('NAV-1', 'hello 1')
-    await svc.send('NAV-2', 'hello 2')
+    const s1 = createSession(db, 'NAV-1')
+    const s2 = createSession(db, 'NAV-2')
+    await svc.send('NAV-1', s1.id, 'hello 1')
+    await svc.send('NAV-2', s2.id, 'hello 2')
     expect(svc.states()).toHaveLength(2)
     const slugs = events.filter((e) => e.type === 'turn.started').map((e) => e.caseSlug)
     expect(slugs.sort()).toEqual(['NAV-1', 'NAV-2'])
@@ -71,7 +130,10 @@ describe('AgentService', () => {
       createQuery,
       maxSessions: 2
     })
-    await svc.send('NAV-1', 'a')
+    const s1 = createSession(db, 'NAV-1')
+    const s2 = createSession(db, 'NAV-2')
+    const s3 = createSession(db, 'NAV-3')
+    await svc.send('NAV-1', s1.id, 'a')
     // complete NAV-1's turn so it is idle
     queues[0].push({
       type: 'result',
@@ -83,8 +145,8 @@ describe('AgentService', () => {
       is_error: false
     })
     await new Promise((r) => setTimeout(r, 10))
-    await svc.send('NAV-2', 'b')
-    await svc.send('NAV-3', 'c')
+    await svc.send('NAV-2', s2.id, 'b')
+    await svc.send('NAV-3', s3.id, 'c')
     const states = svc.states()
     expect(states).toHaveLength(2)
     expect(states.map((s) => s.caseSlug)).not.toContain('NAV-1')
@@ -103,7 +165,8 @@ describe('AgentService', () => {
       createQuery,
       maxSessions: 1
     })
-    await svc.send('NAV-1', 'a')
+    const s1 = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s1.id, 'a')
     queues[0].push({
       type: 'system',
       subtype: 'init',
@@ -121,7 +184,7 @@ describe('AgentService', () => {
       onEvent: () => undefined,
       createQuery
     })
-    await svc2.send('NAV-1', 'b')
+    await svc2.send('NAV-1', s1.id, 'b')
     const sess = db.prepare(`SELECT sdk_session_id FROM sessions`).get() as {
       sdk_session_id: string
     }
@@ -174,12 +237,14 @@ describe('AgentService', () => {
     })
     createCase(db, argusHome, { slug: 'C-1', title: 'a' })
     createCase(db, argusHome, { slug: 'C-2', title: 'b' })
-    await svc.send('C-1', 'hi')
+    const c1 = createSession(db, 'C-1')
+    const c2 = createSession(db, 'C-2')
+    await svc.send('C-1', c1.id, 'hi')
     expect((captured[0].systemPrompt as { append: string }).append).toContain('brief.')
     expect(captured[0].model).toBe('claude-opus-4-8')
     expect(captured[0].permissionMode).toBe('acceptEdits')
     await endTurn(0)
-    await svc.send('C-2', 'hi') // maxSessions 1 → idle C-1 reaped
+    await svc.send('C-2', c2.id, 'hi') // maxSessions 1 → idle C-1 reaped
     expect(
       svc
         .states()
@@ -188,7 +253,7 @@ describe('AgentService', () => {
     ).toEqual(['C-2'])
     await endTurn(1)
     maxSessions = 3
-    await svc.send('C-1', 'hi') // live read: no reap now
+    await svc.send('C-1', c1.id, 'hi') // live read: no reap now
     expect(svc.states().filter((s) => s.state === 'running')).toHaveLength(2)
     await svc.stopAll()
   })
@@ -229,7 +294,8 @@ describe('AgentService', () => {
       })
     })
     createCase(db, argusHome, { slug: 'C-1', title: 'a' })
-    await svc.send('C-1', 'hi')
+    const c1 = createSession(db, 'C-1')
+    await svc.send('C-1', c1.id, 'hi')
     // favorites group first regardless of modelOrder rank → claude-opus-4-8 is the top model
     expect(captured[0].model).toBe('claude-opus-4-8')
     await svc.stopAll()
