@@ -16,6 +16,13 @@ beforeEach(() => {
       pick: vi.fn(),
       link: vi.fn(),
       unlink: vi.fn()
+    },
+    graph: {
+      status: vi.fn().mockResolvedValue([]),
+      build: vi.fn(),
+      install: vi.fn(),
+      onBuilding: vi.fn(() => () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   }
 })

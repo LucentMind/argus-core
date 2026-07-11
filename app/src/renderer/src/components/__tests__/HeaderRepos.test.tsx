@@ -21,6 +21,13 @@ beforeEach(() => {
       pick: vi.fn(async () => null),
       link: vi.fn(async () => ws),
       unlink: vi.fn(async () => undefined)
+    },
+    graph: {
+      status: vi.fn(async () => []),
+      build: vi.fn(async () => ({ started: true })),
+      install: vi.fn(async () => ({ ok: true, log: '' })),
+      onBuilding: vi.fn(() => () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })
