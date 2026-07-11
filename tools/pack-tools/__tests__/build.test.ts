@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
-import { readManifest, crossCheckBinaries, osOf, assembleBundle } from '../src/build'
+import crypto from 'node:crypto'
+import { readManifest, crossCheckBinaries, osOf, assembleBundle, writeChecksums } from '../src/build'
 
 const FIX = path.join(__dirname, 'fixtures')
 const SAMPLE = path.join(FIX, 'sample-pack')
@@ -84,5 +85,32 @@ describe('assembleBundle', () => {
     const staging = tmpDir()
     assembleBundle(m, SAMPLE, BIN, 'mac-arm64', staging)
     expect(fs.existsSync(path.join(staging, 'bin-src'))).toBe(false)
+  })
+})
+
+describe('writeChecksums', () => {
+  it('hashes every bundle file with POSIX paths, sorted, LF', () => {
+    const m = readManifest(SAMPLE)
+    const staging = tmpDir()
+    assembleBundle(m, SAMPLE, BIN, 'mac-arm64', staging)
+    const map = writeChecksums(staging)
+
+    const text = fs.readFileSync(path.join(staging, 'CHECKSUMS'), 'utf8')
+    expect(text).not.toMatch(/\r/) // LF only
+    const lines = text.trimEnd().split('\n')
+    // sorted by path
+    const paths = lines.map((l) => l.split('  ')[1])
+    expect(paths).toEqual([...paths].sort())
+    // includes a declarative file and the binary; excludes CHECKSUMS itself
+    expect(paths).toContain('argus-pack.json')
+    expect(paths).toContain('bin/argus-demo')
+    expect(paths).not.toContain('CHECKSUMS')
+
+    // hash of the binary matches
+    const expected = crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(path.join(staging, 'bin', 'argus-demo')))
+      .digest('hex')
+    expect(map['bin/argus-demo']).toBe(expected)
   })
 })
