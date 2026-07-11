@@ -6,12 +6,15 @@ import zlib from 'node:zlib'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from '../ingest'
+import { createDetection } from '../packs/detection'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import type { DatabaseSync } from 'node:sqlite'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
 
 let home: string
 let db: DatabaseSync
+const detection = createDetection(samplePackRegistry())
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ing-'))
@@ -21,7 +24,7 @@ beforeEach(() => {
 
 describe('ingestArtifact', () => {
   it('copies, hashes, types, and indexes a applog', () => {
-    const rec = ingestArtifact(db, home, 'NAVAPI-1', FIXTURE)
+    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
     expect(rec.artifactType).toBe('applog')
     expect(rec.relPath).toBe('evidence/sample-applog.txt')
     expect(rec.sha256).toMatch(/^[0-9a-f]{64}$/)
@@ -36,8 +39,8 @@ describe('ingestArtifact', () => {
   })
 
   it('suffixes filename collisions', () => {
-    const a = ingestArtifact(db, home, 'NAVAPI-1', FIXTURE)
-    const b = ingestArtifact(db, home, 'NAVAPI-1', FIXTURE)
+    const a = ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
+    const b = ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
     expect(a.relPath).toBe('evidence/sample-applog.txt')
     expect(b.relPath).toBe('evidence/sample-applog-1.txt')
   })
@@ -46,8 +49,8 @@ describe('ingestArtifact', () => {
     const src = path.join(os.tmpdir(), `argus-fix-${Date.now()}`, 'trace.rec.gz')
     fs.mkdirSync(path.dirname(src), { recursive: true })
     fs.writeFileSync(src, zlib.gzipSync(Buffer.from('x')))
-    const a = ingestArtifact(db, home, 'NAVAPI-1', src)
-    const b = ingestArtifact(db, home, 'NAVAPI-1', src)
+    const a = ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    const b = ingestArtifact(db, home, detection, 'NAVAPI-1', src)
     expect(a.relPath).toBe('evidence/trace.rec.gz')
     expect(b.relPath).toBe('evidence/trace-1.rec.gz')
     expect(a.artifactType).toBe('archive-rec')
@@ -55,11 +58,11 @@ describe('ingestArtifact', () => {
   })
 
   it('throws for unknown case', () => {
-    expect(() => ingestArtifact(db, home, 'NOPE-1', FIXTURE)).toThrow(/case/i)
+    expect(() => ingestArtifact(db, home, detection, 'NOPE-1', FIXTURE)).toThrow(/case/i)
   })
 
   it('lists evidence for a case', () => {
-    ingestArtifact(db, home, 'NAVAPI-1', FIXTURE)
+    ingestArtifact(db, home, detection, 'NAVAPI-1', FIXTURE)
     const all = listEvidence(db, 'NAVAPI-1')
     expect(all).toHaveLength(1)
     expect(all[0].artifactType).toBe('applog')
@@ -68,7 +71,7 @@ describe('ingestArtifact', () => {
   it('ingestArtifact merges extraMeta into meta', () => {
     const src = path.join(home, 'a.txt')
     fs.writeFileSync(src, 'hello')
-    const rec = ingestArtifact(db, home, 'NAVAPI-1', src, 'jira', {
+    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', src, 'jira', {
       jira: { key: 'NAVAPI-1', attachmentId: '10001' }
     })
     expect(rec.origin).toBe('jira')
@@ -80,6 +83,7 @@ describe('ingestArtifact', () => {
     const rec = ingestContent(
       db,
       home,
+      detection,
       'NAVAPI-1',
       'NAVAPI-1.ticket.md',
       '# NAVAPI-1: crash\n\nsteering wheel fault text',
@@ -106,6 +110,7 @@ describe('ingestArtifact', () => {
     const rec = ingestContent(
       db,
       home,
+      detection,
       'NAVAPI-1',
       'NAVAPI-1.ticket.md',
       'old body alpha',
@@ -114,7 +119,7 @@ describe('ingestArtifact', () => {
         jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Open' }
       }
     )
-    const upd = updateEvidenceContent(db, home, rec.id, 'new body omega', {
+    const upd = updateEvidenceContent(db, home, detection, rec.id, 'new body omega', {
       jira: { key: 'NAVAPI-1', role: 'ticket', status: 'Resolved' }
     })
     expect(upd.id).toBe(rec.id)

@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
+import { createDetection } from '../packs/detection'
 import {
   listCaseFiles,
   readCaseFile,
@@ -15,6 +16,7 @@ import {
 } from '../caseFiles'
 
 let tmp: string, argusHome: string, db: DatabaseSync
+const detection = createDetection()
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-cf-'))
@@ -76,7 +78,7 @@ describe('listCaseFiles', () => {
   it('returns the tree with evidence metadata merged and junctions skipped', () => {
     const src = path.join(tmp, 'log.txt')
     fs.writeFileSync(src, 'hello\n')
-    const rec = ingestArtifact(db, argusHome, 'NAV-1', src)
+    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
     const tree = listCaseFiles(db, argusHome, 'NAV-1')
     const names = tree.map((n) => n.name)
     expect(names).toContain('evidence')

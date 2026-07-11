@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseFiles } from '../CaseFiles'
-import type { FileNode } from '../../../../shared/types'
+import type { ArtifactTypeMeta, FileNode } from '../../../../shared/types'
 
 const tree: FileNode[] = [
   {
@@ -30,6 +30,13 @@ const tree: FileNode[] = [
   { name: 'findings.md', relPath: 'findings.md', kind: 'file', size: 120 }
 ]
 
+const artifactMetaFixture: ArtifactTypeMeta[] = [
+  { type: 'binlog', displayName: 'Binary log', analyzeSkill: 'analyze-binlog', isText: false },
+  { type: 'applog', displayName: 'applog', analyzeSkill: 'analyze-applog', isText: true },
+  { type: 'text', displayName: 'Text', analyzeSkill: null, isText: true },
+  { type: 'unknown', displayName: 'Unknown', analyzeSkill: null, isText: false }
+]
+
 let parsingCb: (p: { slug: string; evidenceId: number; active: boolean }) => void
 
 beforeEach(() => {
@@ -49,11 +56,19 @@ beforeEach(() => {
         return () => {}
       })
     },
+    packs: {
+      artifactMeta: vi.fn(async () => artifactMetaFixture)
+    },
     pathForFile: vi.fn()
   } as never
 })
 
 describe('CaseFiles', () => {
+  it('fetches artifact type meta once on mount', async () => {
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await waitFor(() => expect(window.argus.packs.artifactMeta).toHaveBeenCalledTimes(1))
+  })
+
   it('renders the tree with evidence/ expanded, type badges and MB sizes', async () => {
     render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
     expect(await screen.findByText('trace.binlog')).toBeTruthy()

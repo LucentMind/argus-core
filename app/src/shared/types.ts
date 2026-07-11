@@ -1,16 +1,18 @@
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
-export type ArtifactType =
-  | 'applog'
-  | 'binlog'
-  | 'archive-rec'
-  | 'list-json'
-  | 'tagged-json'
-  | 'bintrace'
-  | 'archive'
-  | 'screenshot'
-  | 'text'
-  | 'unknown'
+/**
+ * Artifact type of an evidence file. Open-ended: packs define domain types via
+ * manifest detectors[]; Core's generic detection yields 'archive' | 'screenshot'
+ * | 'text' | 'unknown'.
+ */
+export type ArtifactType = string
+
+export interface ArtifactTypeMeta {
+  type: string
+  displayName: string
+  analyzeSkill: string | null
+  isText: boolean
+}
 
 export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent'
 
