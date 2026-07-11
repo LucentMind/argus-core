@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 /** Type-the-slug confirmation — case deletion is the highest-blast-radius action in the app. */
 export function DeleteCaseDialog({
@@ -14,6 +14,14 @@ export function DeleteCaseDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const match = typed === slug
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
 
   async function confirmDelete(): Promise<void> {
     setBusy(true)
@@ -51,7 +59,6 @@ export function DeleteCaseDialog({
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && match && !busy) void confirmDelete()
-            if (e.key === 'Escape') onCancel()
           }}
         />
         {error && <p className="text-xs text-danger">{error}</p>}
