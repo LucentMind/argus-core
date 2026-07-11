@@ -6,6 +6,7 @@ import { ToolCallCard } from './ToolCallCard'
 import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
 import { SessionSwitcher } from './SessionSwitcher'
+import { ChatFind } from './ChatFind'
 
 export function ChatPane({
   slug,
@@ -35,9 +36,42 @@ export function ChatPane({
     () => uiStore.get().showToolCalls
   )
   const bottom = useRef<HTMLDivElement>(null)
+  const paneRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [state.items.length, state.pending.length])
+
+  // in-chat find (Ctrl/Cmd+F): the overlay is a pure component (ChatFind)
+  // that owns the query text; ChatPane owns opening/closing, the scroll to
+  // the current match, and the ring classes on matching items.
+  const [findOpen, setFindOpen] = useState(false)
+  const [findMatches, setFindMatches] = useState<number[]>([])
+  const [currentFindIndex, setCurrentFindIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        setFindOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  function closeFind(): void {
+    setFindOpen(false)
+    setFindMatches([])
+    setCurrentFindIndex(null)
+    paneRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
+  }
+
+  function navigateFind(itemIndex: number): void {
+    setCurrentFindIndex(itemIndex)
+    paneRef.current
+      ?.querySelector(`[data-item-index="${itemIndex}"]`)
+      ?.scrollIntoView?.({ block: 'center' })
+  }
 
   const [flashTurnId, setFlashTurnId] = useState<number | null>(null)
 
@@ -85,8 +119,14 @@ export function ChatPane({
     if (targetSessionId !== sessionId) onSwitchSession(targetSessionId)
   }
 
+  function findRingClass(i: number): string {
+    if (i === currentFindIndex) return 'ring-2 ring-signal'
+    if (findMatches.includes(i)) return 'ring-1 ring-signal/40'
+    return ''
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={paneRef} className="relative flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 items-center border-b border-hair px-3">
         <SessionSwitcher
           slug={slug}
@@ -95,6 +135,14 @@ export function ChatPane({
           onJumpToTurn={handleJumpToTurn}
         />
       </div>
+      {findOpen && (
+        <ChatFind
+          items={state.items}
+          onNavigate={navigateFind}
+          onClose={closeFind}
+          onMatchesChange={setFindMatches}
+        />
+      )}
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {state.items.map((item, i) => {
           if (item.kind === 'user') {
@@ -103,9 +151,10 @@ export function ChatPane({
               <div
                 key={i}
                 data-turn-id={item.turnId ?? undefined}
+                data-item-index={i}
                 className={`ml-12 rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
                   isFlashing ? 'bg-signal/20' : 'bg-hi'
-                }`}
+                } ${findRingClass(i)}`}
               >
                 {item.text}
               </div>
@@ -113,7 +162,7 @@ export function ChatPane({
           }
           if (item.kind === 'assistant') {
             return (
-              <div key={i} className="mr-6">
+              <div key={i} data-item-index={i} className={`mr-6 rounded-r3 ${findRingClass(i)}`}>
                 <MessageView markdown={item.text} onCite={onCite} />
                 {item.streaming && <span className="text-xs text-mute">…</span>}
               </div>

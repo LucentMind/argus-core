@@ -111,4 +111,29 @@ describe('ChatPane', () => {
     )
     expect(container.querySelector('[data-turn-id="10"]')).toBeTruthy()
   })
+
+  it('opens the find overlay on Ctrl+F, rings matches, and refocuses composer on close', () => {
+    const slug = 'NAV-FIND'
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
+    agentStore.apply(at('turn.started', { userText: 'braking failed' }, 1))
+    agentStore.apply(at('assistant.message', { text: 'unrelated reply' }, 1))
+    const { container } = render(
+      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+    )
+    expect(screen.queryByLabelText('Find in chat')).toBeNull()
+
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true })
+    const input = screen.getByLabelText('Find in chat')
+    expect(input).toBeTruthy()
+
+    fireEvent.change(input, { target: { value: 'braking' } })
+    const matchEl = container.querySelector('[data-item-index="0"]')
+    expect(matchEl?.className).toContain('ring-2')
+    expect(matchEl?.className).toContain('ring-signal')
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByLabelText('Find in chat')).toBeNull()
+    expect(container.querySelector('textarea')).toBe(document.activeElement)
+  })
 })
