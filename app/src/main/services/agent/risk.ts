@@ -8,6 +8,8 @@ export interface RiskContext {
   readonlyRoots: string[]
   /** Live overrides from config/tool-risk.json, keyed '<instanceId>/<toolName>'. */
   toolRisk?: Record<string, RiskLevel>
+  /** Pack-declared CLI binary names (PackRegistry.binaryDecls), auto-allowlisted as LOW. */
+  packCliNames?: string[]
 }
 
 export type RiskVerdict =
@@ -148,7 +150,6 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   if (tokens.length === 0) return { action: 'allow', risk: 'LOW' }
   const prog = path.basename(tokens[0])
 
-  if (prog === 'sample-trace' || prog === 'sample-parse') return { action: 'allow', risk: 'LOW' }
   if (prog === 'git') return classifyGit(tokens)
   if (prog === 'gh') return classifyGh(tokens)
   if (prog === 'rm' && tokens.some((t) => /^-[a-zA-Z]*r/i.test(t) || t === '--recursive'))
@@ -159,6 +160,9 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
       return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${target}` }
     return { action: 'allow', risk: 'LOW' }
   }
+  // Builtin classifiers above always win; the pack allowlist only applies to CLIs that
+  // don't collide with git/gh/rm/cd (enforced at the manifest schema level too).
+  if (ctx.packCliNames?.includes(prog)) return { action: 'allow', risk: 'LOW' }
   if (['grep', 'rg', 'cat', 'awk', 'sed', 'head', 'tail'].includes(prog)) {
     const touchesEvidence = tokens
       .slice(1)
@@ -168,7 +172,9 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
         action: 'ask',
         risk: 'MEDIUM',
         grantKey: null,
-        reason: 'Use sample-trace (guardrailed) for trace files instead of raw text tools'
+        reason: ctx.packCliNames?.length
+          ? `Use the pack analysis CLIs (${ctx.packCliNames.join(', ')}) for evidence files instead of raw text tools`
+          : 'Raw text tools are discouraged on evidence files — they have no guardrails or output caps'
       }
   }
   // absolute-path writes/reads are governed by the FS sandbox for FS tools; for bash we

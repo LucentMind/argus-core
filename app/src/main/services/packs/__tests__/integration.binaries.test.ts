@@ -16,9 +16,9 @@ describe('sample pack binaries (real manifest)', () => {
     ])
     expect(bins[0].envVar).toBe('ARGUS_PARSE_BIN')
     expect(bins[1].doctor).toMatchObject({ cmd: 'sample-trace', json: true })
-    // dev path geometry: pack-relative ../../trace-rs lands at the repo root
+    // dev path geometry: pack-relative bin-src/trace-rs lands inside the pack itself
     expect(path.resolve(nav!.dir, bins[0].devPaths[0])).toBe(
-      path.resolve(process.cwd(), '..', 'trace-rs', 'target', 'release')
+      path.resolve(process.cwd(), '..', 'packs', 'sample', 'bin-src', 'trace-rs', 'target', 'release')
     )
   })
 
@@ -41,5 +41,17 @@ describe('sample pack binaries (real manifest)', () => {
     }
     expect(det.find((d) => d.type === 'applog')?.isText).toBe(true)
     expect(det.find((d) => d.type === 'binlog')?.analyzeSkill).toBe('analyze-binlog')
+  })
+
+  it('ships 8 reference-routing rules, including a binlog rule targeting binlog-protocol.md', () => {
+    const repoPacks = path.resolve(process.cwd(), '..', 'packs')
+    const { packs } = loadPacks(repoPacks)
+    const nav = packs.find((p) => p.id === 'sample')!
+    const rules = nav.manifest.referenceRouting
+    expect(rules).toHaveLength(8)
+    expect(rules).toContainEqual({
+      keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'],
+      target: 'binlog-protocol.md'
+    })
   })
 })

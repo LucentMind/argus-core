@@ -59,4 +59,9 @@ export class PackRegistry {
     }
     return out
   }
+
+  /** All packs' reference-routing rules, flattened in pack order. */
+  referenceRouting(): Array<{ keywords: string[]; target: string }> {
+    return this._packs.flatMap((p) => p.manifest.referenceRouting)
+  }
 }
