@@ -94,7 +94,9 @@ export function CaseDashboard({
                 >
                   <Trash2 size={14} />
                 </IconBtn>
-                <Chip tone={STATUS_TONE[c.status]}>{c.status}</Chip>
+                <Chip tone={STATUS_TONE[c.status]}>
+                  {c.status === 'closed' && c.resolution ? `closed · ${c.resolution}` : c.status}
+                </Chip>
               </span>
             </div>
             <div className="text-sm text-ink">{c.title}</div>

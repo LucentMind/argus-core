@@ -14,6 +14,7 @@ const cases: CaseRecord[] = [
     jiraKey: 'NAV-1',
     jiraSyncedAt: null,
     status: 'analyzing',
+    resolution: null,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-08T00:00:00Z'
@@ -81,6 +82,22 @@ describe('CaseDashboard', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /import case/i }))
     expect(onImport).toHaveBeenCalled()
+  })
+
+  it('shows the resolution alongside a closed status', () => {
+    const closedCases: CaseRecord[] = [
+      { ...cases[0], status: 'closed', resolution: 'wont-fix' }
+    ]
+    render(
+      <CaseDashboard
+        cases={closedCases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    expect(screen.getByText('closed · wont-fix')).toBeTruthy()
   })
 
   it('New and Import actions share one tile', () => {

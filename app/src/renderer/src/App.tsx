@@ -122,6 +122,9 @@ function App(): React.JSX.Element {
             slug={view.slug}
             jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
             jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
+            status={cases.find((c) => c.slug === view.slug)?.status ?? 'open'}
+            resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
+            onStatusChanged={() => void reload()}
             onOpenHit={handleOpenHit}
             onOpenCitation={(id, line) =>
               setViewer({ kind: 'evidence', evidenceId: id, focusLine: line })
