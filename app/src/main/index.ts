@@ -291,6 +291,8 @@ function registerIpc(): void {
   )
   // 1d: renderer artifact type/analyze-skill metadata sourced from pack detectors + generics.
   ipcMain.handle(IPC.packsArtifactMeta, () => detection.artifactMeta())
+  // 1e: reference-sync routing seeds sourced from pack manifests.
+  ipcMain.handle(IPC.packsReferenceRouting, () => packRegistry.referenceRouting())
 
   // — agent —
   agentService = new AgentService({

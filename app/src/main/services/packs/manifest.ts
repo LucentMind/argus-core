@@ -86,7 +86,18 @@ export const packManifestSchema = z
     argusApi: z.string().min(1),
     persona: z.string().min(1).optional(),
     binaries: z.array(packBinarySchema).default([]),
-    detectors: z.array(packDetectorSchema).default([])
+    detectors: z.array(packDetectorSchema).default([]),
+    /** Reference-sync routing seeds: keyword rules mapped to reference filenames. */
+    referenceRouting: z
+      .array(
+        z.object({
+          keywords: z.array(z.string().min(1)).min(1),
+          target: z
+            .string()
+            .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.md$/, 'target must be a .md basename')
+        })
+      )
+      .default([])
   })
   .passthrough()
 

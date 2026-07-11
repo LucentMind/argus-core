@@ -5,10 +5,10 @@ import { SyncReportView } from './SyncReportView'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import {
   toggleSelection,
-  DEFAULT_ROUTING_RULES,
   type SpaceConfig,
   type TreeNodeVM,
-  type SyncReport
+  type SyncReport,
+  type RoutingRule
 } from '../../../../shared/referenceSync'
 
 type Step =
@@ -37,10 +37,18 @@ export function SpaceDialog({
     error: null
   })
   const [progress, setProgress] = useState<string | null>(null)
+  const [routingSeeds, setRoutingSeeds] = useState<RoutingRule[]>([])
 
   useEffect(() => {
     const off = window.argus.refsync.onProgress((p) => setProgress(p.message))
     return off
+  }, [])
+
+  useEffect(() => {
+    void window.argus.packs.referenceRouting().then(setRoutingSeeds, (err) => {
+      console.warn(`[packs] referenceRouting failed: ${(err as Error).message}`)
+      setRoutingSeeds([])
+    })
   }, [])
 
   useEffect(() => {
@@ -71,7 +79,7 @@ export function SpaceDialog({
           homepageId: r.value.space.homepageId,
           includeRoots: [],
           excludedSubtrees: [],
-          routingRules: DEFAULT_ROUTING_RULES
+          routingRules: routingSeeds
         }
     setState({ step: 'curate', space, root: r.value.root, busy: false, error: null })
   }

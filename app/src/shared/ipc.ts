@@ -79,6 +79,7 @@ export const IPC = {
   filesChanged: 'files:changed',
   evidenceParsing: 'evidence:parsing',
   packsArtifactMeta: 'packs:artifact-meta',
+  packsReferenceRouting: 'packs:reference-routing',
   refsyncGet: 'refsync:get',
   refsyncValidateSpace: 'refsync:validate-space',
   refsyncChildren: 'refsync:children',

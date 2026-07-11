@@ -10,12 +10,30 @@ import {
   type ConfluenceReader
 } from '../refSync/engine'
 import { stampRefFile } from '../refSync/refFrontmatter'
-import {
-  DEFAULT_ROUTING_RULES,
-  type SpaceConfig,
-  type ReferenceSyncConfig
-} from '../../../shared/referenceSync'
+import type { RoutingRule, SpaceConfig, ReferenceSyncConfig } from '../../../shared/referenceSync'
 import type { ConfluencePageNode } from '../../../shared/confluence'
+
+// Fixture standing in for pack-supplied routing rules (moved to
+// packs/sample/argus-pack.json `referenceRouting` — see packs/manifest.ts).
+const ROUTING_RULES_FIXTURE: RoutingRule[] = [
+  { keywords: ['applog', 'log', 'tag', 'signal'], target: 'log-patterns.md' },
+  {
+    keywords: ['history recording', 'rec', 'navigator history', 'telemetry'],
+    target: 'recording-schema.md'
+  },
+  {
+    keywords: ['routing', 'directions', 'parallel hybrid', 'graph hopper', 'valhalla request'],
+    target: 'routing-flow.md'
+  },
+  {
+    keywords: ['tile', 'vector tile', 'datasets', 'dataset version'],
+    target: 'data-versioning.md'
+  },
+  { keywords: ['valhalla', 'routing engine update'], target: 'valhalla-runbook.md' },
+  { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' },
+  { keywords: ['adasis', 'electronic horizon'], target: 'adasis.md' },
+  { keywords: ['tool', 'mcp', 'debugging tool'], target: 'tool-selection-guide.md' }
+]
 
 // tree: 100 Home ── 101 Routing deep dive ── 104 Valhalla request tuning
 //                ├─ 102 Meeting notes (leaf)
@@ -90,7 +108,7 @@ const space: SpaceConfig = {
   homepageId: '100',
   includeRoots: ['100'],
   excludedSubtrees: ['103'],
-  routingRules: DEFAULT_ROUTING_RULES
+  routingRules: ROUTING_RULES_FIXTURE
 }
 
 let tmp: string

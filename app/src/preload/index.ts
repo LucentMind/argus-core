@@ -34,7 +34,13 @@ import type {
 } from '../shared/bundle'
 import type { HivemindCheckResult, HivemindPayload, HivemindPushResult } from '../shared/hivemind'
 import type { ProposalsPayload } from '../shared/proposals'
-import type { RefSyncPayload, SyncReport, SyncProgress, TreeNodeVM } from '../shared/referenceSync'
+import type {
+  RefSyncPayload,
+  SyncReport,
+  SyncProgress,
+  TreeNodeVM,
+  RoutingRule
+} from '../shared/referenceSync'
 import type { ConfluenceSpace } from '../shared/confluence'
 import type {
   MetricsQuery,
@@ -89,7 +95,8 @@ const argus = {
     }
   },
   packs: {
-    artifactMeta: (): Promise<ArtifactTypeMeta[]> => ipcRenderer.invoke(IPC.packsArtifactMeta)
+    artifactMeta: (): Promise<ArtifactTypeMeta[]> => ipcRenderer.invoke(IPC.packsArtifactMeta),
+    referenceRouting: (): Promise<RoutingRule[]> => ipcRenderer.invoke(IPC.packsReferenceRouting)
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>

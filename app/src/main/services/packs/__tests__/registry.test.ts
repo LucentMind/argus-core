@@ -77,4 +77,33 @@ describe('PackRegistry', () => {
     const reg = new PackRegistry([a, lp('beta', null)])
     expect(reg.detectorDecls().map((d) => d.type)).toEqual(['binlog'])
   })
+
+  it('flattens reference-routing rules across packs in pack order', () => {
+    const a = lp('alpha', null)
+    a.manifest = packManifestSchema.parse({
+      id: 'alpha',
+      displayName: 'alpha',
+      version: '1',
+      argusApi: '^1',
+      referenceRouting: [{ keywords: ['binlog'], target: 'binlog-protocol.md' }]
+    })
+    const b = lp('beta', null)
+    b.manifest = packManifestSchema.parse({
+      id: 'beta',
+      displayName: 'beta',
+      version: '1',
+      argusApi: '^1',
+      referenceRouting: [{ keywords: ['tile'], target: 'data-versioning.md' }]
+    })
+    const reg = new PackRegistry([a, b])
+    expect(reg.referenceRouting()).toEqual([
+      { keywords: ['binlog'], target: 'binlog-protocol.md' },
+      { keywords: ['tile'], target: 'data-versioning.md' }
+    ])
+  })
+
+  it('is empty when no pack declares reference-routing rules', () => {
+    const reg = new PackRegistry([lp('alpha', null), lp('beta', null)])
+    expect(reg.referenceRouting()).toEqual([])
+  })
 })
