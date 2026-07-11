@@ -84,6 +84,32 @@ export function CaseFiles({
     else void window.argus.files.open(caseSlug, node.relPath)
   }
 
+  async function deleteEvidenceFile(n: FileNode): Promise<void> {
+    if (!n.evidence) return
+    const id = n.evidence.id
+    // count the derived closure client-side so the confirm names what goes with it
+    const all = (await window.argus.evidence.list(caseSlug)) as Array<{
+      id: number
+      meta: Record<string, unknown>
+    }>
+    const doomed = new Set([id])
+    for (let grew = true; grew;) {
+      grew = false
+      for (const r of all) {
+        const parent = r.meta.derivedFrom
+        if (!doomed.has(r.id) && typeof parent === 'number' && doomed.has(parent)) {
+          doomed.add(r.id)
+          grew = true
+        }
+      }
+    }
+    const derived = doomed.size - 1
+    const extra = derived > 0 ? ` and ${derived} derived file${derived > 1 ? 's' : ''}` : ''
+    if (!window.confirm(`Delete "${displayName(n.name)}"${extra}? This cannot be undone.`)) return
+    await window.argus.evidence.delete(caseSlug, id)
+    await reload()
+  }
+
   function renderNodes(nodes: FileNode[], depth: number): React.JSX.Element[] {
     return nodes.flatMap((n) => {
       if (n.kind === 'dir') {
@@ -153,6 +179,16 @@ export function CaseFiles({
               onClick={() => onSuggest(`/${skill} ${n.relPath}`)}
             >
               Analyze
+            </button>
+          )}
+          {n.evidence && (
+            <button
+              aria-label={`Delete ${n.name}`}
+              title="Delete evidence"
+              className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+              onClick={() => void deleteEvidenceFile(n)}
+            >
+              Delete
             </button>
           )}
         </li>
