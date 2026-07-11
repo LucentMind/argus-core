@@ -79,4 +79,40 @@ describe('packManifestSchema', () => {
       })
     ).toThrow()
   })
+
+  it('parses detectors[] declarations', () => {
+    const m = packManifestSchema.parse({
+      ...valid,
+      detectors: [
+        {
+          type: 'binlog',
+          displayName: 'Binary log',
+          analyzeSkill: 'analyze-binlog',
+          match: [{ magicHex: '444C5401' }, { nameEndsWith: ['.binlog'] }],
+          extract: { bin: 'sample-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] }
+        },
+        { type: 'applog', isText: true, match: [{ headRegex: { source: '^\\d{2}-\\d{2}', flags: 'm' } }] }
+      ]
+    })
+    expect(m.detectors).toHaveLength(2)
+    expect(m.detectors[0].displayName).toBe('Binary log')
+    expect(m.detectors[0].isText).toBe(false)
+    expect(m.detectors[1].displayName).toBe('applog') // defaults to type
+  })
+
+  it('defaults detectors to empty and rejects a rule-less detector', () => {
+    expect(packManifestSchema.parse(valid).detectors).toEqual([])
+    expect(() =>
+      packManifestSchema.parse({ ...valid, detectors: [{ type: 'x', match: [] }] })
+    ).toThrow()
+  })
+
+  it('rejects a detector with a non-kebab type or odd-length magicHex', () => {
+    expect(() =>
+      packManifestSchema.parse({ ...valid, detectors: [{ type: 'Bad Type', match: [{ nameEndsWith: ['.x'] }] }] })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({ ...valid, detectors: [{ type: 'x', match: [{ magicHex: 'ABC' }] }] })
+    ).toThrow()
+  })
 })
