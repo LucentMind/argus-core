@@ -86,7 +86,7 @@ beforeEach(() => {
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 8 active pages, 1 coming-soon entry', async () => {
+  it('renders the rail: 9 active pages, 0 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
@@ -97,15 +97,12 @@ describe('SettingsView', () => {
       'Connectors',
       'Skills',
       'HiveMind',
-      'Memory'
+      'Memory',
+      'Observability'
     ])
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(false)
-    for (const label of ['Observability'])
-      expect(
-        (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
-      ).toBe(true)
   })
 
   it('clicking Health renders the health page', async () => {
