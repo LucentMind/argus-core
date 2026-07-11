@@ -55,4 +55,12 @@ describe('loadPacks', () => {
   it('returns empty for a non-existent packs dir', () => {
     expect(loadPacks(path.join(root, 'nope'))).toEqual({ packs: [], errors: [] })
   })
+
+  it('records an error when manifest id does not match the directory name', () => {
+    pack('wrong-dir', { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1' })
+    const { packs, errors } = loadPacks(root)
+    expect(packs).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toMatch(/match its directory name/)
+  })
 })
