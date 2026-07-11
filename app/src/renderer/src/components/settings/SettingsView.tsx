@@ -9,6 +9,7 @@ import { MemorySettings } from './MemorySettings'
 import { SkillsSettings } from './SkillsSettings'
 import { ReferencesSettings } from './ReferencesSettings'
 import { HivemindSettings } from './HivemindSettings'
+import { ObservabilitySettings } from './ObservabilitySettings'
 
 const PAGES = [
   { id: 'general', label: 'General', enabled: true },
@@ -20,7 +21,7 @@ const PAGES = [
   { id: 'hivemind', label: 'HiveMind', enabled: true },
   { id: 'memory', label: 'Memory', enabled: true },
   { id: 'references', label: 'References', enabled: true },
-  { id: 'observability', label: 'Observability', enabled: false }
+  { id: 'observability', label: 'Observability', enabled: true }
 ] as const
 type PageId = (typeof PAGES)[number]['id']
 
@@ -94,6 +95,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
           {page === 'memory' && <MemorySettings />}
           {page === 'references' && <ReferencesSettings />}
+          {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
         </div>
       </div>
     </div>
