@@ -2,8 +2,23 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { HivemindTab } from '../HivemindTab'
+import { HivemindSettings } from '../HivemindSettings'
+import { settingsStore } from '../../../lib/settingsStore'
+import { defaultSettings } from '../../../../../shared/settings'
 import type { HivemindPayload } from '../../../../../shared/hivemind'
+import type { SettingsPayload } from '../../../../../shared/settings'
+
+function settingsPayload(repo: string): SettingsPayload {
+  return {
+    settings: { ...defaultSettings(), hivemind: { repo } },
+    resolvedTools: {
+      traceDir: { value: null, source: 'default' },
+      parseBin: { value: null, source: 'default' }
+    },
+    dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
+    loadError: null
+  }
+}
 
 const ready: HivemindPayload = {
   repo: 'acme/hivemind',
@@ -61,10 +76,15 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
 
 beforeEach(() => {
   ;(window as unknown as { argus: unknown }).argus = mockArgus(ready)
+  vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined as never)
 })
 
-describe('HivemindTab', () => {
-  it('dormant state points at the setting', async () => {
+function openShareTab(): void {
+  fireEvent.click(screen.getByRole('tab', { name: 'Share to HiveMind' }))
+}
+
+describe('HivemindSettings', () => {
+  it('dormant state shows the repo input, not a pointer to General', async () => {
     ;(window as unknown as { argus: unknown }).argus = mockArgus({
       ...ready,
       repo: '',
@@ -72,8 +92,18 @@ describe('HivemindTab', () => {
       items: [],
       headCommit: null
     })
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('')} />)
     expect(await screen.findByText(/Set a HiveMind repo/)).toBeInTheDocument()
+    expect(screen.queryByText(/General/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('HiveMind repo')).toBeInTheDocument()
+  })
+
+  it('repo row commits hivemind.repo on blur', async () => {
+    render(<HivemindSettings payload={settingsPayload('')} />)
+    const input = await screen.findByLabelText('HiveMind repo')
+    fireEvent.change(input, { target: { value: 'acme/hivemind' } })
+    fireEvent.blur(input)
+    expect(settingsStore.patch).toHaveBeenCalledWith({ hivemind: { repo: 'acme/hivemind' } })
   })
 
   it('not-cloned state offers Sync', async () => {
@@ -83,13 +113,15 @@ describe('HivemindTab', () => {
       items: [],
       headCommit: null
     })
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByRole('button', { name: 'Sync' })).toBeInTheDocument()
   })
 
-  it('ready state lists items, flags updates, installs on click', async () => {
-    render(<HivemindTab />)
+  it('ready state lists items under separate Skills/References headings, flags updates, installs on click', async () => {
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
+    expect(screen.getByText('Skills')).toBeInTheDocument()
+    expect(screen.getByText('References')).toBeInTheDocument()
     expect(screen.getByText('update available')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Install hive-note.md' }))
     await waitFor(() =>
@@ -100,10 +132,13 @@ describe('HivemindTab', () => {
     )
   })
 
-  it('update flow shows the diff and re-installs through it', async () => {
-    render(<HivemindTab />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Update hive-probe' }))
-    expect(await screen.findByText('+ new line')).toBeInTheDocument()
+  it('update flow expands the diff directly below the clicked row and re-installs through it', async () => {
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    const row = await screen.findByText('hive-probe')
+    fireEvent.click(screen.getByRole('button', { name: 'Update hive-probe' }))
+    const diff = await screen.findByText('+ new line')
+    // inline placement: the diff panel follows the item's row in DOM order
+    expect(row.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Re-install hive-probe' }))
     await waitFor(() =>
       expect(
@@ -113,8 +148,25 @@ describe('HivemindTab', () => {
     )
   })
 
+  it('filter input narrows visible rows by name and description', async () => {
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await screen.findByText('hive-probe')
+    expect(screen.getByText('hive-note.md')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Filter HiveMind content'), {
+      target: { value: 'probe' }
+    })
+
+    expect(screen.getByText('hive-probe')).toBeInTheDocument()
+    expect(screen.queryByText('hive-note.md')).not.toBeInTheDocument()
+    // no reference items match "probe" — the References section disappears entirely
+    expect(screen.queryByText('References')).not.toBeInTheDocument()
+  })
+
   it('push confirm shows the preview and links the PR afterwards', async () => {
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await screen.findByText('hive-probe')
+    openShareTab()
     fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
     expect(await screen.findByText('# my-skill')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
@@ -131,7 +183,7 @@ describe('HivemindTab', () => {
       pushable: []
     })
     ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/clone diverged/)
   })
@@ -142,7 +194,7 @@ describe('HivemindTab', () => {
       .fn()
       .mockRejectedValue(new Error('git exploded'))
     ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Update hive-probe' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/git exploded/)
@@ -161,7 +213,7 @@ describe('HivemindTab', () => {
         detail: ''
       })
     ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText(/GitHub CLI/)).toBeInTheDocument()
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
   })
@@ -172,7 +224,9 @@ describe('HivemindTab', () => {
       .fn()
       .mockRejectedValue(new Error('push exploded'))
     ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await screen.findByText('hive-probe')
+    openShareTab()
     fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
     expect(await screen.findByText('# my-skill')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
