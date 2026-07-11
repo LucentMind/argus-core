@@ -79,6 +79,18 @@ export interface SearchHit {
   matchLine: number // exact line of the first term match; falls back to startLine
 }
 
+export interface ChatSearchHit {
+  sessionId: number
+  turnId: number | null
+  role: string
+  snippet: string
+}
+
+export interface ChatSearchResult {
+  hits: ChatSearchHit[]
+  error?: string
+}
+
 export interface WorkspaceInfo {
   path: string
   remote: string | null

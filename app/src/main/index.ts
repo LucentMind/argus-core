@@ -49,6 +49,7 @@ import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
+import { searchMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
 import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
@@ -212,6 +213,9 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
     searchEvidence(db, q, filters ?? {})
+  )
+  ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
+    searchMessages(db, caseSlug, q)
   )
 
   // — agent —
