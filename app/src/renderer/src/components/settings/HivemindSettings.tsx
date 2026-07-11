@@ -345,9 +345,7 @@ export function HivemindSettings({
                         void run(() => window.argus.hivemind.install(it.kind, it.name))
                       }}
                       onCancel={() => setUpdateConfirm(null)}
-                      onClaim={() =>
-                        void run(() => window.argus.hivemind.claimReference(it.name))
-                      }
+                      onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
                     />
                   ))}
                 </SettingsSection>
@@ -370,9 +368,7 @@ export function HivemindSettings({
                         void run(() => window.argus.hivemind.install(it.kind, it.name))
                       }}
                       onCancel={() => setUpdateConfirm(null)}
-                      onClaim={() =>
-                        void run(() => window.argus.hivemind.claimReference(it.name))
-                      }
+                      onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
                     />
                   ))}
                 </SettingsSection>
