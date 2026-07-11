@@ -8,6 +8,8 @@ import { createCase, getCase } from '../caseService'
 import { ingestContent, ingestDerived, listEvidence } from '../ingest'
 import { searchEvidence } from '../search'
 import { exportCase, importCase, inspectBundle, proposeSlug } from '../bundle'
+import { listSessions } from '../agent/sessionStore'
+import { readSessionEvents } from '../agent/mirror'
 import type { DatabaseSync } from 'node:sqlite'
 
 let homeA: string
@@ -218,5 +220,87 @@ describe('importCase', () => {
     dbC.close()
     fs.rmSync(homeC, { recursive: true, force: true })
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+})
+
+describe('imported transcripts under the multi-session model (WP-D seam)', () => {
+  it('registers sessions rows, rewrites envelopes, renames files to the new ids', async () => {
+    // transcript named by a foreign autoincrement id, envelopes carrying the OLD identity
+    const sessA = path.join(homeA, 'cases', 'NAV-100', 'sessions')
+    const oldEnvelope = {
+      eventId: 'e1',
+      caseId: 1,
+      caseSlug: 'NAV-100',
+      sessionId: 7,
+      turnId: 1,
+      ts: '2026-07-10T00:00:00.000Z'
+    }
+    fs.writeFileSync(
+      path.join(sessA, '7.jsonl'),
+      JSON.stringify({
+        ...oldEnvelope,
+        type: 'turn.started',
+        payload: { userText: 'why did tiles fail on the head unit?' }
+      }) +
+        '\n' +
+        JSON.stringify({
+          ...oldEnvelope,
+          eventId: 'e2',
+          type: 'assistant.message',
+          payload: { text: 'BLOCKED_VERSION analysis' }
+        }) +
+        '\n'
+    )
+    const b2 = path.join(homeA, 'NAV-100-t.arguscase')
+    await exportCase(
+      dbA,
+      homeA,
+      'NAV-100',
+      b2,
+      { includeTranscripts: true },
+      { argusVersion: '1.0.0' }
+    )
+
+    // occupy the slug so the import lands suffixed — envelope slug must follow
+    createCase(dbB, homeB, { slug: 'NAV-100', title: 'occupies the slug' })
+    const rec = await importCase(dbB, homeB, b2, proposeSlug(dbB, homeB, 'NAV-100').slug)
+    expect(rec.slug).toBe('NAV-100-2')
+
+    const sessions = listSessions(dbB, rec.slug)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].title).toBe('why did tiles fail on the head unit?')
+    expect(sessions[0].turnCount).toBe(1)
+
+    const caseDirB = path.join(homeB, 'cases', rec.slug)
+    const events = readSessionEvents(caseDirB, sessions[0].id)
+    expect(events.some((e) => e.type === 'assistant.message')).toBe(true)
+    // envelopes rewritten to the NEW identity — the renderer keys hydration off these
+    for (const e of events) {
+      expect(e.caseSlug).toBe(rec.slug)
+      expect(e.sessionId).toBe(sessions[0].id)
+      expect(e.caseId).toBe(rec.id)
+    }
+    // the foreign-named file is gone (renamed), not duplicated
+    expect(fs.existsSync(path.join(caseDirB, 'sessions', '7.jsonl'))).toBe(false)
+    expect(fs.readdirSync(path.join(caseDirB, 'sessions'))).toHaveLength(1)
+  })
+
+  it('a no-transcript import registers no sessions (switcher creates the first one lazily)', async () => {
+    const b3 = path.join(homeA, 'NAV-100-nt.arguscase')
+    await exportCase(
+      dbA,
+      homeA,
+      'NAV-100',
+      b3,
+      { includeTranscripts: false },
+      { argusVersion: '1.0.0' }
+    )
+    await importCase(dbB, homeB, b3, 'NAV-100')
+    const rows = dbB
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sessions s JOIN cases c ON c.id = s.case_id WHERE c.slug = ?`
+      )
+      .get('NAV-100') as { n: number }
+    expect(rows.n).toBe(0)
   })
 })
