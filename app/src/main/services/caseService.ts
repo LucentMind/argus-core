@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRecord, CaseStatus, NewCaseInput } from '../../shared/types'
 import { caseDir } from './paths'
+import { appendDeletionAudit } from './deletionAudit'
 
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -170,4 +171,46 @@ export function setCaseJira(
     JSON.stringify({ ...onDisk, jiraKey: jira.key, updatedAt: now, jira }, null, 2)
   )
   return getCase(db, slug)!
+}
+
+/**
+ * Hard-delete a case. Order: FTS rows (evidence_fts has no case_id — clean it
+ * via the evidence subquery BEFORE the cascade destroys those rows) → cases
+ * row (FK cascade takes evidence/sessions/turns/tool_calls/findings) → audit →
+ * case directory. Callers must first stop live sessions
+ * (AgentService.stopAllForCase) and close the case's file watcher. rmSync
+ * removes the .claude junctions as links, never their targets.
+ */
+export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): void {
+  if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
+  const rec = getCase(db, slug)
+  if (!rec) throw new Error(`Unknown case: ${slug}`)
+  const count = (table: string): number =>
+    Number(
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE case_id = ?`).get(rec.id) as {
+          n: number
+        }
+      ).n
+    )
+  const detail = {
+    title: rec.title,
+    evidence: count('evidence'),
+    sessions: count('sessions'),
+    findings: count('findings')
+  }
+  db.exec('BEGIN')
+  try {
+    db.prepare(
+      `DELETE FROM evidence_fts WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
+    ).run(rec.id)
+    db.prepare(`DELETE FROM messages_fts WHERE case_id = ?`).run(rec.id)
+    db.prepare(`DELETE FROM cases WHERE id = ?`).run(rec.id)
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  appendDeletionAudit(argusHome, 'case.delete', slug, detail)
+  fs.rmSync(caseDir(argusHome, slug), { recursive: true, force: true })
 }

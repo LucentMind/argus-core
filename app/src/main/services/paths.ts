@@ -84,3 +84,7 @@ export function refSyncPath(argusHome: string): string {
 export function refSyncStatePath(argusHome: string): string {
   return path.join(configDir(argusHome), 'reference-sync.state.json')
 }
+
+export function deletionAuditPath(argusHome: string): string {
+  return path.join(argusHome, '.audit', 'deletions.jsonl')
+}

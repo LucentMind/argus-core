@@ -44,14 +44,19 @@ import {
   type ConnectorsPayload,
   type HttpConnectorConfig
 } from '../shared/connectors'
-import { createCase, listCases } from './services/caseService'
-import { ingestArtifact, listEvidence } from './services/ingest'
+import { createCase, listCases, deleteCase } from './services/caseService'
+import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
-import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
+import {
+  listSessions,
+  createSession,
+  renameSession,
+  deleteSession
+} from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import {
@@ -81,7 +86,7 @@ import type {
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
 import { buildLangfuseClient } from './services/observability/langfuseClient'
-import { listFindings, reviewFinding } from './services/findings'
+import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 
 let agentService: AgentService | null = null
@@ -277,6 +282,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
   )
+  ipcMain.handle(IPC.evidenceDelete, (_e, caseSlug: string, evidenceId: number) => {
+    assertSlug(caseSlug)
+    if (!Number.isInteger(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`)
+    const r = deleteEvidence(db, argusHome, caseSlug, evidenceId)
+    broadcast(IPC.evidenceChanged, caseSlug)
+    return r
+  })
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) => {
     const f = filters ?? {}
     const sources = f.sources ?? ['evidence']
@@ -357,6 +369,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
     renameSession(db, sessionId, title)
   )
+  ipcMain.handle(IPC.sessionsDelete, async (_e, caseSlug: string, sessionId: number) => {
+    assertSlug(caseSlug)
+    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+    // stop any live session first: stop() closes the mirror synchronously, flushing
+    // its write-behind buffer before we rmSync the .jsonl below — otherwise the
+    // pending 250ms flush timer would recreate the file after deletion
+    await agentService!.stopSession(caseSlug, sessionId)
+    deleteSession(db, argusHome, caseSlug, sessionId)
+  })
 
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {
@@ -384,6 +405,10 @@ function registerIpc(): void {
     const row = reviewFinding(db, id, state)
     langfuseExporter?.scoreFinding(row)
     return row
+  })
+  ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string) => {
+    assertSlug(caseSlug)
+    return clearFindings(db, argusHome, caseSlug)
   })
 
   // — workspaces —
@@ -497,6 +522,18 @@ function registerIpc(): void {
       assertSlug(slug)
       void shell.openPath(caseDir(argusHome, slug))
     }
+  })
+
+  ipcMain.handle(IPC.casesDelete, async (_e, slug: string) => {
+    assertSlug(slug)
+    // strict order: live sessions → watcher → DB/audit/filesystem (in deleteCase)
+    await agentService!.stopAllForCase(slug)
+    const w = caseWatchers.get(slug)
+    if (w) {
+      w.close()
+      caseWatchers.delete(slug)
+    }
+    deleteCase(db, argusHome, slug)
   })
 
   // — skills —

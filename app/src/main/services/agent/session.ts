@@ -26,6 +26,7 @@ export type CreateQueryFn = (args: {
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
   indexText(role: string, content: string, turnId: number | null): void
+  close?(): void
 }
 
 export interface SessionAgentOptions {
@@ -214,6 +215,10 @@ export class CaseSession {
     this.promptQueue.end()
     await this.interrupt()
     this.emit(makeEvent(this.ctx(), 'session.exited', { reason }))
+    // The mirror is write-behind (buffers + a 250ms flush timer): without an explicit
+    // close(), a caller that deletes the session's .jsonl right after stop() races the
+    // pending flush, which recreates the file out from under the deletion.
+    this.deps.mirror?.close?.()
   }
 
   // --- canUseTool pipeline: classify → decide → ask → log -------------------

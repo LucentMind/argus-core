@@ -50,7 +50,7 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
       </SettingRow>
       <SettingRow
         label="Confirm case delete"
-        description="Ask before deleting a case (applies when case delete ships)"
+        description="Require typing the case slug before a case is deleted"
         isDefault={g.confirmCaseDelete}
         onReset={() => void settingsStore.patch({ general: { confirmCaseDelete: null } })}
       >
