@@ -76,3 +76,11 @@ export function proposalsDir(argusHome: string): string {
 export function proposalsArchiveDir(argusHome: string): string {
   return path.join(proposalsDir(argusHome), 'archive')
 }
+
+export function refSyncPath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'reference-sync.json')
+}
+
+export function refSyncStatePath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'reference-sync.state.json')
+}
