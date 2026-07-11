@@ -1,20 +1,24 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { agentStore } from '../lib/agentStore'
+import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
 
 export function FindingsPane({
   slug,
+  sessionId,
   onCite
 }: {
   slug: string
+  sessionId: number | null
   onCite: (relPath: string, line: number) => void
 }): React.JSX.Element {
   const [md, setMd] = useState('')
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
-    () => agentStore.get(slug).findingsBump
+    () =>
+      (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
+        .findingsBump
   )
   useEffect(() => {
     void window.argus.cases.readFindings(slug).then(setMd)
