@@ -6,17 +6,19 @@ import { extract } from 'zip-lib'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestContent, sha256File } from '../ingest'
+import { createDetection } from '../packs/detection'
 import { collectCaseFiles, exportCase } from '../bundle'
 import { bundleManifestSchema } from '../../../shared/bundle'
 import type { DatabaseSync } from 'node:sqlite'
 
 let home: string
 let db: DatabaseSync
+const detection = createDetection()
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-export-'))
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'NAV-100', title: 'Tile region fails' })
-  ingestContent(db, home, 'NAV-100', 'boot.txt', 'ERROR BLOCKED_VERSION tile=42\n', 'upload')
+  ingestContent(db, home, detection, 'NAV-100', 'boot.txt', 'ERROR BLOCKED_VERSION tile=42\n', 'upload')
   fs.writeFileSync(path.join(home, 'cases', 'NAV-100', 'sessions', '1.jsonl'), '{"type":"x"}\n')
 })
 afterEach(() => {

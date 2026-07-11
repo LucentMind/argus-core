@@ -9,6 +9,7 @@ import { classifyToolCall, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer } from './nativeTools'
+import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
 import { composePersona } from './persona'
@@ -37,6 +38,7 @@ export interface SessionAgentOptions {
 export interface SessionDeps {
   db: DatabaseSync
   argusHome: string
+  detection: Detection
   caseId: number
   caseSlug: string
   sessionId: number
@@ -115,6 +117,7 @@ export class CaseSession {
           argus: createArgusMcpServer({
             db: deps.db,
             argusHome: deps.argusHome,
+            detection: deps.detection,
             caseId: deps.caseId,
             caseSlug: deps.caseSlug,
             sessionId: this.sessionId,

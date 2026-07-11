@@ -8,11 +8,13 @@ import { AgentService } from '../registry'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
+import { createDetection } from '../../packs/detection'
 import type { CreateQueryFn } from '../session'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
+const detection = createDetection()
 
 function fakeCreateQuery(): { createQuery: CreateQueryFn; queues: AsyncQueue<unknown>[] } {
   const queues: AsyncQueue<unknown>[] = []
@@ -48,6 +50,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
@@ -68,6 +71,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
@@ -104,6 +108,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
@@ -124,6 +129,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
@@ -159,6 +165,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: (e) => events.push(e),
@@ -179,6 +186,7 @@ describe('AgentService', () => {
     const svc2 = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: () => undefined,
@@ -215,6 +223,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: () => {},
@@ -271,6 +280,7 @@ describe('AgentService', () => {
     const svc = new AgentService({
       db,
       argusHome,
+      detection,
       skillsRoots: [],
       agentAccess: () => defaultAgentAccess(),
       onEvent: () => {},

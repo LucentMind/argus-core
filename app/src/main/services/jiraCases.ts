@@ -15,6 +15,7 @@ import { AtlassianError, type JiraIssueData } from './atlassian'
 import { createCase, getCase, setCaseJira } from './caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
 import { extractDerivedText } from './extraction'
+import type { Detection } from './packs/detection'
 
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
@@ -24,6 +25,7 @@ export interface AtlassianClientLike {
 export interface JiraCasesDeps {
   db: DatabaseSync
   argusHome: string
+  detection: Detection
   client: AtlassianClientLike
   site: () => string
   argusParse: () => string | null
@@ -70,13 +72,14 @@ export class JiraCases {
   }
 
   async createFromTicket(input: { slug: string; title: string; key: string }): Promise<CaseRecord> {
-    const { db, argusHome } = this.deps
+    const { db, argusHome, detection } = this.deps
     const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(input.key)
     createCase(db, argusHome, { slug: input.slug, title: input.title, jiraKey: preview.key })
     const now = new Date().toISOString()
     ingestContent(
       db,
       argusHome,
+      detection,
       input.slug,
       `${preview.key}.ticket.md`,
       ticketMarkdown(preview, descriptionMarkdown),
@@ -86,6 +89,7 @@ export class JiraCases {
     ingestContent(
       db,
       argusHome,
+      detection,
       input.slug,
       `${preview.key}.ticket.json`,
       JSON.stringify(raw, null, 2),
@@ -104,7 +108,7 @@ export class JiraCases {
     caseSlug: string,
     attachments: JiraAttachmentInfo[]
   ): Promise<JiraAttachmentProgress[]> {
-    const { db, argusHome } = this.deps
+    const { db, argusHome, detection } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase) throw new AtlassianError('internal', `Unknown case: ${caseSlug}`)
     const key = kase.jiraKey ?? ''
@@ -117,7 +121,7 @@ export class JiraCases {
         try {
           const tmpFile = path.join(tmpDir, sanitizeFilename(a.filename))
           await this.deps.client.downloadAttachment(a.id, tmpFile)
-          const rec = ingestArtifact(db, argusHome, caseSlug, tmpFile, 'jira', {
+          const rec = ingestArtifact(db, argusHome, detection, caseSlug, tmpFile, 'jira', {
             jira: { key, attachmentId: a.id, filename: a.filename }
           })
           // detector chain ran inside ingestArtifact; kick extraction like evidence:ingest does.
@@ -154,7 +158,7 @@ export class JiraCases {
   }
 
   async refresh(caseSlug: string): Promise<JiraRefreshSummary> {
-    const { db, argusHome } = this.deps
+    const { db, argusHome, detection } = this.deps
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey)
       throw new AtlassianError('not-configured', `Case ${caseSlug} has no linked Jira ticket.`)
@@ -172,6 +176,7 @@ export class JiraCases {
       updateEvidenceContent(
         db,
         argusHome,
+        detection,
         mdRec.id,
         ticketMarkdown(preview, descriptionMarkdown),
         mdMeta
@@ -180,6 +185,7 @@ export class JiraCases {
       ingestContent(
         db,
         argusHome,
+        detection,
         caseSlug,
         `${preview.key}.ticket.md`,
         ticketMarkdown(preview, descriptionMarkdown),
@@ -189,11 +195,19 @@ export class JiraCases {
     const rawRec = evidence.find((e) => jiraMeta(e.meta).role === 'ticket-raw')
     const rawMeta = { jira: { key: preview.key, role: 'ticket-raw', syncedAt: now } }
     if (rawRec)
-      updateEvidenceContent(db, argusHome, rawRec.id, JSON.stringify(raw, null, 2), rawMeta)
+      updateEvidenceContent(
+        db,
+        argusHome,
+        detection,
+        rawRec.id,
+        JSON.stringify(raw, null, 2),
+        rawMeta
+      )
     else
       ingestContent(
         db,
         argusHome,
+        detection,
         caseSlug,
         `${preview.key}.ticket.json`,
         JSON.stringify(raw, null, 2),

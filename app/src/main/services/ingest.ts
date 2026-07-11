@@ -5,16 +5,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/types'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
-import { detectArtifactType } from './detect'
+import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 
-const TEXT_TYPES: ArtifactType[] = ['applog', 'text', 'list-json', 'tagged-json']
-
-const COMPOUND_EXTS = ['.rec.gz', '.list.json', '.bintrace.zip', '.tar.gz']
-
-function splitName(baseName: string): { stem: string; ext: string } {
+function splitName(baseName: string, compoundExts: string[]): { stem: string; ext: string } {
   const lower = baseName.toLowerCase()
-  for (const ce of COMPOUND_EXTS) {
+  for (const ce of compoundExts) {
     if (lower.endsWith(ce))
       return { stem: baseName.slice(0, -ce.length), ext: baseName.slice(-ce.length) }
   }
@@ -22,8 +18,12 @@ function splitName(baseName: string): { stem: string; ext: string } {
   return { stem: baseName.slice(0, baseName.length - ext.length), ext }
 }
 
-function collisionFreeName(evidenceDir: string, baseName: string): string {
-  const { stem, ext } = splitName(baseName)
+function collisionFreeName(
+  evidenceDir: string,
+  baseName: string,
+  compoundExts: string[]
+): string {
+  const { stem, ext } = splitName(baseName, compoundExts)
   let candidate = baseName
   for (let i = 1; fs.existsSync(path.join(evidenceDir, candidate)); i++) {
     candidate = `${stem}-${i}${ext}`
@@ -74,6 +74,7 @@ function rowToEvidence(r: EvidenceRow): EvidenceRecord {
 
 function registerEvidenceFile(
   db: DatabaseSync,
+  detection: Detection,
   caseId: number,
   evidenceDir: string,
   destName: string,
@@ -83,10 +84,10 @@ function registerEvidenceFile(
 ): EvidenceRecord {
   const destPath = path.join(evidenceDir, destName)
   const sha256 = sha256File(destPath)
-  const artifactType = detectArtifactType(destPath)
+  const artifactType: ArtifactType = detection.detectType(destPath)
   const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
-  const indexable = TEXT_TYPES.includes(artifactType)
+  const indexable = detection.isText(artifactType)
   const meta: Record<string, unknown> = { originalName, indexed: indexable, ...extraMeta }
   const relPath = `evidence/${destName}`
 
@@ -120,6 +121,7 @@ function registerEvidenceFile(
 export function ingestArtifact(
   db: DatabaseSync,
   argusHome: string,
+  detection: Detection,
   caseSlug: string,
   sourcePath: string,
   origin: EvidenceOrigin = 'upload',
@@ -128,10 +130,15 @@ export function ingestArtifact(
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
   const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const destName = collisionFreeName(evidenceDir, path.basename(sourcePath))
+  const destName = collisionFreeName(
+    evidenceDir,
+    path.basename(sourcePath),
+    detection.compoundExts()
+  )
   fs.copyFileSync(sourcePath, path.join(evidenceDir, destName))
   return registerEvidenceFile(
     db,
+    detection,
     kase.id,
     evidenceDir,
     destName,
@@ -145,6 +152,7 @@ export function ingestArtifact(
 export function ingestContent(
   db: DatabaseSync,
   argusHome: string,
+  detection: Detection,
   caseSlug: string,
   fileName: string,
   content: string | Buffer,
@@ -154,15 +162,25 @@ export function ingestContent(
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
   const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const destName = collisionFreeName(evidenceDir, fileName)
+  const destName = collisionFreeName(evidenceDir, fileName, detection.compoundExts())
   fs.writeFileSync(path.join(evidenceDir, destName), content)
-  return registerEvidenceFile(db, kase.id, evidenceDir, destName, fileName, origin, extraMeta)
+  return registerEvidenceFile(
+    db,
+    detection,
+    kase.id,
+    evidenceDir,
+    destName,
+    fileName,
+    origin,
+    extraMeta
+  )
 }
 
 /** Overwrite an existing evidence file in place (ticket refresh): re-hash, re-detect, re-index. */
 export function updateEvidenceContent(
   db: DatabaseSync,
   argusHome: string,
+  detection: Detection,
   evidenceId: number,
   content: string | Buffer,
   extraMeta: Record<string, unknown> = {}
@@ -178,9 +196,9 @@ export function updateEvidenceContent(
   fs.writeFileSync(absPath, content)
 
   const sha256 = sha256File(absPath)
-  const artifactType = detectArtifactType(absPath)
+  const artifactType: ArtifactType = detection.detectType(absPath)
   const size = fs.statSync(absPath).size
-  const indexable = TEXT_TYPES.includes(artifactType)
+  const indexable = detection.isText(artifactType)
   const meta: Record<string, unknown> = { ...rec.meta, ...extraMeta, indexed: indexable }
   db.prepare(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`

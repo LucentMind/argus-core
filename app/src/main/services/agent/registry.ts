@@ -11,10 +11,12 @@ import { sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
+import type { Detection } from '../packs/detection'
 
 export interface AgentServiceDeps {
   db: DatabaseSync
   argusHome: string
+  detection: Detection
   skillsRoots: string[]
   /** Live pack persona fragments (PackRegistry); read at each session construction. */
   personaFragments?: () => string[]
@@ -37,7 +39,10 @@ const defaultCreateQuery: CreateQueryFn = (args) =>
 
 export class AgentService {
   private deps: Required<
-    Pick<AgentServiceDeps, 'db' | 'argusHome' | 'skillsRoots' | 'onEvent' | 'agentAccess'>
+    Pick<
+      AgentServiceDeps,
+      'db' | 'argusHome' | 'detection' | 'skillsRoots' | 'onEvent' | 'agentAccess'
+    >
   > &
     AgentServiceDeps
   private sessions = new Map<string, CaseSession>()
@@ -91,6 +96,7 @@ export class AgentService {
     const session = new CaseSession({
       db: this.deps.db,
       argusHome: this.deps.argusHome,
+      detection: this.deps.detection,
       caseId: rec.id,
       caseSlug,
       sessionId,

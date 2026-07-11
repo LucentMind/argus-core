@@ -5,11 +5,14 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
+import { createDetection } from '../packs/detection'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { extractDerivedText } from '../extraction'
 import { searchEvidence, readEvidenceText } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
 
 let tmp: string, argusHome: string, db: DatabaseSync
+const detection = createDetection(samplePackRegistry())
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-bt-'))
@@ -53,7 +56,7 @@ it('wave-1 part-2 exit shape: binary → derived text → FTS hit → viewer tex
 
   const src = path.join(tmp, 'drive.binlog')
   fs.writeFileSync(src, Buffer.from('BINLOG\x01' + 'x'.repeat(64)))
-  const rec = ingestArtifact(db, argusHome, 'NAV-9', src)
+  const rec = ingestArtifact(db, argusHome, detection, 'NAV-9', src)
   const derived = await extractDerivedText(db, argusHome, rec, { argusParse: bin })
   expect(derived).not.toBeNull()
 

@@ -5,11 +5,14 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact, listEvidence } from '../ingest'
+import { createDetection } from '../packs/detection'
+import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { extractDerivedText } from '../extraction'
 import { searchEvidence } from '../search'
 import type { DatabaseSync } from 'node:sqlite'
 
 let tmp: string, argusHome: string, db: DatabaseSync, fakeBin: string
+const detection = createDetection(samplePackRegistry())
 
 // sample-parse stand-in that always writes one decoded line to the --output file
 function writeFakeArgusParse(dir: string): string {
@@ -51,7 +54,7 @@ describe('extraction pipeline', () => {
   it('derives text from a binlog artifact, indexes it with provenance', async () => {
     const src = path.join(tmp, 'trace.binlog')
     fs.writeFileSync(src, Buffer.from('BINLOG\x01binarybytes'))
-    const rec = ingestArtifact(db, argusHome, 'NAV-1', src)
+    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
     expect(rec.artifactType).toBe('binlog')
 
     const derived = await extractDerivedText(db, argusHome, rec, { argusParse: fakeBin })
@@ -68,7 +71,7 @@ describe('extraction pipeline', () => {
   it('returns null instead of throwing when the binary is missing', async () => {
     const src = path.join(tmp, 'trace2.binlog')
     fs.writeFileSync(src, Buffer.from('BINLOG\x01binarybytes'))
-    const rec = ingestArtifact(db, argusHome, 'NAV-1', src)
+    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
     await expect(extractDerivedText(db, argusHome, rec, { argusParse: null })).resolves.toBeNull()
     expect(listEvidence(db, 'NAV-1')).toHaveLength(1) // only trace2.binlog — no derived row appeared
   })
@@ -76,7 +79,7 @@ describe('extraction pipeline', () => {
   it('ignores non-extractable artifact types', async () => {
     const src = path.join(tmp, 'notes.txt')
     fs.writeFileSync(src, 'plain text\n')
-    const rec = ingestArtifact(db, argusHome, 'NAV-1', src)
+    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
     await expect(
       extractDerivedText(db, argusHome, rec, { argusParse: fakeBin })
     ).resolves.toBeNull()
