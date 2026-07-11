@@ -3,8 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../db'
-import { createCase } from '../../caseService'
+import { createCase, getCase } from '../../caseService'
 import { CaseSession, type CreateQueryFn } from '../session'
+import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
@@ -40,12 +41,16 @@ function makeSession(
   sdk: ReturnType<typeof fakeSdk>,
   overrides: Partial<ConstructorParameters<typeof CaseSession>[0]> = {}
 ): CaseSession {
-  const rec = createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
+  // Reuse the case row if a prior call in this test already created it — lets tests
+  // create extra session rows for 'NAV-1' via sessionStore before calling makeSession.
+  const rec = getCase(db, 'NAV-1') ?? createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
+  const sessionId = createSession(db, 'NAV-1').id
   return new CaseSession({
     db,
     argusHome,
     caseId: rec.id,
     caseSlug: 'NAV-1',
+    sessionId,
     workspaceRoots: [],
     skillsRoots: [],
     emit: (e) => events.push(e),
@@ -272,6 +277,7 @@ describe('CaseSession', () => {
       argusHome,
       caseId: rec.id,
       caseSlug: 'NAV-OPT',
+      sessionId: createSession(db, 'NAV-OPT').id,
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
@@ -310,6 +316,7 @@ describe('CaseSession', () => {
       argusHome,
       caseId: rec2.id,
       caseSlug: 'NAV-DEF',
+      sessionId: createSession(db, 'NAV-DEF').id,
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
@@ -663,5 +670,20 @@ describe('CaseSession', () => {
     const sys = sdk.captured.options!.systemPrompt as { append: string }
     expect(sys.append).toContain('read_memory')
     await s.stop('stopped')
+  })
+
+  it('binds to the given session row and titles it from the first message', async () => {
+    const sdk = fakeSdk()
+    // create the case (via createCase) plus an extra row for it, then construct on the SECOND
+    createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
+    const s2 = createSession(db, 'NAV-1')
+    const session = makeSession(sdk, { sessionId: s2.id })
+    session.send('investigate braking failure on route 66')
+    const title = (
+      db.prepare(`SELECT title FROM sessions WHERE id = ?`).get(s2.id) as { title: string }
+    ).title
+    expect(title).toBe('investigate braking failure on route 66'.slice(0, 40))
+    expect(session.sessionId).toBe(s2.id)
+    await session.stop('stopped')
   })
 })

@@ -7,6 +7,7 @@ import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/dri
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
+import { createSession, sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
@@ -65,9 +66,14 @@ export class AgentService {
 
     const rec = getCase(this.deps.db, caseSlug)
     if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
-    const cursor = this.deps.db
-      .prepare(`SELECT sdk_session_id FROM sessions WHERE case_id = ?`)
-      .get(rec.id) as { sdk_session_id: string | null } | undefined
+    // WP-D: sessions.case_id lost its UNIQUE constraint (multi-session per case), but the
+    // registry still exposes one running session per case (Task 4 adds multi-session UI) —
+    // create-or-reuse that single row here since CaseSession no longer does it itself.
+    const existingSession = this.deps.db
+      .prepare(`SELECT id FROM sessions WHERE case_id = ?`)
+      .get(rec.id) as { id: number } | undefined
+    const sessionId = existingSession?.id ?? createSession(this.deps.db, caseSlug).id
+    const cursor = sessionCursor(this.deps.db, sessionId)
 
     const access = this.deps.agentAccess()
     materializeSessionSkills(this.deps.argusHome, caseSlug, access)
@@ -77,11 +83,12 @@ export class AgentService {
       argusHome: this.deps.argusHome,
       caseId: rec.id,
       caseSlug,
+      sessionId,
       workspaceRoots: await workspaceSandboxRoots(this.deps.db, this.deps.argusHome, caseSlug),
       skillsRoots: this.deps.skillsRoots,
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
-      resumeSdkSessionId: cursor?.sdk_session_id ?? null,
+      resumeSdkSessionId: cursor,
       toolRisk: this.deps.toolRisk,
       agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,
