@@ -76,20 +76,24 @@ export class CaseSession {
   constructor(deps: SessionDeps) {
     this.deps = deps
     const now = new Date().toISOString()
-    deps.db
-      .prepare(
-        `INSERT INTO sessions (case_id, sdk_session_id, turn_count, created_at, updated_at)
-         VALUES (?, ?, 0, ?, ?)
-         ON CONFLICT(case_id) DO UPDATE SET updated_at = excluded.updated_at`
-      )
-      .run(deps.caseId, deps.resumeSdkSessionId, now, now)
-    this.sessionId = Number(
-      (
-        deps.db.prepare(`SELECT id FROM sessions WHERE case_id = ?`).get(deps.caseId) as {
-          id: number
-        }
-      ).id
-    )
+    // WP-D: sessions.case_id lost its UNIQUE constraint (multi-session per case).
+    // Preserve prior single-row-per-case reuse semantics here explicitly — Task 2
+    // replaces this with real session-row selection/creation.
+    const existing = deps.db
+      .prepare(`SELECT id FROM sessions WHERE case_id = ?`)
+      .get(deps.caseId) as { id: number } | undefined
+    if (existing) {
+      deps.db.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ?`).run(now, existing.id)
+      this.sessionId = existing.id
+    } else {
+      const info = deps.db
+        .prepare(
+          `INSERT INTO sessions (case_id, sdk_session_id, turn_count, created_at, updated_at)
+           VALUES (?, ?, 0, ?, ?)`
+        )
+        .run(deps.caseId, deps.resumeSdkSessionId, now, now)
+      this.sessionId = Number(info.lastInsertRowid)
+    }
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
     const memIndex = filteredIndex(deps.argusHome, access)

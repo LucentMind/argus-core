@@ -34,8 +34,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  case_id INTEGER NOT NULL UNIQUE REFERENCES cases(id) ON DELETE CASCADE,
+  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
   sdk_session_id TEXT,
+  title TEXT NOT NULL DEFAULT '',
   turn_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -85,6 +86,33 @@ export function openDb(file: string): DatabaseSync {
   }
   if (!caseCols.some((c) => c.name === 'jira_synced_at')) {
     db.exec(`ALTER TABLE cases ADD COLUMN jira_synced_at TEXT`)
+  }
+  // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
+  // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
+  const sessionIdx = db.prepare(`PRAGMA index_list(sessions)`).all() as {
+    origin: string
+    unique: number
+  }[]
+  if (sessionIdx.some((i) => i.unique === 1 && i.origin === 'u')) {
+    db.exec(`BEGIN;
+      CREATE TABLE sessions_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+        sdk_session_id TEXT,
+        title TEXT NOT NULL DEFAULT '',
+        turn_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO sessions_new (id, case_id, sdk_session_id, turn_count, created_at, updated_at)
+        SELECT id, case_id, sdk_session_id, turn_count, created_at, updated_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_new RENAME TO sessions;
+    COMMIT;`)
+  }
+  const sessCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
+  if (!sessCols.some((c) => c.name === 'title')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
   }
   return db
 }
