@@ -107,6 +107,26 @@ describe('argus native tools', () => {
     await expect(handlers.update_case_status({ status: 'bogus' })).rejects.toThrow(/status/i)
   })
 
+  it('closes a case with a resolution', async () => {
+    await handlers.update_case_status({ status: 'closed', resolution: 'duplicate' })
+    const row = db.prepare('SELECT status, resolution FROM cases WHERE slug = ?').get('NAV-1') as {
+      status: string
+      resolution: string | null
+    }
+    expect(row.status).toBe('closed')
+    expect(row.resolution).toBe('duplicate')
+  })
+
+  it('rejects closing without a resolution', async () => {
+    await expect(handlers.update_case_status({ status: 'closed' })).rejects.toThrow(/resolution/i)
+  })
+
+  it('rejects an invalid resolution', async () => {
+    await expect(
+      handlers.update_case_status({ status: 'closed', resolution: 'bogus' })
+    ).rejects.toThrow(/resolution/i)
+  })
+
   it('read_memory returns an enabled topic body', async () => {
     await handlers.write_memory({ topic: 'binder-crashes', content: 'check binder pool first' })
     const out = await handlers.read_memory({ topic: 'binder-crashes' })
