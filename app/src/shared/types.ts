@@ -33,6 +33,13 @@ export interface CaseRecord {
   updatedAt: string
 }
 
+export interface SessionSummary {
+  id: number
+  title: string
+  turnCount: number
+  updatedAt: string
+}
+
 export interface EvidenceRecord {
   id: number
   caseId: number
