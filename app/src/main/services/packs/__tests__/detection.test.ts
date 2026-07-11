@@ -60,6 +60,9 @@ describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
   it('DEVIATION: gzip named .binlog is binlog (was archive)', () => {
     expect(det.detectType(write('weird.binlog', zlib.gzipSync(Buffer.from('x'))))).toBe('binlog')
   })
+  it('DEVIATION: .list.json with tagged marker is tagged-json (was list-json)', () => {
+    expect(det.detectType(write('report-tagged.list.json', JSON.stringify({ version: 1 })))).toBe('tagged-json')
+  })
 
   it('isText covers text + declared isText types only', () => {
     expect(det.isText('text')).toBe(true)
@@ -101,5 +104,19 @@ describe('createDetection with no registry (generics only)', () => {
     const reg = new PackRegistry([{ id: 'bad', dir: '/p/bad', manifest, personaText: null, skillsDir: null, referencesDir: null }])
     const d = createDetection(reg)
     expect(d.detectType(write('x.weird', 'abc'))).toBe('weird') // second rule still works
+  })
+
+  it('a detector whose every rule is invalid is dropped entirely', () => {
+    const manifest = packManifestSchema.parse({
+      id: 'bad2', displayName: 'B', version: '1', argusApi: '^1',
+      detectors: [{ type: 'ghost', match: [{ headRegex: { source: '(' } }] }]
+    })
+    const reg = new PackRegistry([{ id: 'bad2', dir: '/p/bad2', manifest, personaText: null, skillsDir: null, referencesDir: null }])
+    const d = createDetection(reg)
+    expect(d.detectType(write('x.ghost', 'abc'))).toBe('text') // falls through to generics
+    // compileDetectors filters out detectors with zero valid rules, so artifactMeta (which maps
+    // over the same `compiled` list) never lists a fully-dropped detector either — declaration
+    // survives Zod parsing, but detection.ts drops it before it's exposed anywhere.
+    expect(d.artifactMeta().some((m) => m.type === 'ghost')).toBe(false)
   })
 })
