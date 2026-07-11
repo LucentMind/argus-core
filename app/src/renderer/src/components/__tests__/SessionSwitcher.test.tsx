@@ -49,6 +49,53 @@ describe('SessionSwitcher', () => {
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith(3))
   })
 
+  it('search stays inactive below 3 characters', async () => {
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    fireEvent.change(screen.getByLabelText('Search chats'), { target: { value: 'br' } })
+    // outlast the 200ms debounce — the search must never fire for a 2-char query
+    await new Promise((r) => setTimeout(r, 300))
+    expect(window.argus.chat.search).not.toHaveBeenCalled()
+    // panel stays in list mode
+    expect(screen.getByText('Braking RCA')).toBeTruthy()
+  })
+
+  it('closing the popup exits an in-progress rename', async () => {
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    const trigger = await screen.findByRole('button', { name: /chat 1/i })
+    fireEvent.click(trigger)
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Braking RCA' }))
+    expect(screen.getByRole('textbox', { name: 'Rename Braking RCA' })).toBeTruthy()
+    fireEvent.click(trigger) // close
+    fireEvent.click(trigger) // reopen
+    expect(screen.queryByRole('textbox', { name: 'Rename Braking RCA' })).toBeNull()
+    expect(await screen.findByText('Braking RCA')).toBeTruthy()
+  })
+
+  it('New chat reuses an existing untouched chat instead of creating another', async () => {
+    window.argus.sessions.list = vi.fn(async () => [
+      { id: 5, title: '', turnCount: 0, updatedAt: '2026-07-11T12:00:00Z' },
+      ...sessions
+    ]) as never
+    const onSwitch = vi.fn()
+    render(
+      <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
+    )
+    // wait for the list fetch so the empty chat is known
+    await screen.findByRole('button', { name: /chat 1/i })
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    await waitFor(() => expect(onSwitch).toHaveBeenCalledWith(5))
+    expect(window.argus.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('renaming an untitled chat starts from an empty field, not the Chat <id> placeholder', async () => {
+    render(<SessionSwitcher slug="NAV-1" sessionId={2} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /braking rca/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename Chat 1' }))
+    const input = screen.getByRole('textbox', { name: 'Rename Chat 1' }) as HTMLInputElement
+    expect(input.value).toBe('')
+  })
+
   it('renames inline', async () => {
     render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
