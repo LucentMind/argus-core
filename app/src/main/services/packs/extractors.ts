@@ -26,7 +26,9 @@ export function createExtractors(registry: PackRegistry, binaries: BinariesServi
       if (!bin) {
         if (!warned.has(type)) {
           warned.add(type)
-          console.warn(`[packs] detector '${type}': extract.bin '${decl.extract.bin}' is not a declared binary`)
+          console.warn(
+            `[packs] detector '${type}': extract.bin '${decl.extract.bin}' is not a declared binary`
+          )
         }
         return null
       }
@@ -36,7 +38,9 @@ export function createExtractors(registry: PackRegistry, binaries: BinariesServi
       if (!bin.value) {
         if (!warned.has(type)) {
           warned.add(type)
-          console.warn(`[packs] detector '${type}': binary '${decl.extract.bin}' unresolved — extraction disabled`)
+          console.warn(
+            `[packs] detector '${type}': binary '${decl.extract.bin}' unresolved — extraction disabled`
+          )
         }
         return null
       }

@@ -318,11 +318,7 @@ export class CaseSession {
     // SDKModelRefusalFallbackMessage: a refusal made the model swap persistent for the
     // rest of the session, without re-emitting 'init'. Track it so later turns whose
     // result lacks modelUsage still fall back to the right model.
-    if (
-      msg.type === 'system' &&
-      msg.subtype === 'model_refusal_fallback' &&
-      msg.fallback_model
-    ) {
+    if (msg.type === 'system' && msg.subtype === 'model_refusal_fallback' && msg.fallback_model) {
       this.currentModel = String(msg.fallback_model)
     }
     const durable = (msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result'

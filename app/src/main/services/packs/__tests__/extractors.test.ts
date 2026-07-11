@@ -15,9 +15,21 @@ beforeEach(() => {
 
 function pack(binaries: unknown[], detectors: unknown[]): LoadedPack {
   const manifest = packManifestSchema.parse({
-    id: 'testpack', displayName: 'T', version: '1', argusApi: '^1', binaries, detectors
+    id: 'testpack',
+    displayName: 'T',
+    version: '1',
+    argusApi: '^1',
+    binaries,
+    detectors
   })
-  return { id: 'testpack', dir: tmp, manifest, personaText: null, skillsDir: null, referencesDir: null }
+  return {
+    id: 'testpack',
+    dir: tmp,
+    manifest,
+    personaText: null,
+    skillsDir: null,
+    referencesDir: null
+  }
 }
 
 function mkExe(dir: string, name: string): string {
@@ -30,11 +42,26 @@ function mkExe(dir: string, name: string): string {
 describe('createExtractors', () => {
   it('resolves an exe-backed extract to the resolved binary path', () => {
     const bin = mkExe(path.join(tmp, 'out'), 'fake-parse')
-    const reg = new PackRegistry([pack(
-      [{ id: 'fake-parse', kind: 'exe', displayName: 'F', names: ['fake-parse'], devPaths: ['out'] }],
-      [{ type: 'binlog', match: [{ nameEndsWith: ['.binlog'] }],
-         extract: { bin: 'fake-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] } }]
-    )])
+    const reg = new PackRegistry([
+      pack(
+        [
+          {
+            id: 'fake-parse',
+            kind: 'exe',
+            displayName: 'F',
+            names: ['fake-parse'],
+            devPaths: ['out']
+          }
+        ],
+        [
+          {
+            type: 'binlog',
+            match: [{ nameEndsWith: ['.binlog'] }],
+            extract: { bin: 'fake-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] }
+          }
+        ]
+      )
+    ])
     const svc = new BinariesService({ registry: reg, settingsTools: () => ({}), capturedEnv: {} })
     const ex = createExtractors(reg, svc)
     expect(ex.extractFor('binlog')).toEqual({
@@ -44,11 +71,18 @@ describe('createExtractors', () => {
   })
 
   it('resolves a pathDir-backed extract to the bare executable name', () => {
-    const reg = new PackRegistry([pack(
-      [{ id: 'fake-trace', kind: 'pathDir', displayName: 'T', names: ['fake-trace'] }],
-      [{ type: 'bintrace', match: [{ nameEndsWith: ['.bintrace'] }],
-         extract: { bin: 'fake-trace', args: ['convert', '{input}'] } }]
-    )])
+    const reg = new PackRegistry([
+      pack(
+        [{ id: 'fake-trace', kind: 'pathDir', displayName: 'T', names: ['fake-trace'] }],
+        [
+          {
+            type: 'bintrace',
+            match: [{ nameEndsWith: ['.bintrace'] }],
+            extract: { bin: 'fake-trace', args: ['convert', '{input}'] }
+          }
+        ]
+      )
+    ])
     const svc = new BinariesService({ registry: reg, settingsTools: () => ({}), capturedEnv: {} })
     expect(createExtractors(reg, svc).extractFor('bintrace')).toEqual({
       command: 'fake-trace',
@@ -57,14 +91,20 @@ describe('createExtractors', () => {
   })
 
   it('returns null for unresolved exe, unknown bin id, no-extract detector, unknown type', () => {
-    const reg = new PackRegistry([pack(
-      [{ id: 'gone', kind: 'exe', displayName: 'G', names: ['gone-bin'] }],
-      [
-        { type: 'a', match: [{ nameEndsWith: ['.a'] }], extract: { bin: 'gone', args: ['x'] } },
-        { type: 'b', match: [{ nameEndsWith: ['.b'] }], extract: { bin: 'nonexistent-id', args: ['x'] } },
-        { type: 'c', match: [{ nameEndsWith: ['.c'] }] }
-      ]
-    )])
+    const reg = new PackRegistry([
+      pack(
+        [{ id: 'gone', kind: 'exe', displayName: 'G', names: ['gone-bin'] }],
+        [
+          { type: 'a', match: [{ nameEndsWith: ['.a'] }], extract: { bin: 'gone', args: ['x'] } },
+          {
+            type: 'b',
+            match: [{ nameEndsWith: ['.b'] }],
+            extract: { bin: 'nonexistent-id', args: ['x'] }
+          },
+          { type: 'c', match: [{ nameEndsWith: ['.c'] }] }
+        ]
+      )
+    ])
     const svc = new BinariesService({ registry: reg, settingsTools: () => ({}), capturedEnv: {} })
     const ex = createExtractors(reg, svc)
     expect(ex.extractFor('a')).toBeNull() // exe declared but not resolved on disk

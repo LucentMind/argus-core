@@ -26,7 +26,15 @@ beforeEach(async () => {
   dbA = openDb(path.join(homeA, 'argus.db'))
   dbB = openDb(path.join(homeB, 'argus.db'))
   createCase(dbA, homeA, { slug: 'NAV-100', title: 'Tile region fails' })
-  ingestContent(dbA, homeA, detection, 'NAV-100', 'boot.txt', 'ERROR BLOCKED_VERSION tile=42\n', 'upload')
+  ingestContent(
+    dbA,
+    homeA,
+    detection,
+    'NAV-100',
+    'boot.txt',
+    'ERROR BLOCKED_VERSION tile=42\n',
+    'upload'
+  )
   // a derived artifact so the id-remap path is exercised
   const parent = listEvidence(dbA, 'NAV-100')[0]
   const derivedDir = path.join(homeA, 'cases', 'NAV-100', 'evidence', '.derived')

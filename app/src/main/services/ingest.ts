@@ -18,11 +18,7 @@ function splitName(baseName: string, compoundExts: string[]): { stem: string; ex
   return { stem: baseName.slice(0, baseName.length - ext.length), ext }
 }
 
-function collisionFreeName(
-  evidenceDir: string,
-  baseName: string,
-  compoundExts: string[]
-): string {
+function collisionFreeName(evidenceDir: string, baseName: string, compoundExts: string[]): string {
   const { stem, ext } = splitName(baseName, compoundExts)
   let candidate = baseName
   for (let i = 1; fs.existsSync(path.join(evidenceDir, candidate)); i++) {

@@ -3,7 +3,11 @@ import { PackRegistry } from '../registry'
 import { packManifestSchema } from '../manifest'
 import type { LoadedPack } from '../loader'
 
-function lp(id: string, personaText: string | null, assets?: { skills?: string; refs?: string }): LoadedPack {
+function lp(
+  id: string,
+  personaText: string | null,
+  assets?: { skills?: string; refs?: string }
+): LoadedPack {
   return {
     id,
     dir: `/packs/${id}`,
@@ -64,7 +68,10 @@ describe('PackRegistry', () => {
   it('flattens detector declarations in pack order', () => {
     const a = lp('alpha', null)
     a.manifest = packManifestSchema.parse({
-      id: 'alpha', displayName: 'A', version: '1', argusApi: '^1',
+      id: 'alpha',
+      displayName: 'A',
+      version: '1',
+      argusApi: '^1',
       detectors: [{ type: 'binlog', match: [{ nameEndsWith: ['.binlog'] }] }]
     })
     const reg = new PackRegistry([a, lp('beta', null)])
