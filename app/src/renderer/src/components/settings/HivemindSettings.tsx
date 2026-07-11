@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { ExternalLink, RefreshCw, X } from 'lucide-react'
+import { BookUp, ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
@@ -447,14 +447,14 @@ export function HivemindSettings({
               {payload.pushable.map((it) => (
                 <Fragment key={`${it.kind}/${it.name}`}>
                   <SettingRow label={it.name} badge={<Chip tone="neutral">{it.kind}</Chip>}>
-                    <Btn
-                      variant="outline"
+                    <IconBtn
                       aria-label={`Push ${it.name}`}
+                      title="Push to HiveMind…"
                       disabled={busy}
                       onClick={() => void openPush(it)}
                     >
-                      Push…
-                    </Btn>
+                      <BookUp size={14} />
+                    </IconBtn>
                   </SettingRow>
                   {pushConfirm &&
                     pushConfirm.item.kind === it.kind &&

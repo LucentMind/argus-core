@@ -40,7 +40,7 @@ describe('HealthSettings', () => {
         detail: 'C:\\p.exe · 0.3.0'
       })
     )
-    expect(screen.getByText('ok')).toBeTruthy()
+    expect(screen.getByLabelText('ok')).toBeTruthy()
     expect(screen.getByText(/0\.3\.0/)).toBeTruthy()
     act(() =>
       onResultCb!({
@@ -51,7 +51,7 @@ describe('HealthSettings', () => {
         fixHint: 'Run claude login.'
       })
     )
-    expect(screen.getByText('fail')).toBeTruthy()
+    expect(screen.getByLabelText('fail')).toBeTruthy()
     expect(screen.getByText('Run claude login.')).toBeTruthy()
   })
 

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { Card, SectionLabel } from '../ui'
+import { Eraser } from 'lucide-react'
+import { Card, IconBtn, SectionLabel } from '../ui'
 
 export const FIELD =
   'h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
@@ -53,13 +54,9 @@ export function SettingRow({
             {badge}
           </span>
           {!isDefault && onReset && (
-            <button
-              aria-label={`Reset ${label}`}
-              className="text-xs text-mute transition-colors hover:text-ink"
-              onClick={onReset}
-            >
-              reset
-            </button>
+            <IconBtn aria-label={`Reset ${label}`} title="Reset to default" onClick={onReset}>
+              <Eraser size={13} />
+            </IconBtn>
           )}
           {trailing}
         </div>
@@ -78,13 +75,9 @@ export function SettingRow({
         {description && <span className="text-xs text-mute">{description}</span>}
       </div>
       {!isDefault && onReset && (
-        <button
-          aria-label={`Reset ${label}`}
-          className="text-xs text-mute transition-colors hover:text-ink"
-          onClick={onReset}
-        >
-          reset
-        </button>
+        <IconBtn aria-label={`Reset ${label}`} title="Reset to default" onClick={onReset}>
+          <Eraser size={13} />
+        </IconBtn>
       )}
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>

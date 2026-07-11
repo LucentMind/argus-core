@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { CircleX, MonitorCheck, RotateCcw } from 'lucide-react'
 import type { HealthCheckResult, HealthRow } from '../../../../shared/health'
 import { SettingsSection } from './settingsLayout'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, IconBtn } from '../ui'
 
 export function HealthSettings(): React.JSX.Element {
   const [rows, setRows] = useState<HealthRow[]>([])
@@ -63,9 +64,13 @@ export function HealthSettings(): React.JSX.Element {
               {r === 'running' || r == null ? (
                 <Chip tone="neutral">checking…</Chip>
               ) : r.ok ? (
-                <Chip tone="review">ok</Chip>
+                <span title="ok" className="flex shrink-0 items-center">
+                  <MonitorCheck size={16} role="img" aria-label="ok" className="text-signal" />
+                </span>
               ) : (
-                <Chip tone="danger">fail</Chip>
+                <span title="fail" className="flex shrink-0 items-center">
+                  <CircleX size={16} role="img" aria-label="fail" className="text-danger" />
+                </span>
               )}
               <span className="text-dim min-w-0 flex-1 text-sm">
                 {r !== 'running' && r != null && (
@@ -75,9 +80,13 @@ export function HealthSettings(): React.JSX.Element {
                   </>
                 )}
               </span>
-              <Btn variant="ghost" onClick={() => runOne(row.id)} aria-label={`re-run · ${row.id}`}>
-                ↻
-              </Btn>
+              <IconBtn
+                aria-label={`re-run · ${row.id}`}
+                title="Re-run check"
+                onClick={() => runOne(row.id)}
+              >
+                <RotateCcw size={14} />
+              </IconBtn>
             </div>
           )
         })}

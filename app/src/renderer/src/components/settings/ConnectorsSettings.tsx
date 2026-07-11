@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Globe, GlobeOff } from 'lucide-react'
 import {
   CONNECTOR_FORMS,
   ROVO_FORM_EXTRAS,
@@ -23,11 +24,19 @@ function statusChip(
   if (!inst.enabled) return <Chip tone="neutral">disabled</Chip>
   switch (rt?.state) {
     case 'connected':
-      return <Chip tone="review">connected</Chip>
+      return (
+        <span title="connected" className="flex shrink-0 items-center">
+          <Globe size={15} role="img" aria-label="connected" className="text-signal" />
+        </span>
+      )
     case 'error':
       return <Chip tone="danger">error</Chip>
     case 'needs-auth':
-      return <Chip tone="danger">needs auth</Chip>
+      return (
+        <span title="needs auth" className="flex shrink-0 items-center">
+          <GlobeOff size={15} role="img" aria-label="needs auth" className="text-danger" />
+        </span>
+      )
     default:
       return <Chip tone="neutral">never connected</Chip>
   }
@@ -143,34 +152,48 @@ function ConnectorCard({
 
   return (
     <Card className="flex flex-col">
+      {/* controls column sits beside BOTH text lines so Edit + toggle center vertically on the card */}
       <div className="flex items-center gap-2 p-3">
-        <span className="font-medium text-ink">{inst.displayName ?? id}</span>
-        {supported ? (
-          <Chip tone="neutral">{inst.kind}</Chip>
-        ) : (
-          <Chip tone="danger">unsupported kind: {inst.kind}</Chip>
-        )}
-        {statusChip(inst, rt)}
-        {restError && (
-          <Chip tone="danger" title={restError}>
-            REST auth
-          </Chip>
-        )}
-        {rt?.state === 'error' && <span className="text-xs text-dim">{rt.reason}</span>}
-        {isOauth && oauthStatus === 'authorized' && <Chip tone="review">authorized</Chip>}
-        {isOauth && oauthStatus !== 'authorized' && (
-          <Btn
-            variant="primary"
-            disabled={!String((cfg as Partial<HttpConnectorConfig>).url ?? '')}
-            aria-label={`authorize · ${id}`}
-            onClick={authorize}
-          >
-            Authorize…
-          </Btn>
-        )}
-        {isOauth && authError && <span className="text-xs text-danger">{authError}</span>}
-        {secretGap && <Chip tone="danger">secret store unavailable</Chip>}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-ink">{inst.displayName ?? id}</span>
+            {supported ? (
+              <Chip tone="neutral">{inst.kind}</Chip>
+            ) : (
+              <Chip tone="danger">unsupported kind: {inst.kind}</Chip>
+            )}
+            {statusChip(inst, rt)}
+            {restError && (
+              <Chip tone="danger" title={restError}>
+                REST auth
+              </Chip>
+            )}
+            {rt?.state === 'error' && <span className="text-xs text-dim">{rt.reason}</span>}
+            {isOauth && oauthStatus === 'authorized' && <Chip tone="review">authorized</Chip>}
+            {isOauth && oauthStatus !== 'authorized' && (
+              <Btn
+                variant="primary"
+                disabled={!String((cfg as Partial<HttpConnectorConfig>).url ?? '')}
+                aria-label={`authorize · ${id}`}
+                onClick={authorize}
+              >
+                Authorize…
+              </Btn>
+            )}
+            {isOauth && authError && <span className="text-xs text-danger">{authError}</span>}
+            {secretGap && <Chip tone="danger">secret store unavailable</Chip>}
+          </div>
+          {summary && (
+            <button
+              className="text-left text-xs text-dim"
+              onClick={() => setToolsOpen((o) => !o)}
+              aria-label={`tools · ${id}`}
+            >
+              {summary} <span aria-hidden="true">{toolsOpen ? '▾' : '▸'}</span>
+            </button>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           <MenuButton
             label="Edit"
             aria-label={`actions · ${id}`}
@@ -198,15 +221,6 @@ function ConnectorCard({
           />
         </div>
       </div>
-      {summary && (
-        <button
-          className="px-3 pb-2 text-left text-xs text-dim"
-          onClick={() => setToolsOpen((o) => !o)}
-          aria-label={`tools · ${id}`}
-        >
-          {summary} <span aria-hidden="true">{toolsOpen ? '▾' : '▸'}</span>
-        </button>
-      )}
       {toolsOpen && inst.lastDiscovered && (
         <ul className="border-t border-hair px-3 py-2">
           {inst.lastDiscovered.tools.map((t) => (

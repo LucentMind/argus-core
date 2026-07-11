@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch, DraftTextarea } from './settingsLayout'
-import { Btn, Chip } from '../ui'
+import { Chip, IconBtn } from '../ui'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
@@ -62,7 +63,9 @@ export function MemorySettings(): React.JSX.Element {
           <Chip tone={payload.indexLines >= payload.capLines ? 'danger' : 'neutral'}>
             {payload.indexLines} / {payload.capLines} lines
           </Chip>
-          <Btn onClick={() => void openEditor('_index')}>Edit</Btn>
+          <IconBtn aria-label="Edit _index" title="Edit" onClick={() => void openEditor('_index')}>
+            <Pencil size={14} />
+          </IconBtn>
         </SettingRow>
         {editing === '_index' && (
           <DraftTextarea
@@ -90,10 +93,21 @@ export function MemorySettings(): React.JSX.Element {
                 onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
                 aria-label={`enabled · ${t.name}`}
               />
-              <Btn onClick={() => void openEditor(t.name)}>Edit</Btn>
-              <Btn variant="danger" onClick={() => void remove(t.name)}>
-                Delete
-              </Btn>
+              <IconBtn
+                aria-label={`Edit ${t.name}`}
+                title="Edit"
+                onClick={() => void openEditor(t.name)}
+              >
+                <Pencil size={14} />
+              </IconBtn>
+              <IconBtn
+                aria-label={`Delete ${t.name}`}
+                title="Delete"
+                className="hover:text-danger"
+                onClick={() => void remove(t.name)}
+              >
+                <Trash2 size={14} />
+              </IconBtn>
             </SettingRow>
             {editing === t.name && (
               <DraftTextarea
