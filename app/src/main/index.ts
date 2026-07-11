@@ -44,7 +44,7 @@ import {
   type ConnectorsPayload,
   type HttpConnectorConfig
 } from '../shared/connectors'
-import { createCase, listCases, deleteCase } from './services/caseService'
+import { createCase, listCases, deleteCase, setCaseStatus } from './services/caseService'
 import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
@@ -79,6 +79,8 @@ import { createExtractors } from './services/packs/extractors'
 import type {
   ApprovalDecision,
   AuthStatus,
+  CaseResolution,
+  CaseStatus,
   NewCaseInput,
   SearchFilters,
   UnifiedHit
@@ -258,6 +260,11 @@ function registerIpc(): void {
     return rec
   })
   ipcMain.handle(IPC.casesList, () => listCases(db))
+  ipcMain.handle(
+    IPC.casesSetStatus,
+    (_e, slug: string, status: CaseStatus, resolution: CaseResolution | null) =>
+      setCaseStatus(db, argusHome, slug, status, resolution)
+  )
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
     const records = absPaths.map((p) => ingestArtifact(db, argusHome, detection, caseSlug, p))
     // fire-and-forget: derived text appears via evidence:changed when ready

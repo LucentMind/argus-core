@@ -5,6 +5,8 @@ import type {
   SearchFilters,
   ApprovalDecision,
   CaseRecord,
+  CaseResolution,
+  CaseStatus,
   FileNode,
   FileReadResult,
   SessionSummary,
@@ -57,7 +59,9 @@ const argus = {
     list: () => ipcRenderer.invoke(IPC.casesList),
     cost: (caseSlug: string) => ipcRenderer.invoke(IPC.caseCost, caseSlug),
     readFindings: (caseSlug: string) => ipcRenderer.invoke(IPC.caseReadFindings, caseSlug),
-    delete: (slug: string): Promise<void> => ipcRenderer.invoke(IPC.casesDelete, slug)
+    delete: (slug: string): Promise<void> => ipcRenderer.invoke(IPC.casesDelete, slug),
+    setStatus: (slug: string, status: CaseStatus, resolution: CaseResolution | null) =>
+      ipcRenderer.invoke(IPC.casesSetStatus, slug, status, resolution)
   },
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) =>

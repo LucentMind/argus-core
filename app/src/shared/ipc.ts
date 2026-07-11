@@ -3,6 +3,7 @@ export const IPC = {
   casesList: 'cases:list',
   caseCost: 'cases:cost',
   caseReadFindings: 'cases:read-findings',
+  casesSetStatus: 'cases:set-status',
   evidenceIngest: 'evidence:ingest',
   evidenceList: 'evidence:list',
   evidenceRead: 'evidence:read',
