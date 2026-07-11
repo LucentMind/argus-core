@@ -12,7 +12,7 @@ files:
 asarUnpack:
   - resources/**
 extraResources:
-  - from: ../trace-rs/target/release/
+  - from: ../packs/sample/bin-src/trace-rs/target/release/
     to: bin
     filter:
       - sample-parse
