@@ -397,4 +397,24 @@ describe('BinariesService', () => {
     expect(rep.checks[0].ok).toBe(false)
     expect(rep.checks[0].detail).toContain('install the venv')
   })
+
+  it('preflight dedupes checks by name, keeping the first occurrence', async () => {
+    const dev = mkExe(path.join(tmp, 'bin-out'), 'fake-parse')
+    const svc = new BinariesService({
+      registry: new PackRegistry([packWith([
+        { id: 'fake-parse', kind: 'exe', displayName: 'F', names: ['fake-parse'], devPaths: ['bin-out'] },
+        { id: 'fake-trace', kind: 'pathDir', displayName: 'T', names: ['fake-trace'],
+          doctor: { cmd: process.execPath,
+            args: ['-e', 'console.log(JSON.stringify({ok:true,checks:[{name:"fake-parse",ok:false,detail:"doctor dup"},{name:"venv",ok:true,detail:"3.11"}]}))'],
+            json: true } }
+      ], tmp)]),
+      settingsTools: () => ({}),
+      capturedEnv: {}
+    })
+    const rep = await svc.preflight()
+    const parseChecks = rep.checks.filter((c) => c.name === 'fake-parse')
+    expect(parseChecks).toHaveLength(1)
+    expect(parseChecks[0]).toMatchObject({ ok: true, detail: dev }) // exe check won, doctor's dup dropped
+    expect(rep.ok).toBe(true) // the dropped failing dup no longer poisons the aggregate
+  })
 })
