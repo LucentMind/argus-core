@@ -34,27 +34,42 @@ export function CaseWorkspace({
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [focusTurn, setFocusTurn] = useState<{ sessionId: number; turnId: number | null } | null>(
     null
   )
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
   // identical suggestion in the new case isn't a setState no-op, and clear the
-  // stale sessionId so case A's chat doesn't flash while case B's session list
-  // loads — adjust-state-during-render; the composer draft itself resets via
-  // key={slug} in ChatPane
+  // stale sessionId/error so case A's chat doesn't flash while case B's session
+  // list loads — adjust-state-during-render; the composer draft itself resets
+  // via key={slug} in ChatPane
   const [lastSlug, setLastSlug] = useState(slug)
   if (slug !== lastSlug) {
     setLastSlug(slug)
     setPrefill('')
     setSessionId(null)
+    setSessionsError(null)
   }
 
   useEffect(() => {
     wireAgentStore()
-    void window.argus.sessions.list(slug).then((list) => {
-      setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
-    })
+    // guard against a fast A→B slug switch applying A's late-resolving result
+    // after B's effect has already taken over
+    let stale = false
+    void window.argus.sessions
+      .list(slug)
+      .then((list) => {
+        if (stale) return
+        setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
+      })
+      .catch(() => {
+        if (stale) return
+        setSessionsError('Could not load chat sessions.')
+      })
+    return () => {
+      stale = true
+    }
   }, [slug])
 
   function handleSwitchSession(id: number): void {
@@ -117,7 +132,8 @@ export function CaseWorkspace({
           <CaseFiles key={slug} caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          {sessionId !== null && (
+          {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
+          {!sessionsError && sessionId !== null && (
             <ChatPane
               slug={slug}
               sessionId={sessionId}
