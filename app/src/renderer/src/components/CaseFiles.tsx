@@ -1,28 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Chip, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
-import type { ArtifactType, FileNode } from '../../../shared/types'
+import type { ArtifactType, ArtifactTypeMeta, FileNode } from '../../../shared/types'
 
-const ALL_TYPES: ArtifactType[] = [
-  'applog',
-  'binlog',
-  'archive-rec',
-  'list-json',
-  'tagged-json',
-  'bintrace',
-  'archive',
-  'screenshot',
-  'text',
-  'unknown'
-]
-
-// binary/log types → the skill the Analyze button suggests in the composer
-const ANALYZE_SKILLS: Partial<Record<ArtifactType, string>> = {
-  binlog: 'analyze-binlog',
-  'archive-rec': 'analyze-archive-rec',
-  'tagged-json': 'analyze-tagged-json',
-  applog: 'analyze-applog'
-}
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
 function filterTree(nodes: FileNode[], type: ArtifactType | ''): FileNode[] {
@@ -48,6 +28,14 @@ export function CaseFiles({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set()) // default: everything expanded
   const [parsing, setParsing] = useState<Set<number>>(new Set())
   const [dragOver, setDragOver] = useState(false)
+  const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
+
+  useEffect(() => {
+    void window.argus.packs.artifactMeta().then(setArtifactMeta, (err) => {
+      console.warn(`[packs] artifactMeta failed: ${(err as Error).message}`)
+      setArtifactMeta([])
+    })
+  }, [])
 
   const reload = useCallback(
     (): Promise<void> =>
@@ -121,7 +109,9 @@ export function CaseFiles({
           </li>
         ]
       }
-      const skill = n.evidence ? ANALYZE_SKILLS[n.evidence.artifactType] : undefined
+      const skill = n.evidence
+        ? artifactMeta.find((m) => m.type === n.evidence?.artifactType)?.analyzeSkill
+        : undefined
       const isParsing = n.evidence ? parsing.has(n.evidence.id) : false
       return [
         <li
@@ -194,9 +184,9 @@ export function CaseFiles({
             onChange={(e) => setTypeFilter(e.target.value as ArtifactType | '')}
           >
             <option value="">all types</option>
-            {ALL_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t.toUpperCase()}
+            {artifactMeta.map((m) => (
+              <option key={m.type} value={m.type}>
+                {m.displayName}
               </option>
             ))}
           </select>

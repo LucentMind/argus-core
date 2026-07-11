@@ -277,6 +277,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
     searchMessages(db, caseSlug, q)
   )
+  // 1d: renderer artifact type/analyze-skill metadata sourced from pack detectors + generics.
+  ipcMain.handle(IPC.packsArtifactMeta, () => detection.artifactMeta())
 
   // — agent —
   agentService = new AgentService({
