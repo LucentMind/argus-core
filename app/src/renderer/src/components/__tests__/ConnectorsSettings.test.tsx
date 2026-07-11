@@ -80,7 +80,7 @@ describe('ConnectorsSettings', () => {
   it('renders one card per instance with kind, status and tool summary', async () => {
     render(<ConnectorsSettings />)
     expect(await screen.findByText('Atlassian Rovo')).toBeTruthy()
-    expect(screen.getByText('connected')).toBeTruthy()
+    expect(screen.getByLabelText('connected')).toBeTruthy()
     expect(screen.getByText('3 tools · 1 low · 1 medium · 1 high')).toBeTruthy()
     expect(screen.getByText('disabled')).toBeTruthy() // the local card
     expect(screen.getByText(/unsupported kind: future-kind/)).toBeTruthy()

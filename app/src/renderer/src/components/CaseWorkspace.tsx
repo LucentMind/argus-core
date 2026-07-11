@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { PanelRight } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
@@ -151,9 +152,10 @@ export function CaseWorkspace({
           <button
             aria-label="Expand findings"
             title="Expand findings"
-            className="flex w-6 shrink-0 items-center justify-center border-l border-hair bg-deep text-mute transition-colors hover:bg-hi hover:text-ink"
+            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-l border-hair bg-deep text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setFindingsCollapsed(false)}
           >
+            <PanelRight size={14} strokeWidth={1.5} />
             <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">
               Findings
             </span>

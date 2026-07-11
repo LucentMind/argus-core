@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
-import { Plus, Unlink } from 'lucide-react'
+import { FolderGit2, Unlink } from 'lucide-react'
 import { Chip, IconBtn } from './ui'
 
 export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
@@ -59,7 +59,7 @@ export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
         </Chip>
       ))}
       <IconBtn aria-label="Link repo" title="Link a local repo" onClick={() => void link()}>
-        <Plus size={14} />
+        <FolderGit2 size={14} />
       </IconBtn>
     </div>
   )
