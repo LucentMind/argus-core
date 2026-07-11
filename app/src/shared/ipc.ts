@@ -70,5 +70,14 @@ export const IPC = {
   filesOpen: 'files:open',
   filesReveal: 'files:reveal',
   filesChanged: 'files:changed',
-  evidenceParsing: 'evidence:parsing'
+  evidenceParsing: 'evidence:parsing',
+  refsyncGet: 'refsync:get',
+  refsyncValidateSpace: 'refsync:validate-space',
+  refsyncChildren: 'refsync:children',
+  refsyncSaveSpace: 'refsync:save-space',
+  refsyncRemoveSpace: 'refsync:remove-space',
+  refsyncSync: 'refsync:sync',
+  refsyncApplyDrafts: 'refsync:apply-drafts',
+  refsyncChanged: 'refsync:changed',
+  refsyncProgress: 'refsync:progress'
 } as const
