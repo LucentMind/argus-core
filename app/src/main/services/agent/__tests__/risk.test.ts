@@ -100,6 +100,21 @@ describe('classifyToolCall — Bash', () => {
     expect(v).toEqual({ action: 'allow', risk: 'LOW' })
   })
 
+  it('builtin classifiers win over a colliding pack CLI name (defense-in-depth)', () => {
+    const v = classifyToolCall(
+      'Bash',
+      { command: 'git push origin main' },
+      ctx({ packCliNames: ['git'] })
+    )
+    expect(v).toMatchObject({ action: 'ask', risk: 'HIGH' }) // classifyGit, not the allowlist
+    const cd = classifyToolCall(
+      'Bash',
+      { command: 'cd /home/u/other' },
+      ctx({ packCliNames: ['cd'] })
+    )
+    expect(cd.action).toBe('deny') // sandbox check, not the allowlist
+  })
+
   it('does not allowlist undeclared programs', () => {
     const v = classifyToolCall(
       'Bash',

@@ -150,7 +150,6 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   if (tokens.length === 0) return { action: 'allow', risk: 'LOW' }
   const prog = path.basename(tokens[0])
 
-  if (ctx.packCliNames?.includes(prog)) return { action: 'allow', risk: 'LOW' }
   if (prog === 'git') return classifyGit(tokens)
   if (prog === 'gh') return classifyGh(tokens)
   if (prog === 'rm' && tokens.some((t) => /^-[a-zA-Z]*r/i.test(t) || t === '--recursive'))
@@ -161,6 +160,9 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
       return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${target}` }
     return { action: 'allow', risk: 'LOW' }
   }
+  // Builtin classifiers above always win; the pack allowlist only applies to CLIs that
+  // don't collide with git/gh/rm/cd (enforced at the manifest schema level too).
+  if (ctx.packCliNames?.includes(prog)) return { action: 'allow', risk: 'LOW' }
   if (['grep', 'rg', 'cat', 'awk', 'sed', 'head', 'tail'].includes(prog)) {
     const touchesEvidence = tokens
       .slice(1)
