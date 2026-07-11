@@ -1,14 +1,20 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Chip } from './ui'
-import { agentStore } from '../lib/agentStore'
+import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import type { AuthStatus, PreflightReport } from '../../../shared/types'
 
-export function HeaderChips({ slug }: { slug: string }): React.JSX.Element {
+export function HeaderChips({
+  slug,
+  sessionId
+}: {
+  slug: string
+  sessionId: number | null
+}): React.JSX.Element {
   const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [preflight, setPreflight] = useState<PreflightReport | null>(null)
   const state = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
-    () => agentStore.get(slug)
+    () => (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
   )
 
   useEffect(() => {

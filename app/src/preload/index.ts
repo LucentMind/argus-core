@@ -6,7 +6,9 @@ import type {
   ApprovalDecision,
   CaseRecord,
   FileNode,
-  FileReadResult
+  FileReadResult,
+  SessionSummary,
+  ChatSearchResult
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -78,20 +80,34 @@ const argus = {
   search: {
     query: (q: string, filters?: SearchFilters) => ipcRenderer.invoke(IPC.searchQuery, q, filters)
   },
+  chat: {
+    search: (caseSlug: string, q: string): Promise<ChatSearchResult> =>
+      ipcRenderer.invoke(IPC.chatSearch, caseSlug, q)
+  },
   agent: {
-    send: (caseSlug: string, text: string) => ipcRenderer.invoke(IPC.agentSend, caseSlug, text),
-    interrupt: (caseSlug: string) => ipcRenderer.invoke(IPC.agentInterrupt, caseSlug),
-    respond: (caseSlug: string, d: ApprovalDecision) =>
-      ipcRenderer.invoke(IPC.agentRespond, caseSlug, d),
+    send: (caseSlug: string, sessionId: number, text: string) =>
+      ipcRenderer.invoke(IPC.agentSend, caseSlug, sessionId, text),
+    interrupt: (caseSlug: string, sessionId: number) =>
+      ipcRenderer.invoke(IPC.agentInterrupt, caseSlug, sessionId),
+    respond: (caseSlug: string, sessionId: number, d: ApprovalDecision) =>
+      ipcRenderer.invoke(IPC.agentRespond, caseSlug, sessionId, d),
     authStatus: (force?: boolean) => ipcRenderer.invoke(IPC.agentAuthStatus, force),
-    history: (caseSlug: string): Promise<AgentEvent[]> =>
-      ipcRenderer.invoke(IPC.agentHistory, caseSlug),
+    history: (caseSlug: string, sessionId: number): Promise<AgentEvent[]> =>
+      ipcRenderer.invoke(IPC.agentHistory, caseSlug, sessionId),
     preflight: () => ipcRenderer.invoke(IPC.agentPreflight),
     onEvent: (cb: (e: AgentEvent) => void): (() => void) => {
       const listener = (_e: unknown, ev: AgentEvent): void => cb(ev)
       ipcRenderer.on(IPC.agentEventChannel, listener)
       return () => ipcRenderer.removeListener(IPC.agentEventChannel, listener)
     }
+  },
+  sessions: {
+    list: (caseSlug: string): Promise<SessionSummary[]> =>
+      ipcRenderer.invoke(IPC.sessionsList, caseSlug),
+    create: (caseSlug: string): Promise<SessionSummary> =>
+      ipcRenderer.invoke(IPC.sessionsCreate, caseSlug),
+    rename: (sessionId: number, title: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.sessionsRename, sessionId, title)
   },
   workspaces: {
     pick: () => ipcRenderer.invoke(IPC.workspacesPick),

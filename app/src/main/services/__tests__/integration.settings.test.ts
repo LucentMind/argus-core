@@ -7,6 +7,7 @@ import { createCase } from '../caseService'
 import { SettingsService } from '../settings'
 import { resolveArgusParse } from '../parsers'
 import { AgentService } from '../agent/registry'
+import { createSession } from '../agent/sessionStore'
 import { AsyncQueue } from '../agent/asyncQueue'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { CreateQueryFn } from '../agent/session'
@@ -59,7 +60,8 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
       agentSettings: () => svc.get().agent
     })
     createCase(db, argusHome, { slug: 'INT-1', title: 't' })
-    await agents.send('INT-1', 'hello')
+    const s1 = createSession(db, 'INT-1')
+    await agents.send('INT-1', s1.id, 'hello')
     expect((captured[0].systemPrompt as { append: string }).append).toContain('Focus on ADAS.')
     expect(captured[0].model).toBe('claude-sonnet-5')
     await agents.stopAll()

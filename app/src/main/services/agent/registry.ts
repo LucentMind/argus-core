@@ -7,6 +7,7 @@ import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/dri
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
+import { sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
@@ -43,10 +44,27 @@ export class AgentService {
     this.deps = { maxSessions: 3, createQuery: defaultCreateQuery, ...deps }
   }
 
-  private async getOrCreate(caseSlug: string): Promise<CaseSession> {
-    const existing = this.sessions.get(caseSlug)
+  private keyOf(caseSlug: string, sessionId: number): string {
+    return `${caseSlug}::${sessionId}`
+  }
+
+  private async getOrCreate(caseSlug: string, sessionId: number): Promise<CaseSession> {
+    const key = this.keyOf(caseSlug, sessionId)
+    const existing = this.sessions.get(key)
     if (existing && existing.state === 'running') return existing
-    if (existing) this.sessions.delete(caseSlug)
+    if (existing) this.sessions.delete(key)
+
+    // Validate before any side effects: sessionId is caller-provided (Task 5 threads it
+    // from the renderer), so verify the row exists and actually belongs to this case —
+    // a doomed request must never evict (reap) a legitimate live session below.
+    const rec = getCase(this.deps.db, caseSlug)
+    if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
+    const owner = this.deps.db
+      .prepare(`SELECT case_id FROM sessions WHERE id = ?`)
+      .get(sessionId) as { case_id: number } | undefined
+    if (!owner || owner.case_id !== rec.id) {
+      throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
+    }
 
     const as = this.deps.agentSettings?.()
     const mcp = this.deps.composeMcp?.()
@@ -63,11 +81,7 @@ export class AgentService {
       }
     }
 
-    const rec = getCase(this.deps.db, caseSlug)
-    if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
-    const cursor = this.deps.db
-      .prepare(`SELECT sdk_session_id FROM sessions WHERE case_id = ?`)
-      .get(rec.id) as { sdk_session_id: string | null } | undefined
+    const cursor = sessionCursor(this.deps.db, sessionId)
 
     const access = this.deps.agentAccess()
     materializeSessionSkills(this.deps.argusHome, caseSlug, access)
@@ -77,11 +91,12 @@ export class AgentService {
       argusHome: this.deps.argusHome,
       caseId: rec.id,
       caseSlug,
+      sessionId,
       workspaceRoots: await workspaceSandboxRoots(this.deps.db, this.deps.argusHome, caseSlug),
       skillsRoots: this.deps.skillsRoots,
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
-      resumeSdkSessionId: cursor?.sdk_session_id ?? null,
+      resumeSdkSessionId: cursor,
       toolRisk: this.deps.toolRisk,
       agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,
@@ -103,35 +118,36 @@ export class AgentService {
     if (this.deps.mirrorFactory) {
       // mirror is attached post-construction to keep SessionDeps simple
       ;(session as unknown as { deps: { mirror?: SessionMirrorLike } }).deps.mirror =
-        this.deps.mirrorFactory(caseSlug, session.sessionId)
+        this.deps.mirrorFactory(caseSlug, sessionId)
     }
-    this.sessions.set(caseSlug, session)
+    this.sessions.set(key, session)
     return session
   }
 
-  async send(caseSlug: string, text: string): Promise<void> {
-    const s = await this.getOrCreate(caseSlug)
+  async send(caseSlug: string, sessionId: number, text: string): Promise<void> {
+    const s = await this.getOrCreate(caseSlug, sessionId)
     s.send(text)
   }
 
-  respond(caseSlug: string, d: ApprovalDecision): boolean {
-    return this.sessions.get(caseSlug)?.respond(d) ?? false
+  respond(caseSlug: string, sessionId: number, d: ApprovalDecision): boolean {
+    return this.sessions.get(this.keyOf(caseSlug, sessionId))?.respond(d) ?? false
   }
 
-  async interrupt(caseSlug: string): Promise<void> {
-    await this.sessions.get(caseSlug)?.interrupt()
+  async interrupt(caseSlug: string, sessionId: number): Promise<void> {
+    await this.sessions.get(this.keyOf(caseSlug, sessionId))?.interrupt()
   }
 
   async stopAll(): Promise<void> {
-    for (const [slug, s] of [...this.sessions.entries()]) {
+    for (const [key, s] of [...this.sessions.entries()]) {
       await s.stop('stopped')
-      this.sessions.delete(slug)
+      this.sessions.delete(key)
     }
   }
 
-  states(): { caseSlug: string; state: string; activeTurn: boolean }[] {
-    return [...this.sessions.entries()].map(([caseSlug, s]) => ({
-      caseSlug,
+  states(): { caseSlug: string; sessionId: number; state: string; activeTurn: boolean }[] {
+    return [...this.sessions.entries()].map(([key, s]) => ({
+      caseSlug: key.slice(0, key.length - `::${s.sessionId}`.length),
+      sessionId: s.sessionId,
       state: s.state,
       activeTurn: s.activeTurn
     }))

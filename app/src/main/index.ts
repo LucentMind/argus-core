@@ -49,7 +49,9 @@ import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
+import { searchMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
@@ -212,6 +214,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
     searchEvidence(db, q, filters ?? {})
   )
+  ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
+    searchMessages(db, caseSlug, q)
+  )
 
   // — agent —
   agentService = new AgentService({
@@ -233,12 +238,17 @@ function registerIpc(): void {
         }
       )
   })
-  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) =>
-    agentService!.send(caseSlug, text)
-  )
-  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string) => agentService!.interrupt(caseSlug))
-  ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) =>
-    agentService!.respond(caseSlug, d)
+  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, sessionId: number, text: string) => {
+    return agentService!.send(caseSlug, sessionId, text)
+  })
+  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string, sessionId: number) => {
+    return agentService!.interrupt(caseSlug, sessionId)
+  })
+  ipcMain.handle(
+    IPC.agentRespond,
+    (_e, caseSlug: string, sessionId: number, d: ApprovalDecision) => {
+      return agentService!.respond(caseSlug, sessionId, d)
+    }
   )
   ipcMain.handle(IPC.agentAuthStatus, async (_e, force?: boolean) => {
     if (force) cachedAuth = null
@@ -258,8 +268,15 @@ function registerIpc(): void {
     return cachedAuth
   })
   ipcMain.handle(IPC.agentPreflight, () => runPreflight(argusParseBin))
-  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string) =>
-    readSessionEvents(caseDir(argusHome, caseSlug))
+  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) => {
+    assertSlug(caseSlug)
+    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+    return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
+  })
+  ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) => listSessions(db, caseSlug))
+  ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) => createSession(db, caseSlug))
+  ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
+    renameSession(db, sessionId, title)
   )
 
   // — case extras —

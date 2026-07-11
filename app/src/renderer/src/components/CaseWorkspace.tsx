@@ -33,21 +33,64 @@ export function CaseWorkspace({
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<number | null>(null)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [focusTurn, setFocusTurn] = useState<{ sessionId: number; turnId: number | null } | null>(
+    null
+  )
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
-  // identical suggestion in the new case isn't a setState no-op — adjust-state-
-  // during-render; the composer draft itself resets via key={slug} in ChatPane
+  // identical suggestion in the new case isn't a setState no-op, and clear the
+  // stale sessionId/error so case A's chat doesn't flash while case B's session
+  // list loads — adjust-state-during-render; the composer draft itself resets
+  // via key={slug} in ChatPane
   const [lastSlug, setLastSlug] = useState(slug)
   if (slug !== lastSlug) {
     setLastSlug(slug)
     setPrefill('')
+    setSessionId(null)
+    setSessionsError(null)
   }
 
   useEffect(() => {
     wireAgentStore()
-    // restore the persisted transcript after an app restart
-    void window.argus.agent.history(slug).then((events) => agentStore.hydrate(slug, events))
+    // guard against a fast A→B slug switch applying A's late-resolving result
+    // after B's effect has already taken over
+    let stale = false
+    void window.argus.sessions
+      .list(slug)
+      .then((list) => {
+        if (stale) return
+        setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
+      })
+      .catch(() => {
+        if (stale) return
+        setSessionsError('Could not load chat sessions.')
+      })
+    return () => {
+      stale = true
+    }
   }, [slug])
+
+  function handleSwitchSession(id: number): void {
+    uiStore.setActiveSession(slug, id)
+    setSessionId(id)
+  }
+
+  // a search hit's jump target: switch to its session via the same path as a
+  // normal switcher click, then hand ChatPane the turn to scroll to + flash
+  function handleJumpToTurn(targetSessionId: number, turnId: number | null): void {
+    if (targetSessionId !== sessionId) handleSwitchSession(targetSessionId)
+    setFocusTurn({ sessionId: targetSessionId, turnId })
+  }
+
+  useEffect(() => {
+    if (sessionId === null) return
+    // restore the persisted transcript after an app restart
+    void window.argus.agent
+      .history(slug, sessionId)
+      .then((events) => agentStore.hydrate(slug, sessionId, events))
+  }, [slug, sessionId])
 
   async function handleCite(relPath: string, line: number): Promise<void> {
     const list = await window.argus.evidence.list(slug)
@@ -79,7 +122,7 @@ export function CaseWorkspace({
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <HeaderRepos slug={slug} />
         <div className="ml-auto">
-          <HeaderChips slug={slug} />
+          <HeaderChips slug={slug} sessionId={sessionId} />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -89,7 +132,19 @@ export function CaseWorkspace({
           <CaseFiles key={slug} caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} prefill={prefill} />
+          {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
+          {!sessionsError && sessionId !== null && (
+            <ChatPane
+              slug={slug}
+              sessionId={sessionId}
+              onSwitchSession={handleSwitchSession}
+              onCite={(p, l) => void handleCite(p, l)}
+              onJumpToTurn={handleJumpToTurn}
+              focusTurnId={focusTurn?.turnId ?? null}
+              onFocusConsumed={() => setFocusTurn(null)}
+              prefill={prefill}
+            />
+          )}
         </main>
         {ui.findingsCollapsed ? (
           <button
@@ -127,7 +182,11 @@ export function CaseWorkspace({
               className="shrink-0 overflow-y-auto border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth }}
             >
-              <FindingsPane slug={slug} onCite={(p, l) => void handleCite(p, l)} />
+              <FindingsPane
+                slug={slug}
+                sessionId={sessionId}
+                onCite={(p, l) => void handleCite(p, l)}
+              />
             </aside>
           </>
         )}
