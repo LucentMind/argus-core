@@ -1,0 +1,1 @@
+Sample pack persona fragment.
