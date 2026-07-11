@@ -1,5 +1,22 @@
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
+export type CaseResolution =
+  | 'solved'
+  | 'rejected'
+  | 'forwarded'
+  | 'wont-fix'
+  | 'duplicate'
+  | 'not-reproducible'
+
+export const CASE_RESOLUTIONS: readonly CaseResolution[] = [
+  'solved',
+  'rejected',
+  'forwarded',
+  'wont-fix',
+  'duplicate',
+  'not-reproducible'
+]
+
 /**
  * Artifact type of an evidence file. Open-ended: packs define domain types via
  * manifest detectors[]; Core's generic detection yields 'archive' | 'screenshot'
@@ -30,6 +47,8 @@ export interface CaseRecord {
   /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */
   jiraSyncedAt: string | null
   status: CaseStatus
+  /** Why the case was closed; non-null iff status === 'closed'. */
+  resolution: CaseResolution | null
   tags: string[]
   createdAt: string // ISO 8601
   updatedAt: string
