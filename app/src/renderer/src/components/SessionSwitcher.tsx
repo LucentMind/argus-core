@@ -58,6 +58,7 @@ export function SessionSwitcher({
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<ChatSearchHit[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // the trigger needs the active title even before the popup is ever opened
   useEffect(() => {
@@ -84,6 +85,7 @@ export function SessionSwitcher({
       setHits([])
       setSearchError(null)
       setRenamingId(null)
+      setDeleteError(null)
     }
   }
 
@@ -160,14 +162,23 @@ export function SessionSwitcher({
   async function deleteChat(s: SessionSummary): Promise<void> {
     const title = displayTitle(s)
     if (!window.confirm(`Delete "${title}"? Its transcript and turn history are removed.`)) return
-    await window.argus.sessions.delete(slug, s.id)
-    const list = await window.argus.sessions.list(slug)
-    setSessions(list)
-    // deleted the active chat → land on the newest remaining one (listSessions
-    // auto-creates when none are left, so list[0] always exists)
-    if (s.id === sessionId && list.length > 0) {
-      setOpen(false)
-      onSwitch(list[0].id)
+    setDeleteError(null)
+    let ok = true
+    try {
+      await window.argus.sessions.delete(slug, s.id)
+    } catch (err) {
+      ok = false
+      setDeleteError((err as Error).message)
+    } finally {
+      const list = await window.argus.sessions.list(slug)
+      setSessions(list)
+      // deleted the active chat → land on the newest remaining one (listSessions
+      // auto-creates when none are left, so list[0] always exists) — only on success,
+      // else we'd close the popup and hide the error we just set
+      if (ok && s.id === sessionId && list.length > 0) {
+        setOpen(false)
+        onSwitch(list[0].id)
+      }
     }
   }
 
@@ -221,64 +232,70 @@ export function SessionSwitcher({
                   )}
                 </>
               ) : (
-                sorted.map((s) => {
-                  const title = displayTitle(s)
-                  const isRenaming = renamingId === s.id
-                  return (
-                    <div key={s.id} className="flex items-center gap-1 rounded-r1 px-1 hover:bg-hi">
-                      {isRenaming ? (
-                        <input
-                          autoFocus
-                          aria-label={`Rename ${title}`}
-                          className="flex-1 rounded-r1 bg-panel px-1.5 py-1 text-xs text-ink outline-none"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') void commitRename(s.id)
-                            if (e.key === 'Escape') setRenamingId(null)
-                          }}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          aria-label={`Switch to ${title}`}
-                          className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
-                          onClick={() => {
-                            setOpen(false)
-                            onSwitch(s.id)
-                          }}
-                        >
-                          <span className="block truncate text-xs text-ink">{title}</span>
-                          <span className="block truncate text-[10.5px] text-mute">
-                            {relativeTime(s.updatedAt)} · {s.turnCount} turns
-                          </span>
-                        </button>
-                      )}
-                      {!isRenaming && (
-                        <>
-                          <button
-                            type="button"
+                <>
+                  {deleteError && <p className="px-1.5 py-1 text-xs text-danger">{deleteError}</p>}
+                  {sorted.map((s) => {
+                    const title = displayTitle(s)
+                    const isRenaming = renamingId === s.id
+                    return (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-1 rounded-r1 px-1 hover:bg-hi"
+                      >
+                        {isRenaming ? (
+                          <input
+                            autoFocus
                             aria-label={`Rename ${title}`}
-                            title="Rename"
-                            className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
-                            onClick={() => startRename(s)}
-                          >
-                            <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
-                          </button>
+                            className="flex-1 rounded-r1 bg-panel px-1.5 py-1 text-xs text-ink outline-none"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void commitRename(s.id)
+                              if (e.key === 'Escape') setRenamingId(null)
+                            }}
+                          />
+                        ) : (
                           <button
                             type="button"
-                            aria-label={`Delete ${title}`}
-                            title="Delete"
-                            className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-danger"
-                            onClick={() => void deleteChat(s)}
+                            aria-label={`Switch to ${title}`}
+                            className="min-w-0 flex-1 rounded-r1 px-1 py-1.5 text-left"
+                            onClick={() => {
+                              setOpen(false)
+                              onSwitch(s.id)
+                            }}
                           >
-                            <Trash2 size={12} strokeWidth={1.5} aria-hidden="true" />
+                            <span className="block truncate text-xs text-ink">{title}</span>
+                            <span className="block truncate text-[10.5px] text-mute">
+                              {relativeTime(s.updatedAt)} · {s.turnCount} turns
+                            </span>
                           </button>
-                        </>
-                      )}
-                    </div>
-                  )
-                })
+                        )}
+                        {!isRenaming && (
+                          <>
+                            <button
+                              type="button"
+                              aria-label={`Rename ${title}`}
+                              title="Rename"
+                              className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-ink"
+                              onClick={() => startRename(s)}
+                            >
+                              <Pencil size={12} strokeWidth={1.5} aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Delete ${title}`}
+                              title="Delete"
+                              className="shrink-0 rounded-r1 px-1.5 py-1 text-mute transition-colors hover:bg-hair hover:text-danger"
+                              onClick={() => void deleteChat(s)}
+                            >
+                              <Trash2 size={12} strokeWidth={1.5} aria-hidden="true" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
+                </>
               )}
             </div>
           </>

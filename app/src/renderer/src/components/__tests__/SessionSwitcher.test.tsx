@@ -195,4 +195,27 @@ describe('SessionSwitcher', () => {
       (window.argus.sessions as unknown as { delete: ReturnType<typeof vi.fn> }).delete
     ).toHaveBeenCalledTimes(1)
   })
+
+  it('shows an inline error and still refetches the list when sessions.delete rejects', async () => {
+    window.confirm = vi.fn(() => true)
+    const onSwitch = vi.fn()
+    window.argus.sessions.delete = vi.fn(async () => {
+      throw new Error('chat locked')
+    })
+    render(
+      <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    const listCallsBefore = (window.argus.sessions.list as ReturnType<typeof vi.fn>).mock.calls
+      .length
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Chat 1' }))
+    expect(await screen.findByText('chat locked')).toBeTruthy()
+    // failed delete must not switch away from the still-live active session
+    expect(onSwitch).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(
+        (window.argus.sessions.list as ReturnType<typeof vi.fn>).mock.calls.length
+      ).toBeGreaterThan(listCallsBefore)
+    )
+  })
 })
