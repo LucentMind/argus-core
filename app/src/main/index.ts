@@ -29,7 +29,7 @@ import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
-import { HealthService } from './services/health'
+import { HealthService, type LegacyToolsProbe } from './services/health'
 import { ghStatus } from './services/sourceControl'
 import {
   AtlassianClient,
@@ -110,12 +110,19 @@ function registerIpc(): void {
     ]
   })
 
-  // capture user-set env BEFORE this block mutates the process env (badge sources)
-  const envOverrides = {
-    traceDir: process.env.ARGUS_TRACE_DIR,
-    parseBin: process.env.ARGUS_PARSE_BIN
-  }
-  const settingsService = new SettingsService(argusHome, app.getAppPath(), envOverrides)
+  // capture user-set env BEFORE this block mutates the process env (badge source for
+  // recomputeParseBin below; superseded by capturedBinaryEnv for the pack-declared binaries)
+  const capturedParseBin = process.env.ARGUS_PARSE_BIN ?? null
+
+  // settingsService and binariesService are mutually dependent (settingsService.payload()
+  // embeds binariesService.settingsRows(); binariesService reads settingsService.get().tools).
+  // Break the cycle with a `let` closed over by the settings callback — it only runs at
+  // payload() time, by which point binariesService has been assigned below.
+  // eslint-disable-next-line prefer-const -- forward declaration; assigned once below, read only via closure
+  let binariesService: BinariesService
+  const settingsService = new SettingsService(argusHome, {
+    resolvedTools: () => binariesService.settingsRows()
+  })
 
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.
@@ -125,7 +132,7 @@ function registerIpc(): void {
       .filter(({ decl }) => decl.envVar)
       .map(({ decl }) => [decl.envVar as string, process.env[decl.envVar as string]])
   )
-  const binariesService = new BinariesService({
+  binariesService = new BinariesService({
     registry: packRegistry,
     settingsTools: () => settingsService.get().tools,
     resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
@@ -202,10 +209,10 @@ function registerIpc(): void {
     argusParseBin = resolveArgusParse(
       app.getAppPath(),
       settingsService.get().tools.parseBin || undefined,
-      envOverrides.parseBin ?? null
+      capturedParseBin
     )
     // export for spawned children (agent Bash, extraction CLIs); never clobber a user-set env
-    if (!envOverrides.parseBin) {
+    if (!capturedParseBin) {
       if (argusParseBin) process.env.ARGUS_PARSE_BIN = argusParseBin
       else delete process.env.ARGUS_PARSE_BIN
     }
@@ -526,7 +533,7 @@ function registerIpc(): void {
     settingsService.patch(p)
     return settingsService.payload()
   })
-  ipcMain.handle(IPC.settingsProbeTools, () => settingsService.probeTools())
+  ipcMain.handle(IPC.settingsProbeTools, () => binariesService.probe())
   ipcMain.handle(IPC.settingsPickPath, async (_e, mode: 'file' | 'directory') => {
     const r = await dialog.showOpenDialog({
       properties: [mode === 'file' ? 'openFile' : 'openDirectory']
@@ -583,9 +590,24 @@ function registerIpc(): void {
   })
 
   // — health —
+  // Interim bridge from BinariesService's generic rows to HealthService's legacy
+  // parseBin/traceDir shape; Task 7 replaces this dep with binaries/checkBinary.
+  const legacyProbeTools = async (): Promise<LegacyToolsProbe> => {
+    const rows = await binariesService.probe()
+    const parse = rows.find((r) => r.id === 'sample-parse')
+    const trace = rows.find((r) => r.id === 'sample-trace')
+    const parseDetail = parse?.ok ? parse.detail.split(' · ') : null
+    return {
+      parseBin: {
+        path: parseDetail ? parseDetail[0] : null,
+        version: parseDetail && parseDetail.length > 1 ? parseDetail[1] : null
+      },
+      traceDir: { path: binariesService.pathOf('sample-trace'), found: trace?.ok ?? false }
+    }
+  }
   const healthService = new HealthService({
     argusHome,
-    probeTools: () => settingsService.probeTools(),
+    probeTools: legacyProbeTools,
     preflight: () => runPreflight(argusParseBin),
     agentAuth: async () => {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')

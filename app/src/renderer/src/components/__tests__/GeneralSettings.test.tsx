@@ -9,10 +9,7 @@ import { defaultSettings, type SettingsPayload } from '../../../../shared/settin
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   const p: SettingsPayload = {
     settings: defaultSettings(),
-    resolvedTools: {
-      traceDir: { value: null, source: 'default' },
-      parseBin: { value: null, source: 'default' }
-    },
+    resolvedTools: [],
     dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: true },
     loadError: null
   }

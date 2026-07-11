@@ -2,16 +2,24 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { ProbeToolsReport } from '../../shared/settings'
 import type { AuthStatus, PreflightReport } from '../../shared/types'
 import type { DiscoveredTool } from '../../shared/connectors'
 import type { HealthCheckResult, HealthRow } from '../../shared/health'
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Interim shape bridging the pre-pack-binaries settings API to HealthService.
+ * Task 7 replaces this dep entirely with binaries/checkBinary.
+ */
+export interface LegacyToolsProbe {
+  parseBin: { path: string | null; version: string | null }
+  traceDir: { path: string | null; found: boolean }
+}
+
 export interface HealthDeps {
   argusHome: string
-  probeTools: () => Promise<ProbeToolsReport>
+  probeTools: () => Promise<LegacyToolsProbe>
   preflight: () => Promise<PreflightReport>
   agentAuth: () => Promise<AuthStatus>
   /** Injectable for tests; defaults to spawning `gh auth status`. */

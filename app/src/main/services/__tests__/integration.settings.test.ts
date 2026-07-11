@@ -5,24 +5,25 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { SettingsService } from '../settings'
-import { resolveArgusParse } from '../parsers'
+import { BinariesService } from '../packs/binaries'
+import { PackRegistry } from '../packs/registry'
+import { packManifestSchema } from '../packs/manifest'
 import { AgentService } from '../agent/registry'
 import { createSession } from '../agent/sessionStore'
 import { AsyncQueue } from '../agent/asyncQueue'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { CreateQueryFn } from '../agent/session'
+import type { LoadedPack } from '../packs/loader'
 import type { DatabaseSync } from 'node:sqlite'
 
-let tmp: string, argusHome: string, appRoot: string
+let tmp: string, argusHome: string
 let db: DatabaseSync, svc: SettingsService
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-int-set-'))
   argusHome = path.join(tmp, 'home')
-  appRoot = path.join(tmp, 'app')
-  fs.mkdirSync(appRoot, { recursive: true })
   db = openDb(path.join(argusHome, 'argus.db'))
-  svc = new SettingsService(argusHome, appRoot, { traceDir: undefined, parseBin: undefined })
+  svc = new SettingsService(argusHome)
 })
 
 afterEach(() => {
@@ -30,6 +31,17 @@ afterEach(() => {
   db.close()
   fs.rmSync(tmp, { recursive: true, force: true })
 })
+
+function packWith(binaries: unknown[], dir: string): LoadedPack {
+  const manifest = packManifestSchema.parse({
+    id: 'testpack',
+    displayName: 'T',
+    version: '1',
+    argusApi: '^1',
+    binaries
+  })
+  return { id: 'testpack', dir, manifest, personaText: null, skillsDir: null, referencesDir: null }
+}
 
 describe('settings → consumers (wave-spec §8 integration)', () => {
   it('patched personaAppend + model reach the next CaseSession options', async () => {
@@ -67,11 +79,34 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
     await agents.stopAll()
   })
 
-  it('patched tools.parseBin resolves when the env var is unset', () => {
+  it('a settings patch of tools.parseBin flows through settingsTools into a BinariesService recompute', () => {
     const bin = path.join(tmp, 'sample-parse.exe')
     fs.writeFileSync(bin, '')
+    const binaries = new BinariesService({
+      registry: new PackRegistry([
+        packWith(
+          [
+            {
+              id: 'sample-parse',
+              kind: 'exe',
+              displayName: 'sample-parse binary',
+              names: ['sample-parse'],
+              envVar: 'ARGUS_PARSE_BIN',
+              settingsKey: 'parseBin'
+            }
+          ],
+          tmp
+        )
+      ]),
+      settingsTools: () => svc.get().tools,
+      capturedEnv: { ARGUS_PARSE_BIN: undefined }
+    })
+    expect(binaries.get('sample-parse')).toMatchObject({ value: null, source: null })
+
     svc.patch({ tools: { parseBin: bin } })
-    expect(resolveArgusParse(appRoot, svc.get().tools.parseBin, null)).toBe(bin)
-    expect(svc.resolvedTools().parseBin).toEqual({ value: bin, source: 'settings' })
+    binaries.recompute()
+
+    expect(binaries.get('sample-parse')).toMatchObject({ value: bin, source: 'settings' })
+    expect(svc.payload().settings.tools.parseBin).toBe(bin) // store-reload semantics: patch is reflected in get()/payload()
   })
 })

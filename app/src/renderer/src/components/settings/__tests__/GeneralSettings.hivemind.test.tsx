@@ -9,10 +9,7 @@ import type { SettingsPayload } from '../../../../../shared/settings'
 
 const payload: SettingsPayload = {
   settings: defaultSettings(),
-  resolvedTools: {
-    traceDir: { value: null, source: 'default' },
-    parseBin: { value: null, source: 'default' }
-  },
+  resolvedTools: [],
   dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
   loadError: null
 }
