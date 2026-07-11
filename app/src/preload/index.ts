@@ -34,6 +34,13 @@ import type { HivemindPayload, HivemindPushResult } from '../shared/hivemind'
 import type { ProposalsPayload } from '../shared/proposals'
 import type { RefSyncPayload, SyncReport, SyncProgress, TreeNodeVM } from '../shared/referenceSync'
 import type { ConfluenceSpace } from '../shared/confluence'
+import type {
+  MetricsQuery,
+  GlobalMetrics,
+  MetricsSummary,
+  FindingRow,
+  ReviewState
+} from '../shared/observability'
 
 // Custom API for renderer
 const argus = {
@@ -266,6 +273,16 @@ const argus = {
   },
   sourceControl: {
     status: (): Promise<SourceControlStatus> => ipcRenderer.invoke(IPC.sourceControlStatus)
+  },
+  metrics: {
+    global: (q?: MetricsQuery): Promise<GlobalMetrics> => ipcRenderer.invoke(IPC.metricsGlobal, q),
+    case: (slug: string, q?: MetricsQuery): Promise<MetricsSummary> =>
+      ipcRenderer.invoke(IPC.metricsCase, slug, q)
+  },
+  findings: {
+    list: (slug: string): Promise<FindingRow[]> => ipcRenderer.invoke(IPC.findingsList, slug),
+    review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
+      ipcRenderer.invoke(IPC.findingsReview, id, state)
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)

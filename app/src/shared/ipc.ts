@@ -87,5 +87,9 @@ export const IPC = {
   refsyncReadRef: 'refsync:read-ref',
   refsyncSearchRefs: 'refsync:search-refs',
   refsyncChanged: 'refsync:changed',
-  refsyncProgress: 'refsync:progress'
+  refsyncProgress: 'refsync:progress',
+  metricsGlobal: 'metrics:global',
+  metricsCase: 'metrics:case',
+  findingsList: 'findings:list',
+  findingsReview: 'findings:review'
 } as const

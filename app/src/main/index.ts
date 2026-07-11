@@ -71,6 +71,9 @@ import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './servic
 import { PackRegistry } from './services/packs/registry'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
+import { globalMetrics, caseMetrics } from './services/observability/metrics'
+import { listFindings, reviewFinding } from './services/findings'
+import type { MetricsQuery, ReviewState } from '../shared/observability'
 
 let agentService: AgentService | null = null
 
@@ -320,6 +323,16 @@ function registerIpc(): void {
     const f = path.join(caseDir(argusHome, caseSlug), 'findings.md')
     return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''
   })
+
+  // — observability: metrics + findings —
+  ipcMain.handle(IPC.metricsGlobal, (_e, q?: MetricsQuery) => globalMetrics(db, q))
+  ipcMain.handle(IPC.metricsCase, (_e, caseSlug: string, q?: MetricsQuery) =>
+    caseMetrics(db, caseSlug, q)
+  )
+  ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, caseSlug))
+  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) =>
+    reviewFinding(db, id, state)
+  )
 
   // — workspaces —
   ipcMain.handle(IPC.workspacesPick, async () => {
