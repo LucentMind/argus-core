@@ -37,7 +37,9 @@ export async function extractDerivedText(
   const outAbs = path.join(derivedDir, `${path.basename(rec.relPath)}.txt`)
 
   try {
-    const args = extract.args.map((a) => a.replaceAll('{input}', srcAbs).replaceAll('{output}', outAbs))
+    const args = extract.args.map((a) =>
+      a.replaceAll('{input}', srcAbs).replaceAll('{output}', outAbs)
+    )
     await run(extract.command, args)
     return ingestDerived(db, argusHome, slugRow.slug, outAbs, rec.id)
   } catch (err) {

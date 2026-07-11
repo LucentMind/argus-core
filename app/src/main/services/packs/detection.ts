@@ -46,7 +46,9 @@ export function compileDetectors(decls: PackDetector[]): CompiledDetector[] {
   return decls
     .map((decl) => ({
       decl,
-      rules: decl.match.map((r) => compileRule(decl.type, r)).filter((r): r is CompiledRule => r != null)
+      rules: decl.match
+        .map((r) => compileRule(decl.type, r))
+        .filter((r): r is CompiledRule => r != null)
     }))
     .filter((d) => d.rules.length > 0)
 }
@@ -92,7 +94,8 @@ function ruleMatches(rule: CompiledRule, filePath: string, facts: FileFacts): bo
     if (v == null || typeof v !== 'object' || Array.isArray(v)) return false
     const o = v as Record<string, unknown>
     if (rule.json.anyKeys.length && !rule.json.anyKeys.some((k) => k in o)) return false
-    if (rule.json.arrayKeys.length && !rule.json.arrayKeys.every((k) => Array.isArray(o[k]))) return false
+    if (rule.json.arrayKeys.length && !rule.json.arrayKeys.every((k) => Array.isArray(o[k])))
+      return false
   }
   return true
 }
@@ -108,7 +111,8 @@ function genericType(facts: FileFacts): string {
   const h = facts.head
   if (h.length >= 2 && h[0] === 0x1f && h[1] === 0x8b) return 'archive' // gzip
   if (h.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) return 'archive' // zip
-  if (h.length > 262 && h.subarray(257, 262).equals(Buffer.from('ustar', 'latin1'))) return 'archive'
+  if (h.length > 262 && h.subarray(257, 262).equals(Buffer.from('ustar', 'latin1')))
+    return 'archive'
   if (h.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'screenshot' // png
   if (h.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'screenshot' // jpeg
   return facts.headText != null ? 'text' : 'unknown'
@@ -116,7 +120,10 @@ function genericType(facts: FileFacts): string {
 
 export function createDetection(registry?: PackRegistry): Detection {
   const compiled = compileDetectors(registry?.detectorDecls() ?? [])
-  const textTypes = new Set(['text', ...compiled.filter((d) => d.decl.isText).map((d) => d.decl.type)])
+  const textTypes = new Set([
+    'text',
+    ...compiled.filter((d) => d.decl.isText).map((d) => d.decl.type)
+  ])
   const exts = new Set(['.tar.gz'])
   for (const d of compiled) {
     for (const r of d.decl.match) {

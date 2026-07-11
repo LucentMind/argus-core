@@ -15,7 +15,9 @@ describe('packManifestSchema', () => {
   })
 
   it('rejects a manifest missing id', () => {
-    expect(() => packManifestSchema.parse({ displayName: 'X', version: '1', argusApi: '^1' })).toThrow()
+    expect(() =>
+      packManifestSchema.parse({ displayName: 'X', version: '1', argusApi: '^1' })
+    ).toThrow()
   })
 
   it('rejects a non-kebab id', () => {
@@ -23,7 +25,10 @@ describe('packManifestSchema', () => {
   })
 
   it('passes unknown future fields through untouched', () => {
-    const m = packManifestSchema.parse({ ...valid, unknownFuture: 'value' }) as Record<string, unknown>
+    const m = packManifestSchema.parse({ ...valid, unknownFuture: 'value' }) as Record<
+      string,
+      unknown
+    >
     expect(m.unknownFuture).toBe('value')
   })
 
@@ -91,7 +96,11 @@ describe('packManifestSchema', () => {
           match: [{ magicHex: '444C5401' }, { nameEndsWith: ['.binlog'] }],
           extract: { bin: 'sample-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] }
         },
-        { type: 'applog', isText: true, match: [{ headRegex: { source: '^\\d{2}-\\d{2}', flags: 'm' } }] }
+        {
+          type: 'applog',
+          isText: true,
+          match: [{ headRegex: { source: '^\\d{2}-\\d{2}', flags: 'm' } }]
+        }
       ]
     })
     expect(m.detectors).toHaveLength(2)
@@ -109,10 +118,16 @@ describe('packManifestSchema', () => {
 
   it('rejects a detector with a non-kebab type or odd-length magicHex', () => {
     expect(() =>
-      packManifestSchema.parse({ ...valid, detectors: [{ type: 'Bad Type', match: [{ nameEndsWith: ['.x'] }] }] })
+      packManifestSchema.parse({
+        ...valid,
+        detectors: [{ type: 'Bad Type', match: [{ nameEndsWith: ['.x'] }] }]
+      })
     ).toThrow()
     expect(() =>
-      packManifestSchema.parse({ ...valid, detectors: [{ type: 'x', match: [{ magicHex: 'ABC' }] }] })
+      packManifestSchema.parse({
+        ...valid,
+        detectors: [{ type: 'x', match: [{ magicHex: 'ABC' }] }]
+      })
     ).toThrow()
   })
 })

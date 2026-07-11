@@ -28,7 +28,12 @@ describe('sample pack binaries (real manifest)', () => {
     const nav = packs.find((p) => p.id === 'sample')!
     const det = nav.manifest.detectors
     expect(det.map((d) => d.type)).toEqual([
-      'binlog', 'archive-rec', 'bintrace', 'tagged-json', 'list-json', 'applog'
+      'binlog',
+      'archive-rec',
+      'bintrace',
+      'tagged-json',
+      'list-json',
+      'applog'
     ])
     const binIds = nav.manifest.binaries.map((b) => b.id)
     for (const d of det) {

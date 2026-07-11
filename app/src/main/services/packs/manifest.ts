@@ -70,9 +70,7 @@ export const packDetectorSchema = z
     /** OR of AND-rules; a file matching any rule gets this type. */
     match: z.array(matchRuleSchema).min(1),
     /** Derived-text extraction command; bin references a binaries[] id. */
-    extract: z
-      .object({ bin: z.string().min(1), args: z.array(z.string()).min(1) })
-      .optional()
+    extract: z.object({ bin: z.string().min(1), args: z.array(z.string()).min(1) }).optional()
   })
   .passthrough()
   .transform((d) => ({ ...d, displayName: d.displayName ?? d.type }))

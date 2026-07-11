@@ -18,7 +18,11 @@ beforeEach(() => {
 
 describe('loadPacks', () => {
   it('loads a valid pack and resolves its persona text', () => {
-    pack('sample', { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1', persona: 'persona.md' }, { 'persona.md': 'NAV RULES' })
+    pack(
+      'sample',
+      { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1', persona: 'persona.md' },
+      { 'persona.md': 'NAV RULES' }
+    )
     const { packs, errors } = loadPacks(root)
     expect(errors).toEqual([])
     expect(packs).toHaveLength(1)
@@ -40,7 +44,13 @@ describe('loadPacks', () => {
   })
 
   it('records an error when the persona file is missing', () => {
-    pack('sample', { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1', persona: 'persona.md' })
+    pack('sample', {
+      id: 'sample',
+      displayName: 'Nav',
+      version: '1',
+      argusApi: '^1',
+      persona: 'persona.md'
+    })
     const { packs, errors } = loadPacks(root)
     expect(packs).toHaveLength(0)
     expect(errors[0].message).toMatch(/persona/i)
