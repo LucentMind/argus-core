@@ -43,8 +43,20 @@ export class PackRegistry {
     return this._packs.flatMap((p) => p.manifest.binaries.map((decl) => ({ packDir: p.dir, decl })))
   }
 
-  /** All packs' detector declarations, flattened in pack (id-sorted) order. */
+  /** All packs' detector declarations, flattened in pack order; duplicate types → first wins. */
   detectorDecls(): PackDetector[] {
-    return this._packs.flatMap((p) => p.manifest.detectors)
+    const seen = new Set<string>()
+    const out: PackDetector[] = []
+    for (const p of this._packs) {
+      for (const d of p.manifest.detectors) {
+        if (seen.has(d.type)) {
+          console.warn(`[packs] duplicate detector type '${d.type}' — first declaration wins`)
+          continue
+        }
+        seen.add(d.type)
+        out.push(d)
+      }
+    }
+    return out
   }
 }
