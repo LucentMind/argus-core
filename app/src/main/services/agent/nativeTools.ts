@@ -21,6 +21,8 @@ export interface NativeToolDeps {
   emitFinding: (markdown: string) => void
   /** Live agent-access overrides; read per read_memory call so mid-session toggles bite. */
   agentAccess?: () => AgentAccess
+  /** Current turn row id, read at finding time; null between turns. */
+  currentTurnId?: () => number | null
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -65,6 +67,10 @@ export function argusToolHandlers(
       const markdown = String(args.markdown ?? '')
       const block = `\n## ${title}\n_${new Date().toISOString()} · session ${sessionId}_\n\n${markdown}\n`
       fs.appendFileSync(path.join(dir, 'findings.md'), block)
+      db.prepare(
+        `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
+         VALUES (?, ?, ?, ?, 'pending', ?)`
+      ).run(deps.caseId, sessionId, deps.currentTurnId?.() ?? null, title, new Date().toISOString())
       deps.emitFinding(block)
       return 'finding appended'
     },
