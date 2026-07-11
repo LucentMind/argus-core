@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { settingsStore } from '../../lib/settingsStore'
 import { Btn, Chip, IconBtn } from '../ui'
 import {
@@ -26,28 +27,13 @@ const MODE_BY_LABEL = Object.fromEntries(
   PERMISSION_MODES.map((m) => [PERMISSION_MODE_LABELS[m], m])
 ) as Record<string, PermissionMode>
 
-const CHEVRON_ICON = {
-  size: 14,
-  common: {
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.5,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const
-  }
-}
-
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
   return (
-    <svg
-      width={CHEVRON_ICON.size}
-      height={CHEVRON_ICON.size}
-      viewBox="0 0 24 24"
-      {...CHEVRON_ICON.common}
+    <ChevronDown
+      size={14}
+      strokeWidth={1.5}
       className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
+    />
   )
 }
 

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { Btn } from './ui'
 import type { JiraRefreshSummary } from '../../../shared/jira'
 
@@ -18,20 +19,12 @@ function summarize(s: JiraRefreshSummary): string {
 
 function RefreshIcon({ spinning }: { spinning: boolean }): React.JSX.Element {
   return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
+    <RefreshCw
+      size={12}
       strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
       className={spinning ? 'animate-spin' : undefined}
       aria-hidden="true"
-    >
-      <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
-    </svg>
+    />
   )
 }
 

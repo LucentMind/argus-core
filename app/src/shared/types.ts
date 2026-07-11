@@ -33,6 +33,13 @@ export interface CaseRecord {
   updatedAt: string
 }
 
+export interface SessionSummary {
+  id: number
+  title: string
+  turnCount: number
+  updatedAt: string
+}
+
 export interface EvidenceRecord {
   id: number
   caseId: number
@@ -70,6 +77,29 @@ export interface SearchHit {
   startLine: number
   endLine: number
   matchLine: number // exact line of the first term match; falls back to startLine
+}
+
+export interface ChatSearchHit {
+  sessionId: number
+  turnId: number | null
+  role: string
+  snippet: string
+}
+
+export interface ChatSearchResult {
+  hits: ChatSearchHit[]
+  error?: string
+}
+
+/**
+ * What a chat-search jump needs to land on the matched message. FTS rows have
+ * no per-message id — a hit is (turn, role, snippet) — so the transcript view
+ * resolves the exact message in-turn via role + snippet text.
+ */
+export interface ChatJumpTarget {
+  turnId: number | null
+  role?: string
+  snippet?: string
 }
 
 export interface WorkspaceInfo {

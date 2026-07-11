@@ -34,7 +34,7 @@ describe('SessionMirror', () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it('readSessionEvents replays the mirror files back, skipping corrupt lines', () => {
+  it('readSessionEvents replays a single session file back, skipping corrupt lines', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
     const db = openDb(path.join(tmp, 'a.db'))
     const caseDir = path.join(tmp, 'case')
@@ -46,10 +46,38 @@ describe('SessionMirror', () => {
     m.append(ev('assistant.message'))
     m.close()
     fs.appendFileSync(path.join(caseDir, 'sessions', '1.jsonl'), 'not-json\n')
-    const events = readSessionEvents(caseDir)
+    const events = readSessionEvents(caseDir, 1)
     expect(events.map((e) => e.type)).toEqual(['turn.started', 'assistant.message'])
-    expect(readSessionEvents(path.join(tmp, 'missing'))).toEqual([])
+    expect(readSessionEvents(path.join(tmp, 'missing'), 1)).toEqual([])
     db.close()
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('readSessionEvents reads only the requested session file', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
+    const dir = path.join(tmp, 'case')
+    fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'sessions', '1.jsonl'),
+      JSON.stringify({ type: 'turn.started', sessionId: 1 }) + '\n'
+    )
+    fs.writeFileSync(
+      path.join(dir, 'sessions', '2.jsonl'),
+      JSON.stringify({ type: 'turn.started', sessionId: 2 }) + '\n'
+    )
+    expect(readSessionEvents(dir, 2)).toHaveLength(1)
+    expect(readSessionEvents(dir, 99)).toEqual([]) // deleted/missing file → empty, never throws
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('readSessionEvents rejects a non-integer sessionId before touching the filesystem', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
+    const dir = path.join(tmp, 'case')
+    fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
+    // a path-traversal payload smuggled in as sessionId must never reach fs.*
+    expect(() => readSessionEvents(dir, '..\\..\\x' as never)).toThrow(/invalid session id/i)
+    expect(() => readSessionEvents(dir, 1.5)).toThrow(/invalid session id/i)
+    expect(fs.readdirSync(path.join(dir, 'sessions'))).toEqual([])
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
