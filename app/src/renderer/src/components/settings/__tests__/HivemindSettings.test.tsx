@@ -11,10 +11,7 @@ import type { SettingsPayload } from '../../../../../shared/settings'
 function settingsPayload(repo: string): SettingsPayload {
   return {
     settings: { ...defaultSettings(), hivemind: { repo } },
-    resolvedTools: {
-      traceDir: { value: null, source: 'default' },
-      parseBin: { value: null, source: 'default' }
-    },
+    resolvedTools: [],
     dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
     loadError: null
   }

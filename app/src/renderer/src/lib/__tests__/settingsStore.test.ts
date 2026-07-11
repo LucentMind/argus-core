@@ -6,10 +6,7 @@ import { defaultSettings, type SettingsPayload } from '../../../../shared/settin
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
     settings: defaultSettings(),
-    resolvedTools: {
-      traceDir: { value: null, source: 'default' },
-      parseBin: { value: null, source: 'default' }
-    },
+    resolvedTools: [],
     dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
     loadError: null,
     ...overrides

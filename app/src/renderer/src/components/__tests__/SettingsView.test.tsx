@@ -9,10 +9,19 @@ import { DEFAULT_PRESETS } from '../../../../shared/connectors'
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
     settings: defaultSettings(),
-    resolvedTools: {
-      traceDir: { value: null, source: 'default' },
-      parseBin: { value: null, source: 'default' }
-    },
+    resolvedTools: [
+      {
+        id: 'sample-parse',
+        displayName: 'sample-parse binary',
+        description: 'Rust BINLOG decoder',
+        kind: 'exe',
+        envVar: 'ARGUS_PARSE_BIN',
+        settingsKey: 'parseBin',
+        settingsValue: '',
+        value: null,
+        source: 'default'
+      }
+    ],
     dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
     loadError: null,
     ...overrides
@@ -31,10 +40,7 @@ beforeEach(() => {
     settings: {
       get: vi.fn(async () => currentPayload),
       patch: vi.fn(async () => currentPayload),
-      probeTools: vi.fn(async () => ({
-        parseBin: { path: null, version: null },
-        traceDir: { path: null, found: false }
-      })),
+      probeTools: vi.fn(async () => []),
       pickPath: vi.fn(async () => null),
       reveal: vi.fn(),
       onChanged: vi.fn(() => () => {})
