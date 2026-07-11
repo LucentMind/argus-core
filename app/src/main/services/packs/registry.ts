@@ -28,4 +28,12 @@ export class PackRegistry {
       .map((p) => p.personaText)
       .filter((t): t is string => t != null && t.length > 0)
   }
+
+  skillsSources(): string[] {
+    return this._packs.map((p) => p.skillsDir).filter((d): d is string => d != null)
+  }
+
+  referencesSources(): string[] {
+    return this._packs.map((p) => p.referencesDir).filter((d): d is string => d != null)
+  }
 }

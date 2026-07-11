@@ -2,11 +2,24 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
 
+function subdirIfExists(dir: string, name: string): string | null {
+  const p = path.join(dir, name)
+  try {
+    return fs.statSync(p).isDirectory() ? p : null
+  } catch {
+    return null
+  }
+}
+
 export interface LoadedPack {
   id: string
   dir: string
   manifest: PackManifest
   personaText: string | null
+  /** Absolute path of <pack>/skills, when the pack ships skills. */
+  skillsDir: string | null
+  /** Absolute path of <pack>/references, when the pack ships references. */
+  referencesDir: string | null
 }
 
 export interface PackLoadError {
@@ -48,7 +61,14 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
         personaText = fs.readFileSync(p, 'utf8').trim()
       }
 
-      packs.push({ id: manifest.id, dir, manifest, personaText })
+      packs.push({
+        id: manifest.id,
+        dir,
+        manifest,
+        personaText,
+        skillsDir: subdirIfExists(dir, 'skills'),
+        referencesDir: subdirIfExists(dir, 'references')
+      })
     } catch (err) {
       errors.push({ dir, message: (err as Error).message })
     }
