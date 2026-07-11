@@ -163,6 +163,30 @@ describe('HivemindSettings', () => {
     expect(screen.queryByText('References')).not.toBeInTheDocument()
   })
 
+  it('no-match state shows dim message when filter matches nothing in both lists', async () => {
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await screen.findByText('hive-probe')
+
+    // Type non-matching filter
+    fireEvent.change(screen.getByLabelText('Filter HiveMind content'), {
+      target: { value: 'zzz' }
+    })
+
+    // Both lists should be empty, no-match message should appear
+    expect(screen.getByText('No HiveMind content matches "zzz".')).toBeInTheDocument()
+    expect(screen.queryByText('hive-probe')).not.toBeInTheDocument()
+    expect(screen.queryByText('hive-note.md')).not.toBeInTheDocument()
+
+    // Clear filter - rows come back
+    fireEvent.change(screen.getByLabelText('Filter HiveMind content'), {
+      target: { value: '' }
+    })
+
+    expect(screen.queryByText('No HiveMind content matches')).not.toBeInTheDocument()
+    expect(screen.getByText('hive-probe')).toBeInTheDocument()
+    expect(screen.getByText('hive-note.md')).toBeInTheDocument()
+  })
+
   it('push confirm shows the preview and links the PR afterwards', async () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     await screen.findByText('hive-probe')
