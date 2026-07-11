@@ -54,8 +54,6 @@ import { AgentService } from './services/agent/registry'
 import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
-import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
-import { resolveArgusParse } from './services/parsers'
 import {
   linkWorkspace,
   unlinkWorkspace,
@@ -109,10 +107,6 @@ function registerIpc(): void {
       ...(process.env.ARGUS_REFERENCES_DIR ? [process.env.ARGUS_REFERENCES_DIR] : [])
     ]
   })
-
-  // capture user-set env BEFORE this block mutates the process env (badge source for
-  // recomputeParseBin below; superseded by capturedBinaryEnv for the pack-declared binaries)
-  const capturedParseBin = process.env.ARGUS_PARSE_BIN ?? null
 
   // settingsService and binariesService are mutually dependent (settingsService.payload()
   // embeds binariesService.settingsRows(); binariesService reads settingsService.get().tools).
@@ -201,29 +195,10 @@ function registerIpc(): void {
 
   agentAccessStore.subscribe(() => broadcast(IPC.accessChanged, agentAccessStore.payload()))
 
-  // agent sessions and preflight inherit this process env — make sample-trace findable
-  ensureTraceOnPath(app.getAppPath(), settingsService.get().tools.traceDir || undefined)
-  // …and sample-parse (Python delegation + agent Bash read ARGUS_PARSE_BIN)
-  let argusParseBin: string | null = null
-  const recomputeParseBin = (): void => {
-    argusParseBin = resolveArgusParse(
-      app.getAppPath(),
-      settingsService.get().tools.parseBin || undefined,
-      capturedParseBin
-    )
-    // export for spawned children (agent Bash, extraction CLIs); never clobber a user-set env
-    if (!capturedParseBin) {
-      if (argusParseBin) process.env.ARGUS_PARSE_BIN = argusParseBin
-      else delete process.env.ARGUS_PARSE_BIN
-    }
-  }
-  recomputeParseBin()
-
   // shared with the agent:auth-status handler below — settings changes (e.g. a new
   // cliPath) must invalidate the cached probe result so the next open re-probes
   let cachedAuth: AuthStatus | null = null
   settingsService.subscribe(() => {
-    recomputeParseBin()
     binariesService.recompute()
     cachedAuth = null
     broadcast(IPC.settingsChanged, settingsService.payload())
@@ -243,7 +218,10 @@ function registerIpc(): void {
       broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
       // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
       // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
-      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin })
+      void extractDerivedText(db, argusHome, rec, {
+        // 1d removes this hardcoded id: detectors will declare their extract commands
+        argusParse: binariesService.pathOf('sample-parse')
+      })
         .then((derived) => {
           if (derived) broadcast(IPC.evidenceChanged, caseSlug)
         })
@@ -317,7 +295,7 @@ function registerIpc(): void {
     }
     return cachedAuth
   })
-  ipcMain.handle(IPC.agentPreflight, () => runPreflight(argusParseBin))
+  ipcMain.handle(IPC.agentPreflight, () => binariesService.preflight())
   ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
@@ -646,7 +624,8 @@ function registerIpc(): void {
     argusHome,
     client: atlassian,
     site: () => atlassianCreds().siteUrl,
-    argusParse: () => argusParseBin,
+    // 1d removes this hardcoded id: detectors will declare their extract commands
+    argusParse: () => binariesService.pathOf('sample-parse'),
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug),
     parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
