@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path, { join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+import icon from '../../resources/argus-icon.png?asset'
 import { IPC } from '../shared/ipc'
 import { resolveArgusHome, dbPath, caseDir, settingsPath, configDir } from './services/paths'
 import { topicEnabled } from '../shared/agentAccess'
@@ -796,7 +796,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

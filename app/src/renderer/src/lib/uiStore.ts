@@ -1,7 +1,13 @@
 export type Theme = 'dark' | 'light'
 
+/** Discrete UI zoom factors offered in General settings. */
+export const UI_SCALES = [0.9, 1.0, 1.1, 1.25, 1.5] as const
+export type UiScale = (typeof UI_SCALES)[number]
+const UI_SCALE_DEFAULT: UiScale = 1.0
+
 export interface UiState {
   theme: Theme
+  uiScale: UiScale
   showToolCalls: boolean
   findingsCollapsed: boolean
   findingsWidth: number
@@ -13,6 +19,7 @@ export interface UiState {
 
 const KEYS = {
   theme: 'argus.ui.theme',
+  uiScale: 'argus.ui.uiScale',
   showToolCalls: 'argus.ui.showToolCalls',
   findingsCollapsed: 'argus.ui.findingsCollapsed',
   findingsWidth: 'argus.ui.findingsWidth'
@@ -25,8 +32,12 @@ const FINDINGS_DEFAULT_WIDTH = 384
 function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
   const theme = localStorage.getItem(KEYS.theme)
   const width = Number(localStorage.getItem(KEYS.findingsWidth))
+  const scale = Number(localStorage.getItem(KEYS.uiScale))
   return {
     theme: theme === 'light' ? 'light' : 'dark',
+    uiScale: (UI_SCALES as readonly number[]).includes(scale)
+      ? (scale as UiScale)
+      : UI_SCALE_DEFAULT,
     showToolCalls: localStorage.getItem(KEYS.showToolCalls) !== 'false',
     findingsCollapsed: localStorage.getItem(KEYS.findingsCollapsed) === 'true',
     findingsWidth:
@@ -43,6 +54,7 @@ export class UiStore {
   constructor() {
     this.state = { ...readPersisted(), recentTabs: [], activeSessions: {} }
     this.applyTheme()
+    this.applyScale()
   }
 
   get(): UiState {
@@ -61,6 +73,16 @@ export class UiStore {
 
   private applyTheme(): void {
     document.documentElement.setAttribute('data-theme', this.state.theme)
+  }
+
+  private applyScale(): void {
+    window.argus?.ui?.setZoomFactor(this.state.uiScale)
+  }
+
+  setUiScale(scale: UiScale): void {
+    this.set({ uiScale: scale })
+    localStorage.setItem(KEYS.uiScale, String(scale))
+    this.applyScale()
   }
 
   setTheme(theme: Theme): void {

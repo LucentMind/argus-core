@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { uiStore, type Theme } from '../../lib/uiStore'
+import { uiStore, UI_SCALES, type Theme, type UiScale } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { Btn, Chip } from '../ui'
 import { SettingsSection, SettingRow, Switch, SelectField } from './settingsLayout'
@@ -24,6 +24,14 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           value={ui.theme}
           options={['dark', 'light']}
           onChange={(v) => uiStore.setTheme(v as Theme)}
+        />
+      </SettingRow>
+      <SettingRow label="UI scale" description="Zoom the whole interface (this window only)">
+        <SelectField
+          aria-label="UI scale"
+          value={`${Math.round(ui.uiScale * 100)}%`}
+          options={UI_SCALES.map((s) => `${Math.round(s * 100)}%`)}
+          onChange={(v) => uiStore.setUiScale((parseInt(v, 10) / 100) as UiScale)}
         />
       </SettingRow>
       <SettingRow

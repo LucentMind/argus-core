@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
 import { IPC } from '../shared/ipc'
 import type {
   NewCaseInput,
@@ -290,6 +290,10 @@ const argus = {
     list: (slug: string): Promise<FindingRow[]> => ipcRenderer.invoke(IPC.findingsList, slug),
     review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
       ipcRenderer.invoke(IPC.findingsReview, id, state)
+  },
+  ui: {
+    /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */
+    setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor)
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)
