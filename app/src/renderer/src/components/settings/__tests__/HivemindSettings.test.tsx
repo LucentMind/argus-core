@@ -286,7 +286,7 @@ describe('keep as mine', () => {
     const argus = mockArgus(claimable)
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
     await waitFor(() =>
       expect(
@@ -299,7 +299,7 @@ describe('keep as mine', () => {
     const argus = mockArgus(claimable)
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.spyOn(window, 'confirm').mockReturnValue(false)
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
     expect(
       (argus.hivemind as { claimReference: ReturnType<typeof vi.fn> }).claimReference
@@ -315,7 +315,7 @@ describe('keep as mine', () => {
       ]
     })
     ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText('hive-note.md')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /as mine/ })).not.toBeInTheDocument()
   })
@@ -327,7 +327,7 @@ describe('keep as mine', () => {
       .mockRejectedValue(new Error('claim exploded'))
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<HivemindTab />)
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/claim exploded/)
