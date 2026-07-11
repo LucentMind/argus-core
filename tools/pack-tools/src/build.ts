@@ -59,3 +59,43 @@ export function crossCheckBinaries(
     .map((n) => `extra file in --bin not claimed by any binary: ${n}`)
   return { warnings }
 }
+
+/** Declarative directories copied verbatim into the bundle when present. */
+const BUNDLE_DIRS = ['skills', 'references', 'ui'] as const
+
+export function assembleBundle(
+  manifest: PackManifest,
+  packDir: string,
+  binDir: string,
+  platform: string,
+  stagingDir: string
+): void {
+  fs.mkdirSync(stagingDir, { recursive: true })
+
+  // Manifest with platform stamped in.
+  const stamped = { ...manifest, platform }
+  fs.writeFileSync(
+    path.join(stagingDir, PACK_MANIFEST_FILE),
+    JSON.stringify(stamped, null, 2) + '\n'
+  )
+
+  // Persona (if declared).
+  if (manifest.persona) {
+    const src = path.join(packDir, manifest.persona)
+    if (!fs.existsSync(src)) throw new Error(`persona file not found: ${manifest.persona}`)
+    fs.cpSync(src, path.join(stagingDir, manifest.persona))
+  }
+
+  // Declarative dirs (allowlist — never bin-src/.git/etc).
+  for (const d of BUNDLE_DIRS) {
+    const src = path.join(packDir, d)
+    if (fs.existsSync(src)) fs.cpSync(src, path.join(stagingDir, d), { recursive: true })
+  }
+
+  // Binaries → bin/.
+  const binOut = path.join(stagingDir, 'bin')
+  fs.mkdirSync(binOut, { recursive: true })
+  for (const ent of fs.readdirSync(binDir, { withFileTypes: true })) {
+    if (ent.isFile()) fs.cpSync(path.join(binDir, ent.name), path.join(binOut, ent.name))
+  }
+}
