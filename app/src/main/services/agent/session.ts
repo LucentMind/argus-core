@@ -14,6 +14,7 @@ import { isEditableTool } from '../../../shared/editableTools'
 import { ARGUS_PERSONA } from './persona'
 import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
+import { touchSession, setTitleIfEmpty } from './sessionStore'
 
 export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
 export type CreateQueryFn = (args: {
@@ -38,6 +39,7 @@ export interface SessionDeps {
   argusHome: string
   caseId: number
   caseSlug: string
+  sessionId: number
   workspaceRoots: string[]
   skillsRoots: string[]
   emit: (e: AgentEvent) => void
@@ -75,25 +77,8 @@ export class CaseSession {
 
   constructor(deps: SessionDeps) {
     this.deps = deps
-    const now = new Date().toISOString()
-    // WP-D: sessions.case_id lost its UNIQUE constraint (multi-session per case).
-    // Preserve prior single-row-per-case reuse semantics here explicitly — Task 2
-    // replaces this with real session-row selection/creation.
-    const existing = deps.db
-      .prepare(`SELECT id FROM sessions WHERE case_id = ?`)
-      .get(deps.caseId) as { id: number } | undefined
-    if (existing) {
-      deps.db.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ?`).run(now, existing.id)
-      this.sessionId = existing.id
-    } else {
-      const info = deps.db
-        .prepare(
-          `INSERT INTO sessions (case_id, sdk_session_id, turn_count, created_at, updated_at)
-           VALUES (?, ?, 0, ?, ?)`
-        )
-        .run(deps.caseId, deps.resumeSdkSessionId, now, now)
-      this.sessionId = Number(info.lastInsertRowid)
-    }
+    this.sessionId = deps.sessionId
+    touchSession(deps.db, deps.sessionId)
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
     const memIndex = filteredIndex(deps.argusHome, access)
@@ -196,6 +181,7 @@ export class CaseSession {
       )
       .run(this.deps.caseId, this.sessionId, this.turnIndex, now)
     this.currentTurnRow = Number(res.lastInsertRowid)
+    setTitleIfEmpty(this.deps.db, this.sessionId, text)
     this.deps.mirror?.indexText('user', text, this.currentTurnRow)
     this.emit(makeEvent(this.ctx(), 'turn.started', { userText: text }))
     this.promptQueue.push({
