@@ -80,10 +80,11 @@ export class LangfuseExporter {
           break
         case 'tool.call.completed': {
           const s = this.sessions.get(e.sessionId)
+          this.toolNames.delete(e.payload.toolCallId)
           if (!s) break
           this.client.span({
             traceId: s.traceId,
-            name: `tool:${e.payload.name || this.toolNames.get(e.payload.toolCallId) || ''}`,
+            name: `tool:${e.payload.name}`,
             level: e.payload.isError ? 'ERROR' : 'DEFAULT',
             ...(this.opts.captureContent ? { output: e.payload.outputPreview } : {})
           })
@@ -94,6 +95,10 @@ export class LangfuseExporter {
           if (!s) break
           const approved = e.payload.decision === 'allow' || e.payload.decision === 'allow-session'
           this.client.score({ traceId: s.traceId, name: 'hitl_approved', value: approved ? 1 : 0 })
+          break
+        }
+        case 'session.exited': {
+          this.sessions.delete(e.sessionId)
           break
         }
         case 'turn.completed': {
@@ -132,6 +137,14 @@ export class LangfuseExporter {
   async flush(): Promise<void> {
     try {
       await this.client.flushAsync()
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    try {
+      await this.client.shutdownAsync()
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err)
     }
