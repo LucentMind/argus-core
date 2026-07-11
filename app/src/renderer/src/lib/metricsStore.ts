@@ -17,6 +17,7 @@ export function useGlobalMetrics(q?: MetricsQuery): {
 export function useCaseMetrics(slug: string): { data: MetricsSummary | null } {
   const [data, setData] = useState<MetricsSummary | null>(null)
   useEffect(() => {
+    if (!slug) return
     void window.argus.metrics.case(slug).then(setData)
   }, [slug])
   return { data }
