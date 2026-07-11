@@ -2,6 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { InstalledSkills } from '../settings/InstalledSkills'
+import { SkillsSettings } from '../settings/SkillsSettings'
 import { accessStore } from '../../lib/accessStore'
 
 const skills = {
@@ -25,7 +26,8 @@ beforeEach(() => {
       patch: vi.fn(async () => ({ access: { skills: {}, memory: {} }, loadError: null })),
       onChanged: vi.fn(() => () => {})
     },
-    skills: { list: vi.fn(async () => skills) }
+    skills: { list: vi.fn(async () => skills) },
+    proposals: { list: vi.fn(async () => ({ proposals: [] })) }
   } as never
 })
 
@@ -65,5 +67,14 @@ describe('InstalledSkills', () => {
         'false'
       )
     )
+  })
+})
+
+describe('SkillsSettings tabs', () => {
+  it('offers only Installed and Proposals — HiveMind moved to its own settings page', async () => {
+    render(<SkillsSettings />)
+    await screen.findByRole('tab', { name: 'Installed' })
+    expect(screen.getByRole('tab', { name: 'Proposals' })).toBeTruthy()
+    expect(screen.queryByRole('tab', { name: /HiveMind/ })).toBeNull()
   })
 })

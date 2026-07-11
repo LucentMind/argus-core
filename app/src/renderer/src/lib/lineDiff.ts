@@ -5,8 +5,12 @@ export interface DiffLine {
 
 /** Minimal LCS line diff for proposal previews (small inputs; O(n*m) with a size guard). */
 export function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split('\n')
-  const b = after.split('\n')
+  // Line-ending agnostic: bundled skills are CRLF on Windows, agent content is
+  // typically LF — splitting on '\n' alone left a trailing '\r' on every "before"
+  // line, so every line compared unequal and the diff degenerated to a full
+  // remove+re-add instead of a real diff.
+  const a = before.split(/\r\n|\r|\n/)
+  const b = after.split(/\r\n|\r|\n/)
   // guard: degenerate to whole-file replace when the LCS table would be huge
   if (a.length * b.length > 400_000) {
     return [
