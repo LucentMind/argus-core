@@ -11,7 +11,12 @@ export interface MetricsSummary {
   outputTokens: number
   byModel: ModelUsage[]
   turns: { total: number; error: number }
-  tools: { total: number; denied: number; byDecision: Record<string, number>; byRisk: Record<string, number> }
+  tools: {
+    total: number
+    denied: number
+    byDecision: Record<string, number>
+    byRisk: Record<string, number>
+  }
   findings: { total: number; accepted: number; rejected: number; pending: number }
   latencyMs: { turnP50: number | null; turnP95: number | null }
 }

@@ -1,5 +1,10 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
-import type { GlobalMetrics, MetricsQuery, MetricsSummary, ModelUsage } from '../../../shared/observability'
+import type {
+  GlobalMetrics,
+  MetricsQuery,
+  MetricsSummary,
+  ModelUsage
+} from '../../../shared/observability'
 
 function percentile(sorted: number[], p: number): number | null {
   if (sorted.length === 0) return null
@@ -7,7 +12,11 @@ function percentile(sorted: number[], p: number): number | null {
   return sorted[idx]
 }
 
-function summary(db: DatabaseSync, caseFilter: { caseId?: number }, q?: MetricsQuery): MetricsSummary {
+function summary(
+  db: DatabaseSync,
+  caseFilter: { caseId?: number },
+  q?: MetricsQuery
+): MetricsSummary {
   const where: string[] = []
   const bind: SQLInputValue[] = []
   if (caseFilter.caseId != null) {
@@ -90,14 +99,17 @@ function summary(db: DatabaseSync, caseFilter: { caseId?: number }, q?: MetricsQ
 }
 
 export function caseMetrics(db: DatabaseSync, caseSlug: string, q?: MetricsQuery): MetricsSummary {
-  const row = db.prepare(`SELECT id FROM cases WHERE slug = ?`).get(caseSlug) as { id: number } | undefined
+  const row = db.prepare(`SELECT id FROM cases WHERE slug = ?`).get(caseSlug) as
+    { id: number } | undefined
   if (!row) throw new Error(`Unknown case: ${caseSlug}`)
   return summary(db, { caseId: row.id }, q)
 }
 
 export function globalMetrics(db: DatabaseSync, q?: MetricsQuery): GlobalMetrics {
   const base = summary(db, {}, q)
-  const resolved = db.prepare(`SELECT COUNT(*) AS n FROM cases WHERE status = 'closed'`).get() as { n: number }
+  const resolved = db.prepare(`SELECT COUNT(*) AS n FROM cases WHERE status = 'closed'`).get() as {
+    n: number
+  }
   const closedCost = db
     .prepare(
       `SELECT COALESCE(SUM(t.cost_usd),0) AS cost FROM turns t JOIN cases c ON c.id = t.case_id WHERE c.status = 'closed'`
