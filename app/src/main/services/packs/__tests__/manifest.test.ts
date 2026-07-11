@@ -47,7 +47,7 @@ describe('packManifestSchema', () => {
           envVar: 'ARGUS_PARSE_BIN',
           settingsKey: 'parseBin',
           names: ['sample-parse'],
-          devPaths: ['../../trace-rs/target/release'],
+          devPaths: ['bin-src/trace-rs/target/release', '../../trace-rs/target/release'],
           versionArgs: ['--version'],
           pathProbeArgs: ['doctor']
         },
@@ -56,7 +56,7 @@ describe('packManifestSchema', () => {
           kind: 'pathDir',
           displayName: 'sample-trace CLI',
           names: ['sample-trace'],
-          devPaths: ['../../trace-tools/.venv/{platformBin}'],
+          devPaths: ['bin-src/trace-tools/.venv/{platformBin}', '../../trace-tools/.venv/{platformBin}'],
           doctor: { cmd: 'sample-trace', args: ['doctor', '--json'], json: true }
         }
       ]

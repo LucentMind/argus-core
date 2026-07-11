@@ -16,9 +16,9 @@ describe('sample pack binaries (real manifest)', () => {
     ])
     expect(bins[0].envVar).toBe('ARGUS_PARSE_BIN')
     expect(bins[1].doctor).toMatchObject({ cmd: 'sample-trace', json: true })
-    // dev path geometry: pack-relative ../../trace-rs lands at the repo root
+    // dev path geometry: pack-relative bin-src/trace-rs lands inside the pack itself
     expect(path.resolve(nav!.dir, bins[0].devPaths[0])).toBe(
-      path.resolve(process.cwd(), '..', 'trace-rs', 'target', 'release')
+      path.resolve(process.cwd(), '..', 'packs', 'sample', 'bin-src', 'trace-rs', 'target', 'release')
     )
   })
 
