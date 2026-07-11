@@ -115,7 +115,13 @@ describe('SessionSwitcher', () => {
     fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
     fireEvent.change(screen.getByLabelText('Search chats'), { target: { value: 'braking' } })
     fireEvent.click(await screen.findByText(/pressure log/))
-    expect(onJump).toHaveBeenCalledWith(2, 20)
+    // role + snippet travel with the jump so ChatPane can land on the matched
+    // message (assistant text has no per-message id — it's resolved in-turn)
+    expect(onJump).toHaveBeenCalledWith(2, {
+      turnId: 20,
+      role: 'assistant',
+      snippet: '«braking» pressure log'
+    })
   })
 
   it('shows the FTS error inline', async () => {

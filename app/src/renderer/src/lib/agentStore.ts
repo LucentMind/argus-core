@@ -2,7 +2,7 @@ import type { AgentEvent } from '../../../shared/agent-events'
 
 export type TranscriptItem =
   | { kind: 'user'; text: string; turnId: number | null }
-  | { kind: 'assistant'; text: string; streaming: boolean }
+  | { kind: 'assistant'; text: string; streaming: boolean; turnId: number | null }
   | {
       kind: 'tool'
       toolCallId: string
@@ -100,15 +100,30 @@ export class AgentStore {
           if (last?.kind === 'assistant' && last.streaming) {
             items[items.length - 1] = { ...last, text: last.text + e.payload.text }
           } else {
-            items.push({ kind: 'assistant', text: e.payload.text, streaming: true })
+            items.push({
+              kind: 'assistant',
+              text: e.payload.text,
+              streaming: true,
+              turnId: e.turnId
+            })
           }
           return { ...s, items }
         }
         case 'assistant.message': {
           if (last?.kind === 'assistant' && last.streaming) {
-            items[items.length - 1] = { kind: 'assistant', text: e.payload.text, streaming: false }
+            items[items.length - 1] = {
+              kind: 'assistant',
+              text: e.payload.text,
+              streaming: false,
+              turnId: e.turnId
+            }
           } else {
-            items.push({ kind: 'assistant', text: e.payload.text, streaming: false })
+            items.push({
+              kind: 'assistant',
+              text: e.payload.text,
+              streaming: false,
+              turnId: e.turnId
+            })
           }
           return { ...s, items }
         }

@@ -91,6 +91,17 @@ export interface ChatSearchResult {
   error?: string
 }
 
+/**
+ * What a chat-search jump needs to land on the matched message. FTS rows have
+ * no per-message id — a hit is (turn, role, snippet) — so the transcript view
+ * resolves the exact message in-turn via role + snippet text.
+ */
+export interface ChatJumpTarget {
+  turnId: number | null
+  role?: string
+  snippet?: string
+}
+
 export interface WorkspaceInfo {
   path: string
   remote: string | null

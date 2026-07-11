@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
@@ -110,6 +110,109 @@ describe('ChatPane', () => {
       <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
     )
     expect(container.querySelector('[data-turn-id="10"]')).toBeTruthy()
+  })
+
+  // Regression: a chat-search hit on ASSISTANT text must land on the matched
+  // assistant message, not on the turn's user message. In single-turn chats
+  // (slash-command investigations) the turn's user message IS the first
+  // message of the chat, so the old turn-anchored jump scrolled to the top
+  // and flashed message #1 even for text at the very end of the transcript.
+  it('jump to an assistant hit scrolls to and flashes the matched assistant message', () => {
+    const slug = 'NAV-JUMP-A'
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
+    agentStore.apply(at('turn.started', { userText: 'run the pipeline' }, 7))
+    agentStore.apply(at('assistant.message', { text: 'step one: parsing the log' }, 7))
+    agentStore.apply(at('assistant.message', { text: 'step two: correlating spans' }, 7))
+    agentStore.apply(
+      at('assistant.message', { text: 'summary: root cause was a stale tile cache' }, 7)
+    )
+    const scrolled: Element[] = []
+    Element.prototype.scrollIntoView = function () {
+      scrolled.push(this)
+    }
+    const onFocusConsumed = vi.fn()
+    const { container } = render(
+      <ChatPane
+        slug={slug}
+        sessionId={1}
+        onSwitchSession={vi.fn()}
+        onCite={vi.fn()}
+        focusTarget={{
+          turnId: 7,
+          role: 'assistant',
+          snippet: '…root cause was a «stale» tile cache'
+        }}
+        onFocusConsumed={onFocusConsumed}
+      />
+    )
+    // the matched assistant message is item index 3 (user, a1, a2, a3)
+    const target = container.querySelector('[data-item-index="3"]')!
+    expect(scrolled[scrolled.length - 1]).toBe(target)
+    expect(target.className).toContain('bg-signal/20')
+    // and NOT the turn's user anchor
+    expect(scrolled[scrolled.length - 1]).not.toBe(container.querySelector('[data-turn-id="7"]'))
+    expect(onFocusConsumed).toHaveBeenCalled()
+  })
+
+  it('jump to a user hit still scrolls to and flashes the turn user message', () => {
+    const slug = 'NAV-JUMP-U'
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
+    agentStore.apply(at('turn.started', { userText: 'first question' }, 1))
+    agentStore.apply(at('assistant.message', { text: 'first answer' }, 1))
+    agentStore.apply(at('turn.started', { userText: 'braking pressure follow-up' }, 2))
+    agentStore.apply(at('assistant.message', { text: 'second answer' }, 2))
+    const scrolled: Element[] = []
+    Element.prototype.scrollIntoView = function () {
+      scrolled.push(this)
+    }
+    const { container } = render(
+      <ChatPane
+        slug={slug}
+        sessionId={1}
+        onSwitchSession={vi.fn()}
+        onCite={vi.fn()}
+        focusTarget={{ turnId: 2, role: 'user', snippet: '«braking» pressure follow-up' }}
+        onFocusConsumed={vi.fn()}
+      />
+    )
+    expect(scrolled[scrolled.length - 1]).toBe(container.querySelector('[data-turn-id="2"]'))
+    expect(scrolled[scrolled.length - 1]?.className).toContain('bg-signal/20')
+  })
+
+  // the anchor may only appear after the target session's history hydrates —
+  // the jump must then still resolve, scroll, and flash
+  it('jump waits for hydration: scrolls once the matched message appears', () => {
+    const slug = 'NAV-JUMP-H'
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload, turnId }) as AgentEvent
+    const scrolled: Element[] = []
+    Element.prototype.scrollIntoView = function () {
+      scrolled.push(this)
+    }
+    const onFocusConsumed = vi.fn()
+    const { container } = render(
+      <ChatPane
+        slug={slug}
+        sessionId={1}
+        onSwitchSession={vi.fn()}
+        onCite={vi.fn()}
+        focusTarget={{ turnId: 9, role: 'assistant', snippet: 'ends with «frobnitz»' }}
+        onFocusConsumed={onFocusConsumed}
+      />
+    )
+    expect(onFocusConsumed).not.toHaveBeenCalled()
+    act(() => {
+      agentStore.hydrate(slug, 1, [
+        at('turn.started', { userText: 'investigate' }, 9),
+        at('assistant.message', { text: 'working on it' }, 9),
+        at('assistant.message', { text: 'ends with frobnitz' }, 9)
+      ] as AgentEvent[])
+    })
+    const target = container.querySelector('[data-item-index="2"]')!
+    expect(scrolled[scrolled.length - 1]).toBe(target)
+    expect(onFocusConsumed).toHaveBeenCalled()
   })
 
   it('opens the find overlay on Ctrl+F, rings matches, and refocuses composer on close', () => {

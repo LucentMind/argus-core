@@ -5,7 +5,7 @@ import { ChatFind } from '../ChatFind'
 
 const items = [
   { kind: 'user' as const, text: 'braking failed', turnId: 1 },
-  { kind: 'assistant' as const, text: 'checking braking logs', streaming: false },
+  { kind: 'assistant' as const, text: 'checking braking logs', streaming: false, turnId: 1 },
   { kind: 'user' as const, text: 'unrelated', turnId: 2 }
 ]
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, Pencil, Plus } from 'lucide-react'
-import type { ChatSearchHit, SessionSummary } from '../../../shared/types'
+import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
 
 function displayTitle(s: { id: number; title: string }): string {
   return s.title || `Chat ${s.id}`
@@ -49,7 +49,7 @@ export function SessionSwitcher({
   slug: string
   sessionId: number
   onSwitch: (id: number) => void
-  onJumpToTurn: (sessionId: number, turnId: number | null) => void
+  onJumpToTurn: (sessionId: number, target: ChatJumpTarget) => void
 }): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [open, setOpen] = useState(false)
@@ -124,7 +124,7 @@ export function SessionSwitcher({
 
   function jumpTo(hit: ChatSearchHit): void {
     setOpen(false)
-    onJumpToTurn(hit.sessionId, hit.turnId)
+    onJumpToTurn(hit.sessionId, { turnId: hit.turnId, role: hit.role, snippet: hit.snippet })
   }
 
   async function createChat(): Promise<void> {
