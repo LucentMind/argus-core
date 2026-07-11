@@ -32,6 +32,7 @@
     "@fontsource/geist-sans": "^5.2.5",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/vite": "^4.3.2",
+    "lucide-react": "^1.24.0",
     "react-markdown": "^10.1.0",
     "tailwindcss": "^4.3.2",
     "zip-lib": "^1.4.0",
