@@ -24,6 +24,7 @@ export const IPC = {
   workspacesUnlink: 'workspaces:unlink',
   workspacesList: 'workspaces:list',
   skillsList: 'skills:list',
+  skillsDeleteUser: 'skills:delete-user',
   settingsGet: 'settings:get',
   settingsPatch: 'settings:patch',
   settingsChanged: 'settings:changed',

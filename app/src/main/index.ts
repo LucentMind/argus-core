@@ -22,10 +22,10 @@ import {
   readAudit,
   MEMORY_INDEX_MAX_LINES
 } from './services/memory'
-import { resolveSkills } from './services/agent/skillsResolver'
+import { deleteUserSkill, resolveSkills } from './services/agent/skillsResolver'
 import { HivemindService } from './services/hivemind'
 import { listProposals, acceptProposal, rejectProposal } from './services/proposals'
-import type { MemoryTopicsPayload } from '../shared/memoryIpc'
+import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
@@ -409,7 +409,7 @@ function registerIpc(): void {
   })
 
   // — skills —
-  ipcMain.handle(IPC.skillsList, () => ({
+  const skillsPayload = (): SkillsPayload => ({
     skills: resolveSkills(argusHome, agentAccessStore.get()).map((s) => ({
       name: s.name,
       tier: s.tier,
@@ -417,7 +417,12 @@ function registerIpc(): void {
       enabled: s.enabled,
       shadows: s.shadows
     }))
-  }))
+  })
+  ipcMain.handle(IPC.skillsList, () => skillsPayload())
+  ipcMain.handle(IPC.skillsDeleteUser, (_e, name: string) => {
+    deleteUserSkill(argusHome, name)
+    return skillsPayload()
+  })
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({
