@@ -243,24 +243,32 @@ export function SessionSwitcher({
           </>
         )}
       </div>
-      <button
-        type="button"
-        aria-label="New chat"
-        title="New chat"
-        className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
-        onClick={() => void createChat()}
-      >
-        <span aria-hidden="true">＋</span>
-        <span>New chat</span>
-      </button>
-      <input
-        aria-label="Search chats"
-        placeholder="Search chats"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => setOpen(true)}
-        className="w-40 rounded-r2 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
-      />
+      {/* relative z-20: own stacking context above the popup's click-away
+          overlay (fixed inset-0 z-10, see above). The overlay lives inside
+          the trigger's wrapper, not here, so this container's positioned
+          descendant status wins the comparison directly — without this, the
+          overlay (a positioned descendant) paints above these static
+          controls regardless of DOM order, swallowing their first click. */}
+      <div className="relative z-20 flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="New chat"
+          title="New chat"
+          className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+          onClick={() => void createChat()}
+        >
+          <span aria-hidden="true">＋</span>
+          <span>New chat</span>
+        </button>
+        <input
+          aria-label="Search chats"
+          placeholder="Search chats"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setOpen(true)}
+          className="w-40 rounded-r2 border border-hair bg-panel px-2 py-1 text-xs text-ink placeholder:text-mute"
+        />
+      </div>
     </div>
   )
 }
