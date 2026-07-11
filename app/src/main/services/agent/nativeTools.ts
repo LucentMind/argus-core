@@ -99,7 +99,9 @@ export function argusToolHandlers(
       }
       const content = readTopic(argusHome, topic) // validates the topic name
       if (!content) {
-        throw new Error(`read_memory: no such topic "${topic}" — see the index lines in your context`)
+        throw new Error(
+          `read_memory: no such topic "${topic}" — see the index lines in your context`
+        )
       }
       return content
     },
