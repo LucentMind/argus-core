@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { Sun, Moon, Plus, Settings } from 'lucide-react'
+import { Sun, Moon, Plus, Settings, BarChart3 } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { IconBtn } from './ui'
 
@@ -8,12 +8,14 @@ export function TopBar({
   onHome,
   onSelect,
   onSettings,
+  onObservability,
   onNewCase
 }: {
   activeSlug: string | null
   onHome: () => void
   onSelect: (slug: string) => void
   onSettings: () => void
+  onObservability?: () => void
   onNewCase: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
@@ -71,6 +73,11 @@ export function TopBar({
       <IconBtn aria-label="New case" title="New case" onClick={onNewCase}>
         <Plus size={14} strokeWidth={1.5} />
       </IconBtn>
+      {onObservability && (
+        <IconBtn aria-label="Observability" title="Observability" onClick={onObservability}>
+          <BarChart3 size={14} strokeWidth={1.5} />
+        </IconBtn>
+      )}
       <IconBtn aria-label="Settings" title="Settings" onClick={onSettings}>
         <Settings size={14} strokeWidth={1.5} />
       </IconBtn>

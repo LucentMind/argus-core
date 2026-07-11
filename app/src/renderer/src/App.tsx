@@ -4,6 +4,7 @@ import { CaseWorkspace } from './components/CaseWorkspace'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewCaseDialog } from './components/NewCaseDialog'
+import { ObservabilityView } from './components/observability/ObservabilityView'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
@@ -11,7 +12,11 @@ import { TopBar } from './components/TopBar'
 import { uiStore } from './lib/uiStore'
 import type { CaseRecord, NewCaseInput, SearchHit } from '../../shared/types'
 
-type View = { kind: 'home' } | { kind: 'case'; slug: string } | { kind: 'settings' }
+type View =
+  | { kind: 'home' }
+  | { kind: 'case'; slug: string }
+  | { kind: 'settings' }
+  | { kind: 'observability' }
 
 type Viewer =
   | { kind: 'evidence'; evidenceId: number; focusLine: number }
@@ -70,6 +75,13 @@ function App(): React.JSX.Element {
     setView(prevView)
   }
 
+  function openObservability(): void {
+    if (view.kind !== 'observability') {
+      setPrevView(view)
+      setView({ kind: 'observability' })
+    }
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">
       <TopBar
@@ -77,6 +89,7 @@ function App(): React.JSX.Element {
         onHome={goHome}
         onSelect={openCase}
         onSettings={openSettings}
+        onObservability={openObservability}
         onNewCase={() => setNewCaseOpen(true)}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -94,6 +107,8 @@ function App(): React.JSX.Element {
           </>
         ) : view.kind === 'settings' ? (
           <SettingsView onClose={closeSettings} />
+        ) : view.kind === 'observability' ? (
+          <ObservabilityView onOpenCase={openCase} />
         ) : (
           <CaseWorkspace
             slug={view.slug}
