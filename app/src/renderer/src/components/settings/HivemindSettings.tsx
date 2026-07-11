@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
+import { ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, IconBtn } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
 import type { HivemindItem, HivemindPayload, PushableItem } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
@@ -90,9 +91,9 @@ function BrowseRow({
             >
               Re-install
             </Btn>
-            <Btn variant="ghost" onClick={onCancel}>
-              Cancel
-            </Btn>
+            <IconBtn aria-label="Cancel" title="Cancel" onClick={onCancel}>
+              <X size={14} />
+            </IconBtn>
           </div>
         </div>
       )}
@@ -126,7 +127,14 @@ export function HivemindSettings({
   const [updateConfirm, setUpdateConfirm] = useState<UpdateConfirm | null>(null)
   const [pushConfirm, setPushConfirm] = useState<PushConfirm | null>(null)
   const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [check, setCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
+  const [checkError, setCheckError] = useState<string | null>(null)
 
+  const g = settingsPayload.settings.hivemind
+
+  // Re-runs whenever the repo setting changes so the payload, gh status, and
+  // readiness probe all refresh immediately after the user commits a new repo
+  // (previously mount-only: the Browse list stayed dormant until re-entering the tab).
   useEffect(() => {
     let mounted = true
     void window.argus.hivemind
@@ -138,10 +146,22 @@ export function HivemindSettings({
       })
       .catch((e) => mounted && setError(e instanceof Error ? e.message : String(e)))
     void window.argus.sourceControl.status().then((s) => mounted && setGh(s))
+    if (g.repo.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- repo-keyed probe: set 'checking' immediately for instant feedback before the async check resolves
+      setCheck('checking')
+      setCheckError(null)
+      void window.argus.hivemind.check().then((r) => {
+        if (!mounted) return
+        setCheck(r.ok ? 'ok' : 'fail')
+        if (!r.ok) setCheckError(r.error)
+      })
+    } else {
+      setCheck('idle')
+    }
     return () => {
       mounted = false
     }
-  }, [])
+  }, [g.repo])
 
   async function run(fn: () => Promise<HivemindPayload>): Promise<void> {
     if (busy) return
@@ -210,7 +230,22 @@ export function HivemindSettings({
     }
   }
 
-  const g = settingsPayload.settings.hivemind
+  const statusChip = ((): React.JSX.Element | null => {
+    if (check === 'checking') return <Chip tone="neutral">checking…</Chip>
+    if (check === 'fail')
+      return (
+        <Chip tone="danger" title={checkError ?? undefined}>
+          not reachable
+        </Chip>
+      )
+    if (payload?.state === 'ready') return <Chip tone="signal">synced</Chip>
+    if (payload?.state === 'not-cloned') return <Chip tone="review">ready to sync</Chip>
+    if (payload?.state === 'error') return <Chip tone="danger">error</Chip>
+    return null
+  })()
+
+  const trimmedRepo = g.repo.trim()
+  const isGithubSlug = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmedRepo)
   const repoSection = (
     <SettingsSection title="Repository">
       <SettingRow
@@ -227,6 +262,39 @@ export function HivemindSettings({
           onCommit={(v) => void settingsStore.patch({ hivemind: { repo: v.trim() } })}
         />
       </SettingRow>
+      {trimmedRepo !== '' && (
+        <div className="flex items-center gap-2 px-4 py-3">
+          {isGithubSlug ? (
+            <button
+              aria-label={`Open ${trimmedRepo} on GitHub`}
+              title={`Open https://github.com/${trimmedRepo}`}
+              className="inline-flex items-center gap-1 font-mono text-sm text-ink transition-colors hover:text-signal"
+              onClick={() => void window.argus.openExternal(`https://github.com/${trimmedRepo}`)}
+            >
+              {trimmedRepo}
+              <ExternalLink size={12} aria-hidden="true" />
+            </button>
+          ) : (
+            <span className="font-mono text-sm text-ink">{trimmedRepo}</span>
+          )}
+          {payload?.headCommit && <Chip tone="neutral">@ {payload.headCommit.slice(0, 7)}</Chip>}
+          {statusChip}
+          {payload?.lastSynced && (
+            <span className="text-xs text-mute">
+              synced {new Date(payload.lastSynced).toLocaleString()}
+            </span>
+          )}
+          <IconBtn
+            aria-label="Sync"
+            title="Sync HiveMind"
+            className="ml-auto"
+            disabled={busy}
+            onClick={() => void run(() => window.argus.hivemind.sync())}
+          >
+            <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+          </IconBtn>
+        </div>
+      )}
     </SettingsSection>
   )
 
@@ -273,24 +341,6 @@ export function HivemindSettings({
           private repos) will fail. See Settings → Health.
         </div>
       )}
-
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-sm text-ink">{payload.repo}</span>
-        {payload.headCommit && <Chip tone="neutral">@ {payload.headCommit.slice(0, 7)}</Chip>}
-        {payload.lastSynced && (
-          <span className="text-xs text-mute">
-            synced {new Date(payload.lastSynced).toLocaleString()}
-          </span>
-        )}
-        <Btn
-          variant="outline"
-          className="ml-auto"
-          disabled={busy}
-          onClick={() => void run(() => window.argus.hivemind.sync())}
-        >
-          {busy ? 'Syncing…' : 'Sync'}
-        </Btn>
-      </div>
 
       {payload.state === 'not-cloned' && (
         <div className="text-sm text-dim">Not cloned yet — Sync to fetch the HiveMind.</div>
@@ -429,9 +479,13 @@ export function HivemindSettings({
                           >
                             {busy ? 'Pushing…' : 'Open pull request'}
                           </Btn>
-                          <Btn variant="ghost" onClick={() => setPushConfirm(null)}>
-                            Cancel
-                          </Btn>
+                          <IconBtn
+                            aria-label="Cancel"
+                            title="Cancel"
+                            onClick={() => setPushConfirm(null)}
+                          >
+                            <X size={14} />
+                          </IconBtn>
                         </div>
                       </div>
                     )}
