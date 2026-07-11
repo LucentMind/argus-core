@@ -33,9 +33,6 @@ export function CaseWorkspace({
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
-  // Task 5 minimal bridge: pick the newest session for this case. The full
-  // switcher UX (create/rename/pick) lands in Task 8 — this just keeps every
-  // agent IPC call site threaded with a real sessionId.
   const [sessionId, setSessionId] = useState<number | null>(null)
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
@@ -50,8 +47,15 @@ export function CaseWorkspace({
   useEffect(() => {
     wireAgentStore()
     setSessionId(null)
-    void window.argus.sessions.list(slug).then((list) => setSessionId(list[0].id))
+    void window.argus.sessions.list(slug).then((list) => {
+      setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
+    })
   }, [slug])
+
+  function handleSwitchSession(id: number): void {
+    uiStore.setActiveSession(slug, id)
+    setSessionId(id)
+  }
 
   useEffect(() => {
     if (sessionId === null) return
@@ -105,6 +109,7 @@ export function CaseWorkspace({
             <ChatPane
               slug={slug}
               sessionId={sessionId}
+              onSwitchSession={handleSwitchSession}
               onCite={(p, l) => void handleCite(p, l)}
               prefill={prefill}
             />

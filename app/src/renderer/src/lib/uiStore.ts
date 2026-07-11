@@ -7,6 +7,8 @@ export interface UiState {
   findingsWidth: number
   /** Recently opened cases shown as top-bar tabs. Intentionally not persisted — resets on app restart. */
   recentTabs: string[]
+  /** Last-viewed chat session per case, keyed by slug. Intentionally not persisted — resets on app restart. */
+  activeSessions: Record<string, number>
 }
 
 const KEYS = {
@@ -20,7 +22,7 @@ export const FINDINGS_MIN_WIDTH = 240
 export const FINDINGS_MAX_WIDTH = 640
 const FINDINGS_DEFAULT_WIDTH = 384
 
-function readPersisted(): Omit<UiState, 'recentTabs'> {
+function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
   const theme = localStorage.getItem(KEYS.theme)
   const width = Number(localStorage.getItem(KEYS.findingsWidth))
   return {
@@ -39,7 +41,7 @@ export class UiStore {
   private listeners = new Set<() => void>()
 
   constructor() {
-    this.state = { ...readPersisted(), recentTabs: [] }
+    this.state = { ...readPersisted(), recentTabs: [], activeSessions: {} }
     this.applyTheme()
   }
 
@@ -98,6 +100,10 @@ export class UiStore {
 
   closeTab(slug: string): void {
     this.set({ recentTabs: this.state.recentTabs.filter((t) => t !== slug) })
+  }
+
+  setActiveSession(slug: string, id: number): void {
+    this.set({ activeSessions: { ...this.state.activeSessions, [slug]: id } })
   }
 }
 
