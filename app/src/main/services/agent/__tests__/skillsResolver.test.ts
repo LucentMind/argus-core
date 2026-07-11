@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { materializeSessionSkills, resolveSkills } from '../skillsResolver'
+import { deleteUserSkill, materializeSessionSkills, resolveSkills } from '../skillsResolver'
 import { caseDir } from '../../paths'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
 
@@ -59,6 +59,36 @@ describe('resolveSkills', () => {
     const skills = resolveSkills(argusHome, defaultAgentAccess())
     const crlfSkill = skills.find((s) => s.name === 'crlf-test')!
     expect(crlfSkill.description).toBe('crlf description')
+  })
+})
+
+describe('deleteUserSkill', () => {
+  it('removes the user-tier copy so the next tier wins resolution', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'rca', 'hivemind rca')
+    let rca = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === 'rca')!
+    expect(rca.tier).toBe('user')
+    expect(rca.shadows).toEqual(['hivemind', 'bundled'])
+
+    deleteUserSkill(argusHome, 'rca')
+
+    expect(fs.existsSync(path.join(argusHome, 'skills-user', 'rca'))).toBe(false)
+    rca = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === 'rca')!
+    expect(rca.tier).toBe('hivemind')
+    expect(rca.description).toBe('hivemind rca')
+    expect(rca.shadows).toEqual(['bundled'])
+  })
+
+  it('throws when no user-tier skill of that name exists', () => {
+    expect(() => deleteUserSkill(argusHome, 'analyze-applog')).toThrow(/No user skill/)
+  })
+
+  it('rejects names that escape the user skills dir', () => {
+    // a sibling dir that a traversal name could reach
+    addSkill(path.join(argusHome, 'skills'), 'victim', 'bundled victim')
+    for (const evil of ['../skills/victim', '..\\skills\\victim', '..', '.', '']) {
+      expect(() => deleteUserSkill(argusHome, evil)).toThrow(/Invalid skill name/)
+    }
+    expect(fs.existsSync(path.join(argusHome, 'skills', 'victim', 'SKILL.md'))).toBe(true)
   })
 })
 
