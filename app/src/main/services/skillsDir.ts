@@ -33,6 +33,30 @@ export function seedSharedDirs(
   }
 }
 
+/**
+ * Seed the shared skills/ + references/ dirs from an ordered list of sources
+ * (pack asset dirs first, optional env-override dir last — later sources
+ * overwrite earlier on filename collision, extra files in the destination are
+ * left alone). Missing sources are skipped; a source that resolves to its
+ * destination is skipped (argusHome may be the asset source itself in dev).
+ */
+export function seedSharedAssets(
+  argusHome: string,
+  sources: { skills: string[]; references: string[] }
+): void {
+  for (const [srcs, dest] of [
+    [sources.skills, sharedSkillsDir(argusHome)],
+    [sources.references, sharedReferencesDir(argusHome)]
+  ] as const) {
+    fs.mkdirSync(dest, { recursive: true })
+    for (const src of srcs) {
+      if (fs.existsSync(src) && path.resolve(src) !== path.resolve(dest)) {
+        fs.cpSync(src, dest, { recursive: true, force: true })
+      }
+    }
+  }
+}
+
 export function updateClaudeMdWorkspaces(
   argusHome: string,
   caseSlug: string,
