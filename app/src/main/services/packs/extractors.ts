@@ -17,9 +17,10 @@ export interface Extractors {
  */
 export function createExtractors(registry: PackRegistry, binaries: BinariesService): Extractors {
   const warned = new Set<string>()
+  const byType = new Map(registry.detectorDecls().map((d) => [d.type, d]))
   return {
     extractFor(type: string): ResolvedExtract | null {
-      const decl = registry.detectorDecls().find((d) => d.type === type)
+      const decl = byType.get(type)
       if (!decl?.extract) return null
       const bin = binaries.get(decl.extract.bin)
       if (!bin) {
