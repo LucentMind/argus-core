@@ -69,9 +69,13 @@ export function SessionSwitcher({
     void window.argus.sessions.list(slug).then(setSessions)
   }, [open, slug])
 
-  // closing the panel drops any in-progress search so reopening starts fresh —
-  // adjust-state-during-render, keyed on `open` (same idiom as the reset
-  // patterns in TextViewer/FileViewer)
+  // short fragments match too much and flood the panel — search only from 3 chars
+  const MIN_SEARCH_LEN = 3
+  const searchActive = query.trim().length >= MIN_SEARCH_LEN
+
+  // closing the panel drops any in-progress search AND an in-progress rename so
+  // reopening starts fresh — adjust-state-during-render, keyed on `open` (same
+  // idiom as the reset patterns in TextViewer/FileViewer)
   const [lastOpen, setLastOpen] = useState(open)
   if (open !== lastOpen) {
     setLastOpen(open)
@@ -79,15 +83,17 @@ export function SessionSwitcher({
       setQuery('')
       setHits([])
       setSearchError(null)
+      setRenamingId(null)
     }
   }
 
-  // clearing the query synchronously resets results — adjust-state-during-
-  // render, keyed on `query`; the debounced search itself stays in an effect
+  // dropping below the search threshold synchronously resets results — adjust-
+  // state-during-render, keyed on `query`; the debounced search itself stays
+  // in an effect
   const [lastQuery, setLastQuery] = useState(query)
   if (query !== lastQuery) {
     setLastQuery(query)
-    if (!query.trim()) {
+    if (query.trim().length < MIN_SEARCH_LEN) {
       setHits([])
       setSearchError(null)
     }
@@ -95,7 +101,7 @@ export function SessionSwitcher({
 
   // debounce cross-session search so we don't fire on every keystroke
   useEffect(() => {
-    if (!query.trim()) return
+    if (query.trim().length < MIN_SEARCH_LEN) return
     const t = setTimeout(() => {
       void window.argus.chat.search(slug, query).then((res) => {
         setHits(res.hits)
@@ -122,6 +128,13 @@ export function SessionSwitcher({
   }
 
   async function createChat(): Promise<void> {
+    // an untouched chat already exists — reuse it instead of piling up empties
+    const empty = sessions.find((s) => s.turnCount === 0 && !s.title)
+    if (empty) {
+      setOpen(false)
+      onSwitch(empty.id)
+      return
+    }
     const created = await window.argus.sessions.create(slug)
     // refresh so the list is never stale if the popup stays/reopens
     void window.argus.sessions.list(slug).then(setSessions)
@@ -131,7 +144,9 @@ export function SessionSwitcher({
 
   function startRename(s: SessionSummary): void {
     setRenamingId(s.id)
-    setRenameValue(displayTitle(s))
+    // seed with the real title, not the "Chat <id>" display fallback — otherwise
+    // renaming an untitled chat persists the placeholder as a literal title
+    setRenameValue(s.title)
   }
 
   async function commitRename(id: number): Promise<void> {
@@ -164,7 +179,7 @@ export function SessionSwitcher({
               aria-label="Sessions"
               className="absolute left-0 top-full z-20 mt-1 w-72 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
             >
-              {query.trim() ? (
+              {searchActive ? (
                 <>
                   {searchError && <p className="px-1.5 py-1 text-xs text-danger">{searchError}</p>}
                   {!searchError && hits.length === 0 && (
