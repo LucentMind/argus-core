@@ -112,6 +112,33 @@ export class RefSyncService {
     }
   }
 
+  /** Read one reference file for the in-app viewer (name guarded like applyDrafts). */
+  readReference(file: string): { file: string; content: string } {
+    if (!REF_TARGET_RE.test(file)) throw new Error(`invalid reference name: ${file}`)
+    return { file, content: fs.readFileSync(path.join(this.refsDir(), file), 'utf8') }
+  }
+
+  /** Case-insensitive search over reference file names AND bodies; INDEX.md excluded. */
+  searchReferences(query: string): string[] {
+    const q = query.trim().toLowerCase()
+    if (!q || !fs.existsSync(this.refsDir())) return []
+    return fs
+      .readdirSync(this.refsDir(), { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.md') && e.name !== REFERENCES_INDEX)
+      .filter((e) => {
+        if (e.name.toLowerCase().includes(q)) return true
+        try {
+          return fs
+            .readFileSync(path.join(this.refsDir(), e.name), 'utf8')
+            .toLowerCase()
+            .includes(q)
+        } catch {
+          return false
+        }
+      })
+      .map((e) => e.name)
+  }
+
   /** Deterministic walk + per-target headless distillation. Never writes reference files. */
   async sync(spaceKey: string, onProgress?: (message: string) => void): Promise<SyncReport> {
     const config = this.deps.store.get()
