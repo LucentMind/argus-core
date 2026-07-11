@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { packManifestSchema, PACK_MANIFEST_FILE } from '../manifest'
+import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION } from '../manifest'
 
 describe('packManifestSchema', () => {
   const valid = { id: 'sample', displayName: 'Navigation', version: '1.0.0', argusApi: '^1' }
@@ -190,5 +190,25 @@ describe('packManifestSchema', () => {
         referenceRouting: [{ keywords: [], target: 'x.md' }]
       })
     ).toThrow() // keywords must be non-empty
+  })
+})
+
+describe('platform field + PACK_API_VERSION', () => {
+  const valid = { id: 'sample', displayName: 'Navigation', version: '1.0.0', argusApi: '^1' }
+
+  it('accepts an optional <os>-<arch> platform', () => {
+    expect(packManifestSchema.parse({ ...valid, platform: 'mac-arm64' }).platform).toBe('mac-arm64')
+  })
+
+  it('leaves platform undefined when absent (dev manifests)', () => {
+    expect(packManifestSchema.parse(valid).platform).toBeUndefined()
+  })
+
+  it('rejects a malformed platform string', () => {
+    expect(() => packManifestSchema.parse({ ...valid, platform: 'macOS' })).toThrow()
+  })
+
+  it('exports PACK_API_VERSION = 1', () => {
+    expect(PACK_API_VERSION).toBe(1)
   })
 })
