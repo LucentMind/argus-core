@@ -31,3 +31,16 @@ export interface LangfuseConfig {
   publicKey: string
   captureContent: boolean
 }
+
+export type ReviewState = 'pending' | 'accepted' | 'rejected'
+
+export interface FindingRow {
+  id: number
+  caseId: number
+  sessionId: number | null
+  turnId: number | null
+  summary: string
+  reviewState: ReviewState
+  reviewedAt: string | null
+  createdAt: string
+}

@@ -1,18 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { FindingRow, ReviewState } from '../../shared/observability'
 
-export type ReviewState = 'pending' | 'accepted' | 'rejected'
+export type { FindingRow, ReviewState }
 const REVIEW_STATES: ReviewState[] = ['pending', 'accepted', 'rejected']
-
-export interface FindingRow {
-  id: number
-  caseId: number
-  sessionId: number | null
-  turnId: number | null
-  summary: string
-  reviewState: ReviewState
-  reviewedAt: string | null
-  createdAt: string
-}
 
 interface Raw {
   id: number
