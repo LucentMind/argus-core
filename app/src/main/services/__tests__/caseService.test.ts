@@ -3,7 +3,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
-import { createCase, listCases, getCase, setCaseJira, setCaseStatus } from '../caseService'
+import {
+  createCase,
+  listCases,
+  getCase,
+  setCaseJira,
+  setCaseStatus,
+  maybeAdvanceToAnalyzing
+} from '../caseService'
 import { caseDir } from '../paths'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -160,5 +167,53 @@ describe('setCaseStatus', () => {
     expect(rec.resolution).toBeNull()
     const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c4'), 'case.json'), 'utf8'))
     expect(onDisk.resolution).toBeNull()
+  })
+})
+
+describe('maybeAdvanceToAnalyzing', () => {
+  function idOf(slug: string): number {
+    return (db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug) as { id: number }).id
+  }
+  function addEvidence(caseId: number): void {
+    db.prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
+       VALUES (?, 'evidence/x.txt', 'h', 'text', 1, 'upload', 'now')`
+    ).run(caseId)
+  }
+  function addTurn(caseId: number): void {
+    db.prepare(
+      `INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?, 'now', 'now')`
+    ).run(caseId)
+    db.prepare(
+      `INSERT INTO turns (case_id, session_id, turn_index, status, created_at)
+       VALUES (?, 1, 0, 'done', 'now')`
+    ).run(caseId)
+  }
+
+  it('advances to analyzing when evidence and a turn both exist', () => {
+    createCase(db, home, { slug: 'a1', title: 'A1' })
+    const id = idOf('a1')
+    addEvidence(id)
+    addTurn(id)
+    maybeAdvanceToAnalyzing(db, home, id)
+    expect(getCase(db, 'a1')!.status).toBe('analyzing')
+  })
+
+  it('does nothing with evidence but no turn', () => {
+    createCase(db, home, { slug: 'a2', title: 'A2' })
+    const id = idOf('a2')
+    addEvidence(id)
+    maybeAdvanceToAnalyzing(db, home, id)
+    expect(getCase(db, 'a2')!.status).toBe('open')
+  })
+
+  it('does not downgrade a closed case', () => {
+    createCase(db, home, { slug: 'a3', title: 'A3' })
+    const id = idOf('a3')
+    addEvidence(id)
+    addTurn(id)
+    setCaseStatus(db, home, 'a3', 'closed', 'solved')
+    maybeAdvanceToAnalyzing(db, home, id)
+    expect(getCase(db, 'a3')!.status).toBe('closed')
   })
 })
