@@ -50,7 +50,7 @@ import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
-import { listSessions } from './services/agent/sessionStore'
+import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
@@ -234,21 +234,18 @@ function registerIpc(): void {
         }
       )
   })
-  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, text: string) => {
-    // Task 5 replaces: thread the session id through the IPC channel instead of defaulting.
-    const sessionId = listSessions(db, caseSlug)[0].id
+  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, sessionId: number, text: string) => {
     return agentService!.send(caseSlug, sessionId, text)
   })
-  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string) => {
-    // Task 5 replaces: thread the session id through the IPC channel instead of defaulting.
-    const sessionId = listSessions(db, caseSlug)[0].id
+  ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string, sessionId: number) => {
     return agentService!.interrupt(caseSlug, sessionId)
   })
-  ipcMain.handle(IPC.agentRespond, (_e, caseSlug: string, d: ApprovalDecision) => {
-    // Task 5 replaces: thread the session id through the IPC channel instead of defaulting.
-    const sessionId = listSessions(db, caseSlug)[0].id
-    return agentService!.respond(caseSlug, sessionId, d)
-  })
+  ipcMain.handle(
+    IPC.agentRespond,
+    (_e, caseSlug: string, sessionId: number, d: ApprovalDecision) => {
+      return agentService!.respond(caseSlug, sessionId, d)
+    }
+  )
   ipcMain.handle(IPC.agentAuthStatus, async (_e, force?: boolean) => {
     if (force) cachedAuth = null
     if (!cachedAuth) {
@@ -267,8 +264,13 @@ function registerIpc(): void {
     return cachedAuth
   })
   ipcMain.handle(IPC.agentPreflight, () => runPreflight(argusParseBin))
-  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string) =>
-    readSessionEvents(caseDir(argusHome, caseSlug))
+  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) =>
+    readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
+  )
+  ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) => listSessions(db, caseSlug))
+  ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) => createSession(db, caseSlug))
+  ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
+    renameSession(db, sessionId, title)
   )
 
   // — case extras —

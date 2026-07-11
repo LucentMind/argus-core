@@ -22,7 +22,7 @@ const ev = (type: string, payload: unknown): AgentEvent =>
 beforeEach(() => {
   settingsStore.reset()
   window.argus = {
-    agent: { send: vi.fn(), onEvent: vi.fn(() => () => undefined) },
+    agent: { send: vi.fn(), interrupt: vi.fn(), onEvent: vi.fn(() => () => undefined) },
     skills: { list: vi.fn(async () => ({ skills: [] })) },
     settings: {
       get: vi.fn(async () => ({
@@ -48,7 +48,7 @@ describe('ChatPane', () => {
       ev('tool.call.started', { toolCallId: 't1', name: 'mcp__argus__search_evidence' })
     )
     const onCite = vi.fn()
-    render(<ChatPane slug="NAV-1" onCite={onCite} />)
+    render(<ChatPane slug="NAV-1" sessionId={1} onCite={onCite} />)
     expect(screen.getByText('why crash?')).toBeTruthy()
     fireEvent.click(screen.getByRole('link', { name: 'evidence/log.txt:3' }))
     expect(onCite).toHaveBeenCalledWith('evidence/log.txt', 3)
@@ -73,7 +73,7 @@ describe('ChatPane', () => {
     )
     uiStore.setShowToolCalls(false)
     try {
-      render(<ChatPane slug={slug} onCite={vi.fn()} />)
+      render(<ChatPane slug={slug} sessionId={1} onCite={vi.fn()} />)
       expect(screen.queryByText(/read_evidence/)).toBeNull()
       expect(screen.getByText('git push')).toBeTruthy()
     } finally {
@@ -82,10 +82,10 @@ describe('ChatPane', () => {
   })
 
   it('sends composer text', () => {
-    render(<ChatPane slug="NAV-1" onCite={vi.fn()} />)
+    render(<ChatPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     const box = screen.getByPlaceholderText(/message the analyst/i)
     fireEvent.change(box, { target: { value: 'run /analyze-applog' } })
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(window.argus.agent.send).toHaveBeenCalledWith('NAV-1', 'run /analyze-applog')
+    expect(window.argus.agent.send).toHaveBeenCalledWith('NAV-1', 1, 'run /analyze-applog')
   })
 })

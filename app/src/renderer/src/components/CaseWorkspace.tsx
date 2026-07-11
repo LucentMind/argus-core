@@ -33,6 +33,10 @@ export function CaseWorkspace({
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
+  // Task 5 minimal bridge: pick the newest session for this case. The full
+  // switcher UX (create/rename/pick) lands in Task 8 — this just keeps every
+  // agent IPC call site threaded with a real sessionId.
+  const [sessionId, setSessionId] = useState<number | null>(null)
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
   // identical suggestion in the new case isn't a setState no-op — adjust-state-
@@ -45,9 +49,17 @@ export function CaseWorkspace({
 
   useEffect(() => {
     wireAgentStore()
-    // restore the persisted transcript after an app restart
-    void window.argus.agent.history(slug).then((events) => agentStore.hydrate(slug, events))
+    setSessionId(null)
+    void window.argus.sessions.list(slug).then((list) => setSessionId(list[0].id))
   }, [slug])
+
+  useEffect(() => {
+    if (sessionId === null) return
+    // restore the persisted transcript after an app restart
+    void window.argus.agent
+      .history(slug, sessionId)
+      .then((events) => agentStore.hydrate(slug, events))
+  }, [slug, sessionId])
 
   async function handleCite(relPath: string, line: number): Promise<void> {
     const list = await window.argus.evidence.list(slug)
@@ -89,7 +101,14 @@ export function CaseWorkspace({
           <CaseFiles key={slug} caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          <ChatPane slug={slug} onCite={(p, l) => void handleCite(p, l)} prefill={prefill} />
+          {sessionId !== null && (
+            <ChatPane
+              slug={slug}
+              sessionId={sessionId}
+              onCite={(p, l) => void handleCite(p, l)}
+              prefill={prefill}
+            />
+          )}
         </main>
         {ui.findingsCollapsed ? (
           <button

@@ -8,10 +8,12 @@ import { ApprovalCard } from './ApprovalCard'
 
 export function ChatPane({
   slug,
+  sessionId,
   onCite,
   prefill
 }: {
   slug: string
+  sessionId: number
   onCite: (relPath: string, line: number) => void
   prefill?: string
 }): React.JSX.Element {
@@ -54,7 +56,7 @@ export function ChatPane({
           return <ToolCallCard key={item.toolCallId} item={item} />
         })}
         {state.pending.map((p) => (
-          <ApprovalCard key={p.requestId} slug={slug} request={p} />
+          <ApprovalCard key={p.requestId} slug={slug} sessionId={sessionId} request={p} />
         ))}
         {state.sessionNote && <div className="text-xs text-danger">{state.sessionNote}</div>}
         <div ref={bottom} />
@@ -63,7 +65,7 @@ export function ChatPane({
         <div className="px-4 pb-1">
           <button
             className="font-mono text-xs text-mute transition-colors hover:text-danger"
-            onClick={() => void window.argus.agent.interrupt(slug)}
+            onClick={() => void window.argus.agent.interrupt(slug, sessionId)}
           >
             ■ stop
           </button>
@@ -74,7 +76,7 @@ export function ChatPane({
         key={slug}
         disabled={false}
         prefill={prefill}
-        onSend={(t) => void window.argus.agent.send(slug, t)}
+        onSend={(t) => void window.argus.agent.send(slug, sessionId, t)}
       />
     </div>
   )
