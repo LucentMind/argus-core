@@ -63,4 +63,20 @@ describe('loadPacks', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0].message).toMatch(/match its directory name/)
   })
+
+  it('resolves skills/ and references/ asset dirs when present', () => {
+    pack('sample', { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1' })
+    fs.mkdirSync(path.join(root, 'sample', 'skills'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'sample', 'references'), { recursive: true })
+    const { packs } = loadPacks(root)
+    expect(packs[0].skillsDir).toBe(path.join(root, 'sample', 'skills'))
+    expect(packs[0].referencesDir).toBe(path.join(root, 'sample', 'references'))
+  })
+
+  it('asset dirs are null when absent', () => {
+    pack('bare', { id: 'bare', displayName: 'Bare', version: '1', argusApi: '^1' })
+    const { packs } = loadPacks(root)
+    expect(packs[0].skillsDir).toBeNull()
+    expect(packs[0].referencesDir).toBeNull()
+  })
 })
