@@ -46,6 +46,8 @@ export interface SessionDeps {
   skillsRoots: string[]
   /** Pack-contributed persona fragments (from PackRegistry), injected after the base persona. */
   personaFragments?: string[]
+  /** Pack-declared CLI binary names (from PackRegistry), auto-allowlisted as LOW risk. */
+  packCliNames?: string[]
   emit: (e: AgentEvent) => void
   createQuery: CreateQueryFn
   resumeSdkSessionId: string | null
@@ -93,7 +95,8 @@ export class CaseSession {
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
-      readonlyRoots: [...deps.skillsRoots]
+      readonlyRoots: [...deps.skillsRoots],
+      packCliNames: deps.packCliNames
     }
     const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({

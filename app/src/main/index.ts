@@ -299,6 +299,7 @@ function registerIpc(): void {
     detection,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     personaFragments: () => packRegistry.personaFragments(),
+    packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
     onEvent: (e) => {
       langfuseExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)
