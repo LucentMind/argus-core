@@ -303,44 +303,56 @@ export function HivemindSettings({
             onChange={(e) => setFilter(e.target.value)}
           />
 
-          {skills.length > 0 && (
-            <SettingsSection title="Skills">
-              {skills.map((it) => (
-                <BrowseRow
-                  key={`${it.kind}/${it.name}`}
-                  it={it}
-                  busy={busy}
-                  confirm={updateConfirm}
-                  onInstall={() => void run(() => window.argus.hivemind.install(it.kind, it.name))}
-                  onOpenUpdate={() => void openUpdate(it.kind, it.name)}
-                  onReinstall={() => {
-                    setUpdateConfirm(null)
-                    void run(() => window.argus.hivemind.install(it.kind, it.name))
-                  }}
-                  onCancel={() => setUpdateConfirm(null)}
-                />
-              ))}
-            </SettingsSection>
-          )}
+          {filter && skills.length === 0 && references.length === 0 ? (
+            <div className="px-1 py-2 text-sm text-dim">
+              No HiveMind content matches &quot;{filter}&quot;.
+            </div>
+          ) : (
+            <>
+              {skills.length > 0 && (
+                <SettingsSection title="Skills">
+                  {skills.map((it) => (
+                    <BrowseRow
+                      key={`${it.kind}/${it.name}`}
+                      it={it}
+                      busy={busy}
+                      confirm={updateConfirm}
+                      onInstall={() =>
+                        void run(() => window.argus.hivemind.install(it.kind, it.name))
+                      }
+                      onOpenUpdate={() => void openUpdate(it.kind, it.name)}
+                      onReinstall={() => {
+                        setUpdateConfirm(null)
+                        void run(() => window.argus.hivemind.install(it.kind, it.name))
+                      }}
+                      onCancel={() => setUpdateConfirm(null)}
+                    />
+                  ))}
+                </SettingsSection>
+              )}
 
-          {references.length > 0 && (
-            <SettingsSection title="References">
-              {references.map((it) => (
-                <BrowseRow
-                  key={`${it.kind}/${it.name}`}
-                  it={it}
-                  busy={busy}
-                  confirm={updateConfirm}
-                  onInstall={() => void run(() => window.argus.hivemind.install(it.kind, it.name))}
-                  onOpenUpdate={() => void openUpdate(it.kind, it.name)}
-                  onReinstall={() => {
-                    setUpdateConfirm(null)
-                    void run(() => window.argus.hivemind.install(it.kind, it.name))
-                  }}
-                  onCancel={() => setUpdateConfirm(null)}
-                />
-              ))}
-            </SettingsSection>
+              {references.length > 0 && (
+                <SettingsSection title="References">
+                  {references.map((it) => (
+                    <BrowseRow
+                      key={`${it.kind}/${it.name}`}
+                      it={it}
+                      busy={busy}
+                      confirm={updateConfirm}
+                      onInstall={() =>
+                        void run(() => window.argus.hivemind.install(it.kind, it.name))
+                      }
+                      onOpenUpdate={() => void openUpdate(it.kind, it.name)}
+                      onReinstall={() => {
+                        setUpdateConfirm(null)
+                        void run(() => window.argus.hivemind.install(it.kind, it.name))
+                      }}
+                      onCancel={() => setUpdateConfirm(null)}
+                    />
+                  ))}
+                </SettingsSection>
+              )}
+            </>
           )}
         </div>
       )}
