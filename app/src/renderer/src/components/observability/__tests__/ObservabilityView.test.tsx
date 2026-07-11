@@ -43,4 +43,44 @@ describe('ObservabilityView', () => {
     fireEvent.change(select, { target: { value: 'c1' } })
     expect(await screen.findByText(/\$0\.50/)).toBeInTheDocument()
   })
+
+  it('does not flash the previous case metrics when switching scope', async () => {
+    ;(window.argus as unknown as { cases: unknown }).cases = {
+      list: vi.fn().mockResolvedValue([
+        { slug: 'c1', title: 'C1' },
+        { slug: 'c2', title: 'C2' }
+      ])
+    }
+    const bySlug: Record<string, typeof sample> = {
+      c1: { ...sample, totalCostUsd: 0.5 },
+      c2: { ...sample, totalCostUsd: 9.9 }
+    }
+    // c2's resolution is deliberately delayed relative to c1's, so we can
+    // inspect the DOM in the window between selecting c2 and its IPC
+    // resolving -- this is exactly the window where stale c1 data would flash.
+    let resolveC2: (v: typeof sample) => void = () => {}
+    const c2Promise = new Promise<typeof sample>((resolve) => {
+      resolveC2 = resolve
+    })
+    ;(window.argus.metrics.case as unknown as ReturnType<typeof vi.fn>) = vi
+      .fn()
+      .mockImplementation((slug: string) =>
+        slug === 'c2' ? c2Promise : Promise.resolve(bySlug[slug])
+      )
+    render(<ObservabilityView onOpenCase={() => {}} />)
+    const select = await screen.findByLabelText(/scope/i)
+
+    fireEvent.change(select, { target: { value: 'c1' } })
+    expect(await screen.findByText(/\$0\.50/)).toBeInTheDocument()
+
+    fireEvent.change(select, { target: { value: 'c2' } })
+    // Before c2's promise resolves, the view must show loading/nothing --
+    // NOT the stale c1 value.
+    expect(await screen.findByText(/Loading metrics/i)).toBeInTheDocument()
+    expect(screen.queryByText(/\$0\.50/)).not.toBeInTheDocument()
+
+    resolveC2(bySlug.c2)
+    expect(await screen.findByText(/\$9\.90/)).toBeInTheDocument()
+    expect(screen.queryByText(/\$0\.50/)).not.toBeInTheDocument()
+  })
 })
