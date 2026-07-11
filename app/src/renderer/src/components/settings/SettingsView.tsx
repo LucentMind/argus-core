@@ -1,4 +1,17 @@
 import { useEffect, useState } from 'react'
+import {
+  Settings2,
+  BrainCog,
+  Logs,
+  HeartPulse,
+  Cable,
+  Workflow,
+  CloudSync,
+  HardDrive,
+  BookMarked,
+  Gauge,
+  type LucideIcon
+} from 'lucide-react'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
@@ -12,17 +25,22 @@ import { HivemindSettings } from './HivemindSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
 
 const PAGES = [
-  { id: 'general', label: 'General', enabled: true },
-  { id: 'agent', label: 'Agent', enabled: true },
-  { id: 'tools', label: 'Analysis Tools', enabled: true },
-  { id: 'health', label: 'Health', enabled: true },
-  { id: 'connectors', label: 'Connectors', enabled: true },
-  { id: 'skills', label: 'Skills', enabled: true },
-  { id: 'hivemind', label: 'HiveMind', enabled: true },
-  { id: 'memory', label: 'Memory', enabled: true },
-  { id: 'references', label: 'References', enabled: true },
-  { id: 'observability', label: 'Observability', enabled: true }
-] as const
+  { id: 'general', label: 'General', enabled: true, Icon: Settings2 },
+  { id: 'agent', label: 'Agent', enabled: true, Icon: BrainCog },
+  { id: 'tools', label: 'Analysis Tools', enabled: true, Icon: Logs },
+  { id: 'health', label: 'Health', enabled: true, Icon: HeartPulse },
+  { id: 'connectors', label: 'Connectors', enabled: true, Icon: Cable },
+  { id: 'skills', label: 'Skills', enabled: true, Icon: Workflow },
+  { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
+  { id: 'memory', label: 'Memory', enabled: true, Icon: HardDrive },
+  { id: 'references', label: 'References', enabled: true, Icon: BookMarked },
+  { id: 'observability', label: 'Observability', enabled: true, Icon: Gauge }
+] as const satisfies ReadonlyArray<{
+  id: string
+  label: string
+  enabled: boolean
+  Icon: LucideIcon
+}>
 type PageId = (typeof PAGES)[number]['id']
 
 export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -50,7 +68,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
           <button
             key={p.id}
             disabled={!p.enabled}
-            className={`flex items-center justify-between rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
+            className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
               page === p.id
                 ? 'bg-hi text-ink'
                 : p.enabled
@@ -59,7 +77,8 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
             }`}
             onClick={() => setPage(p.id)}
           >
-            <span>{p.label}</span>
+            <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
+            <span className="flex-1">{p.label}</span>
             {!p.enabled && (
               <span className="font-mono text-[9px] uppercase tracking-wide text-faint">soon</span>
             )}

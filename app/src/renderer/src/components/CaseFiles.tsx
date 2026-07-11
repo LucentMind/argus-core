@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { FolderOpen } from 'lucide-react'
 import { Chip, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import type { ArtifactType, ArtifactTypeMeta, FileNode } from '../../../shared/types'
@@ -175,7 +176,7 @@ export function CaseFiles({
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <SectionLabel>Files — drop to add evidence</SectionLabel>
+        <SectionLabel>Files</SectionLabel>
         <div className="flex items-center gap-1.5">
           <select
             aria-label="type-filter"
@@ -193,10 +194,10 @@ export function CaseFiles({
           <button
             aria-label="Open in file explorer"
             title="Open in file explorer"
-            className="rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim transition-colors hover:bg-overlay hover:text-ink"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-r1 border border-hair text-dim transition-colors hover:bg-overlay hover:text-ink"
             onClick={() => void window.argus.files.reveal(caseSlug)}
           >
-            Explorer
+            <FolderOpen size={14} strokeWidth={1.5} />
           </button>
         </div>
       </div>
@@ -206,6 +207,9 @@ export function CaseFiles({
           <li className="border-t border-hair py-2 text-mute">No files yet.</li>
         )}
       </ul>
+      <div className="mt-1 border-t border-dashed border-hair pt-2 text-center text-[11px] text-mute">
+        Drop files here to add evidence
+      </div>
     </section>
   )
 }
