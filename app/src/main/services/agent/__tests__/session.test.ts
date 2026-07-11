@@ -173,6 +173,33 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  it('records the init model on the completed turn', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'claude-opus-4-8'
+    })
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'success',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      usage: { input_tokens: 10, output_tokens: 5 },
+      total_cost_usd: 0.01,
+      duration_ms: 100,
+      is_error: false
+    })
+    await flush()
+    const row = db.prepare(`SELECT model FROM turns ORDER BY id DESC LIMIT 1`).get() as {
+      model: string | null
+    }
+    expect(row.model).toBe('claude-opus-4-8')
+    await s.stop('stopped')
+  })
+
   it('ignores transient session ids from non-durable system messages', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)

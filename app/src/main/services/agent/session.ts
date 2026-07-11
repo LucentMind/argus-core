@@ -76,6 +76,7 @@ export class CaseSession {
   private turnIndex = 0
   private currentTurnRow: number | null = null
   private toolNames = new Map<string, string>() // toolCallId → name
+  private currentModel: string | null = null
 
   constructor(deps: SessionDeps) {
     this.deps = deps
@@ -300,7 +301,15 @@ export class CaseSession {
   }
 
   // --- stream consumption ----------------------------------------------------
-  private updateCursor(msg: { type?: string; subtype?: string; session_id?: string }): void {
+  private updateCursor(msg: {
+    type?: string
+    subtype?: string
+    session_id?: string
+    model?: string
+  }): void {
+    if (msg.type === 'system' && msg.subtype === 'init' && msg.model) {
+      this.currentModel = String(msg.model)
+    }
     const durable = (msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result'
     if (!durable || !msg.session_id || !UUID_RE.test(msg.session_id)) return
     this.deps.db
@@ -313,7 +322,7 @@ export class CaseSession {
     if (this.currentTurnRow != null) {
       this.deps.db
         .prepare(
-          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?
+          `UPDATE turns SET status = ?, input_tokens = ?, output_tokens = ?, cost_usd = ?, duration_ms = ?, model = ?
            WHERE id = ?`
         )
         .run(
@@ -322,6 +331,7 @@ export class CaseSession {
           msg.usage?.output_tokens ?? null,
           msg.total_cost_usd ?? null,
           msg.duration_ms ?? null,
+          this.currentModel,
           this.currentTurnRow
         )
     }
