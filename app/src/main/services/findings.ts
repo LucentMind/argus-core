@@ -39,9 +39,15 @@ export function listFindings(db: DatabaseSync, caseSlug: string): FindingRow[] {
 }
 
 export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState): FindingRow | null {
-  if (!REVIEW_STATES.includes(state)) throw new Error(`Invalid review state: ${JSON.stringify(state)}`)
+  if (!REVIEW_STATES.includes(state))
+    throw new Error(`Invalid review state: ${JSON.stringify(state)}`)
   const reviewedAt = state === 'pending' ? null : new Date().toISOString()
-  db.prepare(`UPDATE findings SET review_state = ?, reviewed_at = ? WHERE id = ?`).run(state, reviewedAt, id)
-  const row = db.prepare(`SELECT * FROM findings WHERE id = ?`).get(id) as unknown as Raw | undefined
+  db.prepare(`UPDATE findings SET review_state = ?, reviewed_at = ? WHERE id = ?`).run(
+    state,
+    reviewedAt,
+    id
+  )
+  const row = db.prepare(`SELECT * FROM findings WHERE id = ?`).get(id) as unknown as
+    Raw | undefined
   return row ? toRow(row) : null
 }
