@@ -94,15 +94,15 @@ export function ReferencesSettings(): React.JSX.Element {
                       ? `last sync ${card.lastSyncedAt.slice(0, 10)}`
                       : 'never synced'}
                   </span>
-                  <button
+                  <IconBtn
                     aria-label={`sync · ${card.key}`}
+                    title="Sync space"
                     disabled={syncing === card.key}
                     onClick={() => void syncNow(card.key)}
-                    className="inline-flex items-center gap-1 rounded-r2 px-1.5 py-0.5 text-xs text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40"
+                    className="h-5 w-5"
                   >
                     <RefreshCw size={12} className={syncing === card.key ? 'animate-spin' : ''} />
-                    Sync
-                  </button>
+                  </IconBtn>
                 </div>
                 {syncErrors[card.key] && (
                   <div role="alert" className="text-xs text-danger">

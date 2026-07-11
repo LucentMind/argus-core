@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
-import { Btn, Card, Chip, SectionLabel } from './ui'
-import { FolderInput, Plus } from 'lucide-react'
+import { Card, Chip, IconBtn, SectionLabel } from './ui'
+import { Download, FolderInput, Plus } from 'lucide-react'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
   open: 'signal',
@@ -47,17 +47,17 @@ export function CaseDashboard({
             <div className="flex items-center justify-between">
               <span className="font-mono text-sm text-defect">{c.slug}</span>
               <span className="flex items-center gap-1.5">
-                <Btn
-                  variant="ghost"
+                <IconBtn
                   aria-label={`Export ${c.slug}`}
+                  title="Export case"
                   className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation() // the Card itself opens the case
                     void exportCase(c.slug)
                   }}
                 >
-                  Export
-                </Btn>
+                  <Download size={14} />
+                </IconBtn>
                 <Chip tone={STATUS_TONE[c.status]}>{c.status}</Chip>
               </span>
             </div>

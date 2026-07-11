@@ -34,7 +34,7 @@ describe('HeaderRepos', () => {
   it('links a picked repo via + repo', async () => {
     window.argus.workspaces.pick = vi.fn(async () => 'C:\\code\\other')
     render(<HeaderRepos slug="NAV-1" />)
-    fireEvent.click(await screen.findByRole('button', { name: '+ repo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Link repo' }))
     await waitFor(() =>
       expect(window.argus.workspaces.link).toHaveBeenCalledWith('NAV-1', 'C:\\code\\other')
     )
