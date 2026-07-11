@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
-import { createCase, listCases, getCase, setCaseJira } from '../caseService'
+import { createCase, listCases, getCase, setCaseJira, setCaseStatus } from '../caseService'
+import { caseDir } from '../paths'
 import type { DatabaseSync } from 'node:sqlite'
 
 let home: string
@@ -122,5 +123,32 @@ describe('setCaseJira', () => {
       site: 'https://acme.atlassian.net',
       lastSyncedAt: '2026-07-10T10:00:00Z'
     })
+  })
+})
+
+describe('setCaseStatus', () => {
+  it('closes a case with a resolution and mirrors to case.json', () => {
+    createCase(db, home, { slug: 'c1', title: 'C1' })
+    const rec = setCaseStatus(db, home, 'c1', 'closed', 'duplicate')
+    expect(rec.status).toBe('closed')
+    expect(rec.resolution).toBe('duplicate')
+    const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c1'), 'case.json'), 'utf8'))
+    expect(onDisk.status).toBe('closed')
+    expect(onDisk.resolution).toBe('duplicate')
+  })
+
+  it('throws when closing without a resolution', () => {
+    createCase(db, home, { slug: 'c2', title: 'C2' })
+    expect(() => setCaseStatus(db, home, 'c2', 'closed', null)).toThrow(/resolution/i)
+  })
+
+  it('clears resolution when moving to a non-closed status', () => {
+    createCase(db, home, { slug: 'c3', title: 'C3' })
+    setCaseStatus(db, home, 'c3', 'closed', 'solved')
+    const rec = setCaseStatus(db, home, 'c3', 'open', null)
+    expect(rec.status).toBe('open')
+    expect(rec.resolution).toBeNull()
+    const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c3'), 'case.json'), 'utf8'))
+    expect(onDisk.resolution).toBeNull()
   })
 })
