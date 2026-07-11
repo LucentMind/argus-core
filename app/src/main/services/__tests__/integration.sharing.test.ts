@@ -166,4 +166,48 @@ describe('HiveMind against a local bare repo (no network)', () => {
     // the clone is back on the default branch
     expect(git(path.join(homeB, 'hivemind'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
   }, 30_000)
+
+  it('contribution round-trip keeps authorship: push own reference, install merged copy, still pushable', async () => {
+    const gh: Runner = async () => 'https://github.com/acme/hivemind/pull/8'
+    const svc = service(gh)
+    await svc.sync()
+    git(path.join(homeB, 'hivemind'), 'config', 'user.email', 'test@argus.local')
+    git(path.join(homeB, 'hivemind'), 'config', 'user.name', 'Argus Test')
+
+    // author a local reference and share it
+    fs.mkdirSync(path.join(homeB, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(homeB, 'references', 'my-tips.md'),
+      '---\ntrust_tier: user\n---\n# tips v1\n'
+    )
+    expect(svc.pushable()).toContainEqual({ kind: 'reference', name: 'my-tips.md' })
+    const r = await svc.push('reference', 'my-tips.md', 'Add my-tips')
+    expect(r.ok).toBe(true)
+
+    // "maintainer merges the PR": fast-forward main to the share branch
+    const branch = git(bare, 'branch', '--list', 'argus/*')
+      .replace(/^\*?\s+/, '')
+      .trim()
+    git(work, 'fetch', 'origin')
+    git(work, 'merge', '--ff-only', `origin/${branch}`)
+    git(work, 'push', 'origin', 'main')
+
+    // installing the merged copy keeps the author's tier — and push rights
+    let p = await svc.sync()
+    p = await svc.install('reference', 'my-tips.md')
+    const written = fs.readFileSync(path.join(homeB, 'references', 'my-tips.md'), 'utf8')
+    expect(written).toContain('trust_tier: user')
+    expect(p.pushable).toContainEqual({ kind: 'reference', name: 'my-tips.md' })
+    expect(p.items.find((i) => i.name === 'my-tips.md')?.localTier).toBe('user')
+
+    // a non-author install lands as hivemind tier; claiming it grants push rights
+    const other = new HivemindService({ argusHome: homeA, repo: () => bare })
+    await other.sync()
+    let po = await other.install('reference', 'my-tips.md')
+    expect(po.items.find((i) => i.name === 'my-tips.md')?.localTier).toBe('hivemind')
+    expect(po.pushable).not.toContainEqual({ kind: 'reference', name: 'my-tips.md' })
+    po = await other.claimReference('my-tips.md')
+    expect(po.items.find((i) => i.name === 'my-tips.md')?.localTier).toBe('user')
+    expect(po.pushable).toContainEqual({ kind: 'reference', name: 'my-tips.md' })
+  }, 30_000)
 })
