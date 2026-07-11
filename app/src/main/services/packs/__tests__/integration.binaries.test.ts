@@ -21,4 +21,20 @@ describe('sample pack binaries (real manifest)', () => {
       path.resolve(process.cwd(), '..', 'trace-rs', 'target', 'release')
     )
   })
+
+  it('declares the six navigation detectors with extract commands wired to declared binaries', () => {
+    const repoPacks = path.resolve(process.cwd(), '..', 'packs')
+    const { packs } = loadPacks(repoPacks)
+    const nav = packs.find((p) => p.id === 'sample')!
+    const det = nav.manifest.detectors
+    expect(det.map((d) => d.type)).toEqual([
+      'binlog', 'archive-rec', 'bintrace', 'tagged-json', 'list-json', 'applog'
+    ])
+    const binIds = nav.manifest.binaries.map((b) => b.id)
+    for (const d of det) {
+      if (d.extract) expect(binIds).toContain(d.extract.bin)
+    }
+    expect(det.find((d) => d.type === 'applog')?.isText).toBe(true)
+    expect(det.find((d) => d.type === 'binlog')?.analyzeSkill).toBe('analyze-binlog')
+  })
 })
