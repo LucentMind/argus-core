@@ -59,11 +59,26 @@ const hivemindSchema = z.looseObject({
   repo: z.string().default('')
 })
 
+const observabilitySchema = z.looseObject({
+  langfuse: z
+    .looseObject({
+      enabled: z.boolean().default(false),
+      host: z.string().default(''),
+      publicKey: z.string().default(''),
+      captureContent: z.boolean().default(false)
+    })
+    .default(() => ({ enabled: false, host: '', publicKey: '', captureContent: false })),
+  dashboard: z
+    .looseObject({ hiddenCards: z.array(z.string()).default([]) })
+    .default(() => ({ hiddenCards: [] }))
+})
+
 export const settingsSchema = z.looseObject({
   general: generalSchema.default(() => generalSchema.parse({})),
   agent: agentSchema.default(() => agentSchema.parse({})),
   tools: toolsSchema.default(() => toolsSchema.parse({})),
-  hivemind: hivemindSchema.default(() => hivemindSchema.parse({}))
+  hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
+  observability: observabilitySchema.default(() => observabilitySchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>

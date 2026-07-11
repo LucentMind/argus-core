@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { SettingsService } from '../settings'
 import { settingsPath } from '../paths'
-import { defaultSettings } from '../../../shared/settings'
+import { defaultSettings, settingsSchema } from '../../../shared/settings'
 
 let tmp: string, argusHome: string, appRoot: string, svc: SettingsService
 
@@ -162,6 +162,21 @@ describe('SettingsService', () => {
     expect(
       (svc.get().agent.providerInstances['claude-default'].config as { model?: string }).model
     ).toBe('claude-sonnet-5')
+  })
+
+  it('defaults observability to disabled, content off', () => {
+    const s = defaultSettings()
+    expect(s.observability.langfuse.enabled).toBe(false)
+    expect(s.observability.langfuse.captureContent).toBe(false)
+    expect(s.observability.dashboard.hiddenCards).toEqual([])
+  })
+
+  it('round-trips observability config', () => {
+    const parsed = settingsSchema.parse({
+      observability: { langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk' } }
+    })
+    expect(parsed.observability.langfuse.host).toBe('https://lf')
+    expect(parsed.observability.langfuse.enabled).toBe(true)
   })
 
   it('resolvedTools ignores app-set live env when captured env is empty', () => {
