@@ -139,7 +139,9 @@ export function CaseWorkspace({
       <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
         <h1 className="font-mono text-sm text-defect">{slug}</h1>
         <MenuButton
-          label={status === 'closed' && resolution ? `Closed · ${resolution}` : 'Close as…'}
+          label={
+            status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
+          }
           items={statusItems}
         />
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}

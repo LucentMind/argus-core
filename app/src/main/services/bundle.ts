@@ -369,6 +369,11 @@ export async function importCase(
     const status = STATUSES.includes(onDisk.status as CaseStatus)
       ? (onDisk.status as CaseStatus)
       : 'open'
+    // A bundled case.json with status "closed" but a missing/invalid resolution lands here
+    // as closed + null — this is the same tolerated "legacy" state as pre-migration DB rows
+    // (see CaseRecord.resolution). It is intentional, not a bug: do not tighten this to throw
+    // or to force a resolution. Any code that reads `resolution` must stay behind a
+    // `status === 'closed' && resolution` guard rather than assuming closed implies non-null.
     const resolution =
       status === 'closed' && CASE_RESOLUTIONS.includes(onDisk.resolution as CaseResolution)
         ? (onDisk.resolution as CaseResolution)

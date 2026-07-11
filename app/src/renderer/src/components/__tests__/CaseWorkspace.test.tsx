@@ -225,4 +225,11 @@ describe('CaseWorkspace status menu', () => {
     await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'open', null))
     expect(onStatusChanged).toHaveBeenCalled()
   })
+
+  it('shows a bare "Closed" label (not "Close as…") for a legacy closed case with no resolution', async () => {
+    renderWorkspace({ status: 'closed', resolution: null })
+    expect(screen.getByRole('button', { name: 'Closed' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Closed' }))
+    expect(screen.getByRole('menuitem', { name: 'Reopen' })).toBeTruthy()
+  })
 })
