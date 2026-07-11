@@ -37,7 +37,7 @@ export function HeaderChips({
         }
       >
         <Chip tone={preflight?.ok ? 'review' : 'neutral'}>
-          {preflight ? (preflight.ok ? 'trace ✓' : 'trace ✗') : 'trace …'}
+          {preflight ? (preflight.ok ? 'tools ✓' : 'tools ✗') : 'tools …'}
         </Chip>
       </span>
       <Chip tone="neutral">
