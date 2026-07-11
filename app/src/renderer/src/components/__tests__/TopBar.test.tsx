@@ -80,7 +80,7 @@ describe('TopBar', () => {
         onNewCase={vi.fn()}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: /argus/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'All cases' }))
     expect(onHome).toHaveBeenCalled()
   })
 
