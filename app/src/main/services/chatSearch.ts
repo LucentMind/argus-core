@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ChatSearchResult } from '../../shared/types'
+import type { ChatHit, ChatSearchResult } from '../../shared/types'
 import { getCase } from './caseService'
+import { escapeFtsQuery } from './search'
 
 const MAX_HITS = 50
+const MAX_GLOBAL_HITS = 25
 
 export function searchMessages(db: DatabaseSync, caseSlug: string, q: string): ChatSearchResult {
   if (!q.trim()) return { hits: [] }
@@ -24,4 +26,49 @@ export function searchMessages(db: DatabaseSync, caseSlug: string, q: string): C
     // FTS5 syntax errors (unbalanced quotes etc.) — surface inline, never throw
     return { hits: [], error: (err as Error).message }
   }
+}
+
+interface AllRow {
+  caseSlug: string
+  sessionId: number | bigint
+  sessionTitle: string
+  turnId: number | bigint | null
+  role: string
+  snippet: string
+}
+
+/**
+ * Cross-case chat search for the home search bar. Unlike searchMessages (raw
+ * FTS syntax for the in-case SessionSwitcher), the query is term-escaped so a
+ * casual unified-bar query can never hit an FTS syntax error.
+ */
+export function searchAllMessages(db: DatabaseSync, q: string, caseSlug?: string): ChatHit[] {
+  if (!q.trim()) return []
+  const slug = caseSlug ?? null
+  const rows = db
+    .prepare(
+      `SELECT c.slug                    AS caseSlug,
+              messages_fts.session_id   AS sessionId,
+              COALESCE(s.title, '')     AS sessionTitle,
+              messages_fts.turn_id      AS turnId,
+              messages_fts.role         AS role,
+              snippet(messages_fts, 0, '«', '»', '…', 12) AS snippet
+       FROM messages_fts
+       JOIN cases c    ON c.id = messages_fts.case_id
+       LEFT JOIN sessions s ON s.id = messages_fts.session_id
+       WHERE messages_fts MATCH ?
+         AND (? IS NULL OR c.slug = ?)
+       ORDER BY bm25(messages_fts)
+       LIMIT ${MAX_GLOBAL_HITS}`
+    )
+    .all(escapeFtsQuery(q), slug, slug) as unknown as AllRow[]
+  return rows.map((r) => ({
+    kind: 'chat',
+    caseSlug: r.caseSlug,
+    sessionId: Number(r.sessionId),
+    sessionTitle: r.sessionTitle,
+    turnId: r.turnId === null ? null : Number(r.turnId),
+    role: r.role,
+    snippet: r.snippet
+  }))
 }

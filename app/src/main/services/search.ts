@@ -10,7 +10,7 @@ const WINDOW_LINES_BEFORE = 500
 const WINDOW_LINES_AFTER = 2000
 const SCAN_CHUNK_BYTES = 1024 * 1024
 
-function escapeFtsQuery(q: string): string {
+export function escapeFtsQuery(q: string): string {
   // Escape FTS special characters but preserve the query as individual terms
   // This allows per-term highlighting while preventing syntax errors
   const trimmed = q.trim()

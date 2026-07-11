@@ -8,7 +8,8 @@ import type {
   FileNode,
   FileReadResult,
   SessionSummary,
-  ChatSearchResult
+  ChatSearchResult,
+  UnifiedHit
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -80,7 +81,8 @@ const argus = {
     }
   },
   search: {
-    query: (q: string, filters?: SearchFilters) => ipcRenderer.invoke(IPC.searchQuery, q, filters)
+    query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>
+      ipcRenderer.invoke(IPC.searchQuery, q, filters)
   },
   chat: {
     search: (caseSlug: string, q: string): Promise<ChatSearchResult> =>
