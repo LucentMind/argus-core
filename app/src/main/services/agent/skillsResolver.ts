@@ -69,6 +69,22 @@ export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedS
 }
 
 /**
+ * Delete <argusHome>/skills-user/<name> — "adopt upstream" / remove a local
+ * override so a lower-precedence tier (hivemind, bundled) wins resolution again.
+ */
+export function deleteUserSkill(argusHome: string, name: string): void {
+  // path.basename only splits on '\' under win32 — reject it explicitly for parity
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) {
+    throw new Error(`Invalid skill name: ${name}`)
+  }
+  const dir = path.join(userSkillsDir(argusHome), name)
+  if (!fs.existsSync(path.join(dir, 'SKILL.md'))) {
+    throw new Error(`No user skill: ${name}`)
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+}
+
+/**
  * Rebuild <caseDir>/.claude/skills as per-skill junctions filtered by access.
  * Replaces the legacy whole-dir junction that caseService created for old cases.
  */
