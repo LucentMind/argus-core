@@ -17,11 +17,14 @@ afterEach(() => {
 
 const deps = (over: Partial<HealthDeps> = {}): HealthDeps => ({
   argusHome: tmp,
-  probeTools: async () => ({
-    parseBin: { path: 'C:\\sample-parse.exe', version: '0.3.0' },
-    traceDir: { path: 'C:\\trace', found: true }
-  }),
-  preflight: async () => ({ ok: true, checks: [{ name: 'python', ok: true, detail: '3.11' }] }),
+  binaries: () => [
+    { id: 'tool-x', label: 'Tool X binary' },
+    { id: 'tool-y', label: 'Tool Y CLI + env' }
+  ],
+  checkBinary: async (id: string) =>
+    id === 'tool-x'
+      ? { ok: true, detail: 'C:\\tool-x.exe · 0.3.0' }
+      : { ok: true, detail: '2 checks passed' },
   agentAuth: async () => ({ ok: true, detail: 'logged in as x@y' }),
   gh: async () => ({ ok: true, detail: 'Logged in to github.com' }),
   enabledConnectors: () => [{ id: 'rovo', name: 'Atlassian Rovo' }],
@@ -40,16 +43,22 @@ async function runAll(d: HealthDeps, ids: string[] | null = null): Promise<Healt
 }
 
 describe('HealthService', () => {
-  it('rows: five static checks plus one per enabled connector', () => {
+  it('rows: one row per registry binary, then static checks, then per-connector', () => {
     const rows = new HealthService(deps()).rows()
     expect(rows.map((r) => r.id)).toEqual([
-      'parse',
-      'trace',
+      'bin:tool-x',
+      'bin:tool-y',
       'gh',
       'agent',
       'data-root',
       'connector:rovo'
     ])
+  })
+
+  it('binary rows are labeled from the registry-provided label', () => {
+    const rows = new HealthService(deps()).rows()
+    expect(rows.find((r) => r.id === 'bin:tool-x')!.label).toBe('Tool X binary')
+    expect(rows.find((r) => r.id === 'bin:tool-y')!.label).toBe('Tool Y CLI + env')
   })
 
   it('connector rows are labeled with the display name, falling back to the instance id', () => {
@@ -73,28 +82,39 @@ describe('HealthService', () => {
     const out = await runAll(deps())
     expect(out).toHaveLength(6)
     expect(out.every((r) => r.ok)).toBe(true)
-    expect(out.find((r) => r.id === 'parse')!.detail).toContain('0.3.0')
+    expect(out.find((r) => r.id === 'bin:tool-x')!.detail).toContain('0.3.0')
     expect(out.find((r) => r.id === 'connector:rovo')!.detail).toContain('1 tools')
+  })
+
+  it('a failing binary row carries a fixHint; a passing one does not', async () => {
+    const out = await runAll(
+      deps({
+        checkBinary: async (id: string) =>
+          id === 'tool-x'
+            ? { ok: false, detail: 'not found', fixHint: 'Install tool-x.' }
+            : { ok: true, detail: '2 checks passed' }
+      })
+    )
+    const bad = out.find((r) => r.id === 'bin:tool-x')!
+    expect(bad.ok).toBe(false)
+    expect(bad.fixHint).toBe('Install tool-x.')
+    const good = out.find((r) => r.id === 'bin:tool-y')!
+    expect(good.ok).toBe(true)
+    expect(good.detail).toBe('2 checks passed')
+    expect(good.fixHint).toBeUndefined()
   })
 
   it('failures carry detail + fixHint and never throw', async () => {
     const out = await runAll(
       deps({
-        probeTools: async () => ({
-          parseBin: { path: null, version: null },
-          traceDir: { path: null, found: false }
-        }),
-        preflight: async () => ({
-          ok: false,
-          checks: [{ name: 'python', ok: false, detail: 'not found' }]
-        }),
+        checkBinary: async () => ({ ok: false, detail: 'not found', fixHint: 'Install it.' }),
         agentAuth: async () => ({ ok: false, detail: 'not logged in' }),
         gh: async () => ({ ok: false, detail: 'gh not installed' }),
         probeConnector: async () => ({ ok: false, error: 'connect ECONNREFUSED' })
       })
     )
     expect(out.every((r) => !r.ok || r.id === 'data-root')).toBe(true)
-    for (const id of ['parse', 'trace', 'gh', 'agent', 'connector:rovo'])
+    for (const id of ['bin:tool-x', 'bin:tool-y', 'gh', 'agent', 'connector:rovo'])
       expect(out.find((r) => r.id === id)!.fixHint).toBeTruthy()
   })
 
@@ -109,6 +129,20 @@ describe('HealthService', () => {
     )
     expect(out).toHaveLength(1)
     expect(out[0]).toMatchObject({ id: 'agent', ok: false })
+    expect(out[0].detail).toContain('probe exploded')
+  })
+
+  it('a throwing checkBinary dep becomes a failed row', async () => {
+    const out = await runAll(
+      deps({
+        checkBinary: async () => {
+          throw new Error('probe exploded')
+        }
+      }),
+      ['bin:tool-x']
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ id: 'bin:tool-x', ok: false })
     expect(out[0].detail).toContain('probe exploded')
   })
 

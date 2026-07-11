@@ -29,7 +29,7 @@ import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
-import { HealthService, type LegacyToolsProbe } from './services/health'
+import { HealthService } from './services/health'
 import { ghStatus } from './services/sourceControl'
 import {
   AtlassianClient,
@@ -590,25 +590,11 @@ function registerIpc(): void {
   })
 
   // — health —
-  // Interim bridge from BinariesService's generic rows to HealthService's legacy
-  // parseBin/traceDir shape; Task 7 replaces this dep with binaries/checkBinary.
-  const legacyProbeTools = async (): Promise<LegacyToolsProbe> => {
-    const rows = await binariesService.probe()
-    const parse = rows.find((r) => r.id === 'sample-parse')
-    const trace = rows.find((r) => r.id === 'sample-trace')
-    const parseDetail = parse?.ok ? parse.detail.split(' · ') : null
-    return {
-      parseBin: {
-        path: parseDetail ? parseDetail[0] : null,
-        version: parseDetail && parseDetail.length > 1 ? parseDetail[1] : null
-      },
-      traceDir: { path: binariesService.pathOf('sample-trace'), found: trace?.ok ?? false }
-    }
-  }
   const healthService = new HealthService({
     argusHome,
-    probeTools: legacyProbeTools,
-    preflight: () => runPreflight(argusParseBin),
+    binaries: () =>
+      binariesService.all().map((r) => ({ id: r.decl.id, label: r.decl.displayName })),
+    checkBinary: (id) => binariesService.healthCheck(id),
     agentAuth: async () => {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
       return probeAuth(
