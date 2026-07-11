@@ -4,9 +4,11 @@ import { isEditableTool } from '../../../shared/editableTools'
 
 export function ApprovalCard({
   slug,
+  sessionId,
   request
 }: {
   slug: string
+  sessionId: number
   request: {
     requestId: string
     tool: string
@@ -28,7 +30,7 @@ export function ApprovalCard({
   const edited = Object.entries(draft).some(([k, v]) => v !== request.input?.[k])
 
   const respond = (kind: 'allow' | 'allow-session' | 'deny'): void => {
-    void window.argus.agent.respond(slug, {
+    void window.argus.agent.respond(slug, sessionId, {
       requestId: request.requestId,
       kind,
       comment: comment || undefined,

@@ -4,23 +4,17 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { SessionMirrorLike } from './session'
 
-/** Replay a case's mirror JSONL files (transcript history) in write order. */
-export function readSessionEvents(caseDir: string): AgentEvent[] {
-  const dir = path.join(caseDir, 'sessions')
-  if (!fs.existsSync(dir)) return []
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.jsonl'))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+/** Replay a single session's mirror JSONL file (transcript history) in write order. */
+export function readSessionEvents(caseDir: string, sessionId: number): AgentEvent[] {
+  const file = path.join(caseDir, 'sessions', `${sessionId}.jsonl`)
+  if (!fs.existsSync(file)) return []
   const events: AgentEvent[] = []
-  for (const file of files) {
-    for (const line of fs.readFileSync(path.join(dir, file), 'utf8').split('\n')) {
-      if (!line.trim()) continue
-      try {
-        events.push(JSON.parse(line) as AgentEvent)
-      } catch {
-        // skip corrupt lines (e.g. torn write on crash)
-      }
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue
+    try {
+      events.push(JSON.parse(line) as AgentEvent)
+    } catch {
+      // skip corrupt lines (e.g. torn write on crash)
     }
   }
   return events

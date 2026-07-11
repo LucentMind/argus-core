@@ -30,8 +30,12 @@ beforeEach(() => {
       history: vi.fn(async () => []),
       onEvent: vi.fn(() => () => undefined),
       send: vi.fn(),
+      interrupt: vi.fn(),
       authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })),
       preflight: vi.fn(async () => ({ ok: true, checks: [] }))
+    },
+    sessions: {
+      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
     },
     cases: { readFindings: vi.fn(async () => '') },
     evidence: {
@@ -107,9 +111,11 @@ describe('CaseWorkspace composer prefill', () => {
       'Message the analyst — / for skills'
     )
     expect(box.value).toBe('/analyze-binlog evidence/trace.binlog')
-    // switching tabs rerenders with the new slug — case A's suggestion must not leak into case B
+    // switching tabs rerenders with the new slug — case A's suggestion must not leak into case B.
+    // ChatPane briefly unmounts while the new case's session id loads (Task 5 bridge), so
+    // await its remount rather than querying synchronously.
     view.rerender(workspace('NAV-2'))
-    const boxAfter = screen.getByPlaceholderText<HTMLTextAreaElement>(
+    const boxAfter = await screen.findByPlaceholderText<HTMLTextAreaElement>(
       'Message the analyst — / for skills'
     )
     expect(boxAfter.value).toBe('')
@@ -123,7 +129,7 @@ describe('CaseWorkspace composer prefill', () => {
     fireEvent.click(await screen.findByRole('button', { name: /analyze/i }))
     view.rerender(workspace('NAV-2'))
     fireEvent.click(await screen.findByRole('button', { name: /analyze/i }))
-    const box = screen.getByPlaceholderText<HTMLTextAreaElement>(
+    const box = await screen.findByPlaceholderText<HTMLTextAreaElement>(
       'Message the analyst — / for skills'
     )
     expect(box.value).toBe('/analyze-binlog evidence/trace.binlog')
