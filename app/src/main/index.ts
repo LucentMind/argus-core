@@ -372,7 +372,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sessionsDelete, async (_e, caseSlug: string, sessionId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
-    // a live SDK session holds the mirror append stream — stop it before deleting
+    // stop any live session first: stop() closes the mirror synchronously, flushing
+    // its write-behind buffer before we rmSync the .jsonl below — otherwise the
+    // pending 250ms flush timer would recreate the file after deletion
     await agentService!.stopSession(caseSlug, sessionId)
     deleteSession(db, argusHome, caseSlug, sessionId)
   })
