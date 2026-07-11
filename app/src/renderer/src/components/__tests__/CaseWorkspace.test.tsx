@@ -148,6 +148,16 @@ describe('CaseWorkspace case switching', () => {
   })
 })
 
+describe('CaseWorkspace session bootstrap', () => {
+  it('shows an inline error when sessions.list rejects, without crashing', async () => {
+    window.argus.sessions.list = vi.fn(async () => {
+      throw new Error('boom')
+    })
+    renderWorkspace()
+    expect(await screen.findByText('Could not load chat sessions.')).toBeTruthy()
+  })
+})
+
 describe('CaseWorkspace findings pane', () => {
   it('drag on the separator resizes the pane (leftwards widens)', () => {
     renderWorkspace()
