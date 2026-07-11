@@ -255,6 +255,74 @@ function reindexImportedEvidence(db: DatabaseSync, caseId: number, dir: string):
   }
 }
 
+/** Matches sessionStore's first-user-message title cap. */
+const SESSION_TITLE_MAX = 40
+
+/**
+ * Register imported transcripts under the multi-session model: each
+ * sessions/<oldId>.jsonl becomes a fresh `sessions` row and its event
+ * envelopes are rewritten to the new caseId/caseSlug/sessionId — the ids in
+ * the bundle are the SOURCE machine's autoincrements, and both the session
+ * switcher (DB) and the renderer's hydrate keying (event envelopes) resolve
+ * against the local identity. Without this, imported transcripts are
+ * unreachable: files on disk, nothing in the chat.
+ */
+function registerImportedSessions(
+  db: DatabaseSync,
+  caseId: number,
+  caseSlug: string,
+  dir: string
+): void {
+  const sessionsDir = path.join(dir, 'sessions')
+  if (!fs.existsSync(sessionsDir)) return
+  const files = fs
+    .readdirSync(sessionsDir)
+    .filter((f) => /^\d+\.jsonl$/.test(f))
+    .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+  // stage out of the numeric namespace first — a freshly assigned id could
+  // otherwise collide with a not-yet-processed old file name
+  const staged = files.map((f) => {
+    const tmp = path.join(sessionsDir, `${f}.import`)
+    fs.renameSync(path.join(sessionsDir, f), tmp)
+    return tmp
+  })
+  const now = new Date().toISOString()
+  const insert = db.prepare(
+    `INSERT INTO sessions (case_id, title, turn_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`
+  )
+  for (const tmp of staged) {
+    const events: Record<string, unknown>[] = []
+    let title = ''
+    let turnCount = 0
+    for (const line of fs.readFileSync(tmp, 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const e = JSON.parse(line) as Record<string, unknown> & {
+          type?: string
+          payload?: { userText?: unknown }
+        }
+        if (e.type === 'turn.started') {
+          turnCount++
+          if (!title && typeof e.payload?.userText === 'string') {
+            title = e.payload.userText.trim().slice(0, SESSION_TITLE_MAX)
+          }
+        }
+        events.push(e)
+      } catch {
+        // torn line — same tolerance as readSessionEvents
+      }
+    }
+    const res = insert.run(caseId, title, turnCount, now, now)
+    const newId = Number(res.lastInsertRowid)
+    const rewritten = events
+      .map((e) => JSON.stringify({ ...e, caseId, caseSlug, sessionId: newId }))
+      .join('\n')
+    fs.writeFileSync(path.join(sessionsDir, `${newId}.jsonl`), rewritten ? rewritten + '\n' : '')
+    fs.rmSync(tmp)
+  }
+}
+
 export async function importCase(
   db: DatabaseSync,
   argusHome: string,
@@ -331,6 +399,7 @@ export async function importCase(
         )
       )
       reindexImportedEvidence(db, caseId, dir)
+      registerImportedSessions(db, caseId, slug, dir)
       return getCase(db, slug)!
     } catch (err) {
       // the rename may have already landed the dir on disk, and reindex may have
