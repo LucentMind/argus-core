@@ -18,7 +18,8 @@ beforeEach(() => {
         turnCount: 0,
         updatedAt: '2026-07-11T11:00:00Z'
       })),
-      rename: vi.fn(async () => undefined)
+      rename: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined)
     },
     chat: { search: vi.fn(async () => ({ hits: [] })) }
   } as never
@@ -151,5 +152,70 @@ describe('SessionSwitcher', () => {
     // the overlay must live outside this container, or its own positioned
     // descendant status would still out-rank the static button/input inside it
     expect(controlsContainer?.querySelector('.fixed.inset-0')).toBeNull()
+  })
+
+  it('Delete confirms, calls sessions.delete, and switches when the active chat was deleted', async () => {
+    window.confirm = vi.fn(() => true)
+    const onSwitch = vi.fn()
+    ;(window.argus.sessions as unknown as { list: ReturnType<typeof vi.fn> }).list = vi
+      .fn()
+      .mockResolvedValueOnce(sessions) // initial mount
+      .mockResolvedValueOnce(sessions) // popup open
+      .mockResolvedValue([sessions[0]]) // after delete: only id 2 remains
+    render(
+      <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Chat 1' }))
+    expect(window.confirm).toHaveBeenCalledWith(
+      'Delete "Chat 1"? Its transcript and turn history are removed.'
+    )
+    await waitFor(() =>
+      expect((window.argus.sessions as { delete: unknown }).delete).toHaveBeenCalledWith('NAV-1', 1)
+    )
+    await waitFor(() => expect(onSwitch).toHaveBeenCalledWith(2))
+  })
+
+  it('deleting a background chat does not switch; cancel deletes nothing', async () => {
+    window.confirm = vi.fn(() => true)
+    const onSwitch = vi.fn()
+    render(
+      <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Braking RCA' }))
+    await waitFor(() =>
+      expect((window.argus.sessions as { delete: unknown }).delete).toHaveBeenCalledWith('NAV-1', 2)
+    )
+    expect(onSwitch).not.toHaveBeenCalled()
+
+    window.confirm = vi.fn(() => false)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Chat 1' }))
+    expect(
+      (window.argus.sessions as unknown as { delete: ReturnType<typeof vi.fn> }).delete
+    ).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an inline error and still refetches the list when sessions.delete rejects', async () => {
+    window.confirm = vi.fn(() => true)
+    const onSwitch = vi.fn()
+    window.argus.sessions.delete = vi.fn(async () => {
+      throw new Error('chat locked')
+    })
+    render(
+      <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
+    )
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    const listCallsBefore = (window.argus.sessions.list as ReturnType<typeof vi.fn>).mock.calls
+      .length
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Chat 1' }))
+    expect(await screen.findByText('chat locked')).toBeTruthy()
+    // failed delete must not switch away from the still-live active session
+    expect(onSwitch).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(
+        (window.argus.sessions.list as ReturnType<typeof vi.fn>).mock.calls.length
+      ).toBeGreaterThan(listCallsBefore)
+    )
   })
 })

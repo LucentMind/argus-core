@@ -7,6 +7,7 @@ import { caseDir } from './paths'
 import { getCase } from './caseService'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
+import { appendDeletionAudit } from './deletionAudit'
 
 function splitName(baseName: string, compoundExts: string[]): { stem: string; ext: string } {
   const lower = baseName.toLowerCase()
@@ -267,4 +268,72 @@ export function listEvidence(db: DatabaseSync, caseSlug: string): EvidenceRecord
     )
     .all(caseSlug) as unknown as EvidenceRow[]
   return rows.map(rowToEvidence)
+}
+
+/**
+ * Hard-delete one evidence item plus (recursively) everything derived from it
+ * (meta.derivedFrom chains). Removes FTS rows + DB rows first, then the files
+ * and .meta sidecars — a locked file leaves an orphan on disk, never a ghost
+ * row. Findings citing the deleted paths keep their (now dangling) text
+ * citations by design.
+ */
+export function deleteEvidence(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  evidenceId: number
+): { deleted: Array<{ id: number; relPath: string; sha256: string }> } {
+  const kase = getCase(db, caseSlug)
+  if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+  const rows = db
+    .prepare(`SELECT id, rel_path, sha256, meta FROM evidence WHERE case_id = ?`)
+    .all(kase.id) as unknown as Array<{
+    id: number
+    rel_path: string
+    sha256: string
+    meta: string
+  }>
+  const root = rows.find((r) => r.id === evidenceId)
+  if (!root) throw new Error(`Unknown evidence ${evidenceId} for case ${caseSlug}`)
+
+  // transitive closure over meta.derivedFrom — grandchildren included
+  const doomed = [root]
+  const doomedIds = new Set([root.id])
+  for (let grew = true; grew;) {
+    grew = false
+    for (const r of rows) {
+      if (doomedIds.has(r.id)) continue
+      const parent = (JSON.parse(r.meta) as { derivedFrom?: number }).derivedFrom
+      if (parent !== undefined && doomedIds.has(parent)) {
+        doomed.push(r)
+        doomedIds.add(r.id)
+        grew = true
+      }
+    }
+  }
+
+  const deleted: Array<{ id: number; relPath: string; sha256: string }> = []
+  db.exec('BEGIN')
+  try {
+    for (const r of doomed) {
+      deleteEvidenceIndex(db, r.id)
+      db.prepare(`DELETE FROM evidence WHERE id = ?`).run(r.id)
+      deleted.push({ id: r.id, relPath: r.rel_path, sha256: r.sha256 })
+    }
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  appendDeletionAudit(argusHome, 'evidence.delete', caseSlug, { deleted })
+
+  const caseRoot = caseDir(argusHome, caseSlug)
+  for (const r of doomed) {
+    const relUnderEvidence = r.rel_path.slice('evidence/'.length)
+    fs.rmSync(path.join(caseRoot, ...r.rel_path.split('/')), { force: true })
+    fs.rmSync(path.join(caseRoot, 'evidence', '.meta', ...`${relUnderEvidence}.json`.split('/')), {
+      force: true
+    })
+  }
+  return { deleted }
 }

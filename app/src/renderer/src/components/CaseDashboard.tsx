@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
 import { Card, Chip, IconBtn, SectionLabel } from './ui'
-import { Download, FolderInput, Plus } from 'lucide-react'
+import { Download, FolderInput, Plus, Trash2 } from 'lucide-react'
+import { DeleteCaseDialog } from './DeleteCaseDialog'
+import { useSettingsPayload } from '../lib/settingsStore'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
   open: 'signal',
@@ -14,20 +16,43 @@ export function CaseDashboard({
   cases,
   onOpen,
   onNew,
-  onImport
+  onImport,
+  onDeleted
 }: {
   cases: CaseRecord[]
   onOpen: (slug: string) => void
   onNew: () => void
   onImport: () => void
+  onDeleted: () => void
 }): React.JSX.Element {
   const [exportNote, setExportNote] = useState<{ slug: string; text: string } | null>(null)
+  const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const settings = useSettingsPayload()
 
   async function exportCase(slug: string): Promise<void> {
     setExportNote(null)
     const r = await window.argus.bundle.export(slug, true)
     if (!r) return // save dialog canceled
     setExportNote({ slug, text: r.ok ? `exported ${r.fileCount} files` : r.error })
+  }
+
+  async function requestDelete(slug: string): Promise<void> {
+    // default true — also while the settings payload is still loading
+    const confirm = settings?.settings.general.confirmCaseDelete ?? true
+    if (!confirm) {
+      setDeleteError(null)
+      try {
+        await window.argus.cases.delete(slug)
+      } catch (err) {
+        setDeleteError({ slug, text: (err as Error).message })
+      } finally {
+        // resync the list even on failure — the deletion may have partially committed
+        onDeleted()
+      }
+      return
+    }
+    setDeleting(slug)
   }
 
   return (
@@ -58,12 +83,27 @@ export function CaseDashboard({
                 >
                   <Download size={14} />
                 </IconBtn>
+                <IconBtn
+                  aria-label={`Delete ${c.slug}`}
+                  title="Delete case"
+                  className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation() // the Card itself opens the case
+                    void requestDelete(c.slug)
+                  }}
+                >
+                  <Trash2 size={14} />
+                </IconBtn>
                 <Chip tone={STATUS_TONE[c.status]}>{c.status}</Chip>
               </span>
             </div>
             <div className="text-sm text-ink">{c.title}</div>
             <div className="mt-auto text-xs text-mute">
-              {exportNote?.slug === c.slug ? (
+              {deleteError?.slug === c.slug ? (
+                <span className="truncate text-danger" title={deleteError.text}>
+                  {deleteError.text}
+                </span>
+              ) : exportNote?.slug === c.slug ? (
                 <span className="truncate" title={exportNote.text}>
                   {exportNote.text}
                 </span>
@@ -90,6 +130,16 @@ export function CaseDashboard({
           </button>
         </Card>
       </div>
+      {deleting && (
+        <DeleteCaseDialog
+          slug={deleting}
+          onCancel={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null)
+            onDeleted()
+          }}
+        />
+      )}
     </div>
   )
 }

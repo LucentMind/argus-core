@@ -5,10 +5,12 @@ import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { AgentService } from '../registry'
-import { createSession } from '../sessionStore'
+import { createSession, deleteSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
+import { SessionMirror } from '../mirror'
+import { caseDir } from '../../paths'
 import type { CreateQueryFn } from '../session'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
@@ -309,5 +311,72 @@ describe('AgentService', () => {
     // favorites group first regardless of modelOrder rank → claude-opus-4-8 is the top model
     expect(captured[0].model).toBe('claude-opus-4-8')
     await svc.stopAll()
+  })
+
+  it('stopSession evicts one live session; stopAllForCase evicts only that case (prefix-safe)', async () => {
+    const { createQuery } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      maxSessions: 10
+    })
+    const a = createSession(db, 'NAV-1')
+    const b = createSession(db, 'NAV-1')
+    const c = createSession(db, 'NAV-2')
+    await svc.send('NAV-1', a.id, 'a')
+    await svc.send('NAV-1', b.id, 'b')
+    await svc.send('NAV-2', c.id, 'c')
+    expect(svc.states()).toHaveLength(3)
+
+    await svc.stopSession('NAV-1', a.id)
+    expect(new Set(svc.states().map((s) => s.sessionId))).toEqual(new Set([b.id, c.id]))
+
+    await svc.stopSession('NAV-1', 999999) // not live: must be a silent no-op
+    expect(svc.states()).toHaveLength(2)
+
+    await svc.stopAllForCase('NAV-1')
+    expect(svc.states().map((s) => s.caseSlug)).toEqual(['NAV-2'])
+    await svc.stopAll()
+  })
+
+  it('deleting a live session does not let the write-behind mirror resurrect the .jsonl file', async () => {
+    const { createQuery } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      // real SessionMirror (write-behind, 250ms timer) — a mocked mirror would not
+      // reproduce the resurrection bug this test guards against
+      mirrorFactory: (caseSlug, sessionId) =>
+        new SessionMirror(
+          db,
+          path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`),
+          {
+            caseId: 1,
+            sessionId
+          }
+        )
+    })
+    const s1 = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s1.id, 'hello')
+    const file = path.join(caseDir(argusHome, 'NAV-1'), 'sessions', `${s1.id}.jsonl`)
+
+    // mirrors the sessions:delete IPC handler: stop the live session, then hard-delete
+    await svc.stopSession('NAV-1', s1.id)
+    deleteSession(db, argusHome, 'NAV-1', s1.id)
+    expect(fs.existsSync(file)).toBe(false)
+
+    // wait past the mirror's 250ms write-behind flush window
+    await new Promise((r) => setTimeout(r, 350))
+    expect(fs.existsSync(file)).toBe(false)
   })
 })

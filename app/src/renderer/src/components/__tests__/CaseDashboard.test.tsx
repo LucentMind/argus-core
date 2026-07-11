@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseDashboard } from '../CaseDashboard'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseRecord } from '../../../../shared/types'
 
 const cases: CaseRecord[] = [
@@ -18,10 +20,34 @@ const cases: CaseRecord[] = [
   }
 ]
 
+function payload(): SettingsPayload {
+  return {
+    settings: defaultSettings(),
+    resolvedTools: [],
+    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
+    loadError: null
+  }
+}
+
+beforeEach(() => {
+  window.argus = {
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) }
+  } as never
+  settingsStore.reset()
+})
+
 describe('CaseDashboard', () => {
   it('renders case cards with status chip and opens on click', () => {
     const onOpen = vi.fn()
-    render(<CaseDashboard cases={cases} onOpen={onOpen} onNew={vi.fn()} onImport={vi.fn()} />)
+    render(
+      <CaseDashboard
+        cases={cases}
+        onOpen={onOpen}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
     fireEvent.click(screen.getByText('Bearing jumps'))
     expect(onOpen).toHaveBeenCalledWith('NAV-1')
     expect(screen.getByText('analyzing')).toBeTruthy()
@@ -29,20 +55,44 @@ describe('CaseDashboard', () => {
 
   it('New case card opens the dialog via onNew', () => {
     const onNew = vi.fn()
-    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={onNew} onImport={vi.fn()} />)
+    render(
+      <CaseDashboard
+        cases={[]}
+        onOpen={vi.fn()}
+        onNew={onNew}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
     fireEvent.click(screen.getByRole('button', { name: /new case/i }))
     expect(onNew).toHaveBeenCalled()
   })
 
   it('Import case button calls onImport', () => {
     const onImport = vi.fn()
-    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={vi.fn()} onImport={onImport} />)
+    render(
+      <CaseDashboard
+        cases={[]}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={onImport}
+        onDeleted={vi.fn()}
+      />
+    )
     fireEvent.click(screen.getByRole('button', { name: /import case/i }))
     expect(onImport).toHaveBeenCalled()
   })
 
   it('New and Import actions share one tile', () => {
-    render(<CaseDashboard cases={[]} onOpen={vi.fn()} onNew={vi.fn()} onImport={vi.fn()} />)
+    render(
+      <CaseDashboard
+        cases={[]}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
     const newBtn = screen.getByRole('button', { name: /new case/i })
     const importBtn = screen.getByRole('button', { name: /import case/i })
     expect(newBtn.parentElement).toBe(importBtn.parentElement)

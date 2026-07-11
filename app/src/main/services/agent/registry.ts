@@ -153,6 +153,26 @@ export class AgentService {
     }
   }
 
+  /** Stop + evict one live session (chat deletion); no-op when not live. */
+  async stopSession(caseSlug: string, sessionId: number): Promise<void> {
+    const key = this.keyOf(caseSlug, sessionId)
+    const s = this.sessions.get(key)
+    if (!s) return
+    await s.stop('stopped')
+    this.sessions.delete(key)
+  }
+
+  /** Stop + evict every live session of a case (case deletion). The `::`
+   *  suffix keeps the prefix match exact — NAV-1 never matches NAV-10. */
+  async stopAllForCase(caseSlug: string): Promise<void> {
+    for (const [key, s] of [...this.sessions.entries()]) {
+      if (key.startsWith(`${caseSlug}::`)) {
+        await s.stop('stopped')
+        this.sessions.delete(key)
+      }
+    }
+  }
+
   states(): { caseSlug: string; sessionId: number; state: string; activeTurn: boolean }[] {
     return [...this.sessions.entries()].map(([key, s]) => ({
       caseSlug: key.slice(0, key.length - `::${s.sessionId}`.length),
