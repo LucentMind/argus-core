@@ -80,5 +80,51 @@ describe('openDb', () => {
       expect(colNames).toContain('workspaces')
       upgraded.close()
     })
+
+    it('allows multiple sessions per case and defaults title to empty', () => {
+      const now = new Date().toISOString()
+      db.prepare(
+        `INSERT INTO cases (slug, title, created_at, updated_at) VALUES ('NAV-1','t',?,?)`
+      ).run(now, now)
+      const caseId = Number(db.prepare(`SELECT id FROM cases WHERE slug='NAV-1'`).get()!.id)
+      db.prepare(`INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?,?,?)`).run(
+        caseId,
+        now,
+        now
+      )
+      db.prepare(`INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?,?,?)`).run(
+        caseId,
+        now,
+        now
+      )
+      const rows = db.prepare(`SELECT title FROM sessions WHERE case_id = ?`).all(caseId) as {
+        title: string
+      }[]
+      expect(rows).toHaveLength(2)
+      expect(rows[0].title).toBe('')
+    })
+
+    it('migrates a legacy UNIQUE(case_id) sessions table in place', () => {
+      const file = path.join(tmp, 'legacy.db')
+      const legacy = new DatabaseSync(file)
+      legacy.exec(`CREATE TABLE cases (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, jira_key TEXT, status TEXT NOT NULL DEFAULT 'open', tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id INTEGER NOT NULL UNIQUE REFERENCES cases(id) ON DELETE CASCADE, sdk_session_id TEXT, turn_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`)
+      legacy.exec(
+        `INSERT INTO cases (slug, title, created_at, updated_at) VALUES ('OLD-1','t','x','x')`
+      )
+      legacy.exec(
+        `INSERT INTO sessions (case_id, sdk_session_id, turn_count, created_at, updated_at) VALUES (1,'abc',5,'x','x')`
+      )
+      legacy.close()
+      const migrated = openDb(file)
+      const row = migrated
+        .prepare(`SELECT id, sdk_session_id, turn_count, title FROM sessions`)
+        .get() as never
+      expect(row).toMatchObject({ id: 1, sdk_session_id: 'abc', turn_count: 5, title: '' })
+      migrated
+        .prepare(`INSERT INTO sessions (case_id, created_at, updated_at) VALUES (1,'x','x')`)
+        .run() // no UNIQUE violation
+      migrated.close()
+    })
   })
 })

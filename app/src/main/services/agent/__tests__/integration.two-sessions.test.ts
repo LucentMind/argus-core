@@ -6,6 +6,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
 import { AgentService } from '../registry'
+import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import type { CreateQueryFn } from '../session'
@@ -62,8 +63,10 @@ describe('two concurrent case sessions', () => {
       createQuery
     })
 
-    await svc.send('NAV-1', '/analyze-applog evidence/NAV-1.txt')
-    await svc.send('NAV-2', '/analyze-applog evidence/NAV-2.txt')
+    const s1 = createSession(db, 'NAV-1')
+    const s2 = createSession(db, 'NAV-2')
+    await svc.send('NAV-1', s1.id, '/analyze-applog evidence/NAV-1.txt')
+    await svc.send('NAV-2', s2.id, '/analyze-applog evidence/NAV-2.txt')
 
     // interleave assistant streams
     queues.get(0)!.push({
@@ -104,8 +107,8 @@ describe('two concurrent case sessions', () => {
     const opened = events.find((e) => e.type === 'request.opened')!
     expect(opened.caseSlug).toBe('NAV-2')
     const reqId = (opened.payload as { requestId: string }).requestId
-    expect(svc.respond('NAV-1', { requestId: reqId, kind: 'allow' })).toBe(false) // wrong case
-    expect(svc.respond('NAV-2', { requestId: reqId, kind: 'deny' })).toBe(true)
+    expect(svc.respond('NAV-1', s1.id, { requestId: reqId, kind: 'allow' })).toBe(false) // wrong case
+    expect(svc.respond('NAV-2', s2.id, { requestId: reqId, kind: 'deny' })).toBe(true)
     expect((await pend).behavior).toBe('deny')
 
     await svc.stopAll()
