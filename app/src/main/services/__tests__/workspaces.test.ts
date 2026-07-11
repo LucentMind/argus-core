@@ -11,6 +11,7 @@ import {
   listWorkspaces,
   ensureWorktree,
   worktreesRoot,
+  workspaceSandboxRoots,
   autoLinkDefaultRepo
 } from '../workspaces'
 import type { DatabaseSync } from 'node:sqlite'
@@ -106,6 +107,15 @@ describe('workspace service', () => {
     // Second call should not detach the worktree
     await ensureWorktree(argusHome, 'NAV-1', repo, 'feature/x')
     expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature/x')
+  })
+
+  // Regression guard: the graphs cache must stay read-only to the agent. It is exposed via
+  // skillsRoots -> readonlyRoots (session.ts), never via workspaceSandboxRoots, which feeds
+  // riskCtx.workspaceRoots where FS Write/Edit are auto-allowed.
+  it('workspaceSandboxRoots does not include the graphs directory', async () => {
+    await linkWorkspace(db, argusHome, 'NAV-1', repo)
+    const roots = await workspaceSandboxRoots(db, argusHome, 'NAV-1')
+    expect(roots).not.toContain(path.join(argusHome, 'graphs'))
   })
 })
 

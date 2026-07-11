@@ -12,7 +12,8 @@ import type {
   SessionSummary,
   ChatSearchResult,
   UnifiedHit,
-  ArtifactTypeMeta
+  ArtifactTypeMeta,
+  GraphStatusRow
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -152,6 +153,31 @@ const argus = {
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug),
     refs: (caseSlug: string): Promise<BundleWorkspaceRef[]> =>
       ipcRenderer.invoke(IPC.workspacesRefs, caseSlug)
+  },
+  graph: {
+    build: (
+      repoPath: string,
+      scope: string | null
+    ): Promise<{ started: boolean; missing?: true }> =>
+      ipcRenderer.invoke(IPC.graphBuild, repoPath, scope),
+    status: (repoPath: string): Promise<GraphStatusRow[]> =>
+      ipcRenderer.invoke(IPC.graphStatus, repoPath),
+    install: (): Promise<{ ok: boolean; log: string }> => ipcRenderer.invoke(IPC.graphInstall),
+    onBuilding: (
+      cb: (p: { repoPath: string; scope: string | null; active: boolean }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        p: { repoPath: string; scope: string | null; active: boolean }
+      ): void => cb(p)
+      ipcRenderer.on(IPC.graphBuilding, listener)
+      return () => ipcRenderer.removeListener(IPC.graphBuilding, listener)
+    },
+    onChanged: (cb: (p: { repoPath: string }) => void): (() => void) => {
+      const listener = (_e: unknown, p: { repoPath: string }): void => cb(p)
+      ipcRenderer.on(IPC.graphChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.graphChanged, listener)
+    }
   },
   skills: {
     list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList),
