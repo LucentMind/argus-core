@@ -7,6 +7,7 @@ import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
 import { MemorySettings } from './MemorySettings'
 import { SkillsSettings } from './SkillsSettings'
+import { HivemindSettings } from './HivemindSettings'
 
 const PAGES = [
   { id: 'general', label: 'General', enabled: true },
@@ -15,6 +16,7 @@ const PAGES = [
   { id: 'health', label: 'Health', enabled: true },
   { id: 'connectors', label: 'Connectors', enabled: true },
   { id: 'skills', label: 'Skills', enabled: true },
+  { id: 'hivemind', label: 'HiveMind', enabled: true },
   { id: 'memory', label: 'Memory', enabled: true },
   { id: 'observability', label: 'Observability', enabled: false }
 ] as const
@@ -87,6 +89,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'skills' && <SkillsSettings />}
+          {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
           {page === 'memory' && <MemorySettings />}
         </div>
       </div>

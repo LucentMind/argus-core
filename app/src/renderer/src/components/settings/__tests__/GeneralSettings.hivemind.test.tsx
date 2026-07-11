@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { GeneralSettings } from '../GeneralSettings'
@@ -22,11 +22,9 @@ beforeEach(() => {
 })
 
 describe('GeneralSettings HiveMind section', () => {
-  it('commits hivemind.repo on blur', () => {
+  it('no longer renders the HiveMind repo row — it moved to its own settings page', () => {
     render(<GeneralSettings payload={payload} />)
-    const input = screen.getByLabelText('HiveMind repo')
-    fireEvent.change(input, { target: { value: 'acme/hivemind' } })
-    fireEvent.blur(input)
-    expect(settingsStore.patch).toHaveBeenCalledWith({ hivemind: { repo: 'acme/hivemind' } })
+    expect(screen.queryByLabelText('HiveMind repo')).not.toBeInTheDocument()
+    expect(screen.queryByText('HiveMind')).not.toBeInTheDocument()
   })
 })
