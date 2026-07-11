@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import os from 'node:os'
+import { Zip } from 'zip-lib'
 import {
   PACK_MANIFEST_FILE,
   packManifestSchema,
@@ -125,4 +127,50 @@ export function writeChecksums(stagingDir: string): Record<string, string> {
   const body = rels.map((rel) => `${map[rel]}  ${rel}\n`).join('')
   fs.writeFileSync(path.join(stagingDir, CHECKSUMS_FILE), body)
   return map
+}
+
+export interface BuildOptions {
+  packDir: string
+  binDir: string
+  platform: string
+  outDir: string
+}
+
+export interface BuildResult {
+  zipPath: string
+  bundleName: string
+  files: string[]
+  warnings: string[]
+}
+
+export async function zipBundle(
+  stagingDir: string,
+  outDir: string,
+  bundleName: string
+): Promise<string> {
+  fs.mkdirSync(outDir, { recursive: true })
+  const zip = new Zip()
+  for (const rel of walkFiles(stagingDir)) {
+    zip.addFile(path.join(stagingDir, ...rel.split('/')), rel)
+  }
+  const zipPath = path.join(outDir, `${bundleName}.zip`)
+  await zip.archive(zipPath)
+  return zipPath
+}
+
+export async function build(opts: BuildOptions): Promise<BuildResult> {
+  const manifest = readManifest(opts.packDir)
+  const { warnings } = crossCheckBinaries(manifest, opts.binDir, opts.platform)
+  const bundleName = `${manifest.id}-${manifest.version}-${opts.platform}`
+
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-stage-'))
+  try {
+    assembleBundle(manifest, opts.packDir, opts.binDir, opts.platform, staging)
+    writeChecksums(staging)
+    const files = walkFiles(staging).sort()
+    const zipPath = await zipBundle(staging, opts.outDir, bundleName)
+    return { zipPath, bundleName, files, warnings }
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true })
+  }
 }

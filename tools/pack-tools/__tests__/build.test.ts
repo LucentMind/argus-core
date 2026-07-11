@@ -3,7 +3,16 @@ import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { readManifest, crossCheckBinaries, osOf, assembleBundle, writeChecksums } from '../src/build'
+import { extract } from 'zip-lib'
+import {
+  readManifest,
+  crossCheckBinaries,
+  osOf,
+  assembleBundle,
+  writeChecksums,
+  zipBundle,
+  build
+} from '../src/build'
 
 const FIX = path.join(__dirname, 'fixtures')
 const SAMPLE = path.join(FIX, 'sample-pack')
@@ -112,5 +121,33 @@ describe('writeChecksums', () => {
       .update(fs.readFileSync(path.join(staging, 'bin', 'argus-demo')))
       .digest('hex')
     expect(map['bin/argus-demo']).toBe(expected)
+  })
+})
+
+describe('build (end-to-end)', () => {
+  it('produces a verifiable named zip', async () => {
+    const out = tmpDir()
+    const res = await build({ packDir: SAMPLE, binDir: BIN, platform: 'mac-arm64', outDir: out })
+
+    expect(res.bundleName).toBe('sample-0.1.0-mac-arm64')
+    expect(res.zipPath).toBe(path.join(out, 'sample-0.1.0-mac-arm64.zip'))
+    expect(fs.existsSync(res.zipPath)).toBe(true)
+
+    // Re-open and verify layout + a checksum.
+    const dest = tmpDir()
+    await extract(res.zipPath, dest)
+    const stamped = JSON.parse(fs.readFileSync(path.join(dest, 'argus-pack.json'), 'utf8'))
+    expect(stamped.platform).toBe('mac-arm64')
+    expect(fs.existsSync(path.join(dest, 'CHECKSUMS'))).toBe(true)
+    expect(fs.existsSync(path.join(dest, 'bin', 'argus-demo'))).toBe(true)
+
+    const checks = fs.readFileSync(path.join(dest, 'CHECKSUMS'), 'utf8').trimEnd().split('\n')
+    const line = checks.find((l) => l.endsWith('  bin/argus-demo'))!
+    const [hex] = line.split('  ')
+    const actual = crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(path.join(dest, 'bin', 'argus-demo')))
+      .digest('hex')
+    expect(hex).toBe(actual)
   })
 })
