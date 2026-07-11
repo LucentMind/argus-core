@@ -16,6 +16,7 @@ import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import { touchSession, setTitleIfEmpty } from './sessionStore'
+import { maybeAdvanceToAnalyzing } from '../caseService'
 
 export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
 export type CreateQueryFn = (args: {
@@ -190,6 +191,7 @@ export class CaseSession {
       )
       .run(this.deps.caseId, this.sessionId, this.turnIndex, now)
     this.currentTurnRow = Number(res.lastInsertRowid)
+    maybeAdvanceToAnalyzing(this.deps.db, this.deps.argusHome, this.deps.caseId)
     setTitleIfEmpty(this.deps.db, this.sessionId, text)
     this.deps.mirror?.indexText('user', text, this.currentTurnRow)
     this.emit(makeEvent(this.ctx(), 'turn.started', { userText: text }))

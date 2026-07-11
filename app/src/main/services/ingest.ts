@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/types'
 import { caseDir } from './paths'
-import { getCase } from './caseService'
+import { getCase, maybeAdvanceToAnalyzing } from './caseService'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 import { appendDeletionAudit } from './deletionAudit'
@@ -133,7 +133,7 @@ export function ingestArtifact(
     detection.compoundExts()
   )
   fs.copyFileSync(sourcePath, path.join(evidenceDir, destName))
-  return registerEvidenceFile(
+  const rec = registerEvidenceFile(
     db,
     detection,
     kase.id,
@@ -143,6 +143,8 @@ export function ingestArtifact(
     origin,
     extraMeta
   )
+  maybeAdvanceToAnalyzing(db, argusHome, kase.id)
+  return rec
 }
 
 /** Ingest in-memory content (e.g. a fetched Jira ticket) as an evidence file. */
@@ -161,7 +163,7 @@ export function ingestContent(
   const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
   const destName = collisionFreeName(evidenceDir, fileName, detection.compoundExts())
   fs.writeFileSync(path.join(evidenceDir, destName), content)
-  return registerEvidenceFile(
+  const rec = registerEvidenceFile(
     db,
     detection,
     kase.id,
@@ -171,6 +173,8 @@ export function ingestContent(
     origin,
     extraMeta
   )
+  maybeAdvanceToAnalyzing(db, argusHome, kase.id)
+  return rec
 }
 
 /** Overwrite an existing evidence file in place (ticket refresh): re-hash, re-detect, re-index. */

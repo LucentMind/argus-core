@@ -216,6 +216,30 @@ export function setCaseStatus(
 }
 
 /**
+ * Auto-advance a case from 'open' to 'analyzing' once it has both evidence and a
+ * started chat (a turn row). No-op for any non-'open' status, so it never
+ * downgrades analyzing/rca-drafted/closed. Called after an interactive evidence
+ * ingest and after a chat turn is created.
+ */
+export function maybeAdvanceToAnalyzing(
+  db: DatabaseSync,
+  argusHome: string,
+  caseId: number
+): void {
+  const row = db
+    .prepare(`SELECT slug, status FROM cases WHERE id = ?`)
+    .get(caseId) as { slug: string; status: string } | undefined
+  if (!row || row.status !== 'open') return
+  const hasEvidence =
+    (db.prepare(`SELECT 1 FROM evidence WHERE case_id = ? LIMIT 1`).get(caseId) as unknown) != null
+  const hasTurn =
+    (db.prepare(`SELECT 1 FROM turns WHERE case_id = ? LIMIT 1`).get(caseId) as unknown) != null
+  if (hasEvidence && hasTurn) {
+    setCaseStatus(db, argusHome, row.slug, 'analyzing', null)
+  }
+}
+
+/**
  * Hard-delete a case. Order: FTS rows (evidence_fts has no case_id — clean it
  * via the evidence subquery BEFORE the cascade destroys those rows) → cases
  * row (FK cascade takes evidence/sessions/turns/tool_calls/findings) → audit →
