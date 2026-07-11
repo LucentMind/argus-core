@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
+import { FileViewer } from './components/FileViewer'
 import { NewCaseDialog } from './components/NewCaseDialog'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
@@ -12,11 +13,16 @@ import type { CaseRecord, NewCaseInput, SearchHit } from '../../shared/types'
 
 type View = { kind: 'home' } | { kind: 'case'; slug: string } | { kind: 'settings' }
 
+type Viewer =
+  | { kind: 'evidence'; evidenceId: number; focusLine: number }
+  | { kind: 'file'; slug: string; relPath: string }
+  | null
+
 function App(): React.JSX.Element {
   const [cases, setCases] = useState<CaseRecord[]>([])
   const [view, setView] = useState<View>({ kind: 'home' })
   const [prevView, setPrevView] = useState<View>({ kind: 'home' })
-  const [viewer, setViewer] = useState<{ evidenceId: number; focusLine: number } | null>(null)
+  const [viewer, setViewer] = useState<Viewer>(null)
   const [newCaseOpen, setNewCaseOpen] = useState(false)
   const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null)
 
@@ -40,7 +46,7 @@ function App(): React.JSX.Element {
   }
 
   function handleOpenHit(hit: SearchHit): void {
-    setViewer({ evidenceId: hit.evidenceId, focusLine: hit.matchLine })
+    setViewer({ kind: 'evidence', evidenceId: hit.evidenceId, focusLine: hit.matchLine })
   }
 
   async function pickBundle(): Promise<void> {
@@ -94,16 +100,24 @@ function App(): React.JSX.Element {
             jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
             jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
             onOpenHit={handleOpenHit}
-            onOpenCitation={(id, line) => setViewer({ evidenceId: id, focusLine: line })}
+            onOpenCitation={(id, line) =>
+              setViewer({ kind: 'evidence', evidenceId: id, focusLine: line })
+            }
+            onOpenFile={(node) =>
+              setViewer({ kind: 'file', slug: view.slug, relPath: node.relPath })
+            }
           />
         )}
       </div>
-      {viewer && (
+      {viewer?.kind === 'evidence' && (
         <TextViewer
           evidenceId={viewer.evidenceId}
           focusLine={viewer.focusLine}
           onClose={() => setViewer(null)}
         />
+      )}
+      {viewer?.kind === 'file' && (
+        <FileViewer slug={viewer.slug} relPath={viewer.relPath} onClose={() => setViewer(null)} />
       )}
       {newCaseOpen && (
         <NewCaseDialog

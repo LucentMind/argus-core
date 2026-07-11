@@ -64,5 +64,11 @@ export const IPC = {
   hivemindPush: 'hivemind:push',
   proposalsList: 'proposals:list',
   proposalsAccept: 'proposals:accept',
-  proposalsReject: 'proposals:reject'
+  proposalsReject: 'proposals:reject',
+  filesList: 'files:list',
+  filesRead: 'files:read',
+  filesOpen: 'files:open',
+  filesReveal: 'files:reveal',
+  filesChanged: 'files:changed',
+  evidenceParsing: 'evidence:parsing'
 } as const

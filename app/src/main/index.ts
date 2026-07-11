@@ -47,13 +47,19 @@ import {
 import { createCase, listCases } from './services/caseService'
 import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
+import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
 import { AgentService } from './services/agent/registry'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
 import { runPreflight, ensureTraceOnPath } from './services/agent/preflight'
 import { resolveArgusParse } from './services/parsers'
-import { linkWorkspace, unlinkWorkspace, listWorkspaces } from './services/workspaces'
+import {
+  linkWorkspace,
+  unlinkWorkspace,
+  listWorkspaces,
+  autoLinkDefaultRepo
+} from './services/workspaces'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig } from '../shared/drivers'
 import {
@@ -173,15 +179,29 @@ function registerIpc(): void {
   })
 
   // — wave 0 handlers unchanged —
-  ipcMain.handle(IPC.casesCreate, (_e, input: NewCaseInput) => createCase(db, argusHome, input))
+  ipcMain.handle(IPC.casesCreate, async (_e, input: NewCaseInput) => {
+    const rec = createCase(db, argusHome, input)
+    await autoLinkDefaultRepo(db, argusHome, rec.slug, settingsService.get().general.defaultRepo)
+    return rec
+  })
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
     const records = absPaths.map((p) => ingestArtifact(db, argusHome, caseSlug, p))
     // fire-and-forget: derived text appears via evidence:changed when ready
     for (const rec of records) {
-      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin }).then((derived) => {
-        if (derived) broadcast(IPC.evidenceChanged, caseSlug)
-      })
+      broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
+      // extractDerivedText CAN reject (its sync setup — db lookup, mkdirSync — runs
+      // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
+      void extractDerivedText(db, argusHome, rec, { argusParse: argusParseBin })
+        .then((derived) => {
+          if (derived) broadcast(IPC.evidenceChanged, caseSlug)
+        })
+        .catch((err) =>
+          console.warn(`[ingest] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+        )
+        .finally(() =>
+          broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: false })
+        )
     }
     return records
   })
@@ -320,6 +340,54 @@ function registerIpc(): void {
       return { ok: true as const, record: await importCase(db, argusHome, zipPath, slug) }
     } catch (err) {
       return { ok: false as const, error: (err as Error).message }
+    }
+  })
+
+  // — files (case-dir explorer) —
+  const caseWatchers = new Map<string, fs.FSWatcher>()
+  const watchCaseDir = (slug: string): void => {
+    if (caseWatchers.has(slug)) return
+    assertSlug(slug) // a hostile slug ('..') must not become a recursive watch over argusHome
+    const root = caseDir(argusHome, slug)
+    try {
+      let t: NodeJS.Timeout | null = null
+      const w = fs.watch(root, { recursive: true }, () => {
+        if (t) clearTimeout(t)
+        t = setTimeout(() => broadcast(IPC.filesChanged, slug), 300)
+      })
+      // fs.watch's try/catch only covers sync setup; on Windows, deleting the
+      // watched dir out from under the watcher emits an async 'error' event —
+      // unhandled, that crashes the main process.
+      w.on('error', (err) => {
+        console.warn(`[files] watcher error for ${slug}: ${(err as Error).message}`)
+        w.close()
+        caseWatchers.delete(slug)
+      })
+      caseWatchers.set(slug, w)
+    } catch (err) {
+      // network drives / EPERM: degrade silently — tree still reloads on evidence:changed
+      console.warn(`[files] watch failed for ${slug}: ${(err as Error).message}`)
+    }
+  }
+
+  ipcMain.handle(IPC.filesList, (_e, slug: string) => {
+    // Validate via listCaseFiles (unknown/invalid slugs throw) before a watcher
+    // is ever started — an unknown or malicious slug must not leave one behind.
+    const out = listCaseFiles(db, argusHome, slug)
+    watchCaseDir(slug)
+    return out
+  })
+  ipcMain.handle(IPC.filesRead, (_e, slug: string, relPath: string) =>
+    readCaseFile(argusHome, slug, relPath)
+  )
+  ipcMain.handle(IPC.filesOpen, (_e, slug: string, relPath: string) =>
+    shell.openPath(resolveCasePath(argusHome, slug, relPath))
+  )
+  ipcMain.handle(IPC.filesReveal, (_e, slug: string, relPath?: string) => {
+    if (relPath) shell.showItemInFolder(resolveCasePath(argusHome, slug, relPath))
+    else {
+      assertSlug(slug)
+      void shell.openPath(caseDir(argusHome, slug))
     }
   })
 
@@ -495,7 +563,8 @@ function registerIpc(): void {
     site: () => atlassianCreds().siteUrl,
     argusParse: () => argusParseBin,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
-    evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug)
+    evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug),
+    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
   })
 
   // Typed-result boundary: AtlassianError → { ok: false, code }, auth errors also
@@ -522,8 +591,19 @@ function registerIpc(): void {
   }
 
   ipcMain.handle(IPC.jiraPreview, (_e, key: string) => jiraResult(() => jiraCases.preview(key)))
-  ipcMain.handle(IPC.jiraCreateCase, (_e, input: { slug: string; title: string; key: string }) =>
-    jiraResult(() => jiraCases.createFromTicket(input))
+  ipcMain.handle(
+    IPC.jiraCreateCase,
+    async (_e, input: { slug: string; title: string; key: string }) => {
+      const r = await jiraResult(() => jiraCases.createFromTicket(input))
+      if (r.ok)
+        await autoLinkDefaultRepo(
+          db,
+          argusHome,
+          input.slug,
+          settingsService.get().general.defaultRepo
+        )
+      return r
+    }
   )
   ipcMain.handle(IPC.jiraIngestAttachments, (_e, caseSlug: string, atts: JiraAttachmentInfo[]) =>
     jiraResult(() => jiraCases.ingestAttachments(caseSlug, atts))
