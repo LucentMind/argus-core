@@ -9,7 +9,7 @@ import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
 import { uiStore } from './lib/uiStore'
-import type { CaseRecord, NewCaseInput, SearchHit } from '../../shared/types'
+import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
 
 type View = { kind: 'home' } | { kind: 'case'; slug: string } | { kind: 'settings' }
 
@@ -45,8 +45,15 @@ function App(): React.JSX.Element {
     openCase(input.slug)
   }
 
-  function handleOpenHit(hit: SearchHit): void {
-    setViewer({ kind: 'evidence', evidenceId: hit.evidenceId, focusLine: hit.matchLine })
+  function handleOpenHit(hit: UnifiedHit): void {
+    if (hit.kind === 'chat') {
+      // select the session before mounting the workspace — CaseWorkspace reads
+      // uiStore.activeSessions[slug] when its session list resolves
+      uiStore.setActiveSession(hit.caseSlug, hit.sessionId)
+      openCase(hit.caseSlug)
+    } else {
+      setViewer({ kind: 'evidence', evidenceId: hit.evidenceId, focusLine: hit.matchLine })
+    }
   }
 
   async function pickBundle(): Promise<void> {
