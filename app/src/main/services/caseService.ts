@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { CaseRecord, CaseStatus, NewCaseInput } from '../../shared/types'
+import type { CaseRecord, CaseResolution, CaseStatus, NewCaseInput } from '../../shared/types'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 
@@ -39,6 +39,7 @@ interface CaseRow {
   jira_key: string | null
   jira_synced_at: string | null
   status: string
+  resolution: string | null
   tags: string
   created_at: string
   updated_at: string
@@ -52,6 +53,7 @@ function rowToCase(r: CaseRow): CaseRecord {
     jiraKey: r.jira_key,
     jiraSyncedAt: r.jira_synced_at ?? null,
     status: r.status as CaseStatus,
+    resolution: (r.resolution ?? null) as CaseResolution | null,
     tags: JSON.parse(r.tags) as string[],
     createdAt: r.created_at,
     updatedAt: r.updated_at
@@ -85,8 +87,8 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
   const now = new Date().toISOString()
   const res = db
     .prepare(
-      `INSERT INTO cases (slug, title, jira_key, status, tags, created_at, updated_at)
-       VALUES (?, ?, ?, 'open', '[]', ?, ?)`
+      `INSERT INTO cases (slug, title, jira_key, status, resolution, tags, created_at, updated_at)
+       VALUES (?, ?, ?, 'open', NULL, '[]', ?, ?)`
     )
     .run(input.slug, input.title, input.jiraKey ?? null, now, now)
 
@@ -104,6 +106,7 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       jiraKey: input.jiraKey ?? null,
       jiraSyncedAt: null,
       status: 'open',
+      resolution: null,
       tags: [],
       createdAt: now,
       updatedAt: now
@@ -168,6 +171,46 @@ export function setCaseJira(
   fs.writeFileSync(
     file,
     JSON.stringify({ ...onDisk, jiraKey: jira.key, updatedAt: now, jira }, null, 2)
+  )
+  return getCase(db, slug)!
+}
+
+/**
+ * The single writer for a case's lifecycle status + resolution. Enforces the
+ * invariant (resolution non-null iff status === 'closed'), updates the DB row,
+ * and mirrors status/resolution into case.json. Used by the human IPC path, the
+ * agent update_case_status tool, and the auto-analyze helper.
+ */
+export function setCaseStatus(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  status: CaseStatus,
+  resolution: CaseResolution | null
+): CaseRecord {
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+  if (status === 'closed' && resolution === null) {
+    throw new Error('Closing a case requires a resolution reason')
+  }
+  const nextResolution = status === 'closed' ? resolution : null
+  const now = new Date().toISOString()
+  db.prepare(
+    `UPDATE cases SET status = ?, resolution = ?, updated_at = ? WHERE slug = ?`
+  ).run(status, nextResolution, now, slug)
+
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    // corrupt/unreadable case.json — rebuild from the DB record (same shape as
+    // createCase: full record minus id) so other fields survive.
+    onDisk = { ...existing, id: undefined }
+  }
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ ...onDisk, status, resolution: nextResolution, updatedAt: now }, null, 2)
   )
   return getCase(db, slug)!
 }
