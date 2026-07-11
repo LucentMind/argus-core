@@ -306,15 +306,49 @@ export class CaseSession {
     subtype?: string
     session_id?: string
     model?: string
+    fallback_model?: string
   }): void {
     if (msg.type === 'system' && msg.subtype === 'init' && msg.model) {
       this.currentModel = String(msg.model)
+    }
+    // SDKModelRefusalFallbackMessage: a refusal made the model swap persistent for the
+    // rest of the session, without re-emitting 'init'. Track it so later turns whose
+    // result lacks modelUsage still fall back to the right model.
+    if (
+      msg.type === 'system' &&
+      msg.subtype === 'model_refusal_fallback' &&
+      msg.fallback_model
+    ) {
+      this.currentModel = String(msg.fallback_model)
     }
     const durable = (msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result'
     if (!durable || !msg.session_id || !UUID_RE.test(msg.session_id)) return
     this.deps.db
       .prepare(`UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`)
       .run(msg.session_id, new Date().toISOString(), this.sessionId)
+  }
+
+  // The result message's modelUsage is the authoritative per-turn record of which
+  // model(s) actually ran (SDKResultSuccess/SDKResultError.modelUsage: Record<string,
+  // ModelUsage>). Pick the model with the greatest input+output token usage; fall back
+  // to the last-known model (init, or a model_refusal_fallback swap) if absent/empty.
+  private resolveTurnModel(msg: {
+    modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>
+  }): string | null {
+    const usage = msg.modelUsage
+    if (usage && typeof usage === 'object') {
+      let best: string | null = null
+      let bestTotal = -1
+      for (const [model, u] of Object.entries(usage)) {
+        const total = (u?.inputTokens ?? 0) + (u?.outputTokens ?? 0)
+        if (total > bestTotal) {
+          bestTotal = total
+          best = model
+        }
+      }
+      if (best != null) return best
+    }
+    return this.currentModel
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -331,7 +365,7 @@ export class CaseSession {
           msg.usage?.output_tokens ?? null,
           msg.total_cost_usd ?? null,
           msg.duration_ms ?? null,
-          this.currentModel,
+          this.resolveTurnModel(msg),
           this.currentTurnRow
         )
     }

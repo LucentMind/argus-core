@@ -200,6 +200,84 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  it('records the model from result.modelUsage when it differs from the init model', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'claude-opus-4-8'
+    })
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'success',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      usage: { input_tokens: 10, output_tokens: 5 },
+      total_cost_usd: 0.01,
+      duration_ms: 100,
+      is_error: false,
+      modelUsage: {
+        'claude-sonnet-5': {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          webSearchRequests: 0,
+          costUSD: 0.01,
+          contextWindow: 200000,
+          maxOutputTokens: 8192
+        }
+      }
+    })
+    await flush()
+    const row = db.prepare(`SELECT model FROM turns ORDER BY id DESC LIMIT 1`).get() as {
+      model: string | null
+    }
+    expect(row.model).toBe('claude-sonnet-5')
+    await s.stop('stopped')
+  })
+
+  it('updates currentModel on model_refusal_fallback so a later result without modelUsage records the fallback model', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    s.send('go')
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      model: 'claude-opus-4-8'
+    })
+    sdk.messages.push({
+      type: 'system',
+      subtype: 'model_refusal_fallback',
+      trigger: 'refusal',
+      direction: 'retry',
+      original_model: 'claude-opus-4-8',
+      fallback_model: 'claude-sonnet-5',
+      request_id: null,
+      content: '',
+      uuid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      session_id: '11111111-1111-4111-8111-111111111111'
+    })
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'success',
+      session_id: '11111111-1111-4111-8111-111111111111',
+      usage: { input_tokens: 10, output_tokens: 5 },
+      total_cost_usd: 0.01,
+      duration_ms: 100,
+      is_error: false
+    })
+    await flush()
+    const row = db.prepare(`SELECT model FROM turns ORDER BY id DESC LIMIT 1`).get() as {
+      model: string | null
+    }
+    expect(row.model).toBe('claude-sonnet-5')
+    await s.stop('stopped')
+  })
+
   it('ignores transient session ids from non-durable system messages', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
