@@ -24,3 +24,4 @@ export interface HivemindPayload {
   pushable: PushableItem[]
 }
 export type HivemindPushResult = { ok: true; prUrl: string } | { ok: false; error: string }
+export type HivemindCheckResult = { ok: true } | { ok: false; error: string }

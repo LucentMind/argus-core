@@ -468,6 +468,7 @@ function registerIpc(): void {
     repo: () => settingsService.get().hivemind.repo
   })
   ipcMain.handle(IPC.hivemindGet, () => hivemind.payload())
+  ipcMain.handle(IPC.hivemindCheck, () => hivemind.check())
   ipcMain.handle(IPC.hivemindSync, () => hivemind.sync())
   ipcMain.handle(IPC.hivemindInstall, async (_e, kind: 'skill' | 'reference', name: string) => {
     const p = await hivemind.install(kind, name)

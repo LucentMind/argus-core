@@ -328,3 +328,42 @@ describe('reference keep-authorship', () => {
     await expect(svc.claimReference('mine.md')).rejects.toThrow(/Not an installed HiveMind/)
   })
 })
+
+describe('check', () => {
+  it('reports ok when git ls-remote succeeds against the clone URL', async () => {
+    const calls: string[][] = []
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'org/hive',
+      git: async (_cmd, args) => {
+        calls.push(args)
+        return 'abc\tHEAD'
+      }
+    })
+    expect(await svc.check()).toEqual({ ok: true })
+    expect(calls[0]).toEqual(['ls-remote', 'https://github.com/org/hive.git', 'HEAD'])
+  })
+
+  it('reports the git error when the repo is unreachable', async () => {
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'org/nope',
+      git: async () => {
+        throw new Error('repository not found')
+      }
+    })
+    const r = await svc.check()
+    expect(r).toEqual({ ok: false, error: 'repository not found' })
+  })
+
+  it('fails fast on a blank repo without shelling out', async () => {
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => '  ',
+      git: async () => {
+        throw new Error('must not be called')
+      }
+    })
+    expect((await svc.check()).ok).toBe(false)
+  })
+})

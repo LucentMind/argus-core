@@ -62,6 +62,7 @@ export const IPC = {
   bundleImport: 'bundle:import',
   workspacesRefs: 'workspaces:refs',
   hivemindGet: 'hivemind:get',
+  hivemindCheck: 'hivemind:check',
   hivemindSync: 'hivemind:sync',
   hivemindInstall: 'hivemind:install',
   hivemindClaimReference: 'hivemind:claim-reference',
