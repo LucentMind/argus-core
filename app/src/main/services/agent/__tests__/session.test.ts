@@ -93,6 +93,43 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  // chat search resolves hits via messages_fts.turn_id — pin that indexText
+  // attributes each user/assistant text to the turns-table row it belongs to
+  // across multiple turns (a stale/reset currentTurnRow would break jumps)
+  it('indexes user and assistant text under the turn each belongs to', async () => {
+    const sdk = fakeSdk()
+    const indexed: Array<{ role: string; content: string; turnId: number | null }> = []
+    const s = makeSession(sdk, {
+      mirror: {
+        append: () => {},
+        indexText: (role, content, turnId) => indexed.push({ role, content, turnId })
+      }
+    })
+    s.send('first question')
+    sdk.messages.push({
+      type: 'assistant',
+      session_id: 'x',
+      message: { content: [{ type: 'text', text: 'first answer' }] }
+    })
+    await flush()
+    s.send('second question')
+    sdk.messages.push({
+      type: 'assistant',
+      session_id: 'x',
+      message: { content: [{ type: 'text', text: 'second answer' }] }
+    })
+    await flush()
+    const turns = db.prepare(`SELECT id FROM turns ORDER BY id`).all() as { id: number }[]
+    expect(turns).toHaveLength(2)
+    expect(indexed).toEqual([
+      { role: 'user', content: 'first question', turnId: turns[0].id },
+      { role: 'assistant', content: 'first answer', turnId: turns[0].id },
+      { role: 'user', content: 'second question', turnId: turns[1].id },
+      { role: 'assistant', content: 'second answer', turnId: turns[1].id }
+    ])
+    await s.stop('stopped')
+  })
+
   it('normalizes streamed messages and persists the resume cursor + turn usage', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)

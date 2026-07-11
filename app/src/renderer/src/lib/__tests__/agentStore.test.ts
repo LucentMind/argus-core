@@ -29,6 +29,22 @@ describe('AgentStore', () => {
     expect(st.items[1]).toMatchObject({ kind: 'assistant', text: 'Hello', streaming: true })
   })
 
+  // search jumps resolve a hit's (turnId, role) to a transcript item, so
+  // assistant items must carry the turn id just like user items do
+  it('carries the turn id on assistant items (streamed and finalized)', () => {
+    const at = (type: string, payload: unknown, turnId: number): AgentEvent =>
+      ({ ...base, type, payload, turnId }) as AgentEvent
+    store.apply(at('turn.started', { userText: 'q' }, 7))
+    store.apply(at('content.delta', { text: 'par' }, 7))
+    const streaming = store.get('NAV-1', 1).items[1]
+    expect(streaming).toMatchObject({ kind: 'assistant', turnId: 7 })
+    store.apply(at('assistant.message', { text: 'partial done' }, 7))
+    store.apply(at('assistant.message', { text: 'second block' }, 7))
+    const st = store.get('NAV-1', 1)
+    expect(st.items[1]).toMatchObject({ kind: 'assistant', text: 'partial done', turnId: 7 })
+    expect(st.items[2]).toMatchObject({ kind: 'assistant', text: 'second block', turnId: 7 })
+  })
+
   it('finalizes assistant text on assistant.message and stops on turn.completed', () => {
     store.apply(ev('turn.started', { userText: 'hi' }))
     store.apply(ev('content.delta', { text: 'partial' }))

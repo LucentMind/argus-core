@@ -9,7 +9,7 @@ import { JiraRefreshButton } from './JiraRefreshButton'
 import { MenuButton } from './ui'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
-import type { FileNode, SearchHit } from '../../../shared/types'
+import type { ChatJumpTarget, FileNode, SearchHit } from '../../../shared/types'
 
 export function CaseWorkspace({
   slug,
@@ -35,9 +35,10 @@ export function CaseWorkspace({
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [sessionsError, setSessionsError] = useState<string | null>(null)
-  const [focusTurn, setFocusTurn] = useState<{ sessionId: number; turnId: number | null } | null>(
-    null
-  )
+  const [focusTurn, setFocusTurn] = useState<{
+    sessionId: number
+    target: ChatJumpTarget
+  } | null>(null)
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
   // identical suggestion in the new case isn't a setState no-op, and clear the
@@ -78,10 +79,10 @@ export function CaseWorkspace({
   }
 
   // a search hit's jump target: switch to its session via the same path as a
-  // normal switcher click, then hand ChatPane the turn to scroll to + flash
-  function handleJumpToTurn(targetSessionId: number, turnId: number | null): void {
+  // normal switcher click, then hand ChatPane the message to scroll to + flash
+  function handleJumpToTurn(targetSessionId: number, target: ChatJumpTarget): void {
     if (targetSessionId !== sessionId) handleSwitchSession(targetSessionId)
-    setFocusTurn({ sessionId: targetSessionId, turnId })
+    setFocusTurn({ sessionId: targetSessionId, target })
   }
 
   useEffect(() => {
@@ -140,7 +141,7 @@ export function CaseWorkspace({
               onSwitchSession={handleSwitchSession}
               onCite={(p, l) => void handleCite(p, l)}
               onJumpToTurn={handleJumpToTurn}
-              focusTurnId={focusTurn?.turnId ?? null}
+              focusTarget={focusTurn?.target ?? null}
               onFocusConsumed={() => setFocusTurn(null)}
               prefill={prefill}
             />
