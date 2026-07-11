@@ -432,6 +432,7 @@ function registerIpc(): void {
     if (kind === 'skill') agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
     return p
   })
+  ipcMain.handle(IPC.hivemindClaimReference, (_e, name: string) => hivemind.claimReference(name))
   ipcMain.handle(IPC.hivemindDiff, (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.diff(kind, name)
   )

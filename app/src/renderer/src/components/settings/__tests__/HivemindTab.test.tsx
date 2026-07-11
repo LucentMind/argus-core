@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { HivemindTab } from '../HivemindTab'
 import type { HivemindPayload } from '../../../../../shared/hivemind'
@@ -42,6 +42,7 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
       get: vi.fn().mockResolvedValue(payload),
       sync: vi.fn().mockResolvedValue(payload),
       install: vi.fn().mockResolvedValue(payload),
+      claimReference: vi.fn().mockResolvedValue(payload),
       diff: vi.fn().mockResolvedValue('+ new line'),
       pushPreview: vi.fn().mockResolvedValue('# my-skill'),
       push: vi
@@ -181,5 +182,76 @@ describe('HivemindTab', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/push exploded/)
     expect(screen.getByRole('button', { name: 'Sync' })).not.toBeDisabled()
+  })
+})
+
+describe('keep as mine', () => {
+  const claimable: HivemindPayload = {
+    ...ready,
+    items: [
+      {
+        kind: 'reference',
+        name: 'hive-note.md',
+        description: '',
+        commit: 'sha-3',
+        installed: true,
+        installedCommit: 'sha-3',
+        localTier: 'hivemind',
+        updateAvailable: false
+      }
+    ]
+  }
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('claims an installed hivemind-tier reference after confirm', async () => {
+    const argus = mockArgus(claimable)
+    ;(window as unknown as { argus: unknown }).argus = argus
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<HivemindTab />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
+    await waitFor(() =>
+      expect(
+        (argus.hivemind as { claimReference: ReturnType<typeof vi.fn> }).claimReference
+      ).toHaveBeenCalledWith('hive-note.md')
+    )
+  })
+
+  it('confirm-cancel is a no-op', async () => {
+    const argus = mockArgus(claimable)
+    ;(window as unknown as { argus: unknown }).argus = argus
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<HivemindTab />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
+    expect(
+      (argus.hivemind as { claimReference: ReturnType<typeof vi.fn> }).claimReference
+    ).not.toHaveBeenCalled()
+  })
+
+  it('hides the button for user-tier and uninstalled references', async () => {
+    const argus = mockArgus({
+      ...claimable,
+      items: [
+        { ...claimable.items[0], localTier: 'user' },
+        { ...claimable.items[0], name: 'other.md', installed: false, localTier: null }
+      ]
+    })
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindTab />)
+    expect(await screen.findByText('hive-note.md')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /as mine/ })).not.toBeInTheDocument()
+  })
+
+  it('a rejected claim surfaces in the alert banner', async () => {
+    const argus = mockArgus(claimable)
+    ;(argus.hivemind as { claimReference: ReturnType<typeof vi.fn> }).claimReference = vi
+      .fn()
+      .mockRejectedValue(new Error('claim exploded'))
+    ;(window as unknown as { argus: unknown }).argus = argus
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<HivemindTab />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/claim exploded/)
   })
 })
