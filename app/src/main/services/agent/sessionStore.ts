@@ -1,6 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { SessionSummary } from '../../../shared/types'
 import { getCase } from '../caseService'
+import { caseDir } from '../paths'
+import { appendDeletionAudit } from '../deletionAudit'
 
 const TITLE_MAX = 40
 
@@ -71,4 +75,46 @@ export function touchSession(db: DatabaseSync, sessionId: number): void {
     new Date().toISOString(),
     sessionId
   )
+}
+
+/**
+ * Hard-delete one chat: turns/tool_calls/messages_fts rows (session_id has no
+ * FK — manual cleanup), the sessions row, then the transcript mirror JSONL.
+ * The caller must stop any live CaseSession first (AgentService.stopSession) —
+ * deleting under a live mirror stream corrupts state. If this was the case's
+ * last session, listSessions auto-creates a fresh one on the next call.
+ */
+export function deleteSession(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  sessionId: number
+): void {
+  if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+  const caseId = caseIdOf(db, caseSlug)
+  const row = db
+    .prepare(`SELECT case_id, title, turn_count FROM sessions WHERE id = ?`)
+    .get(sessionId) as { case_id: number; title: string; turn_count: number } | undefined
+  if (!row || row.case_id !== caseId) {
+    throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
+  }
+  db.exec('BEGIN')
+  try {
+    db.prepare(`DELETE FROM messages_fts WHERE session_id = ?`).run(sessionId)
+    db.prepare(`DELETE FROM tool_calls WHERE session_id = ?`).run(sessionId)
+    db.prepare(`DELETE FROM turns WHERE session_id = ?`).run(sessionId)
+    db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId)
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  appendDeletionAudit(argusHome, 'session.delete', caseSlug, {
+    sessionId,
+    title: row.title,
+    turnCount: row.turn_count
+  })
+  fs.rmSync(path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`), {
+    force: true
+  })
 }
