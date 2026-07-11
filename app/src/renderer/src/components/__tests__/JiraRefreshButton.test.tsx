@@ -26,7 +26,7 @@ describe('JiraRefreshButton', () => {
   it('shows no datetime before the first refresh', () => {
     render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt={null} />)
     expect(screen.queryByText(/last refreshed/i)).toBeNull()
-    expect(screen.getByRole('button', { name: /refresh from jira/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument()
   })
 
   it('refreshes, shows the change summary, and advances the datetime', async () => {
@@ -44,7 +44,7 @@ describe('JiraRefreshButton', () => {
       }
     })
     render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt="2026-07-10T10:00:00.000Z" />)
-    fireEvent.click(screen.getByRole('button', { name: /refresh from jira/i }))
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
     const note = await screen.findByText(/2 new attachments/i)
     expect(note).toHaveTextContent('status Open → Resolved')
     expect(note).toHaveTextContent('1 attachment deleted on Jira (kept locally)')
@@ -56,7 +56,7 @@ describe('JiraRefreshButton', () => {
 
   it('renders a real button with a refresh icon', () => {
     render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt={null} />)
-    const btn = screen.getByRole('button', { name: /refresh from jira/i })
+    const btn = screen.getByRole('button', { name: /refresh/i })
     expect(btn.tagName).toBe('BUTTON')
     expect(btn.querySelector('svg')).not.toBeNull()
   })
@@ -73,7 +73,7 @@ describe('JiraRefreshButton', () => {
       }
     })
     render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt={null} />)
-    fireEvent.click(screen.getByRole('button', { name: /refresh from jira/i }))
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
     expect(await screen.findByText(/no changes/i)).toBeInTheDocument()
 
     refreshCase.mockResolvedValueOnce({
@@ -81,7 +81,7 @@ describe('JiraRefreshButton', () => {
       code: 'auth',
       message: 'Atlassian rejected the API token'
     })
-    fireEvent.click(screen.getByRole('button', { name: /refresh from jira/i }))
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/rejected the API token/i)
   })
 })

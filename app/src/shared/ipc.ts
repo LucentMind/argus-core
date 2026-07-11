@@ -84,6 +84,8 @@ export const IPC = {
   refsyncRemoveSpace: 'refsync:remove-space',
   refsyncSync: 'refsync:sync',
   refsyncApplyDrafts: 'refsync:apply-drafts',
+  refsyncReadRef: 'refsync:read-ref',
+  refsyncSearchRefs: 'refsync:search-refs',
   refsyncChanged: 'refsync:changed',
   refsyncProgress: 'refsync:progress'
 } as const

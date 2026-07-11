@@ -70,7 +70,7 @@ export function JiraRefreshButton({
       )}
       <Btn variant="outline" className="shrink-0" disabled={busy} onClick={() => void refresh()}>
         <RefreshIcon spinning={busy} />
-        {busy ? 'Refreshing…' : 'Refresh from Jira'}
+        {busy ? 'Refreshing…' : 'Refresh'}
       </Btn>
       {note && <span className="min-w-0 truncate text-xs text-dim">{note}</span>}
       {error && (
