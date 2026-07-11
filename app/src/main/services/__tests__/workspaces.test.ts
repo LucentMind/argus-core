@@ -11,6 +11,7 @@ import {
   listWorkspaces,
   ensureWorktree,
   worktreesRoot,
+  workspaceSandboxRoots,
   autoLinkDefaultRepo
 } from '../workspaces'
 import type { DatabaseSync } from 'node:sqlite'
@@ -106,6 +107,12 @@ describe('workspace service', () => {
     // Second call should not detach the worktree
     await ensureWorktree(argusHome, 'NAV-1', repo, 'feature/x')
     expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature/x')
+  })
+
+  it('workspaceSandboxRoots includes the graphs directory', async () => {
+    await linkWorkspace(db, argusHome, 'NAV-1', repo)
+    const roots = await workspaceSandboxRoots(db, argusHome, 'NAV-1')
+    expect(roots).toContain(path.join(argusHome, 'graphs'))
   })
 })
 
