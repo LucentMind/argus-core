@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 export const PACK_MANIFEST_FILE = 'argus-pack.json'
 
+/** The pack-API contract version Core implements. Packs declare a compatible range via `argusApi`. */
+export const PACK_API_VERSION = 1
+
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 const HEX = /^([0-9a-fA-F]{2})+$/
@@ -94,6 +97,11 @@ export const packManifestSchema = z
     displayName: z.string().min(1),
     version: z.string().min(1),
     argusApi: z.string().min(1),
+    /** Published-bundle target, '<os>-<arch>' (e.g. 'mac-arm64'). Stamped by `argus-pack build`; absent in dev source manifests. */
+    platform: z
+      .string()
+      .regex(/^[a-z0-9]+-[a-z0-9]+$/, 'platform must be <os>-<arch>')
+      .optional(),
     persona: z.string().min(1).optional(),
     binaries: z.array(packBinarySchema).default([]),
     detectors: z.array(packDetectorSchema).default([]),
