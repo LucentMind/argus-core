@@ -5,7 +5,7 @@ import { HealthSettings } from '../settings/HealthSettings'
 import type { HealthCheckResult, HealthRow } from '../../../../shared/health'
 
 const ROWS: HealthRow[] = [
-  { id: 'parse', label: 'sample-parse binary' },
+  { id: 'bin:tool-x', label: 'Tool X binary' },
   { id: 'agent', label: 'Agent auth' },
   { id: 'connector:rovo', label: 'Connector: rovo' }
 ]
@@ -29,13 +29,13 @@ beforeEach(() => {
 describe('HealthSettings', () => {
   it('lists rows, auto-runs on mount, streams results into chips', async () => {
     render(<HealthSettings />)
-    expect(await screen.findByText('sample-parse binary')).toBeTruthy()
+    expect(await screen.findByText('Tool X binary')).toBeTruthy()
     expect(window.argus.health.run).toHaveBeenCalledWith()
     expect(screen.getAllByText('checking…')).toHaveLength(3)
     act(() =>
       onResultCb!({
-        id: 'parse',
-        label: 'sample-parse binary',
+        id: 'bin:tool-x',
+        label: 'Tool X binary',
         ok: true,
         detail: 'C:\\p.exe · 0.3.0'
       })
@@ -66,16 +66,16 @@ describe('HealthSettings', () => {
 
   it('a stale result from a superseded run does not overwrite a fresh running state', async () => {
     render(<HealthSettings />)
-    await screen.findByText('sample-parse binary')
+    await screen.findByText('Tool X binary')
     // the mount run's result lands normally
-    act(() => onResultCb!({ id: 'parse', label: 'sample-parse binary', ok: true, detail: 'v1' }))
+    act(() => onResultCb!({ id: 'bin:tool-x', label: 'Tool X binary', ok: true, detail: 'v1' }))
     expect(screen.getByText('v1')).toBeTruthy()
     // two per-row re-runs: the first is superseded by the second
-    fireEvent.click(screen.getByRole('button', { name: /re-run · parse/i }))
-    fireEvent.click(screen.getByRole('button', { name: /re-run · parse/i }))
-    act(() => onResultCb!({ id: 'parse', label: 'sample-parse binary', ok: false, detail: 'stale' }))
+    fireEvent.click(screen.getByRole('button', { name: /re-run · bin:tool-x/i }))
+    fireEvent.click(screen.getByRole('button', { name: /re-run · bin:tool-x/i }))
+    act(() => onResultCb!({ id: 'bin:tool-x', label: 'Tool X binary', ok: false, detail: 'stale' }))
     expect(screen.queryByText('stale')).toBeNull() // superseded run: keep 'checking…'
-    act(() => onResultCb!({ id: 'parse', label: 'sample-parse binary', ok: true, detail: 'fresh' }))
+    act(() => onResultCb!({ id: 'bin:tool-x', label: 'Tool X binary', ok: true, detail: 'fresh' }))
     expect(screen.getByText('fresh')).toBeTruthy()
   })
 

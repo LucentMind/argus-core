@@ -2,25 +2,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { AuthStatus, PreflightReport } from '../../shared/types'
+import type { AuthStatus } from '../../shared/types'
 import type { DiscoveredTool } from '../../shared/connectors'
 import type { HealthCheckResult, HealthRow } from '../../shared/health'
 
 const execFileAsync = promisify(execFile)
 
-/**
- * Interim shape bridging the pre-pack-binaries settings API to HealthService.
- * Task 7 replaces this dep entirely with binaries/checkBinary.
- */
-export interface LegacyToolsProbe {
-  parseBin: { path: string | null; version: string | null }
-  traceDir: { path: string | null; found: boolean }
-}
-
 export interface HealthDeps {
   argusHome: string
-  probeTools: () => Promise<LegacyToolsProbe>
-  preflight: () => Promise<PreflightReport>
+  /** Pack-declared binaries: one health row each (id 'bin:<id>'). */
+  binaries: () => Array<{ id: string; label: string }>
+  checkBinary: (id: string) => Promise<{ ok: boolean; detail: string; fixHint?: string }>
   agentAuth: () => Promise<AuthStatus>
   /** Injectable for tests; defaults to spawning `gh auth status`. */
   gh?: () => Promise<{ ok: boolean; detail: string }>
@@ -34,8 +26,6 @@ export interface HealthDeps {
 }
 
 const STATIC_ROWS: HealthRow[] = [
-  { id: 'parse', label: 'sample-parse binary' },
-  { id: 'trace', label: 'sample-trace CLI + Python env' },
   { id: 'gh', label: 'GitHub CLI auth' },
   { id: 'agent', label: 'Agent auth' },
   { id: 'data-root', label: 'Data root writable' }
@@ -47,6 +37,7 @@ export class HealthService {
 
   rows(): HealthRow[] {
     return [
+      ...this.deps.binaries().map((b) => ({ id: `bin:${b.id}`, label: b.label })),
       ...STATIC_ROWS,
       ...(this.deps.atlassianConfigured()
         ? [{ id: 'atlassian-rest', label: 'Atlassian REST (Jira)' }]
@@ -66,30 +57,13 @@ export class HealthService {
 
   private async check(row: HealthRow): Promise<HealthCheckResult> {
     try {
-      if (row.id === 'parse') {
-        const r = await this.deps.probeTools()
-        return r.parseBin.path
-          ? {
-              ...row,
-              ok: true,
-              detail: `${r.parseBin.path}${r.parseBin.version ? ` · ${r.parseBin.version}` : ''}`
-            }
-          : {
-              ...row,
-              ok: false,
-              detail: 'not found',
-              fixHint: 'Set the path in Settings → Analysis Tools, or build trace-rs.'
-            }
-      }
-      if (row.id === 'trace') {
-        const r = await this.deps.preflight()
-        if (r.ok) return { ...row, ok: true, detail: `${r.checks.length} checks passed` }
-        const bad = r.checks.filter((c) => !c.ok)
+      if (row.id.startsWith('bin:')) {
+        const r = await this.deps.checkBinary(row.id.slice('bin:'.length))
         return {
           ...row,
-          ok: false,
-          detail: bad.map((c) => `${c.name}: ${c.detail}`).join('; '),
-          fixHint: 'Set up the trace-tools Python env (docs/DEVELOPMENT.md).'
+          ok: r.ok,
+          detail: r.detail,
+          ...(r.ok ? {} : { fixHint: r.fixHint })
         }
       }
       if (row.id === 'gh') {
