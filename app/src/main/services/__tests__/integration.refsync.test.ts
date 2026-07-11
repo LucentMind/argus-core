@@ -184,6 +184,28 @@ it('applyDrafts rejects a forged path-traversal target without writing outside t
   expect(fs.existsSync(path.join(home, 'evil.md'))).toBe(false)
 })
 
+it('readReference serves guarded viewer reads; traversal names throw', async () => {
+  const report = await svc.sync('NAVNATIVE')
+  svc.applyDrafts(report.syncId, ['routing-flow.md'])
+  const r = svc.readReference('routing-flow.md')
+  expect(r.file).toBe('routing-flow.md')
+  expect(r.content).toContain('trust_tier: confluence')
+  expect(() => svc.readReference('../../../evil.md')).toThrow(/invalid reference name/)
+})
+
+it('searchReferences matches file names and body content, excluding INDEX.md', async () => {
+  const report = await svc.sync('NAVNATIVE')
+  svc.applyDrafts(report.syncId, ['routing-flow.md'])
+  fs.writeFileSync(
+    path.join(sharedReferencesDir(home), 'glossary.md'),
+    '---\ntrust_tier: team-knowledge\n---\n# Glossary\n\nBLOCKED_VERSION means the tile set is pinned.\n'
+  )
+  expect(svc.searchReferences('routing')).toEqual(['routing-flow.md']) // name match
+  expect(svc.searchReferences('blocked_version')).toEqual(['glossary.md']) // content, case-insensitive
+  expect(svc.searchReferences('reference-sync — do not edit')).toEqual([]) // INDEX.md excluded
+  expect(svc.searchReferences('   ')).toEqual([]) // blank query
+})
+
 it('payload exposes cards with staleness and reference statuses', async () => {
   const before = svc.payload()
   expect(before.cards[0]).toMatchObject({ key: 'NAVNATIVE', stale: true, lastSyncedAt: null })
