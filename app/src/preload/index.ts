@@ -134,6 +134,8 @@ const argus = {
     sync: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindSync),
     install: (kind: 'skill' | 'reference', name: string): Promise<HivemindPayload> =>
       ipcRenderer.invoke(IPC.hivemindInstall, kind, name),
+    claimReference: (name: string): Promise<HivemindPayload> =>
+      ipcRenderer.invoke(IPC.hivemindClaimReference, name),
     diff: (kind: 'skill' | 'reference', name: string): Promise<string> =>
       ipcRenderer.invoke(IPC.hivemindDiff, kind, name),
     pushPreview: (kind: 'skill' | 'reference', name: string): Promise<string> =>

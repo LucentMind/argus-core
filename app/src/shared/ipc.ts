@@ -63,6 +63,7 @@ export const IPC = {
   hivemindGet: 'hivemind:get',
   hivemindSync: 'hivemind:sync',
   hivemindInstall: 'hivemind:install',
+  hivemindClaimReference: 'hivemind:claim-reference',
   hivemindDiff: 'hivemind:diff',
   hivemindPushPreview: 'hivemind:push-preview',
   hivemindPush: 'hivemind:push',

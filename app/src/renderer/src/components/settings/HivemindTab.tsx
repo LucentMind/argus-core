@@ -184,6 +184,23 @@ export function HivemindTab(): React.JSX.Element {
                   Install
                 </Btn>
               )}
+              {it.kind === 'reference' && it.localTier === 'hivemind' && (
+                <Btn
+                  variant="outline"
+                  aria-label={`Keep ${it.name} as mine`}
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Keep ${it.name} as yours? It becomes pushable to the HiveMind and future updates keep your authorship.`
+                      )
+                    )
+                      void run(() => window.argus.hivemind.claimReference(it.name))
+                  }}
+                >
+                  Keep as mine
+                </Btn>
+              )}
             </SettingRow>
           ))}
         </SettingsSection>
