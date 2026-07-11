@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { PanelRight } from 'lucide-react'
 import { agentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
@@ -29,19 +30,7 @@ export function FindingsPane({
           className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
           onClick={() => uiStore.setFindingsCollapsed(true)}
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M15 4v16" />
-          </svg>
+          <PanelRight size={14} strokeWidth={1.5} />
         </button>
       </div>
       {md.trim() ? (
