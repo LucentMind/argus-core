@@ -98,5 +98,10 @@ export const IPC = {
   casesDelete: 'cases:delete',
   evidenceDelete: 'evidence:delete',
   sessionsDelete: 'sessions:delete',
-  findingsClear: 'findings:clear'
+  findingsClear: 'findings:clear',
+  graphBuild: 'graph:build',
+  graphStatus: 'graph:status',
+  graphInstall: 'graph:install',
+  graphBuilding: 'graph:building',
+  graphChanged: 'graph:changed'
 } as const
