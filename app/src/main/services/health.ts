@@ -21,6 +21,8 @@ export interface HealthDeps {
   probeConnector: (id: string) => Promise<{ ok: boolean; tools?: DiscoveredTool[]; error?: string }>
   atlassianConfigured: () => boolean
   atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
+  refsyncConfigured: () => boolean
+  confluenceCheck: () => Promise<{ ok: boolean; detail: string }>
 }
 
 const STATIC_ROWS: HealthRow[] = [
@@ -40,6 +42,9 @@ export class HealthService {
       ...STATIC_ROWS,
       ...(this.deps.atlassianConfigured()
         ? [{ id: 'atlassian-rest', label: 'Atlassian REST (Jira)' }]
+        : []),
+      ...(this.deps.refsyncConfigured()
+        ? [{ id: 'confluence-rest', label: 'Atlassian REST (Confluence)' }]
         : []),
       ...this.deps.enabledConnectors().map((c) => ({ id: `connector:${c.id}`, label: c.name }))
     ]
@@ -109,6 +114,20 @@ export class HealthService {
             : {
                 fixHint:
                   'Set the Site URL, email, and API token on the Atlassian connector (Settings → Connectors); Jira Cloud requires the email.'
+              })
+        }
+      }
+      if (row.id === 'confluence-rest') {
+        const r = await this.deps.confluenceCheck()
+        return {
+          ...row,
+          ok: r.ok,
+          detail: r.detail,
+          ...(r.ok
+            ? {}
+            : {
+                fixHint:
+                  'Check siteUrl / API token (PAT) on the Atlassian connector (Connectors page).'
               })
         }
       }
