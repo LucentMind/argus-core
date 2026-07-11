@@ -54,7 +54,13 @@ beforeEach(() => {
       onParsing: vi.fn((cb) => {
         parsingCb = cb
         return () => {}
-      })
+      }),
+      list: vi.fn(async () => [
+        { id: 1, meta: {} },
+        { id: 2, meta: {} },
+        { id: 3, meta: { derivedFrom: 1 } }
+      ]),
+      delete: vi.fn(async () => ({ deleted: [] }))
     },
     packs: {
       artifactMeta: vi.fn(async () => artifactMetaFixture)
@@ -143,5 +149,35 @@ describe('CaseFiles', () => {
     render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
     expect(await screen.findByText('trace.binlog.txt')).toBeTruthy()
     expect(screen.getByText('derived')).toBeTruthy()
+  })
+
+  it('Delete confirms with the derived count and calls evidence.delete', async () => {
+    window.confirm = vi.fn(() => true)
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await screen.findByText('trace.binlog')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete trace.binlog' }))
+    await waitFor(() =>
+      expect(window.confirm).toHaveBeenCalledWith(
+        'Delete "trace.binlog" and 1 derived file? This cannot be undone.'
+      )
+    )
+    await waitFor(() =>
+      expect((window.argus.evidence as { delete: unknown }).delete).toHaveBeenCalledWith('NAV-1', 1)
+    )
+  })
+
+  it('cancelling the confirm deletes nothing', async () => {
+    window.confirm = vi.fn(() => false)
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await screen.findByText('log.txt')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete log.txt' }))
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    expect((window.argus.evidence as { delete: unknown }).delete).not.toHaveBeenCalled()
+  })
+
+  it('plain files without evidence get no delete button', async () => {
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await screen.findByText('findings.md')
+    expect(screen.queryByRole('button', { name: 'Delete findings.md' })).toBeNull()
   })
 })
