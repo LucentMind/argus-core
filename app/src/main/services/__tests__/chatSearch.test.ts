@@ -85,4 +85,10 @@ describe('searchAllMessages', () => {
     expect(searchAllMessages(db, '"unbalanced')).toHaveLength(1)
     expect(searchAllMessages(db, '   ')).toEqual([])
   })
+
+  it('returns [] instead of throwing when the FTS query itself errors', () => {
+    db.exec('DROP TABLE messages_fts')
+    expect(() => searchAllMessages(db, 'braking')).not.toThrow()
+    expect(searchAllMessages(db, 'braking')).toEqual([])
+  })
 })

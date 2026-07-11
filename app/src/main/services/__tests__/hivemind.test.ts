@@ -366,4 +366,20 @@ describe('check', () => {
     })
     expect((await svc.check()).ok).toBe(false)
   })
+
+  it('runs non-interactively with a bounded timeout so it can never prompt or hang', async () => {
+    let seenOpts: { env?: NodeJS.ProcessEnv; timeoutMs?: number } | undefined
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'org/hive',
+      git: async (_cmd, _args, opts) => {
+        seenOpts = opts
+        return 'abc\tHEAD'
+      }
+    })
+    expect(await svc.check()).toEqual({ ok: true })
+    expect(seenOpts?.env?.GIT_TERMINAL_PROMPT).toBe('0')
+    expect(seenOpts?.env?.GCM_INTERACTIVE).toBe('never')
+    expect(seenOpts?.timeoutMs).toBe(15000)
+  })
 })
