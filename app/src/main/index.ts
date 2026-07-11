@@ -67,12 +67,7 @@ import { activeInstanceConfig, effectiveDefaultModel } from '../shared/drivers'
 import { settingsSchema } from '../shared/settings'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
-import {
-  seedSharedDirs,
-  resolveAssetSource,
-  sharedSkillsDir,
-  sharedReferencesDir
-} from './services/skillsDir'
+import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
@@ -101,9 +96,18 @@ function broadcast(channel: string, payload: unknown): void {
 function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
-  seedSharedDirs(argusHome, resolveAssetSource(app.getAppPath()))
   seedPacks(argusHome, resolvePacksSource(app.getAppPath()))
   const packRegistry = PackRegistry.load(packsDir(argusHome))
+  seedSharedAssets(argusHome, {
+    skills: [
+      ...packRegistry.skillsSources(),
+      ...(process.env.ARGUS_SKILLS_DIR ? [process.env.ARGUS_SKILLS_DIR] : [])
+    ],
+    references: [
+      ...packRegistry.referencesSources(),
+      ...(process.env.ARGUS_REFERENCES_DIR ? [process.env.ARGUS_REFERENCES_DIR] : [])
+    ]
+  })
 
   // capture user-set env BEFORE this block mutates the process env (badge sources)
   const envOverrides = {
