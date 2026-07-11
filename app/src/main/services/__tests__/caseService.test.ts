@@ -151,4 +151,14 @@ describe('setCaseStatus', () => {
     const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c3'), 'case.json'), 'utf8'))
     expect(onDisk.resolution).toBeNull()
   })
+
+  it('clears a non-null resolution on non-closed status', () => {
+    createCase(db, home, { slug: 'c4', title: 'C4' })
+    setCaseStatus(db, home, 'c4', 'closed', 'solved')
+    const rec = setCaseStatus(db, home, 'c4', 'analyzing', 'duplicate')
+    expect(rec.status).toBe('analyzing')
+    expect(rec.resolution).toBeNull()
+    const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c4'), 'case.json'), 'utf8'))
+    expect(onDisk.resolution).toBeNull()
+  })
 })
