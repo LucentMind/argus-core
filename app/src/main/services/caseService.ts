@@ -24,10 +24,9 @@ _No code workspaces linked._
 
 ## Working rules
 
-- Cite evidence as \`[<rel-path>:<line>]\` for every claim based on evidence, e.g. \`[evidence/applog.txt:812]\`.
+- Cite evidence as \`[<rel-path>:<line>]\` for every claim based on evidence, e.g. \`[evidence/app.log:812]\`.
 - Record findings with the \`mcp__argus__append_finding\` tool — never edit \`findings.md\` directly.
 - Search evidence with \`mcp__argus__search_evidence\` before grepping files.
-- Trace files (applog, BINLOG, recordings, bintrace): use the \`sample-trace\` / \`sample-parse\` CLIs — never raw grep/cat; they have guardrails and output caps.
 - To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
 - Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.
 `

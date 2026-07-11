@@ -47,7 +47,7 @@ describe('packManifestSchema', () => {
           envVar: 'ARGUS_PARSE_BIN',
           settingsKey: 'parseBin',
           names: ['sample-parse'],
-          devPaths: ['../../trace-rs/target/release'],
+          devPaths: ['bin-src/trace-rs/target/release', '../../trace-rs/target/release'],
           versionArgs: ['--version'],
           pathProbeArgs: ['doctor']
         },
@@ -56,7 +56,7 @@ describe('packManifestSchema', () => {
           kind: 'pathDir',
           displayName: 'sample-trace CLI',
           names: ['sample-trace'],
-          devPaths: ['../../trace-tools/.venv/{platformBin}'],
+          devPaths: ['bin-src/trace-tools/.venv/{platformBin}', '../../trace-tools/.venv/{platformBin}'],
           doctor: { cmd: 'sample-trace', args: ['doctor', '--json'], json: true }
         }
       ]
@@ -72,6 +72,33 @@ describe('packManifestSchema', () => {
     expect(m.binaries[0].platforms).toEqual(['win32'])
     expect(() =>
       packManifestSchema.parse({ ...valid, binaries: [{ ...bin, platforms: ['windows'] }] })
+    ).toThrow()
+  })
+
+  it('rejects a binaries entry whose names collide with a risk-classified program', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['git'] }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['gh'] }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['rm'] }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        binaries: [{ id: 'x', kind: 'exe', displayName: 'X', names: ['cd'] }]
+      })
     ).toThrow()
   })
 
@@ -129,5 +156,39 @@ describe('packManifestSchema', () => {
         detectors: [{ type: 'x', match: [{ magicHex: 'ABC' }] }]
       })
     ).toThrow()
+  })
+
+  it('parses referenceRouting[] declarations and defaults to empty', () => {
+    expect(packManifestSchema.parse(valid).referenceRouting).toEqual([])
+    const m = packManifestSchema.parse({
+      ...valid,
+      referenceRouting: [
+        { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' }
+      ]
+    })
+    expect(m.referenceRouting).toEqual([
+      { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' }
+    ])
+  })
+
+  it('rejects a referenceRouting rule with a bad target (not a .md basename)', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        referenceRouting: [{ keywords: ['x'], target: '../../../evil.md' }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        referenceRouting: [{ keywords: ['x'], target: 'no-extension' }]
+      })
+    ).toThrow()
+    expect(() =>
+      packManifestSchema.parse({
+        ...valid,
+        referenceRouting: [{ keywords: [], target: 'x.md' }]
+      })
+    ).toThrow() // keywords must be non-empty
   })
 })

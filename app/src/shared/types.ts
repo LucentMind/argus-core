@@ -45,7 +45,7 @@ export interface SessionSummary {
 export interface EvidenceRecord {
   id: number
   caseId: number
-  relPath: string // relative to the case dir, e.g. "evidence/applog.txt"
+  relPath: string // relative to the case dir, e.g. "evidence/app.log"
   sha256: string
   artifactType: ArtifactType
   size: number

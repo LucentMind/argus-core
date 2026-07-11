@@ -128,7 +128,7 @@ export function createDetection(registry?: PackRegistry): Detection {
   for (const d of compiled) {
     for (const r of d.decl.match) {
       for (const s of r.nameEndsWith ?? []) {
-        if (s.split('.').length > 2) exts.add(s.toLowerCase()) // '.rec.gz' → ['', 'rec', 'gz']
+        if (s.split('.').length > 2) exts.add(s.toLowerCase()) // '.tar.gz' → ['', 'tar', 'gz']
       }
     }
   }

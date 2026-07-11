@@ -303,6 +303,8 @@ function registerIpc(): void {
   )
   // 1d: renderer artifact type/analyze-skill metadata sourced from pack detectors + generics.
   ipcMain.handle(IPC.packsArtifactMeta, () => detection.artifactMeta())
+  // 1e: reference-sync routing seeds sourced from pack manifests.
+  ipcMain.handle(IPC.packsReferenceRouting, () => packRegistry.referenceRouting())
 
   // — agent —
   agentService = new AgentService({
@@ -311,6 +313,7 @@ function registerIpc(): void {
     detection,
     skillsRoots: [sharedSkillsDir(argusHome), sharedReferencesDir(argusHome)],
     personaFragments: () => packRegistry.personaFragments(),
+    packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
     onEvent: (e) => {
       langfuseExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)

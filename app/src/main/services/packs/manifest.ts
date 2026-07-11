@@ -18,7 +18,17 @@ export const packBinarySchema = z
     /** Key under settings.tools holding a user path override. */
     settingsKey: z.string().min(1).optional(),
     /** Executable base names (platform .exe variants handled by the resolver). */
-    names: z.array(z.string().min(1)).min(1),
+    names: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .refine(
+            (n) => !['git', 'gh', 'rm', 'cd'].includes(n),
+            'binary name collides with a risk-classified program'
+          )
+      )
+      .min(1),
     /** Dev-checkout locations, relative to the pack dir; '{platformBin}' → Scripts|bin. */
     devPaths: z.array(z.string()).default([]),
     /** exe: args that print a version string when run against the resolved binary. */
@@ -86,7 +96,18 @@ export const packManifestSchema = z
     argusApi: z.string().min(1),
     persona: z.string().min(1).optional(),
     binaries: z.array(packBinarySchema).default([]),
-    detectors: z.array(packDetectorSchema).default([])
+    detectors: z.array(packDetectorSchema).default([]),
+    /** Reference-sync routing seeds: keyword rules mapped to reference filenames. */
+    referenceRouting: z
+      .array(
+        z.object({
+          keywords: z.array(z.string().min(1)).min(1),
+          target: z
+            .string()
+            .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.md$/, 'target must be a .md basename')
+        })
+      )
+      .default([])
   })
   .passthrough()
 

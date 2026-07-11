@@ -283,6 +283,8 @@ export class BinariesService {
         checks.push(...(await this.doctorChecks(r)))
       }
     }
-    return { ok: checks.every((c) => c.ok), checks }
+    const seen = new Set<string>()
+    const deduped = checks.filter((c) => (seen.has(c.name) ? false : (seen.add(c.name), true)))
+    return { ok: deduped.every((c) => c.ok), checks: deduped }
   }
 }

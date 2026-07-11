@@ -20,6 +20,8 @@ export interface AgentServiceDeps {
   skillsRoots: string[]
   /** Live pack persona fragments (PackRegistry); read at each session construction. */
   personaFragments?: () => string[]
+  /** Live pack-declared CLI binary names (PackRegistry); read at each session construction. */
+  packCliNames?: () => string[]
   onEvent: (e: AgentEvent) => void
   /** Live agent-access overrides (skills/memory); consulted at each session construction. */
   agentAccess: () => AgentAccess
@@ -103,6 +105,7 @@ export class AgentService {
       workspaceRoots: await workspaceSandboxRoots(this.deps.db, this.deps.argusHome, caseSlug),
       skillsRoots: this.deps.skillsRoots,
       personaFragments: this.deps.personaFragments?.() ?? [],
+      packCliNames: this.deps.packCliNames?.() ?? [],
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
       resumeSdkSessionId: cursor,

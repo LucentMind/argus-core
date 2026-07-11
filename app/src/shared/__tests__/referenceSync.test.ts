@@ -8,9 +8,16 @@ import {
   isStale,
   isOutdated,
   missingMustKeep,
-  DEFAULT_ROUTING_RULES,
+  type RoutingRule,
   type SpaceConfig
 } from '../referenceSync'
+
+// Generic fixture standing in for pack-supplied routing rules (no longer a
+// referenceSync.ts export — see packs/manifest.ts `referenceRouting`).
+const TEST_ROUTING_RULES: RoutingRule[] = [
+  { keywords: ['applog', 'log', 'tag', 'signal'], target: 'log-patterns.md' },
+  { keywords: ['tile', 'vector tile', 'datasets', 'dataset version'], target: 'data-versioning.md' }
+]
 
 const space = (over: Partial<SpaceConfig> = {}): SpaceConfig => ({
   key: 'NAVNATIVE',
@@ -68,9 +75,9 @@ describe('selection semantics (include roots minus excluded subtrees)', () => {
 
 describe('routing', () => {
   it('first matching rule wins, case-insensitive substring on title', () => {
-    expect(routeTarget('applog tag cheat-sheet', DEFAULT_ROUTING_RULES)).toBe('log-patterns.md')
-    expect(routeTarget('Vector Tile datasets', DEFAULT_ROUTING_RULES)).toBe('data-versioning.md')
-    expect(routeTarget('Quarterly planning', DEFAULT_ROUTING_RULES)).toBeNull() // unrouted
+    expect(routeTarget('applog tag cheat-sheet', TEST_ROUTING_RULES)).toBe('log-patterns.md')
+    expect(routeTarget('Vector Tile datasets', TEST_ROUTING_RULES)).toBe('data-versioning.md')
+    expect(routeTarget('Quarterly planning', TEST_ROUTING_RULES)).toBeNull() // unrouted
   })
 
   it('rejects a matching rule whose target is a path traversal or the generated index (falls to unrouted)', () => {
