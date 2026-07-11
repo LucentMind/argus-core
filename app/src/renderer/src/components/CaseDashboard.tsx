@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
-import { Btn, Card, Chip, SectionLabel } from './ui'
+import { Card, Chip, IconBtn, SectionLabel } from './ui'
+import { Download, FolderInput, Plus } from 'lucide-react'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
   open: 'signal',
@@ -46,17 +47,17 @@ export function CaseDashboard({
             <div className="flex items-center justify-between">
               <span className="font-mono text-sm text-defect">{c.slug}</span>
               <span className="flex items-center gap-1.5">
-                <Btn
-                  variant="ghost"
+                <IconBtn
                   aria-label={`Export ${c.slug}`}
+                  title="Export case"
                   className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation() // the Card itself opens the case
                     void exportCase(c.slug)
                   }}
                 >
-                  Export
-                </Btn>
+                  <Download size={14} />
+                </IconBtn>
                 <Chip tone={STATUS_TONE[c.status]}>{c.status}</Chip>
               </span>
             </div>
@@ -74,15 +75,19 @@ export function CaseDashboard({
             </div>
           </Card>
         ))}
-        <Card onClick={onNew} className="flex min-h-24 items-center justify-center p-4">
-          <span role="button" className="text-sm text-dim transition-colors hover:text-ink">
-            + New case
-          </span>
-        </Card>
-        <Card onClick={onImport} className="flex min-h-24 items-center justify-center p-4">
-          <span role="button" className="text-sm text-dim transition-colors hover:text-ink">
-            ⤓ Import case…
-          </span>
+        <Card className="flex min-h-24 flex-col items-stretch divide-y divide-hair p-0">
+          <button
+            onClick={onNew}
+            className="flex flex-1 items-center justify-center gap-2 rounded-t-r3 text-sm text-dim transition-colors hover:bg-hi hover:text-ink"
+          >
+            <Plus size={14} aria-hidden="true" /> New case
+          </button>
+          <button
+            onClick={onImport}
+            className="flex flex-1 items-center justify-center gap-2 rounded-b-r3 text-sm text-dim transition-colors hover:bg-hi hover:text-ink"
+          >
+            <FolderInput size={14} aria-hidden="true" /> Import case…
+          </button>
         </Card>
       </div>
     </div>

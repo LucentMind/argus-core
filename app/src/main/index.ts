@@ -49,7 +49,7 @@ import { ingestArtifact, listEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { searchEvidence, readEvidenceText } from './services/search'
-import { searchMessages } from './services/chatSearch'
+import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
 import { listSessions, createSession, renameSession } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
@@ -69,7 +69,13 @@ import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './servic
 import { PackRegistry } from './services/packs/registry'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
-import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
+import type {
+  ApprovalDecision,
+  AuthStatus,
+  NewCaseInput,
+  SearchFilters,
+  UnifiedHit
+} from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
 import { buildLangfuseClient } from './services/observability/langfuseClient'
@@ -267,9 +273,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
   )
-  ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) =>
-    searchEvidence(db, q, filters ?? {})
-  )
+  ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) => {
+    const f = filters ?? {}
+    const sources = f.sources ?? ['evidence']
+    const hits: UnifiedHit[] = []
+    if (sources.includes('evidence'))
+      hits.push(...searchEvidence(db, q, f).map((h) => ({ kind: 'evidence' as const, ...h })))
+    if (sources.includes('chat')) hits.push(...searchAllMessages(db, q, f.caseSlug))
+    return hits
+  })
   ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
     searchMessages(db, caseSlug, q)
   )
@@ -502,6 +514,7 @@ function registerIpc(): void {
     repo: () => settingsService.get().hivemind.repo
   })
   ipcMain.handle(IPC.hivemindGet, () => hivemind.payload())
+  ipcMain.handle(IPC.hivemindCheck, () => hivemind.check())
   ipcMain.handle(IPC.hivemindSync, () => hivemind.sync())
   ipcMain.handle(IPC.hivemindInstall, async (_e, kind: 'skill' | 'reference', name: string) => {
     const p = await hivemind.install(kind, name)

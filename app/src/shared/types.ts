@@ -63,9 +63,13 @@ export interface FileNode {
 
 export type FileReadResult = { content: string; tooLarge?: never } | { tooLarge: true }
 
+export type SearchSource = 'evidence' | 'chat'
+
 export interface SearchFilters {
   caseSlug?: string
   artifactType?: ArtifactType
+  /** Which FTS backends to hit; omitted = evidence only (back-compat for existing callers). */
+  sources?: SearchSource[]
 }
 
 export interface SearchHit {
@@ -78,6 +82,22 @@ export interface SearchHit {
   endLine: number
   matchLine: number // exact line of the first term match; falls back to startLine
 }
+
+export interface EvidenceHit extends SearchHit {
+  kind: 'evidence'
+}
+
+export interface ChatHit {
+  kind: 'chat'
+  caseSlug: string
+  sessionId: number
+  sessionTitle: string
+  turnId: number | null
+  role: string
+  snippet: string // matched terms wrapped in « »
+}
+
+export type UnifiedHit = EvidenceHit | ChatHit
 
 export interface ChatSearchHit {
   sessionId: number

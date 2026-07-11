@@ -46,3 +46,50 @@ export function diffLines(before: string, after: string): DiffLine[] {
   while (j < b.length) out.push({ kind: 'add', text: b[j++] })
   return out
 }
+
+export interface DiffCell {
+  no: number
+  text: string
+  kind: 'same' | 'add' | 'del'
+}
+
+/** One aligned split-view row; null on a side = filler opposite an unpaired add/del. */
+export interface DiffRow {
+  left: DiffCell | null
+  right: DiffCell | null
+}
+
+/**
+ * Pair a linear diff into side-by-side rows: same lines span both columns,
+ * consecutive del/add runs pair index-wise (GitHub split view). Start offsets
+ * let unified-diff hunks carry their real file line numbers.
+ */
+export function pairRows(lines: DiffLine[], leftStart = 1, rightStart = 1): DiffRow[] {
+  const rows: DiffRow[] = []
+  let leftNo = leftStart
+  let rightNo = rightStart
+  let dels: string[] = []
+  let adds: string[] = []
+  const flush = (): void => {
+    for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
+      rows.push({
+        left: k < dels.length ? { no: leftNo++, text: dels[k], kind: 'del' } : null,
+        right: k < adds.length ? { no: rightNo++, text: adds[k], kind: 'add' } : null
+      })
+    }
+    dels = []
+    adds = []
+  }
+  for (const l of lines) {
+    if (l.kind === 'same') {
+      flush()
+      rows.push({
+        left: { no: leftNo++, text: l.text, kind: 'same' },
+        right: { no: rightNo++, text: l.text, kind: 'same' }
+      })
+    } else if (l.kind === 'del') dels.push(l.text)
+    else adds.push(l.text)
+  }
+  flush()
+  return rows
+}

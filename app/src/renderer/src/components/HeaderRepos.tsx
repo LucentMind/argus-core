@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
-import { Chip } from './ui'
+import { Plus, Unlink } from 'lucide-react'
+import { Chip, IconBtn } from './ui'
 
 export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
@@ -34,14 +35,14 @@ export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
             {w.dirty ? ' ●' : ''}
             {w.worktreePath ? ' · worktree' : ''}
           </Chip>
-          <button
+          <IconBtn
             aria-label="Unlink repo"
             title="Unlink repo"
-            className="text-xs text-mute transition-colors hover:text-danger"
+            className="h-5 w-5 hover:text-danger"
             onClick={() => void window.argus.workspaces.unlink(slug, w.path).then(reload)}
           >
-            ×
-          </button>
+            <Unlink size={12} />
+          </IconBtn>
         </span>
       ))}
       {refs.map((r, i) => (
@@ -57,12 +58,9 @@ export function HeaderRepos({ slug }: { slug: string }): React.JSX.Element {
           @ {r.commit?.slice(0, 7) ?? '?'} · unlinked
         </Chip>
       ))}
-      <button
-        className="rounded-r2 px-1.5 py-0.5 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
-        onClick={() => void link()}
-      >
-        + repo
-      </button>
+      <IconBtn aria-label="Link repo" title="Link a local repo" onClick={() => void link()}>
+        <Plus size={14} />
+      </IconBtn>
     </div>
   )
 }
