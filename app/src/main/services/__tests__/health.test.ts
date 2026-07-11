@@ -28,6 +28,8 @@ const deps = (over: Partial<HealthDeps> = {}): HealthDeps => ({
   probeConnector: async () => ({ ok: true, tools: [{ name: 'get_x', risk: 'low' }] }),
   atlassianConfigured: () => false,
   atlassianCheck: async () => ({ ok: false, detail: 'unset' }),
+  refsyncConfigured: () => false,
+  confluenceCheck: async () => ({ ok: false, detail: 'unset' }),
   ...over
 })
 
@@ -144,5 +146,30 @@ describe('HealthService', () => {
     await bad.run(['atlassian-rest'], (r) => results.push(r))
     expect(results[0]).toMatchObject({ ok: false, detail: 'HTTP 401' })
     expect(results[0].fixHint).toMatch(/Site URL, email, and API token/)
+  })
+
+  it('confluence-rest row appears when a space is configured and maps check results', async () => {
+    const results: HealthCheckResult[] = []
+    const svc = new HealthService({
+      ...deps(),
+      refsyncConfigured: () => true,
+      confluenceCheck: async () => ({
+        ok: false,
+        detail: 'Atlassian rejected the API token (HTTP 401)'
+      })
+    })
+    expect(svc.rows().map((r) => r.id)).toContain('confluence-rest')
+    await svc.run(['confluence-rest'], (r) => results.push(r))
+    expect(results[0].ok).toBe(false)
+    expect(results[0].fixHint).toMatch(/connector/i)
+  })
+
+  it('confluence-rest row is absent with no configured spaces', () => {
+    const svc = new HealthService({
+      ...deps(),
+      refsyncConfigured: () => false,
+      confluenceCheck: async () => ({ ok: true, detail: '' })
+    })
+    expect(svc.rows().map((r) => r.id)).not.toContain('confluence-rest')
   })
 })

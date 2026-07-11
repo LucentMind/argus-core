@@ -563,6 +563,17 @@ function registerIpc(): void {
       } catch (err) {
         return { ok: false, detail: (err as Error).message }
       }
+    },
+    refsyncConfigured: () => refSyncStore.get().spaces.length > 0,
+    confluenceCheck: async () => {
+      const first = refSyncStore.get().spaces[0]
+      if (!first) return { ok: false, detail: 'no Confluence space configured' }
+      try {
+        const s = await atlassian.getConfluenceSpace(first.key)
+        return { ok: true, detail: `space ${s.key} (${s.name}) reachable` }
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message }
+      }
     }
   })
 
