@@ -268,9 +268,11 @@ function registerIpc(): void {
     return cachedAuth
   })
   ipcMain.handle(IPC.agentPreflight, () => runPreflight(argusParseBin))
-  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) =>
-    readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
-  )
+  ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) => {
+    assertSlug(caseSlug)
+    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+    return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
+  })
   ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) => listSessions(db, caseSlug))
   ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) => createSession(db, caseSlug))
   ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>

@@ -70,6 +70,17 @@ describe('SessionMirror', () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
+  it('readSessionEvents rejects a non-integer sessionId before touching the filesystem', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
+    const dir = path.join(tmp, 'case')
+    fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
+    // a path-traversal payload smuggled in as sessionId must never reach fs.*
+    expect(() => readSessionEvents(dir, '..\\..\\x' as never)).toThrow(/invalid session id/i)
+    expect(() => readSessionEvents(dir, 1.5)).toThrow(/invalid session id/i)
+    expect(fs.readdirSync(path.join(dir, 'sessions'))).toEqual([])
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
   it('indexes message text into messages_fts', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mir-'))
     const db = openDb(path.join(tmp, 'a.db'))

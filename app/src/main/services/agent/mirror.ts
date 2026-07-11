@@ -6,6 +6,10 @@ import type { SessionMirrorLike } from './session'
 
 /** Replay a single session's mirror JSONL file (transcript history) in write order. */
 export function readSessionEvents(caseDir: string, sessionId: number): AgentEvent[] {
+  // defense in depth: sessionId ends up in a filesystem path below, so a
+  // non-integer (e.g. a path-traversal payload smuggled through IPC) must
+  // never reach fs.* — reject before any fs call.
+  if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
   const file = path.join(caseDir, 'sessions', `${sessionId}.jsonl`)
   if (!fs.existsSync(file)) return []
   const events: AgentEvent[] = []
