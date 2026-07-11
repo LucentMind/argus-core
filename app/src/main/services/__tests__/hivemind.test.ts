@@ -245,3 +245,59 @@ describe('pushable + push', () => {
     expect(svc.pushPreview('reference', 'team-tips.md')).toContain('tips')
   })
 })
+
+describe('reference keep-authorship', () => {
+  function seedLocalRef(name: string, tier: string): void {
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', name),
+      `---\ntrust_tier: ${tier}\n---\nmy local draft\n`
+    )
+  }
+
+  it('install over a user-tier local copy preserves the tier and stays pushable', async () => {
+    seedClone()
+    seedLocalRef('hive-note.md', 'user')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.install('reference', 'hive-note.md')
+    const written = fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')
+    expect(written).toContain('trust_tier: user')
+    expect(written).not.toContain('trust_tier: hivemind')
+    expect(written).toContain('source_repo: acme/hivemind')
+    expect(written).toContain('source_commit: refsha')
+    expect(written).toContain('# note') // upstream content won; only the tier survived
+    expect(written).not.toContain('my local draft')
+    expect(p.pushable).toContainEqual({ kind: 'reference', name: 'hive-note.md' })
+  })
+
+  it('install preserves team-knowledge but restamps confluence to hivemind', async () => {
+    seedClone()
+    seedLocalRef('hive-note.md', 'team-knowledge')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.install('reference', 'hive-note.md')
+    expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
+      'trust_tier: team-knowledge'
+    )
+    seedLocalRef('hive-note.md', 'confluence')
+    await svc.install('reference', 'hive-note.md')
+    expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
+      'trust_tier: hivemind'
+    )
+  })
+
+  it('listItems exposes the local tier of installed references, null otherwise', async () => {
+    seedClone()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    let p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'hive-note.md')?.localTier).toBeNull()
+    expect(p.items.find((i) => i.name === 'hive-probe')?.localTier).toBeNull()
+    p = await svc.install('reference', 'hive-note.md')
+    expect(p.items.find((i) => i.name === 'hive-note.md')?.localTier).toBe('hivemind')
+    seedLocalRef('hive-note.md', 'user')
+    p = await svc.install('reference', 'hive-note.md')
+    expect(p.items.find((i) => i.name === 'hive-note.md')?.localTier).toBe('user')
+  })
+})
