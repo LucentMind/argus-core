@@ -9,7 +9,7 @@ import { JiraRefreshButton } from './JiraRefreshButton'
 import { MenuButton } from './ui'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
-import type { ChatJumpTarget, FileNode, SearchHit } from '../../../shared/types'
+import type { ChatJumpTarget, FileNode, UnifiedHit } from '../../../shared/types'
 
 export function CaseWorkspace({
   slug,
@@ -22,7 +22,7 @@ export function CaseWorkspace({
   slug: string
   jiraKey: string | null
   jiraSyncedAt: string | null
-  onOpenHit: (hit: SearchHit) => void
+  onOpenHit: (hit: UnifiedHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
   onOpenFile: (node: FileNode) => void
 }): React.JSX.Element {
