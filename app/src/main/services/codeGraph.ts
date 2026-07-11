@@ -3,6 +3,9 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import type { GraphStatusRow } from '../../shared/types'
+
+export type { GraphStatusRow }
 
 export function graphsRoot(argusHome: string): string {
   return path.join(argusHome, 'graphs')
@@ -87,17 +90,6 @@ const BUILD_TIMEOUT_MS = 30 * 60 * 1000
 const GIT_TIMEOUT_MS = 15_000
 
 type Exec = NonNullable<CodeGraphDeps['exec']>
-
-export interface GraphStatusRow {
-  scope: string | null
-  scopeKey: string
-  status: 'ok' | 'failed' | 'building' | 'none'
-  commit: string | null
-  behind: number | null
-  builtAt: string | null
-  nodeCount: number | null
-  error?: string
-}
 
 export interface CodeGraphDeps {
   argusHome: string

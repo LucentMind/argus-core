@@ -133,6 +133,17 @@ export interface WorkspaceInfo {
   worktreePath: string | null // non-null once workspace_checkout materialized one
 }
 
+export interface GraphStatusRow {
+  scope: string | null
+  scopeKey: string
+  status: 'ok' | 'failed' | 'building' | 'none'
+  commit: string | null
+  behind: number | null
+  builtAt: string | null
+  nodeCount: number | null
+  error?: string
+}
+
 export interface ApprovalDecision {
   requestId: string
   kind: 'allow' | 'allow-session' | 'deny'
