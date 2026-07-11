@@ -5,15 +5,18 @@ import { MessageView } from './MessageView'
 import { ToolCallCard } from './ToolCallCard'
 import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
+import { SessionSwitcher } from './SessionSwitcher'
 
 export function ChatPane({
   slug,
   sessionId,
+  onSwitchSession,
   onCite,
   prefill
 }: {
   slug: string
   sessionId: number
+  onSwitchSession: (id: number) => void
   onCite: (relPath: string, line: number) => void
   prefill?: string
 }): React.JSX.Element {
@@ -30,8 +33,23 @@ export function ChatPane({
     bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [state.items.length, state.pending.length])
 
+  // Search-driven navigation (Task 9) will pass a turnId to scroll to; for now,
+  // jumping to a turn in a different session just switches to it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- turnId is wired for Task 9's scroll-to-turn
+  function handleJumpToTurn(targetSessionId: number, _turnId: number | null): void {
+    if (targetSessionId !== sessionId) onSwitchSession(targetSessionId)
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-9 items-center border-b border-hair px-3">
+        <SessionSwitcher
+          slug={slug}
+          sessionId={sessionId}
+          onSwitch={onSwitchSession}
+          onJumpToTurn={handleJumpToTurn}
+        />
+      </div>
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {state.items.map((item, i) => {
           if (item.kind === 'user') {
