@@ -118,6 +118,7 @@ export class CaseSession {
             caseId: deps.caseId,
             caseSlug: deps.caseSlug,
             sessionId: this.sessionId,
+            currentTurnId: () => this.currentTurnRow,
             emitFinding: (markdown) =>
               this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
             agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess()

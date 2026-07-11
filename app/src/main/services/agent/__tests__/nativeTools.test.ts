@@ -9,7 +9,7 @@ import { argusToolHandlers } from '../nativeTools'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
 
-let tmp: string, argusHome: string, db: DatabaseSync
+let tmp: string, argusHome: string, db: DatabaseSync, caseId: number
 let handlers: ReturnType<typeof argusToolHandlers>
 const emitFinding = vi.fn()
 
@@ -19,6 +19,7 @@ beforeEach(() => {
   argusHome = path.join(tmp, 'home')
   db = openDb(path.join(argusHome, 'argus.db'))
   const rec = createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
+  caseId = rec.id
   const src = path.join(tmp, 'log.txt')
   fs.writeFileSync(src, 'FATAL Navigator crashed at tile load\nline two\n')
   ingestArtifact(db, argusHome, 'NAV-1', src)
@@ -68,6 +69,29 @@ describe('argus native tools', () => {
     expect(findings).toContain('## Tile crash')
     expect(findings).toContain('[evidence/log.txt:1]')
     expect(emitFinding).toHaveBeenCalledOnce()
+  })
+
+  it('append_finding inserts a findings row with the current turn id', async () => {
+    const withTurn = argusToolHandlers({
+      db,
+      argusHome,
+      caseId,
+      caseSlug: 'NAV-1',
+      sessionId: 1,
+      emitFinding,
+      currentTurnId: () => 42
+    })
+    await withTurn.append_finding({ title: 'Root cause X', markdown: 'details' })
+    const row = db.prepare(`SELECT * FROM findings WHERE case_id = ?`).get(caseId) as {
+      summary: string
+      turn_id: number
+      session_id: number
+      review_state: string
+    }
+    expect(row.summary).toBe('Root cause X')
+    expect(row.turn_id).toBe(42)
+    expect(row.session_id).toBe(1)
+    expect(row.review_state).toBe('pending')
   })
 
   it('update_case_status validates and persists', async () => {

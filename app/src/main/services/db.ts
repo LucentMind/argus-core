@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   duration_ms INTEGER,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  session_id INTEGER,
+  turn_id INTEGER,
+  summary TEXT NOT NULL,
+  review_state TEXT NOT NULL DEFAULT 'pending',
+  reviewed_at TEXT,
+  created_at TEXT NOT NULL
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   content,
   case_id UNINDEXED,
