@@ -70,6 +70,7 @@ import { RefSyncService } from './services/refSync/service'
 import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
+import { BinariesService } from './services/packs/binaries'
 import type { ApprovalDecision, AuthStatus, NewCaseInput, SearchFilters } from '../shared/types'
 
 let agentService: AgentService | null = null
@@ -115,6 +116,21 @@ function registerIpc(): void {
     parseBin: process.env.ARGUS_PARSE_BIN
   }
   const settingsService = new SettingsService(argusHome, app.getAppPath(), envOverrides)
+
+  // Capture declared user env BEFORE anything mutates process.env, then let the
+  // service export resolved values / prepend pathDirs for spawned children.
+  const capturedBinaryEnv = Object.fromEntries(
+    packRegistry
+      .binaryDecls()
+      .filter(({ decl }) => decl.envVar)
+      .map(({ decl }) => [decl.envVar as string, process.env[decl.envVar as string]])
+  )
+  const binariesService = new BinariesService({
+    registry: packRegistry,
+    settingsTools: () => settingsService.get().tools,
+    resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
+    capturedEnv: capturedBinaryEnv
+  })
 
   const secretStore = new SecretStore(argusHome, safeStorage)
   const connectorRegistry = new ConnectorRegistry(argusHome)
@@ -201,6 +217,7 @@ function registerIpc(): void {
   let cachedAuth: AuthStatus | null = null
   settingsService.subscribe(() => {
     recomputeParseBin()
+    binariesService.recompute()
     cachedAuth = null
     broadcast(IPC.settingsChanged, settingsService.payload())
   })
