@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import {
   PACK_MANIFEST_FILE,
   packManifestSchema,
@@ -98,4 +99,30 @@ export function assembleBundle(
   for (const ent of fs.readdirSync(binDir, { withFileTypes: true })) {
     if (ent.isFile()) fs.cpSync(path.join(binDir, ent.name), path.join(binOut, ent.name))
   }
+}
+
+const CHECKSUMS_FILE = 'CHECKSUMS'
+
+function walkFiles(root: string, rel = ''): string[] {
+  const out: string[] = []
+  for (const ent of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+    const childRel = rel ? `${rel}/${ent.name}` : ent.name
+    if (ent.isDirectory()) out.push(...walkFiles(root, childRel))
+    else if (ent.isFile()) out.push(childRel)
+  }
+  return out
+}
+
+export function writeChecksums(stagingDir: string): Record<string, string> {
+  const rels = walkFiles(stagingDir)
+    .filter((r) => r !== CHECKSUMS_FILE)
+    .sort()
+  const map: Record<string, string> = {}
+  for (const rel of rels) {
+    const buf = fs.readFileSync(path.join(stagingDir, ...rel.split('/')))
+    map[rel] = crypto.createHash('sha256').update(buf).digest('hex')
+  }
+  const body = rels.map((rel) => `${map[rel]}  ${rel}\n`).join('')
+  fs.writeFileSync(path.join(stagingDir, CHECKSUMS_FILE), body)
+  return map
 }
