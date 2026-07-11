@@ -172,7 +172,7 @@ export function ObservabilitySettings({
       <SettingsSection title="Content capture">
         <SettingRow
           label="Capture content"
-          description="Sends prompts, responses, and tool inputs/outputs — including confidential BINLOG/Jira content — to your Langfuse instance."
+          description="Sends prompts, responses, and tool inputs/outputs — including confidential trace and ticket content — to your Langfuse instance."
         >
           <Switch
             checked={langfuse.captureContent}
