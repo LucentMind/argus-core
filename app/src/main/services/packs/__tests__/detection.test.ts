@@ -1,0 +1,142 @@
+import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import zlib from 'node:zlib'
+import { createDetection } from '../detection'
+import { PackRegistry } from '../registry'
+import { packManifestSchema } from '../manifest'
+import type { LoadedPack } from '../loader'
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-detect-'))
+function write(name: string, data: Buffer | string): string {
+  const p = path.join(dir, name)
+  fs.writeFileSync(p, data)
+  return p
+}
+
+const SAMPLE_DETECTORS = [
+  {
+    type: 'binlog',
+    displayName: 'Binary log',
+    analyzeSkill: 'analyze-binlog',
+    match: [{ magicHex: '444C5401' }, { nameEndsWith: ['.binlog'] }],
+    extract: { bin: 'sample-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] }
+  },
+  { type: 'archive-rec', analyzeSkill: 'analyze-archive-rec',
+    match: [{ magicHex: '1F8B', nameEndsWith: ['.rec.gz'] }] },
+  { type: 'bintrace', match: [{ nameEndsWith: ['.bintrace', '.bintrace.zip'] }],
+    extract: { bin: 'sample-trace', args: ['convert-bintrace-to-text', '{input}', '--output', '{output}'] } },
+  { type: 'tagged-json', analyzeSkill: 'analyze-tagged-json', isText: true,
+    match: [
+      { nameEndsWith: ['.json'], nameContains: ['tagged'], json: {} },
+      { nameEndsWith: ['.json'], json: { anyKeys: ['tagged', 'tagged_events'] } }
+    ] },
+  { type: 'list-json', isText: true,
+    match: [{ nameEndsWith: ['.list.json'] }, { nameEndsWith: ['.json'], json: { arrayKeys: ['events'] } }] },
+  { type: 'applog', analyzeSkill: 'analyze-applog', isText: true,
+    match: [
+      { headRegex: { source: '^\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\.\\d+\\s+\\d+\\s+\\d+\\s+[VDIWEF]\\s', flags: 'm' } },
+      { headRegex: { source: '--------- beginning of' } }
+    ] }
+]
+
+function samplePackRegistry(): PackRegistry {
+  const manifest = packManifestSchema.parse({
+    id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1', detectors: SAMPLE_DETECTORS
+  })
+  const pack: LoadedPack = {
+    id: 'sample', dir: '/packs/sample', manifest,
+    personaText: null, skillsDir: null, referencesDir: null
+  }
+  return new PackRegistry([pack])
+}
+
+describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
+  const det = createDetection(samplePackRegistry())
+
+  it('detects history recordings (.rec.gz)', () => {
+    expect(det.detectType(write('session.rec.gz', zlib.gzipSync(Buffer.from('x'))))).toBe('archive-rec')
+  })
+  it('detects generic gzip as archive', () => {
+    expect(det.detectType(write('logs.tar.gz', zlib.gzipSync(Buffer.from('x'))))).toBe('archive')
+  })
+  it('detects BINLOG by magic', () => {
+    expect(det.detectType(write('trace.bin', Buffer.concat([Buffer.from('BINLOG\x01'), Buffer.alloc(16)])))).toBe('binlog')
+  })
+  it('detects zip archives', () => {
+    expect(det.detectType(write('bundle.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0])))).toBe('archive')
+  })
+  it('detects PNG screenshots', () => {
+    expect(det.detectType(write('shot.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))).toBe('screenshot')
+  })
+  it('detects list-json', () => {
+    expect(det.detectType(write('conv.list.json', JSON.stringify({ events: [] })))).toBe('list-json')
+  })
+  it('detects applog', () => {
+    expect(det.detectType(write('log.txt', '07-08 14:23:01.123  1234  1234 I HiveMindNavigator: created\n'))).toBe('applog')
+  })
+  it('detects tagged traces by filename', () => {
+    expect(det.detectType(write('session-tagged-json.json', JSON.stringify({ version: 1, events: [] })))).toBe('tagged-json')
+  })
+  it('detects tagged traces by top-level key', () => {
+    expect(det.detectType(write('nav-session.json', JSON.stringify({ tagged: { version: 1 }, events: [] })))).toBe('tagged-json')
+  })
+  it('keeps plain json as list-json/text', () => {
+    expect(det.detectType(write('plain.json', JSON.stringify({ hello: 1 })))).not.toBe('tagged-json')
+  })
+  it('falls back to text then unknown', () => {
+    expect(det.detectType(write('notes.md', 'just some notes\n'))).toBe('text')
+    expect(det.detectType(write('blob.bin', Buffer.from([0, 1, 2, 3, 0, 5])))).toBe('unknown')
+  })
+
+  // Deliberate deviations from the old detect.ts (pack rules now precede generic archives):
+  it('DEVIATION: zip-magic .bintrace.zip is bintrace (was archive)', () => {
+    expect(det.detectType(write('bundle.bintrace.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0])))).toBe('bintrace')
+  })
+  it('DEVIATION: gzip named .binlog is binlog (was archive)', () => {
+    expect(det.detectType(write('weird.binlog', zlib.gzipSync(Buffer.from('x'))))).toBe('binlog')
+  })
+
+  it('isText covers text + declared isText types only', () => {
+    expect(det.isText('text')).toBe(true)
+    expect(det.isText('applog')).toBe(true)
+    expect(det.isText('tagged-json')).toBe(true)
+    expect(det.isText('binlog')).toBe(false)
+    expect(det.isText('archive')).toBe(false)
+  })
+
+  it('compoundExts derives multi-dot suffixes plus .tar.gz', () => {
+    const exts = det.compoundExts()
+    expect(exts).toContain('.rec.gz')
+    expect(exts).toContain('.bintrace.zip')
+    expect(exts).toContain('.list.json')
+    expect(exts).toContain('.tar.gz')
+    expect(exts).not.toContain('.binlog')
+  })
+
+  it('artifactMeta lists pack detectors first, then generics', () => {
+    const meta = det.artifactMeta()
+    expect(meta[0]).toEqual({ type: 'binlog', displayName: 'Binary log', analyzeSkill: 'analyze-binlog', isText: false })
+    const types = meta.map((m) => m.type)
+    for (const g of ['archive', 'screenshot', 'text', 'unknown']) expect(types).toContain(g)
+  })
+})
+
+describe('createDetection with no registry (generics only)', () => {
+  const det = createDetection()
+  it('types only generic outcomes', () => {
+    expect(det.detectType(write('g.rec.gz', zlib.gzipSync(Buffer.from('x'))))).toBe('archive')
+    expect(det.detectType(write('t.binlog', 'plain text content'))).toBe('text')
+    expect(det.compoundExts()).toEqual(['.tar.gz'])
+  })
+  it('an invalid headRegex in a rule is skipped with a warning, not fatal', () => {
+    const manifest = packManifestSchema.parse({
+      id: 'bad', displayName: 'B', version: '1', argusApi: '^1',
+      detectors: [{ type: 'weird', match: [{ headRegex: { source: '(' } }, { nameEndsWith: ['.weird'] }] }]
+    })
+    const reg = new PackRegistry([{ id: 'bad', dir: '/p/bad', manifest, personaText: null, skillsDir: null, referencesDir: null }])
+    const d = createDetection(reg)
+    expect(d.detectType(write('x.weird', 'abc'))).toBe('weird') // second rule still works
+  })
+})

@@ -12,6 +12,13 @@ export type ArtifactType =
   | 'text'
   | 'unknown'
 
+export interface ArtifactTypeMeta {
+  type: string
+  displayName: string
+  analyzeSkill: string | null
+  isText: boolean
+}
+
 export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent'
 
 export interface NewCaseInput {
