@@ -17,7 +17,8 @@ function BrowseRow({
   onInstall,
   onOpenUpdate,
   onReinstall,
-  onCancel
+  onCancel,
+  onClaim
 }: {
   it: HivemindItem
   busy: boolean
@@ -26,6 +27,7 @@ function BrowseRow({
   onOpenUpdate: () => void
   onReinstall: () => void
   onCancel: () => void
+  onClaim: () => void
 }): React.JSX.Element {
   const open = confirm !== null && confirm.kind === it.kind && confirm.name === it.name
   return (
@@ -54,6 +56,23 @@ function BrowseRow({
             onClick={onInstall}
           >
             Install
+          </Btn>
+        )}
+        {it.kind === 'reference' && it.localTier === 'hivemind' && (
+          <Btn
+            variant="outline"
+            aria-label={`Keep ${it.name} as mine`}
+            disabled={busy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Keep ${it.name} as yours? It becomes pushable to the HiveMind and future updates keep your authorship.`
+                )
+              )
+                onClaim()
+            }}
+          >
+            Keep as mine
           </Btn>
         )}
       </SettingRow>
@@ -326,6 +345,9 @@ export function HivemindSettings({
                         void run(() => window.argus.hivemind.install(it.kind, it.name))
                       }}
                       onCancel={() => setUpdateConfirm(null)}
+                      onClaim={() =>
+                        void run(() => window.argus.hivemind.claimReference(it.name))
+                      }
                     />
                   ))}
                 </SettingsSection>
@@ -348,6 +370,9 @@ export function HivemindSettings({
                         void run(() => window.argus.hivemind.install(it.kind, it.name))
                       }}
                       onCancel={() => setUpdateConfirm(null)}
+                      onClaim={() =>
+                        void run(() => window.argus.hivemind.claimReference(it.name))
+                      }
                     />
                   ))}
                 </SettingsSection>
