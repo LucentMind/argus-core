@@ -50,7 +50,8 @@ const argus = {
     create: (input: NewCaseInput) => ipcRenderer.invoke(IPC.casesCreate, input),
     list: () => ipcRenderer.invoke(IPC.casesList),
     cost: (caseSlug: string) => ipcRenderer.invoke(IPC.caseCost, caseSlug),
-    readFindings: (caseSlug: string) => ipcRenderer.invoke(IPC.caseReadFindings, caseSlug)
+    readFindings: (caseSlug: string) => ipcRenderer.invoke(IPC.caseReadFindings, caseSlug),
+    delete: (slug: string): Promise<void> => ipcRenderer.invoke(IPC.casesDelete, slug)
   },
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) =>
@@ -58,6 +59,11 @@ const argus = {
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
     read: (evidenceId: number, focusLine?: number) =>
       ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
+    delete: (
+      caseSlug: string,
+      evidenceId: number
+    ): Promise<{ deleted: Array<{ id: number; relPath: string; sha256: string }> }> =>
+      ipcRenderer.invoke(IPC.evidenceDelete, caseSlug, evidenceId),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.evidenceChanged, listener)
@@ -122,7 +128,9 @@ const argus = {
     create: (caseSlug: string): Promise<SessionSummary> =>
       ipcRenderer.invoke(IPC.sessionsCreate, caseSlug),
     rename: (sessionId: number, title: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.sessionsRename, sessionId, title)
+      ipcRenderer.invoke(IPC.sessionsRename, sessionId, title),
+    delete: (caseSlug: string, sessionId: number): Promise<void> =>
+      ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
   },
   workspaces: {
     pick: () => ipcRenderer.invoke(IPC.workspacesPick),
@@ -289,7 +297,9 @@ const argus = {
   findings: {
     list: (slug: string): Promise<FindingRow[]> => ipcRenderer.invoke(IPC.findingsList, slug),
     review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
-      ipcRenderer.invoke(IPC.findingsReview, id, state)
+      ipcRenderer.invoke(IPC.findingsReview, id, state),
+    clear: (caseSlug: string): Promise<{ cleared: number }> =>
+      ipcRenderer.invoke(IPC.findingsClear, caseSlug)
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)

@@ -93,5 +93,9 @@ export const IPC = {
   metricsGlobal: 'metrics:global',
   metricsCase: 'metrics:case',
   findingsList: 'findings:list',
-  findingsReview: 'findings:review'
+  findingsReview: 'findings:review',
+  casesDelete: 'cases:delete',
+  evidenceDelete: 'evidence:delete',
+  sessionsDelete: 'sessions:delete',
+  findingsClear: 'findings:clear'
 } as const
