@@ -41,18 +41,30 @@ export function ChatPane({
 
   const [flashTurnId, setFlashTurnId] = useState<number | null>(null)
 
-  // jump-to-turn: wait until the target turn's anchor is actually in the DOM
-  // (the target session's history may still be hydrating), then scroll +
-  // flash it and tell the parent the focus request has been consumed.
-  useEffect(() => {
-    if (focusTurnId == null) return
-    const el = document.querySelector(`[data-turn-id="${focusTurnId}"]`)
-    if (!el) return
-    el.scrollIntoView({ block: 'center' })
+  // jump-to-turn: the target turn's anchor may not exist yet (the target
+  // session's history may still be hydrating), so wait until it shows up in
+  // the transcript. Whether to flash is a pure derivation of focusTurnId +
+  // state.items — adjust-state-during-render, keyed on focusTurnId like the
+  // reset patterns above (reset to idle whenever the prop returns to null, so
+  // a later jump to the same turn re-flashes). The actual DOM scroll + telling
+  // the parent the jump was consumed are external-system effects.
+  const targetExists =
+    focusTurnId != null &&
+    state.items.some((item) => item.kind === 'user' && item.turnId === focusTurnId)
+  const [consumedFocusTurnId, setConsumedFocusTurnId] = useState<number | null>(null)
+  if (focusTurnId == null) {
+    if (consumedFocusTurnId !== null) setConsumedFocusTurnId(null)
+  } else if (targetExists && focusTurnId !== consumedFocusTurnId) {
+    setConsumedFocusTurnId(focusTurnId)
     setFlashTurnId(focusTurnId)
+  }
+
+  useEffect(() => {
+    if (!targetExists) return
+    document.querySelector(`[data-turn-id="${focusTurnId}"]`)?.scrollIntoView({ block: 'center' })
     onFocusConsumed?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusTurnId, state.items.length])
+  }, [focusTurnId, targetExists])
 
   // the flash fade-out timer is independent of the focus-consumption effect
   // above so that clearing focusTurnId (via onFocusConsumed) doesn't cancel it

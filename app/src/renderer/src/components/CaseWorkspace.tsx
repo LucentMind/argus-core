@@ -39,17 +39,19 @@ export function CaseWorkspace({
   )
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
-  // identical suggestion in the new case isn't a setState no-op — adjust-state-
-  // during-render; the composer draft itself resets via key={slug} in ChatPane
+  // identical suggestion in the new case isn't a setState no-op, and clear the
+  // stale sessionId so case A's chat doesn't flash while case B's session list
+  // loads — adjust-state-during-render; the composer draft itself resets via
+  // key={slug} in ChatPane
   const [lastSlug, setLastSlug] = useState(slug)
   if (slug !== lastSlug) {
     setLastSlug(slug)
     setPrefill('')
+    setSessionId(null)
   }
 
   useEffect(() => {
     wireAgentStore()
-    setSessionId(null)
     void window.argus.sessions.list(slug).then((list) => {
       setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
     })
