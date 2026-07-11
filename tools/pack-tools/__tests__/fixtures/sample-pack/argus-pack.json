@@ -1,0 +1,15 @@
+{
+  "id": "sample",
+  "displayName": "Sample Pack",
+  "version": "0.1.0",
+  "argusApi": "^1",
+  "persona": "persona.md",
+  "binaries": [
+    {
+      "id": "argus-demo",
+      "kind": "exe",
+      "displayName": "demo binary",
+      "names": ["argus-demo"]
+    }
+  ]
+}
