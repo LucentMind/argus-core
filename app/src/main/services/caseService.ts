@@ -195,9 +195,12 @@ export function setCaseStatus(
   }
   const nextResolution = status === 'closed' ? resolution : null
   const now = new Date().toISOString()
-  db.prepare(
-    `UPDATE cases SET status = ?, resolution = ?, updated_at = ? WHERE slug = ?`
-  ).run(status, nextResolution, now, slug)
+  db.prepare(`UPDATE cases SET status = ?, resolution = ?, updated_at = ? WHERE slug = ?`).run(
+    status,
+    nextResolution,
+    now,
+    slug
+  )
 
   const file = path.join(caseDir(argusHome, slug), 'case.json')
   let onDisk: Record<string, unknown>
@@ -221,14 +224,9 @@ export function setCaseStatus(
  * downgrades analyzing/rca-drafted/closed. Called after an interactive evidence
  * ingest and after a chat turn is created.
  */
-export function maybeAdvanceToAnalyzing(
-  db: DatabaseSync,
-  argusHome: string,
-  caseId: number
-): void {
-  const row = db
-    .prepare(`SELECT slug, status FROM cases WHERE id = ?`)
-    .get(caseId) as { slug: string; status: string } | undefined
+export function maybeAdvanceToAnalyzing(db: DatabaseSync, argusHome: string, caseId: number): void {
+  const row = db.prepare(`SELECT slug, status FROM cases WHERE id = ?`).get(caseId) as
+    { slug: string; status: string } | undefined
   if (!row || row.status !== 'open') return
   const hasEvidence =
     (db.prepare(`SELECT 1 FROM evidence WHERE case_id = ? LIMIT 1`).get(caseId) as unknown) != null

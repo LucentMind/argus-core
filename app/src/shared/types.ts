@@ -1,12 +1,7 @@
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
 export type CaseResolution =
-  | 'solved'
-  | 'rejected'
-  | 'forwarded'
-  | 'wont-fix'
-  | 'duplicate'
-  | 'not-reproducible'
+  'solved' | 'rejected' | 'forwarded' | 'wont-fix' | 'duplicate' | 'not-reproducible'
 
 export const CASE_RESOLUTIONS: readonly CaseResolution[] = [
   'solved',

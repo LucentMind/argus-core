@@ -85,9 +85,7 @@ describe('CaseDashboard', () => {
   })
 
   it('shows the resolution alongside a closed status', () => {
-    const closedCases: CaseRecord[] = [
-      { ...cases[0], status: 'closed', resolution: 'wont-fix' }
-    ]
+    const closedCases: CaseRecord[] = [{ ...cases[0], status: 'closed', resolution: 'wont-fix' }]
     render(
       <CaseDashboard
         cases={closedCases}
