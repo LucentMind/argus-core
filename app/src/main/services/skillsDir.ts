@@ -12,7 +12,7 @@ export function sharedReferencesDir(argusHome: string): string {
 /** Tiers whose files were written after seeding (synced/authored) — never clobbered by a pack copy. */
 const nonPackTiers = new Set(['confluence', 'user', 'team-knowledge', 'hivemind'])
 
-function isNonPackTiered(destFile: string): boolean {
+export function isNonPackTiered(destFile: string): boolean {
   let stat: fs.Stats
   try {
     stat = fs.statSync(destFile)
