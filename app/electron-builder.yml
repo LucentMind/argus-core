@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: app
+appId: com.argus.core
+productName: Argus
 directories:
   buildResources: build
 files:
@@ -21,7 +21,7 @@ extraResources:
       - '!**/bin-src/**'
       - '!**/node_modules/**'
 win:
-  executableName: app
+  executableName: argus
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
