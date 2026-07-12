@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION } from '../manifest'
 
 describe('packManifestSchema', () => {
-  const valid = { id: 'sample', displayName: 'Navigation', version: '1.0.0', argusApi: '^1' }
+  const valid = { id: 'sample', displayName: 'Sample', version: '1.0.0', argusApi: '^1' }
 
   it('parses a minimal valid manifest', () => {
     const m = packManifestSchema.parse(valid)
@@ -194,7 +194,7 @@ describe('packManifestSchema', () => {
 })
 
 describe('platform field + PACK_API_VERSION', () => {
-  const valid = { id: 'sample', displayName: 'Navigation', version: '1.0.0', argusApi: '^1' }
+  const valid = { id: 'sample', displayName: 'Sample', version: '1.0.0', argusApi: '^1' }
 
   it('accepts an optional <os>-<arch> platform', () => {
     expect(packManifestSchema.parse({ ...valid, platform: 'mac-arm64' }).platform).toBe('mac-arm64')

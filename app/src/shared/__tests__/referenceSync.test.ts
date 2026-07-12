@@ -75,7 +75,7 @@ describe('selection semantics (include roots minus excluded subtrees)', () => {
 
 describe('routing', () => {
   it('first matching rule wins, case-insensitive substring on title', () => {
-    expect(routeTarget('applog tag cheat-sheet', TEST_ROUTING_RULES)).toBe('log-patterns.md')
+    expect(routeTarget('App log tag cheat-sheet', TEST_ROUTING_RULES)).toBe('log-patterns.md')
     expect(routeTarget('Vector Tile datasets', TEST_ROUTING_RULES)).toBe('data-versioning.md')
     expect(routeTarget('Quarterly planning', TEST_ROUTING_RULES)).toBeNull() // unrouted
   })

@@ -18,7 +18,6 @@
     "dev": "electron-vite dev",
     "test": "vitest run",
     "build": "npm run typecheck && electron-vite build",
-    "build:rust": "cd ../packs/sample/bin-src/trace-rs && cargo build --release",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",

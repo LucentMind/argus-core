@@ -55,7 +55,7 @@ it('wave-1 part-2 exit shape: binary → derived text → FTS hit → viewer tex
   const bin = writeFakeArgusParse(tmp)
 
   const src = path.join(tmp, 'drive.binlog')
-  fs.writeFileSync(src, Buffer.from('BINLOG\x01' + 'x'.repeat(64)))
+  fs.writeFileSync(src, Buffer.from('\x44\x4C\x54\x01' + 'x'.repeat(64)))
   const rec = ingestArtifact(db, argusHome, detection, 'NAV-9', src)
   const extractors = stubExtractors('binlog', {
     binPath: bin,

@@ -54,7 +54,7 @@ describe('extraction pipeline', () => {
   it('derives text from a binlog artifact via a real script binary, indexes it with provenance', async () => {
     const fakeBin = writeFakeArgusParse(tmp)
     const src = path.join(tmp, 'trace.binlog')
-    fs.writeFileSync(src, Buffer.from('BINLOG\x01binarybytes'))
+    fs.writeFileSync(src, Buffer.from('\x44\x4C\x54\x01binarybytes'))
     const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
     expect(rec.artifactType).toBe('binlog')
 
@@ -88,7 +88,7 @@ describe('extraction pipeline', () => {
 
   it('returns null instead of throwing when the binary is missing', async () => {
     const src = path.join(tmp, 'trace2.binlog')
-    fs.writeFileSync(src, Buffer.from('BINLOG\x01binarybytes'))
+    fs.writeFileSync(src, Buffer.from('\x44\x4C\x54\x01binarybytes'))
     const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
     await expect(
       extractDerivedText(db, argusHome, rec, stubExtractors('binlog', { resolves: false }))

@@ -32,7 +32,7 @@ describe('searchMessages', () => {
   it('finds hits scoped to the case with snippets, newest-relevant first', () => {
     indexMsg(1, 10, 'user', 'the braking system failed near the tunnel')
     indexMsg(2, 20, 'assistant', 'braking pressure log shows a dropout')
-    indexMsg(1, 11, 'user', 'unrelated navigation chatter')
+    indexMsg(1, 11, 'user', 'unrelated sample chatter')
     const r = searchMessages(db, 'NAV-1', 'braking')
     expect(r.error).toBeUndefined()
     expect(r.hits).toHaveLength(2)

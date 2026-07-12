@@ -32,7 +32,7 @@ const tree: FileNode[] = [
 
 const artifactMetaFixture: ArtifactTypeMeta[] = [
   { type: 'binlog', displayName: 'Binary log', analyzeSkill: 'analyze-binlog', isText: false },
-  { type: 'applog', displayName: 'applog', analyzeSkill: 'analyze-applog', isText: true },
+  { type: 'applog', displayName: 'App log', analyzeSkill: 'analyze-applog', isText: true },
   { type: 'text', displayName: 'Text', analyzeSkill: null, isText: true },
   { type: 'unknown', displayName: 'Unknown', analyzeSkill: null, isText: false }
 ]
