@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from '../skillsDir'
+import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir, isNonPackTiered } from '../skillsDir'
 
 describe('seedSharedAssets', () => {
   it('seeds from multiple sources in order; later sources overwrite on collision', () => {
@@ -96,5 +96,28 @@ describe('seedSharedAssets', () => {
     ).not.toThrow()
     expect(fs.readFileSync(path.join(skills, 'keep.md'), 'utf8')).toBe('x')
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+})
+
+describe('isNonPackTiered (reap guard)', () => {
+  let tmp: string
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tier-'))
+  })
+
+  it('is false for an untiered (pristine pack) reference', () => {
+    const f = path.join(tmp, 'plain.md')
+    fs.writeFileSync(f, '# just a pack reference, no frontmatter tier\n')
+    expect(isNonPackTiered(f)).toBe(false)
+  })
+
+  it('is true for a hivemind-tiered reference (protected)', () => {
+    const f = path.join(tmp, 'synced.md')
+    fs.writeFileSync(f, '---\ntrust_tier: hivemind\n---\nsynced body\n')
+    expect(isNonPackTiered(f)).toBe(true)
+  })
+
+  it('is false for a missing file', () => {
+    expect(isNonPackTiered(path.join(tmp, 'nope.md'))).toBe(false)
   })
 })
