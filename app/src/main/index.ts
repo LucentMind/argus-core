@@ -83,7 +83,7 @@ import { listInstalledPacks } from './services/packs/packsService'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
 import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './services/panels/protocol'
-import type { OpenPanelRequest, PanelKey, PanelPermission } from '../shared/panels'
+import type { OpenPanelRequest, PanelKey, PanelPermission, PanelRect } from '../shared/panels'
 import type {
   ApprovalDecision,
   AuthStatus,
@@ -167,7 +167,8 @@ function registerIpc(): void {
   panelHost = new PanelHost({
     db,
     argusHome,
-    factory: createElectronPanelFactory(() => mainWindow, servePanel)
+    factory: createElectronPanelFactory(() => mainWindow, servePanel),
+    onChange: () => broadcast(IPC.panelsChanged, undefined)
   })
 
   const packsState = new PacksStateStore(argusHome)
@@ -439,6 +440,20 @@ function registerIpc(): void {
     broadcast(IPC.panelsChanged, undefined)
   })
   ipcMain.handle(IPC.panelsSetTheme, (_e, theme: 'dark' | 'light') => panelHost!.setTheme(theme))
+  ipcMain.handle(IPC.panelsDecls, () =>
+    packRegistry.windowDecls().map((w) => ({
+      packId: w.packId,
+      windowId: w.decl.id,
+      title: w.decl.title,
+      handles: w.decl.handles
+    }))
+  )
+  ipcMain.handle(IPC.panelsSetBounds, (_e, key: PanelKey, rect: PanelRect) =>
+    panelHost!.setBounds(key, rect)
+  )
+  ipcMain.handle(IPC.panelsSetVisible, (_e, key: PanelKey, visible: boolean) =>
+    panelHost!.setVisible(key, visible)
+  )
 
   // Read bridge — routed by e.sender.id (authoritative), never by renderer-supplied identity.
   ipcMain.handle(IPC.panelsGetCaseContext, (e) => {

@@ -4,7 +4,7 @@ import { WebContentsView, BrowserWindow, session as electronSession } from 'elec
 import { IPC } from '../../../shared/ipc'
 import type { PanelThemeName } from '../../../shared/panelTheme'
 import { panelContentType } from './protocol'
-import type { OpenPanelInput, PanelView, PanelViewFactory } from './panelHost'
+import type { OpenPanelInput, PanelView, PanelViewFactory, PanelViewHooks } from './panelHost'
 
 /**
  * The real PanelViewFactory: one sandboxed WebContentsView per panel, on a
@@ -19,7 +19,7 @@ export function createElectronPanelFactory(
   const partitionReady = new Set<string>()
 
   return {
-    create(input: OpenPanelInput): PanelView {
+    create(input: OpenPanelInput, hooks: PanelViewHooks): PanelView {
       const partition = `pack-panel:${input.packId}`
       const sess = electronSession.fromPartition(partition)
 
@@ -64,6 +64,7 @@ export function createElectronPanelFactory(
       })
 
       let floatWin: BrowserWindow | null = null
+      let programmaticClose = false
       let lastTheme: PanelThemeName = 'dark'
 
       // Re-push the theme on every (re)load so a freshly-loaded panel is themed.
@@ -100,17 +101,22 @@ export function createElectronPanelFactory(
           floatWin.on('resize', () => {
             if (floatWin) sizeToWindow(floatWin)
           })
-          // If the user closes the floated window via OS chrome (not dockBack),
-          // null out floatWin so dockBack/destroy don't touch a destroyed
-          // BrowserWindow. Reconciling PanelHost's `floated` state on this
-          // OS-close event is out of scope here — it belongs to the 3a-3 tab
-          // host, which owns the view->host event channel.
+          // User-initiated close (not our dockBack/destroy): reparent the view home
+          // BEFORE the window is destroyed so its WebContents survives, then tell the
+          // host to flip this panel back to docked.
+          floatWin.on('close', () => {
+            if (programmaticClose) return
+            floatWin?.contentView.removeChildView(view)
+            attachDocked()
+            hooks.onFloatClosed()
+          })
           floatWin.on('closed', () => {
             floatWin = null
           })
         },
         dockBack(): void {
           if (floatWin && !floatWin.isDestroyed()) {
+            programmaticClose = true
             floatWin.contentView.removeChildView(view)
             floatWin.destroy()
             floatWin = null
@@ -119,6 +125,7 @@ export function createElectronPanelFactory(
         },
         destroy(): void {
           if (floatWin && !floatWin.isDestroyed()) {
+            programmaticClose = true
             floatWin.destroy()
             floatWin = null
           }
@@ -127,6 +134,12 @@ export function createElectronPanelFactory(
         },
         focus(): void {
           if (!view.webContents.isDestroyed()) view.webContents.focus()
+        },
+        setBounds(rect): void {
+          view.setBounds(rect)
+        },
+        setVisible(visible): void {
+          view.setVisible(visible)
         }
       }
     }
