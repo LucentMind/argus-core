@@ -74,6 +74,34 @@ describe('loadPacks', () => {
     expect(errors[0].message).toMatch(/match its directory name/)
   })
 
+  it('ignores an upgrade backup dir (<id>.bak) instead of reporting an id-mismatch error', () => {
+    pack('sample', { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1' })
+    // Simulate the backup installPack leaves behind after an upgrade: packsDir/sample.bak
+    // containing the previous version's manifest, whose `id` is still 'sample'.
+    const bakDir = path.join(root, 'sample.bak')
+    fs.mkdirSync(bakDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(bakDir, 'argus-pack.json'),
+      JSON.stringify({ id: 'sample', displayName: 'Nav', version: '0', argusApi: '^1' })
+    )
+    const { packs, errors } = loadPacks(root)
+    expect(errors).toEqual([])
+    expect(packs).toHaveLength(1)
+    expect(packs[0].id).toBe('sample')
+  })
+
+  it('ignores a leading-dot dir (e.g. a stray staging dir) even with a manifest inside', () => {
+    const staging = path.join(root, '.staging')
+    fs.mkdirSync(staging, { recursive: true })
+    fs.writeFileSync(
+      path.join(staging, 'argus-pack.json'),
+      JSON.stringify({ id: 'staging', displayName: 'S', version: '1', argusApi: '^1' })
+    )
+    const { packs, errors } = loadPacks(root)
+    expect(errors).toEqual([])
+    expect(packs).toEqual([])
+  })
+
   it('resolves skills/ and references/ asset dirs when present', () => {
     pack('sample', { id: 'sample', displayName: 'Nav', version: '1', argusApi: '^1' })
     fs.mkdirSync(path.join(root, 'sample', 'skills'), { recursive: true })
@@ -96,7 +124,9 @@ describe('argusApi load-time gate', () => {
     pack('future', { id: 'future', displayName: 'F', version: '1', argusApi: '^2' })
     const { packs, errors } = loadPacks(root)
     expect(packs.find((p) => p.id === 'future')).toBeUndefined()
-    expect(errors.some((e) => e.dir.includes('future') && /argusApi|incompatible/i.test(e.message))).toBe(true)
+    expect(
+      errors.some((e) => e.dir.includes('future') && /argusApi|incompatible/i.test(e.message))
+    ).toBe(true)
   })
 
   it('loads a pack whose argusApi includes the Core API', () => {
