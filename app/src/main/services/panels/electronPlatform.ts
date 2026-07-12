@@ -69,7 +69,7 @@ export function createElectronPanelFactory(getMainWindow: () => BrowserWindow | 
           return view.webContents.id
         },
         loadPanel(url: string): void {
-          void view.webContents.loadURL(url)
+          view.webContents.loadURL(url).catch(() => {})
         },
         pushTheme(theme: PanelThemeName): void {
           lastTheme = theme
@@ -83,9 +83,17 @@ export function createElectronPanelFactory(getMainWindow: () => BrowserWindow | 
           floatWin.on('resize', () => {
             if (floatWin) sizeToWindow(floatWin)
           })
+          // If the user closes the floated window via OS chrome (not dockBack),
+          // null out floatWin so dockBack/destroy don't touch a destroyed
+          // BrowserWindow. Reconciling PanelHost's `floated` state on this
+          // OS-close event is out of scope here — it belongs to the 3a-3 tab
+          // host, which owns the view->host event channel.
+          floatWin.on('closed', () => {
+            floatWin = null
+          })
         },
         dockBack(): void {
-          if (floatWin) {
+          if (floatWin && !floatWin.isDestroyed()) {
             floatWin.contentView.removeChildView(view)
             floatWin.destroy()
             floatWin = null
@@ -93,7 +101,7 @@ export function createElectronPanelFactory(getMainWindow: () => BrowserWindow | 
           attachDocked()
         },
         destroy(): void {
-          if (floatWin) {
+          if (floatWin && !floatWin.isDestroyed()) {
             floatWin.destroy()
             floatWin = null
           }
