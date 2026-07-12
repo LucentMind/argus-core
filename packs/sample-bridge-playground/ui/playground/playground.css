@@ -1,0 +1,24 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px; font: 13px/1.5 system-ui, sans-serif;
+  background: var(--argus-bg, #0a0a0b); color: var(--argus-text, #efede6);
+}
+h1 { font-size: 15px; margin: 0 0 4px; }
+h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--argus-dim, rgba(239, 237, 230, 0.62)); margin: 16px 0 6px;
+}
+.hint { color: var(--argus-dim, rgba(239, 237, 230, 0.62)); margin: 0 0 12px; }
+#controls { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+button {
+  font: inherit; cursor: pointer; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--argus-hair, rgba(255, 255, 255, 0.06));
+  background: var(--argus-surface, #111114); color: var(--argus-text, #efede6);
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+pre {
+  white-space: pre-wrap; word-break: break-word; padding: 8px; border-radius: 6px;
+  border: 1px solid var(--argus-hair, rgba(255, 255, 255, 0.06));
+  background: var(--argus-surface-2, #17171c); margin: 0;
+}
