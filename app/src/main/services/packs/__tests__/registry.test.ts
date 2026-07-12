@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { PackRegistry } from '../registry'
 import { packManifestSchema } from '../manifest'
 import type { LoadedPack } from '../loader'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
 
 function lp(
   id: string,
@@ -105,5 +108,51 @@ describe('PackRegistry', () => {
   it('is empty when no pack declares reference-routing rules', () => {
     const reg = new PackRegistry([lp('alpha', null), lp('beta', null)])
     expect(reg.referenceRouting()).toEqual([])
+  })
+})
+
+describe('PackRegistry.load (multi-dir)', () => {
+  function writePack(root: string, id: string, extra: object = {}): void {
+    const dir = path.join(root, id)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'argus-pack.json'),
+      JSON.stringify({ id, displayName: id, version: '1', argusApi: '^1', ...extra })
+    )
+  }
+
+  it('merges packs from seed then installed, id-sorted', () => {
+    const seed = fs.mkdtempSync(path.join(os.tmpdir(), 'seed-'))
+    const installed = fs.mkdtempSync(path.join(os.tmpdir(), 'inst-'))
+    writePack(seed, 'code-graph')
+    writePack(installed, 'navigation')
+    const reg = PackRegistry.load([seed, installed])
+    expect(reg.packs().map((p) => p.id)).toEqual(['code-graph', 'navigation'])
+  })
+
+  it('a later dir shadows a same-id pack from an earlier dir (installed wins)', () => {
+    const seed = fs.mkdtempSync(path.join(os.tmpdir(), 'seed-'))
+    const installed = fs.mkdtempSync(path.join(os.tmpdir(), 'inst-'))
+    writePack(seed, 'code-graph', { version: '1' })
+    writePack(installed, 'code-graph', { version: '2' })
+    const reg = PackRegistry.load([seed, installed])
+    expect(reg.packs()).toHaveLength(1)
+    expect(reg.packs()[0].manifest.version).toBe('2')
+    expect(reg.packs()[0].dir).toBe(path.join(installed, 'code-graph'))
+  })
+
+  it('scans a dir that appears twice only once (dev: seed === installed)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'both-'))
+    writePack(dir, 'code-graph')
+    const reg = PackRegistry.load([dir, dir])
+    expect(reg.packs().map((p) => p.id)).toEqual(['code-graph'])
+  })
+
+  it('a pack-free Core (empty seed + empty installed) loads no packs and no binaries', () => {
+    const seed = fs.mkdtempSync(path.join(os.tmpdir(), 'seed-'))
+    const installed = fs.mkdtempSync(path.join(os.tmpdir(), 'inst-'))
+    const reg = PackRegistry.load([seed, installed])
+    expect(reg.packs()).toEqual([])
+    expect(reg.binaryDecls()).toEqual([])
   })
 })

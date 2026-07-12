@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { loadPacks, type LoadedPack, type PackLoadError } from './loader'
 import type { PackBinary, PackDetector } from './manifest'
 
@@ -10,8 +11,23 @@ export class PackRegistry {
     this._errors = errors
   }
 
-  static load(packsDir: string): PackRegistry {
-    const { packs, errors } = loadPacks(packsDir)
+  static load(packsDirs: string | string[]): PackRegistry {
+    const dirs = (Array.isArray(packsDirs) ? packsDirs : [packsDirs]).filter(
+      (d, i, all) => all.findIndex((o) => path.resolve(o) === path.resolve(d)) === i
+    )
+    const merged = new Map<string, LoadedPack>()
+    const errors: PackLoadError[] = []
+    for (const dir of dirs) {
+      const res = loadPacks(dir)
+      errors.push(...res.errors)
+      for (const p of res.packs) {
+        if (merged.has(p.id)) {
+          console.warn(`[packs] '${p.id}' in ${dir} shadows an earlier copy — later source wins`)
+        }
+        merged.set(p.id, p) // later dir wins
+      }
+    }
+    const packs = [...merged.values()].sort((a, b) => a.id.localeCompare(b.id))
     for (const e of errors) console.warn(`[packs] skipped ${e.dir}: ${e.message}`)
     return new PackRegistry(packs, errors)
   }
