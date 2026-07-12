@@ -19,7 +19,11 @@ const SAMPLE = path.join(FIX, 'sample-pack')
 const BIN = path.join(FIX, 'bin')
 
 function tmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-'))
+  // realpathSync: on macOS os.tmpdir() is /var/folders/... (a symlink to
+  // /private/var/...); zip-lib's extract guard compares an extracted file's
+  // realpath against the unresolved dest and rejects the mismatch, failing the
+  // end-to-end "verifiable named zip" test that extracts into a tmpDir().
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-')))
 }
 
 describe('readManifest', () => {
