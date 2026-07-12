@@ -39,3 +39,29 @@ describe('panelThemeVars', () => {
     expect(Object.keys(dark)).toContain('--argus-accent')
   })
 })
+
+import { panelKeyStr, panelHandlesType, type PanelDecl } from '../panels'
+
+describe('panelKeyStr', () => {
+  it('joins the identity triple stably', () => {
+    expect(panelKeyStr({ caseSlug: 'CASE-A', packId: 'sample-pack', windowId: 'text-viewer' })).toBe(
+      'CASE-A::sample-pack::text-viewer'
+    )
+  })
+})
+
+describe('panelHandlesType', () => {
+  const decls: PanelDecl[] = [
+    { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat', 'dlt-text'] },
+    { packId: 'p2', windowId: 'w2', title: 'Other', handles: ['pcap'] },
+    { packId: 'p3', windowId: 'w3', title: 'Launcher only', handles: [] }
+  ]
+  it('returns every decl whose handles include the type', () => {
+    expect(panelHandlesType(decls, 'logcat').map((d) => d.windowId)).toEqual(['text-viewer'])
+    expect(panelHandlesType(decls, 'pcap').map((d) => d.windowId)).toEqual(['w2'])
+  })
+  it('returns [] for an unhandled or empty type', () => {
+    expect(panelHandlesType(decls, 'binlog')).toEqual([])
+    expect(panelHandlesType(decls, '')).toEqual([])
+  })
+})

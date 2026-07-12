@@ -47,3 +47,30 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
   }
   return api
 }
+
+/** Bounds for a docked panel's native view, in DIP window coordinates. */
+export interface PanelRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Renderer-safe declaration of an available webPanel (launcher + "Open in"). */
+export interface PanelDecl {
+  packId: string
+  windowId: string
+  title: string
+  handles: string[]
+}
+
+/** Stable string identity for a panel within a case (matches PanelHost's internal key). */
+export function panelKeyStr(k: PanelKey): string {
+  return `${k.caseSlug}::${k.packId}::${k.windowId}`
+}
+
+/** The panels that render a given artifact type (drives the evidence "Open in" action). */
+export function panelHandlesType(decls: PanelDecl[], artifactType: string): PanelDecl[] {
+  if (!artifactType) return []
+  return decls.filter((d) => d.handles.includes(artifactType))
+}
