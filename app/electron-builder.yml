@@ -12,8 +12,10 @@ files:
 asarUnpack:
   - resources/**
 extraResources:
+  # Core-shipped internal packs (declarative only — no domain binaries baked in).
+  # Loaded read-only from <resources>/packs.seed, distinct from the writable ARGUS_HOME/packs.
   - from: ../packs
-    to: packs
+    to: packs.seed
     filter:
       - '**/*'
       - '!**/bin-src/**'
