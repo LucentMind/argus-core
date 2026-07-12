@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { loadPacks, type LoadedPack, type PackLoadError } from './loader'
-import type { PackBinary, PackDetector } from './manifest'
+import type { PackBinary, PackDetector, PackWindow } from './manifest'
 
 export class PackRegistry {
   private readonly _packs: LoadedPack[]
@@ -57,6 +57,20 @@ export class PackRegistry {
   /** All packs' binary declarations, flattened in pack (id-sorted) order. */
   binaryDecls(): Array<{ packDir: string; decl: PackBinary }> {
     return this._packs.flatMap((p) => p.manifest.binaries.map((decl) => ({ packDir: p.dir, decl })))
+  }
+
+  /** All packs' webPanel window declarations, flattened in pack (id-sorted) order. */
+  windowDecls(): Array<{ packId: string; packDir: string; uiDir: string; decl: PackWindow }> {
+    return this._packs.flatMap((p) =>
+      p.uiDir
+        ? p.manifest.windows.map((decl) => ({
+            packId: p.id,
+            packDir: p.dir,
+            uiDir: p.uiDir as string,
+            decl
+          }))
+        : []
+    )
   }
 
   /** All packs' detector declarations, flattened in pack order; duplicate types → first wins. */

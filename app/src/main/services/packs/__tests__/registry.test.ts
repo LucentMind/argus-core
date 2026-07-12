@@ -157,3 +157,31 @@ describe('PackRegistry.load (multi-dir)', () => {
     expect(reg.binaryDecls()).toEqual([])
   })
 })
+
+describe('windowDecls', () => {
+  it('flattens webPanel windows across packs with packId/uiDir', () => {
+    const a = lp('alpha', null)
+    a.uiDir = '/packs/alpha/ui'
+    a.manifest = packManifestSchema.parse({
+      id: 'alpha',
+      displayName: 'alpha',
+      version: '1',
+      argusApi: '^1',
+      windows: [{ id: 'viewer', kind: 'webPanel', title: 'Viewer', entry: 'viewer/index.html', handles: ['logcat'] }]
+    })
+    const reg = new PackRegistry([a, lp('beta', null)])
+    const decls = reg.windowDecls()
+    expect(decls).toHaveLength(1)
+    expect(decls[0]).toMatchObject({
+      packId: 'alpha',
+      packDir: '/packs/alpha',
+      uiDir: '/packs/alpha/ui'
+    })
+    expect(decls[0].decl.id).toBe('viewer')
+    expect(decls[0].decl.handles).toEqual(['logcat'])
+  })
+
+  it('is empty when no pack declares windows', () => {
+    expect(new PackRegistry([lp('alpha', null), lp('beta', null)]).windowDecls()).toEqual([])
+  })
+})
