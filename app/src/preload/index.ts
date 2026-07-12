@@ -52,6 +52,7 @@ import type {
   FindingRow,
   ReviewState
 } from '../shared/observability'
+import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
 
 // Custom API for renderer
 const argus = {
@@ -107,7 +108,19 @@ const argus = {
   },
   packs: {
     artifactMeta: (): Promise<ArtifactTypeMeta[]> => ipcRenderer.invoke(IPC.packsArtifactMeta),
-    referenceRouting: (): Promise<RoutingRule[]> => ipcRenderer.invoke(IPC.packsReferenceRouting)
+    referenceRouting: (): Promise<RoutingRule[]> => ipcRenderer.invoke(IPC.packsReferenceRouting),
+    list: (): Promise<PacksListPayload> => ipcRenderer.invoke(IPC.packsList),
+    pickBundle: (): Promise<string | null> => ipcRenderer.invoke(IPC.packsPickBundle),
+    inspect: (source: string): Promise<InspectResult> => ipcRenderer.invoke(IPC.packsInspect, source),
+    install: (source: string): Promise<InstallResult> => ipcRenderer.invoke(IPC.packsInstall, source),
+    uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.packsUninstall, id),
+    relaunch: (): Promise<void> => ipcRenderer.invoke(IPC.packsRelaunch),
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.packsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.packsChanged, listener)
+    }
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>
