@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FolderOpen } from 'lucide-react'
-import { Chip, SectionLabel } from './ui'
+import { Chip, MenuButton, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import type { ArtifactType, ArtifactTypeMeta, FileNode } from '../../../shared/types'
+import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
@@ -18,11 +19,15 @@ function filterTree(nodes: FileNode[], type: ArtifactType | ''): FileNode[] {
 export function CaseFiles({
   caseSlug,
   onSuggest,
-  onOpenFile
+  onOpenFile,
+  panelDecls = [],
+  onOpenInPanel
 }: {
   caseSlug: string
   onSuggest?: (text: string) => void
   onOpenFile: (node: FileNode) => void
+  panelDecls?: PanelDecl[]
+  onOpenInPanel?: (evidenceId: number, packId: string, windowId: string) => void
 }): React.JSX.Element {
   const [tree, setTree] = useState<FileNode[]>([])
   const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
@@ -190,6 +195,36 @@ export function CaseFiles({
               Analyze
             </button>
           )}
+          {n.evidence &&
+            onOpenInPanel &&
+            (() => {
+              const targets = panelHandlesType(panelDecls, n.evidence.artifactType)
+              const id = n.evidence.id
+              if (targets.length === 0) return null
+              if (targets.length === 1) {
+                const t = targets[0]
+                return (
+                  <button
+                    className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                    onClick={() => onOpenInPanel(id, t.packId, t.windowId)}
+                  >
+                    Open in {t.title}
+                  </button>
+                )
+              }
+              return (
+                <div className="shrink-0">
+                  <MenuButton
+                    label="Open in"
+                    align="right"
+                    items={targets.map((t) => ({
+                      label: t.title,
+                      onSelect: () => onOpenInPanel(id, t.packId, t.windowId)
+                    }))}
+                  />
+                </div>
+              )
+            })()}
           {n.evidence && (
             <button
               aria-label={`Delete ${n.name}`}

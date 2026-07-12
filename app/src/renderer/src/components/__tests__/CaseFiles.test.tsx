@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseFiles } from '../CaseFiles'
 import type { ArtifactTypeMeta, FileNode } from '../../../../shared/types'
+import type { PanelDecl } from '../../../../shared/panels'
 
 const tree: FileNode[] = [
   {
@@ -192,5 +193,65 @@ describe('CaseFiles', () => {
     expect(await screen.findByText('evidence locked')).toBeTruthy()
     // initial mount + the finally-block reload after the failed delete
     await waitFor(() => expect(window.argus.files.list).toHaveBeenCalledTimes(2))
+  })
+})
+
+const openInTree: FileNode[] = [
+  {
+    name: 'app.log',
+    relPath: 'evidence/app.log',
+    kind: 'file',
+    size: 1024,
+    evidence: { id: 7, artifactType: 'logcat', derived: false }
+  } as FileNode
+]
+
+const openInDecls: PanelDecl[] = [
+  { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat'] }
+]
+
+describe('CaseFiles "Open in"', () => {
+  beforeEach(() => {
+    window.argus = {
+      packs: { artifactMeta: vi.fn(async () => []) },
+      files: {
+        list: vi.fn(async () => openInTree),
+        open: vi.fn(),
+        reveal: vi.fn(),
+        onChanged: vi.fn(() => () => {})
+      },
+      evidence: {
+        list: vi.fn(async () => []),
+        onChanged: vi.fn(() => () => {}),
+        onParsing: vi.fn(() => () => {})
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+  })
+
+  it('offers an inline Open-in button for a handled evidence type', async () => {
+    const onOpenInPanel = vi.fn()
+    render(
+      <CaseFiles
+        caseSlug="CASE-1"
+        onOpenFile={vi.fn()}
+        panelDecls={openInDecls}
+        onOpenInPanel={onOpenInPanel}
+      />
+    )
+    const btn = await screen.findByRole('button', { name: /Open in Text Viewer/i })
+    fireEvent.click(btn)
+    await waitFor(() => expect(onOpenInPanel).toHaveBeenCalledWith(7, 'sample-pack', 'text-viewer'))
+  })
+
+  it('shows no Open-in control for an unhandled type', async () => {
+    render(
+      <CaseFiles caseSlug="CASE-1" onOpenFile={vi.fn()} panelDecls={[]} onOpenInPanel={vi.fn()} />
+    )
+    const label = await screen.findByText('app.log')
+    // scoped to the evidence row: the header's unrelated "Open in file explorer"
+    // button also matches a bare /Open in/i name, so a page-wide query would be a false negative-guard
+    const row = label.closest('li') as HTMLElement
+    expect(within(row).queryByRole('button', { name: /Open in/i })).toBeNull()
   })
 })
