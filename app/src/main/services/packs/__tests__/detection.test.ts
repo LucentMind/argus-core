@@ -148,7 +148,8 @@ describe('createDetection with no registry (generics only)', () => {
         manifest,
         personaText: null,
         skillsDir: null,
-        referencesDir: null
+        referencesDir: null,
+        uiDir: null
       }
     ])
     const d = createDetection(reg)
@@ -170,7 +171,8 @@ describe('createDetection with no registry (generics only)', () => {
         manifest,
         personaText: null,
         skillsDir: null,
-        referencesDir: null
+        referencesDir: null,
+        uiDir: null
       }
     ])
     const d = createDetection(reg)
