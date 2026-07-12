@@ -129,7 +129,13 @@ function broadcast(channel: string, payload: unknown): void {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'argus-panel',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: false }
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: false
+    }
   }
 ])
 
@@ -394,7 +400,10 @@ function registerIpc(): void {
   })
 
   // — panels (webPanel host; 3a-2) —
-  const panelWindow = (packId: string, windowId: string) =>
+  const panelWindow = (
+    packId: string,
+    windowId: string
+  ): ReturnType<typeof packRegistry.windowDecls>[number] | null =>
     packRegistry.windowDecls().find((w) => w.packId === packId && w.decl.id === windowId) ?? null
 
   ipcMain.handle(IPC.panelsList, (_e, caseSlug?: string) => panelHost!.list(caseSlug))
