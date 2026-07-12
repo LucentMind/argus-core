@@ -9,6 +9,7 @@ import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
+import { citationsTray } from './lib/citationsTray'
 import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
@@ -39,6 +40,15 @@ function App(): React.JSX.Element {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // single global subscriber: cite chips land in the tray regardless of which
+  // pane/session is focused when the `cite` verb fires
+  useEffect(() => {
+    if (!window.argus?.panels?.onCite) return
+    return window.argus.panels.onCite(({ caseSlug, sessionId, relPath, line }) =>
+      citationsTray.add(caseSlug, sessionId, { relPath, line })
+    )
+  }, [])
 
   const openCase = useCallback((slug: string) => {
     uiStore.openTab(slug)

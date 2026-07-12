@@ -5,12 +5,17 @@ export interface Citation {
 
 const keyOf = (caseSlug: string, sessionId: number): string => `${caseSlug}#${sessionId}`
 
+// shared empty-array sentinel: useSyncExternalStore requires getSnapshot to
+// return a referentially stable value when nothing changed, so `get()` must
+// not allocate a fresh `[]` on every call for keys with no citations yet.
+const EMPTY: Citation[] = []
+
 class CitationsTray {
   private byKey = new Map<string, Citation[]>()
   private listeners = new Set<() => void>()
 
   get(caseSlug: string, sessionId: number): Citation[] {
-    return this.byKey.get(keyOf(caseSlug, sessionId)) ?? []
+    return this.byKey.get(keyOf(caseSlug, sessionId)) ?? EMPTY
   }
   add(caseSlug: string, sessionId: number, c: Citation): void {
     const k = keyOf(caseSlug, sessionId)
