@@ -62,6 +62,7 @@ export class PanelHost {
     private readonly deps: {
       db: DatabaseSync
       argusHome: string
+      writeSink?: import('./bridge').PanelWriteSink
       factory: PanelViewFactory
       onChange?: () => void
     }
@@ -187,7 +188,8 @@ export class PanelHost {
       caseSlug: input.caseSlug,
       permissions: input.permissions,
       focus: input.focus,
-      sessionId: input.sessionId ?? null
+      sessionId: input.sessionId ?? null,
+      writeSink: this.deps.writeSink
     })
   }
 }

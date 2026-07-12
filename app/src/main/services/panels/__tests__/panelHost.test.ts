@@ -8,6 +8,7 @@ import {
   type PanelViewFactory,
   type PanelKey
 } from '../panelHost'
+import type { PanelWriteSink } from '../bridge'
 
 // A fake WebContentsView recording lifecycle calls; identity = webContentsId.
 class FakeView implements PanelView {
@@ -182,4 +183,41 @@ describe('PanelHost lifecycle', () => {
     expect(host.list('CASE-A')[0].floated).toBe(false)
     expect(changes).toBe(before + 1)
   })
+})
+
+function fakeFactory(): { factory: PanelViewFactory; views: PanelView[] } {
+  const views: PanelView[] = []
+  let nextId = 100
+  const factory: PanelViewFactory = {
+    create() {
+      const id = nextId++
+      const view: PanelView = {
+        webContentsId: id,
+        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {},
+        destroy() {}, focus() {}, setBounds() {}, setVisible() {}
+      }
+      views.push(view)
+      return view
+    }
+  }
+  return { factory, views }
+}
+
+it('builds a bridge with write verbs when a sink + write permission are present', () => {
+  const { factory, views } = fakeFactory()
+  const sink = {
+    sendToAgent: async () => 1,
+    emitFinding: async () => ({ ok: true }),
+    cite: () => {}
+  } as unknown as PanelWriteSink
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, writeSink: sink })
+  host.open({
+    caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W',
+    entry: 'w/index.html', uiDir: '/ui', network: [],
+    permissions: ['sendToAgent', 'cite'], sessionId: 3
+  })
+  const bridge = host.bridgeForWebContents(views[0].webContentsId)!
+  expect(typeof bridge.sendToAgent).toBe('function')
+  expect(typeof bridge.cite).toBe('function')
+  expect(bridge.emitFinding).toBeUndefined()
 })
