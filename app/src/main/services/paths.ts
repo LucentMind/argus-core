@@ -69,6 +69,10 @@ export function hivemindStatePath(argusHome: string): string {
   return path.join(configDir(argusHome), 'hivemind-state.json')
 }
 
+export function packsStatePath(argusHome: string): string {
+  return path.join(configDir(argusHome), 'packs-state.json')
+}
+
 export function proposalsDir(argusHome: string): string {
   return path.join(argusHome, 'proposals')
 }
