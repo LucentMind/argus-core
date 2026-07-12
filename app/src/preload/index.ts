@@ -53,7 +53,7 @@ import type {
   ReviewState
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
-import type { OpenPanelRequest, PanelInfo, PanelKey } from '../shared/panels'
+import type { OpenPanelRequest, PanelInfo, PanelKey, PanelDecl, PanelRect } from '../shared/panels'
 
 // Custom API for renderer
 const argus = {
@@ -133,6 +133,11 @@ const argus = {
     popOut: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsPopOut, key),
     dockBack: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsDockBack, key),
     setTheme: (theme: 'dark' | 'light'): Promise<void> => ipcRenderer.invoke(IPC.panelsSetTheme, theme),
+    decls: (): Promise<PanelDecl[]> => ipcRenderer.invoke(IPC.panelsDecls),
+    setBounds: (key: PanelKey, rect: PanelRect): Promise<void> =>
+      ipcRenderer.invoke(IPC.panelsSetBounds, key, rect),
+    setVisible: (key: PanelKey, visible: boolean): Promise<void> =>
+      ipcRenderer.invoke(IPC.panelsSetVisible, key, visible),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.panelsChanged, listener)
