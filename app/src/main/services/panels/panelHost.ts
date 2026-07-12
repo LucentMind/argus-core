@@ -51,6 +51,8 @@ interface OpenPanel {
 }
 
 const entryBasename = (entry: string): string => entry.split('/').pop() ?? entry
+const panelUrl = (input: OpenPanelInput): string =>
+  `argus-panel://${input.packId}/${input.windowId}/${entryBasename(input.entry)}`
 
 export class PanelHost {
   private readonly panels = new Map<string, OpenPanel>()
@@ -70,6 +72,10 @@ export class PanelHost {
     const key = panelKeyStr(input)
     const existing = this.panels.get(key)
     if (existing) {
+      const prev = existing.input.focus
+      const focusChanged =
+        input.focus != null &&
+        (prev?.evidenceId !== input.focus.evidenceId || prev?.line !== input.focus.line)
       existing.input = {
         ...existing.input,
         focus: input.focus,
@@ -77,6 +83,11 @@ export class PanelHost {
       }
       existing.bridge = this.buildBridge(existing.input)
       existing.view.focus()
+      // A re-open carrying a new focus (e.g. "Open in" on a different evidence,
+      // or on a panel already opened via the launcher) must actually re-render.
+      // The idempotent path only re-points server state; a running panel already
+      // called getCaseContext() and won't see it — so reload to re-run its boot().
+      if (focusChanged) existing.view.loadPanel(panelUrl(existing.input))
       return infoOf(existing)
     }
     const view = this.deps.factory.create(input, {
@@ -90,7 +101,7 @@ export class PanelHost {
     })
     const panel: OpenPanel = { input, view, bridge: this.buildBridge(input), floated: false }
     this.panels.set(key, panel)
-    view.loadPanel(`argus-panel://${input.packId}/${input.windowId}/${entryBasename(input.entry)}`)
+    view.loadPanel(panelUrl(input))
     view.pushTheme(this.theme)
     return infoOf(panel)
   }

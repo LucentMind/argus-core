@@ -104,6 +104,18 @@ describe('PanelHost lifecycle', () => {
     expect(factory.created[0].focused).toBe(1)
   })
 
+  it('re-opening with a NEW focus reloads the panel; same/no focus does not', () => {
+    host.open(input()) // no focus
+    expect(factory.created[0].loaded).toHaveLength(1)
+    host.open(input({ focus: { evidenceId: 9 } })) // new focus → reload
+    expect(factory.created).toHaveLength(1) // same view, not a new one
+    expect(factory.created[0].loaded).toHaveLength(2)
+    host.open(input({ focus: { evidenceId: 9 } })) // unchanged focus → no reload
+    expect(factory.created[0].loaded).toHaveLength(2)
+    host.open(input()) // focus cleared → no reload
+    expect(factory.created[0].loaded).toHaveLength(2)
+  })
+
   it('list is case-scoped', () => {
     host.open(input({ caseSlug: 'CASE-A' }))
     host.open(input({ caseSlug: 'CASE-B' }))

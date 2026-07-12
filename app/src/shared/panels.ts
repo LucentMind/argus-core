@@ -1,7 +1,22 @@
-import { IPC } from './ipc'
-
 /** The read-only verbs a 3a panel may be granted. */
 export type PanelPermission = 'getCaseContext' | 'requestEvidence' | 'readEvidence'
+
+/**
+ * The IPC channels the SANDBOXED panel preload uses, inlined here as literals
+ * rather than imported from `./ipc`. The panel preload runs under sandbox:true,
+ * where require() resolves only 'electron' — so its bundle must be a single file
+ * with no relative `./chunks/*` require. electron-vite emits such a chunk for any
+ * module shared by both preload entries, so the panel preload (this file's
+ * `buildPanelApi` + `preload/panel.ts`) must not import the `./ipc` module the
+ * main preload also imports. Kept in sync with `IPC` by
+ * `preload/__tests__/panelPreloadSelfContained.test.ts`.
+ */
+export const PANEL_BRIDGE_CHANNELS = {
+  getCaseContext: 'panels:get-case-context',
+  requestEvidence: 'panels:request-evidence',
+  readEvidence: 'panels:read-evidence',
+  theme: 'panels:theme'
+} as const
 
 /** A panel's stable identity within a case. */
 export interface PanelKey {
@@ -35,15 +50,15 @@ export type PanelInvoke = (channel: string, ...args: unknown[]) => Promise<unkno
 export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Record<string, unknown> {
   const api: Record<string, unknown> = {}
   if (permissions.includes('getCaseContext')) {
-    api.getCaseContext = (): Promise<unknown> => invoke(IPC.panelsGetCaseContext)
+    api.getCaseContext = (): Promise<unknown> => invoke(PANEL_BRIDGE_CHANNELS.getCaseContext)
   }
   if (permissions.includes('requestEvidence')) {
     api.requestEvidence = (query: string): Promise<unknown> =>
-      invoke(IPC.panelsRequestEvidence, query)
+      invoke(PANEL_BRIDGE_CHANNELS.requestEvidence, query)
   }
   if (permissions.includes('readEvidence')) {
     api.readEvidence = (evidenceId: number, focusLine?: number): Promise<unknown> =>
-      invoke(IPC.panelsReadEvidence, evidenceId, focusLine)
+      invoke(PANEL_BRIDGE_CHANNELS.readEvidence, evidenceId, focusLine)
   }
   return api
 }
