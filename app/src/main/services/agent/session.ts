@@ -8,7 +8,7 @@ import { normalizeSdkMessage, makeEvent, type NormalizeCtx } from './normalize'
 import { classifyToolCall, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
-import { createArgusMcpServer } from './nativeTools'
+import { createArgusMcpServer, appendFinding } from './nativeTools'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
@@ -66,6 +66,10 @@ export interface SessionDeps {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
+ *  agent's own mcp__argus__append_finding, which stays auto-approved. */
+export const PANEL_FINDING_TOOL = 'mcp__argus__panel_emit_finding'
 
 export class CaseSession {
   readonly sessionId: number
@@ -179,7 +183,7 @@ export class CaseSession {
     return { ...e, payload: { requestId, tool, risk, grantKey, argsPreview } }
   }
 
-  send(text: string): void {
+  send(text: string): number {
     if (this.state === 'dead') throw new Error('session is dead')
     this.turnIndex++
     this.activeTurn = true
@@ -201,6 +205,54 @@ export class CaseSession {
       parent_tool_use_id: null,
       session_id: ''
     })
+    return this.turnIndex
+  }
+
+  /** Panel-initiated finding: raise a MEDIUM editable approval card, then (on approve) write it
+   *  through the same finding path as the agent. No-op card reuse of canUseTool — routed directly. */
+  async emitPanelFinding(input: {
+    title: string
+    markdown: string
+  }): Promise<{ ok: boolean; findingId?: number }> {
+    if (this.state === 'dead') return { ok: false }
+    const requestId = crypto.randomUUID()
+    const argsPreview = JSON.stringify(input).slice(0, 400)
+    this.emit(
+      makeEvent(this.ctx(), 'request.opened', {
+        requestId,
+        tool: PANEL_FINDING_TOOL,
+        risk: 'MEDIUM',
+        grantKey: null,
+        argsPreview,
+        input
+      })
+    )
+    const outcome = await this.approvals.open({
+      requestId,
+      tool: PANEL_FINDING_TOOL,
+      risk: 'MEDIUM',
+      grantKey: null,
+      argsPreview
+    })
+    this.emit(makeEvent(this.ctx(), 'request.resolved', { requestId, decision: outcome.decision }))
+    if (outcome.decision !== 'allow' && outcome.decision !== 'allow-session') return { ok: false }
+    const edited = outcome.updatedInput as { title?: string; markdown?: string } | undefined
+    const { findingId, block } = appendFinding(
+      {
+        db: this.deps.db,
+        argusHome: this.deps.argusHome,
+        caseId: this.deps.caseId,
+        caseSlug: this.deps.caseSlug,
+        sessionId: this.sessionId,
+        turnId: this.currentTurnRow
+      },
+      {
+        title: String(edited?.title ?? input.title),
+        markdown: String(edited?.markdown ?? input.markdown)
+      }
+    )
+    this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown: block }))
+    return { ok: true, findingId }
   }
 
   respond(d: ApprovalDecision): boolean {

@@ -136,9 +136,18 @@ export class AgentService {
     return session
   }
 
-  async send(caseSlug: string, sessionId: number, text: string): Promise<void> {
+  async send(caseSlug: string, sessionId: number, text: string): Promise<number> {
     const s = await this.getOrCreate(caseSlug, sessionId)
-    s.send(text)
+    return s.send(text)
+  }
+
+  async emitPanelFinding(
+    caseSlug: string,
+    sessionId: number,
+    input: { title: string; markdown: string }
+  ): Promise<{ ok: boolean; findingId?: number }> {
+    const s = await this.getOrCreate(caseSlug, sessionId)
+    return s.emitPanelFinding(input)
   }
 
   respond(caseSlug: string, sessionId: number, d: ApprovalDecision): boolean {
