@@ -9,24 +9,8 @@ import { stripQuarantine } from './quarantine'
 import type { PacksStateStore } from './packsState'
 import { packsDir } from './paths'
 import { sharedSkillsDir, sharedReferencesDir, isNonPackTiered } from '../skillsDir'
-
-export interface InspectResult {
-  id: string
-  version: string
-  platform?: string
-  apiCompatible: boolean
-  platformCompatible: boolean
-}
-
-export type InstallResult =
-  | {
-      ok: true
-      id: string
-      version: string
-      previousVersion: string | null
-      relaunchRequired: true
-    }
-  | { ok: false; code: 'manifest' | 'checksum' | 'platform' | 'api' | 'io'; error: string }
+import type { InspectResult, InstallResult } from '../../../shared/packs'
+export type { InspectResult, InstallResult }
 
 class InstallError extends Error {
   constructor(
