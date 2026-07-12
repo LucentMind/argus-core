@@ -24,7 +24,10 @@ function writeValidChecksums(root: string): void {
   rels.sort()
   const body = rels
     .map((rel) => {
-      const hex = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, ...rel.split('/')))).digest('hex')
+      const hex = crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(path.join(root, ...rel.split('/'))))
+        .digest('hex')
       return `${hex}  ${rel}\n`
     })
     .join('')
@@ -73,5 +76,26 @@ describe('verifyBundleChecksums', () => {
     const r = verifyBundleChecksums(dir)
     expect(r.ok).toBe(false)
     expect(r.errors.join()).toMatch(/bin\/argus-demo/)
+  })
+
+  it('rejects unsafe-path and malformed-hex CHECKSUMS entries (zip-slip guard)', () => {
+    fs.writeFileSync(path.join(dir, 'argus-pack.json'), '{"id":"sample"}')
+    const validHex = crypto
+      .createHash('sha256')
+      .update(fs.readFileSync(path.join(dir, 'argus-pack.json')))
+      .digest('hex')
+    const evilHex = 'a'.repeat(64)
+    const body =
+      `${validHex}  argus-pack.json\n` +
+      `${evilHex}  ../evil.txt\n` +
+      `${evilHex}  /etc/passwd\n` +
+      `${'z'.repeat(64)}  bad-hex.txt\n`
+    fs.writeFileSync(path.join(dir, 'CHECKSUMS'), body)
+    const r = verifyBundleChecksums(dir)
+    expect(r.ok).toBe(false)
+    expect(r.errors.join()).toMatch(/malformed CHECKSUMS entry/)
+    expect(r.errors.join()).toMatch(/\.\.\/evil\.txt/)
+    expect(r.errors.join()).toMatch(/\/etc\/passwd/)
+    expect(r.errors.join()).toMatch(/bad-hex\.txt/)
   })
 })
