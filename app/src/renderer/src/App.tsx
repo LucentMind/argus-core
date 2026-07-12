@@ -9,6 +9,7 @@ import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
+import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
 
@@ -88,6 +89,13 @@ function App(): React.JSX.Element {
       setView({ kind: 'observability' })
     }
   }
+
+  // A native panel view paints above the DOM, so hide docked panels whenever a
+  // modal/dialog is up or the front view is not the active case.
+  const occluded = viewer !== null || newCaseOpen || importDialog !== null || view.kind !== 'case'
+  useEffect(() => {
+    panelsStore.setOccluded(occluded)
+  }, [occluded])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">

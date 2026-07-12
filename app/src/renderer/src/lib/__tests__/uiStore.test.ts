@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest'
-import { UiStore, FINDINGS_MIN_WIDTH, FINDINGS_MAX_WIDTH } from '../uiStore'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { UiStore, FINDINGS_MIN_WIDTH, FINDINGS_MAX_WIDTH, uiStore } from '../uiStore'
 
 beforeEach(() => {
   localStorage.clear()
@@ -62,5 +62,13 @@ describe('UiStore', () => {
     off()
     store.toggleTheme()
     expect(n).toBe(2)
+  })
+
+  it('setTheme pushes the theme to open panels', () => {
+    const setTheme = vi.fn(async () => undefined)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = { ui: { setZoomFactor: vi.fn() }, panels: { setTheme } }
+    uiStore.setTheme('light')
+    expect(setTheme).toHaveBeenCalledWith('light')
   })
 })
