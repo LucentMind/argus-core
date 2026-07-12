@@ -1,16 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
   <defs>
-    <linearGradient id="bg2b" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#101418"></stop>
       <stop offset="1" stop-color="#1a2530"></stop>
     </linearGradient>
   </defs>
-  <rect width="192" height="192" rx="42" fill="url(#bg2b)"></rect>
+  <rect width="192" height="192" rx="42" fill="url(#bg)"></rect>
   <g fill="none" stroke-linecap="round">
-    <circle cx="96" cy="96" r="62" stroke="#26414f" stroke-width="7" stroke-dasharray="150 34 100 30 60 16"></circle>
-    <circle cx="96" cy="96" r="46" stroke="#3d7a94" stroke-width="7" stroke-dasharray="90 26 120 22 30 14"></circle>
-    <circle cx="96" cy="96" r="30" stroke="#7dd3fc" stroke-width="7" stroke-dasharray="70 20 60 18 20 10"></circle>
+    <circle cx="96" cy="96" r="72" stroke="#3d7a94" stroke-width="11" stroke-dasharray="130 36 120 40 95 31"></circle>
+    <circle cx="96" cy="96" r="48" stroke="#7dd3fc" stroke-width="8" stroke-dasharray="140 38 90 34"></circle>
+    <circle cx="96" cy="96" r="28" stroke="#7dd3fc" stroke-width="4"></circle>
   </g>
-  <circle cx="96" cy="96" r="13" fill="#0a1622" stroke="#7dd3fc" stroke-width="4"></circle>
-  <circle cx="96" cy="96" r="5" fill="#f59e0b"></circle>
+  <circle cx="96" cy="96" r="16" fill="#f59e0b"></circle>
 </svg>
