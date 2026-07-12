@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PanelKey, PanelInfo, PanelPermission } from '../../../shared/panels'
+import { panelKeyStr } from '../../../shared/panels'
 import type { PanelThemeName } from '../../../shared/panelTheme'
 import { createPanelBridge, type PanelBridge } from './bridge'
 
@@ -42,7 +43,6 @@ interface OpenPanel {
   floated: boolean
 }
 
-const keyOf = (k: PanelKey): string => `${k.caseSlug}::${k.packId}::${k.windowId}`
 const entryBasename = (entry: string): string => entry.split('/').pop() ?? entry
 
 export class PanelHost {
@@ -55,7 +55,7 @@ export class PanelHost {
 
   /** Open a panel; idempotent — re-opening focuses and re-points the focus evidence. */
   open(input: OpenPanelInput): PanelInfo {
-    const key = keyOf(input)
+    const key = panelKeyStr(input)
     const existing = this.panels.get(key)
     if (existing) {
       existing.input = {
@@ -76,25 +76,25 @@ export class PanelHost {
   }
 
   close(key: PanelKey): void {
-    const p = this.panels.get(keyOf(key))
+    const p = this.panels.get(panelKeyStr(key))
     if (!p) return
     p.view.destroy()
-    this.panels.delete(keyOf(key))
+    this.panels.delete(panelKeyStr(key))
   }
 
   focus(key: PanelKey): void {
-    this.panels.get(keyOf(key))?.view.focus()
+    this.panels.get(panelKeyStr(key))?.view.focus()
   }
 
   popOut(key: PanelKey): void {
-    const p = this.panels.get(keyOf(key))
+    const p = this.panels.get(panelKeyStr(key))
     if (!p || p.floated) return
     p.view.floatOut(p.input.title)
     p.floated = true
   }
 
   dockBack(key: PanelKey): void {
-    const p = this.panels.get(keyOf(key))
+    const p = this.panels.get(panelKeyStr(key))
     if (!p || !p.floated) return
     p.view.dockBack()
     p.floated = false

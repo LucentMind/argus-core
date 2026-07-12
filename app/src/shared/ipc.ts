@@ -124,5 +124,9 @@ export const IPC = {
   panelsTheme: 'panels:theme',
   panelsGetCaseContext: 'panels:get-case-context',
   panelsRequestEvidence: 'panels:request-evidence',
-  panelsReadEvidence: 'panels:read-evidence'
+  panelsReadEvidence: 'panels:read-evidence',
+  // — panels · docking UX (3a-3) —
+  panelsDecls: 'panels:decls',
+  panelsSetBounds: 'panels:set-bounds',
+  panelsSetVisible: 'panels:set-visible'
 } as const
