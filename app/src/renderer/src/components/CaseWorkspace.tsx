@@ -8,8 +8,12 @@ import { FindingsPane } from './FindingsPane'
 import { HeaderRepos } from './HeaderRepos'
 import { JiraRefreshButton } from './JiraRefreshButton'
 import { MenuButton } from './ui'
+import { PanelTabStrip } from './PanelTabStrip'
+import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
+import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
+import { panelKeyStr } from '../../../shared/panels'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type {
   CaseResolution,
@@ -44,6 +48,11 @@ export function CaseWorkspace({
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   )
+  const panels = useSyncExternalStore(
+    (cb) => panelsStore.subscribe(cb),
+    () => panelsStore.get()
+  )
+  const dockHost = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
@@ -86,6 +95,13 @@ export function CaseWorkspace({
       stale = true
     }
   }, [slug])
+
+  useEffect(() => wirePanelsStore(slug), [slug])
+
+  async function openInPanel(evidenceId: number, packId: string, windowId: string): Promise<void> {
+    await window.argus.panels.open({ caseSlug: slug, packId, windowId, focus: { evidenceId } })
+    panelsStore.setActiveTab(panelKeyStr({ caseSlug: slug, packId, windowId }))
+  }
 
   function handleSwitchSession(id: number): void {
     uiStore.setActiveSession(slug, id)
@@ -166,22 +182,46 @@ export function CaseWorkspace({
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
           {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
-          <CaseFiles key={slug} caseSlug={slug} onSuggest={setPrefill} onOpenFile={onOpenFile} />
+          <CaseFiles
+            key={slug}
+            caseSlug={slug}
+            onSuggest={setPrefill}
+            onOpenFile={onOpenFile}
+            panelDecls={panels.decls}
+            onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
+          />
         </aside>
         <main className="flex min-w-0 flex-1 flex-col">
-          {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
-          {!sessionsError && sessionId !== null && (
-            <ChatPane
-              slug={slug}
-              sessionId={sessionId}
-              onSwitchSession={handleSwitchSession}
-              onCite={(p, l) => void handleCite(p, l)}
-              onJumpToTurn={handleJumpToTurn}
-              focusTarget={focusTurn?.target ?? null}
-              onFocusConsumed={() => setFocusTurn(null)}
-              prefill={prefill}
+          <PanelTabStrip
+            slug={slug}
+            activeTab={panels.activeTab}
+            onSelect={(t) => panelsStore.setActiveTab(t)}
+          />
+          <div className="relative min-h-0 flex-1">
+            <div
+              className={`flex h-full min-h-0 flex-col ${panels.activeTab === CHAT_TAB ? '' : 'hidden'}`}
+            >
+              {sessionsError && <p className="p-3 text-xs text-danger">{sessionsError}</p>}
+              {!sessionsError && sessionId !== null && (
+                <ChatPane
+                  slug={slug}
+                  sessionId={sessionId}
+                  onSwitchSession={handleSwitchSession}
+                  onCite={(p, l) => void handleCite(p, l)}
+                  onJumpToTurn={handleJumpToTurn}
+                  focusTarget={focusTurn?.target ?? null}
+                  onFocusConsumed={() => setFocusTurn(null)}
+                  prefill={prefill}
+                />
+              )}
+            </div>
+            {/* The active docked panel's native view is painted over this host by PanelDock. */}
+            <div
+              ref={dockHost}
+              className={`absolute inset-0 ${panels.activeTab === CHAT_TAB ? 'hidden' : ''}`}
             />
-          )}
+            <PanelDock hostRef={dockHost} />
+          </div>
         </main>
         {ui.findingsCollapsed ? (
           <button

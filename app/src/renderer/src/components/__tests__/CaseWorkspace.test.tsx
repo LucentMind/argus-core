@@ -7,6 +7,16 @@ import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus } from '../../../../shared/types'
 
+// jsdom has no runtime ResizeObserver; DOM lib types already declare it globally.
+/* eslint-disable @typescript-eslint/no-empty-function */
+class RO {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+/* eslint-enable @typescript-eslint/no-empty-function */
+globalThis.ResizeObserver = globalThis.ResizeObserver ?? RO
+
 function payload(): SettingsPayload {
   return {
     settings: defaultSettings(),
@@ -67,6 +77,32 @@ beforeEach(() => {
       patch: vi.fn(async () => payload()),
       reveal: vi.fn(),
       onChanged: vi.fn(() => () => {})
+    },
+    panels: {
+      list: vi.fn(async () => []),
+      decls: vi.fn(async () => [
+        {
+          packId: 'sample-pack',
+          windowId: 'text-viewer',
+          title: 'Text Viewer',
+          handles: ['logcat']
+        }
+      ]),
+      open: vi.fn(async () => ({
+        caseSlug: 'CASE-1',
+        packId: 'sample-pack',
+        windowId: 'text-viewer',
+        title: 'Text Viewer',
+        floated: false
+      })),
+      close: vi.fn(async () => undefined),
+      focus: vi.fn(async () => undefined),
+      popOut: vi.fn(async () => undefined),
+      dockBack: vi.fn(async () => undefined),
+      setTheme: vi.fn(async () => undefined),
+      setBounds: vi.fn(async () => undefined),
+      setVisible: vi.fn(async () => undefined),
+      onChanged: vi.fn(() => () => undefined)
     }
   } as never
 })
@@ -199,6 +235,15 @@ describe('CaseWorkspace findings pane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand findings' }))
     expect(uiStore.get().findingsCollapsed).toBe(false)
     expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeTruthy()
+  })
+})
+
+describe('CaseWorkspace panel tab host', () => {
+  it('shows a Chat tab and lists available panels in the launcher', async () => {
+    renderWorkspace()
+    expect(await screen.findByText('Chat')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Open panel'))
+    expect(await screen.findByText('Text Viewer')).toBeTruthy()
   })
 })
 
