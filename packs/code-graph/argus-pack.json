@@ -1,0 +1,21 @@
+{
+  "id": "code-graph",
+  "displayName": "Code Graph",
+  "version": "0.1.0",
+  "argusApi": "1",
+  "binaries": [
+    {
+      "id": "graphify",
+      "kind": "exe",
+      "displayName": "Graphify (code graph)",
+      "description": "Tree-sitter code-graph extractor; powers per-repo code graphs and the agent's blast-radius queries.",
+      "envVar": "ARGUS_GRAPHIFY",
+      "settingsKey": "graphifyBin",
+      "names": ["graphify"],
+      "devPaths": [],
+      "versionArgs": ["--version"],
+      "pathProbeArgs": ["--version"],
+      "fixHint": "Install with: uv tool install graphifyy  (or: pipx install graphifyy)"
+    }
+  ]
+}
