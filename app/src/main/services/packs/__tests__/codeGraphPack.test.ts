@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import fs from 'node:fs'
 import { loadPacks } from '../loader'
-import { resolvePacksSource } from '../paths'
+import { seededPacksDir } from '../paths'
 
 // The dev pack source is <repo>/packs (paths.ts). app/ is the vitest cwd.
-const packsSrc = resolvePacksSource(path.resolve(__dirname, '../../../../..'))
+const packsSrc = seededPacksDir(path.resolve(__dirname, '../../../../..'))
 
 describe('code-graph pack', () => {
   it('loads with a graphify exe declaration and a skill dir', () => {

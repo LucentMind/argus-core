@@ -73,7 +73,7 @@ import { RefSyncService } from './services/refSync/service'
 import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
-import { packsDir, resolvePacksSource, seedPacks } from './services/packs/paths'
+import { seededPacksDir, ensurePacksDir } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
 import { CodeGraphService, graphsRoot } from './services/codeGraph'
 import { createExtractors } from './services/packs/extractors'
@@ -117,8 +117,10 @@ function broadcast(channel: string, payload: unknown): void {
 function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
-  seedPacks(argusHome, resolvePacksSource(app.getAppPath()))
-  const packRegistry = PackRegistry.load(packsDir(argusHome))
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  const seededDir = seededPacksDir(app.getAppPath(), resourcesPath)
+  const installedDir = ensurePacksDir(argusHome)
+  const packRegistry = PackRegistry.load([seededDir, installedDir])
   seedSharedAssets(argusHome, {
     skills: [
       ...packRegistry.skillsSources(),
