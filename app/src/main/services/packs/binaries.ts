@@ -9,7 +9,7 @@ import type { PackRegistry } from './registry'
 
 const execFileAsync = promisify(execFile)
 
-export type BinarySource = 'env' | 'settings' | 'pack-dev' | 'bundled' | 'path'
+export type BinarySource = 'env' | 'settings' | 'pack-bundle' | 'pack-dev' | 'path'
 
 export interface ResolvedBinary {
   decl: PackBinary
@@ -28,7 +28,6 @@ export interface ResolveCtx {
    */
   envValue: string | null
   settingsValue: string | undefined
-  resourcesPath?: string
 }
 
 function platformBin(): string {
@@ -61,22 +60,23 @@ export function resolveBinary(decl: PackBinary, ctx: ResolveCtx): ResolvedBinary
   if (ctx.settingsValue && fs.existsSync(ctx.settingsValue))
     return found(ctx.settingsValue, 'settings')
 
+  const bundleDir = path.join(ctx.packDir, 'bin')
   const devDirs = decl.devPaths.map((p) =>
     path.resolve(ctx.packDir, p.replaceAll('{platformBin}', platformBin()))
   )
 
   if (decl.kind === 'pathDir') {
+    // A published bundle ships the pathDir's executables under bin/; that dir goes on PATH.
+    if (firstExistingExe(bundleDir, decl.names)) return found(bundleDir, 'pack-bundle')
     for (const d of devDirs) if (fs.existsSync(d)) return found(d, 'pack-dev')
     return found(null, null)
   }
 
+  const bundleHit = firstExistingExe(bundleDir, decl.names)
+  if (bundleHit) return found(bundleHit, 'pack-bundle')
   for (const d of devDirs) {
     const hit = firstExistingExe(d, decl.names)
     if (hit) return found(hit, 'pack-dev')
-  }
-  if (ctx.resourcesPath) {
-    const hit = firstExistingExe(path.join(ctx.resourcesPath, 'bin'), decl.names)
-    if (hit) return found(hit, 'bundled')
   }
   if (decl.pathProbeArgs) {
     try {
@@ -93,7 +93,6 @@ export interface BinariesServiceDeps {
   registry: PackRegistry
   /** Live settings.tools (loose object — pack settingsKeys may be extra keys). */
   settingsTools: () => Record<string, unknown>
-  resourcesPath?: string
   /** User env snapshot for declared envVars; defaults to a live snapshot AT CONSTRUCTION. */
   capturedEnv?: Record<string, string | undefined>
 }
@@ -134,8 +133,7 @@ export class BinariesService {
         resolveBinary(decl, {
           packDir,
           envValue: decl.envVar ? (this.captured[decl.envVar] ?? null) : null,
-          settingsValue: typeof raw === 'string' && raw !== '' ? raw : undefined,
-          resourcesPath: this.deps.resourcesPath
+          settingsValue: typeof raw === 'string' && raw !== '' ? raw : undefined
         })
       )
     }

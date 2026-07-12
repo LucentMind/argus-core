@@ -61,15 +61,11 @@ describe('resolveBinary (exe)', () => {
     expect(r).toMatchObject({ value: dev, source: 'pack-dev' })
   })
 
-  it('uses bundled resourcesPath/bin when dev misses', () => {
-    const bundled = mkExe(path.join(tmp, 'resources', 'bin'), 'fake-parse')
-    const r = resolveBinary(exeDecl(), {
-      packDir: tmp,
-      envValue: null,
-      settingsValue: undefined,
-      resourcesPath: path.join(tmp, 'resources')
-    })
-    expect(r).toMatchObject({ value: bundled, source: 'bundled' })
+  it('resolves the installed bundle bin/ before devPaths', () => {
+    const bundled = mkExe(path.join(tmp, 'bin'), 'fake-parse') // <packDir>/bin
+    mkExe(path.join(tmp, 'bin-out'), 'fake-parse') // devPaths — must lose to the bundle
+    const r = resolveBinary(exeDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    expect(r).toMatchObject({ value: bundled, source: 'pack-bundle' })
   })
 
   it('returns null when nothing is found and no pathProbeArgs', () => {
@@ -97,6 +93,12 @@ describe('resolveBinary (pathDir)', () => {
     fs.mkdirSync(dev, { recursive: true })
     const r = resolveBinary(dirDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
     expect(r).toMatchObject({ value: dev, source: 'pack-dev' })
+  })
+
+  it('resolves to bundle bin/ when it holds the executable', () => {
+    mkExe(path.join(tmp, 'bin'), 'fake-trace')
+    const r = resolveBinary(dirDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    expect(r).toMatchObject({ value: path.join(tmp, 'bin'), source: 'pack-bundle' })
   })
 
   it('env dir wins; null when nothing exists (no PATH probe for dirs)', () => {
