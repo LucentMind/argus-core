@@ -130,6 +130,39 @@ describe('PacksSettings', () => {
     expect(packs.install).not.toHaveBeenCalled()
   })
 
+  it('does not crash on non-semver versions: falls back to warn-on-any-reinstall', async () => {
+    // Pack manifests allow any non-empty version string (e.g. "2024.1"), which
+    // semver.lte() would throw on — the gate must fall back to a plain confirm.
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [
+        {
+          id: 'navigation',
+          displayName: 'Navigation',
+          installedVersion: '2024.1',
+          loadedVersion: '2024.1',
+          platform: 'win-x64',
+          pendingRelaunch: false,
+          binaries: []
+        }
+      ]
+    })
+    packs.inspect = vi.fn().mockResolvedValue({
+      id: 'navigation',
+      version: '2024.2',
+      platform: 'win-x64',
+      apiCompatible: true,
+      platformCompatible: true
+    })
+    window.confirm = vi.fn(() => true)
+    render(<PacksSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
+    )
+  })
+
   it('uninstall confirms then calls uninstall and prompts relaunch', async () => {
     render(<PacksSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Uninstall · navigation' }))

@@ -60,9 +60,11 @@ export function PacksSettings(): React.JSX.Element {
         return
       }
       const current = payload?.packs.find((p) => p.id === info.id)?.installedVersion ?? null
+      const bothSemver =
+        current != null && semver.valid(info.version) != null && semver.valid(current) != null
+      const notNewer = current != null && (bothSemver ? semver.lte(info.version, current) : true)
       if (
-        current &&
-        semver.lte(info.version, current) &&
+        notNewer &&
         !window.confirm(
           `"${info.id}" ${info.version} is not newer than the installed version (${current}). Install anyway?`
         )
