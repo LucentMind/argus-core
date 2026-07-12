@@ -23,7 +23,11 @@ class InstallError extends Error {
 
 /** Materialize a .zip or directory source into a fresh staging dir on the packs volume. */
 async function stage(source: string, argusHome: string): Promise<string> {
-  const staging = fs.mkdtempSync(path.join(argusHome, '.pack-install-'))
+  // realpathSync: on macOS a symlinked parent (e.g. os.tmpdir() → /private/var,
+  // or a symlinked ARGUS_HOME) makes zip-lib's safeSymlinksOnly guard compare an
+  // extracted file's realpath against the unresolved staging path and reject the
+  // mismatch. Resolve the staging dir up front so the guard sees matching paths.
+  const staging = fs.realpathSync(fs.mkdtempSync(path.join(argusHome, '.pack-install-')))
   try {
     const st = fs.statSync(source)
     if (st.isDirectory()) fs.cpSync(source, staging, { recursive: true })
@@ -46,7 +50,9 @@ function readManifest(dir: string): PackManifest {
 }
 
 export async function inspectBundleSource(source: string): Promise<InspectResult> {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-inspect-'))
+  // realpathSync: os.tmpdir() is a symlink on macOS (/var/folders → /private/var),
+  // which trips zip-lib's safeSymlinksOnly guard during extract. Resolve it first.
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-inspect-')))
   try {
     const st = fs.statSync(source)
     if (st.isDirectory()) fs.cpSync(source, tmp, { recursive: true })
