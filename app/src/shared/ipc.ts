@@ -129,5 +129,11 @@ export const IPC = {
   panelsDecls: 'panels:decls',
   panelsSetBounds: 'panels:set-bounds',
   panelsSetVisible: 'panels:set-visible',
-  panelsCloseCase: 'panels:close-case'
+  panelsCloseCase: 'panels:close-case',
+  // — panels · write bridge (3b-1) —
+  panelsCite: 'panels:cite',
+  panelsEmitFinding: 'panels:emit-finding',
+  panelsSendToAgent: 'panels:send-to-agent',
+  /** main → main-renderer broadcast: a panel cited evidence; the citations tray adds a chip. */
+  panelsCiteAdded: 'panels:cite-added'
 } as const
