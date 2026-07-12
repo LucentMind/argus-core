@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, safeStorage, protocol } from 'electron'
 import fs from 'node:fs'
 import path, { join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
@@ -80,6 +80,10 @@ import { createExtractors } from './services/packs/extractors'
 import { PacksStateStore } from './services/packs/packsState'
 import { installPack, uninstallPack, inspectBundleSource } from './services/packs/install'
 import { listInstalledPacks } from './services/packs/packsService'
+import { PanelHost } from './services/panels/panelHost'
+import { createElectronPanelFactory } from './services/panels/electronPlatform'
+import { resolvePanelAsset, type PanelWindowLoc } from './services/panels/protocol'
+import type { OpenPanelRequest, PanelKey, PanelPermission } from '../shared/panels'
 import type {
   ApprovalDecision,
   AuthStatus,
@@ -97,6 +101,8 @@ import type { MetricsQuery, ReviewState } from '../shared/observability'
 
 let agentService: AgentService | null = null
 let langfuseExporter: LangfuseExporter | null = null
+let mainWindow: BrowserWindow | null = null
+let panelHost: PanelHost | null = null
 
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
@@ -117,6 +123,37 @@ function broadcast(channel: string, payload: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
 }
 
+function panelContentType(file: string): string {
+  const ext = path.extname(file).toLowerCase()
+  const map: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.map': 'application/json; charset=utf-8'
+  }
+  return map[ext] ?? 'application/octet-stream'
+}
+
+// argus-panel:// — a Core-owned, standard, sandboxed scheme giving every panel a
+// stable 'self' origin for CSP and denying file:// ambient authority. Must be
+// registered before app 'ready'.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'argus-panel',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: false }
+  }
+])
+
 function registerIpc(): void {
   const argusHome = resolveArgusHome()
   const db = openDb(dbPath(argusHome))
@@ -124,6 +161,28 @@ function registerIpc(): void {
   const seededDir = seededPacksDir(app.getAppPath(), resourcesPath)
   const installedDir = ensurePacksDir(argusHome)
   const packRegistry = PackRegistry.load([seededDir, installedDir])
+
+  panelHost = new PanelHost({ db, argusHome, factory: createElectronPanelFactory(() => mainWindow) })
+
+  // Serve argus-panel://<packId>/<windowId>/<relpath> from the window's bundle subtree.
+  const panelLocs = (): PanelWindowLoc[] =>
+    packRegistry.windowDecls().map((w) => ({
+      packId: w.packId,
+      windowId: w.decl.id,
+      uiDir: w.uiDir,
+      entry: w.decl.entry
+    }))
+  protocol.handle('argus-panel', async (request) => {
+    const abs = resolvePanelAsset(panelLocs(), request.url)
+    if (!abs) return new Response('not found', { status: 404 })
+    try {
+      const data = await fs.promises.readFile(abs)
+      return new Response(new Uint8Array(data), { headers: { 'content-type': panelContentType(abs) } })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  })
+
   const packsState = new PacksStateStore(argusHome)
   seedSharedAssets(argusHome, {
     skills: [
@@ -351,6 +410,61 @@ function registerIpc(): void {
   ipcMain.handle(IPC.packsRelaunch, () => {
     app.relaunch()
     app.quit()
+  })
+
+  // — panels (webPanel host; 3a-2) —
+  const panelWindow = (packId: string, windowId: string) =>
+    packRegistry.windowDecls().find((w) => w.packId === packId && w.decl.id === windowId) ?? null
+
+  ipcMain.handle(IPC.panelsList, (_e, caseSlug?: string) => panelHost!.list(caseSlug))
+  ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
+    const w = panelWindow(req.packId, req.windowId)
+    if (!w) throw new Error(`unknown panel: ${req.packId}/${req.windowId}`)
+    const info = panelHost!.open({
+      caseSlug: req.caseSlug,
+      packId: req.packId,
+      windowId: req.windowId,
+      title: w.decl.title,
+      entry: w.decl.entry,
+      uiDir: w.uiDir,
+      network: w.decl.network,
+      permissions: w.decl.permissions as PanelPermission[],
+      focus: req.focus,
+      sessionId: req.sessionId ?? null
+    })
+    broadcast(IPC.panelsChanged, undefined)
+    return info
+  })
+  ipcMain.handle(IPC.panelsClose, (_e, key: PanelKey) => {
+    panelHost!.close(key)
+    broadcast(IPC.panelsChanged, undefined)
+  })
+  ipcMain.handle(IPC.panelsFocus, (_e, key: PanelKey) => panelHost!.focus(key))
+  ipcMain.handle(IPC.panelsPopOut, (_e, key: PanelKey) => {
+    panelHost!.popOut(key)
+    broadcast(IPC.panelsChanged, undefined)
+  })
+  ipcMain.handle(IPC.panelsDockBack, (_e, key: PanelKey) => {
+    panelHost!.dockBack(key)
+    broadcast(IPC.panelsChanged, undefined)
+  })
+  ipcMain.handle(IPC.panelsSetTheme, (_e, theme: 'dark' | 'light') => panelHost!.setTheme(theme))
+
+  // Read bridge — routed by e.sender.id (authoritative), never by renderer-supplied identity.
+  ipcMain.handle(IPC.panelsGetCaseContext, (e) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.getCaseContext) throw new Error('panel bridge: getCaseContext not granted')
+    return b.getCaseContext()
+  })
+  ipcMain.handle(IPC.panelsRequestEvidence, (e, query: string) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.requestEvidence) throw new Error('panel bridge: requestEvidence not granted')
+    return b.requestEvidence(query)
+  })
+  ipcMain.handle(IPC.panelsReadEvidence, (e, evidenceId: number, focusLine?: number) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.readEvidence) throw new Error('panel bridge: readEvidence not granted')
+    return b.readEvidence(evidenceId, focusLine)
   })
 
   // — agent —
@@ -593,6 +707,7 @@ function registerIpc(): void {
       caseWatchers.delete(slug)
     }
     deleteCase(db, argusHome, slug)
+    panelHost?.closeCase(slug)
   })
 
   // — skills —
@@ -884,7 +999,7 @@ function registerIpc(): void {
 
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     // keep the 3-pane case workspace usable: sidebar (320) + chat + findings rail
@@ -900,7 +1015,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -945,6 +1064,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  panelHost?.closeAll()
   void agentService?.stopAll()
   void langfuseExporter?.flush()
 })
