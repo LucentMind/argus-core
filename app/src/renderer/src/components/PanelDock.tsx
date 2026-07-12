@@ -25,9 +25,13 @@ export function PanelDock({ hostRef }: { hostRef: React.RefObject<HTMLDivElement
     const activeKeyStr = st.activeTab
     const apply = (): void => {
       for (const p of st.panels) {
+        // A floated panel lives in its own BrowserWindow, which owns its view's
+        // bounds + visibility. Managing it here would setVisible(false) on the
+        // float window's content (it's never the active DOCKED tab) → blank window.
+        if (p.floated) continue
         const k = { caseSlug: p.caseSlug, packId: p.packId, windowId: p.windowId }
         const isActive = panelKeyStr(p) === activeKeyStr
-        const visible = isActive && !p.floated && !st.occluded
+        const visible = isActive && !st.occluded
         if (visible && hostRef.current) {
           const r = hostRef.current.getBoundingClientRect()
           const z = ui.uiScale
