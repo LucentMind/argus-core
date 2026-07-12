@@ -10,6 +10,7 @@ import {
   HardDrive,
   BookMarked,
   Gauge,
+  Package,
   type LucideIcon
 } from 'lucide-react'
 import { useSettingsPayload } from '../../lib/settingsStore'
@@ -23,6 +24,7 @@ import { SkillsSettings } from './SkillsSettings'
 import { ReferencesSettings } from './ReferencesSettings'
 import { HivemindSettings } from './HivemindSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
+import { PacksSettings } from './PacksSettings'
 
 const PAGES = [
   { id: 'general', label: 'General', enabled: true, Icon: Settings2 },
@@ -32,6 +34,7 @@ const PAGES = [
   { id: 'connectors', label: 'Connectors', enabled: true, Icon: Cable },
   { id: 'skills', label: 'Skills', enabled: true, Icon: Workflow },
   { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
+  { id: 'packs', label: 'Packs', enabled: true, Icon: Package },
   { id: 'memory', label: 'Memory', enabled: true, Icon: HardDrive },
   { id: 'references', label: 'References', enabled: true, Icon: BookMarked },
   { id: 'observability', label: 'Observability', enabled: true, Icon: Gauge }
@@ -112,6 +115,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.El
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'skills' && <SkillsSettings />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
+          {page === 'packs' && <PacksSettings />}
           {page === 'memory' && <MemorySettings />}
           {page === 'references' && <ReferencesSettings />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}

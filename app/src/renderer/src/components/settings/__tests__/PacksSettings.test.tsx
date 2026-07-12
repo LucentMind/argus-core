@@ -1,0 +1,122 @@
+// @vitest-environment jsdom
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
+import { PacksSettings } from '../PacksSettings'
+import type { PacksListPayload } from '../../../../../shared/packs'
+
+const listed: PacksListPayload = {
+  error: null,
+  packs: [
+    {
+      id: 'navigation',
+      displayName: 'Navigation',
+      installedVersion: '1.0.0',
+      loadedVersion: '1.0.0',
+      platform: 'win-x64',
+      pendingRelaunch: false,
+      binaries: [
+        { id: 'argus-demo', displayName: 'Demo', ok: true, detail: 'C:/…/argus-demo · v22' }
+      ]
+    },
+    {
+      id: 'code-graph',
+      displayName: 'CODE-GRAPH',
+      installedVersion: null, // bundled — not removable
+      loadedVersion: '0.1.0',
+      platform: null,
+      pendingRelaunch: false,
+      binaries: []
+    }
+  ]
+}
+
+function mockPacks(
+  over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}
+): Record<string, ReturnType<typeof vi.fn>> {
+  return {
+    list: vi.fn().mockResolvedValue(listed),
+    pickBundle: vi.fn().mockResolvedValue('C:/dl/navigation-2.0.0-win-x64.zip'),
+    inspect: vi.fn().mockResolvedValue({
+      id: 'navigation',
+      version: '2.0.0',
+      platform: 'win-x64',
+      apiCompatible: true,
+      platformCompatible: true
+    }),
+    install: vi.fn().mockResolvedValue({
+      ok: true,
+      id: 'navigation',
+      version: '2.0.0',
+      previousVersion: '1.0.0',
+      relaunchRequired: true
+    }),
+    uninstall: vi.fn().mockResolvedValue({ ok: true }),
+    relaunch: vi.fn().mockResolvedValue(undefined),
+    onChanged: vi.fn().mockReturnValue(() => {}),
+    ...over
+  }
+}
+
+let packs: Record<string, ReturnType<typeof vi.fn>>
+beforeEach(() => {
+  packs = mockPacks()
+  ;(window as unknown as { argus: unknown }).argus = { packs }
+  window.confirm = vi.fn(() => true)
+})
+
+describe('PacksSettings', () => {
+  it('lists installed packs and shows Uninstall only for user-installed ones', async () => {
+    render(<PacksSettings />)
+    expect(await screen.findByText('Navigation')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Uninstall · navigation' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Uninstall · code-graph' })).not.toBeInTheDocument()
+  })
+
+  it('install flow: pick → inspect → install → relaunch prompt', async () => {
+    render(<PacksSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    await waitFor(() =>
+      expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
+    )
+    const relaunch = await screen.findByRole('button', { name: 'Relaunch now' })
+    fireEvent.click(relaunch)
+    expect(packs.relaunch).toHaveBeenCalled()
+  })
+
+  it('rejects an incompatible-platform bundle with an error and does not install', async () => {
+    packs.inspect = vi.fn().mockResolvedValue({
+      id: 'navigation',
+      version: '2.0.0',
+      platform: 'mac-arm64',
+      apiCompatible: true,
+      platformCompatible: false
+    })
+    render(<PacksSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/mac-arm64|does not match/i)
+    expect(packs.install).not.toHaveBeenCalled()
+  })
+
+  it('warns on a downgrade/re-install and skips when the user cancels', async () => {
+    packs.inspect = vi.fn().mockResolvedValue({
+      id: 'navigation',
+      version: '0.9.0',
+      platform: 'win-x64',
+      apiCompatible: true,
+      platformCompatible: true
+    })
+    window.confirm = vi.fn(() => false)
+    render(<PacksSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    expect(packs.install).not.toHaveBeenCalled()
+  })
+
+  it('uninstall confirms then calls uninstall and prompts relaunch', async () => {
+    render(<PacksSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall · navigation' }))
+    await waitFor(() => expect(packs.uninstall).toHaveBeenCalledWith('navigation'))
+    expect(await screen.findByRole('button', { name: 'Relaunch now' })).toBeInTheDocument()
+  })
+})
