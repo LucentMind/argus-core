@@ -3,8 +3,8 @@ import { BASE_PERSONA, composePersona } from '../persona'
 import { CaseSession } from '../session'
 
 describe('BASE_PERSONA', () => {
-  it('is domain-neutral (no navigation/binlog wording)', () => {
-    expect(BASE_PERSONA).not.toMatch(/navigation|binlog|applog|sample-parse|sample-trace/i)
+  it('is domain-neutral (no navigation/DLT wording)', () => {
+    expect(BASE_PERSONA).not.toMatch(/navigation|DLT|logcat|argus-parse|argus-trace/i)
   })
   it('keeps the generic working rules', () => {
     expect(BASE_PERSONA).toMatch(/CITATIONS/)
