@@ -132,12 +132,15 @@ const argus = {
     focus: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsFocus, key),
     popOut: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsPopOut, key),
     dockBack: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsDockBack, key),
-    setTheme: (theme: 'dark' | 'light'): Promise<void> => ipcRenderer.invoke(IPC.panelsSetTheme, theme),
+    setTheme: (theme: 'dark' | 'light'): Promise<void> =>
+      ipcRenderer.invoke(IPC.panelsSetTheme, theme),
     decls: (): Promise<PanelDecl[]> => ipcRenderer.invoke(IPC.panelsDecls),
     setBounds: (key: PanelKey, rect: PanelRect): Promise<void> =>
       ipcRenderer.invoke(IPC.panelsSetBounds, key, rect),
     setVisible: (key: PanelKey, visible: boolean): Promise<void> =>
       ipcRenderer.invoke(IPC.panelsSetVisible, key, visible),
+    closeCase: (caseSlug: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.panelsCloseCase, caseSlug),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.panelsChanged, listener)

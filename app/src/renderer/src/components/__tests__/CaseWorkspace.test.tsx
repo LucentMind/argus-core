@@ -102,6 +102,7 @@ beforeEach(() => {
       setTheme: vi.fn(async () => undefined),
       setBounds: vi.fn(async () => undefined),
       setVisible: vi.fn(async () => undefined),
+      closeCase: vi.fn(async () => undefined),
       onChanged: vi.fn(() => () => undefined)
     }
   } as never

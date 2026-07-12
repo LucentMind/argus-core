@@ -49,7 +49,8 @@ export class PanelsStore {
   /** Sync the open-panel list (mount hydrate + panels:changed); collapse to Chat if the active panel vanished. */
   setPanels(panels: PanelInfo[]): void {
     const active =
-      this.state.activeTab === CHAT_TAB || panels.some((p) => panelKeyStr(p) === this.state.activeTab)
+      this.state.activeTab === CHAT_TAB ||
+      panels.some((p) => panelKeyStr(p) === this.state.activeTab)
         ? this.state.activeTab
         : CHAT_TAB
     this.set({ panels, activeTab: active })
@@ -83,16 +84,33 @@ export const panelsStore = new PanelsStore()
  */
 export function wirePanelsStore(slug: string): () => void {
   panelsStore.setCase(slug)
+  if (!window.argus?.panels) return () => {}
+
+  // guard against a slow decls()/list() from a previous case resolving after a
+  // newer setCase, writing stale data over the current case's state
+  let stale = false
   void window.argus.panels.decls().then(
-    (d) => panelsStore.setDecls(d),
-    () => panelsStore.setDecls([])
+    (d) => {
+      if (!stale) panelsStore.setDecls(d)
+    },
+    () => {
+      if (!stale) panelsStore.setDecls([])
+    }
   )
   const resync = (): void => {
     void window.argus.panels.list(slug).then(
-      (list) => panelsStore.setPanels(list),
-      () => panelsStore.setPanels([])
+      (list) => {
+        if (!stale) panelsStore.setPanels(list)
+      },
+      () => {
+        if (!stale) panelsStore.setPanels([])
+      }
     )
   }
   resync()
-  return window.argus.panels.onChanged(resync)
+  const offChanged = window.argus.panels.onChanged(resync)
+  return () => {
+    stale = true
+    offChanged()
+  }
 }

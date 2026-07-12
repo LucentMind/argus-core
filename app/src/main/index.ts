@@ -454,6 +454,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.panelsSetVisible, (_e, key: PanelKey, visible: boolean) =>
     panelHost!.setVisible(key, visible)
   )
+  ipcMain.handle(IPC.panelsCloseCase, (_e, caseSlug: string) => {
+    panelHost!.closeCase(caseSlug)
+    broadcast(IPC.panelsChanged, undefined)
+  })
 
   // Read bridge — routed by e.sender.id (authoritative), never by renderer-supplied identity.
   ipcMain.handle(IPC.panelsGetCaseContext, (e) => {
