@@ -145,6 +145,16 @@ const argus = {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.panelsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.panelsChanged, listener)
+    },
+    onCite: (
+      cb: (p: { caseSlug: string; sessionId: number; relPath: string; line: number }) => void
+    ): (() => void) => {
+      const listener = (
+        _e: unknown,
+        p: { caseSlug: string; sessionId: number; relPath: string; line: number }
+      ): void => cb(p)
+      ipcRenderer.on(IPC.panelsCiteAdded, listener)
+      return () => ipcRenderer.removeListener(IPC.panelsCiteAdded, listener)
     }
   },
   search: {
