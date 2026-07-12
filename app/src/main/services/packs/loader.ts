@@ -43,6 +43,7 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
 
   for (const ent of entries) {
     if (!ent.isDirectory()) continue
+    if (ent.name.startsWith('.') || ent.name.endsWith('.bak')) continue // backup / hidden dir — not a pack
     const dir = path.join(packsDir, ent.name)
     const manifestPath = path.join(dir, PACK_MANIFEST_FILE)
     if (!fs.existsSync(manifestPath)) continue // not a pack — ignore
