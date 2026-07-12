@@ -151,7 +151,6 @@ function registerIpc(): void {
   binariesService = new BinariesService({
     registry: packRegistry,
     settingsTools: () => settingsService.get().tools,
-    resourcesPath: (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath,
     capturedEnv: capturedBinaryEnv
   })
 
