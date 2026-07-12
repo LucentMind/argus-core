@@ -94,6 +94,7 @@ export function createElectronPanelFactory(
           if (!view.webContents.isDestroyed()) view.webContents.send(IPC.panelsTheme, theme)
         },
         floatOut(title: string): void {
+          programmaticClose = false
           getMainWindow()?.contentView.removeChildView(view)
           floatWin = new BrowserWindow({ width: 900, height: 640, title, show: true })
           floatWin.contentView.addChildView(view)
