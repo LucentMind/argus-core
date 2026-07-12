@@ -64,4 +64,18 @@ describe('buildPanelCsp', () => {
     expect(csp).toContain("script-src 'self';")
     expect(csp).not.toContain("script-src 'self' https")
   })
+
+  it('rejects malformed origins with directive-injection chars (no scheme, contains semicolon and space)', () => {
+    const csp = buildPanelCsp(["evil.com; font-src * 'unsafe-inline'"])
+    expect(csp).toContain("font-src 'self'")
+    expect(csp).not.toContain('unsafe-inline')
+    expect(csp).not.toContain('evil.com')
+  })
+
+  it('accepts well-formed origins while rejecting malformed ones in the same allowlist', () => {
+    const csp = buildPanelCsp(['https://ok.example.com', "bad; x"])
+    expect(csp).toContain("img-src 'self' data: https://ok.example.com")
+    expect(csp).toContain("connect-src 'self' https://ok.example.com")
+    expect(csp).not.toContain('bad')
+  })
 })

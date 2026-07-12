@@ -1,5 +1,8 @@
 import path from 'node:path'
 
+/** Regex to validate a CSP origin: scheme://host with no whitespace, semicolons, quotes, or angle brackets. */
+const ORIGIN_RE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;'"<>]+$/i
+
 /** Locates one pack's webPanel bundle on disk (from PackRegistry.windowDecls()). */
 export interface PanelWindowLoc {
   packId: string
@@ -60,9 +63,17 @@ export function resolvePanelAsset(windows: PanelWindowLoc[], url: string): strin
 /**
  * Strict per-panel CSP built from the window's declared network allowlist.
  * Empty allowlist ⇒ the panel can reach only its own bundle. No unsafe-inline/eval.
+ * Malformed origins (containing directive-injection chars like `;`, spaces, or quotes) are dropped.
  */
 export function buildPanelCsp(network: string[]): string {
-  const allow = network.filter((o) => o && o.trim().length > 0)
+  const allow = network.filter((o) => {
+    if (!o || o.trim().length === 0) return false
+    if (!ORIGIN_RE.test(o)) {
+      console.warn(`[panels] ignoring malformed panel network origin: ${o}`)
+      return false
+    }
+    return true
+  })
   const tail = allow.length ? ' ' + allow.join(' ') : ''
   return [
     `default-src 'none'`,
