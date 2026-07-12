@@ -1,8 +1,9 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { WebContentsView, BrowserWindow, session as electronSession } from 'electron'
 import { IPC } from '../../../shared/ipc'
 import type { PanelThemeName } from '../../../shared/panelTheme'
-import { buildPanelCsp } from './protocol'
+import { panelContentType } from './protocol'
 import type { OpenPanelInput, PanelView, PanelViewFactory } from './panelHost'
 
 /**
@@ -12,22 +13,36 @@ import type { OpenPanelInput, PanelView, PanelViewFactory } from './panelHost'
  * is preserved (no reload).
  */
 export function createElectronPanelFactory(
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: () => BrowserWindow | null,
+  servePanel: (url: string) => { filePath: string; csp: string } | null
 ): PanelViewFactory {
-  const cspConfigured = new Set<string>()
+  const partitionReady = new Set<string>()
 
   return {
     create(input: OpenPanelInput): PanelView {
       const partition = `pack-panel:${input.packId}`
       const sess = electronSession.fromPartition(partition)
 
-      // One-time strict-CSP header injection for this pack's partition.
-      if (!cspConfigured.has(partition)) {
-        const csp = buildPanelCsp(input.network)
-        sess.webRequest.onHeadersReceived((details, cb) => {
-          cb({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } })
+      // Serve argus-panel:// on THIS partition's session (handlers are per-session in
+      // Electron — a default-session handler never fires for a partitioned panel). CSP
+      // travels in the response, so it applies regardless of webRequest behavior.
+      if (!partitionReady.has(partition)) {
+        sess.protocol.handle('argus-panel', async (request) => {
+          const served = servePanel(request.url)
+          if (!served) return new Response('not found', { status: 404 })
+          try {
+            const data = await fs.promises.readFile(served.filePath)
+            return new Response(new Uint8Array(data), {
+              headers: {
+                'content-type': panelContentType(served.filePath),
+                'content-security-policy': served.csp
+              }
+            })
+          } catch {
+            return new Response('not found', { status: 404 })
+          }
         })
-        cspConfigured.add(partition)
+        partitionReady.add(partition)
       }
 
       const view = new WebContentsView({

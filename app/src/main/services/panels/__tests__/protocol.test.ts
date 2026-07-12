@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from '../protocol'
+import {
+  resolvePanelAsset,
+  buildPanelCsp,
+  panelContentType,
+  type PanelWindowLoc
+} from '../protocol'
 
 const win: PanelWindowLoc = {
   packId: 'sample-pack',
@@ -79,5 +84,17 @@ describe('buildPanelCsp', () => {
     expect(csp).toContain("img-src 'self' data: https://ok.example.com")
     expect(csp).toContain("connect-src 'self' https://ok.example.com")
     expect(csp).not.toContain('bad')
+  })
+})
+
+describe('panelContentType', () => {
+  it('maps known extensions to their MIME type', () => {
+    expect(panelContentType('index.html')).toBe('text/html; charset=utf-8')
+    expect(panelContentType('app.js')).toBe('text/javascript; charset=utf-8')
+    expect(panelContentType('logo.png')).toBe('image/png')
+  })
+
+  it('falls back to application/octet-stream for an unknown extension', () => {
+    expect(panelContentType('x.bin')).toBe('application/octet-stream')
   })
 })
