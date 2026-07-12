@@ -90,3 +90,19 @@ describe('loadPacks', () => {
     expect(packs[0].referencesDir).toBeNull()
   })
 })
+
+describe('argusApi load-time gate', () => {
+  it('skips a pack whose argusApi is incompatible with the Core API', () => {
+    pack('future', { id: 'future', displayName: 'F', version: '1', argusApi: '^2' })
+    const { packs, errors } = loadPacks(root)
+    expect(packs.find((p) => p.id === 'future')).toBeUndefined()
+    expect(errors.some((e) => e.dir.includes('future') && /argusApi|incompatible/i.test(e.message))).toBe(true)
+  })
+
+  it('loads a pack whose argusApi includes the Core API', () => {
+    pack('ok', { id: 'ok', displayName: 'O', version: '1', argusApi: '^1' })
+    const { packs, errors } = loadPacks(root)
+    expect(packs.find((p) => p.id === 'ok')).toBeDefined()
+    expect(errors).toEqual([])
+  })
+})
