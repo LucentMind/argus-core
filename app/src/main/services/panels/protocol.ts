@@ -60,6 +60,28 @@ export function resolvePanelAsset(windows: PanelWindowLoc[], url: string): strin
   return abs
 }
 
+/** MIME type for an argus-panel asset by extension. */
+export function panelContentType(file: string): string {
+  const ext = path.extname(file).toLowerCase()
+  const map: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.map': 'application/json; charset=utf-8'
+  }
+  return map[ext] ?? 'application/octet-stream'
+}
+
 /**
  * Strict per-panel CSP built from the window's declared network allowlist.
  * Empty allowlist ⇒ the panel can reach only its own bundle. No unsafe-inline/eval.

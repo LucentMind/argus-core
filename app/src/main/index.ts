@@ -82,7 +82,7 @@ import { installPack, uninstallPack, inspectBundleSource } from './services/pack
 import { listInstalledPacks } from './services/packs/packsService'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
-import { resolvePanelAsset, type PanelWindowLoc } from './services/panels/protocol'
+import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './services/panels/protocol'
 import type { OpenPanelRequest, PanelKey, PanelPermission } from '../shared/panels'
 import type {
   ApprovalDecision,
@@ -123,27 +123,6 @@ function broadcast(channel: string, payload: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
 }
 
-function panelContentType(file: string): string {
-  const ext = path.extname(file).toLowerCase()
-  const map: Record<string, string> = {
-    '.html': 'text/html; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.mjs': 'text/javascript; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.map': 'application/json; charset=utf-8'
-  }
-  return map[ext] ?? 'application/octet-stream'
-}
-
 // argus-panel:// — a Core-owned, standard, sandboxed scheme giving every panel a
 // stable 'self' origin for CSP and denying file:// ambient authority. Must be
 // registered before app 'ready'.
@@ -162,25 +141,27 @@ function registerIpc(): void {
   const installedDir = ensurePacksDir(argusHome)
   const packRegistry = PackRegistry.load([seededDir, installedDir])
 
-  panelHost = new PanelHost({ db, argusHome, factory: createElectronPanelFactory(() => mainWindow) })
-
-  // Serve argus-panel://<packId>/<windowId>/<relpath> from the window's bundle subtree.
-  const panelLocs = (): PanelWindowLoc[] =>
-    packRegistry.windowDecls().map((w) => ({
+  // Resolve an argus-panel:// URL to its on-disk asset + the window's per-panel CSP.
+  // The pack partition's protocol handler (registered in the factory) calls this — the
+  // handler must live on the panel's partition session, not the default session.
+  const servePanel = (url: string): { filePath: string; csp: string } | null => {
+    const decls = packRegistry.windowDecls()
+    const locs: PanelWindowLoc[] = decls.map((w) => ({
       packId: w.packId,
       windowId: w.decl.id,
       uiDir: w.uiDir,
       entry: w.decl.entry
     }))
-  protocol.handle('argus-panel', async (request) => {
-    const abs = resolvePanelAsset(panelLocs(), request.url)
-    if (!abs) return new Response('not found', { status: 404 })
-    try {
-      const data = await fs.promises.readFile(abs)
-      return new Response(new Uint8Array(data), { headers: { 'content-type': panelContentType(abs) } })
-    } catch {
-      return new Response('not found', { status: 404 })
-    }
+    const filePath = resolvePanelAsset(locs, url)
+    if (!filePath) return null
+    const owner = decls.find((w) => url.startsWith(`argus-panel://${w.packId}/${w.decl.id}/`))
+    return { filePath, csp: buildPanelCsp(owner ? owner.decl.network : []) }
+  }
+
+  panelHost = new PanelHost({
+    db,
+    argusHome,
+    factory: createElectronPanelFactory(() => mainWindow, servePanel)
   })
 
   const packsState = new PacksStateStore(argusHome)
