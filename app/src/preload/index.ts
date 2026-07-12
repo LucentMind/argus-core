@@ -53,6 +53,7 @@ import type {
   ReviewState
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
+import type { OpenPanelRequest, PanelInfo, PanelKey } from '../shared/panels'
 
 // Custom API for renderer
 const argus = {
@@ -122,6 +123,20 @@ const argus = {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.packsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.packsChanged, listener)
+    }
+  },
+  panels: {
+    list: (caseSlug?: string): Promise<PanelInfo[]> => ipcRenderer.invoke(IPC.panelsList, caseSlug),
+    open: (req: OpenPanelRequest): Promise<PanelInfo> => ipcRenderer.invoke(IPC.panelsOpen, req),
+    close: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsClose, key),
+    focus: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsFocus, key),
+    popOut: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsPopOut, key),
+    dockBack: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsDockBack, key),
+    setTheme: (theme: 'dark' | 'light'): Promise<void> => ipcRenderer.invoke(IPC.panelsSetTheme, theme),
+    onChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.panelsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.panelsChanged, listener)
     }
   },
   search: {
