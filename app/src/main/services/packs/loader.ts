@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { PACK_MANIFEST_FILE, packManifestSchema, type PackManifest } from './manifest'
+import { isApiCompatible } from './compat'
 
 function subdirIfExists(dir: string, name: string): string | null {
   const p = path.join(dir, name)
@@ -52,6 +53,12 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
 
       if (manifest.id !== ent.name) {
         throw new Error(`pack id '${manifest.id}' must match its directory name '${ent.name}'`)
+      }
+
+      if (!isApiCompatible(manifest.argusApi)) {
+        throw new Error(
+          `pack '${manifest.id}' requires argusApi '${manifest.argusApi}', incompatible with Core pack API`
+        )
       }
 
       let personaText: string | null = null
