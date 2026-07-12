@@ -96,7 +96,13 @@ export function CaseWorkspace({
     }
   }, [slug])
 
-  useEffect(() => wirePanelsStore(slug), [slug])
+  useEffect(() => {
+    const off = wirePanelsStore(slug)
+    return () => {
+      off()
+      void window.argus.panels.closeCase(slug)
+    }
+  }, [slug])
 
   async function openInPanel(evidenceId: number, packId: string, windowId: string): Promise<void> {
     await window.argus.panels.open({ caseSlug: slug, packId, windowId, focus: { evidenceId } })

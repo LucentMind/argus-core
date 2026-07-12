@@ -128,5 +128,6 @@ export const IPC = {
   // — panels · docking UX (3a-3) —
   panelsDecls: 'panels:decls',
   panelsSetBounds: 'panels:set-bounds',
-  panelsSetVisible: 'panels:set-visible'
+  panelsSetVisible: 'panels:set-visible',
+  panelsCloseCase: 'panels:close-case'
 } as const

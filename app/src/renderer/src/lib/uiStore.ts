@@ -55,6 +55,7 @@ export class UiStore {
     this.state = { ...readPersisted(), recentTabs: [], activeSessions: {} }
     this.applyTheme()
     this.applyScale()
+    void window.argus?.panels?.setTheme(this.state.theme)
   }
 
   get(): UiState {
