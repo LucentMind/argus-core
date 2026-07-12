@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -148,6 +148,52 @@ describe('installPack', () => {
       fs.readFileSync(path.join(packsDir(home), 'sample', 'argus-pack.json'), 'utf8')
     )
     expect(onDisk.version).toBe('1.0.0') // unchanged
+    expect(state.get('sample')).toBe('1.0.0')
+  })
+
+  it('rolls back to the previous version when the final rename fails', async () => {
+    await installPack(makeBundleDir({ version: '1.0.0' }), { argusHome: home, state, host: HOST })
+    const target = path.join(packsDir(home), 'sample')
+    const realRename = fs.renameSync.bind(fs)
+    // Fail only the staging->target swap (source is the .pack-install- staging dir);
+    // let the .bak rename and the bak->target rollback rename through.
+    const spy = vi.spyOn(fs, 'renameSync').mockImplementation(((
+      from: fs.PathLike,
+      to: fs.PathLike
+    ) => {
+      if (String(to) === target && String(from).includes('.pack-install-')) {
+        throw new Error('simulated rename failure')
+      }
+      return realRename(from as fs.PathLike, to as fs.PathLike)
+    }) as typeof fs.renameSync)
+    try {
+      const r = await installPack(makeBundleDir({ version: '2.0.0' }), {
+        argusHome: home,
+        state,
+        host: HOST
+      })
+      expect(r).toMatchObject({ ok: false, code: 'io' })
+      const onDisk = JSON.parse(fs.readFileSync(path.join(target, 'argus-pack.json'), 'utf8'))
+      expect(onDisk.version).toBe('1.0.0') // rolled back from .bak
+      expect(state.get('sample')).toBe('1.0.0')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('a platform reject on an upgrade leaves the prior pack and .bak untouched', async () => {
+    await installPack(makeBundleDir({ version: '1.0.0' }), { argusHome: home, state, host: HOST })
+    const other = process.platform === 'win32' ? 'mac-arm64' : 'win-x64'
+    const r = await installPack(makeBundleDir({ version: '2.0.0', platform: other }), {
+      argusHome: home,
+      state,
+      host: HOST
+    })
+    expect(r).toMatchObject({ ok: false, code: 'platform' })
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(packsDir(home), 'sample', 'argus-pack.json'), 'utf8')
+    )
+    expect(onDisk.version).toBe('1.0.0') // prior pack untouched
     expect(state.get('sample')).toBe('1.0.0')
   })
 
