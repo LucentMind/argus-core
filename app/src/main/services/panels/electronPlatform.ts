@@ -72,6 +72,16 @@ export function createElectronPanelFactory(
         if (!view.webContents.isDestroyed()) view.webContents.send(IPC.panelsTheme, lastTheme)
       })
 
+      // Surface panel preload load failures on the main-process stdout — a
+      // sandboxed panel's own console is otherwise invisible, so a broken preload
+      // (e.g. a throw before contextBridge exposes window.argus) fails silently.
+      view.webContents.on('preload-error', (_e, preloadPath, error) => {
+        console.error(
+          `[panel:${input.packId}/${input.windowId}] preload-error ${preloadPath}:`,
+          error
+        )
+      })
+
       const attachDocked = (): void => {
         getMainWindow()?.contentView.addChildView(view)
       }
@@ -98,6 +108,9 @@ export function createElectronPanelFactory(
           getMainWindow()?.contentView.removeChildView(view)
           floatWin = new BrowserWindow({ width: 900, height: 640, title, show: true })
           floatWin.contentView.addChildView(view)
+          // The docked view may have been setVisible(false) (inactive/occluded);
+          // it must be visible in its own window regardless.
+          view.setVisible(true)
           sizeToWindow(floatWin)
           floatWin.on('resize', () => {
             if (floatWin) sizeToWindow(floatWin)
