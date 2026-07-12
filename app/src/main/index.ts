@@ -77,6 +77,9 @@ import { seededPacksDir, ensurePacksDir } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
 import { CodeGraphService, graphsRoot } from './services/codeGraph'
 import { createExtractors } from './services/packs/extractors'
+import { PacksStateStore } from './services/packs/packsState'
+import { installPack, uninstallPack, inspectBundleSource } from './services/packs/install'
+import { listInstalledPacks } from './services/packs/packsService'
 import type {
   ApprovalDecision,
   AuthStatus,
@@ -121,6 +124,7 @@ function registerIpc(): void {
   const seededDir = seededPacksDir(app.getAppPath(), resourcesPath)
   const installedDir = ensurePacksDir(argusHome)
   const packRegistry = PackRegistry.load([seededDir, installedDir])
+  const packsState = new PacksStateStore(argusHome)
   seedSharedAssets(argusHome, {
     skills: [
       ...packRegistry.skillsSources(),
@@ -321,6 +325,33 @@ function registerIpc(): void {
   ipcMain.handle(IPC.packsArtifactMeta, () => detection.artifactMeta())
   // 1e: reference-sync routing seeds sourced from pack manifests.
   ipcMain.handle(IPC.packsReferenceRouting, () => packRegistry.referenceRouting())
+
+  // — packs (install/uninstall/list; 2c) —
+  ipcMain.handle(IPC.packsList, () =>
+    listInstalledPacks({ state: packsState, registry: packRegistry, binaries: binariesService })
+  )
+  ipcMain.handle(IPC.packsPickBundle, async () => {
+    const r = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Argus pack bundle', extensions: ['zip'] }]
+    })
+    return r.canceled ? null : r.filePaths[0]
+  })
+  ipcMain.handle(IPC.packsInspect, (_e, source: string) => inspectBundleSource(source))
+  ipcMain.handle(IPC.packsInstall, async (_e, source: string) => {
+    const res = await installPack(source, { argusHome, state: packsState })
+    if (res.ok) broadcast(IPC.packsChanged, undefined)
+    return res
+  })
+  ipcMain.handle(IPC.packsUninstall, (_e, id: string) => {
+    const res = uninstallPack(id, { argusHome, state: packsState })
+    if (res.ok) broadcast(IPC.packsChanged, undefined)
+    return res
+  })
+  ipcMain.handle(IPC.packsRelaunch, () => {
+    app.relaunch()
+    app.quit()
+  })
 
   // — agent —
   agentService = new AgentService({
