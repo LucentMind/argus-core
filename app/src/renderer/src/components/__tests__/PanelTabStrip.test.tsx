@@ -1,0 +1,64 @@
+// @vitest-environment jsdom
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { PanelTabStrip } from '../PanelTabStrip'
+import { panelsStore } from '../../lib/panelsStore'
+
+beforeEach(() => {
+  // panelsStore is a module-level singleton shared with the real app; seed it
+  // fresh for each test so a launcher item is always available to click.
+  panelsStore.setCase('CASE-A')
+  panelsStore.setDecls([
+    { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: [] }
+  ])
+  panelsStore.setPanels([])
+})
+
+describe('PanelTabStrip', () => {
+  it('passes the active sessionId when opening a panel from the launcher', async () => {
+    const open = vi.fn().mockResolvedValue({
+      caseSlug: 'CASE-A',
+      packId: 'sample-pack',
+      windowId: 'text-viewer',
+      title: 'Text Viewer',
+      floated: false
+    })
+    window.argus = { panels: { open } } as never
+
+    render(<PanelTabStrip slug="CASE-A" sessionId={42} activeTab="chat" onSelect={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Text Viewer' }))
+
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          caseSlug: 'CASE-A',
+          packId: 'sample-pack',
+          windowId: 'text-viewer',
+          sessionId: 42
+        })
+      )
+    )
+  })
+
+  it('passes a null sessionId through unchanged when no session is active yet', async () => {
+    const open = vi.fn().mockResolvedValue({
+      caseSlug: 'CASE-A',
+      packId: 'sample-pack',
+      windowId: 'text-viewer',
+      title: 'Text Viewer',
+      floated: false
+    })
+    window.argus = { panels: { open } } as never
+
+    render(<PanelTabStrip slug="CASE-A" sessionId={null} activeTab="chat" onSelect={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Text Viewer' }))
+
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(expect.objectContaining({ sessionId: null }))
+    )
+  })
+})
