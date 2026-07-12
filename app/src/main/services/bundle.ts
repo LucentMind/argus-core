@@ -341,8 +341,11 @@ export async function importCase(
   }
   const casesRoot = path.join(argusHome, 'cases')
   fs.mkdirSync(casesRoot, { recursive: true })
-  // staging dir on the same volume as cases/ so the final move is a plain rename
-  const tmp = fs.mkdtempSync(path.join(casesRoot, '.import-'))
+  // staging dir on the same volume as cases/ so the final move is a plain rename.
+  // realpathSync: a symlinked parent (e.g. a symlinked ARGUS_HOME) makes zip-lib's
+  // safeSymlinksOnly guard compare an extracted file's realpath against the unresolved
+  // staging path and reject the mismatch. Resolve it up front so the guard sees matching paths.
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(casesRoot, '.import-')))
   try {
     await extract(zipPath, tmp, { safeSymlinksOnly: true })
     const manifest = readManifest(path.join(tmp, 'manifest.json'))
