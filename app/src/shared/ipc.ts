@@ -111,5 +111,18 @@ export const IPC = {
   graphStatus: 'graph:status',
   graphInstall: 'graph:install',
   graphBuilding: 'graph:building',
-  graphChanged: 'graph:changed'
+  graphChanged: 'graph:changed',
+  // — panels (webPanel host; 3a-2) —
+  panelsList: 'panels:list',
+  panelsOpen: 'panels:open',
+  panelsClose: 'panels:close',
+  panelsFocus: 'panels:focus',
+  panelsPopOut: 'panels:pop-out',
+  panelsDockBack: 'panels:dock-back',
+  panelsSetTheme: 'panels:set-theme',
+  panelsChanged: 'panels:changed',
+  panelsTheme: 'panels:theme',
+  panelsGetCaseContext: 'panels:get-case-context',
+  panelsRequestEvidence: 'panels:request-evidence',
+  panelsReadEvidence: 'panels:read-evidence'
 } as const
