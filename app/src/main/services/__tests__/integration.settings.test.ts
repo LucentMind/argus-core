@@ -41,7 +41,15 @@ function packWith(binaries: unknown[], dir: string): LoadedPack {
     argusApi: '^1',
     binaries
   })
-  return { id: 'testpack', dir, manifest, personaText: null, skillsDir: null, referencesDir: null }
+  return {
+    id: 'testpack',
+    dir,
+    manifest,
+    personaText: null,
+    skillsDir: null,
+    referencesDir: null,
+    uiDir: null
+  }
 }
 
 describe('settings → consumers (wave-spec §8 integration)', () => {

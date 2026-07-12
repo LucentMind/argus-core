@@ -74,7 +74,8 @@ export function samplePackRegistry(): PackRegistry {
     manifest,
     personaText: null,
     skillsDir: null,
-    referencesDir: null
+    referencesDir: null,
+    uiDir: null
   }
   return new PackRegistry([pack])
 }
@@ -95,7 +96,8 @@ export function testRegistry(binaries: unknown[], detectors: unknown[]): PackReg
     manifest,
     personaText: null,
     skillsDir: null,
-    referencesDir: null
+    referencesDir: null,
+    uiDir: null
   }
   return new PackRegistry([pack])
 }

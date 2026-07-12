@@ -17,7 +17,8 @@ function lp(
     manifest: packManifestSchema.parse({ id, displayName: id, version: '1', argusApi: '^1' }),
     personaText,
     skillsDir: assets?.skills ?? null,
-    referencesDir: assets?.refs ?? null
+    referencesDir: assets?.refs ?? null,
+    uiDir: null
   }
 }
 

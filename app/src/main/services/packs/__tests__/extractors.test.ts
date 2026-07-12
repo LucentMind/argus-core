@@ -28,7 +28,8 @@ function pack(binaries: unknown[], detectors: unknown[]): LoadedPack {
     manifest,
     personaText: null,
     skillsDir: null,
-    referencesDir: null
+    referencesDir: null,
+    uiDir: null
   }
 }
 

@@ -136,3 +136,66 @@ describe('argusApi load-time gate', () => {
     expect(errors).toEqual([])
   })
 })
+
+describe('ui/ + windows[] loading', () => {
+  it('resolves uiDir when the pack ships ui/', () => {
+    pack('nav', {
+      id: 'nav',
+      displayName: 'Nav',
+      version: '1',
+      argusApi: '^1',
+      windows: [{ id: 'v', kind: 'webPanel', title: 'V', entry: 'v/index.html' }]
+    })
+    fs.mkdirSync(path.join(root, 'nav', 'ui', 'v'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'nav', 'ui', 'v', 'index.html'), '<!doctype html>')
+    const { packs, errors } = loadPacks(root)
+    expect(errors).toEqual([])
+    expect(packs[0].uiDir).toBe(path.join(root, 'nav', 'ui'))
+  })
+
+  it('uiDir is null when the pack has no windows and no ui/', () => {
+    pack('nav', { id: 'nav', displayName: 'Nav', version: '1', argusApi: '^1' })
+    expect(loadPacks(root).packs[0].uiDir).toBeNull()
+  })
+
+  it('skips a pack that declares windows but ships no ui/ dir', () => {
+    pack('nav', {
+      id: 'nav',
+      displayName: 'Nav',
+      version: '1',
+      argusApi: '^1',
+      windows: [{ id: 'v', kind: 'webPanel', title: 'V', entry: 'v/index.html' }]
+    })
+    const { packs, errors } = loadPacks(root)
+    expect(packs).toHaveLength(0)
+    expect(errors[0].message).toMatch(/ui\//)
+  })
+
+  it("skips a pack whose window entry doesn't exist under ui/", () => {
+    pack('nav', {
+      id: 'nav',
+      displayName: 'Nav',
+      version: '1',
+      argusApi: '^1',
+      windows: [{ id: 'v', kind: 'webPanel', title: 'V', entry: 'v/missing.html' }]
+    })
+    fs.mkdirSync(path.join(root, 'nav', 'ui'), { recursive: true })
+    const { packs, errors } = loadPacks(root)
+    expect(packs).toHaveLength(0)
+    expect(errors[0].message).toMatch(/missing\.html|entry/)
+  })
+
+  it('skips a pack whose window entry escapes ui/ (path traversal)', () => {
+    pack('nav', {
+      id: 'nav',
+      displayName: 'Nav',
+      version: '1',
+      argusApi: '^1',
+      windows: [{ id: 'v', kind: 'webPanel', title: 'V', entry: '../persona.md' }]
+    })
+    fs.mkdirSync(path.join(root, 'nav', 'ui'), { recursive: true })
+    const { packs, errors } = loadPacks(root)
+    expect(packs).toHaveLength(0)
+    expect(errors[0].message).toMatch(/entry|ui\//)
+  })
+})

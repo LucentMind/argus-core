@@ -12,6 +12,14 @@ function subdirIfExists(dir: string, name: string): string | null {
   }
 }
 
+/** A window's entry must be a contained relative path (no absolute, no '..'). */
+function entryUnderUi(uiDir: string, entry: string): string | null {
+  if (path.isAbsolute(entry) || entry.split(/[\\/]/).some((seg) => seg === '..' || seg === '')) {
+    return null
+  }
+  return path.join(uiDir, ...entry.split('/'))
+}
+
 export interface LoadedPack {
   id: string
   dir: string
@@ -21,6 +29,8 @@ export interface LoadedPack {
   skillsDir: string | null
   /** Absolute path of <pack>/references, when the pack ships references. */
   referencesDir: string | null
+  /** Absolute path of <pack>/ui, when the pack ships web panels. */
+  uiDir: string | null
 }
 
 export interface PackLoadError {
@@ -69,13 +79,25 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
         personaText = fs.readFileSync(p, 'utf8').trim()
       }
 
+      const uiDir = subdirIfExists(dir, 'ui')
+      if (manifest.windows.length > 0) {
+        if (!uiDir) throw new Error(`pack '${manifest.id}' declares windows but has no ui/ dir`)
+        for (const w of manifest.windows) {
+          const entryPath = entryUnderUi(uiDir, w.entry)
+          if (!entryPath || !fs.existsSync(entryPath)) {
+            throw new Error(`window '${w.id}' entry not found under ui/: ${w.entry}`)
+          }
+        }
+      }
+
       packs.push({
         id: manifest.id,
         dir,
         manifest,
         personaText,
         skillsDir: subdirIfExists(dir, 'skills'),
-        referencesDir: subdirIfExists(dir, 'references')
+        referencesDir: subdirIfExists(dir, 'references'),
+        uiDir
       })
     } catch (err) {
       errors.push({ dir, message: (err as Error).message })

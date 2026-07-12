@@ -23,7 +23,8 @@ function lp(id: string, version: string, dir: string, binaries: unknown[] = []):
     }),
     personaText: null,
     skillsDir: null,
-    referencesDir: null
+    referencesDir: null,
+    uiDir: null
   }
 }
 
