@@ -32,7 +32,7 @@ export function FileViewer({
 
   return (
     <div
-      className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
