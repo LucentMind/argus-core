@@ -1,0 +1,17 @@
+{
+  "id": "sample-text-viewer",
+  "displayName": "Sample Text Viewer",
+  "version": "0.1.0",
+  "argusApi": "1",
+  "windows": [
+    {
+      "id": "text-viewer",
+      "kind": "webPanel",
+      "title": "Text Viewer",
+      "entry": "text-viewer/index.html",
+      "handles": ["text"],
+      "network": [],
+      "permissions": ["getCaseContext", "requestEvidence", "readEvidence"]
+    }
+  ]
+}
