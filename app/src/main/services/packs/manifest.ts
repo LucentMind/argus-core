@@ -91,6 +91,28 @@ export const packDetectorSchema = z
 export type MatchRule = z.infer<typeof matchRuleSchema>
 export type PackDetector = z.infer<typeof packDetectorSchema>
 
+export const packWindowSchema = z
+  .object({
+    id: z.string().regex(KEBAB, 'window id must be kebab-case'),
+    /** 3a supports only 'webPanel'; 'externalApp' arrives in a later Part-3 increment. */
+    kind: z.enum(['webPanel']),
+    /** Tab label / launcher entry / floated-window title. */
+    title: z.string().min(1),
+    /** HTML entry path, relative to the pack's ui/ dir. */
+    entry: z.string().min(1),
+    /** Artifact types (Part-1 detector `type`s) this panel renders → drives "Open in <panel>". */
+    handles: z.array(z.string().min(1)).default([]),
+    /** Docking hint; only 'tab' is honored in 3a. */
+    placement: z.enum(['tab']).default('tab'),
+    /** Allowed origins folded into the panel CSP; empty ⇒ bundle-assets-only. */
+    network: z.array(z.string().min(1)).default([]),
+    /** Read-only verbs the panel's window.argus may call (3a set; 3b widens it). */
+    permissions: z.array(z.enum(['getCaseContext', 'requestEvidence', 'readEvidence'])).default([])
+  })
+  .passthrough()
+
+export type PackWindow = z.infer<typeof packWindowSchema>
+
 export const packManifestSchema = z
   .object({
     id: z.string().regex(KEBAB, 'pack id must be kebab-case'),
@@ -105,6 +127,7 @@ export const packManifestSchema = z
     persona: z.string().min(1).optional(),
     binaries: z.array(packBinarySchema).default([]),
     detectors: z.array(packDetectorSchema).default([]),
+    windows: z.array(packWindowSchema).default([]),
     /** Reference-sync routing seeds: keyword rules mapped to reference filenames. */
     referenceRouting: z
       .array(

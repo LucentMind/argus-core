@@ -212,3 +212,77 @@ describe('platform field + PACK_API_VERSION', () => {
     expect(PACK_API_VERSION).toBe(1)
   })
 })
+
+describe('windows[] schema', () => {
+  const base = { id: 'nav', displayName: 'Nav', version: '1.0.0', argusApi: '^1' }
+
+  it('parses a webPanel window with defaults filled in', () => {
+    const m = packManifestSchema.parse({
+      ...base,
+      windows: [{ id: 'log-viewer', kind: 'webPanel', title: 'Log Viewer', entry: 'log-viewer/index.html' }]
+    })
+    expect(m.windows[0]).toMatchObject({
+      id: 'log-viewer',
+      kind: 'webPanel',
+      title: 'Log Viewer',
+      entry: 'log-viewer/index.html',
+      handles: [],
+      placement: 'tab',
+      network: [],
+      permissions: []
+    })
+  })
+
+  it('defaults windows to [] when absent', () => {
+    expect(packManifestSchema.parse(base).windows).toEqual([])
+  })
+
+  it('keeps declared handles / network / read permissions', () => {
+    const m = packManifestSchema.parse({
+      ...base,
+      windows: [
+        {
+          id: 'log-viewer',
+          kind: 'webPanel',
+          title: 'Log Viewer',
+          entry: 'index.html',
+          handles: ['logcat', 'dlt-text'],
+          network: ['https://tiles.example.com'],
+          permissions: ['getCaseContext', 'requestEvidence', 'readEvidence']
+        }
+      ]
+    })
+    expect(m.windows[0].handles).toEqual(['logcat', 'dlt-text'])
+    expect(m.windows[0].network).toEqual(['https://tiles.example.com'])
+    expect(m.windows[0].permissions).toEqual(['getCaseContext', 'requestEvidence', 'readEvidence'])
+  })
+
+  it('rejects a non-kebab window id', () => {
+    expect(() =>
+      packManifestSchema.parse({ ...base, windows: [{ id: 'Log_Viewer', kind: 'webPanel', title: 'T', entry: 'i.html' }] })
+    ).toThrow()
+  })
+
+  it('rejects a non-webPanel kind in 3a', () => {
+    expect(() =>
+      packManifestSchema.parse({ ...base, windows: [{ id: 'x', kind: 'externalApp', title: 'T', entry: 'i.html' }] })
+    ).toThrow()
+  })
+
+  it('rejects a write/3b permission verb', () => {
+    expect(() =>
+      packManifestSchema.parse({
+        ...base,
+        windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', permissions: ['emitFinding'] }]
+      })
+    ).toThrow()
+  })
+
+  it('tolerates unknown window keys (passthrough — e.g. future commands[])', () => {
+    const m = packManifestSchema.parse({
+      ...base,
+      windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', commands: [{ id: 'c' }] }]
+    })
+    expect((m.windows[0] as Record<string, unknown>).commands).toEqual([{ id: 'c' }])
+  })
+})
