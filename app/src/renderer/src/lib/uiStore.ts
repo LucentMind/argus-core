@@ -89,6 +89,7 @@ export class UiStore {
     this.set({ theme })
     localStorage.setItem(KEYS.theme, theme)
     this.applyTheme()
+    void window.argus?.panels?.setTheme(theme)
   }
 
   toggleTheme(): void {
