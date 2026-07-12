@@ -34,6 +34,7 @@
     "langfuse": "^3.38.20",
     "lucide-react": "^1.24.0",
     "react-markdown": "^10.1.0",
+    "semver": "^7.6.3",
     "tailwindcss": "^4.3.2",
     "zip-lib": "^1.4.0",
     "zod": "^4.4.3"
@@ -47,6 +48,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/semver": "^7.5.8",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
