@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import semver from 'semver'
 import { SettingsSection, SettingRow } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import type { PacksListPayload, InstalledPackRow } from '../../../../shared/packs'
@@ -61,8 +62,9 @@ export function PacksSettings(): React.JSX.Element {
       const current = payload?.packs.find((p) => p.id === info.id)?.installedVersion ?? null
       if (
         current &&
+        semver.lte(info.version, current) &&
         !window.confirm(
-          `A version of "${info.id}" is already installed (${current}). Install ${info.version} anyway?`
+          `"${info.id}" ${info.version} is not newer than the installed version (${current}). Install anyway?`
         )
       ) {
         return
@@ -114,6 +116,14 @@ export function PacksSettings(): React.JSX.Element {
           {error}
         </div>
       )}
+      {payload.error && (
+        <div
+          role="alert"
+          className="rounded-r2 border border-danger/30 px-3 py-2 text-xs text-danger"
+        >
+          {payload.error}
+        </div>
+      )}
       {needsRelaunch && (
         <div
           role="status"
@@ -123,6 +133,7 @@ export function PacksSettings(): React.JSX.Element {
           <Btn
             variant="primary"
             aria-label="Relaunch now"
+            disabled={busy}
             onClick={() => void window.argus.packs.relaunch()}
           >
             Relaunch now

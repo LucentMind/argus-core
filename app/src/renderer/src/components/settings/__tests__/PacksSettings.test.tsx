@@ -73,12 +73,14 @@ describe('PacksSettings', () => {
     expect(screen.queryByRole('button', { name: 'Uninstall · code-graph' })).not.toBeInTheDocument()
   })
 
-  it('install flow: pick → inspect → install → relaunch prompt', async () => {
+  it('install flow: pick → inspect → install → relaunch prompt (upgrade never prompts)', async () => {
     render(<PacksSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
     await waitFor(() =>
       expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
     )
+    // installed 1.0.0, picked 2.0.0 — a clean upgrade must proceed without a confirm
+    expect(window.confirm).not.toHaveBeenCalled()
     const relaunch = await screen.findByRole('button', { name: 'Relaunch now' })
     fireEvent.click(relaunch)
     expect(packs.relaunch).toHaveBeenCalled()
@@ -102,6 +104,21 @@ describe('PacksSettings', () => {
     packs.inspect = vi.fn().mockResolvedValue({
       id: 'navigation',
       version: '0.9.0',
+      platform: 'win-x64',
+      apiCompatible: true,
+      platformCompatible: true
+    })
+    window.confirm = vi.fn(() => false)
+    render(<PacksSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    expect(packs.install).not.toHaveBeenCalled()
+  })
+
+  it('warns on an equal-version re-install and skips when the user cancels', async () => {
+    packs.inspect = vi.fn().mockResolvedValue({
+      id: 'navigation',
+      version: '1.0.0',
       platform: 'win-x64',
       apiCompatible: true,
       platformCompatible: true
