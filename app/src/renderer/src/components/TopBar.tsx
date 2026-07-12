@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { Sun, Moon, Plus, Settings, Gauge } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
-import wordmark from '../assets/argus-wordmark.svg'
+import wordmarkDark from '../assets/argus-wordmark.svg'
+import wordmarkLight from '../assets/argus-wordmark-light.svg'
 
 const ACTION_BTN =
   'inline-flex h-10 w-10 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink'
@@ -39,7 +40,11 @@ export function TopBar({
         aria-label="All cases"
         title="All cases"
       >
-        <img src={wordmark} alt="Argus" className="h-8 w-auto" />
+        <img
+          src={ui.theme === 'dark' ? wordmarkDark : wordmarkLight}
+          alt="Argus"
+          className="h-8 w-auto"
+        />
       </button>
       <div className="mx-1 h-6 w-px bg-hair" />
       <nav
