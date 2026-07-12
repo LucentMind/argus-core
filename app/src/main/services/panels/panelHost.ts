@@ -3,6 +3,8 @@ import type { PanelKey, PanelInfo, PanelPermission } from '../../../shared/panel
 import type { PanelThemeName } from '../../../shared/panelTheme'
 import { createPanelBridge, type PanelBridge } from './bridge'
 
+export type { PanelKey }
+
 /** Everything PanelHost needs to open a panel (main-side; permissions/entry come from windowDecls, not the renderer). */
 export interface OpenPanelInput extends PanelKey {
   title: string
@@ -47,14 +49,20 @@ export class PanelHost {
   private readonly panels = new Map<string, OpenPanel>()
   private theme: PanelThemeName = 'dark'
 
-  constructor(private readonly deps: { db: DatabaseSync; argusHome: string; factory: PanelViewFactory }) {}
+  constructor(
+    private readonly deps: { db: DatabaseSync; argusHome: string; factory: PanelViewFactory }
+  ) {}
 
   /** Open a panel; idempotent — re-opening focuses and re-points the focus evidence. */
   open(input: OpenPanelInput): PanelInfo {
     const key = keyOf(input)
     const existing = this.panels.get(key)
     if (existing) {
-      existing.input = { ...existing.input, focus: input.focus, sessionId: input.sessionId ?? existing.input.sessionId }
+      existing.input = {
+        ...existing.input,
+        focus: input.focus,
+        sessionId: input.sessionId ?? existing.input.sessionId
+      }
       existing.bridge = this.buildBridge(existing.input)
       existing.view.focus()
       return infoOf(existing)

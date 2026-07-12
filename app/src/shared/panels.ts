@@ -38,7 +38,8 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
     api.getCaseContext = (): Promise<unknown> => invoke(IPC.panelsGetCaseContext)
   }
   if (permissions.includes('requestEvidence')) {
-    api.requestEvidence = (query: string): Promise<unknown> => invoke(IPC.panelsRequestEvidence, query)
+    api.requestEvidence = (query: string): Promise<unknown> =>
+      invoke(IPC.panelsRequestEvidence, query)
   }
   if (permissions.includes('readEvidence')) {
     api.readEvidence = (evidenceId: number, focusLine?: number): Promise<unknown> =>

@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import type { PanelThemeName } from '../../../../shared/panelTheme'
-import { PanelHost, type OpenPanelInput, type PanelView, type PanelViewFactory } from '../panelHost'
+import {
+  PanelHost,
+  type OpenPanelInput,
+  type PanelView,
+  type PanelViewFactory,
+  type PanelKey
+} from '../panelHost'
 
 // A fake WebContentsView recording lifecycle calls; identity = webContentsId.
 class FakeView implements PanelView {
@@ -36,7 +42,7 @@ class FakeView implements PanelView {
 class FakeFactory implements PanelViewFactory {
   created: FakeView[] = []
   private nextId = 100
-  create(_input: OpenPanelInput): PanelView {
+  create(): PanelView {
     const v = new FakeView(this.nextId++)
     this.created.push(v)
     return v
@@ -58,7 +64,7 @@ const input = (over: Partial<OpenPanelInput> = {}): OpenPanelInput => ({
   permissions: ['getCaseContext', 'requestEvidence', 'readEvidence'],
   ...over
 })
-const key = (over: Partial<OpenPanelInput> = {}) => ({
+const key = (over: Partial<OpenPanelInput> = {}): PanelKey => ({
   caseSlug: 'CASE-A',
   packId: 'sample-pack',
   windowId: 'text-viewer',
