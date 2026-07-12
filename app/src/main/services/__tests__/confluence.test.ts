@@ -49,7 +49,7 @@ beforeAll(async () => {
         version: { number: 3 },
         history: { lastUpdated: { when: '2026-07-01T00:00:00.000Z' } },
         children: { page: { size: 2 } },
-        body: { atlas_doc_format: { value: adf('Valhalla request flow') } },
+        body: { atlas_doc_format: { value: adf('Cache request flow') } },
         _links: { base: base + '/wiki', webui: '/spaces/N/pages/101' }
       })
     } else if (url.startsWith('/wiki/rest/api/content/100?')) {
@@ -103,7 +103,7 @@ describe('confluence endpoints', () => {
 
   it('page content converts ADF to markdown and builds the web url', async () => {
     const c = await client().getConfluencePageContent('101')
-    expect(c.markdown).toContain('Valhalla request flow')
+    expect(c.markdown).toContain('Cache request flow')
     expect(c.url).toBe(`${base}/wiki/spaces/N/pages/101`)
     expect(c.node.version).toBe(3)
   })

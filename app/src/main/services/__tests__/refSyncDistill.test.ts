@@ -7,7 +7,7 @@ const input: DistillInput = {
   currentBody: '# Routing\n\nold\n',
   pages: [
     {
-      title: 'Valhalla request tuning',
+      title: 'Cache request tuning',
       url: 'https://x/104',
       markdown: 'tune `costing`',
       pageId: '104',

@@ -4,7 +4,7 @@ import type { LoadedPack } from '../loader'
 import { BinariesService } from '../binaries'
 import { createExtractors, type Extractors } from '../extractors'
 
-/** sample pack's detector declarations (spec Part 1d) — ported from detect.test.ts. */
+/** App Pack's detector declarations (spec Part 1d) — ported from detect.test.ts. */
 export const SAMPLE_DETECTORS = [
   {
     type: 'binlog',
@@ -59,11 +59,11 @@ export const SAMPLE_DETECTORS = [
   }
 ]
 
-/** A PackRegistry seeded with just the sample pack's detectors, for tests that assert domain types. */
+/** A PackRegistry seeded with just the App Pack's detectors, for tests that assert domain types. */
 export function samplePackRegistry(): PackRegistry {
   const manifest = packManifestSchema.parse({
     id: 'sample',
-    displayName: 'Nav',
+    displayName: 'App',
     version: '1',
     argusApi: '^1',
     detectors: SAMPLE_DETECTORS
