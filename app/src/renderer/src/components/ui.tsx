@@ -101,11 +101,16 @@ export function MenuButton({
   label,
   items,
   variant = 'ghost',
+  align = 'right',
   'aria-label': ariaLabel
 }: {
   label: React.ReactNode
   items: MenuItem[]
   variant?: 'primary' | 'ghost' | 'outline'
+  /** Which edge the dropdown anchors to. 'right' opens leftward (default, for
+   *  right-aligned triggers); 'left' opens rightward so triggers near the left
+   *  screen edge don't clip. */
+  align?: 'left' | 'right'
   'aria-label'?: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -139,7 +144,9 @@ export function MenuButton({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
+          className={`absolute z-30 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg ${
+            align === 'left' ? 'left-0' : 'right-0'
+          }`}
         >
           {items.map((it, i) => (
             <button

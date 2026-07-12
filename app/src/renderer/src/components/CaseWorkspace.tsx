@@ -142,6 +142,7 @@ export function CaseWorkspace({
           label={
             status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
           }
+          align="left"
           items={statusItems}
         />
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
@@ -149,6 +150,7 @@ export function CaseWorkspace({
         <MenuButton
           label="Export"
           aria-label="Export case"
+          align="left"
           items={[
             { label: 'Export case…', onSelect: () => void exportBundle(true) },
             { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
