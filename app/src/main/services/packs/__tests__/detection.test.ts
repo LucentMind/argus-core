@@ -26,9 +26,9 @@ describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
   it('detects generic gzip as archive', () => {
     expect(det.detectType(write('logs.tar.gz', zlib.gzipSync(Buffer.from('x'))))).toBe('archive')
   })
-  it('detects BINLOG by magic', () => {
+  it('detects binlog by magic', () => {
     expect(
-      det.detectType(write('trace.bin', Buffer.concat([Buffer.from('BINLOG\x01'), Buffer.alloc(16)])))
+      det.detectType(write('trace.bin', Buffer.concat([Buffer.from('\x44\x4C\x54\x01'), Buffer.alloc(16)])))
     ).toBe('binlog')
   })
   it('detects zip archives', () => {

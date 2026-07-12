@@ -13,7 +13,7 @@ function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
       {
         id: 'sample-parse',
         displayName: 'sample-parse binary',
-        description: 'Rust BINLOG decoder',
+        description: 'Binary log decoder',
         kind: 'exe',
         envVar: 'ARGUS_PARSE_BIN',
         settingsKey: 'parseBin',

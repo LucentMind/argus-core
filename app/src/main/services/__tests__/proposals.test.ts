@@ -112,7 +112,7 @@ describe('accept / reject', () => {
     const f = writeProposal(home, 'NAV-100', {
       type: 'recipe',
       target: 'recipes.md',
-      title: 'BINLOG triage recipe',
+      title: 'binlog triage recipe',
       content: '## Recipe\nsteps\n'
     })
     acceptProposal(home, f)

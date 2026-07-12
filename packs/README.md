@@ -11,8 +11,8 @@ own persona, skills, references, binaries, and detectors, and Core discovers the
 - **User / public packs do NOT live here.** These are **domain-specific** packs — provided
   by a user or vendor for a particular product or workflow — that live in their **own repos,
   outside this repository**. They are loaded in development via `ARGUS_PACKS_DIR` and
-  installed/bundled separately by whoever owns them. A domain pack may be proprietary (e.g. a
-  sample pack built on confidential systems); such packs must **never** be committed here.
+  installed/bundled separately by whoever owns them. A domain pack may be proprietary (built on
+  a vendor's confidential systems); such packs must **never** be committed here.
 
 The boundary is a convention first — internal (generic, first-party) packs are bundled; user
 (domain-specific, external) packs stay out — with the pre-push guard scanning for known

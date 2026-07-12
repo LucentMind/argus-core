@@ -12,11 +12,12 @@ files:
 asarUnpack:
   - resources/**
 extraResources:
-  - from: ../packs/sample/bin-src/trace-rs/target/release/
-    to: bin
+  - from: ../packs
+    to: packs
     filter:
-      - sample-parse
-      - sample-parse.exe
+      - '**/*'
+      - '!**/bin-src/**'
+      - '!**/node_modules/**'
 win:
   executableName: app
 nsis:
