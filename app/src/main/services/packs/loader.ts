@@ -12,9 +12,9 @@ function subdirIfExists(dir: string, name: string): string | null {
   }
 }
 
-/** A window's entry must be a contained relative path (no absolute, no '..'). */
+/** A window's entry must be a contained forward-slash relative path (no absolute, no backslash, no '..'). */
 function entryUnderUi(uiDir: string, entry: string): string | null {
-  if (path.isAbsolute(entry) || entry.split(/[\\/]/).some((seg) => seg === '..' || seg === '')) {
+  if (path.isAbsolute(entry) || entry.includes('\\') || entry.split('/').some((seg) => seg === '..' || seg === '')) {
     return null
   }
   return path.join(uiDir, ...entry.split('/'))

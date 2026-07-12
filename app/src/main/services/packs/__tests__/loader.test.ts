@@ -198,4 +198,19 @@ describe('ui/ + windows[] loading', () => {
     expect(packs).toHaveLength(0)
     expect(errors[0].message).toMatch(/entry|ui\//)
   })
+
+  it('skips a pack whose window entry uses a backslash separator (non-portable path)', () => {
+    pack('nav', {
+      id: 'nav',
+      displayName: 'Nav',
+      version: '1',
+      argusApi: '^1',
+      windows: [{ id: 'v', kind: 'webPanel', title: 'V', entry: 'v\\index.html' }]
+    })
+    fs.mkdirSync(path.join(root, 'nav', 'ui', 'v'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'nav', 'ui', 'v', 'index.html'), '<!doctype html>')
+    const { packs, errors } = loadPacks(root)
+    expect(packs).toHaveLength(0)
+    expect(errors[0].message).toMatch(/entry|ui\//)
+  })
 })
