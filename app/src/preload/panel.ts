@@ -28,7 +28,9 @@ function applyTheme(theme: PanelThemeName): void {
 }
 
 const config = readConfig()
-const argus = buildPanelApi(config.permissions, (channel, ...args) => ipcRenderer.invoke(channel, ...args))
+const argus = buildPanelApi(config.permissions, (channel, ...args) =>
+  ipcRenderer.invoke(channel, ...args)
+)
 
 ipcRenderer.on(IPC.panelsTheme, (_e, theme: PanelThemeName) => applyTheme(theme))
 applyTheme('dark') // themed first paint; PanelHost pushes the real theme on load

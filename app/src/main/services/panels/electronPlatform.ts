@@ -11,7 +11,9 @@ import type { OpenPanelInput, PanelView, PanelViewFactory } from './panelHost'
  * argus-panel://. Reparenting (dock↔float) moves the SAME view, so panel state
  * is preserved (no reload).
  */
-export function createElectronPanelFactory(getMainWindow: () => BrowserWindow | null): PanelViewFactory {
+export function createElectronPanelFactory(
+  getMainWindow: () => BrowserWindow | null
+): PanelViewFactory {
   const cspConfigured = new Set<string>()
 
   return {

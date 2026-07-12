@@ -24,7 +24,10 @@ beforeEach(() => {
   ingestArtifact(db, home, detection, 'CASE-B', FIXTURE)
 })
 
-const bind = (caseSlug: string, permissions: Parameters<typeof createPanelBridge>[0]['permissions']) =>
+const bind = (
+  caseSlug: string,
+  permissions: Parameters<typeof createPanelBridge>[0]['permissions']
+): ReturnType<typeof createPanelBridge> =>
   createPanelBridge({ db, argusHome: home, caseSlug, permissions })
 
 describe('createPanelBridge', () => {

@@ -29,7 +29,9 @@ describe('resolvePanelAsset', () => {
   })
 
   it('rejects a parent-dir traversal', () => {
-    expect(resolvePanelAsset([win], 'argus-panel://sample-pack/text-viewer/../persona.md')).toBeNull()
+    expect(
+      resolvePanelAsset([win], 'argus-panel://sample-pack/text-viewer/../persona.md')
+    ).toBeNull()
   })
 
   it('rejects an absolute or backslash relpath', () => {
@@ -73,7 +75,7 @@ describe('buildPanelCsp', () => {
   })
 
   it('accepts well-formed origins while rejecting malformed ones in the same allowlist', () => {
-    const csp = buildPanelCsp(['https://ok.example.com', "bad; x"])
+    const csp = buildPanelCsp(['https://ok.example.com', 'bad; x'])
     expect(csp).toContain("img-src 'self' data: https://ok.example.com")
     expect(csp).toContain("connect-src 'self' https://ok.example.com")
     expect(csp).not.toContain('bad')

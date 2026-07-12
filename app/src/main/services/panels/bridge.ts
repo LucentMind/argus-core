@@ -55,7 +55,12 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
     bridge.getCaseContext = (): PanelCaseContext => {
       const c = getCase(db, caseSlug)
       if (!c) throw new Error(`panel bound to unknown case: ${caseSlug}`)
-      return { caseSlug: c.slug, caseId: c.id, sessionId: binding.sessionId ?? null, focus: binding.focus }
+      return {
+        caseSlug: c.slug,
+        caseId: c.id,
+        sessionId: binding.sessionId ?? null,
+        focus: binding.focus
+      }
     }
   }
 
