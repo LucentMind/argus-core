@@ -1,11 +1,11 @@
 --------- beginning of main
-07-10 19:44:10.551  5210  5233 I HiveMindNavigator: Navigator instance created, version 3.16.3 (nav-native a90d2e1)
-07-10 19:44:10.590  5210  5233 I HiveMindNavigator: Config: profile=driving, dataVersion=2026_06_25-03_00_00, offline=strict
+07-10 19:44:10.551  5210  5233 I AppService: Navigator instance created, version 3.16.3 (nav-native a90d2e1)
+07-10 19:44:10.590  5210  5233 I AppService: Config: profile=driving, dataVersion=2026_06_25-03_00_00, offline=strict
 07-10 19:44:10.702  5210  5261 D MbxTileStore: TileStore opened at /data/user/0/com.oem2.nav/files/tile_store, quota 400MB
-07-10 19:44:11.310  5210  5233 I NavSDK: RouteOptions: origin=52.5200,13.4050 dest=52.3906,13.0645 alternatives=false
-07-10 19:44:12.077  5210  5261 I MbxTileStore: TileRegion berlin-sw download started (est. 96MB)
+07-10 19:44:11.310  5210  5233 I CoreSDK: RouteOptions: origin=52.5200,13.4050 dest=52.3906,13.0645 alternatives=false
+07-10 19:44:12.077  5210  5261 I MbxTileStore: TileRegion zone-sw download started (est. 96MB)
 07-10 19:44:13.842  5210  5261 E MbxTileStore: TileRegionLoadError: BLOCKED_VERSION region install rejected (dataVersion 2026_06_25-03_00_00)
-07-10 19:44:13.843  5210  5261 W MbxTileStore: Region berlin-sw unavailable — falling back to online tiles
-07-10 19:44:13.901  5210  5233 E NavSDK: Offline routing FAILED for region berlin-sw (offline=strict)
+07-10 19:44:13.843  5210  5261 W MbxTileStore: Region zone-sw unavailable — falling back to online tiles
+07-10 19:44:13.901  5210  5233 E CoreSDK: Offline routing FAILED for region zone-sw (offline=strict)
 07-10 19:44:14.116  5210  902  W ActivityManager: Slow operation: 412ms in com.oem2.nav
-07-10 19:44:15.300  5210  5233 E NavSDK: Route calculation failed: NoRoute (offline strict, region missing)
+07-10 19:44:15.300  5210  5233 E CoreSDK: Route calculation failed: NoRoute (offline strict, region missing)

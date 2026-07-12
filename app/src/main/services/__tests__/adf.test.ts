@@ -18,7 +18,7 @@ describe('adfToMarkdown', () => {
           type: 'paragraph',
           content: [
             { type: 'text', text: 'crash in ' },
-            { type: 'text', text: 'NavSdk', marks: [{ type: 'strong' }] },
+            { type: 'text', text: 'CoreSdk', marks: [{ type: 'strong' }] },
             { type: 'text', text: ' see ' },
             {
               type: 'text',
@@ -30,7 +30,7 @@ describe('adfToMarkdown', () => {
       ])
     )
     expect(md).toContain('## Repro')
-    expect(md).toContain('**NavSdk**')
+    expect(md).toContain('**CoreSdk**')
     expect(md).toContain('[logs](https://x.test/l)')
   })
 

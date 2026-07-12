@@ -86,9 +86,9 @@ it('search filters the reference list via refsync:search-refs (name + content)',
   render(<ReferencesSettings />)
   expect(await screen.findByText('glossary.md')).toBeTruthy()
   fireEvent.change(screen.getByRole('textbox', { name: 'search references' }), {
-    target: { value: 'valhalla' }
+    target: { value: 'scheduler' }
   })
-  await waitFor(() => expect(window.argus.refsync.searchRefs).toHaveBeenCalledWith('valhalla'))
+  await waitFor(() => expect(window.argus.refsync.searchRefs).toHaveBeenCalledWith('scheduler'))
   await waitFor(() => expect(screen.queryByText('glossary.md')).toBeNull())
   expect(screen.getByText('routing-flow.md')).toBeTruthy()
   // clearing the query restores the unfiltered list without another IPC call

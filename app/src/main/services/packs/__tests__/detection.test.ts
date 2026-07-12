@@ -51,7 +51,7 @@ describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
   it('detects applog', () => {
     expect(
       det.detectType(
-        write('log.txt', '07-08 14:23:01.123  1234  1234 I HiveMindNavigator: created\n')
+        write('log.txt', '07-08 14:23:01.123  1234  1234 I AppService: created\n')
       )
     ).toBe('applog')
   })

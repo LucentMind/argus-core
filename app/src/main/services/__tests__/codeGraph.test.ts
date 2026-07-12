@@ -24,8 +24,8 @@ describe('codeGraph helpers', () => {
   })
 
   it('repoIdFor slugs the remote owner/name when a remote exists', () => {
-    expect(repoIdFor('C:\\code\\hivemindtest', 'https://github.com/JiaweiHan88/hivemindtest.git')).toBe(
-      'JiaweiHan88-hivemindtest'
+    expect(repoIdFor('C:\\code\\widget-lib', 'https://github.com/acme/widget-lib.git')).toBe(
+      'acme-widget-lib'
     )
     expect(repoIdFor('/x/y', 'git@github.com:Org/My.Repo.git')).toBe('org-my-repo')
   })
@@ -53,8 +53,8 @@ describe('codeGraph helpers', () => {
   })
 
   it('graphCacheDir nests repoId/scopeKey under graphsRoot', () => {
-    expect(graphCacheDir('C:\\home', 'JiaweiHan88-hivemindtest', '_root')).toBe(
-      path.join('C:\\home', 'graphs', 'JiaweiHan88-hivemindtest', '_root')
+    expect(graphCacheDir('C:\\home', 'acme-widget-lib', '_root')).toBe(
+      path.join('C:\\home', 'graphs', 'acme-widget-lib', '_root')
     )
   })
 

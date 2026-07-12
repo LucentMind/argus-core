@@ -15,20 +15,20 @@ import type { RoutingRule } from '../../../shared/referenceSync'
 const ROUTING_RULES_FIXTURE: RoutingRule[] = [
   { keywords: ['applog', 'log', 'tag', 'signal'], target: 'log-patterns.md' },
   {
-    keywords: ['history recording', 'rec', 'navigator history', 'telemetry'],
+    keywords: ['history recording', 'event log', 'worker history', 'telemetry'],
     target: 'recording-schema.md'
   },
   {
-    keywords: ['routing', 'directions', 'parallel hybrid', 'graph hopper', 'valhalla request'],
+    keywords: ['routing', 'directions', 'queue', 'scheduler', 'cache request'],
     target: 'routing-flow.md'
   },
   {
     keywords: ['tile', 'vector tile', 'datasets', 'dataset version'],
     target: 'data-versioning.md'
   },
-  { keywords: ['valhalla', 'routing engine update'], target: 'valhalla-runbook.md' },
-  { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' },
-  { keywords: ['adasis', 'electronic horizon'], target: 'adasis.md' },
+  { keywords: ['worker', 'pipeline update'], target: 'engine.md' },
+  { keywords: ['binlog', 'pipeline', 'event stream', 'binary log'], target: 'protocol.md' },
+  { keywords: ['graph', 'dependency graph'], target: 'graph.md' },
   { keywords: ['tool', 'mcp', 'debugging tool'], target: 'tool-selection-guide.md' }
 ]
 
@@ -64,7 +64,7 @@ const NODES: Record<string, ConfluencePageNode> = {
   },
   '104': {
     id: '104',
-    title: 'Valhalla request tuning',
+    title: 'Cache request tuning',
     version: 7,
     lastModified: '2026-07-05T00:00:00.000Z',
     hasChildren: false

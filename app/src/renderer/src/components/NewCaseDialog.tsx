@@ -190,7 +190,7 @@ export function NewCaseDialog({
               <div className="flex gap-2">
                 <input
                   className={`${INPUT} min-w-0 flex-1 font-mono`}
-                  placeholder="ticket key (e.g. NAVSDK-1234)"
+                  placeholder="ticket key (e.g. PROJ-1234)"
                   value={ticketKey}
                   onChange={(e) => setTicketKey(e.target.value)}
                 />

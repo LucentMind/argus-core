@@ -1,11 +1,11 @@
 --------- beginning of main
-07-09 08:12:00.101  3101  3120 I HiveMindNavigator: Navigator instance created, version 3.16.2 (nav-native f31c9d8)
-07-09 08:12:00.140  3101  3120 I HiveMindNavigator: Config: profile=sample-dataset, dataVersion=2026_06_25-03_00_00, offline=fallback
+07-09 08:12:00.101  3101  3120 I AppService: Navigator instance created, version 3.16.2 (nav-native f31c9d8)
+07-09 08:12:00.140  3101  3120 I AppService: Config: profile=sample-dataset, dataVersion=2026_06_25-03_00_00, offline=fallback
 07-09 08:12:00.310  3101  3144 D MbxTileStore: TileStore opened at /data/user/0/com.oem.nav/files/tile_store, quota 600MB
-07-09 08:12:01.220  3101  3120 I NavSDK: RouteOptions: origin=48.1374,11.5755 dest=48.3538,11.7861 alternatives=true
-07-09 08:12:02.407  3101  3144 I MbxTileStore: TileRegion munich-north download started (est. 182MB)
+07-09 08:12:01.220  3101  3120 I CoreSDK: RouteOptions: origin=48.1374,11.5755 dest=48.3538,11.7861 alternatives=true
+07-09 08:12:02.407  3101  3144 I MbxTileStore: TileRegion zone-north download started (est. 182MB)
 07-09 08:12:04.912  3101  3144 E MbxTileStore: TileRegionLoadError: BLOCKED_VERSION region install rejected (dataVersion 2026_06_25-03_00_00)
-07-09 08:12:04.913  3101  3144 W MbxTileStore: Region munich-north unavailable — falling back to online tiles
-07-09 08:12:05.001  3101  3120 W NavSDK: Offline routing unavailable for region munich-north
+07-09 08:12:04.913  3101  3144 W MbxTileStore: Region zone-north unavailable — falling back to online tiles
+07-09 08:12:05.001  3101  3120 W CoreSDK: Offline routing unavailable for region zone-north
 07-09 08:12:06.220  3101  812  I ActivityManager: Displayed com.oem.nav/.MainActivity: +1s040ms
-07-09 08:12:08.113  3101  3120 I NavSDK: Route calculated online in 1893ms, 2 alternatives
+07-09 08:12:08.113  3101  3120 I CoreSDK: Route calculated online in 1893ms, 2 alternatives
