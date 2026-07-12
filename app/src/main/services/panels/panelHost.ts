@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { PanelKey, PanelInfo, PanelPermission } from '../../../shared/panels'
+import type { PanelKey, PanelInfo, PanelPermission, PanelRect } from '../../../shared/panels'
 import { panelKeyStr } from '../../../shared/panels'
 import type { PanelThemeName } from '../../../shared/panelTheme'
 import { createPanelBridge, type PanelBridge } from './bridge'
@@ -30,10 +30,17 @@ export interface PanelView {
   dockBack(): void
   destroy(): void
   focus(): void
+  setBounds(rect: PanelRect): void
+  setVisible(visible: boolean): void
+}
+
+/** Out-of-band notifications a real view raises back to the host (e.g. the user OS-closes a floated window). */
+export interface PanelViewHooks {
+  onFloatClosed(): void
 }
 
 export interface PanelViewFactory {
-  create(input: OpenPanelInput): PanelView
+  create(input: OpenPanelInput, hooks: PanelViewHooks): PanelView
 }
 
 interface OpenPanel {
@@ -50,7 +57,12 @@ export class PanelHost {
   private theme: PanelThemeName = 'dark'
 
   constructor(
-    private readonly deps: { db: DatabaseSync; argusHome: string; factory: PanelViewFactory }
+    private readonly deps: {
+      db: DatabaseSync
+      argusHome: string
+      factory: PanelViewFactory
+      onChange?: () => void
+    }
   ) {}
 
   /** Open a panel; idempotent — re-opening focuses and re-points the focus evidence. */
@@ -67,7 +79,15 @@ export class PanelHost {
       existing.view.focus()
       return infoOf(existing)
     }
-    const view = this.deps.factory.create(input)
+    const view = this.deps.factory.create(input, {
+      onFloatClosed: () => {
+        const p = this.panels.get(key)
+        if (p && p.floated) {
+          p.floated = false
+          this.deps.onChange?.()
+        }
+      }
+    })
     const panel: OpenPanel = { input, view, bridge: this.buildBridge(input), floated: false }
     this.panels.set(key, panel)
     view.loadPanel(`argus-panel://${input.packId}/${input.windowId}/${entryBasename(input.entry)}`)
@@ -98,6 +118,14 @@ export class PanelHost {
     if (!p || !p.floated) return
     p.view.dockBack()
     p.floated = false
+  }
+
+  setBounds(key: PanelKey, rect: PanelRect): void {
+    this.panels.get(panelKeyStr(key))?.view.setBounds(rect)
+  }
+
+  setVisible(key: PanelKey, visible: boolean): void {
+    this.panels.get(panelKeyStr(key))?.view.setVisible(visible)
   }
 
   /** Tear down every panel for a case (case switch/close). */

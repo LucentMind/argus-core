@@ -17,6 +17,8 @@ class FakeView implements PanelView {
   docked = 0
   destroyed = false
   focused = 0
+  bounds: Array<{ x: number; y: number; width: number; height: number }> = []
+  visibles: boolean[] = []
   constructor(readonly webContentsId: number) {}
   loadPanel(url: string): void {
     this.loaded.push(url)
@@ -37,14 +39,22 @@ class FakeView implements PanelView {
   focus(): void {
     this.focused++
   }
+  setBounds(rect: { x: number; y: number; width: number; height: number }): void {
+    this.bounds.push(rect)
+  }
+  setVisible(visible: boolean): void {
+    this.visibles.push(visible)
+  }
 }
 
 class FakeFactory implements PanelViewFactory {
   created: FakeView[] = []
+  hooks: Array<{ onFloatClosed(): void }> = []
   private nextId = 100
-  create(): PanelView {
+  create(_input: OpenPanelInput, hooks: { onFloatClosed(): void }): PanelView {
     const v = new FakeView(this.nextId++)
     this.created.push(v)
+    this.hooks.push(hooks)
     return v
   }
 }
@@ -52,6 +62,7 @@ class FakeFactory implements PanelViewFactory {
 const fakeDb = {} as DatabaseSync
 let factory: FakeFactory
 let host: PanelHost
+let changes: number
 
 const input = (over: Partial<OpenPanelInput> = {}): OpenPanelInput => ({
   caseSlug: 'CASE-A',
@@ -73,7 +84,8 @@ const key = (over: Partial<OpenPanelInput> = {}): PanelKey => ({
 
 beforeEach(() => {
   factory = new FakeFactory()
-  host = new PanelHost({ db: fakeDb, argusHome: '/home', factory })
+  changes = 0
+  host = new PanelHost({ db: fakeDb, argusHome: '/home', factory, onChange: () => { changes++ } })
 })
 
 describe('PanelHost lifecycle', () => {
@@ -134,5 +146,28 @@ describe('PanelHost lifecycle', () => {
     host.open(input())
     expect(host.bridgeForWebContents(factory.created[0].webContentsId)).not.toBeNull()
     expect(host.bridgeForWebContents(999)).toBeNull()
+  })
+
+  it('setBounds/setVisible forward to the keyed view', () => {
+    host.open(input())
+    host.setBounds(key(), { x: 10, y: 20, width: 300, height: 400 })
+    host.setVisible(key(), true)
+    expect(factory.created[0].bounds).toEqual([{ x: 10, y: 20, width: 300, height: 400 }])
+    expect(factory.created[0].visibles).toEqual([true])
+  })
+
+  it('setBounds/setVisible are no-ops for an unknown key', () => {
+    expect(() => host.setBounds(key(), { x: 0, y: 0, width: 1, height: 1 })).not.toThrow()
+    expect(() => host.setVisible(key(), false)).not.toThrow()
+  })
+
+  it('an out-of-band float close docks the panel back and fires onChange', () => {
+    host.open(input())
+    host.popOut(key())
+    expect(host.list('CASE-A')[0].floated).toBe(true)
+    const before = changes
+    factory.hooks[0].onFloatClosed() // simulate the user closing the float window
+    expect(host.list('CASE-A')[0].floated).toBe(false)
+    expect(changes).toBe(before + 1)
   })
 })
