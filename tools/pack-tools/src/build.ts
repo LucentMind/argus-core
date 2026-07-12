@@ -14,8 +14,12 @@ export function readManifest(packDir: string): PackManifest {
   if (!fs.existsSync(manifestPath)) {
     throw new Error(`no ${PACK_MANIFEST_FILE} found in ${packDir}`)
   }
-  const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  return packManifestSchema.parse(raw)
+  const raw = fs.readFileSync(manifestPath, 'utf8')
+  try {
+    return packManifestSchema.parse(JSON.parse(raw))
+  } catch (err) {
+    throw new Error(`invalid ${PACK_MANIFEST_FILE} in ${packDir}: ${(err as Error).message}`)
+  }
 }
 
 export function osOf(platform: string): 'win32' | 'darwin' | 'linux' {
@@ -75,8 +79,10 @@ export function assembleBundle(
 ): void {
   fs.mkdirSync(stagingDir, { recursive: true })
 
-  // Manifest with platform stamped in.
-  const stamped = { ...manifest, platform }
+  // Manifest with platform stamped in — re-validate so an invalid platform
+  // fails fast at build time and the emitted manifest round-trips through
+  // the real loader.
+  const stamped = packManifestSchema.parse({ ...manifest, platform })
   fs.writeFileSync(
     path.join(stagingDir, PACK_MANIFEST_FILE),
     JSON.stringify(stamped, null, 2) + '\n'

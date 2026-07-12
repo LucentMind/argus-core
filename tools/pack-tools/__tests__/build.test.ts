@@ -125,6 +125,11 @@ describe('writeChecksums', () => {
 })
 
 describe('build (end-to-end)', () => {
+  it('throws on a malformed --platform (missing arch)', async () => {
+    const out = tmpDir()
+    await expect(build({ packDir: SAMPLE, binDir: BIN, platform: 'mac', outDir: out })).rejects.toThrow()
+  })
+
   it('produces a verifiable named zip', async () => {
     const out = tmpDir()
     const res = await build({ packDir: SAMPLE, binDir: BIN, platform: 'mac-arm64', outDir: out })
