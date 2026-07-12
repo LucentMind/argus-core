@@ -12,6 +12,7 @@ import { BinariesService } from '../binaries'
 
 let home: string
 let state: PacksStateStore
+const bundleDirs: string[] = []
 const HOST = { platform: process.platform, arch: process.arch }
 const isWin = process.platform === 'win32'
 const DEMO = isWin ? 'argus-demo.exe' : 'argus-demo'
@@ -23,11 +24,13 @@ beforeEach(() => {
 afterEach(() => {
   state.close()
   fs.rmSync(home, { recursive: true, force: true })
+  for (const dir of bundleDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
 })
 
 /** Assemble a real host-arch bundle dir: manifest + bin/<host node copy> + valid CHECKSUMS. */
 function makeSampleBundle(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-e2e-bundle-'))
+  bundleDirs.push(dir)
   const manifest = {
     id: 'sample',
     displayName: 'Sample',
@@ -35,7 +38,13 @@ function makeSampleBundle(): string {
     argusApi: '^1',
     platform: describeHost(HOST),
     binaries: [
-      { id: 'argus-demo', kind: 'exe', displayName: 'Demo', names: ['argus-demo'], versionArgs: ['--version'] }
+      {
+        id: 'argus-demo',
+        kind: 'exe',
+        displayName: 'Demo',
+        names: ['argus-demo'],
+        versionArgs: ['--version']
+      }
     ]
   }
   fs.writeFileSync(path.join(dir, 'argus-pack.json'), JSON.stringify(manifest, null, 2) + '\n')
@@ -57,7 +66,13 @@ function makeSampleBundle(): string {
   fs.writeFileSync(
     path.join(dir, 'CHECKSUMS'),
     rels
-      .map((rel) => `${crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, ...rel.split('/')))).digest('hex')}  ${rel}\n`)
+      .map(
+        (rel) =>
+          `${crypto
+            .createHash('sha256')
+            .update(fs.readFileSync(path.join(dir, ...rel.split('/'))))
+            .digest('hex')}  ${rel}\n`
+      )
       .join('')
   )
   return dir
@@ -82,7 +97,7 @@ describe('install → verify → load → resolve → spawn (host-arch sample bu
     const rows = await binaries.probe()
     const demoRow = rows.find((row) => row.id === 'argus-demo')
     expect(demoRow?.ok).toBe(true)
-    expect(demoRow?.chip).toMatch(/found/)
+    expect(demoRow?.chip).toMatch(/found · /)
 
     fs.rmSync(emptySeed, { recursive: true, force: true })
   })
