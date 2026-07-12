@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION } from '../manifest'
+import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION, packWindowSchema } from '../manifest'
 
 describe('packManifestSchema', () => {
   const valid = { id: 'sample', displayName: 'Sample', version: '1.0.0', argusApi: '^1' }
@@ -277,8 +277,6 @@ describe('windows[] schema', () => {
     expect((m.windows[0] as Record<string, unknown>).commands).toEqual([{ id: 'c' }])
   })
 })
-
-import { packWindowSchema } from '../manifest'
 
 describe('packWindowSchema · 3b write permissions', () => {
   it('accepts the write verbs cite/emitFinding/sendToAgent', () => {

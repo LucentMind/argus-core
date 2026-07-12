@@ -29,7 +29,12 @@ class CitationsTray {
     this.emit()
   }
   clear(caseSlug: string, sessionId: number): void {
-    this.byKey.set(keyOf(caseSlug, sessionId), [])
+    const k = keyOf(caseSlug, sessionId)
+    const current = this.byKey.get(k)
+    if (!current || current.length === 0) {
+      return // no-op when already empty
+    }
+    this.byKey.set(k, [])
     this.emit()
   }
   subscribe(cb: () => void): () => void {
