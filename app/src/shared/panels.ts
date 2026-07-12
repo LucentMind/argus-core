@@ -1,5 +1,11 @@
-/** The read-only verbs a 3a panel may be granted. */
-export type PanelPermission = 'getCaseContext' | 'requestEvidence' | 'readEvidence'
+/** The verbs a panel may be granted. Read verbs (3a) + write/collab verbs (3b). */
+export type PanelPermission =
+  | 'getCaseContext'
+  | 'requestEvidence'
+  | 'readEvidence'
+  | 'cite'
+  | 'emitFinding'
+  | 'sendToAgent'
 
 /**
  * The IPC channels the SANDBOXED panel preload uses, inlined here as literals
