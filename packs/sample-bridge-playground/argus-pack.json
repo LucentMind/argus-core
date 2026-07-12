@@ -1,0 +1,24 @@
+{
+  "id": "sample-bridge-playground",
+  "displayName": "Sample Bridge Playground",
+  "version": "0.1.0",
+  "argusApi": "1",
+  "windows": [
+    {
+      "id": "playground",
+      "kind": "webPanel",
+      "title": "Bridge Playground",
+      "entry": "playground/index.html",
+      "handles": [],
+      "network": [],
+      "permissions": [
+        "getCaseContext",
+        "requestEvidence",
+        "readEvidence",
+        "cite",
+        "emitFinding",
+        "sendToAgent"
+      ]
+    }
+  ]
+}
