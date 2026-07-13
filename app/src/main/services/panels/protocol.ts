@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { caseDir } from '../paths'
 
 /** Regex to validate a CSP origin: scheme://host with no whitespace, semicolons, quotes, or angle brackets. */
 const ORIGIN_RE = /^[a-z][a-z0-9+.-]*:\/\/[^\s;'"<>]+$/i
@@ -60,6 +61,50 @@ export function resolvePanelAsset(windows: PanelWindowLoc[], url: string): strin
   return abs
 }
 
+interface CaseUrlParts {
+  caseSlug: string
+  relpath: string
+}
+
+function parseCaseUrl(url: string): CaseUrlParts | null {
+  // Reject URLs containing .. to prevent traversal attempts
+  if (url.includes('..')) return null
+
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'argus-case:') return null
+  const caseSlug = u.hostname
+  let relpath = u.pathname
+  if (relpath.startsWith('/')) relpath = relpath.slice(1)
+  if (!caseSlug || !relpath || relpath.startsWith('/')) return null
+  return { caseSlug, relpath }
+}
+
+/**
+ * Resolve an argus-case:// URL to an absolute file path under the case's
+ * evidence/ dir, or null when the URL is malformed or escapes that directory.
+ * Coarse by design (spec §7): serves any file under evidence/, not just
+ * registered evidence rows — same trust posture argus-panel:// uses for a
+ * pack's own bundle. Does not check the case exists in the DB; a nonexistent
+ * case's evidence dir simply has nothing to read (caller 404s on fs failure).
+ */
+export function resolveCaseAsset(argusHome: string, url: string): string | null {
+  const parts = parseCaseUrl(url)
+  if (!parts) return null
+  // Check relpath for .. segments before any path operations
+  if (parts.relpath.includes('..')) return null
+  if (!isContained(parts.relpath)) return null
+  const evidenceDir = path.join(caseDir(argusHome, parts.caseSlug), 'evidence')
+  const abs = path.join(evidenceDir, ...parts.relpath.split('/'))
+  const rel = path.relative(evidenceDir, abs)
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null
+  return abs
+}
+
 /** MIME type for an argus-panel asset by extension. */
 export function panelContentType(file: string): string {
   const ext = path.extname(file).toLowerCase()
@@ -77,7 +122,15 @@ export function panelContentType(file: string): string {
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
     '.ttf': 'font/ttf',
-    '.map': 'application/json; charset=utf-8'
+    '.map': 'application/json; charset=utf-8',
+    '.pdf': 'application/pdf',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.mp4': 'video/mp4',
+    '.txt': 'text/plain; charset=utf-8',
+    '.log': 'text/plain; charset=utf-8',
+    '.md': 'text/markdown; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8'
   }
   return map[ext] ?? 'application/octet-stream'
 }
