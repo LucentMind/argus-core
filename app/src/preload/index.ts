@@ -319,6 +319,7 @@ const argus = {
     probeTools: () => ipcRenderer.invoke(IPC.settingsProbeTools),
     pickPath: (mode: 'file' | 'directory') => ipcRenderer.invoke(IPC.settingsPickPath, mode),
     reveal: (what: 'dataRoot' | 'settingsFile') => ipcRenderer.invoke(IPC.settingsReveal, what),
+    setDataRoot: (): Promise<{ changed: boolean }> => ipcRenderer.invoke(IPC.settingsSetDataRoot),
     onChanged: (cb: (p: SettingsPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: SettingsPayload): void => cb(p)
       ipcRenderer.on(IPC.settingsChanged, listener)

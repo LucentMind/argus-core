@@ -26,6 +26,7 @@ beforeEach(() => {
       get: vi.fn(async () => payload()),
       patch: vi.fn(async () => payload()),
       reveal: vi.fn(),
+      setDataRoot: vi.fn(async () => ({ changed: true })),
       onChanged: vi.fn(() => () => {})
     },
     workspaces: {
@@ -61,6 +62,27 @@ describe('GeneralSettings', () => {
     expect(screen.getByText(/ARGUS_HOME/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Open folder' }))
     expect(window.argus.settings.reveal).toHaveBeenCalledWith('dataRoot')
+    expect((screen.getByRole('button', { name: 'Change…' }) as HTMLButtonElement).disabled).toBe(
+      true
+    )
+  })
+
+  it('changing the data root confirms, then relaunches into the picked folder', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<GeneralSettings payload={payload((p) => (p.dataRoot.fromEnv = false))} />)
+    const btn = screen.getByRole('button', { name: 'Change…' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    fireEvent.click(btn)
+    expect(window.argus.settings.setDataRoot).toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('changing the data root does nothing if the user cancels the confirm', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<GeneralSettings payload={payload((p) => (p.dataRoot.fromEnv = false))} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change…' }))
+    expect(window.argus.settings.setDataRoot).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
   })
 
   it('shows "not set" and browses for a default repository', async () => {
