@@ -436,6 +436,8 @@ function registerIpc(): void {
   ): { ok: boolean; reason?: string; panel?: unknown } => {
     const w = panelWindow(packId, windowId)
     if (!w) return { ok: false, reason: `unknown panel: ${packId}/${windowId}` }
+    // webPanel-only; Task 6 adds externalApp routing here
+    if (w.decl.kind !== 'webPanel') return { ok: false, reason: `not a webPanel: ${packId}/${windowId}` }
     const info = panelHost!.open({
       caseSlug,
       packId,
@@ -457,6 +459,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
     const w = panelWindow(req.packId, req.windowId)
     if (!w) throw new Error(`unknown panel: ${req.packId}/${req.windowId}`)
+    // webPanel-only; Task 6 adds externalApp routing here
+    if (w.decl.kind !== 'webPanel') throw new Error(`not a webPanel: ${req.packId}/${req.windowId}`)
     const info = panelHost!.open({
       caseSlug: req.caseSlug,
       packId: req.packId,
