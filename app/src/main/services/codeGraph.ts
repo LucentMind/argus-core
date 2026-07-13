@@ -1,11 +1,31 @@
 import crypto from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { GraphStatusRow } from '../../shared/types'
 
 export type { GraphStatusRow }
+
+/** A raw stdout/stderr chunk from a running exec, for live progress reporting. */
+export type ExecOutputCb = (chunk: string) => void
+
+/**
+ * graphify's extract progress lines look like:
+ *   "  AST extraction: 4900/5043 uncached files (97%) [16 workers]"
+ *   "[graphify extract] scanning C:\repo"
+ * Strips the bracketed prefix and pulls out a percentage when present.
+ */
+export function parseProgressLine(
+  line: string
+): { message: string; percent: number | null } | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  const pct = /\((\d{1,3})%\)/.exec(trimmed)
+  const percent = pct ? Math.min(100, Number(pct[1])) : null
+  const message = trimmed.replace(/^\[graphify(?:\s+\w+)?\]\s*/, '')
+  return { message, percent }
+}
 
 export function graphsRoot(argusHome: string): string {
   return path.join(argusHome, 'graphs')
@@ -91,6 +111,44 @@ const GIT_TIMEOUT_MS = 15_000
 
 type Exec = NonNullable<CodeGraphDeps['exec']>
 
+/** Real exec with optional live output streaming (used only when a caller passes onOutput). */
+function execWithProgress(
+  bin: string,
+  args: string[],
+  opts: { timeout: number; cwd?: string },
+  onOutput?: ExecOutputCb
+): Promise<{ stdout: string; stderr: string }> {
+  if (!onOutput) return execFileAsync(bin, args, opts)
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { cwd: opts.cwd, windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(() => {
+      child.kill()
+      reject(new Error(`Command timed out after ${opts.timeout}ms: ${bin} ${args.join(' ')}`))
+    }, opts.timeout)
+    child.stdout.on('data', (d: Buffer) => {
+      const s = d.toString()
+      stdout += s
+      onOutput(s)
+    })
+    child.stderr.on('data', (d: Buffer) => {
+      const s = d.toString()
+      stderr += s
+      onOutput(s)
+    })
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code === 0) resolve({ stdout, stderr })
+      else reject(new Error(`Command failed: ${bin} ${args.join(' ')}\n${stderr}`.trim()))
+    })
+  })
+}
+
 export interface CodeGraphDeps {
   argusHome: string
   pathOf: (id: string) => string | null
@@ -99,7 +157,8 @@ export interface CodeGraphDeps {
   exec?: (
     bin: string,
     args: string[],
-    opts: { timeout: number; cwd?: string }
+    opts: { timeout: number; cwd?: string },
+    onOutput?: ExecOutputCb
   ) => Promise<{ stdout: string; stderr: string }>
 }
 
@@ -109,7 +168,8 @@ export class CodeGraphService {
   private inFlight = new Map<string, Promise<void>>()
 
   constructor(private deps: CodeGraphDeps) {
-    this.exec = deps.exec ?? ((bin, args, opts) => execFileAsync(bin, args, opts))
+    this.exec =
+      deps.exec ?? ((bin, args, opts, onOutput) => execWithProgress(bin, args, opts, onOutput))
   }
 
   /** Always real execFile (never the injected exec): tests build real git fixture repos. */
@@ -164,10 +224,21 @@ export class CodeGraphService {
       const version = await this.exec(bin, ['--version'], { timeout: GIT_TIMEOUT_MS })
         .then((r) => r.stdout.trim())
         .catch(() => null)
+      let buf = ''
+      const onOutput: ExecOutputCb = (chunk) => {
+        buf += chunk
+        const lines = buf.split(/\r?\n/)
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          const p = parseProgressLine(line)
+          if (p) this.deps.broadcast('graph:progress', { repoPath, scope, ...p })
+        }
+      }
       const { stdout, stderr } = await this.exec(
         bin,
         ['extract', target, '--code-only', '--out', cacheDir],
-        { timeout: BUILD_TIMEOUT_MS }
+        { timeout: BUILD_TIMEOUT_MS },
+        onOutput
       )
       fs.writeFileSync(path.join(cacheDir, 'build.log'), stdout + '\n' + stderr)
       const counts = parseExtractCounts(stdout)

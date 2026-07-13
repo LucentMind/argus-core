@@ -12,6 +12,7 @@ import {
   readMeta,
   writeMeta,
   parseExtractCounts,
+  parseProgressLine,
   CodeGraphService,
   type GraphMeta
 } from '../codeGraph'
@@ -98,6 +99,20 @@ describe('codeGraph helpers', () => {
     expect(parseExtractCounts(out)).toEqual({ nodes: 9171, edges: 31372 })
     expect(parseExtractCounts('no summary here')).toEqual({ nodes: null, edges: null })
   })
+
+  it('parseProgressLine extracts a percentage and strips the bracketed prefix', () => {
+    expect(
+      parseProgressLine('  AST extraction: 4900/5043 uncached files (97%) [16 workers]')
+    ).toEqual({
+      message: 'AST extraction: 4900/5043 uncached files (97%) [16 workers]',
+      percent: 97
+    })
+    expect(parseProgressLine('[graphify extract] scanning C:\\repo')).toEqual({
+      message: 'scanning C:\\repo',
+      percent: null
+    })
+    expect(parseProgressLine('   ')).toBeNull()
+  })
 })
 
 /** Real git fixture repo: 2 commits so `behind` is measurable. */
@@ -175,7 +190,8 @@ describe('CodeGraphService', () => {
     expect(exec).toHaveBeenCalledWith(
       'C:\\tools\\graphify.exe',
       expect.arrayContaining(['extract', repo, '--code-only', '--out']),
-      expect.objectContaining({ timeout: 30 * 60 * 1000 })
+      expect.objectContaining({ timeout: 30 * 60 * 1000 }),
+      expect.any(Function)
     )
     expect(broadcast).toHaveBeenCalledWith('graph:building', {
       repoPath: repo,
@@ -188,6 +204,48 @@ describe('CodeGraphService', () => {
       active: false
     })
     expect(broadcast).toHaveBeenCalledWith('graph:changed', { repoPath: repo })
+  })
+
+  it('build streams progress lines from the extract call as graph:progress broadcasts', async () => {
+    const repo = await makeRepo()
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+    const broadcast = vi.fn()
+    const exec = vi.fn(
+      async (_bin: string, args: string[], _opts: unknown, onOutput?: (chunk: string) => void) => {
+        if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' }
+        const outDir = path.join(args[args.indexOf('--out') + 1], 'graphify-out')
+        fs.mkdirSync(outDir, { recursive: true })
+        onOutput?.('[graphify extract] scanning C:\\repo\n  AST extraction: 50/100 files (50%)\n')
+        return {
+          stdout: 'wrote graph.json: 1 nodes, 0 edges',
+          stderr: ''
+        }
+      }
+    )
+    const svc = new CodeGraphService({
+      argusHome: home,
+      pathOf: () => 'g',
+      recompute: vi.fn(),
+      broadcast,
+      exec
+    })
+    svc.build(repo, null)
+    await vi.waitFor(async () => {
+      const rows = await svc.status(repo)
+      expect(rows[0]?.status).toBe('ok')
+    })
+    expect(broadcast).toHaveBeenCalledWith('graph:progress', {
+      repoPath: repo,
+      scope: null,
+      message: 'scanning C:\\repo',
+      percent: null
+    })
+    expect(broadcast).toHaveBeenCalledWith('graph:progress', {
+      repoPath: repo,
+      scope: null,
+      message: 'AST extraction: 50/100 files (50%)',
+      percent: 50
+    })
   })
 
   it('scoped build extracts the subdir and shows a distinct status row', async () => {

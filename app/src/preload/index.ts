@@ -13,7 +13,8 @@ import type {
   ChatSearchResult,
   UnifiedHit,
   ArtifactTypeMeta,
-  GraphStatusRow
+  GraphStatusRow,
+  GraphProgress
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -159,8 +160,10 @@ const argus = {
     onDraft: (
       cb: (p: { caseSlug: string; sessionId: number; text: string }) => void
     ): (() => void) => {
-      const listener = (_e: unknown, p: { caseSlug: string; sessionId: number; text: string }): void =>
-        cb(p)
+      const listener = (
+        _e: unknown,
+        p: { caseSlug: string; sessionId: number; text: string }
+      ): void => cb(p)
       ipcRenderer.on(IPC.panelsDraft, listener)
       return () => ipcRenderer.removeListener(IPC.panelsDraft, listener)
     }
@@ -233,6 +236,11 @@ const argus = {
       const listener = (_e: unknown, p: { repoPath: string }): void => cb(p)
       ipcRenderer.on(IPC.graphChanged, listener)
       return () => ipcRenderer.removeListener(IPC.graphChanged, listener)
+    },
+    onProgress: (cb: (p: GraphProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: GraphProgress): void => cb(p)
+      ipcRenderer.on(IPC.graphProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.graphProgress, listener)
     }
   },
   skills: {

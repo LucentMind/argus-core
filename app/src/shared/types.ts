@@ -158,6 +158,15 @@ export interface GraphStatusRow {
   error?: string
 }
 
+/** Live progress line streamed from a running `graphify extract`, keyed by repo + scope. */
+export interface GraphProgress {
+  repoPath: string
+  scope: string | null
+  message: string
+  /** 0-100 when graphify reports a percentage (e.g. AST extraction), else null. */
+  percent: number | null
+}
+
 export interface ApprovalDecision {
   requestId: string
   kind: 'allow' | 'allow-session' | 'deny'
