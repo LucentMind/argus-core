@@ -526,6 +526,7 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.panelsCloseCase, (_e, caseSlug: string) => {
     panelHost!.closeCase(caseSlug)
+    externalAppHost!.closeCase(caseSlug)
     broadcast(IPC.panelsChanged, undefined)
   })
 
