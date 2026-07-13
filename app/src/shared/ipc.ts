@@ -113,6 +113,7 @@ export const IPC = {
   graphInstall: 'graph:install',
   graphBuilding: 'graph:building',
   graphChanged: 'graph:changed',
+  graphProgress: 'graph:progress',
   // — panels (webPanel host; 3a-2) —
   panelsList: 'panels:list',
   panelsOpen: 'panels:open',
