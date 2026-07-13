@@ -3,6 +3,7 @@ import type { ChatJumpTarget } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
+import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
 import { ToolCallCard } from './ToolCallCard'
@@ -203,7 +204,7 @@ export function ChatPane({
                   i === flashIndex ? 'bg-signal/20' : 'bg-hi'
                 } ${findRingClass(i)}`}
               >
-                {item.text}
+                <CitedText text={item.text} onCite={onCite} />
               </div>
             )
           }
