@@ -15,7 +15,9 @@ export function createElectronProcessSpawner(): ProcessSpawner {
       return {
         pid: child.pid ?? -1,
         writeLine(line) {
-          child.stdin?.write(line.endsWith('\n') ? line : line + '\n')
+          const stdin = child.stdin
+          if (!stdin || stdin.destroyed || stdin.writableEnded) return
+          stdin.write(line.endsWith('\n') ? line : line + '\n')
         },
         onStdoutLine(cb) {
           child.stdout?.on('data', (chunk: string) => cb(chunk))
