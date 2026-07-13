@@ -10,6 +10,7 @@ import { SettingsView } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
 import { citationsTray } from './lib/citationsTray'
+import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
@@ -47,6 +48,15 @@ function App(): React.JSX.Element {
     if (!window.argus?.panels?.onCite) return
     return window.argus.panels.onCite(({ caseSlug, sessionId, relPath, line }) =>
       citationsTray.add(caseSlug, sessionId, { relPath, line })
+    )
+  }, [])
+
+  // single global subscriber: a panel's sendToAgent stages composer text for its
+  // bound session, regardless of which pane/session is focused when it fires
+  useEffect(() => {
+    if (!window.argus?.panels?.onDraft) return
+    return window.argus.panels.onDraft(({ caseSlug, sessionId, text }) =>
+      composerDraft.set(caseSlug, sessionId, text)
     )
   }, [])
 

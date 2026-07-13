@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatJumpTarget } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
+import { composerDraft } from '../lib/composerDraft'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
 import { ToolCallCard } from './ToolCallCard'
@@ -74,6 +75,12 @@ export function ChatPane({
   const citations = useSyncExternalStore(
     (cb) => citationsTray.subscribe(cb),
     () => citationsTray.get(slug, sessionId)
+  )
+  // text a panel staged via sendToAgent for this session, fed to the Composer as
+  // prefill so the user reviews/edits before sending
+  const stagedDraft = useSyncExternalStore(
+    (cb) => composerDraft.subscribe(cb),
+    () => composerDraft.get(slug, sessionId)
   )
   const bottom = useRef<HTMLDivElement>(null)
   const paneRef = useRef<HTMLDivElement>(null)
@@ -237,8 +244,11 @@ export function ChatPane({
       <Composer
         key={`${slug}#${sessionId}`}
         disabled={false}
-        prefill={prefill}
-        onSend={(t) => void window.argus.agent.send(slug, sessionId, t)}
+        prefill={stagedDraft ?? prefill}
+        onSend={(t) => {
+          void window.argus.agent.send(slug, sessionId, t)
+          composerDraft.clear(slug, sessionId)
+        }}
         citations={citations}
         onRemoveCitation={(i) => citationsTray.remove(slug, sessionId, i)}
         onCitationsConsumed={() => citationsTray.clear(slug, sessionId)}
