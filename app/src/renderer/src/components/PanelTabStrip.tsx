@@ -3,7 +3,8 @@ import { X, ExternalLink, PinOff, Plus } from 'lucide-react'
 import { MenuButton } from './ui'
 import { panelsStore } from '../lib/panelsStore'
 import { CHAT_TAB } from '../lib/panelsStore'
-import { panelKeyStr, type PanelInfo, type PanelKey } from '../../../shared/panels'
+import { externalAppsStore } from '../lib/externalAppsStore'
+import { panelKeyStr, type PanelDecl, type PanelInfo, type PanelKey } from '../../../shared/panels'
 
 const keyOf = (p: PanelInfo): PanelKey => ({
   caseSlug: p.caseSlug,
@@ -26,15 +27,28 @@ export function PanelTabStrip({
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
   )
+  const ext = useSyncExternalStore(
+    (cb) => externalAppsStore.subscribe(cb),
+    () => externalAppsStore.get()
+  )
 
-  async function openPanel(packId: string, windowId: string): Promise<void> {
-    await window.argus.panels.open({ caseSlug: slug, packId, windowId, sessionId })
-    onSelect(panelKeyStr({ caseSlug: slug, packId, windowId }))
+  async function launch(d: PanelDecl): Promise<void> {
+    if (d.kind === 'externalApp') {
+      await window.argus.externalApps.open({
+        caseSlug: slug,
+        sessionId,
+        packId: d.packId,
+        windowId: d.windowId
+      })
+      return // external apps get a presence chip, not a tab
+    }
+    await window.argus.panels.open({ caseSlug: slug, packId: d.packId, windowId: d.windowId, sessionId })
+    onSelect(panelKeyStr({ caseSlug: slug, packId: d.packId, windowId: d.windowId }))
   }
 
   const launcherItems = st.decls.map((d) => ({
     label: d.title,
-    onSelect: () => void openPanel(d.packId, d.windowId)
+    onSelect: () => void launch(d)
   }))
 
   return (
@@ -85,6 +99,38 @@ export function PanelTabStrip({
                 void window.argus.panels.close(keyOf(p))
                 if (activeTab === id) onSelect(CHAT_TAB)
               }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )
+      })}
+      {ext.apps.map((a) => {
+        const k = { caseSlug: a.caseSlug, packId: a.packId, windowId: a.windowId }
+        return (
+          <div
+            key={panelKeyStr(a)}
+            className="flex items-center gap-1 rounded border border-hair px-2 py-1 text-xs text-dim"
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${a.status === 'running' ? 'bg-signal' : 'bg-mute'}`}
+            />
+            <span className="max-w-32 truncate">{a.title}</span>
+            {a.status === 'running' && (
+              <button
+                aria-label={`Focus ${a.title}`}
+                title="Focus"
+                className="text-mute hover:text-ink"
+                onClick={() => void window.argus.externalApps.focus(k)}
+              >
+                <ExternalLink size={12} />
+              </button>
+            )}
+            <button
+              aria-label={`Stop ${a.title}`}
+              title="Stop"
+              className="text-mute hover:text-danger"
+              onClick={() => void window.argus.externalApps.stop(k)}
             >
               <X size={12} />
             </button>
