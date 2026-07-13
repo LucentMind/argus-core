@@ -112,12 +112,17 @@ export type PackWindowCommand = z.infer<typeof packWindowCommandSchema>
 export const packWindowSchema = z
   .object({
     id: z.string().regex(KEBAB, 'window id must be kebab-case'),
-    /** 3a supports only 'webPanel'; 'externalApp' arrives in a later Part-3 increment. */
-    kind: z.enum(['webPanel']),
+    /** 'webPanel' = sandboxed WebContentsView (3a/3b); 'externalApp' = spawned native process (3c). */
+    kind: z.enum(['webPanel', 'externalApp']),
     /** Tab label / launcher entry / floated-window title. */
     title: z.string().min(1),
     /** HTML entry path, relative to the pack's ui/ dir. */
     entry: z.string().min(1),
+    /** externalApp only: how Core drives the process. Only 'stdio' is implemented in 3c. */
+    control: z.object({ channel: z.enum(['stdio']) }).optional(),
+    /** externalApp only: 'node' → run `entry` with the app's bundled runtime (Electron-as-node),
+     *  so a JS tool needs no build step. Absent ⇒ spawn `entry` directly as an executable. */
+    runtime: z.enum(['node']).optional(),
     /** Artifact types (Part-1 detector `type`s) this panel renders → drives "Open in <panel>". */
     handles: z.array(z.string().min(1)).default([]),
     /** Docking hint; only 'tab' is honored in 3a. */

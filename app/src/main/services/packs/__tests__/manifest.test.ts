@@ -263,12 +263,6 @@ describe('windows[] schema', () => {
     ).toThrow()
   })
 
-  it('rejects a non-webPanel kind in 3a', () => {
-    expect(() =>
-      packManifestSchema.parse({ ...base, windows: [{ id: 'x', kind: 'externalApp', title: 'T', entry: 'i.html' }] })
-    ).toThrow()
-  })
-
   it('tolerates unknown window keys (passthrough)', () => {
     const parsed = packManifestSchema.parse({
       ...base,
@@ -328,5 +322,55 @@ describe('packWindowSchema · 3b-2 commands', () => {
       description: 'Highlight a line.',
       argDescriptions: { line: '1-based line number' }
     })
+  })
+})
+
+describe('packWindowSchema — externalApp (3c)', () => {
+  it('accepts an externalApp window with a stdio control channel', () => {
+    const w = packWindowSchema.parse({
+      id: 'sim',
+      kind: 'externalApp',
+      title: 'Route Simulator',
+      entry: 'bin/route-sim',
+      control: { channel: 'stdio' },
+      commands: [{ id: 'load', risk: 'low', args: ['scenario'] }]
+    })
+    expect(w.kind).toBe('externalApp')
+    expect(w.control?.channel).toBe('stdio')
+  })
+
+  it('accepts an optional node runtime for build-free script apps', () => {
+    const w = packWindowSchema.parse({
+      id: 'sim',
+      kind: 'externalApp',
+      title: 'Sim',
+      entry: 'app.mjs',
+      control: { channel: 'stdio' },
+      runtime: 'node'
+    })
+    expect(w.runtime).toBe('node')
+  })
+
+  it('rejects an unimplemented control channel', () => {
+    expect(() =>
+      packWindowSchema.parse({
+        id: 'sim',
+        kind: 'externalApp',
+        title: 'Sim',
+        entry: 'bin/sim',
+        control: { channel: 'socket' }
+      })
+    ).toThrow()
+  })
+
+  it('still accepts a webPanel window with no control block', () => {
+    const w = packWindowSchema.parse({
+      id: 'v',
+      kind: 'webPanel',
+      title: 'Viewer',
+      entry: 'v/index.html'
+    })
+    expect(w.kind).toBe('webPanel')
+    expect(w.control).toBeUndefined()
   })
 })
