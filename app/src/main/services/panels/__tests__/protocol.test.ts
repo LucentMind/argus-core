@@ -86,6 +86,17 @@ describe('buildPanelCsp', () => {
     expect(csp).toContain("connect-src 'self' https://ok.example.com")
     expect(csp).not.toContain('bad')
   })
+
+  it('adds the argus-case: scheme + media-src only when allowCaseFiles is set', () => {
+    const withoutCase = buildPanelCsp([])
+    expect(withoutCase).not.toContain('argus-case:')
+    expect(withoutCase).not.toContain('media-src')
+
+    const withCase = buildPanelCsp(['https://tiles.example.com'], { allowCaseFiles: true })
+    expect(withCase).toContain("img-src 'self' data: argus-case: https://tiles.example.com")
+    expect(withCase).toContain("media-src 'self' argus-case: https://tiles.example.com")
+    expect(withCase).toContain("connect-src 'self' argus-case: https://tiles.example.com")
+  })
 })
 
 describe('panelContentType', () => {
