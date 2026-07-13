@@ -21,7 +21,7 @@ export interface OpenPanelInput extends PanelKey {
 /** The outcome of a correlated dispatchToPanel round-trip. */
 export type PanelDispatchResult =
   | { ok: true; result: unknown }
-  | { ok: false; reason: 'panel-not-open' | 'timeout'; hint?: string }
+  | { ok: false; reason: 'panel-not-open' | 'timeout' | 'error'; hint?: string }
 
 /**
  * The Electron surface PanelHost drives, injected so lifecycle logic stays
@@ -201,7 +201,7 @@ export class PanelHost {
       return Promise.resolve({
         ok: false,
         reason: 'panel-not-open',
-        hint: `call mcp__${key.packId}__open_panel first`
+        hint: 'call mcp__argus__open_panel first'
       })
     }
     const requestId = crypto.randomUUID()
@@ -221,7 +221,7 @@ export class PanelHost {
     clearTimeout(entry.timer)
     this.pending.delete(requestId)
     entry.resolve(
-      payload.ok ? { ok: true, result: payload.result } : { ok: false, reason: 'timeout', hint: payload.error }
+      payload.ok ? { ok: true, result: payload.result } : { ok: false, reason: 'error', hint: payload.error }
     )
   }
 

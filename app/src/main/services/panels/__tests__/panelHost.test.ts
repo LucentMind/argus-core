@@ -258,3 +258,40 @@ it('resolveCommand ignores an unknown requestId', () => {
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory: fakeFactory().factory })
   expect(() => host.resolveCommand('nope', { ok: true, result: 1 })).not.toThrow()
 })
+
+it('dispatchToPanel: no reply within dispatchTimeoutMs → structured timeout error', async () => {
+  const factory: PanelViewFactory = {
+    create() {
+      return {
+        webContentsId: 502,
+        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
+        setBounds() {}, setVisible() {},
+        sendCommand() {} // never replies
+      }
+    }
+  }
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, dispatchTimeoutMs: 5 })
+  host.open({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W', entry: 'w/i.html', uiDir: '/ui', network: [], permissions: [], sessionId: 1 })
+  const r = await host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' }, 'highlight', [4])
+  expect(r).toEqual({ ok: false, reason: 'timeout' })
+})
+
+it('dispatchToPanel: panel-side handler error → structured error (not timeout)', async () => {
+  const sent: Array<{ requestId: string; cmd: string; args: unknown[] }> = []
+  const factory: PanelViewFactory = {
+    create() {
+      return {
+        webContentsId: 503,
+        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
+        setBounds() {}, setVisible() {},
+        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) }
+      }
+    }
+  }
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory })
+  host.open({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W', entry: 'w/i.html', uiDir: '/ui', network: [], permissions: [], sessionId: 1 })
+  const p = host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' }, 'highlight', [4])
+  expect(sent).toHaveLength(1)
+  host.resolveCommand(sent[0].requestId, { ok: false, error: 'boom' })
+  expect(await p).toEqual({ ok: false, reason: 'error', hint: 'boom' })
+})
