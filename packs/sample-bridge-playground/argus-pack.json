@@ -20,8 +20,20 @@
         "sendToAgent"
       ],
       "commands": [
-        { "id": "highlight", "risk": "low", "args": ["line"] },
-        { "id": "echo", "risk": "low", "args": ["text"] }
+        {
+          "id": "highlight",
+          "risk": "low",
+          "description": "Scroll the Bridge Playground panel to a line and highlight it. Use when you want to draw the user's attention to a specific line the panel is showing.",
+          "args": ["line"],
+          "argDescriptions": { "line": "1-based line number to highlight" }
+        },
+        {
+          "id": "echo",
+          "risk": "low",
+          "description": "Echo text back through the panel (a no-op demo command for exercising the dispatch round-trip).",
+          "args": ["text"],
+          "argDescriptions": { "text": "arbitrary text the panel will echo in its result" }
+        }
       ]
     }
   ]
