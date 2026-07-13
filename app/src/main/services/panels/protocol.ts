@@ -66,9 +66,15 @@ interface CaseUrlParts {
   relpath: string
 }
 
+/** Matches '..' only as a path segment (bounded by '/' or string start/end), not as a filename substring. */
+const DOTDOT_SEGMENT_RE = /(^|\/)\.\.(\/|$)/
+
 function parseCaseUrl(url: string): CaseUrlParts | null {
-  // Reject URLs containing .. to prevent traversal attempts
-  if (url.includes('..')) return null
+  // Reject '..' path segments (traversal) in the raw URL before WHATWG URL
+  // parsing normalizes them away. This must not match '..' as a bare
+  // substring, or legitimate filenames like "notes..final.pdf" would be
+  // falsely rejected.
+  if (DOTDOT_SEGMENT_RE.test(url)) return null
 
   let u: URL
   try {
@@ -95,8 +101,9 @@ function parseCaseUrl(url: string): CaseUrlParts | null {
 export function resolveCaseAsset(argusHome: string, url: string): string | null {
   const parts = parseCaseUrl(url)
   if (!parts) return null
-  // Check relpath for .. segments before any path operations
-  if (parts.relpath.includes('..')) return null
+  // '..' path-segment traversal is already rejected in parseCaseUrl; the
+  // containment checks below (isContained + the path.relative re-verify)
+  // guard against absolute paths, backslashes, and empty segments.
   if (!isContained(parts.relpath)) return null
   const evidenceDir = path.join(caseDir(argusHome, parts.caseSlug), 'evidence')
   const abs = path.join(evidenceDir, ...parts.relpath.split('/'))
