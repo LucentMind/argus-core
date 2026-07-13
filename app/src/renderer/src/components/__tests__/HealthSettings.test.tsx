@@ -5,9 +5,9 @@ import { HealthSettings } from '../settings/HealthSettings'
 import type { HealthCheckResult, HealthRow } from '../../../../shared/health'
 
 const ROWS: HealthRow[] = [
-  { id: 'bin:tool-x', label: 'Tool X binary' },
-  { id: 'agent', label: 'Agent auth' },
-  { id: 'connector:rovo', label: 'Connector: rovo' }
+  { id: 'bin:tool-x', label: 'Tool X binary', category: 'tools' },
+  { id: 'agent', label: 'Agent auth', category: 'general' },
+  { id: 'connector:rovo', label: 'Connector: rovo', category: 'connectors' }
 ]
 
 let onResultCb: ((r: HealthCheckResult) => void) | null = null
