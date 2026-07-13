@@ -3,7 +3,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { it, expect, vi, beforeEach } from 'vitest'
 import { ReferencesSettings } from '../settings/ReferencesSettings'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
+import { connectorsStore } from '../../lib/connectorsStore'
 import type { RefSyncPayload } from '../../../../shared/referenceSync'
+import type { ConnectorsPayload } from '../../../../shared/connectors'
 
 const payload: RefSyncPayload = {
   config: {
@@ -43,8 +45,28 @@ const payload: RefSyncPayload = {
   ]
 }
 
+const connectorsPayload: ConnectorsPayload = {
+  connectors: {
+    rovo: {
+      kind: 'http',
+      displayName: 'Atlassian Rovo',
+      preset: 'rovo',
+      enabled: true,
+      config: { siteUrl: 'https://example.atlassian.net', apiToken: { $secret: 'rovo/apiToken' } }
+    }
+  },
+  runtime: {},
+  oauth: {},
+  rest: {},
+  loadError: null,
+  secretsAvailable: true,
+  secretsLoadError: null,
+  presets: {}
+}
+
 beforeEach(() => {
   referenceSyncStore.reset()
+  connectorsStore.reset()
   ;(window as unknown as { argus: unknown }).argus = {
     refsync: {
       get: vi.fn(async () => payload),
@@ -54,6 +76,13 @@ beforeEach(() => {
       removeSpace: vi.fn(async () => payload),
       searchRefs: vi.fn(async () => ['routing-flow.md']),
       readRef: vi.fn(async () => ({ file: 'glossary.md', content: '# Glossary\n\nterms\n' }))
+    },
+    connectors: {
+      get: vi.fn(async () => connectorsPayload),
+      patch: vi.fn(async () => connectorsPayload),
+      test: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
+      oauth: vi.fn().mockResolvedValue({ ok: true }),
+      onChanged: vi.fn(() => () => undefined)
     }
   }
 })
