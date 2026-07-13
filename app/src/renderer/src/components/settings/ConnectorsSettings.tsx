@@ -345,6 +345,7 @@ export function ConnectorsSettings(): React.JSX.Element {
         <MenuButton
           label="Add connector"
           variant="primary"
+          align="left"
           aria-label="add connector"
           items={[
             ...Object.entries(payload.presets)

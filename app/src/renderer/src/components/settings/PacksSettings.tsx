@@ -143,16 +143,6 @@ export function PacksSettings(): React.JSX.Element {
         </div>
       )}
       <SettingsSection title="Installed Packs">
-        <div className="flex justify-end px-3 pb-1">
-          <Btn
-            variant="primary"
-            aria-label="Install from file"
-            disabled={busy}
-            onClick={() => void install()}
-          >
-            Install from file…
-          </Btn>
-        </div>
         {payload.packs.length === 0 && (
           <div className="px-3 py-2 text-xs text-dim">No packs installed.</div>
         )}
@@ -186,6 +176,16 @@ export function PacksSettings(): React.JSX.Element {
           </SettingRow>
         ))}
       </SettingsSection>
+      <div>
+        <Btn
+          variant="primary"
+          aria-label="Install from file"
+          disabled={busy}
+          onClick={() => void install()}
+        >
+          Install from file…
+        </Btn>
+      </div>
     </div>
   )
 }
