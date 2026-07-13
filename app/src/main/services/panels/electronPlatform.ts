@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { WebContentsView, BrowserWindow, session as electronSession } from 'electron'
+import { pathToFileURL } from 'node:url'
+import { WebContentsView, BrowserWindow, session as electronSession, net } from 'electron'
 import { IPC } from '../../../shared/ipc'
 import type { PanelThemeName } from '../../../shared/panelTheme'
-import { panelContentType } from './protocol'
+import { panelContentType, resolveCaseAsset } from './protocol'
 import type { OpenPanelInput, PanelView, PanelViewFactory, PanelViewHooks } from './panelHost'
 
 /**
@@ -14,13 +15,19 @@ import type { OpenPanelInput, PanelView, PanelViewFactory, PanelViewHooks } from
  */
 export function createElectronPanelFactory(
   getMainWindow: () => BrowserWindow | null,
-  servePanel: (url: string) => { filePath: string; csp: string } | null
+  servePanel: (url: string) => { filePath: string; csp: string } | null,
+  argusHome: string
 ): PanelViewFactory {
   const partitionReady = new Set<string>()
+  const caseSchemeReady = new Set<string>()
 
   return {
     create(input: OpenPanelInput, hooks: PanelViewHooks): PanelView {
-      const partition = `pack-panel:${input.packId}`
+      // Case-scoped partition (3d-1): a partition never spans two cases, so the
+      // argus-case handler registered on it can safely serve that one case's
+      // evidence dir without needing per-request WebContents identity (which
+      // Electron's protocol.handle doesn't expose).
+      const partition = `pack-panel:${input.packId}:${input.caseSlug}`
       const sess = electronSession.fromPartition(partition)
 
       // Serve argus-panel:// on THIS partition's session (handlers are per-session in
@@ -43,6 +50,22 @@ export function createElectronPanelFactory(
           }
         })
         partitionReady.add(partition)
+      }
+
+      // Registered lazily, and only for a window granted readCaseFiles — an
+      // ungranted window sharing this (pack, case) partition still can't reach it
+      // unless SOME window of the same pack+case opens with the permission first.
+      if (input.permissions.includes('readCaseFiles') && !caseSchemeReady.has(partition)) {
+        sess.protocol.handle('argus-case', async (request) => {
+          const abs = resolveCaseAsset(argusHome, request.url)
+          if (!abs) return new Response('not found', { status: 404 })
+          try {
+            return await net.fetch(pathToFileURL(abs).toString())
+          } catch {
+            return new Response('not found', { status: 404 })
+          }
+        })
+        caseSchemeReady.add(partition)
       }
 
       const view = new WebContentsView({
