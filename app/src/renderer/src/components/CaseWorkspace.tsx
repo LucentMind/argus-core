@@ -13,6 +13,7 @@ import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
+import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { panelKeyStr } from '../../../shared/panels'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type {
@@ -98,8 +99,10 @@ export function CaseWorkspace({
 
   useEffect(() => {
     const off = wirePanelsStore(slug)
+    const offExternalApps = wireExternalAppsStore(slug)
     return () => {
       off()
+      offExternalApps()
       void window.argus.panels.closeCase(slug)
     }
   }, [slug])
