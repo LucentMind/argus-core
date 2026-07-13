@@ -54,7 +54,14 @@ import type {
   ReviewState
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
-import type { OpenPanelRequest, PanelInfo, PanelKey, PanelDecl, PanelRect } from '../shared/panels'
+import type {
+  OpenPanelRequest,
+  PanelInfo,
+  PanelKey,
+  PanelDecl,
+  PanelRect,
+  ExternalAppInfo
+} from '../shared/panels'
 
 // Custom API for renderer
 const argus = {
@@ -167,6 +174,18 @@ const argus = {
       ipcRenderer.on(IPC.panelsDraft, listener)
       return () => ipcRenderer.removeListener(IPC.panelsDraft, listener)
     }
+  },
+  externalApps: {
+    list: (caseSlug?: string): Promise<ExternalAppInfo[]> =>
+      ipcRenderer.invoke(IPC.externalAppsList, caseSlug),
+    open: (req: {
+      caseSlug: string
+      sessionId: number | null
+      packId: string
+      windowId: string
+    }): Promise<unknown> => ipcRenderer.invoke(IPC.externalAppsOpen, req),
+    focus: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.externalAppsFocus, key),
+    stop: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.externalAppsStop, key)
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>

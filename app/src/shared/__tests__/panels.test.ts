@@ -52,9 +52,9 @@ describe('panelKeyStr', () => {
 
 describe('panelHandlesType', () => {
   const decls: PanelDecl[] = [
-    { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat', 'dlt-text'] },
-    { packId: 'p2', windowId: 'w2', title: 'Other', handles: ['pcap'] },
-    { packId: 'p3', windowId: 'w3', title: 'Launcher only', handles: [] }
+    { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat', 'dlt-text'], kind: 'webPanel' },
+    { packId: 'p2', windowId: 'w2', title: 'Other', handles: ['pcap'], kind: 'webPanel' },
+    { packId: 'p3', windowId: 'w3', title: 'Launcher only', handles: [], kind: 'webPanel' }
   ]
   it('returns every decl whose handles include the type', () => {
     expect(panelHandlesType(decls, 'logcat').map((d) => d.windowId)).toEqual(['text-viewer'])

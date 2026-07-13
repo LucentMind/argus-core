@@ -207,7 +207,7 @@ const openInTree: FileNode[] = [
 ]
 
 const openInDecls: PanelDecl[] = [
-  { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat'] }
+  { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat'], kind: 'webPanel' }
 ]
 
 describe('CaseFiles "Open in"', () => {
