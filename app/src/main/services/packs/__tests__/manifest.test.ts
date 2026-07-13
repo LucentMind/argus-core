@@ -272,9 +272,9 @@ describe('windows[] schema', () => {
   it('tolerates unknown window keys (passthrough — e.g. future commands[])', () => {
     const m = packManifestSchema.parse({
       ...base,
-      windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', commands: [{ id: 'c' }] }]
+      windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', commands: [{ id: 'test-cmd', risk: 'low' }] }]
     })
-    expect((m.windows[0] as Record<string, unknown>).commands).toEqual([{ id: 'c' }])
+    expect((m.windows[0] as Record<string, unknown>).commands).toEqual([{ id: 'test-cmd', risk: 'low', args: [] }])
   })
 })
 
@@ -294,5 +294,26 @@ describe('packWindowSchema · 3b write permissions', () => {
         permissions: ['deleteEverything']
       })
     ).toThrow()
+  })
+})
+
+describe('packWindowSchema · 3b-2 commands', () => {
+  it('accepts commands with id/risk/args and defaults args to []', () => {
+    const w = packWindowSchema.parse({
+      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      commands: [{ id: 'highlight', risk: 'low', args: ['line'] }, { id: 'echo', risk: 'medium' }]
+    })
+    expect(w.commands).toEqual([
+      { id: 'highlight', risk: 'low', args: ['line'] },
+      { id: 'echo', risk: 'medium', args: [] }
+    ])
+  })
+  it('rejects a non-kebab command id and an invalid risk', () => {
+    expect(() => packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html', commands: [{ id: 'Bad_Id', risk: 'low' }] })).toThrow()
+    expect(() => packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html', commands: [{ id: 'ok', risk: 'critical' }] })).toThrow()
+  })
+  it('defaults commands to [] when absent', () => {
+    const w = packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html' })
+    expect(w.commands).toEqual([])
   })
 })

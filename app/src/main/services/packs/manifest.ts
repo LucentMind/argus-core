@@ -91,6 +91,19 @@ export const packDetectorSchema = z
 export type MatchRule = z.infer<typeof matchRuleSchema>
 export type PackDetector = z.infer<typeof packDetectorSchema>
 
+export const packWindowCommandSchema = z
+  .object({
+    id: z.string().regex(KEBAB, 'command id must be kebab-case'),
+    title: z.string().min(1).optional(),
+    /** HITL risk, exactly like every other tool. */
+    risk: z.enum(['low', 'medium', 'high']),
+    /** Positional argument names; the agent tool exposes one string param each. */
+    args: z.array(z.string().min(1)).default([])
+  })
+  .passthrough()
+
+export type PackWindowCommand = z.infer<typeof packWindowCommandSchema>
+
 export const packWindowSchema = z
   .object({
     id: z.string().regex(KEBAB, 'window id must be kebab-case'),
@@ -118,7 +131,9 @@ export const packWindowSchema = z
           'sendToAgent'
         ])
       )
-      .default([])
+      .default([]),
+    /** Downstream commands → mcp__<pack>__<window>_<cmd> agent tools (3b-2). */
+    commands: z.array(packWindowCommandSchema).default([])
   })
   .passthrough()
 
