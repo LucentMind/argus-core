@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -71,6 +71,25 @@ describe('resolveBinary (exe)', () => {
   it('returns null when nothing is found and no pathProbeArgs', () => {
     const r = resolveBinary(exeDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
     expect(r).toMatchObject({ value: null, source: null })
+  })
+
+  it('falls back to ~/.local/bin (uv/pipx tool-install default) when PATH misses it', () => {
+    // A long-running process's PATH predates a tool installed after launch (e.g. via
+    // the Settings auto-installer); ~/.local/bin is checked directly so it's picked up
+    // without an app restart.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+    const localBin = mkExe(path.join(home, '.local', 'bin'), 'fake-parse')
+    const spy = vi.spyOn(os, 'homedir').mockReturnValue(home)
+    try {
+      const r = resolveBinary(exeDecl({ devPaths: [] }), {
+        packDir: tmp,
+        envValue: null,
+        settingsValue: undefined
+      })
+      expect(r).toMatchObject({ value: localBin, source: 'path' })
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 

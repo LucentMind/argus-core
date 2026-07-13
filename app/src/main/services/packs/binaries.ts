@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { PackBinary } from './manifest'
@@ -86,6 +87,12 @@ export function resolveBinary(decl: PackBinary, ctx: ResolveCtx): ResolvedBinary
       /* fall through */
     }
   }
+  // `uv tool install` / `pipx install` both default to ~/.local/bin on every platform
+  // (incl. Windows). A long-running app's process.env.PATH is captured at launch, so a
+  // tool installed after Argus started won't resolve via the PATH probe above until
+  // restart — check the well-known install dir directly so it's picked up immediately.
+  const userLocalBinHit = firstExistingExe(path.join(os.homedir(), '.local', 'bin'), decl.names)
+  if (userLocalBinHit) return found(userLocalBinHit, 'path')
   return found(null, null)
 }
 
