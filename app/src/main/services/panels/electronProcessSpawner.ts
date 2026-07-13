@@ -12,6 +12,12 @@ export function createElectronProcessSpawner(): ProcessSpawner {
       })
       child.stdout?.setEncoding('utf8')
       child.stderr?.setEncoding('utf8')
+      // Swallow async stream errors (e.g. EPIPE from a broken-pipe write after the
+      // child dies mid-dispatch) — without a listener these become unhandled 'error'
+      // events on the stream and crash the whole main process.
+      child.stdin?.on('error', () => {})
+      child.stdout?.on('error', () => {})
+      child.stderr?.on('error', () => {})
       return {
         pid: child.pid ?? -1,
         writeLine(line) {
