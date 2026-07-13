@@ -34,6 +34,14 @@ export interface AgentServiceDeps {
   toolRisk?: () => Record<string, RiskLevel>
   /** Composed per session construction (new sessions only), like agentSettings. */
   composeMcp?: () => ComposedMcp
+  /** Open a panel in a given case/session (3b-2); AgentService binds case+session per session. */
+  openPanel?: (
+    caseSlug: string,
+    sessionId: number,
+    packId: string,
+    windowId: string,
+    evidenceId?: number
+  ) => { ok: boolean; reason?: string; panel?: unknown }
 }
 
 const defaultCreateQuery: CreateQueryFn = (args) =>
@@ -113,6 +121,10 @@ export class AgentService {
       agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,
       mcpSkipped: mcp?.skipped,
+      openPanel: this.deps.openPanel
+        ? (packId, windowId, evidenceId) =>
+            this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)
+        : undefined,
       agentOptions: as
         ? (() => {
             const parsed = settingsSchema.parse({ agent: as })
