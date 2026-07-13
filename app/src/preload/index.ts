@@ -155,6 +155,14 @@ const argus = {
       ): void => cb(p)
       ipcRenderer.on(IPC.panelsCiteAdded, listener)
       return () => ipcRenderer.removeListener(IPC.panelsCiteAdded, listener)
+    },
+    onDraft: (
+      cb: (p: { caseSlug: string; sessionId: number; text: string }) => void
+    ): (() => void) => {
+      const listener = (_e: unknown, p: { caseSlug: string; sessionId: number; text: string }): void =>
+        cb(p)
+      ipcRenderer.on(IPC.panelsDraft, listener)
+      return () => ipcRenderer.removeListener(IPC.panelsDraft, listener)
     }
   },
   search: {

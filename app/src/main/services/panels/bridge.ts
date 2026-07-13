@@ -22,7 +22,8 @@ export interface PanelEvidenceDoc {
 
 /** Effectful sink the write verbs call. Injected by PanelHost so bridge.ts stays testable with a fake. */
 export interface PanelWriteSink {
-  sendToAgent(caseSlug: string, sessionId: number, text: string): Promise<number>
+  /** Stage `text` into the bound session's chat composer for the user to review/send (not auto-sent). */
+  sendToAgent(caseSlug: string, sessionId: number, text: string): void
   emitFinding(
     caseSlug: string,
     sessionId: number,
@@ -36,7 +37,7 @@ export interface PanelBridge {
   getCaseContext?(): PanelCaseContext
   requestEvidence?(query: string): SearchHit[]
   readEvidence?(evidenceId: number, focusLine?: number): PanelEvidenceDoc
-  sendToAgent?(text: string): Promise<{ ok: true; turnIndex: number }>
+  sendToAgent?(text: string): { ok: true }
   emitFinding?(input: { title: string; markdown: string }): Promise<{ ok: boolean; findingId?: number }>
   cite?(relPath: string, line: number): { ok: true }
 }
@@ -119,9 +120,9 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
   }
 
   if (sink && granted.has('sendToAgent')) {
-    bridge.sendToAgent = async (text: string): Promise<{ ok: true; turnIndex: number }> => {
-      const turnIndex = await sink.sendToAgent(caseSlug, requireSession(), text)
-      return { ok: true, turnIndex }
+    bridge.sendToAgent = (text: string): { ok: true } => {
+      sink.sendToAgent(caseSlug, requireSession(), text)
+      return { ok: true }
     }
   }
 

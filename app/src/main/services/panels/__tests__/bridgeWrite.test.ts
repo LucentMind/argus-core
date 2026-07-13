@@ -9,9 +9,8 @@ import { createPanelBridge, type PanelWriteSink } from '../bridge'
 
 let home: string, db: DatabaseSync, calls: string[]
 const sink: PanelWriteSink = {
-  async sendToAgent(cs, sid, text) {
+  sendToAgent(cs, sid, text) {
     calls.push(`send:${cs}:${sid}:${text}`)
-    return 7
   },
   async emitFinding(cs, sid, input) {
     calls.push(`finding:${cs}:${sid}:${input.title}`)
@@ -53,7 +52,7 @@ it('omits write verbs when no sink is supplied', () => {
 
 it('routes write verbs to the sink with the bound case+session', async () => {
   const b = bind(['sendToAgent', 'emitFinding', 'cite'], 4)
-  expect(await b.sendToAgent!('look here')).toEqual({ ok: true, turnIndex: 7 })
+  expect(b.sendToAgent!('look here')).toEqual({ ok: true })
   expect(await b.emitFinding!({ title: 'T', markdown: 'm' })).toEqual({ ok: true, findingId: 99 })
   expect(b.cite!('evidence/log.txt', 12)).toEqual({ ok: true })
   expect(calls).toEqual([
@@ -63,7 +62,7 @@ it('routes write verbs to the sink with the bound case+session', async () => {
   ])
 })
 
-it('throws when a write verb is used with no bound session', async () => {
+it('throws when a write verb is used with no bound session', () => {
   const b = bind(['sendToAgent'], null)
-  await expect(b.sendToAgent!('x')).rejects.toThrow(/no bound session/)
+  expect(() => b.sendToAgent!('x')).toThrow(/no bound session/)
 })

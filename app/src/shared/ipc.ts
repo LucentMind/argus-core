@@ -137,6 +137,8 @@ export const IPC = {
   panelsSendToAgent: 'panels:send-to-agent',
   /** main → main-renderer broadcast: a panel cited evidence; the citations tray adds a chip. */
   panelsCiteAdded: 'panels:cite-added',
+  /** main → main-renderer broadcast: a panel staged text via sendToAgent; the composer draft is set. */
+  panelsDraft: 'panels:draft',
   // — panels · command dispatch (3b-2) —
   /** main → panel: deliver a correlated command request (PanelHost.dispatchToPanel). */
   panelsCommand: 'panels:command',
