@@ -164,11 +164,20 @@ function registerIpc(): void {
     return { filePath, csp: buildPanelCsp(owner ? owner.decl.network : []) }
   }
 
+  const panelWriteSink: import('./services/panels/bridge').PanelWriteSink = {
+    sendToAgent: (caseSlug, sessionId, text) => agentService!.send(caseSlug, sessionId, text),
+    emitFinding: (caseSlug, sessionId, input) =>
+      agentService!.emitPanelFinding(caseSlug, sessionId, input),
+    cite: (target, relPath, line) =>
+      broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
+  }
+
   panelHost = new PanelHost({
     db,
     argusHome,
     factory: createElectronPanelFactory(() => mainWindow, servePanel),
-    onChange: () => broadcast(IPC.panelsChanged, undefined)
+    onChange: () => broadcast(IPC.panelsChanged, undefined),
+    writeSink: panelWriteSink
   })
 
   const packsState = new PacksStateStore(argusHome)
@@ -474,6 +483,23 @@ function registerIpc(): void {
     const b = panelHost!.bridgeForWebContents(e.sender.id)
     if (!b?.readEvidence) throw new Error('panel bridge: readEvidence not granted')
     return b.readEvidence(evidenceId, focusLine)
+  })
+
+  // Write bridge (3b) — routed by e.sender.id; each throws when the verb is ungranted or unbound.
+  ipcMain.handle(IPC.panelsSendToAgent, (e, text: string) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.sendToAgent) throw new Error('panel bridge: sendToAgent not granted')
+    return b.sendToAgent(text)
+  })
+  ipcMain.handle(IPC.panelsEmitFinding, (e, input: { title: string; markdown: string }) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.emitFinding) throw new Error('panel bridge: emitFinding not granted')
+    return b.emitFinding(input)
+  })
+  ipcMain.handle(IPC.panelsCite, (e, relPath: string, line: number) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.cite) throw new Error('panel bridge: cite not granted')
+    return b.cite(relPath, line)
   })
 
   // — agent —

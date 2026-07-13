@@ -105,7 +105,13 @@ export function CaseWorkspace({
   }, [slug])
 
   async function openInPanel(evidenceId: number, packId: string, windowId: string): Promise<void> {
-    await window.argus.panels.open({ caseSlug: slug, packId, windowId, focus: { evidenceId } })
+    await window.argus.panels.open({
+      caseSlug: slug,
+      packId,
+      windowId,
+      focus: { evidenceId },
+      sessionId
+    })
     panelsStore.setActiveTab(panelKeyStr({ caseSlug: slug, packId, windowId }))
   }
 
@@ -200,6 +206,7 @@ export function CaseWorkspace({
         <main className="flex min-w-0 flex-1 flex-col">
           <PanelTabStrip
             slug={slug}
+            sessionId={sessionId}
             activeTab={panels.activeTab}
             onSelect={(t) => panelsStore.setActiveTab(t)}
           />
