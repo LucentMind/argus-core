@@ -134,6 +134,12 @@ describe('resolveCaseAsset', () => {
     expect(resolveCaseAsset(home, 'file:///etc/passwd')).toBeNull()
     expect(resolveCaseAsset(home, 'not a url')).toBeNull()
   })
+
+  it('allows a filename that merely contains consecutive dots (not a traversal)', () => {
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A/notes..final.pdf')).toBe(
+      path.join(evidenceDir, 'notes..final.pdf')
+    )
+  })
 })
 
 describe('panelContentType · case-file extensions', () => {
