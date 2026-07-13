@@ -28,9 +28,9 @@ export interface HealthDeps {
 }
 
 const STATIC_ROWS: HealthRow[] = [
-  { id: 'gh', label: 'GitHub CLI auth' },
-  { id: 'agent', label: 'Agent auth' },
-  { id: 'data-root', label: 'Data root writable' }
+  { id: 'gh', label: 'GitHub CLI auth', category: 'general' },
+  { id: 'agent', label: 'Agent auth', category: 'general' },
+  { id: 'data-root', label: 'Data root writable', category: 'general' }
 ]
 
 /** The ex-/doctor checks (spec §2.7). Failures render as chips + fix hints; nothing here throws. */
@@ -39,18 +39,34 @@ export class HealthService {
 
   rows(): HealthRow[] {
     return [
-      ...this.deps.binaries().map((b) => ({ id: `bin:${b.id}`, label: b.label })),
+      ...this.deps
+        .binaries()
+        .map((b) => ({ id: `bin:${b.id}`, label: b.label, category: 'tools' as const })),
       ...STATIC_ROWS,
       ...(this.deps.atlassianConfigured()
-        ? [{ id: 'atlassian-rest', label: 'Atlassian REST (Jira)' }]
+        ? [
+            {
+              id: 'atlassian-rest',
+              label: 'Atlassian REST (Jira)',
+              category: 'connectors' as const
+            }
+          ]
         : []),
       ...(this.deps.refsyncConfigured()
-        ? [{ id: 'confluence-rest', label: 'Atlassian REST (Confluence)' }]
+        ? [
+            {
+              id: 'confluence-rest',
+              label: 'Atlassian REST (Confluence)',
+              category: 'connectors' as const
+            }
+          ]
         : []),
       ...(this.deps.langfuseConfigured()
-        ? [{ id: 'langfuse', label: 'Langfuse (observability)' }]
+        ? [{ id: 'langfuse', label: 'Langfuse (observability)', category: 'connectors' as const }]
         : []),
-      ...this.deps.enabledConnectors().map((c) => ({ id: `connector:${c.id}`, label: c.name }))
+      ...this.deps
+        .enabledConnectors()
+        .map((c) => ({ id: `connector:${c.id}`, label: c.name, category: 'connectors' as const }))
     ]
   }
 

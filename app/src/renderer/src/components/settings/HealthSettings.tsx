@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { CircleX, MonitorCheck, RotateCcw } from 'lucide-react'
-import type { HealthCheckResult, HealthRow } from '../../../../shared/health'
+import {
+  HEALTH_CATEGORIES,
+  HEALTH_CATEGORY_LABELS,
+  type HealthCheckResult,
+  type HealthRow
+} from '../../../../shared/health'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 
@@ -55,43 +60,53 @@ export function HealthSettings(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-4">
-      <SettingsSection title="Health checks">
-        {rows.map((row) => {
-          const r = results[row.id]
-          return (
-            <div key={row.id} className="flex items-start gap-3 px-3 py-2">
-              <span className="w-56 shrink-0">{row.label}</span>
-              {r === 'running' || r == null ? (
-                <Chip tone="neutral">checking…</Chip>
-              ) : r.ok ? (
-                <span title="ok" className="flex shrink-0 items-center">
-                  <MonitorCheck size={16} role="img" aria-label="ok" className="text-signal" />
-                </span>
-              ) : (
-                <span title="fail" className="flex shrink-0 items-center">
-                  <CircleX size={16} role="img" aria-label="fail" className="text-danger" />
-                </span>
-              )}
-              <span className="text-dim min-w-0 flex-1 text-sm">
-                {r !== 'running' && r != null && (
-                  <>
-                    <span className="break-all">{r.detail}</span>
-                    {!r.ok && r.fixHint && <div className="text-mute text-xs">{r.fixHint}</div>}
-                  </>
-                )}
-              </span>
-              <IconBtn
-                aria-label={`re-run · ${row.id}`}
-                title="Re-run check"
-                onClick={() => runOne(row.id)}
-              >
-                <RotateCcw size={14} />
-              </IconBtn>
-            </div>
-          )
-        })}
-        {rows.length === 0 && <div className="text-dim p-3 text-sm">loading…</div>}
-      </SettingsSection>
+      {HEALTH_CATEGORIES.map((category) => {
+        const catRows = rows.filter((r) => r.category === category)
+        if (catRows.length === 0) return null
+        return (
+          <SettingsSection key={category} title={HEALTH_CATEGORY_LABELS[category]}>
+            {catRows.map((row) => {
+              const r = results[row.id]
+              return (
+                <div key={row.id} className="flex items-start gap-3 px-3 py-2">
+                  <span className="w-56 shrink-0">{row.label}</span>
+                  {r === 'running' || r == null ? (
+                    <Chip tone="neutral">checking…</Chip>
+                  ) : r.ok ? (
+                    <span title="ok" className="flex shrink-0 items-center">
+                      <MonitorCheck size={16} role="img" aria-label="ok" className="text-signal" />
+                    </span>
+                  ) : (
+                    <span title="fail" className="flex shrink-0 items-center">
+                      <CircleX size={16} role="img" aria-label="fail" className="text-danger" />
+                    </span>
+                  )}
+                  <span className="text-dim min-w-0 flex-1 text-sm">
+                    {r !== 'running' && r != null && (
+                      <>
+                        <span className="break-all">{r.detail}</span>
+                        {!r.ok && r.fixHint && <div className="text-mute text-xs">{r.fixHint}</div>}
+                      </>
+                    )}
+                  </span>
+                  <IconBtn
+                    aria-label={`re-run · ${row.id}`}
+                    title="Re-run check"
+                    onClick={() => runOne(row.id)}
+                  >
+                    <RotateCcw size={14} />
+                  </IconBtn>
+                </div>
+              )
+            })}
+          </SettingsSection>
+        )
+      })}
+      {rows.length === 0 && (
+        <SettingsSection title="Health checks">
+          <div className="text-dim p-3 text-sm">loading…</div>
+        </SettingsSection>
+      )}
       <div>
         <Btn variant="outline" onClick={runAll} disabled={running}>
           Run all checks
