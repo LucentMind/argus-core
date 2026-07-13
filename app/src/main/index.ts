@@ -163,11 +163,13 @@ function registerIpc(): void {
   // The pack partition's protocol handler (registered in the factory) calls this — the
   // handler must live on the panel's partition session, not the default session.
   const servePanel = (url: string): { filePath: string; csp: string } | null => {
-    const decls = packRegistry.windowDecls()
+    // webPanel-only: externalApp windows have uiDir === null and are routed
+    // elsewhere (Task 6); including them here would let a crafted
+    // argus-panel://<extpack>/<extwin>/... request reach path.join(null, …).
+    const decls = packRegistry.windowDecls().filter((w) => w.decl.kind === 'webPanel')
     const locs: PanelWindowLoc[] = decls.map((w) => ({
       packId: w.packId,
       windowId: w.decl.id,
-      // webPanel-only; Task 6 routes externalApp before this
       uiDir: w.uiDir as string,
       entry: w.decl.entry
     }))
