@@ -81,7 +81,16 @@ export class ExternalAppHost {
   }
 
   stop(key: PanelKey): void {
-    this.terminate(panelKeyStr(key))
+    const k = panelKeyStr(key)
+    const app = this.apps.get(k)
+    if (app && app.status === 'exited') {
+      // A spent chip's Stop button becomes a dismiss: an already-exited app
+      // never re-enters terminate(), so this is the only way to clear it.
+      this.apps.delete(k)
+      this.deps.onChange?.()
+      return
+    }
+    this.terminate(k)
   }
 
   dispatchToProcess(key: PanelKey, cmd: string, args: unknown[]): Promise<DispatchResult> {
@@ -160,6 +169,7 @@ export class ExternalAppHost {
   private terminate(key: string): void {
     const app = this.apps.get(key)
     if (!app || app.status !== 'running') return
+    if (app.killTimer) return // a kill is already in flight — don't send a second SIGTERM/leak the timer
     app.handle.kill('SIGTERM')
     app.killTimer = setTimeout(() => {
       if (this.apps.get(key)?.status === 'running') app.handle.kill('SIGKILL')
@@ -169,7 +179,11 @@ export class ExternalAppHost {
   private appendLog(input: OpenExternalAppInput, chunk: string): void {
     try {
       fs.mkdirSync(this.deps.logDir, { recursive: true })
-      fs.appendFileSync(path.join(this.deps.logDir, `${input.packId}_${input.windowId}.log`), chunk)
+      const caseSlug = input.caseSlug.replace(/[^a-zA-Z0-9._-]/g, '-')
+      fs.appendFileSync(
+        path.join(this.deps.logDir, `${caseSlug}_${input.packId}_${input.windowId}.log`),
+        chunk
+      )
     } catch {
       // logging is best-effort
     }

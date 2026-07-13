@@ -166,4 +166,22 @@ describe('ExternalAppHost', () => {
     expect(host.list('CASE-A')[0].status).toBe('exited')
     expect(changes).toBeGreaterThan(0)
   })
+
+  it('stop on an exited app dismisses it from list() and fires onChange', () => {
+    host.open(input())
+    spawner.handles[0].emitExit(0)
+    expect(host.list('CASE-A').length).toBe(1)
+    const before = changes
+    host.stop(input())
+    expect(host.list('CASE-A').length).toBe(0)
+    expect(changes).toBeGreaterThan(before)
+  })
+
+  it('stop on a running app still terminates (existing behavior intact)', () => {
+    host.open(input())
+    host.stop(input())
+    expect(spawner.handles[0].killed).toContain('SIGTERM')
+    expect(host.list('CASE-A').length).toBe(1)
+    expect(host.list('CASE-A')[0].status).toBe('running')
+  })
 })
