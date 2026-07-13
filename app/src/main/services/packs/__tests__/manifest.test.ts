@@ -316,4 +316,17 @@ describe('packWindowSchema · 3b-2 commands', () => {
     const w = packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html' })
     expect(w.commands).toEqual([])
   })
+  it('accepts a command description + per-arg descriptions', () => {
+    const w = packWindowSchema.parse({
+      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      commands: [
+        { id: 'highlight', risk: 'low', args: ['line'],
+          description: 'Highlight a line.', argDescriptions: { line: '1-based line number' } }
+      ]
+    })
+    expect(w.commands[0]).toMatchObject({
+      description: 'Highlight a line.',
+      argDescriptions: { line: '1-based line number' }
+    })
+  })
 })
