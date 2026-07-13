@@ -6,7 +6,29 @@ import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
+import { useConnectorsPayload } from '../../lib/connectorsStore'
+import {
+  connectorConfig,
+  isSecretRef,
+  type HttpConnectorConfig
+} from '../../../../shared/connectors'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
+
+/** Atlassian (Rovo preset) token state, checked client-side before the user hits Sync. */
+function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayload>): string | null {
+  if (!connectors) return null
+  const entry = Object.entries(connectors.connectors).find(([, inst]) => inst.preset === 'rovo')
+  if (!entry)
+    return 'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
+  const [instanceId, inst] = entry
+  const restError = connectors.rest[instanceId]
+  if (restError) return `Atlassian API token looks outdated: ${restError}`
+  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+  if (!(cfg.siteUrl ?? '').trim() || !isSecretRef(cfg.apiToken)) {
+    return 'Atlassian API token is not set — configure it on the Atlassian connector (Settings → Connectors) before syncing.'
+  }
+  return null
+}
 
 /**
  * References settings page (spec §3.2 step 5): Confluence space cards (sync,
@@ -15,6 +37,8 @@ import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
  */
 export function ReferencesSettings(): React.JSX.Element {
   const payload = useRefSyncPayload()
+  const connectors = useConnectorsPayload()
+  const tokenWarning = atlassianTokenWarning(connectors)
   const [dialog, setDialog] = useState<null | { existing?: SpaceConfig }>(null)
   const [report, setReport] = useState<SyncReport | null>(null)
   const [viewer, setViewer] = useState<string | null>(null)
@@ -69,6 +93,14 @@ export function ReferencesSettings(): React.JSX.Element {
           </span>
         </div>
       )}
+      {tokenWarning && (
+        <div
+          role="alert"
+          className="flex items-center gap-3 rounded-r2 border border-review/40 bg-review/10 px-3 py-2 text-xs text-review"
+        >
+          <span className="flex-1">{tokenWarning}</span>
+        </div>
+      )}
       <SettingsSection title="Confluence spaces">
         {(payload?.cards ?? []).map((card) => {
           const space = payload?.config.spaces.find((s) => s.key === card.key)
@@ -96,8 +128,8 @@ export function ReferencesSettings(): React.JSX.Element {
                   </span>
                   <IconBtn
                     aria-label={`sync · ${card.key}`}
-                    title="Sync space"
-                    disabled={syncing === card.key}
+                    title={tokenWarning ?? 'Sync space'}
+                    disabled={syncing === card.key || Boolean(tokenWarning)}
                     onClick={() => void syncNow(card.key)}
                     className="h-5 w-5"
                   >
