@@ -138,5 +138,7 @@ export const IPC = {
   panelsCiteAdded: 'panels:cite-added',
   // — panels · command dispatch (3b-2) —
   /** main → panel: deliver a correlated command request (PanelHost.dispatchToPanel). */
-  panelsCommand: 'panels:command'
+  panelsCommand: 'panels:command',
+  /** panel → main: reply to a dispatched command (routes to PanelHost.resolveCommand). */
+  panelsCommandResult: 'panels:command-result'
 } as const

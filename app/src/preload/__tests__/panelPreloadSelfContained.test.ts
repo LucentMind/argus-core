@@ -30,7 +30,8 @@ describe('panel preload stays self-contained (sandbox:true single-file)', () => 
       emitFinding: IPC.panelsEmitFinding,
       sendToAgent: IPC.panelsSendToAgent,
       theme: IPC.panelsTheme,
-      command: IPC.panelsCommand
+      command: IPC.panelsCommand,
+      commandResult: IPC.panelsCommandResult
     })
   })
 })
