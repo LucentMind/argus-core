@@ -22,7 +22,8 @@ beforeEach(() => {
       build: vi.fn(),
       install: vi.fn(),
       onBuilding: vi.fn(() => () => {}),
-      onChanged: vi.fn(() => () => {})
+      onChanged: vi.fn(() => () => {}),
+      onProgress: vi.fn(() => () => {})
     }
   }
 })

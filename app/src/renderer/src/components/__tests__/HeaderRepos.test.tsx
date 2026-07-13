@@ -27,7 +27,8 @@ beforeEach(() => {
       build: vi.fn(async () => ({ started: true })),
       install: vi.fn(async () => ({ ok: true, log: '' })),
       onBuilding: vi.fn(() => () => {}),
-      onChanged: vi.fn(() => () => {})
+      onChanged: vi.fn(() => () => {}),
+      onProgress: vi.fn(() => () => {})
     }
   } as never
 })

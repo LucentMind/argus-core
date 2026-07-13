@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Waypoints } from 'lucide-react'
-import type { GraphStatusRow } from '../../../shared/types'
+import type { GraphProgress, GraphStatusRow } from '../../../shared/types'
 import { IconBtn } from './ui'
 
 export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.Element {
@@ -11,6 +11,7 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
   const [installLog, setInstallLog] = useState<string | null>(null)
   const [installing, setInstalling] = useState(false)
   const [buildError, setBuildError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<GraphProgress | null>(null)
 
   const reload = useCallback(
     (): Promise<void> => window.argus.graph.status(repoPath).then(setRows),
@@ -19,14 +20,21 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
   useEffect(() => {
     void reload()
     const offB = window.argus.graph.onBuilding((p) => {
-      if (p.repoPath === repoPath) void reload()
+      if (p.repoPath === repoPath) {
+        if (p.active) setProgress(null)
+        void reload()
+      }
     })
     const offC = window.argus.graph.onChanged((p) => {
       if (p.repoPath === repoPath) void reload()
     })
+    const offP = window.argus.graph.onProgress((p) => {
+      if (p.repoPath === repoPath) setProgress(p)
+    })
     return () => {
       offB()
       offC()
+      offP()
     }
   }, [repoPath, reload])
 
@@ -69,10 +77,26 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
         <Waypoints size={12} />
       </IconBtn>
       {open && (
-        <div className="absolute left-0 top-6 z-20 w-64 rounded-r2 border border-hair bg-deep p-2 text-xs shadow-lg">
+        <div className="absolute left-0 top-6 z-30 max-h-96 w-80 overflow-y-auto rounded-r2 border border-hair bg-deep p-2 text-xs shadow-lg">
           {rows.map((r) => (
             <div key={r.scopeKey} className="mb-1">
-              {r.status === 'building' && <span>building…</span>}
+              {r.status === 'building' && (
+                <div className="flex flex-col gap-1">
+                  <span>{progress?.message || 'building…'}</span>
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-hair">
+                    <div
+                      className={
+                        progress?.percent != null
+                          ? 'h-full rounded-full bg-signal transition-[width]'
+                          : 'h-full w-1/3 animate-pulse rounded-full bg-signal'
+                      }
+                      style={
+                        progress?.percent != null ? { width: `${progress.percent}%` } : undefined
+                      }
+                    />
+                  </div>
+                </div>
+              )}
               {r.status === 'none' && <span>no graph yet</span>}
               {r.status === 'ok' && (
                 <span>
@@ -83,9 +107,10 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
                 </span>
               )}
               {r.status === 'failed' && (
-                <span className="text-danger">
-                  build failed{r.error ? ` — ${r.error.slice(0, 120)}` : ''}
-                </span>
+                <div className="text-danger">
+                  <div>build failed</div>
+                  {r.error && <div className="whitespace-pre-wrap break-all">{r.error}</div>}
+                </div>
               )}
             </div>
           ))}
