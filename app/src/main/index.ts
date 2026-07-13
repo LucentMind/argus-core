@@ -501,6 +501,11 @@ function registerIpc(): void {
     if (!b?.cite) throw new Error('panel bridge: cite not granted')
     return b.cite(relPath, line)
   })
+  ipcMain.on(
+    IPC.panelsCommandResult,
+    (_e, p: { requestId: string; ok: boolean; result?: unknown; error?: string }) =>
+      panelHost!.resolveCommand(p.requestId, p)
+  )
 
   // — agent —
   agentService = new AgentService({
