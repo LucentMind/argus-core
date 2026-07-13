@@ -46,6 +46,10 @@ class FakeView implements PanelView {
   setVisible(visible: boolean): void {
     this.visibles.push(visible)
   }
+  sent: Array<{ requestId: string; cmd: string; args: unknown[] }> = []
+  sendCommand(requestId: string, cmd: string, args: unknown[]): void {
+    this.sent.push({ requestId, cmd, args })
+  }
 }
 
 class FakeFactory implements PanelViewFactory {
@@ -194,7 +198,7 @@ function fakeFactory(): { factory: PanelViewFactory; views: PanelView[] } {
       const view: PanelView = {
         webContentsId: id,
         loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {},
-        destroy() {}, focus() {}, setBounds() {}, setVisible() {}
+        destroy() {}, focus() {}, setBounds() {}, setVisible() {}, sendCommand() {}
       }
       views.push(view)
       return view
@@ -220,4 +224,37 @@ it('builds a bridge with write verbs when a sink + write permission are present'
   expect(typeof bridge.sendToAgent).toBe('function')
   expect(typeof bridge.cite).toBe('function')
   expect(bridge.emitFinding).toBeUndefined()
+})
+
+it('dispatchToPanel: delivers to an open panel and resolves with the reply', async () => {
+  const sent: Array<{ requestId: string; cmd: string; args: unknown[] }> = []
+  const factory: PanelViewFactory = {
+    create() {
+      const id = 501
+      return {
+        webContentsId: id,
+        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
+        setBounds() {}, setVisible() {},
+        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) }
+      }
+    }
+  }
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory })
+  host.open({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W', entry: 'w/i.html', uiDir: '/ui', network: [], permissions: [], sessionId: 1 })
+  const p = host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' }, 'highlight', [4])
+  // the host sent a correlated request; simulate the panel replying
+  expect(sent).toHaveLength(1)
+  host.resolveCommand(sent[0].requestId, { ok: true, result: { echoed: [4] } })
+  expect(await p).toEqual({ ok: true, result: { echoed: [4] } })
+})
+
+it('dispatchToPanel: closed panel → structured panel-not-open error (no auto-open)', async () => {
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory: fakeFactory().factory })
+  const r = await host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'nope' }, 'x', [])
+  expect(r).toMatchObject({ ok: false, reason: 'panel-not-open' })
+})
+
+it('resolveCommand ignores an unknown requestId', () => {
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory: fakeFactory().factory })
+  expect(() => host.resolveCommand('nope', { ok: true, result: 1 })).not.toThrow()
 })
