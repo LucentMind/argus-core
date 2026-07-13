@@ -10,6 +10,8 @@ export interface RiskContext {
   toolRisk?: Record<string, RiskLevel>
   /** Pack-declared CLI binary names (PackRegistry.binaryDecls), auto-allowlisted as LOW. */
   packCliNames?: string[]
+  /** Per-command risk for pack panel commands, keyed by full tool name (3b-2). */
+  panelCommandRisk?: Record<string, 'low' | 'medium' | 'high'>
 }
 
 export type RiskVerdict =
@@ -26,6 +28,7 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   // Inert until accepted on the Skills page (spec §2.4) — writing a proposal steers nothing.
   mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },
+  mcp__argus__open_panel: { action: 'allow', risk: 'LOW' },
   mcp__argus__update_case_status: {
     action: 'ask',
     risk: 'MEDIUM',
@@ -191,6 +194,19 @@ export function classifyToolCall(
 ): RiskVerdict {
   const native = NATIVE_RISK[toolName]
   if (native) return native
+
+  const pcRisk = ctx.panelCommandRisk?.[toolName]
+  if (pcRisk) {
+    if (pcRisk === 'low') return { action: 'allow', risk: 'LOW' }
+    if (pcRisk === 'high')
+      return { action: 'ask', risk: 'HIGH', grantKey: null, reason: `Panel command: ${toolName}` }
+    return {
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: `medium:${toolName}`,
+      reason: `Panel command: ${toolName}`
+    }
+  }
 
   if (FS_READ_TOOLS.includes(toolName) || FS_WRITE_TOOLS.includes(toolName)) {
     const p = (input.file_path ?? input.path ?? input.notebook_path) as string | undefined
