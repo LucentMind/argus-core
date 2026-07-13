@@ -91,6 +91,8 @@ import { listInstalledPacks } from './services/packs/packsService'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
 import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './services/panels/protocol'
+import { ExternalAppHost } from './services/panels/externalAppHost'
+import { createElectronProcessSpawner } from './services/panels/electronProcessSpawner'
 import type { OpenPanelRequest, PanelKey, PanelPermission, PanelRect } from '../shared/panels'
 import type {
   ApprovalDecision,
@@ -111,6 +113,7 @@ let agentService: AgentService | null = null
 let langfuseExporter: LangfuseExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let panelHost: PanelHost | null = null
+let externalAppHost: ExternalAppHost | null = null
 
 // D1 spike instrumentation (exit-check step 7): ARGUS_LOOP_METRICS=1 logs
 // main-process event-loop delay percentiles every 30s. Threshold: p99 < 50ms
@@ -188,6 +191,12 @@ function registerIpc(): void {
     factory: createElectronPanelFactory(() => mainWindow, servePanel),
     onChange: () => broadcast(IPC.panelsChanged, undefined),
     writeSink: panelWriteSink
+  })
+
+  externalAppHost = new ExternalAppHost({
+    spawner: createElectronProcessSpawner(),
+    logDir: path.join(argusHome, 'logs', 'external-app'),
+    onChange: () => broadcast(IPC.panelsChanged, undefined)
   })
 
   const packsState = new PacksStateStore(argusHome)
@@ -436,15 +445,25 @@ function registerIpc(): void {
   ): { ok: boolean; reason?: string; panel?: unknown } => {
     const w = panelWindow(packId, windowId)
     if (!w) return { ok: false, reason: `unknown panel: ${packId}/${windowId}` }
-    // webPanel-only; Task 6 adds externalApp routing here
-    if (w.decl.kind !== 'webPanel') return { ok: false, reason: `not a webPanel: ${packId}/${windowId}` }
+    if (w.decl.kind === 'externalApp') {
+      const info = externalAppHost!.open({
+        caseSlug,
+        packId,
+        windowId,
+        title: w.decl.title,
+        entry: path.join(w.packDir, ...w.decl.entry.split('/')),
+        cwd: w.packDir,
+        runtime: w.decl.runtime
+      })
+      broadcast(IPC.panelsChanged, undefined)
+      return { ok: true, panel: info }
+    }
     const info = panelHost!.open({
       caseSlug,
       packId,
       windowId,
       title: w.decl.title,
       entry: w.decl.entry,
-      // webPanel-only; Task 6 routes externalApp before this
       uiDir: w.uiDir as string,
       network: w.decl.network,
       permissions: w.decl.permissions as PanelPermission[],
@@ -571,8 +590,12 @@ function registerIpc(): void {
     toolRisk: () => toolRiskStore.get(),
     openPanel: openPanelFor,
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
-    dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) =>
-      panelHost!.dispatchToPanel({ caseSlug, packId, windowId }, cmd, args),
+    dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) => {
+      const w = panelWindow(packId, windowId)
+      return w?.decl.kind === 'externalApp'
+        ? externalAppHost!.dispatchToProcess({ caseSlug, packId, windowId }, cmd, args)
+        : panelHost!.dispatchToPanel({ caseSlug, packId, windowId }, cmd, args)
+    },
     mirrorFactory: (caseSlug, sessionId) =>
       new SessionMirror(
         db,
@@ -794,6 +817,7 @@ function registerIpc(): void {
     }
     deleteCase(db, argusHome, slug)
     panelHost?.closeCase(slug)
+    externalAppHost?.closeCase(slug)
   })
 
   // — skills —
@@ -1159,6 +1183,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   panelHost?.closeAll()
+  externalAppHost?.closeAll()
   void agentService?.stopAll()
   void langfuseExporter?.flush()
 })

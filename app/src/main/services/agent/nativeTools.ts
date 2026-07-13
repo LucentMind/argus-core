@@ -276,7 +276,7 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
       ),
       tool(
         'open_panel',
-        "Open or focus a pack's webPanel in this case, optionally on a specific evidence item. Returns {ok, panel|reason}. Call this before a panel command if the panel may be closed.",
+        "Open or focus a pack's window (webPanel or externalApp) in this case, optionally on a specific evidence item (webPanel only). Returns {ok, panel|reason}. Call this before a panel/app command if it may be closed.",
         { pack_id: z.string(), window_id: z.string(), evidence_id: z.number().optional() },
         async (a) => asText(await h.open_panel(a))
       )
