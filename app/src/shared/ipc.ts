@@ -144,5 +144,10 @@ export const IPC = {
   /** main → panel: deliver a correlated command request (PanelHost.dispatchToPanel). */
   panelsCommand: 'panels:command',
   /** panel → main: reply to a dispatched command (routes to PanelHost.resolveCommand). */
-  panelsCommandResult: 'panels:command-result'
+  panelsCommandResult: 'panels:command-result',
+  // — external apps (3c) —
+  externalAppsList: 'external-apps:list',
+  externalAppsOpen: 'external-apps:open',
+  externalAppsFocus: 'external-apps:focus',
+  externalAppsStop: 'external-apps:stop'
 } as const

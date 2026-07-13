@@ -478,7 +478,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
     const w = panelWindow(req.packId, req.windowId)
     if (!w) throw new Error(`unknown panel: ${req.packId}/${req.windowId}`)
-    // webPanel-only; Task 6 adds externalApp routing here
+    // webPanel-only by design; external apps use their own IPC (external-apps:open)
     if (w.decl.kind !== 'webPanel') throw new Error(`not a webPanel: ${req.packId}/${req.windowId}`)
     const info = panelHost!.open({
       caseSlug: req.caseSlug,
@@ -515,7 +515,8 @@ function registerIpc(): void {
       packId: w.packId,
       windowId: w.decl.id,
       title: w.decl.title,
-      handles: w.decl.handles
+      handles: w.decl.handles,
+      kind: w.decl.kind
     }))
   )
   ipcMain.handle(IPC.panelsSetBounds, (_e, key: PanelKey, rect: PanelRect) =>
@@ -527,6 +528,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC.panelsCloseCase, (_e, caseSlug: string) => {
     panelHost!.closeCase(caseSlug)
     externalAppHost!.closeCase(caseSlug)
+    broadcast(IPC.panelsChanged, undefined)
+  })
+
+  // — external apps (3c) —
+  ipcMain.handle(IPC.externalAppsList, (_e, caseSlug?: string) => externalAppHost!.list(caseSlug))
+  ipcMain.handle(
+    IPC.externalAppsOpen,
+    (_e, req: { caseSlug: string; sessionId: number | null; packId: string; windowId: string }) =>
+      openPanelFor(req.caseSlug, req.sessionId ?? 0, req.packId, req.windowId)
+  )
+  ipcMain.handle(IPC.externalAppsFocus, (_e, key: PanelKey) => externalAppHost!.focus(key))
+  ipcMain.handle(IPC.externalAppsStop, (_e, key: PanelKey) => {
+    externalAppHost!.stop(key)
     broadcast(IPC.panelsChanged, undefined)
   })
 

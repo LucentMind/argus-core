@@ -56,7 +56,7 @@ describe('PanelsStore', () => {
     let n = 0
     const off = store.subscribe(() => { n++ })
     store.setOccluded(true)
-    store.setDecls([{ packId: 'p', windowId: 'w', title: 'T', handles: [] }])
+    store.setDecls([{ packId: 'p', windowId: 'w', title: 'T', handles: [], kind: 'webPanel' }])
     off()
     store.setOccluded(false)
     expect(n).toBe(2)

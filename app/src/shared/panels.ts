@@ -106,6 +106,7 @@ export interface PanelDecl {
   windowId: string
   title: string
   handles: string[]
+  kind: 'webPanel' | 'externalApp'
 }
 
 /** Stable string identity for a panel within a case (matches PanelHost's internal key). */
