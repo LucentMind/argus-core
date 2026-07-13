@@ -5,7 +5,14 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/argus-icon.png?asset'
 import { IPC } from '../shared/ipc'
-import { resolveArgusHome, dbPath, caseDir, settingsPath, configDir } from './services/paths'
+import {
+  resolveArgusHome,
+  dbPath,
+  caseDir,
+  settingsPath,
+  configDir,
+  writeRootOverride
+} from './services/paths'
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
@@ -140,7 +147,8 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function registerIpc(): void {
-  const argusHome = resolveArgusHome()
+  const userDataDir = app.getPath('userData')
+  const argusHome = resolveArgusHome(userDataDir)
   const db = openDb(dbPath(argusHome))
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
   const seededDir = seededPacksDir(app.getAppPath(), resourcesPath)
@@ -168,8 +176,7 @@ function registerIpc(): void {
     sendToAgent: (caseSlug, sessionId, text) => agentService!.send(caseSlug, sessionId, text),
     emitFinding: (caseSlug, sessionId, input) =>
       agentService!.emitPanelFinding(caseSlug, sessionId, input),
-    cite: (target, relPath, line) =>
-      broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
+    cite: (target, relPath, line) => broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
   }
 
   panelHost = new PanelHost({
@@ -834,6 +841,14 @@ function registerIpc(): void {
       if (fs.existsSync(p)) shell.showItemInFolder(p)
       else void shell.openPath(configDir(argusHome))
     } else void shell.openPath(argusHome)
+  })
+  ipcMain.handle(IPC.settingsSetDataRoot, async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    if (r.canceled || !r.filePaths[0]) return { changed: false }
+    writeRootOverride(userDataDir, r.filePaths[0])
+    app.relaunch()
+    app.exit(0)
+    return { changed: true }
   })
 
   // — connectors + secrets —

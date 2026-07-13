@@ -32,6 +32,7 @@ export const IPC = {
   settingsProbeTools: 'settings:probe-tools',
   settingsPickPath: 'settings:pick-path',
   settingsReveal: 'settings:reveal',
+  settingsSetDataRoot: 'settings:set-data-root',
   connectorsGet: 'connectors:get',
   connectorsPatch: 'connectors:patch',
   connectorsChanged: 'connectors:changed',

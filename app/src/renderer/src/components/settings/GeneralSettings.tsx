@@ -104,6 +104,25 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           {payload.dataRoot.path}
         </span>
         <Btn onClick={() => void window.argus.settings.reveal('dataRoot')}>Open folder</Btn>
+        <Btn
+          disabled={payload.dataRoot.fromEnv}
+          title={
+            payload.dataRoot.fromEnv
+              ? 'Controlled by the ARGUS_HOME environment variable'
+              : 'Pick a new folder and relaunch — existing data stays where it is'
+          }
+          onClick={() => {
+            if (
+              window.confirm(
+                'Argus will relaunch and start reading/writing from the new folder. Move any existing data there yourself first if you want to keep it. Continue?'
+              )
+            ) {
+              void window.argus.settings.setDataRoot()
+            }
+          }}
+        >
+          Change…
+        </Btn>
       </SettingRow>
     </SettingsSection>
   )

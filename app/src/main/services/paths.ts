@@ -1,8 +1,31 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-export function resolveArgusHome(): string {
-  return process.env.ARGUS_HOME ?? path.join(os.homedir(), 'Argus')
+/** User-chosen data-root override, persisted outside argusHome (chicken/egg: it names argusHome). */
+export function rootOverridePath(userDataDir: string): string {
+  return path.join(userDataDir, 'data-root-override.json')
+}
+
+/** ARGUS_HOME env wins (explicit ops override); else a user-chosen override; else ~/Argus. */
+export function resolveArgusHome(userDataDir?: string): string {
+  if (process.env.ARGUS_HOME) return process.env.ARGUS_HOME
+  if (userDataDir) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(rootOverridePath(userDataDir), 'utf8')) as {
+        path?: string
+      }
+      if (raw.path?.trim()) return raw.path
+    } catch {
+      /* no override on disk — fall through to the default */
+    }
+  }
+  return path.join(os.homedir(), 'Argus')
+}
+
+export function writeRootOverride(userDataDir: string, dataRoot: string): void {
+  fs.mkdirSync(userDataDir, { recursive: true })
+  fs.writeFileSync(rootOverridePath(userDataDir), JSON.stringify({ path: dataRoot }))
 }
 
 export function dbPath(argusHome: string): string {
