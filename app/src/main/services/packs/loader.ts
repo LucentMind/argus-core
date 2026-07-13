@@ -20,6 +20,14 @@ function entryUnderUi(uiDir: string, entry: string): string | null {
   return path.join(uiDir, ...entry.split('/'))
 }
 
+/** An externalApp entry must be a contained forward-slash relative path under the pack dir. */
+function entryUnderDir(dir: string, entry: string): string | null {
+  if (path.isAbsolute(entry) || entry.includes('\\') || entry.split('/').some((seg) => seg === '..' || seg === '')) {
+    return null
+  }
+  return path.join(dir, ...entry.split('/'))
+}
+
 export interface LoadedPack {
   id: string
   dir: string
@@ -80,12 +88,23 @@ export function loadPacks(packsDir: string): { packs: LoadedPack[]; errors: Pack
       }
 
       const uiDir = subdirIfExists(dir, 'ui')
-      if (manifest.windows.length > 0) {
-        if (!uiDir) throw new Error(`pack '${manifest.id}' declares windows but has no ui/ dir`)
-        for (const w of manifest.windows) {
-          const entryPath = entryUnderUi(uiDir, w.entry)
+      const webPanels = manifest.windows.filter((w) => w.kind === 'webPanel')
+      if (webPanels.length > 0 && !uiDir) {
+        throw new Error(`pack '${manifest.id}' declares webPanel windows but has no ui/ dir`)
+      }
+      for (const w of manifest.windows) {
+        if (w.kind === 'webPanel') {
+          const entryPath = entryUnderUi(uiDir as string, w.entry)
           if (!entryPath || !fs.existsSync(entryPath)) {
             throw new Error(`window '${w.id}' entry not found under ui/: ${w.entry}`)
+          }
+        } else {
+          if (w.control?.channel !== 'stdio') {
+            throw new Error(`externalApp window '${w.id}' requires control.channel 'stdio'`)
+          }
+          const entryPath = entryUnderDir(dir, w.entry)
+          if (!entryPath || !fs.existsSync(entryPath)) {
+            throw new Error(`externalApp window '${w.id}' entry not found: ${w.entry}`)
           }
         }
       }

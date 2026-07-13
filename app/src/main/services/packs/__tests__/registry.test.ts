@@ -113,13 +113,14 @@ describe('PackRegistry', () => {
 })
 
 describe('PackRegistry.load (multi-dir)', () => {
-  function writePack(root: string, id: string, extra: object = {}): void {
+  function writePack(root: string, id: string, extra: object = {}): string {
     const dir = path.join(root, id)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, 'argus-pack.json'),
       JSON.stringify({ id, displayName: id, version: '1', argusApi: '^1', ...extra })
     )
+    return dir
   }
 
   it('merges packs from seed then installed, id-sorted', () => {
@@ -155,6 +156,38 @@ describe('PackRegistry.load (multi-dir)', () => {
     const reg = PackRegistry.load([seed, installed])
     expect(reg.packs()).toEqual([])
     expect(reg.binaryDecls()).toEqual([])
+  })
+
+  it('loads an externalApp pack with no ui/ dir and validates entry under the pack dir', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-'))
+    const dir = writePack(root, 'ext-pack', {
+      windows: [
+        {
+          id: 'sim',
+          kind: 'externalApp',
+          title: 'Sim',
+          entry: 'bin/sim.mjs',
+          control: { channel: 'stdio' },
+          runtime: 'node',
+          commands: [{ id: 'ping', risk: 'low', args: [] }]
+        }
+      ]
+    })
+    fs.mkdirSync(path.join(dir, 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'bin', 'sim.mjs'), '// stub\n')
+
+    const reg = PackRegistry.load(root)
+    expect(reg.errors()).toEqual([])
+    expect(reg.packs().map((p) => p.id)).toContain('ext-pack')
+  })
+
+  it('rejects an externalApp window whose entry is missing', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-missing-'))
+    writePack(root, 'ext-missing', {
+      windows: [{ id: 'sim', kind: 'externalApp', title: 'Sim', entry: 'bin/nope.mjs', control: { channel: 'stdio' } }]
+    })
+    const reg = PackRegistry.load(root)
+    expect(reg.errors().some((e) => /entry not found/.test(e.message))).toBe(true)
   })
 })
 
