@@ -135,5 +135,8 @@ export const IPC = {
   panelsEmitFinding: 'panels:emit-finding',
   panelsSendToAgent: 'panels:send-to-agent',
   /** main → main-renderer broadcast: a panel cited evidence; the citations tray adds a chip. */
-  panelsCiteAdded: 'panels:cite-added'
+  panelsCiteAdded: 'panels:cite-added',
+  // — panels · command dispatch (3b-2) —
+  /** main → panel: deliver a correlated command request (PanelHost.dispatchToPanel). */
+  panelsCommand: 'panels:command'
 } as const

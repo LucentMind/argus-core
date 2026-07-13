@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { PanelKey, PanelInfo, PanelPermission, PanelRect } from '../../../shared/panels'
 import { panelKeyStr } from '../../../shared/panels'
@@ -17,6 +18,11 @@ export interface OpenPanelInput extends PanelKey {
   sessionId?: number | null
 }
 
+/** The outcome of a correlated dispatchToPanel round-trip. */
+export type PanelDispatchResult =
+  | { ok: true; result: unknown }
+  | { ok: false; reason: 'panel-not-open' | 'timeout'; hint?: string }
+
 /**
  * The Electron surface PanelHost drives, injected so lifecycle logic stays
  * electron-free and unit-testable with a fake (house DI style).
@@ -32,6 +38,8 @@ export interface PanelView {
   focus(): void
   setBounds(rect: PanelRect): void
   setVisible(visible: boolean): void
+  /** Deliver a downstream command request to the panel (reply arrives via PanelHost.resolveCommand). */
+  sendCommand(requestId: string, cmd: string, args: unknown[]): void
 }
 
 /** Out-of-band notifications a real view raises back to the host (e.g. the user OS-closes a floated window). */
@@ -57,6 +65,10 @@ const panelUrl = (input: OpenPanelInput): string =>
 export class PanelHost {
   private readonly panels = new Map<string, OpenPanel>()
   private theme: PanelThemeName = 'dark'
+  private readonly pending = new Map<
+    string,
+    { resolve: (r: PanelDispatchResult) => void; timer: ReturnType<typeof setTimeout> }
+  >()
 
   constructor(
     private readonly deps: {
@@ -65,6 +77,7 @@ export class PanelHost {
       writeSink?: import('./bridge').PanelWriteSink
       factory: PanelViewFactory
       onChange?: () => void
+      dispatchTimeoutMs?: number
     }
   ) {}
 
@@ -179,6 +192,37 @@ export class PanelHost {
       if (p.view.webContentsId === webContentsId) return p.bridge
     }
     return null
+  }
+
+  /** Send a command to an open panel and await its reply; closed panel ⇒ structured error. */
+  dispatchToPanel(key: PanelKey, cmd: string, args: unknown[]): Promise<PanelDispatchResult> {
+    const p = this.panels.get(panelKeyStr(key))
+    if (!p) {
+      return Promise.resolve({
+        ok: false,
+        reason: 'panel-not-open',
+        hint: `call mcp__${key.packId}__open_panel first`
+      })
+    }
+    const requestId = crypto.randomUUID()
+    return new Promise<PanelDispatchResult>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.pending.delete(requestId)) resolve({ ok: false, reason: 'timeout' })
+      }, this.deps.dispatchTimeoutMs ?? 15000)
+      this.pending.set(requestId, { resolve, timer })
+      p.view.sendCommand(requestId, cmd, args)
+    })
+  }
+
+  /** Settle a dispatch with the panel's reply. Unknown/expired requestIds are ignored. */
+  resolveCommand(requestId: string, payload: { ok: boolean; result?: unknown; error?: string }): void {
+    const entry = this.pending.get(requestId)
+    if (!entry) return
+    clearTimeout(entry.timer)
+    this.pending.delete(requestId)
+    entry.resolve(
+      payload.ok ? { ok: true, result: payload.result } : { ok: false, reason: 'timeout', hint: payload.error }
+    )
   }
 
   private buildBridge(input: OpenPanelInput): PanelBridge {
