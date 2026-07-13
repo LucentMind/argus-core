@@ -210,7 +210,7 @@ function fakeFactory(): { factory: PanelViewFactory; views: PanelView[] } {
 it('builds a bridge with write verbs when a sink + write permission are present', () => {
   const { factory, views } = fakeFactory()
   const sink = {
-    sendToAgent: async () => 1,
+    sendToAgent: () => {},
     emitFinding: async () => ({ ok: true }),
     cite: () => {}
   } as unknown as PanelWriteSink

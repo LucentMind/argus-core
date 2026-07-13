@@ -74,8 +74,9 @@ describe('bridge playground — upstream verbs end to end', () => {
       onEvent: (e) => events.push(e),
       createQuery: fakeCreateQuery
     })
+    const staged: Array<{ caseSlug: string; sessionId: number; text: string }> = []
     const sink: PanelWriteSink = {
-      sendToAgent: (cs, sid, text) => agent.send(cs, sid, text),
+      sendToAgent: (caseSlug, sessionId, text) => staged.push({ caseSlug, sessionId, text }),
       emitFinding: (cs, sid, input) => agent.emitPanelFinding(cs, sid, input),
       cite: (target, relPath, line) => cites.push({ ...target, relPath, line })
     }
@@ -89,12 +90,13 @@ describe('bridge playground — upstream verbs end to end', () => {
       writeSink: sink
     })
 
-    // sendToAgent → a turn row exists
-    await bridge.sendToAgent!('please investigate')
+    // sendToAgent → stages the text for the bound case+session (no turn is sent)
+    expect(bridge.sendToAgent!('please investigate')).toEqual({ ok: true })
+    expect(staged).toEqual([{ caseSlug: 'NAV-1', sessionId: s.id, text: 'please investigate' }])
     const turns = db
       .prepare('SELECT COUNT(*) n FROM turns WHERE session_id = ?')
       .get(s.id) as { n: number }
-    expect(turns.n).toBe(1)
+    expect(turns.n).toBe(0)
 
     // emitFinding → card raised, approve → finding written
     const p = bridge.emitFinding!({ title: 'PG', markdown: 'from playground' })
