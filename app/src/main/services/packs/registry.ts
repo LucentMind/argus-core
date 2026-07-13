@@ -59,17 +59,16 @@ export class PackRegistry {
     return this._packs.flatMap((p) => p.manifest.binaries.map((decl) => ({ packDir: p.dir, decl })))
   }
 
-  /** All packs' webPanel window declarations, flattened in pack (id-sorted) order. */
-  windowDecls(): Array<{ packId: string; packDir: string; uiDir: string; decl: PackWindow }> {
+  /** All packs' window declarations (webPanel + externalApp), flattened in pack (id-sorted) order.
+   *  `uiDir` is null for packs that ship no ui/ (externalApp-only packs). */
+  windowDecls(): Array<{ packId: string; packDir: string; uiDir: string | null; decl: PackWindow }> {
     return this._packs.flatMap((p) =>
-      p.uiDir
-        ? p.manifest.windows.map((decl) => ({
-            packId: p.id,
-            packDir: p.dir,
-            uiDir: p.uiDir as string,
-            decl
-          }))
-        : []
+      p.manifest.windows.map((decl) => ({
+        packId: p.id,
+        packDir: p.dir,
+        uiDir: p.uiDir,
+        decl
+      }))
     )
   }
 
