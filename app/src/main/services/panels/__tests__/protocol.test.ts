@@ -4,6 +4,7 @@ import {
   resolvePanelAsset,
   buildPanelCsp,
   panelContentType,
+  resolveCaseAsset,
   type PanelWindowLoc
 } from '../protocol'
 
@@ -96,5 +97,51 @@ describe('panelContentType', () => {
 
   it('falls back to application/octet-stream for an unknown extension', () => {
     expect(panelContentType('x.bin')).toBe('application/octet-stream')
+  })
+})
+
+describe('resolveCaseAsset', () => {
+  const home = path.join('/argus-home')
+  const evidenceDir = path.join(home, 'cases', 'CASE-A', 'evidence')
+
+  it('resolves a file under the case evidence dir', () => {
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A/photo.png')).toBe(
+      path.join(evidenceDir, 'photo.png')
+    )
+  })
+
+  it('resolves a nested relPath', () => {
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A/sub/clip.mp4')).toBe(
+      path.join(evidenceDir, 'sub', 'clip.mp4')
+    )
+  })
+
+  it('returns null for a missing caseSlug or relPath', () => {
+    expect(resolveCaseAsset(home, 'argus-case:///photo.png')).toBeNull()
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A/')).toBeNull()
+  })
+
+  it('rejects a parent-dir traversal', () => {
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A/../../etc/passwd')).toBeNull()
+  })
+
+  it('rejects an absolute or backslash relpath', () => {
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A//etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'argus-case://CASE-A/a\\b')).toBeNull()
+  })
+
+  it('returns null for a non-argus-case scheme or garbage', () => {
+    expect(resolveCaseAsset(home, 'file:///etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'not a url')).toBeNull()
+  })
+})
+
+describe('panelContentType · case-file extensions', () => {
+  it('maps common evidence file types', () => {
+    expect(panelContentType('scan.pdf')).toBe('application/pdf')
+    expect(panelContentType('call.mp3')).toBe('audio/mpeg')
+    expect(panelContentType('clip.mp4')).toBe('video/mp4')
+    expect(panelContentType('notes.md')).toBe('text/markdown; charset=utf-8')
+    expect(panelContentType('log.txt')).toBe('text/plain; charset=utf-8')
   })
 })
