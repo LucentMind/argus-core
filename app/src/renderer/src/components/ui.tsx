@@ -57,7 +57,7 @@ export function SectionLabel({ children }: { children: ReactNode }): React.JSX.E
 
 /* One size for every button so mixed rows stay aligned (OEH .btn). */
 const BTN_BASE =
-  'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-r2 border px-3 text-xs font-medium transition-colors disabled:opacity-40'
+  'inline-flex h-7 shrink-0 items-center leading-none gap-1.5 whitespace-nowrap rounded-r2 border px-3 text-xs font-medium transition-colors disabled:opacity-40'
 
 const BTN_VARIANTS = {
   primary: 'border-transparent bg-signal text-void transition-all hover:brightness-110',
@@ -84,7 +84,7 @@ export function IconBtn({
   return (
     <button
       {...props}
-      className={`inline-flex h-7 w-7 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40 ${className}`}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40 ${className}`}
     />
   )
 }
@@ -114,6 +114,7 @@ export function MenuButton({
   'aria-label'?: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const [openUp, setOpenUp] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -134,7 +135,13 @@ export function MenuButton({
     <div className="relative" ref={ref}>
       <Btn
         variant={variant}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          // Flip upward when there isn't room below (e.g. trigger sits near the bottom of
+          // the settings panel) so the menu never renders off-screen or under other chrome.
+          const rect = ref.current?.getBoundingClientRect()
+          setOpenUp(Boolean(rect && window.innerHeight - rect.bottom < 220 && rect.top > 220))
+          setOpen((o) => !o)
+        }}
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -144,9 +151,9 @@ export function MenuButton({
       {open && (
         <div
           role="menu"
-          className={`absolute z-30 mt-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg ${
-            align === 'left' ? 'left-0' : 'right-0'
-          }`}
+          className={`absolute z-30 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg ${
+            openUp ? 'bottom-full mb-1' : 'mt-1'
+          } ${align === 'left' ? 'left-0' : 'right-0'}`}
         >
           {items.map((it, i) => (
             <button

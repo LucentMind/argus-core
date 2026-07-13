@@ -116,7 +116,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
               <Chip tone="danger">unavailable driver: {inst?.driver ?? 'none'}</Chip>
             )}
             {auth?.version && <span className="font-mono text-xs text-mute">v{auth.version}</span>}
-            <span className="ml-auto flex items-center gap-2">
+            <span className="ml-auto flex shrink-0 items-center gap-2">
               <Btn disabled={probing} onClick={() => void testConnection()}>
                 {probing ? 'Testing…' : 'Test connection'}
               </Btn>
