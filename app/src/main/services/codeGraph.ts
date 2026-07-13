@@ -281,8 +281,8 @@ export class CodeGraphService {
         return { ok: false, log: (err as Error).message }
       }
     }
-    if (await has('uv')) return attempt('uv', ['tool', 'install', 'graphifyy'])
-    if (await has('pipx')) return attempt('pipx', ['install', 'graphifyy'])
+    if (await has('uv')) return attempt('uv', ['tool', 'install', '--force', 'graphifyy'])
+    if (await has('pipx')) return attempt('pipx', ['install', '--force', 'graphifyy'])
     return {
       ok: false,
       log: 'Neither uv nor pipx found. Install manually: uv tool install graphifyy (or pipx install graphifyy), then set the path in Settings → Analysis Tools.'
