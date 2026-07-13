@@ -56,6 +56,34 @@ const [evidenceIdInput] = row(
   (els) => window.argus.readEvidence(Number(els[0].value))
 )
 
+// argus-case:// read protocol (3d-1): render a case file directly. No bridge verb is
+// involved — readCaseFiles gates the protocol handler, not a window.argus method — so this
+// row gates its button on getCaseContext (which it also calls to learn the caseSlug).
+let currentCaseSlug = ''
+const caseImg = document.createElement('img')
+caseImg.id = 'case-file-preview'
+caseImg.style.maxWidth = '320px'
+caseImg.style.display = 'none'
+row(
+  'getCaseContext',
+  'render via argus-case://',
+  [{ placeholder: 'path under evidence/ (e.g. photo.png)', value: 'sample.txt' }],
+  async (els) => {
+    if (!currentCaseSlug) {
+      const ctx = await window.argus.getCaseContext()
+      currentCaseSlug = ctx.caseSlug
+    }
+    // The URL path is relative to the case's evidence/ dir, but readEvidence() reports
+    // relPaths already prefixed with "evidence/". Strip a leading "evidence/" (and any
+    // leading slashes) so a pasted readEvidence relPath resolves correctly.
+    const rel = els[0].value.replace(/^\/+/, '').replace(/^evidence\//, '')
+    caseImg.src = `argus-case://${currentCaseSlug}/${rel}`
+    caseImg.style.display = 'block'
+    return { url: caseImg.src }
+  }
+)
+host.appendChild(caseImg)
+
 const citeEls = row(
   'cite',
   'cite',
