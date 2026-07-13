@@ -38,7 +38,7 @@ describe('externalApp integration (3c)', () => {
 
     // stderr is teed to the per-process log asynchronously (separate pipe from
     // stdout) — poll briefly instead of a fixed sleep to stay deterministic.
-    const logFile = path.join(logDir, 'sample-external-app_console.log')
+    const logFile = path.join(logDir, 'CASE-A_sample-external-app_console.log')
     await waitFor(() => fs.existsSync(logFile) && fs.readFileSync(logFile, 'utf8').includes('cmd=ping'))
     expect(fs.readFileSync(logFile, 'utf8')).toContain('cmd=ping')
 

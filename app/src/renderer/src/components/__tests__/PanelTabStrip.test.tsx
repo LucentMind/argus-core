@@ -103,4 +103,21 @@ describe('PanelTabStrip — externalApp (3c)', () => {
     await waitFor(() => expect(window.argus.externalApps.open).toHaveBeenCalled())
     expect(window.argus.panels.open).not.toHaveBeenCalled()
   })
+
+  it('renders an exited app as a muted chip with no Focus button, and Stop dismisses it', () => {
+    externalAppsStore.setApps([
+      { caseSlug: 'CASE-A', packId: 'ext', windowId: 'sim', title: 'Sim', status: 'exited' }
+    ])
+    render(<PanelTabStrip slug="CASE-A" sessionId={1} activeTab="chat" onSelect={vi.fn()} />)
+    expect(screen.getByText('Sim')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Focus Sim')).not.toBeInTheDocument()
+    const dot = document.querySelector('.bg-mute')
+    expect(dot).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Stop Sim'))
+    expect(window.argus.externalApps.stop).toHaveBeenCalledWith({
+      caseSlug: 'CASE-A',
+      packId: 'ext',
+      windowId: 'sim'
+    })
+  })
 })
