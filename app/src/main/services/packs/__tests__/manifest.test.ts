@@ -269,12 +269,12 @@ describe('windows[] schema', () => {
     ).toThrow()
   })
 
-  it('tolerates unknown window keys (passthrough — e.g. future commands[])', () => {
-    const m = packManifestSchema.parse({
+  it('tolerates unknown window keys (passthrough)', () => {
+    const parsed = packManifestSchema.parse({
       ...base,
-      windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', commands: [{ id: 'test-cmd', risk: 'low' }] }]
+      windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', someFutureField: 'x' }]
     })
-    expect((m.windows[0] as Record<string, unknown>).commands).toEqual([{ id: 'test-cmd', risk: 'low', args: [] }])
+    expect((parsed.windows[0] as Record<string, unknown>).someFutureField).toBe('x')
   })
 })
 
