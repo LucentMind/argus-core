@@ -95,10 +95,15 @@ export const packWindowCommandSchema = z
   .object({
     id: z.string().regex(KEBAB, 'command id must be kebab-case'),
     title: z.string().min(1).optional(),
+    /** What the command does + when the agent should call it — becomes the MCP tool's
+     *  description. Falls back to `title`, then a generic string, when absent. */
+    description: z.string().min(1).optional(),
     /** HITL risk, exactly like every other tool. */
     risk: z.enum(['low', 'medium', 'high']),
     /** Positional argument names; the agent tool exposes one string param each. */
-    args: z.array(z.string().min(1)).default([])
+    args: z.array(z.string().min(1)).default([]),
+    /** Optional per-argument descriptions (arg name → text), applied to the tool's input schema. */
+    argDescriptions: z.record(z.string().min(1), z.string().min(1)).optional()
   })
   .passthrough()
 

@@ -3,6 +3,7 @@ import {
   flattenPanelCommands,
   panelToolName,
   panelCommandRiskMap,
+  panelCommandDescription,
   buildPanelCommandTools,
   buildPanelCommandServers
 } from '../panelCommands'
@@ -51,6 +52,47 @@ describe('buildPanelCommandTools', () => {
     const out = await highlight.handler({ line: '42' })
     expect(calls).toEqual([['pk', 'win', 'highlight', ['42']]])
     expect(JSON.parse(out.content[0].text)).toMatchObject({ ok: true })
+  })
+})
+
+describe('panelCommandDescription (tool description precedence)', () => {
+  const base = { packId: 'pk', windowId: 'win', cmd: 'go', risk: 'low' as const, args: [] }
+  it('uses the manifest description when present', () => {
+    expect(panelCommandDescription({ ...base, description: 'Do the thing.', title: 'Go' })).toBe(
+      'Do the thing.'
+    )
+  })
+  it('falls back to title when there is no description', () => {
+    expect(panelCommandDescription({ ...base, title: 'Go now' })).toBe('Go now')
+  })
+  it('falls back to a generic string when neither is given', () => {
+    expect(panelCommandDescription(base)).toBe("Run the 'go' command of the pk/win panel.")
+  })
+})
+
+describe('buildPanelCommandTools · descriptions', () => {
+  it('threads the manifest description + per-arg descriptions into the tool', () => {
+    const decls = flattenPanelCommands([
+      {
+        packId: 'pk',
+        decl: {
+          id: 'win',
+          commands: [
+            {
+              id: 'highlight',
+              risk: 'low' as const,
+              args: ['line'],
+              description: 'Highlight a line.',
+              argDescriptions: { line: '1-based line number' }
+            }
+          ]
+        }
+      }
+    ])
+    const [t] = buildPanelCommandTools(decls, async () => ({ ok: true }))
+    expect(t.description).toBe('Highlight a line.')
+    // per-arg description lands on the zod string's description
+    expect(t.argShape.line.description).toBe('1-based line number')
   })
 })
 
