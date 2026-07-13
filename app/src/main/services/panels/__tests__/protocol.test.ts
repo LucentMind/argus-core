@@ -116,39 +116,51 @@ describe('resolveCaseAsset', () => {
   const evidenceDir = path.join(home, 'cases', 'CASE-A', 'evidence')
 
   it('resolves a file under the case evidence dir', () => {
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A/photo.png')).toBe(
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/photo.png')).toBe(
       path.join(evidenceDir, 'photo.png')
     )
   })
 
   it('resolves a nested relPath', () => {
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A/sub/clip.mp4')).toBe(
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/sub/clip.mp4')).toBe(
       path.join(evidenceDir, 'sub', 'clip.mp4')
     )
   })
 
   it('returns null for a missing caseSlug or relPath', () => {
-    expect(resolveCaseAsset(home, 'argus-case:///photo.png')).toBeNull()
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A/')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case:///photo.png')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/')).toBeNull()
   })
 
   it('rejects a parent-dir traversal', () => {
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A/../../etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/../../etc/passwd')).toBeNull()
   })
 
   it('rejects an absolute or backslash relpath', () => {
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A//etc/passwd')).toBeNull()
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A/a\\b')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A//etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/a\\b')).toBeNull()
   })
 
   it('returns null for a non-argus-case scheme or garbage', () => {
-    expect(resolveCaseAsset(home, 'file:///etc/passwd')).toBeNull()
-    expect(resolveCaseAsset(home, 'not a url')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'file:///etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'not a url')).toBeNull()
   })
 
   it('allows a filename that merely contains consecutive dots (not a traversal)', () => {
-    expect(resolveCaseAsset(home, 'argus-case://CASE-A/notes..final.pdf')).toBe(
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/notes..final.pdf')).toBe(
       path.join(evidenceDir, 'notes..final.pdf')
+    )
+  })
+
+  it('rejects a URL naming a DIFFERENT case than the bound one (cross-case isolation)', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-B/secret.pdf')).toBeNull()
+  })
+
+  it('allows a URL whose case matches the bound one case-insensitively', () => {
+    // Chromium may canonicalize the standard-scheme host to lowercase; the path is still
+    // built from the trusted bound slug's on-disk casing.
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://case-a/photo.png')).toBe(
+      path.join(home, 'cases', 'CASE-A', 'evidence', 'photo.png')
     )
   })
 })

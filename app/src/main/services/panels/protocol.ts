@@ -91,21 +91,39 @@ function parseCaseUrl(url: string): CaseUrlParts | null {
 }
 
 /**
- * Resolve an argus-case:// URL to an absolute file path under the case's
- * evidence/ dir, or null when the URL is malformed or escapes that directory.
+ * Resolve an argus-case:// URL to an absolute file path under the BOUND case's
+ * evidence/ dir, or null when the URL is malformed, escapes that directory, or
+ * names a different case than the one the panel's session partition is bound to.
  * Coarse by design (spec §7): serves any file under evidence/, not just
  * registered evidence rows — same trust posture argus-panel:// uses for a
  * pack's own bundle. Does not check the case exists in the DB; a nonexistent
  * case's evidence dir simply has nothing to read (caller 404s on fs failure).
+ *
+ * `boundCaseSlug` (from the panel's session partition, e.g.
+ * `pack-panel:<packId>:<caseSlug>`) is the ONLY trusted case identity. The
+ * URL's hostname is renderer-supplied and untrusted — a panel bound to CASE-A
+ * could otherwise request `argus-case://CASE-B/...` and read another case's
+ * evidence. The path is always built from `boundCaseSlug`, never from the
+ * URL hostname, so a URL naming any other case is rejected outright.
  */
-export function resolveCaseAsset(argusHome: string, url: string): string | null {
+export function resolveCaseAsset(
+  argusHome: string,
+  boundCaseSlug: string,
+  url: string
+): string | null {
   const parts = parseCaseUrl(url)
   if (!parts) return null
+  // The bound case (from the panel's session partition) is authoritative. A URL naming a
+  // different case is a cross-case attempt — reject it. Compare case-insensitively so a
+  // standard-scheme host canonicalized to lowercase by Chromium still matches the bound slug.
+  if (parts.caseSlug.toLowerCase() !== boundCaseSlug.toLowerCase()) return null
   // '..' path-segment traversal is already rejected in parseCaseUrl; the
   // containment checks below (isContained + the path.relative re-verify)
   // guard against absolute paths, backslashes, and empty segments.
   if (!isContained(parts.relpath)) return null
-  const evidenceDir = path.join(caseDir(argusHome, parts.caseSlug), 'evidence')
+  // Build the path from the TRUSTED boundCaseSlug (correct on-disk casing), never from the
+  // renderer-supplied URL hostname.
+  const evidenceDir = path.join(caseDir(argusHome, boundCaseSlug), 'evidence')
   const abs = path.join(evidenceDir, ...parts.relpath.split('/'))
   const rel = path.relative(evidenceDir, abs)
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null
@@ -126,6 +144,11 @@ export function panelContentType(file: string): string {
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
     '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.webm': 'video/webm',
+    '.mov': 'video/quicktime',
+    '.m4a': 'audio/mp4',
+    '.ogg': 'audio/ogg',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
     '.ttf': 'font/ttf',
