@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RepoGraphControl } from '../RepoGraphControl'
-import type { GraphStatusRow } from '../../../../shared/types'
+import type { GraphProgress, GraphStatusRow } from '../../../../shared/types'
 
 const none: GraphStatusRow = {
   scope: null,
@@ -13,6 +13,7 @@ const none: GraphStatusRow = {
   builtAt: null,
   nodeCount: null
 }
+const building: GraphStatusRow = { ...none, status: 'building' }
 const ok: GraphStatusRow = {
   ...none,
   status: 'ok',
@@ -22,14 +23,21 @@ const ok: GraphStatusRow = {
   nodeCount: 9171
 }
 
+let progressCb: ((p: GraphProgress) => void) | null = null
+
 beforeEach(() => {
+  progressCb = null
   window.argus = {
     graph: {
       status: vi.fn(async () => [none]),
       build: vi.fn(async () => ({ started: true })),
       install: vi.fn(async () => ({ ok: true, log: '' })),
       onBuilding: vi.fn(() => () => {}),
-      onChanged: vi.fn(() => () => {})
+      onChanged: vi.fn(() => () => {}),
+      onProgress: vi.fn((cb: (p: GraphProgress) => void) => {
+        progressCb = cb
+        return () => {}
+      })
     }
   } as never
 })
@@ -76,6 +84,20 @@ describe('RepoGraphControl', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Install graphify' }))
     await waitFor(() => expect(window.argus.graph.install).toHaveBeenCalled())
     await waitFor(() => expect(window.argus.graph.build).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows a live progress message and percent bar while building', async () => {
+    window.argus.graph.status = vi.fn(async () => [building])
+    render(<RepoGraphControl repoPath={'C:\\code\\navigator'} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Code graph' }))
+    expect(await screen.findByText('building…')).toBeTruthy()
+    progressCb?.({
+      repoPath: 'C:\\code\\navigator',
+      scope: null,
+      message: 'AST extraction: 50/100 files (50%)',
+      percent: 50
+    })
+    expect(await screen.findByText('AST extraction: 50/100 files (50%)')).toBeTruthy()
   })
 
   it('shows the install log when install fails', async () => {
