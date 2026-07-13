@@ -144,6 +144,18 @@ protocol.registerSchemesAsPrivileged([
       stream: true,
       corsEnabled: false
     }
+  },
+  {
+    // argus-case:// — case-file read protocol (3d-1). Same privileges as
+    // argus-panel; registered on a partition only for readCaseFiles-granted windows.
+    scheme: 'argus-case',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: false
+    }
   }
 ])
 
@@ -170,7 +182,12 @@ function registerIpc(): void {
     const filePath = resolvePanelAsset(locs, url)
     if (!filePath) return null
     const owner = decls.find((w) => url.startsWith(`argus-panel://${w.packId}/${w.decl.id}/`))
-    return { filePath, csp: buildPanelCsp(owner ? owner.decl.network : []) }
+    return {
+      filePath,
+      csp: buildPanelCsp(owner ? owner.decl.network : [], {
+        allowCaseFiles: owner?.decl.permissions.includes('readCaseFiles') ?? false
+      })
+    }
   }
 
   const panelWriteSink: import('./services/panels/bridge').PanelWriteSink = {
@@ -184,7 +201,7 @@ function registerIpc(): void {
   panelHost = new PanelHost({
     db,
     argusHome,
-    factory: createElectronPanelFactory(() => mainWindow, servePanel),
+    factory: createElectronPanelFactory(() => mainWindow, servePanel, argusHome),
     onChange: () => broadcast(IPC.panelsChanged, undefined),
     writeSink: panelWriteSink
   })
