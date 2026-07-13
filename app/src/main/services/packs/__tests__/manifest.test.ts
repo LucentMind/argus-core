@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION } from '../manifest'
+import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION, packWindowSchema } from '../manifest'
 
 describe('packManifestSchema', () => {
   const valid = { id: 'sample', displayName: 'Sample', version: '1.0.0', argusApi: '^1' }
@@ -269,20 +269,30 @@ describe('windows[] schema', () => {
     ).toThrow()
   })
 
-  it('rejects a write/3b permission verb', () => {
-    expect(() =>
-      packManifestSchema.parse({
-        ...base,
-        windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', permissions: ['emitFinding'] }]
-      })
-    ).toThrow()
-  })
-
   it('tolerates unknown window keys (passthrough — e.g. future commands[])', () => {
     const m = packManifestSchema.parse({
       ...base,
       windows: [{ id: 'x', kind: 'webPanel', title: 'T', entry: 'i.html', commands: [{ id: 'c' }] }]
     })
     expect((m.windows[0] as Record<string, unknown>).commands).toEqual([{ id: 'c' }])
+  })
+})
+
+describe('packWindowSchema · 3b write permissions', () => {
+  it('accepts the write verbs cite/emitFinding/sendToAgent', () => {
+    const parsed = packWindowSchema.parse({
+      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      permissions: ['getCaseContext', 'cite', 'emitFinding', 'sendToAgent']
+    })
+    expect(parsed.permissions).toContain('emitFinding')
+  })
+
+  it('rejects an unknown permission verb', () => {
+    expect(() =>
+      packWindowSchema.parse({
+        id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+        permissions: ['deleteEverything']
+      })
+    ).toThrow()
   })
 })

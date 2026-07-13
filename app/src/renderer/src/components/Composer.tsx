@@ -75,11 +75,17 @@ function Divider(): React.JSX.Element {
 export function Composer({
   disabled,
   onSend,
-  prefill
+  prefill,
+  citations = [],
+  onRemoveCitation,
+  onCitationsConsumed
 }: {
   disabled: boolean
   onSend: (text: string) => void
   prefill?: string
+  citations?: { relPath: string; line: number }[]
+  onRemoveCitation?: (index: number) => void
+  onCitationsConsumed?: () => void
 }): React.JSX.Element {
   const [text, setText] = useState('')
   const [skills, setSkills] = useState<SkillListItem[]>([])
@@ -143,9 +149,12 @@ export function Composer({
 
   function send(): void {
     const t = text.trim()
-    if (!t) return
-    onSend(t)
+    const cites = citations.map((c) => `[${c.relPath}:${c.line}]`).join(' ')
+    const body = cites ? (t ? `${t}\n\n${cites}` : cites) : t
+    if (!body) return
+    onSend(body)
     setText('')
+    onCitationsConsumed?.()
   }
 
   return (
@@ -162,6 +171,24 @@ export function Composer({
             >
               <span className="font-mono text-xs text-defect">/{s.name}</span>
               <span className="ml-2 text-xs text-mute">{s.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {citations.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {citations.map((c, i) => (
+            <button
+              key={`${c.relPath}:${c.line}:${i}`}
+              type="button"
+              className="flex items-center gap-1 rounded-r2 border border-hair bg-hi px-2 py-0.5 font-mono text-[11px] text-dim transition-colors hover:text-ink"
+              title="Remove citation"
+              onClick={() => onRemoveCitation?.(i)}
+            >
+              <span>
+                {c.relPath}:{c.line}
+              </span>
+              <span className="text-mute">×</span>
             </button>
           ))}
         </div>
@@ -243,7 +270,7 @@ export function Composer({
             type="button"
             aria-label="Send"
             title="Send (⏎)"
-            disabled={disabled || !text.trim()}
+            disabled={disabled || (!text.trim() && citations.length === 0)}
             className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
             onClick={send}
           >

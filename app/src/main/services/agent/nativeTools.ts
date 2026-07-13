@@ -30,6 +30,34 @@ export interface NativeToolDeps {
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
 
+export interface FindingWriteCtx {
+  db: DatabaseSync
+  argusHome: string
+  caseId: number
+  caseSlug: string
+  sessionId: number
+  turnId: number | null
+}
+
+/** Append a finding block to findings.md + insert the pending findings row. Shared by the
+ *  native append_finding tool and the panel emitFinding HITL path (3b). */
+export function appendFinding(
+  ctx: FindingWriteCtx,
+  input: { title: string; markdown: string }
+): { findingId: number; block: string } {
+  const title = input.title || 'Finding'
+  const dir = caseDir(ctx.argusHome, ctx.caseSlug)
+  const block = `\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
+  fs.appendFileSync(path.join(dir, 'findings.md'), block)
+  const res = ctx.db
+    .prepare(
+      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
+       VALUES (?, ?, ?, ?, 'pending', ?)`
+    )
+    .run(ctx.caseId, ctx.sessionId, ctx.turnId, title, new Date().toISOString())
+  return { findingId: Number(res.lastInsertRowid), block }
+}
+
 export function argusToolHandlers(
   deps: NativeToolDeps
 ): Record<string, (args: Record<string, unknown>) => Promise<string>> {
@@ -66,14 +94,17 @@ export function argusToolHandlers(
     },
 
     async append_finding(args) {
-      const title = String(args.title ?? 'Finding')
-      const markdown = String(args.markdown ?? '')
-      const block = `\n## ${title}\n_${new Date().toISOString()} · session ${sessionId}_\n\n${markdown}\n`
-      fs.appendFileSync(path.join(dir, 'findings.md'), block)
-      db.prepare(
-        `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
-         VALUES (?, ?, ?, ?, 'pending', ?)`
-      ).run(deps.caseId, sessionId, deps.currentTurnId?.() ?? null, title, new Date().toISOString())
+      const { block } = appendFinding(
+        {
+          db,
+          argusHome,
+          caseId: deps.caseId,
+          caseSlug,
+          sessionId,
+          turnId: deps.currentTurnId?.() ?? null
+        },
+        { title: String(args.title ?? 'Finding'), markdown: String(args.markdown ?? '') }
+      )
       deps.emitFinding(block)
       return 'finding appended'
     },

@@ -13,10 +13,12 @@ const keyOf = (p: PanelInfo): PanelKey => ({
 
 export function PanelTabStrip({
   slug,
+  sessionId,
   activeTab,
   onSelect
 }: {
   slug: string
+  sessionId: number | null
   activeTab: string
   onSelect: (tab: string) => void
 }): React.JSX.Element {
@@ -26,7 +28,7 @@ export function PanelTabStrip({
   )
 
   async function openPanel(packId: string, windowId: string): Promise<void> {
-    await window.argus.panels.open({ caseSlug: slug, packId, windowId })
+    await window.argus.panels.open({ caseSlug: slug, packId, windowId, sessionId })
     onSelect(panelKeyStr({ caseSlug: slug, packId, windowId }))
   }
 

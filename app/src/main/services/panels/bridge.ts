@@ -20,11 +20,25 @@ export interface PanelEvidenceDoc {
   focusLine?: number
 }
 
-/** The (partial) read-only bridge exposed to a panel; only granted verbs are present. */
+/** Effectful sink the write verbs call. Injected by PanelHost so bridge.ts stays testable with a fake. */
+export interface PanelWriteSink {
+  sendToAgent(caseSlug: string, sessionId: number, text: string): Promise<number>
+  emitFinding(
+    caseSlug: string,
+    sessionId: number,
+    input: { title: string; markdown: string }
+  ): Promise<{ ok: boolean; findingId?: number }>
+  cite(target: { caseSlug: string; sessionId: number }, relPath: string, line: number): void
+}
+
+/** The (partial) bridge exposed to a panel; only granted verbs are present. */
 export interface PanelBridge {
   getCaseContext?(): PanelCaseContext
   requestEvidence?(query: string): SearchHit[]
   readEvidence?(evidenceId: number, focusLine?: number): PanelEvidenceDoc
+  sendToAgent?(text: string): Promise<{ ok: true; turnIndex: number }>
+  emitFinding?(input: { title: string; markdown: string }): Promise<{ ok: boolean; findingId?: number }>
+  cite?(relPath: string, line: number): { ok: true }
 }
 
 export interface PanelBridgeBinding {
@@ -37,9 +51,18 @@ export interface PanelBridgeBinding {
   focus?: { evidenceId: number; line?: number }
   /** The renderer's active session for this case, when known. */
   sessionId?: number | null
+  /** Effectful write sink (3b); write verbs are omitted when absent. */
+  writeSink?: PanelWriteSink
 }
 
-const ALL: PanelPermission[] = ['getCaseContext', 'requestEvidence', 'readEvidence']
+const ALL: PanelPermission[] = [
+  'getCaseContext',
+  'requestEvidence',
+  'readEvidence',
+  'cite',
+  'emitFinding',
+  'sendToAgent'
+]
 
 /**
  * Build a case-bound, read-only bridge. The returned object contains ONLY the
@@ -85,6 +108,32 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
         truncated: doc.truncated,
         focusLine
       }
+    }
+  }
+
+  const sink = binding.writeSink
+  const sessionId = binding.sessionId ?? null
+  const requireSession = (): number => {
+    if (sessionId == null) throw new Error(`panel has no bound session (case ${caseSlug})`)
+    return sessionId
+  }
+
+  if (sink && granted.has('sendToAgent')) {
+    bridge.sendToAgent = async (text: string): Promise<{ ok: true; turnIndex: number }> => {
+      const turnIndex = await sink.sendToAgent(caseSlug, requireSession(), text)
+      return { ok: true, turnIndex }
+    }
+  }
+
+  if (sink && granted.has('emitFinding')) {
+    bridge.emitFinding = (input: { title: string; markdown: string }) =>
+      sink.emitFinding(caseSlug, requireSession(), input)
+  }
+
+  if (sink && granted.has('cite')) {
+    bridge.cite = (relPath: string, line: number): { ok: true } => {
+      sink.cite({ caseSlug, sessionId: requireSession() }, relPath, line)
+      return { ok: true }
     }
   }
 
