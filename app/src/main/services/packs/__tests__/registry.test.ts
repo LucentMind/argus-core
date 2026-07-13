@@ -189,6 +189,32 @@ describe('PackRegistry.load (multi-dir)', () => {
     const reg = PackRegistry.load(root)
     expect(reg.errors().some((e) => /entry not found/.test(e.message))).toBe(true)
   })
+
+  it('windowDecls surfaces externalApp windows from packs with no ui/ dir', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-decls-'))
+    const dir = writePack(root, 'ext-pack', {
+      windows: [
+        {
+          id: 'sim',
+          kind: 'externalApp',
+          title: 'Sim',
+          entry: 'bin/sim.mjs',
+          control: { channel: 'stdio' },
+          runtime: 'node',
+          commands: [{ id: 'ping', risk: 'low', args: [] }]
+        }
+      ]
+    })
+    fs.mkdirSync(path.join(dir, 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'bin', 'sim.mjs'), '// stub\n')
+
+    const reg = PackRegistry.load(root)
+    const decls = reg.windowDecls()
+    const sim = decls.find((d) => d.packId === 'ext-pack' && d.decl.id === 'sim')
+    expect(sim).toBeDefined()
+    expect(sim!.decl.kind).toBe('externalApp')
+    expect(sim!.uiDir).toBeNull()
+  })
 })
 
 describe('windowDecls', () => {

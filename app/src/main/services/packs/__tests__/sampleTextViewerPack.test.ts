@@ -27,7 +27,8 @@ describe('sample-text-viewer pack', () => {
     const w = reg.windowDecls().find((d) => d.packId === 'sample-text-viewer' && d.decl.id === 'text-viewer')
     expect(w).toBeTruthy()
     for (const f of ['index.html', 'app.js', 'app.css']) {
-      expect(fs.existsSync(path.join(w!.uiDir, 'text-viewer', f))).toBe(true)
+      // webPanel-only; Task 6 routes externalApp before this
+      expect(fs.existsSync(path.join(w!.uiDir as string, 'text-viewer', f))).toBe(true)
     }
   })
 })

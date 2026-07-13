@@ -164,7 +164,8 @@ function registerIpc(): void {
     const locs: PanelWindowLoc[] = decls.map((w) => ({
       packId: w.packId,
       windowId: w.decl.id,
-      uiDir: w.uiDir,
+      // webPanel-only; Task 6 routes externalApp before this
+      uiDir: w.uiDir as string,
       entry: w.decl.entry
     }))
     const filePath = resolvePanelAsset(locs, url)
@@ -441,7 +442,8 @@ function registerIpc(): void {
       windowId,
       title: w.decl.title,
       entry: w.decl.entry,
-      uiDir: w.uiDir,
+      // webPanel-only; Task 6 routes externalApp before this
+      uiDir: w.uiDir as string,
       network: w.decl.network,
       permissions: w.decl.permissions as PanelPermission[],
       focus: evidenceId != null ? { evidenceId } : undefined,
@@ -461,7 +463,8 @@ function registerIpc(): void {
       windowId: req.windowId,
       title: w.decl.title,
       entry: w.decl.entry,
-      uiDir: w.uiDir,
+      // webPanel-only; Task 6 routes externalApp before this
+      uiDir: w.uiDir as string,
       network: w.decl.network,
       permissions: w.decl.permissions as PanelPermission[],
       focus: req.focus,

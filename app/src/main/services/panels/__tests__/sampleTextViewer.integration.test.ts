@@ -62,7 +62,8 @@ describe('sample-text-viewer end-to-end read path', () => {
   it('serves the bundle over argus-panel:// with a bundle-only CSP and traversal rejected', () => {
     const w = viewer()
     const locs: PanelWindowLoc[] = [
-      { packId: w.packId, windowId: w.decl.id, uiDir: w.uiDir, entry: w.decl.entry }
+      // webPanel-only; Task 6 routes externalApp before this
+      { packId: w.packId, windowId: w.decl.id, uiDir: w.uiDir as string, entry: w.decl.entry }
     ]
     for (const asset of ['index.html', 'app.js', 'app.css']) {
       const p = resolvePanelAsset(locs, `argus-panel://sample-text-viewer/text-viewer/${asset}`)
@@ -128,7 +129,8 @@ describe('sample-text-viewer end-to-end read path', () => {
       windowId: 'text-viewer',
       title: w.decl.title,
       entry: w.decl.entry,
-      uiDir: w.uiDir,
+      // webPanel-only; Task 6 routes externalApp before this
+      uiDir: w.uiDir as string,
       network: w.decl.network,
       permissions: w.decl.permissions as PanelPermission[],
       focus: { evidenceId, line: 5 }
