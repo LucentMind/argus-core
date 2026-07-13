@@ -174,7 +174,8 @@ function registerIpc(): void {
   }
 
   const panelWriteSink: import('./services/panels/bridge').PanelWriteSink = {
-    sendToAgent: (caseSlug, sessionId, text) => agentService!.send(caseSlug, sessionId, text),
+    sendToAgent: (caseSlug, sessionId, text) =>
+      broadcast(IPC.panelsDraft, { caseSlug, sessionId, text }),
     emitFinding: (caseSlug, sessionId, input) =>
       agentService!.emitPanelFinding(caseSlug, sessionId, input),
     cite: (target, relPath, line) => broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
