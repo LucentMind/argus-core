@@ -29,6 +29,10 @@ export function createElectronPanelFactory(
       // Electron's protocol.handle doesn't expose).
       const partition = `pack-panel:${input.packId}:${input.caseSlug}`
       const sess = electronSession.fromPartition(partition)
+      // The case this partition (and therefore this handler) is bound to. This is the
+      // ONLY trusted case identity for argus-case reads — never the request URL's
+      // hostname, which is renderer-supplied (see resolveCaseAsset).
+      const boundCaseSlug = input.caseSlug
 
       // Serve argus-panel:// on THIS partition's session (handlers are per-session in
       // Electron — a default-session handler never fires for a partitioned panel). CSP
@@ -57,10 +61,12 @@ export function createElectronPanelFactory(
       // unless SOME window of the same pack+case opens with the permission first.
       if (input.permissions.includes('readCaseFiles') && !caseSchemeReady.has(partition)) {
         sess.protocol.handle('argus-case', async (request) => {
-          const abs = resolveCaseAsset(argusHome, request.url)
+          const abs = resolveCaseAsset(argusHome, boundCaseSlug, request.url)
           if (!abs) return new Response('not found', { status: 404 })
           try {
-            return await net.fetch(pathToFileURL(abs).toString())
+            // Forward the request headers (notably Range:) so net.fetch over file://
+            // can answer with 206 Partial Content — required for media seeking.
+            return await net.fetch(pathToFileURL(abs).toString(), { headers: request.headers })
           } catch {
             return new Response('not found', { status: 404 })
           }
