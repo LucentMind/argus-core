@@ -42,6 +42,12 @@ export interface PanelInfo extends PanelKey {
   floated: boolean
 }
 
+/** Public snapshot of one spawned external app (3c). */
+export interface ExternalAppInfo extends PanelKey {
+  title: string
+  status: 'running' | 'exited'
+}
+
 /** What the MAIN renderer sends to open a panel; title/entry/permissions are filled server-side from windowDecls. */
 export interface OpenPanelRequest {
   caseSlug: string

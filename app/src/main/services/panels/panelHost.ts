@@ -21,7 +21,7 @@ export interface OpenPanelInput extends PanelKey {
 /** The outcome of a correlated dispatchToPanel round-trip. */
 export type PanelDispatchResult =
   | { ok: true; result: unknown }
-  | { ok: false; reason: 'panel-not-open' | 'timeout' | 'error'; hint?: string }
+  | { ok: false; reason: 'panel-not-open' | 'timeout' | 'error' | 'process-exited'; hint?: string }
 
 /**
  * The Electron surface PanelHost drives, injected so lifecycle logic stays
