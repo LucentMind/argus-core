@@ -24,7 +24,9 @@ export const PANEL_BRIDGE_CHANNELS = {
   cite: 'panels:cite',
   emitFinding: 'panels:emit-finding',
   sendToAgent: 'panels:send-to-agent',
-  theme: 'panels:theme'
+  theme: 'panels:theme',
+  command: 'panels:command',
+  commandResult: 'panels:command-result'
 } as const
 
 /** A panel's stable identity within a case. */

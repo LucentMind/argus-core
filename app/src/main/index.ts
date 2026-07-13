@@ -58,6 +58,7 @@ import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './serv
 import { searchEvidence, readEvidenceText } from './services/search'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { flattenPanelCommands } from './services/agent/panelCommands'
 import {
   listSessions,
   createSession,
@@ -423,6 +424,32 @@ function registerIpc(): void {
   ): ReturnType<typeof packRegistry.windowDecls>[number] | null =>
     packRegistry.windowDecls().find((w) => w.packId === packId && w.decl.id === windowId) ?? null
 
+  // Shared by the panelsOpen IPC handler and the agent's open_panel native tool (3b-2).
+  const openPanelFor = (
+    caseSlug: string,
+    sessionId: number,
+    packId: string,
+    windowId: string,
+    evidenceId?: number
+  ): { ok: boolean; reason?: string; panel?: unknown } => {
+    const w = panelWindow(packId, windowId)
+    if (!w) return { ok: false, reason: `unknown panel: ${packId}/${windowId}` }
+    const info = panelHost!.open({
+      caseSlug,
+      packId,
+      windowId,
+      title: w.decl.title,
+      entry: w.decl.entry,
+      uiDir: w.uiDir,
+      network: w.decl.network,
+      permissions: w.decl.permissions as PanelPermission[],
+      focus: evidenceId != null ? { evidenceId } : undefined,
+      sessionId
+    })
+    broadcast(IPC.panelsChanged, undefined)
+    return { ok: true, panel: info }
+  }
+
   ipcMain.handle(IPC.panelsList, (_e, caseSlug?: string) => panelHost!.list(caseSlug))
   ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
     const w = panelWindow(req.packId, req.windowId)
@@ -508,6 +535,11 @@ function registerIpc(): void {
     if (!b?.cite) throw new Error('panel bridge: cite not granted')
     return b.cite(relPath, line)
   })
+  ipcMain.on(
+    IPC.panelsCommandResult,
+    (_e, p: { requestId: string; ok: boolean; result?: unknown; error?: string }) =>
+      panelHost!.resolveCommand(p.requestId, p)
+  )
 
   // — agent —
   agentService = new AgentService({
@@ -529,6 +561,10 @@ function registerIpc(): void {
     agentSettings: () => settingsService.get().agent,
     composeMcp: () => mcpService.composeForSession(),
     toolRisk: () => toolRiskStore.get(),
+    openPanel: openPanelFor,
+    panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
+    dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) =>
+      panelHost!.dispatchToPanel({ caseSlug, packId, windowId }, cmd, args),
     mirrorFactory: (caseSlug, sessionId) =>
       new SessionMirror(
         db,

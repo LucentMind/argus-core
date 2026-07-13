@@ -8,7 +8,12 @@ import { normalizeSdkMessage, makeEvent, type NormalizeCtx } from './normalize'
 import { classifyToolCall, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
-import { createArgusMcpServer, appendFinding } from './nativeTools'
+import { createArgusMcpServer, appendFinding, type NativeToolDeps } from './nativeTools'
+import {
+  buildPanelCommandServers,
+  panelCommandRiskMap,
+  type PanelCommandDecl
+} from './panelCommands'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
 import { isEditableTool } from '../../../shared/editableTools'
@@ -63,6 +68,17 @@ export interface SessionDeps {
   extraMcpServers?: Record<string, unknown>
   /** Connectors that could not be composed; logged to the event stream at start. */
   mcpSkipped?: Array<{ instanceId: string; reason: string }>
+  /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
+  openPanel?: NativeToolDeps['openPanel']
+  /** Pack-declared panel commands (3b-2), registered as mcp__<pack>__<window>_<cmd> tools. */
+  panelCommandDecls?: PanelCommandDecl[]
+  /** Dispatch a panel command to the open panel (3b-2); session-bound by AgentService. */
+  dispatchPanelCommand?: (
+    packId: string,
+    windowId: string,
+    cmd: string,
+    args: unknown[]
+  ) => Promise<unknown>
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -102,7 +118,8 @@ export class CaseSession {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
       readonlyRoots: [...deps.skillsRoots],
-      packCliNames: deps.packCliNames
+      packCliNames: deps.packCliNames,
+      panelCommandRisk: panelCommandRiskMap(deps.panelCommandDecls ?? [])
     }
     const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({
@@ -123,6 +140,9 @@ export class CaseSession {
           : {}),
         mcpServers: {
           ...(deps.extraMcpServers ?? {}),
+          ...(deps.dispatchPanelCommand
+            ? buildPanelCommandServers(deps.panelCommandDecls ?? [], deps.dispatchPanelCommand)
+            : {}),
           argus: createArgusMcpServer({
             db: deps.db,
             argusHome: deps.argusHome,
@@ -133,7 +153,8 @@ export class CaseSession {
             currentTurnId: () => this.currentTurnRow,
             emitFinding: (markdown) =>
               this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
-            agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess()
+            agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess(),
+            openPanel: deps.openPanel
           })
         },
         canUseTool: this.canUseTool.bind(this),

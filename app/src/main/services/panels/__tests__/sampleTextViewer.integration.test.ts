@@ -110,6 +110,7 @@ describe('sample-text-viewer end-to-end read path', () => {
       focus(): void {}
       setBounds(): void {}
       setVisible(): void {}
+      sendCommand(): void {}
     }
     const created: FakeView[] = []
     const factory: PanelViewFactory = {

@@ -44,7 +44,37 @@ if (document.readyState === 'loading') {
   applyTheme('dark')
 }
 
-export type PanelApi = typeof argus
+// Downstream command dispatch (main → panel → main reply). The pack registers
+// at most one handler via onCommand; a dispatched command runs it and replies
+// over commandResult, correlated by requestId (PanelHost.resolveCommand).
+let commandHandler: ((cmd: string, args: unknown[]) => unknown) | null = null
+const argusWithCommands = {
+  ...argus,
+  onCommand(handler: (cmd: string, args: unknown[]) => unknown): void {
+    commandHandler = handler
+  }
+}
+ipcRenderer.on(
+  PANEL_BRIDGE_CHANNELS.command,
+  async (_e, req: { requestId: string; cmd: string; args: unknown[] }) => {
+    try {
+      const result = commandHandler ? await commandHandler(req.cmd, req.args) : undefined
+      ipcRenderer.send(PANEL_BRIDGE_CHANNELS.commandResult, {
+        requestId: req.requestId,
+        ok: true,
+        result
+      })
+    } catch (e) {
+      ipcRenderer.send(PANEL_BRIDGE_CHANNELS.commandResult, {
+        requestId: req.requestId,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e)
+      })
+    }
+  }
+)
+
+export type PanelApi = typeof argusWithCommands
 
 // Panels ALWAYS run contextIsolation:true (set in electronPlatform), so expose
 // via contextBridge unconditionally. Under sandbox:true, process.contextIsolated
@@ -53,7 +83,7 @@ export type PanelApi = typeof argus
 // though theme injection (a shared-DOM API) still works. That mismatch is
 // exactly the "window.argus is undefined but theme works" symptom.
 try {
-  contextBridge.exposeInMainWorld('argus', argus)
+  contextBridge.exposeInMainWorld('argus', argusWithCommands)
 } catch (error) {
   console.error('[argus-panel] contextBridge.exposeInMainWorld failed', error)
 }
