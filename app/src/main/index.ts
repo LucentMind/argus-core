@@ -51,6 +51,7 @@ import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './serv
 import { searchEvidence, readEvidenceText } from './services/search'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { flattenPanelCommands } from './services/agent/panelCommands'
 import {
   listSessions,
   createSession,
@@ -168,8 +169,7 @@ function registerIpc(): void {
     sendToAgent: (caseSlug, sessionId, text) => agentService!.send(caseSlug, sessionId, text),
     emitFinding: (caseSlug, sessionId, input) =>
       agentService!.emitPanelFinding(caseSlug, sessionId, input),
-    cite: (target, relPath, line) =>
-      broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
+    cite: (target, relPath, line) => broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
   }
 
   panelHost = new PanelHost({
@@ -554,6 +554,9 @@ function registerIpc(): void {
     composeMcp: () => mcpService.composeForSession(),
     toolRisk: () => toolRiskStore.get(),
     openPanel: openPanelFor,
+    panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
+    dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) =>
+      panelHost!.dispatchToPanel({ caseSlug, packId, windowId }, cmd, args),
     mirrorFactory: (caseSlug, sessionId) =>
       new SessionMirror(
         db,

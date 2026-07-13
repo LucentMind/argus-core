@@ -7,6 +7,7 @@ import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/dri
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
+import type { PanelCommandDecl } from './panelCommands'
 import { sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
@@ -42,6 +43,16 @@ export interface AgentServiceDeps {
     windowId: string,
     evidenceId?: number
   ) => { ok: boolean; reason?: string; panel?: unknown }
+  /** Live pack-declared panel commands (3b-2); read at each session construction. */
+  panelCommandDecls?: () => PanelCommandDecl[]
+  /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
+  dispatchPanelCommand?: (
+    caseSlug: string,
+    packId: string,
+    windowId: string,
+    cmd: string,
+    args: unknown[]
+  ) => Promise<unknown>
 }
 
 const defaultCreateQuery: CreateQueryFn = (args) =>
@@ -124,6 +135,11 @@ export class AgentService {
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)
+        : undefined,
+      panelCommandDecls: this.deps.panelCommandDecls?.(),
+      dispatchPanelCommand: this.deps.dispatchPanelCommand
+        ? (packId, windowId, cmd, args) =>
+            this.deps.dispatchPanelCommand!(caseSlug, packId, windowId, cmd, args)
         : undefined,
       agentOptions: as
         ? (() => {
