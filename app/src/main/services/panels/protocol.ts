@@ -146,8 +146,11 @@ export function panelContentType(file: string): string {
  * Strict per-panel CSP built from the window's declared network allowlist.
  * Empty allowlist ⇒ the panel can reach only its own bundle. No unsafe-inline/eval.
  * Malformed origins (containing directive-injection chars like `;`, spaces, or quotes) are dropped.
+ * `opts.allowCaseFiles` (3d-1, readCaseFiles-granted windows only) additionally allows the
+ * argus-case: scheme in img-src/connect-src and adds a media-src directive — otherwise the
+ * CSP is unchanged from 3a/3b (no media-src at all; default-src 'none' blocks media elements).
  */
-export function buildPanelCsp(network: string[]): string {
+export function buildPanelCsp(network: string[], opts: { allowCaseFiles?: boolean } = {}): string {
   const allow = network.filter((o) => {
     if (!o || o.trim().length === 0) return false
     if (!ORIGIN_RE.test(o)) {
@@ -157,15 +160,20 @@ export function buildPanelCsp(network: string[]): string {
     return true
   })
   const tail = allow.length ? ' ' + allow.join(' ') : ''
-  return [
+  const caseSrc = opts.allowCaseFiles ? ' argus-case:' : ''
+  const directives = [
     `default-src 'none'`,
     `script-src 'self'`,
     `style-src 'self'`,
-    `img-src 'self' data:${tail}`,
+    `img-src 'self' data:${caseSrc}${tail}`
+  ]
+  if (opts.allowCaseFiles) directives.push(`media-src 'self'${caseSrc}${tail}`)
+  directives.push(
     `font-src 'self'`,
-    `connect-src 'self'${tail}`,
+    `connect-src 'self'${caseSrc}${tail}`,
     `frame-ancestors 'none'`,
     `base-uri 'none'`,
     `form-action 'none'`
-  ].join('; ')
+  )
+  return directives.join('; ')
 }
