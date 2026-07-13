@@ -18,6 +18,10 @@
         "cite",
         "emitFinding",
         "sendToAgent"
+      ],
+      "commands": [
+        { "id": "highlight", "risk": "low", "args": ["line"] },
+        { "id": "echo", "risk": "low", "args": ["text"] }
       ]
     }
   ]

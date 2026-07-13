@@ -32,3 +32,20 @@ for (const [label, fn] of buttons) {
   }
   host.appendChild(b)
 }
+
+const logEl = document.createElement('div')
+logEl.id = 'dispatch-log'
+document.body.appendChild(Object.assign(document.createElement('h2'), { textContent: 'Agent dispatch log' }))
+document.body.appendChild(logEl)
+
+if (window.argus && typeof window.argus.onCommand === 'function') {
+  window.argus.onCommand((cmd, args) => {
+    const line = document.createElement('div')
+    line.className = 'log-line'
+    line.textContent = `← ${cmd}(${JSON.stringify(args)})`
+    logEl.prepend(line)
+    if (cmd === 'highlight') return { ok: true, highlighted: Number(args[0]) }
+    if (cmd === 'echo') return { ok: true, echo: String(args[0]) }
+    return { ok: false, error: `unknown command: ${cmd}` }
+  })
+}

@@ -16,5 +16,6 @@ describe('sample-bridge-playground pack loads clean', () => {
     expect(win.permissions).toContain('cite')
     expect(win.permissions).toContain('emitFinding')
     expect(win.permissions).toContain('sendToAgent')
+    expect(win.commands.map((c) => c.id)).toEqual(['highlight', 'echo'])
   })
 })

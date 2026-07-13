@@ -301,3 +301,35 @@ describe('MCP connector tools (spec 2.5)', () => {
     })
   })
 })
+
+describe('classifyToolCall · panel commands + open_panel', () => {
+  const pcr = {
+    'mcp__sample-bridge-playground__playground_highlight': 'low' as const,
+    'mcp__pk__win_danger': 'high' as const,
+    'mcp__pk__win_edit': 'medium' as const
+  }
+  it('open_panel is allow/LOW', () => {
+    expect(classifyToolCall('mcp__argus__open_panel', {}, ctx())).toMatchObject({
+      action: 'allow',
+      risk: 'LOW'
+    })
+  })
+  it('low command → allow', () => {
+    expect(
+      classifyToolCall(
+        'mcp__sample-bridge-playground__playground_highlight',
+        { line: '4' },
+        ctx({ panelCommandRisk: pcr })
+      )
+    ).toMatchObject({ action: 'allow', risk: 'LOW' })
+  })
+  it('medium command → ask with a session grant key', () => {
+    const v = classifyToolCall('mcp__pk__win_edit', {}, ctx({ panelCommandRisk: pcr }))
+    expect(v).toMatchObject({ action: 'ask', risk: 'MEDIUM', grantKey: 'medium:mcp__pk__win_edit' })
+  })
+  it('high command → ask with no session grant', () => {
+    expect(
+      classifyToolCall('mcp__pk__win_danger', {}, ctx({ panelCommandRisk: pcr }))
+    ).toMatchObject({ action: 'ask', risk: 'HIGH', grantKey: null })
+  })
+})

@@ -154,6 +154,11 @@ export function createElectronPanelFactory(
         },
         setVisible(visible): void {
           view.setVisible(visible)
+        },
+        sendCommand(requestId, cmd, args): void {
+          if (!view.webContents.isDestroyed()) {
+            view.webContents.send(IPC.panelsCommand, { requestId, cmd, args })
+          }
         }
       }
     }

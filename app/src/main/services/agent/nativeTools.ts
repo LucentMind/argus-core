@@ -26,6 +26,12 @@ export interface NativeToolDeps {
   agentAccess?: () => AgentAccess
   /** Current turn row id, read at finding time; null between turns. */
   currentTurnId?: () => number | null
+  /** Open/focus a panel in the session's case (3b-2). Injected; absent in tests that don't need it. */
+  openPanel?: (
+    packId: string,
+    windowId: string,
+    evidenceId?: number
+  ) => { ok: boolean; reason?: string; panel?: unknown }
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -175,6 +181,16 @@ export function argusToolHandlers(
         String(args.ref ?? '')
       )
       return `Checked out ${args.ref} in case worktree: ${wt}\nWork with the code there; the primary checkout is untouched.`
+    },
+
+    async open_panel(args) {
+      if (!deps.openPanel) throw new Error('open_panel is not available in this session')
+      const evId = args.evidence_id == null ? undefined : Number(args.evidence_id)
+      return JSON.stringify(
+        deps.openPanel(String(args.pack_id ?? ''), String(args.window_id ?? ''), evId),
+        null,
+        2
+      )
     }
   }
 }
@@ -257,6 +273,12 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'Check out a branch/PR ref of a linked repo in a case-scoped worktree. NEVER run git switch/checkout in the primary checkout.',
         { repo_path: z.string(), ref: z.string() },
         async (a) => asText(await h.workspace_checkout(a))
+      ),
+      tool(
+        'open_panel',
+        "Open or focus a pack's webPanel in this case, optionally on a specific evidence item. Returns {ok, panel|reason}. Call this before a panel command if the panel may be closed.",
+        { pack_id: z.string(), window_id: z.string(), evidence_id: z.number().optional() },
+        async (a) => asText(await h.open_panel(a))
       )
     ]
   })
