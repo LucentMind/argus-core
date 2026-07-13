@@ -1,0 +1,31 @@
+{
+  "id": "sample-external-app",
+  "displayName": "Sample External App",
+  "version": "0.1.0",
+  "argusApi": "1",
+  "windows": [
+    {
+      "id": "console",
+      "kind": "externalApp",
+      "title": "Sample External App",
+      "entry": "bin/app.mjs",
+      "runtime": "node",
+      "control": { "channel": "stdio" },
+      "commands": [
+        {
+          "id": "ping",
+          "risk": "low",
+          "description": "Ping the sample external app; it replies { pong: true }. Exercises the stdio command round-trip.",
+          "args": []
+        },
+        {
+          "id": "echo",
+          "risk": "low",
+          "description": "Echo text back through the sample external app (a no-op demo of arg passing).",
+          "args": ["text"],
+          "argDescriptions": { "text": "arbitrary text the app echoes in its result" }
+        }
+      ]
+    }
+  ]
+}
