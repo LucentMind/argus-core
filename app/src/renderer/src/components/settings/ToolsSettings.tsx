@@ -4,10 +4,17 @@ import { Btn, Chip } from '../ui'
 import { SettingsSection, SettingRow, FIELD, DraftInput } from './settingsLayout'
 import type { ProbeToolRow, SettingsPayload } from '../../../../shared/settings'
 
+/** Bundled tools with a wired one-click installer, keyed by resolved-tool id. */
+const AUTO_INSTALLABLE: Record<string, () => Promise<{ ok: boolean; log: string }>> = {
+  graphify: () => window.argus.graph.install()
+}
+
 export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const rows = payload.resolvedTools
   const [report, setReport] = useState<ProbeToolRow[] | null>(null)
   const [running, setRunning] = useState(false)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [installLog, setInstallLog] = useState<Record<string, string>>({})
 
   function runChecks(): void {
     setReport(null)
@@ -28,6 +35,20 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
     if (p) void settingsStore.patch({ tools: { [key]: p } })
   }
 
+  async function install(id: string): Promise<void> {
+    const installer = AUTO_INSTALLABLE[id]
+    if (!installer) return
+    setInstalling(id)
+    setInstallLog((m) => ({ ...m, [id]: '' }))
+    try {
+      const r = await installer()
+      setInstallLog((m) => ({ ...m, [id]: r.log }))
+      if (r.ok) runChecks()
+    } finally {
+      setInstalling(null)
+    }
+  }
+
   return (
     <SettingsSection title="Analysis tools">
       {rows.length === 0 && (
@@ -37,6 +58,7 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
       )}
       {rows.map((row) => {
         const probe = report?.find((r) => r.id === row.id)
+        const canAutoInstall = row.id in AUTO_INSTALLABLE && report != null && !probe?.ok
         return (
           <SettingRow
             key={row.id}
@@ -88,6 +110,18 @@ export function ToolsSettings({ payload }: { payload: SettingsPayload }): React.
                   Browse
                 </Btn>
               </>
+            )}
+            {canAutoInstall && (
+              <Btn
+                variant="primary"
+                disabled={installing === row.id}
+                onClick={() => void install(row.id)}
+              >
+                {installing === row.id ? 'Installing…' : 'Install'}
+              </Btn>
+            )}
+            {installLog[row.id] && (
+              <div className="text-mute w-full break-all text-xs">{installLog[row.id]}</div>
             )}
           </SettingRow>
         )
