@@ -9,6 +9,7 @@ export type PanelPermission =
   | 'sendToAgent'
   | 'readCaseFiles'
   | 'ingestEvidence'
+  | 'listCaseEvidence'
 
 /**
  * The IPC channels the SANDBOXED panel preload uses, inlined here as literals

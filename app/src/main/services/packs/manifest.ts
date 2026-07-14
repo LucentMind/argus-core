@@ -141,7 +141,8 @@ export const packWindowSchema = z
           'emitFinding',
           'sendToAgent',
           'readCaseFiles',
-          'ingestEvidence'
+          'ingestEvidence',
+          'listCaseEvidence'
         ])
       )
       .default([]),
