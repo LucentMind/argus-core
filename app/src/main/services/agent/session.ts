@@ -16,6 +16,7 @@ import {
 } from './panelCommands'
 import type { Detection } from '../packs/detection'
 import { caseDir } from '../paths'
+import { ingestContent } from '../ingest'
 import { isEditableTool } from '../../../shared/editableTools'
 import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
@@ -86,6 +87,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
  *  agent's own mcp__argus__append_finding, which stays auto-approved. */
 export const PANEL_FINDING_TOOL = 'mcp__argus__panel_emit_finding'
+
+/** Tool name for the panel-initiated evidence-ingest approval card (MEDIUM, editable). */
+export const PANEL_INGEST_TOOL = 'mcp__argus__panel_ingest_evidence'
 
 export class CaseSession {
   readonly sessionId: number
@@ -274,6 +278,74 @@ export class CaseSession {
     )
     this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown: block }))
     return { ok: true, findingId }
+  }
+
+  /** Panel-initiated evidence ingest (3d-2): raise a MEDIUM editable approval card showing the
+   *  target filename + source, then (on approve) download/read the bytes and ingest through the
+   *  same pipeline the agent's own ingest_artifact tool uses. */
+  async ingestPanelEvidence(input: {
+    source: { url: string } | { bytes: Buffer }
+    filename: string
+  }): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }> {
+    if (this.state === 'dead') return { ok: false, reason: 'session-dead' }
+    const requestId = crypto.randomUUID()
+    const sourcePreview =
+      'url' in input.source ? input.source.url : `${input.source.bytes.byteLength} bytes from panel`
+    const preview = { filename: input.filename, source: sourcePreview }
+    const argsPreview = JSON.stringify(preview).slice(0, 400)
+    this.emit(
+      makeEvent(this.ctx(), 'request.opened', {
+        requestId,
+        tool: PANEL_INGEST_TOOL,
+        risk: 'MEDIUM',
+        grantKey: null,
+        argsPreview,
+        input: preview
+      })
+    )
+    const outcome = await this.approvals.open({
+      requestId,
+      tool: PANEL_INGEST_TOOL,
+      risk: 'MEDIUM',
+      grantKey: null,
+      argsPreview
+    })
+    this.emit(makeEvent(this.ctx(), 'request.resolved', { requestId, decision: outcome.decision }))
+    if (outcome.decision !== 'allow' && outcome.decision !== 'allow-session') {
+      return { ok: false, reason: 'denied' }
+    }
+    const edited = outcome.updatedInput as { filename?: string } | undefined
+    const filename = String(edited?.filename ?? input.filename)
+
+    let content: Buffer
+    const extraMeta: Record<string, unknown> = {}
+    if ('url' in input.source) {
+      try {
+        const res = await fetch(input.source.url)
+        if (!res.ok) return { ok: false, reason: `fetch-failed:${res.status}` }
+        content = Buffer.from(await res.arrayBuffer())
+        extraMeta.sourceUrl = input.source.url
+      } catch {
+        return { ok: false, reason: 'fetch-failed' }
+      }
+    } else {
+      content = input.source.bytes
+    }
+
+    const rec = ingestContent(
+      this.deps.db,
+      this.deps.argusHome,
+      this.deps.detection,
+      this.deps.caseSlug,
+      filename,
+      content,
+      'panel',
+      extraMeta
+    )
+    this.emit(
+      makeEvent(this.ctx(), 'case.evidence.ingested', { evidenceId: rec.id, relPath: rec.relPath })
+    )
+    return { ok: true, evidenceId: String(rec.id) }
   }
 
   respond(d: ApprovalDecision): boolean {
