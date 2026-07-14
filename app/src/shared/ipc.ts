@@ -123,6 +123,8 @@ export const IPC = {
   panelsDockBack: 'panels:dock-back',
   panelsSetTheme: 'panels:set-theme',
   panelsChanged: 'panels:changed',
+  // main→renderer: select this panel (agent-opened panels aren't selected client-side)
+  panelsActivate: 'panels:activate',
   panelsTheme: 'panels:theme',
   panelsGetCaseContext: 'panels:get-case-context',
   panelsRequestEvidence: 'panels:request-evidence',

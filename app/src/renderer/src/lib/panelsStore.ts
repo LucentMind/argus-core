@@ -65,6 +65,14 @@ export class PanelsStore {
     this.set({ activeTab: tab })
   }
 
+  /** Select a panel opened in the main process (the agent's open_panel), mirroring the
+   *  client-side setActiveTab that user-initiated opens already do. Ignores a key from a
+   *  different case so a stale/late broadcast can't hijack the current case's active tab. */
+  activate(key: PanelKey): void {
+    if (key.caseSlug !== this.state.caseSlug) return
+    this.setActiveTab(panelKeyStr(key))
+  }
+
   /** Modal/dialog/off-case occlusion source (from App). ORed with the launcher-open source. */
   setOccluded(occluded: boolean): void {
     this.modalOccluded = occluded
@@ -128,8 +136,14 @@ export function wirePanelsStore(slug: string): () => void {
   }
   resync()
   const offChanged = window.argus.panels.onChanged(resync)
+  // Select a panel the main process just opened (agent open_panel); guarded to the current
+  // case inside activate(). Mirrors the setActiveTab that user-initiated opens do client-side.
+  const offActivate = window.argus.panels.onActivate((key) => {
+    if (!stale) panelsStore.activate(key)
+  })
   return () => {
     stale = true
     offChanged()
+    offActivate()
   }
 }

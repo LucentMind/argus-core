@@ -66,6 +66,20 @@ describe('PanelsStore', () => {
     expect(store.get().occluded).toBe(false)
   })
 
+  it('activate() selects a panel whose case matches the current case', () => {
+    // The agent's open_panel opens a panel in the main process; main broadcasts
+    // panels:activate so the renderer selects it (as user-initiated opens already do).
+    store.setCase('CASE-A')
+    store.activate({ caseSlug: 'CASE-A', packId: 'sample-pack', windowId: 'text-viewer' })
+    expect(store.get().activeTab).toBe(panelKeyStr(info()))
+  })
+
+  it('activate() ignores a panel from a different case (stale/foreign broadcast)', () => {
+    store.setCase('CASE-A')
+    store.activate({ caseSlug: 'CASE-B', packId: 'sample-pack', windowId: 'text-viewer' })
+    expect(store.get().activeTab).toBe(CHAT_TAB)
+  })
+
   it('notifies subscribers on change', () => {
     let n = 0
     const off = store.subscribe(() => { n++ })

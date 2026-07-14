@@ -499,6 +499,10 @@ function registerIpc(): void {
       sessionId
     })
     broadcast(IPC.panelsChanged, undefined)
+    // Agent-initiated opens (the only caller of this webPanel branch) don't run the
+    // renderer-side setActiveTab that user opens do, so tell the renderer to select it —
+    // otherwise the native view shows but the tab strip stays on Chat (desynced).
+    broadcast(IPC.panelsActivate, { caseSlug, packId, windowId })
     return { ok: true, panel: info }
   }
 
