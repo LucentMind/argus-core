@@ -15,6 +15,7 @@
         "getCaseContext",
         "requestEvidence",
         "readEvidence",
+        "listCaseEvidence",
         "readCaseFiles",
         "cite",
         "emitFinding",

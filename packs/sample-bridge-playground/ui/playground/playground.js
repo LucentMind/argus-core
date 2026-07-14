@@ -56,6 +56,8 @@ const [evidenceIdInput] = row(
   (els) => window.argus.readEvidence(Number(els[0].value))
 )
 
+row('listCaseEvidence', 'listCaseEvidence', [], () => window.argus.listCaseEvidence())
+
 // argus-case:// read protocol (3d-1): render a case file directly. No bridge verb is
 // involved — readCaseFiles gates the protocol handler, not a window.argus method — so this
 // row gates its button on getCaseContext (which it also calls to learn the caseSlug).
