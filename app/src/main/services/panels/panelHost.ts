@@ -231,6 +231,7 @@ export class PanelHost {
       argusHome: this.deps.argusHome,
       caseSlug: input.caseSlug,
       permissions: input.permissions,
+      network: input.network,
       focus: input.focus,
       sessionId: input.sessionId ?? null,
       writeSink: this.deps.writeSink

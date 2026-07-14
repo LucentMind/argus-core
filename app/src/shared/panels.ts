@@ -1,5 +1,5 @@
 /** The verbs/protocols a panel may be granted. Read verbs (3a) + write/collab verbs (3b)
- *  + case-file read protocol (3d-1). */
+ *  + case-file read protocol (3d-1) + evidence ingest protocol (3d-2). */
 export type PanelPermission =
   | 'getCaseContext'
   | 'requestEvidence'
@@ -8,6 +8,7 @@ export type PanelPermission =
   | 'emitFinding'
   | 'sendToAgent'
   | 'readCaseFiles'
+  | 'ingestEvidence'
 
 /**
  * The IPC channels the SANDBOXED panel preload uses, inlined here as literals
@@ -26,6 +27,7 @@ export const PANEL_BRIDGE_CHANNELS = {
   cite: 'panels:cite',
   emitFinding: 'panels:emit-finding',
   sendToAgent: 'panels:send-to-agent',
+  ingestEvidence: 'panels:ingest-evidence',
   theme: 'panels:theme',
   command: 'panels:command',
   commandResult: 'panels:command-result'
@@ -90,6 +92,12 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
   if (permissions.includes('sendToAgent')) {
     api.sendToAgent = (text: string): Promise<unknown> =>
       invoke(PANEL_BRIDGE_CHANNELS.sendToAgent, text)
+  }
+  if (permissions.includes('ingestEvidence')) {
+    api.ingestEvidence = (input: {
+      source: { url: string } | { bytes: ArrayBuffer | Uint8Array }
+      filename: string
+    }): Promise<unknown> => invoke(PANEL_BRIDGE_CHANNELS.ingestEvidence, input)
   }
   return api
 }

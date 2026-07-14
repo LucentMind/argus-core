@@ -112,6 +112,19 @@ row(
   (els) => window.argus.sendToAgent(els[0].value)
 )
 
+row(
+  'ingestEvidence',
+  'ingestEvidence',
+  [
+    { placeholder: 'filename (e.g. panel-note.txt)', value: 'panel-note.txt' },
+    { textarea: true, placeholder: 'content', value: 'Added from the Bridge Playground.' }
+  ],
+  (els) => {
+    const bytes = new TextEncoder().encode(els[1].value)
+    return window.argus.ingestEvidence({ source: { bytes }, filename: els[0].value })
+  }
+)
+
 // Downstream: receive agent-dispatched commands and log them.
 const logEl = document.createElement('div')
 logEl.id = 'dispatch-log'
