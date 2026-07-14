@@ -5,10 +5,11 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { ingestArtifact } from '../../ingest'
+import { ingestArtifact, ingestDerived } from '../../ingest'
 import { createDetection } from '../../packs/detection'
 import { readEvidenceText } from '../../search'
 import { createPanelBridge } from '../bridge'
+import { caseDir } from '../../paths'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../../tests/fixtures/sample-applog.txt')
 const detection = createDetection()
@@ -78,5 +79,46 @@ describe('createPanelBridge', () => {
   it('readCaseFiles is accepted but produces no bridge verb (protocol-only permission)', () => {
     const b = bind('CASE-A', ['readCaseFiles'])
     expect(b).toEqual({})
+  })
+})
+
+describe('listCaseEvidence (3d-3)', () => {
+  it('is absent when not granted', () => {
+    expect(bind('CASE-A', ['requestEvidence']).listCaseEvidence).toBeUndefined()
+  })
+
+  it('is scoped to the bound case (not all cases)', () => {
+    // beforeEach seeds exactly one item per case; a bound call must return only its own.
+    expect(bind('CASE-A', ['listCaseEvidence']).listCaseEvidence!().length).toBe(1)
+    expect(bind('CASE-B', ['listCaseEvidence']).listCaseEvidence!().length).toBe(1)
+  })
+
+  it('projects to the summary shape (no sha256/caseId/meta leak)', () => {
+    const items = bind('CASE-B', ['listCaseEvidence']).listCaseEvidence!()
+    expect(items.length).toBe(1)
+    const item = items[0]
+    expect(Object.keys(item).sort()).toEqual(
+      ['artifactType', 'createdAt', 'evidenceId', 'origin', 'relPath', 'size'].sort()
+    )
+    expect(item).not.toHaveProperty('sha256')
+    expect(item).not.toHaveProperty('caseId')
+    expect(item).not.toHaveProperty('meta')
+    expect(typeof item.evidenceId).toBe('number')
+    expect(item.relPath).toMatch(/^evidence\//)
+  })
+
+  it('lifts meta.derivedFrom into a top-level derivedFrom', () => {
+    const parent = bind('CASE-A', ['listCaseEvidence']).listCaseEvidence!()[0]
+    const derivedDir = path.join(caseDir(home, 'CASE-A'), 'evidence', '.derived')
+    fs.mkdirSync(derivedDir, { recursive: true })
+    const abs = path.join(derivedDir, 'note.txt')
+    fs.writeFileSync(abs, 'derived text')
+    const derivedRec = ingestDerived(db, home, 'CASE-A', abs, parent.evidenceId)
+
+    const items = bind('CASE-A', ['listCaseEvidence']).listCaseEvidence!()
+    const derived = items.find((e) => e.evidenceId === derivedRec.id)!
+    expect(derived.derivedFrom).toBe(parent.evidenceId)
+    const original = items.find((e) => e.evidenceId === parent.evidenceId)!
+    expect(original.derivedFrom).toBeUndefined()
   })
 })
