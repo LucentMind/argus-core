@@ -237,21 +237,38 @@ export function createElectronPanelFactory(
           }
         },
         async capturePage(): Promise<Buffer> {
-          if (view.webContents.isDestroyed()) throw new Error('panel webContents destroyed')
-          // Capture needs a painted frame: an occluded/hidden or freshly-loaded view can
-          // paint blank. We force the view visible and intentionally DO NOT restore prior
-          // visibility afterward — the primary flow is "agent opens (→visible) then captures",
-          // so a captured open-but-hidden panel is a rare edge that self-heals on the next
-          // layout pass. If that stray-visible flash ever matters, add a PanelView visibility
-          // getter and restore in a finally block.
-          view.setVisible(true)
-          let img = await view.webContents.capturePage()
-          if (img.isEmpty()) {
-            await new Promise((r) => setTimeout(r, 150))
-            img = await view.webContents.capturePage()
-            if (img.isEmpty()) throw new Error('captured an empty frame')
+          const wc = view.webContents
+          if (wc.isDestroyed()) throw new Error('panel webContents destroyed')
+          const b = view.getBounds()
+          const rect =
+            b.width > 0 && b.height > 0
+              ? { x: 0, y: 0, width: b.width, height: b.height }
+              : undefined
+          // Prefer a HIDDEN capture: stayHidden snapshots the panel WITHOUT making it visible,
+          // so capturing never steals the user's current tab/focus. It works only once the view
+          // has composited at least once; a panel that was never shown has no display surface and
+          // capturePage throws — then fall back to a brief, self-restoring reveal below.
+          try {
+            const img = await wc.capturePage(rect, { stayHidden: true })
+            if (!img.isEmpty()) return img.toPNG()
+          } catch {
+            // No display surface yet (never-painted view) → reveal-and-restore below.
           }
-          return img.toPNG()
+          // Fallback: reveal just long enough to composite a frame, then restore the prior
+          // visibility so we never leave a stray panel painted over the UI.
+          const wasVisible = view.getVisible()
+          view.setVisible(true)
+          try {
+            let img = await wc.capturePage(rect)
+            if (img.isEmpty()) {
+              await new Promise((r) => setTimeout(r, 150))
+              img = await wc.capturePage(rect)
+              if (img.isEmpty()) throw new Error('captured an empty frame')
+            }
+            return img.toPNG()
+          } finally {
+            view.setVisible(wasVisible)
+          }
         }
       }
     }
