@@ -73,6 +73,29 @@ it('raises a MEDIUM editable card and, on approve, ingests the (edited) filename
   await svc.stopAll()
 })
 
+it('rejects an operator-edited filename containing a traversal, and writes nothing', async () => {
+  const svc = mkService()
+  const s = createSession(db, 'NAV-1')
+  const p = svc.ingestPanelEvidence('NAV-1', s.id, {
+    source: { bytes: Buffer.from('hello from panel') },
+    filename: 'note.txt'
+  })
+
+  await new Promise((r) => setTimeout(r, 5))
+  const opened = events.find((e) => e.type === 'request.opened')!
+
+  svc.respond('NAV-1', s.id, {
+    requestId: opened.payload.requestId, kind: 'allow',
+    updatedInput: { filename: '../../evil.txt' }
+  })
+  const res = await p
+  expect(res).toEqual({ ok: false, reason: 'invalid-filename' })
+  expect(fs.existsSync(path.join(caseDir(home, 'NAV-1'), 'evidence', 'evil.txt'))).toBe(false)
+  expect(fs.existsSync(path.join(home, 'evil.txt'))).toBe(false)
+  expect(events.find((e) => e.type === 'case.evidence.ingested')).toBeUndefined()
+  await svc.stopAll()
+})
+
 it('returns { ok:false, reason:"denied" } and writes nothing on deny', async () => {
   const svc = mkService()
   const s = createSession(db, 'NAV-1')
