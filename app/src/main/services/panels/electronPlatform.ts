@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { WebContentsView, BrowserWindow, session as electronSession, net } from 'electron'
+import { WebContentsView, BrowserWindow, session as electronSession, net, Menu } from 'electron'
+import { is } from '@electron-toolkit/utils'
 import { IPC } from '../../../shared/ipc'
 import type { PanelThemeName } from '../../../shared/panelTheme'
 import { panelContentType, resolveCaseAsset } from './protocol'
@@ -110,6 +111,25 @@ export function createElectronPanelFactory(
           error
         )
       })
+
+      // Dev-only: a docked panel is a WebContentsView (not a BrowserWindow), so the app's
+      // F12 handler never reaches it. Wire a right-click "Inspect element" that opens this
+      // view's own devtools at the click point — the only way to see a panel's console /
+      // Network tab. Gated to dev so sandboxed pack panels never expose devtools in prod.
+      if (is.dev) {
+        view.webContents.on('context-menu', (_e, params) => {
+          Menu.buildFromTemplate([
+            {
+              label: 'Inspect element',
+              click: () => {
+                if (!view.webContents.isDestroyed()) {
+                  view.webContents.inspectElement(params.x, params.y)
+                }
+              }
+            }
+          ]).popup()
+        })
+      }
 
       const attachDocked = (): void => {
         getMainWindow()?.contentView.addChildView(view)
