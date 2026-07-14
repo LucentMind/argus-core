@@ -7,7 +7,8 @@
  */
 const EDITABLE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   'mcp__argus__write_memory',
-  'mcp__argus__panel_emit_finding'
+  'mcp__argus__panel_emit_finding',
+  'mcp__argus__panel_ingest_evidence'
 ])
 
 export function isEditableTool(tool: string): boolean {
