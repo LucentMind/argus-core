@@ -38,6 +38,16 @@ describe('MenuButton', () => {
     expect(onA).not.toHaveBeenCalled()
   })
 
+  it('reports open/close through onOpenChange (for occlusion wiring)', () => {
+    const onOpenChange = vi.fn()
+    render(<MenuButton label="Edit" aria-label="actions" items={items()} onOpenChange={onOpenChange} />)
+    onOpenChange.mockClear() // ignore the initial mount notification
+    fireEvent.click(screen.getByRole('button', { name: 'actions' }))
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
   it('disabled items are inert', () => {
     render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
     fireEvent.click(screen.getByRole('button', { name: 'actions' }))

@@ -102,6 +102,7 @@ export function MenuButton({
   items,
   variant = 'ghost',
   align = 'right',
+  onOpenChange,
   'aria-label': ariaLabel
 }: {
   label: React.ReactNode
@@ -111,11 +112,21 @@ export function MenuButton({
    *  right-aligned triggers); 'left' opens rightward so triggers near the left
    *  screen edge don't clip. */
   align?: 'left' | 'right'
+  /** Notified whenever the dropdown opens/closes. Used by callers (e.g. the panel launcher)
+   *  that must hide a native overlay while the DOM menu is up. Also fired false on unmount. */
+  onOpenChange?: (open: boolean) => void
   'aria-label'?: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    onOpenChange?.(open)
+    return () => {
+      if (open) onOpenChange?.(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent): void => {

@@ -44,6 +44,20 @@ describe('PanelTabStrip', () => {
     )
   })
 
+  it('occludes docked panels while the launcher menu is open, releasing on close', async () => {
+    // The launcher dropdown is DOM; a docked panel's native view would paint over it. Opening the
+    // menu must occlude (hide) the docked view so the dropdown is clickable — else you can never
+    // open a second panel once the first is docked.
+    window.argus = { panels: { open: vi.fn().mockResolvedValue({}) } } as never
+    render(<PanelTabStrip slug="CASE-A" sessionId={1} activeTab="chat" onSelect={vi.fn()} />)
+
+    expect(panelsStore.get().occluded).toBe(false)
+    fireEvent.click(screen.getByLabelText('Open panel'))
+    expect(panelsStore.get().occluded).toBe(true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(panelsStore.get().occluded).toBe(false))
+  })
+
   it('passes a null sessionId through unchanged when no session is active yet', async () => {
     const open = vi.fn().mockResolvedValue({
       caseSlug: 'CASE-A',
