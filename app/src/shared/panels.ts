@@ -1,5 +1,5 @@
 /** The verbs/protocols a panel may be granted. Read verbs (3a) + write/collab verbs (3b)
- *  + case-file read protocol (3d-1). */
+ *  + case-file read protocol (3d-1) + evidence ingest protocol (3d-2). */
 export type PanelPermission =
   | 'getCaseContext'
   | 'requestEvidence'
@@ -8,6 +8,7 @@ export type PanelPermission =
   | 'emitFinding'
   | 'sendToAgent'
   | 'readCaseFiles'
+  | 'ingestEvidence'
 
 /**
  * The IPC channels the SANDBOXED panel preload uses, inlined here as literals

@@ -384,3 +384,13 @@ describe('packWindowSchema · 3d readCaseFiles permission', () => {
     expect(parsed.permissions).toContain('readCaseFiles')
   })
 })
+
+describe('packWindowSchema · 3d-2 ingestEvidence permission', () => {
+  it('accepts ingestEvidence', () => {
+    const parsed = packWindowSchema.parse({
+      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      permissions: ['getCaseContext', 'ingestEvidence']
+    })
+    expect(parsed.permissions).toContain('ingestEvidence')
+  })
+})
