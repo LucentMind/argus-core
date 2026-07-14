@@ -154,6 +154,11 @@ const argus = {
       ipcRenderer.on(IPC.panelsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.panelsChanged, listener)
     },
+    onActivate: (cb: (key: PanelKey) => void): (() => void) => {
+      const listener = (_e: unknown, key: PanelKey): void => cb(key)
+      ipcRenderer.on(IPC.panelsActivate, listener)
+      return () => ipcRenderer.removeListener(IPC.panelsActivate, listener)
+    },
     onCite: (
       cb: (p: { caseSlug: string; sessionId: number; relPath: string; line: number }) => void
     ): (() => void) => {
