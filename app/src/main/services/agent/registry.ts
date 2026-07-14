@@ -43,6 +43,12 @@ export interface AgentServiceDeps {
     windowId: string,
     evidenceId?: number
   ) => { ok: boolean; reason?: string; panel?: unknown }
+  /** Capture a panel to evidence for a given case; AgentService binds the case per session. */
+  capturePanel?: (
+    caseSlug: string,
+    packId: string,
+    windowId: string
+  ) => Promise<import('./capturePanel').CapturePanelEvidence>
   /** Live pack-declared panel commands (3b-2); read at each session construction. */
   panelCommandDecls?: () => PanelCommandDecl[]
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
@@ -135,6 +141,9 @@ export class AgentService {
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)
+        : undefined,
+      capturePanel: this.deps.capturePanel
+        ? (packId, windowId) => this.deps.capturePanel!(caseSlug, packId, windowId)
         : undefined,
       panelCommandDecls: this.deps.panelCommandDecls?.(),
       dispatchPanelCommand: this.deps.dispatchPanelCommand

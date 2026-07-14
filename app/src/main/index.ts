@@ -81,6 +81,7 @@ import { RefSyncService } from './services/refSync/service'
 import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
+import { capturePanelToEvidence } from './services/agent/capturePanel'
 import { seededPacksDir, ensurePacksDir } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
 import { CodeGraphService, graphsRoot } from './services/codeGraph'
@@ -501,6 +502,10 @@ function registerIpc(): void {
     return { ok: true, panel: info }
   }
 
+  // Shared capture path for the agent's capture_panel tool (mirrors openPanelFor).
+  const capturePanelFor = (caseSlug: string, packId: string, windowId: string) =>
+    capturePanelToEvidence({ panelHost: panelHost!, db, argusHome, detection }, caseSlug, packId, windowId)
+
   ipcMain.handle(IPC.panelsList, (_e, caseSlug?: string) => panelHost!.list(caseSlug))
   ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
     const w = panelWindow(req.packId, req.windowId)
@@ -638,6 +643,7 @@ function registerIpc(): void {
     composeMcp: () => mcpService.composeForSession(),
     toolRisk: () => toolRiskStore.get(),
     openPanel: openPanelFor,
+    capturePanel: capturePanelFor,
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
     dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) => {
       const w = panelWindow(packId, windowId)
