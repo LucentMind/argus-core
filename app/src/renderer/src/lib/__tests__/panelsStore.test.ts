@@ -52,6 +52,20 @@ describe('PanelsStore', () => {
     expect(store.activeKey()).toBeNull()
   })
 
+  it('occludes when a modal OR the launcher menu is open (independent sources)', () => {
+    // A docked panel is a native WebContentsView that paints over DOM, so the launcher
+    // dropdown is invisible/unclickable unless the view is hidden while the menu is open.
+    expect(store.get().occluded).toBe(false)
+    store.setLauncherOpen(true)
+    expect(store.get().occluded).toBe(true) // launcher alone occludes
+    store.setOccluded(true) // a modal comes up too
+    expect(store.get().occluded).toBe(true)
+    store.setLauncherOpen(false) // launcher closes, modal still up
+    expect(store.get().occluded).toBe(true)
+    store.setOccluded(false) // modal closes → fully un-occluded
+    expect(store.get().occluded).toBe(false)
+  })
+
   it('notifies subscribers on change', () => {
     let n = 0
     const off = store.subscribe(() => { n++ })

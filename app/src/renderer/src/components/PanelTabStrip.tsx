@@ -134,6 +134,9 @@ export function PanelTabStrip({
             aria-label="Open panel"
             align="left"
             items={launcherItems}
+            // Hide the docked panel's native view (which paints over DOM) while this dropdown is
+            // open, else its items are unclickable and no second panel can ever be opened.
+            onOpenChange={(o) => panelsStore.setLauncherOpen(o)}
           />
         </div>
       )}

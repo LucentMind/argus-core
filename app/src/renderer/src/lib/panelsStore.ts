@@ -25,6 +25,11 @@ export class PanelsStore {
     decls: []
   }
   private listeners = new Set<() => void>()
+  // `occluded` (whether the docked native view must hide) has two independent sources: a
+  // modal/dialog/off-case front view, and the launcher dropdown being open. Track them
+  // separately and OR them, so releasing one doesn't un-hide the view while the other is up.
+  private modalOccluded = false
+  private launcherOpen = false
 
   get(): PanelsState {
     return this.state
@@ -60,8 +65,22 @@ export class PanelsStore {
     this.set({ activeTab: tab })
   }
 
+  /** Modal/dialog/off-case occlusion source (from App). ORed with the launcher-open source. */
   setOccluded(occluded: boolean): void {
-    this.set({ occluded })
+    this.modalOccluded = occluded
+    this.recomputeOcclusion()
+  }
+
+  /** The launcher dropdown is DOM a docked native panel view would paint over; treat it as an
+   *  occluder so the view hides while the menu is open (mirrors modal occlusion). */
+  setLauncherOpen(open: boolean): void {
+    this.launcherOpen = open
+    this.recomputeOcclusion()
+  }
+
+  private recomputeOcclusion(): void {
+    const occluded = this.modalOccluded || this.launcherOpen
+    if (occluded !== this.state.occluded) this.set({ occluded })
   }
 
   setDecls(decls: PanelDecl[]): void {
