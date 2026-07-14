@@ -276,6 +276,28 @@ it('dispatchToPanel: no reply within dispatchTimeoutMs → structured timeout er
   expect(r).toEqual({ ok: false, reason: 'timeout' })
 })
 
+it('threads the window network allowlist into the bridge for ingestEvidence', async () => {
+  const { factory, views } = fakeFactory()
+  const sink: PanelWriteSink = {
+    sendToAgent: () => {},
+    emitFinding: async () => ({ ok: true }),
+    cite: () => {},
+    ingestEvidence: async () => ({ ok: true, evidenceId: '1' })
+  }
+  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, writeSink: sink })
+  host.open({
+    caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W',
+    entry: 'w/index.html', uiDir: '/ui', network: ['https://tiles.example.com'],
+    permissions: ['ingestEvidence'], sessionId: 3
+  })
+  const bridge = host.bridgeForWebContents(views[0].webContentsId)!
+  const res = await bridge.ingestEvidence!({
+    source: { url: 'https://tiles.example.com/x.png' },
+    filename: 'x.png'
+  })
+  expect(res).toEqual({ ok: true, evidenceId: '1' })
+})
+
 it('dispatchToPanel: panel-side handler error → structured error (not timeout)', async () => {
   const sent: Array<{ requestId: string; cmd: string; args: unknown[] }> = []
   const factory: PanelViewFactory = {
