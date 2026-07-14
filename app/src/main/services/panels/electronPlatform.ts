@@ -67,7 +67,23 @@ export function createElectronPanelFactory(
           try {
             // Forward the request headers (notably Range:) so net.fetch over file://
             // can answer with 206 Partial Content — required for media seeking.
-            return await net.fetch(pathToFileURL(abs).toString(), { headers: request.headers })
+            const res = await net.fetch(pathToFileURL(abs).toString(), { headers: request.headers })
+            // argus-case is a distinct origin from the panel's argus-panel:// bundle, so a
+            // cross-origin fetch() needs an explicit ACAO to READ the bytes (spec §3 lists
+            // fetch as a consumer, not just <img>/media). Access stays gated by the
+            // per-(pack,case) partition registration + connect-src CSP, so '*' adds no reach.
+            // Re-wrap to preserve the streamed body, status (incl. 206) and Content-* headers.
+            const headers = new Headers(res.headers)
+            headers.set('access-control-allow-origin', '*')
+            headers.set(
+              'access-control-expose-headers',
+              'content-length, content-range, accept-ranges, content-type'
+            )
+            return new Response(res.body, {
+              status: res.status,
+              statusText: res.statusText,
+              headers
+            })
           } catch {
             return new Response('not found', { status: 404 })
           }

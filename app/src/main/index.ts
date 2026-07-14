@@ -149,15 +149,18 @@ protocol.registerSchemesAsPrivileged([
     }
   },
   {
-    // argus-case:// — case-file read protocol (3d-1). Same privileges as
-    // argus-panel; registered on a partition only for readCaseFiles-granted windows.
+    // argus-case:// — case-file read protocol (3d-1). Registered on a partition only for
+    // readCaseFiles-granted windows. corsEnabled so a panel (origin argus-panel://) can
+    // cross-origin fetch() and READ the bytes, not just point <img>/media at it (spec §3
+    // lists fetch as a consumer). The handler returns Access-Control-Allow-Origin; access
+    // stays gated by the per-(pack,case) partition registration + connect-src CSP.
     scheme: 'argus-case',
     privileges: {
       standard: true,
       secure: true,
       supportFetchAPI: true,
       stream: true,
-      corsEnabled: false
+      corsEnabled: true
     }
   }
 ])
