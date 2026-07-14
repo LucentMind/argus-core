@@ -112,6 +112,9 @@ describe('sample-text-viewer end-to-end read path', () => {
       setBounds(): void {}
       setVisible(): void {}
       sendCommand(): void {}
+      async capturePage(): Promise<Buffer> {
+        return Buffer.alloc(0)
+      }
     }
     const created: FakeView[] = []
     const factory: PanelViewFactory = {

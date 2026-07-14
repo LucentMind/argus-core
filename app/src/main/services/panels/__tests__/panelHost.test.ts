@@ -50,6 +50,14 @@ class FakeView implements PanelView {
   sendCommand(requestId: string, cmd: string, args: unknown[]): void {
     this.sent.push({ requestId, cmd, args })
   }
+  captureCount = 0
+  captureError: Error | null = null
+  captureBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]) // 'PNG' magic-ish
+  async capturePage(): Promise<Buffer> {
+    this.captureCount++
+    if (this.captureError) throw this.captureError
+    return this.captureBytes
+  }
 }
 
 class FakeFactory implements PanelViewFactory {
@@ -198,7 +206,8 @@ function fakeFactory(): { factory: PanelViewFactory; views: PanelView[] } {
       const view: PanelView = {
         webContentsId: id,
         loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {},
-        destroy() {}, focus() {}, setBounds() {}, setVisible() {}, sendCommand() {}
+        destroy() {}, focus() {}, setBounds() {}, setVisible() {}, sendCommand() {},
+        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
       }
       views.push(view)
       return view
@@ -235,7 +244,8 @@ it('dispatchToPanel: delivers to an open panel and resolves with the reply', asy
         webContentsId: id,
         loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
         setBounds() {}, setVisible() {},
-        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) }
+        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) },
+        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
       }
     }
   }
@@ -266,7 +276,8 @@ it('dispatchToPanel: no reply within dispatchTimeoutMs → structured timeout er
         webContentsId: 502,
         loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
         setBounds() {}, setVisible() {},
-        sendCommand() {} // never replies
+        sendCommand() {}, // never replies
+        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
       }
     }
   }
@@ -306,7 +317,8 @@ it('dispatchToPanel: panel-side handler error → structured error (not timeout)
         webContentsId: 503,
         loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
         setBounds() {}, setVisible() {},
-        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) }
+        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) },
+        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
       }
     }
   }
@@ -316,4 +328,40 @@ it('dispatchToPanel: panel-side handler error → structured error (not timeout)
   expect(sent).toHaveLength(1)
   host.resolveCommand(sent[0].requestId, { ok: false, error: 'boom' })
   expect(await p).toEqual({ ok: false, reason: 'error', hint: 'boom' })
+})
+
+describe('capturePanel', () => {
+  it('returns panel-not-open when the panel is closed', async () => {
+    const res = await host.capturePanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' })
+    expect(res).toEqual({
+      ok: false,
+      reason: 'panel-not-open',
+      hint: 'call mcp__argus__open_panel first'
+    })
+  })
+
+  it('captures PNG bytes and the title from an open panel', async () => {
+    host.open(input({ title: 'Nav Visualizer Map' }))
+    const res = await host.capturePanel({
+      caseSlug: 'CASE-A',
+      packId: 'sample-pack',
+      windowId: 'text-viewer'
+    })
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.title).toBe('Nav Visualizer Map')
+      expect(res.png.subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    }
+  })
+
+  it('maps a capture throw to capture-failed', async () => {
+    host.open(input())
+    factory.created[0].captureError = new Error('boom')
+    const res = await host.capturePanel({
+      caseSlug: 'CASE-A',
+      packId: 'sample-pack',
+      windowId: 'text-viewer'
+    })
+    expect(res).toMatchObject({ ok: false, reason: 'capture-failed' })
+  })
 })
