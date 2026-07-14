@@ -78,7 +78,8 @@ describe('bridge playground — upstream verbs end to end', () => {
     const sink: PanelWriteSink = {
       sendToAgent: (caseSlug, sessionId, text) => staged.push({ caseSlug, sessionId, text }),
       emitFinding: (cs, sid, input) => agent.emitPanelFinding(cs, sid, input),
-      cite: (target, relPath, line) => cites.push({ ...target, relPath, line })
+      cite: (target, relPath, line) => cites.push({ ...target, relPath, line }),
+      ingestEvidence: async () => ({ ok: false, reason: 'not-implemented-in-fixture' })
     }
     const s = createSession(db, 'NAV-1')
     const bridge = createPanelBridge({

@@ -204,7 +204,12 @@ function registerIpc(): void {
       broadcast(IPC.panelsDraft, { caseSlug, sessionId, text }),
     emitFinding: (caseSlug, sessionId, input) =>
       agentService!.emitPanelFinding(caseSlug, sessionId, input),
-    cite: (target, relPath, line) => broadcast(IPC.panelsCiteAdded, { ...target, relPath, line })
+    cite: (target, relPath, line) => broadcast(IPC.panelsCiteAdded, { ...target, relPath, line }),
+    ingestEvidence: async (caseSlug, sessionId, input) => {
+      const res = await agentService!.ingestPanelEvidence(caseSlug, sessionId, input)
+      if (res.ok) broadcast(IPC.panelsEvidenceIngested, { caseSlug, evidenceId: res.evidenceId })
+      return res
+    }
   }
 
   panelHost = new PanelHost({
@@ -598,6 +603,14 @@ function registerIpc(): void {
     if (!b?.cite) throw new Error('panel bridge: cite not granted')
     return b.cite(relPath, line)
   })
+  ipcMain.handle(
+    IPC.panelsIngestEvidence,
+    (e, input: { source: { url: string } | { bytes: ArrayBuffer | Uint8Array }; filename: string }) => {
+      const b = panelHost!.bridgeForWebContents(e.sender.id)
+      if (!b?.ingestEvidence) throw new Error('panel bridge: ingestEvidence not granted')
+      return b.ingestEvidence(input)
+    }
+  )
   ipcMain.on(
     IPC.panelsCommandResult,
     (_e, p: { requestId: string; ok: boolean; result?: unknown; error?: string }) =>

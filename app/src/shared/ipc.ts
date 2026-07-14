@@ -140,6 +140,10 @@ export const IPC = {
   panelsCiteAdded: 'panels:cite-added',
   /** main → main-renderer broadcast: a panel staged text via sendToAgent; the composer draft is set. */
   panelsDraft: 'panels:draft',
+  // — panels · evidence ingest (3d-2) —
+  panelsIngestEvidence: 'panels:ingest-evidence',
+  /** main → main-renderer broadcast: a panel ingested evidence; refresh the case's evidence list. */
+  panelsEvidenceIngested: 'panels:evidence-ingested',
   // — panels · command dispatch (3b-2) —
   /** main → panel: deliver a correlated command request (PanelHost.dispatchToPanel). */
   panelsCommand: 'panels:command',

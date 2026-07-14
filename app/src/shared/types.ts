@@ -26,7 +26,7 @@ export interface ArtifactTypeMeta {
   isText: boolean
 }
 
-export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent'
+export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent' | 'panel'
 
 export interface NewCaseInput {
   slug: string

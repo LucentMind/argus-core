@@ -178,6 +178,15 @@ export class AgentService {
     return s.emitPanelFinding(input)
   }
 
+  async ingestPanelEvidence(
+    caseSlug: string,
+    sessionId: number,
+    input: { source: { url: string } | { bytes: Buffer }; filename: string }
+  ): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }> {
+    const s = await this.getOrCreate(caseSlug, sessionId)
+    return s.ingestPanelEvidence(input)
+  }
+
   respond(caseSlug: string, sessionId: number, d: ApprovalDecision): boolean {
     return this.sessions.get(this.keyOf(caseSlug, sessionId))?.respond(d) ?? false
   }
