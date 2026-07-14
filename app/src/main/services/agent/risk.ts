@@ -29,6 +29,7 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
   // Inert until accepted on the Skills page (spec §2.4) — writing a proposal steers nothing.
   mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },
   mcp__argus__open_panel: { action: 'allow', risk: 'LOW' },
+  mcp__argus__capture_panel: { action: 'allow', risk: 'LOW' },
   mcp__argus__update_case_status: {
     action: 'ask',
     risk: 'MEDIUM',

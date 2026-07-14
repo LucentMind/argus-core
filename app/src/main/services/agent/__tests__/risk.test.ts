@@ -314,6 +314,12 @@ describe('classifyToolCall · panel commands + open_panel', () => {
       risk: 'LOW'
     })
   })
+  it('auto-allows capture_panel as LOW', () => {
+    expect(classifyToolCall('mcp__argus__capture_panel', {}, ctx())).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+  })
   it('low command → allow', () => {
     expect(
       classifyToolCall(

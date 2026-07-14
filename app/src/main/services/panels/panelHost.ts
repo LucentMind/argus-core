@@ -23,6 +23,11 @@ export type PanelDispatchResult =
   | { ok: true; result: unknown }
   | { ok: false; reason: 'panel-not-open' | 'timeout' | 'error' | 'process-exited'; hint?: string }
 
+/** Outcome of a PanelHost.capturePanel call. */
+export type PanelCaptureResult =
+  | { ok: true; png: Buffer; title: string }
+  | { ok: false; reason: 'panel-not-open' | 'capture-failed'; hint?: string }
+
 /**
  * The Electron surface PanelHost drives, injected so lifecycle logic stays
  * electron-free and unit-testable with a fake (house DI style).
@@ -40,6 +45,8 @@ export interface PanelView {
   setVisible(visible: boolean): void
   /** Deliver a downstream command request to the panel (reply arrives via PanelHost.resolveCommand). */
   sendCommand(requestId: string, cmd: string, args: unknown[]): void
+  /** Grab the panel's current frame as PNG bytes (real impl uses webContents.capturePage). */
+  capturePage(): Promise<Buffer>
 }
 
 /** Out-of-band notifications a real view raises back to the host (e.g. the user OS-closes a floated window). */
@@ -212,6 +219,18 @@ export class PanelHost {
       this.pending.set(requestId, { resolve, timer })
       p.view.sendCommand(requestId, cmd, args)
     })
+  }
+
+  /** Screenshot an open panel to PNG bytes; closed/failed ⇒ structured error. */
+  async capturePanel(key: PanelKey): Promise<PanelCaptureResult> {
+    const p = this.panels.get(panelKeyStr(key))
+    if (!p) return { ok: false, reason: 'panel-not-open', hint: 'call mcp__argus__open_panel first' }
+    try {
+      const png = await p.view.capturePage()
+      return { ok: true, png, title: p.input.title }
+    } catch (e) {
+      return { ok: false, reason: 'capture-failed', hint: (e as Error)?.message ?? String(e) }
+    }
   }
 
   /** Settle a dispatch with the panel's reply. Unknown/expired requestIds are ignored. */
