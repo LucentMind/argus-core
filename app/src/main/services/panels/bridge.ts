@@ -4,6 +4,17 @@ import type { PanelPermission } from '../../../shared/panels'
 import { getCase } from '../caseService'
 import { searchEvidence, readEvidenceText } from '../search'
 
+/** Practical ceiling for `bytes`-source ingests over IPC (spec §7); larger files should use `url`. */
+const MAX_INGEST_BYTES = 25 * 1024 * 1024
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
 export interface PanelCaseContext {
   caseSlug: string
   caseId: number
@@ -30,6 +41,11 @@ export interface PanelWriteSink {
     input: { title: string; markdown: string }
   ): Promise<{ ok: boolean; findingId?: number }>
   cite(target: { caseSlug: string; sessionId: number }, relPath: string, line: number): void
+  ingestEvidence(
+    caseSlug: string,
+    sessionId: number,
+    input: { source: { url: string } | { bytes: Buffer }; filename: string }
+  ): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }>
 }
 
 /** The (partial) bridge exposed to a panel; only granted verbs are present. */
@@ -40,6 +56,10 @@ export interface PanelBridge {
   sendToAgent?(text: string): { ok: true }
   emitFinding?(input: { title: string; markdown: string }): Promise<{ ok: boolean; findingId?: number }>
   cite?(relPath: string, line: number): { ok: true }
+  ingestEvidence?(input: {
+    source: { url: string } | { bytes: ArrayBuffer | Uint8Array }
+    filename: string
+  }): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }>
 }
 
 export interface PanelBridgeBinding {
@@ -54,6 +74,8 @@ export interface PanelBridgeBinding {
   sessionId?: number | null
   /** Effectful write sink (3b); write verbs are omitted when absent. */
   writeSink?: PanelWriteSink
+  /** Declared network allowlist (3a `network[]`), reused to validate ingestEvidence `url` sources. */
+  network?: string[]
 }
 
 const ALL: PanelPermission[] = [
@@ -63,7 +85,8 @@ const ALL: PanelPermission[] = [
   'cite',
   'emitFinding',
   'sendToAgent',
-  'readCaseFiles'
+  'readCaseFiles',
+  'ingestEvidence'
 ]
 
 /**
@@ -136,6 +159,29 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
     bridge.cite = (relPath: string, line: number): { ok: true } => {
       sink.cite({ caseSlug, sessionId: requireSession() }, relPath, line)
       return { ok: true }
+    }
+  }
+
+  if (sink && granted.has('ingestEvidence')) {
+    bridge.ingestEvidence = async (input) => {
+      const sid = requireSession()
+      if ('url' in input.source) {
+        const reqOrigin = originOf(input.source.url)
+        const allowed =
+          reqOrigin !== null && (binding.network ?? []).some((o) => originOf(o) === reqOrigin)
+        if (!allowed) return { ok: false, reason: 'origin-not-allowed' }
+        return sink.ingestEvidence(caseSlug, sid, {
+          source: { url: input.source.url },
+          filename: input.filename
+        })
+      }
+      const bytes = input.source.bytes
+      const len = bytes.byteLength
+      if (len > MAX_INGEST_BYTES) return { ok: false, reason: 'bytes-too-large' }
+      return sink.ingestEvidence(caseSlug, sid, {
+        source: { bytes: Buffer.from(bytes as ArrayBuffer) },
+        filename: input.filename
+      })
     }
   }
 
