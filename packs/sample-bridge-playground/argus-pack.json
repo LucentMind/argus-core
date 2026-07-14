@@ -18,7 +18,8 @@
         "readCaseFiles",
         "cite",
         "emitFinding",
-        "sendToAgent"
+        "sendToAgent",
+        "ingestEvidence"
       ],
       "commands": [
         {
