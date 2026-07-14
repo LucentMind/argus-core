@@ -71,6 +71,8 @@ export interface SessionDeps {
   mcpSkipped?: Array<{ instanceId: string; reason: string }>
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
+  /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
+  capturePanel?: NativeToolDeps['capturePanel']
   /** Pack-declared panel commands (3b-2), registered as mcp__<pack>__<window>_<cmd> tools. */
   panelCommandDecls?: PanelCommandDecl[]
   /** Dispatch a panel command to the open panel (3b-2); session-bound by AgentService. */
@@ -158,7 +160,8 @@ export class CaseSession {
             emitFinding: (markdown) =>
               this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
             agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess(),
-            openPanel: deps.openPanel
+            openPanel: deps.openPanel,
+            capturePanel: deps.capturePanel
           })
         },
         canUseTool: this.canUseTool.bind(this),
