@@ -5,6 +5,7 @@ import {
   buildPanelCsp,
   panelContentType,
   resolveCaseAsset,
+  computeRange,
   type PanelWindowLoc
 } from '../protocol'
 
@@ -162,6 +163,89 @@ describe('resolveCaseAsset', () => {
     expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://case-a/photo.png')).toBe(
       path.join(home, 'cases', 'CASE-A', 'evidence', 'photo.png')
     )
+  })
+})
+
+describe('computeRange', () => {
+  it('serves the full body as 200 when there is no Range header', () => {
+    expect(computeRange(null, 1000)).toEqual({
+      status: 200,
+      start: 0,
+      end: 999,
+      contentLength: 1000,
+      contentRange: null
+    })
+  })
+
+  it('serves a bounded range as 206 with Content-Range', () => {
+    expect(computeRange('bytes=0-1023', 5000)).toEqual({
+      status: 206,
+      start: 0,
+      end: 1023,
+      contentLength: 1024,
+      contentRange: 'bytes 0-1023/5000'
+    })
+  })
+
+  it('clamps a range end past EOF to the last byte', () => {
+    expect(computeRange('bytes=0-1023', 500)).toEqual({
+      status: 206,
+      start: 0,
+      end: 499,
+      contentLength: 500,
+      contentRange: 'bytes 0-499/500'
+    })
+  })
+
+  it('serves an open-ended range (bytes=start-) to EOF', () => {
+    expect(computeRange('bytes=100-', 1000)).toEqual({
+      status: 206,
+      start: 100,
+      end: 999,
+      contentLength: 900,
+      contentRange: 'bytes 100-999/1000'
+    })
+  })
+
+  it('serves a suffix range (bytes=-N) as the last N bytes', () => {
+    expect(computeRange('bytes=-500', 1000)).toEqual({
+      status: 206,
+      start: 500,
+      end: 999,
+      contentLength: 500,
+      contentRange: 'bytes 500-999/1000'
+    })
+  })
+
+  it('clamps a suffix range larger than the file to the whole file', () => {
+    expect(computeRange('bytes=-2000', 1000)).toEqual({
+      status: 206,
+      start: 0,
+      end: 999,
+      contentLength: 1000,
+      contentRange: 'bytes 0-999/1000'
+    })
+  })
+
+  it('returns 416 when the range start is at or past EOF', () => {
+    expect(computeRange('bytes=2000-3000', 1000)).toEqual({
+      status: 416,
+      start: 0,
+      end: 0,
+      contentLength: 0,
+      contentRange: 'bytes */1000'
+    })
+  })
+
+  it('ignores a malformed Range header and serves the full body as 200', () => {
+    expect(computeRange('bytes=abc', 1000).status).toBe(200)
+    expect(computeRange('items=0-10', 1000).status).toBe(200)
+    expect(computeRange('gibberish', 1000).status).toBe(200)
+  })
+
+  it('ignores a multi-range request and serves the full body as 200', () => {
+    // Serving multipart/byteranges is out of scope; a server may answer the full body.
+    expect(computeRange('bytes=0-10,20-30', 1000).status).toBe(200)
   })
 })
 

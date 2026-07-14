@@ -130,6 +130,74 @@ export function resolveCaseAsset(
   return abs
 }
 
+/** A resolved byte range for one asset request (end is INCLUSIVE, matching fs.createReadStream). */
+export interface RangeResult {
+  /** 200 full body, 206 partial content, or 416 range-not-satisfiable. */
+  status: 200 | 206 | 416
+  /** First byte to send (inclusive). Meaningless when contentLength is 0. */
+  start: number
+  /** Last byte to send (inclusive). Meaningless when contentLength is 0. */
+  end: number
+  /** Number of bytes to send; 0 for a 416 (or an empty file). */
+  contentLength: number
+  /** The Content-Range header value: "bytes s-e/size" for 206, "bytes (star)/size" for 416, null for 200. */
+  contentRange: string | null
+}
+
+/** Matches a single byte range: `bytes=start-end`, `bytes=start-`, or `bytes=-suffix`. */
+const RANGE_RE = /^bytes=(\d+)-(\d*)$|^bytes=-(\d+)$/
+
+/**
+ * Resolve an HTTP Range header against a known file size into a concrete byte range.
+ *
+ * Electron's own `net.fetch()` over `file://` slices the body to the requested range but
+ * still reports `200 OK` with no `Content-Range`, so a partial body reaches the panel
+ * labeled as the complete resource (truncated images, no media seeking). This handler must
+ * therefore serve ranges itself: 206 + Content-Range for a satisfiable single range, 200
+ * for the whole file (no/ignored/malformed/multi Range), or 416 when the start is past EOF.
+ *
+ * Only a single range is supported; a multi-range request (comma) or any unparseable header
+ * falls back to a full 200 — a server is always permitted to ignore Range and send everything.
+ */
+export function computeRange(rangeHeader: string | null | undefined, size: number): RangeResult {
+  const full: RangeResult = {
+    status: 200,
+    start: 0,
+    end: Math.max(0, size - 1),
+    contentLength: size,
+    contentRange: null
+  }
+  if (!rangeHeader) return full
+  const m = RANGE_RE.exec(rangeHeader.trim())
+  if (!m) return full // malformed or multi-range → serve the whole file
+
+  let start: number
+  let end: number
+  if (m[3] !== undefined) {
+    // Suffix range `bytes=-N`: the last N bytes, clamped to the whole file.
+    const suffix = Number(m[3])
+    start = Math.max(0, size - suffix)
+    end = size - 1
+  } else {
+    start = Number(m[1])
+    // Open-ended `bytes=N-` runs to EOF; a bounded end past EOF clamps to the last byte.
+    end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1)
+  }
+
+  // Unsatisfiable: start at or past EOF (also covers an empty file). Per RFC 7233 → 416 + "bytes (star)/size".
+  if (start >= size || start > end) {
+    return { status: 416, start: 0, end: 0, contentLength: 0, contentRange: `bytes */${size}` }
+  }
+
+  return {
+    status: 206,
+    start,
+    end,
+    contentLength: end - start + 1,
+    contentRange: `bytes ${start}-${end}/${size}`
+  }
+}
+
 /** MIME type for an argus-panel asset by extension. */
 export function panelContentType(file: string): string {
   const ext = path.extname(file).toLowerCase()
