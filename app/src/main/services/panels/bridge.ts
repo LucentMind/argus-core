@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { SearchFilters, SearchHit } from '../../../shared/types'
+import type { EvidenceRecord, SearchFilters, SearchHit } from '../../../shared/types'
 import type { PanelPermission } from '../../../shared/panels'
 import { getCase } from '../caseService'
 import { searchEvidence, readEvidenceText } from '../search'
+import { listEvidence } from '../ingest'
 
 /** Practical ceiling for `bytes`-source ingests over IPC (spec §7); larger files should use `url`. */
 const MAX_INGEST_BYTES = 25 * 1024 * 1024
@@ -31,6 +32,35 @@ export interface PanelEvidenceDoc {
   focusLine?: number
 }
 
+/**
+ * Registry metadata for one evidence item, projected for a panel (3d-3).
+ * Deliberately narrower than EvidenceRecord: omits sha256, caseId, and the raw
+ * meta bag; lifts meta.derivedFrom to a top-level derivedFrom for provenance.
+ */
+export interface EvidenceSummary {
+  evidenceId: number
+  relPath: string
+  artifactType: string
+  size: number
+  origin: string
+  derivedFrom?: number
+  createdAt: string
+}
+
+/** Project a registry row to the panel-facing summary (3d-3). */
+function toEvidenceSummary(rec: EvidenceRecord): EvidenceSummary {
+  const derivedFrom = typeof rec.meta.derivedFrom === 'number' ? rec.meta.derivedFrom : undefined
+  return {
+    evidenceId: rec.id,
+    relPath: rec.relPath,
+    artifactType: rec.artifactType,
+    size: rec.size,
+    origin: rec.origin,
+    ...(derivedFrom !== undefined ? { derivedFrom } : {}),
+    createdAt: rec.createdAt
+  }
+}
+
 /** Effectful sink the write verbs call. Injected by PanelHost so bridge.ts stays testable with a fake. */
 export interface PanelWriteSink {
   /** Stage `text` into the bound session's chat composer for the user to review/send (not auto-sent). */
@@ -53,6 +83,8 @@ export interface PanelBridge {
   getCaseContext?(): PanelCaseContext
   requestEvidence?(query: string): SearchHit[]
   readEvidence?(evidenceId: number, focusLine?: number): PanelEvidenceDoc
+  /** 3d-3: enumerate the bound case's evidence registry metadata (read-only, no bytes). */
+  listCaseEvidence?(): EvidenceSummary[]
   sendToAgent?(text: string): { ok: true }
   emitFinding?(input: { title: string; markdown: string }): Promise<{ ok: boolean; findingId?: number }>
   cite?(relPath: string, line: number): { ok: true }
@@ -135,6 +167,13 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
         focusLine
       }
     }
+  }
+
+  if (granted.has('listCaseEvidence')) {
+    // Metadata-only enumeration of the bound case (3d-3). listEvidence() is already
+    // case-scoped in SQL and newest-first; we only project each row to the narrow summary.
+    bridge.listCaseEvidence = (): EvidenceSummary[] =>
+      listEvidence(db, caseSlug).map(toEvidenceSummary)
   }
 
   const sink = binding.writeSink
