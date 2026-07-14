@@ -304,7 +304,7 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
       ),
       tool(
         'capture_panel',
-        'Screenshot an OPEN pack panel into case evidence, then use Read on the returned rel_path to view it. The panel must already be open — call open_panel first if it may be closed. Returns {ok, evidence_id, rel_path} or {ok:false, reason}.',
+        'Screenshot an OPEN pack panel into case evidence, then use Read on the returned rel_path to view it. The panel must already be open — call open_panel first if it may be closed. Returns {ok, evidence_id, rel_path, artifact_type} — use the Read tool on rel_path to view the capture — or {ok:false, reason}.',
         { pack_id: z.string(), window_id: z.string() },
         async (a) => asText(await h.capture_panel(a))
       )
