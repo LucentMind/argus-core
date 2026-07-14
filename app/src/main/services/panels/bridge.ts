@@ -86,7 +86,8 @@ const ALL: PanelPermission[] = [
   'emitFinding',
   'sendToAgent',
   'readCaseFiles',
-  'ingestEvidence'
+  'ingestEvidence',
+  'listCaseEvidence'
 ]
 
 /**
