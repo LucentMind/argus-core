@@ -26,6 +26,7 @@ describe('panel preload stays self-contained (sandbox:true single-file)', () => 
       getCaseContext: IPC.panelsGetCaseContext,
       requestEvidence: IPC.panelsRequestEvidence,
       readEvidence: IPC.panelsReadEvidence,
+      listCaseEvidence: IPC.panelsListCaseEvidence,
       cite: IPC.panelsCite,
       emitFinding: IPC.panelsEmitFinding,
       sendToAgent: IPC.panelsSendToAgent,

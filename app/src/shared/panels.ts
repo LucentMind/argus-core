@@ -25,6 +25,7 @@ export const PANEL_BRIDGE_CHANNELS = {
   getCaseContext: 'panels:get-case-context',
   requestEvidence: 'panels:request-evidence',
   readEvidence: 'panels:read-evidence',
+  listCaseEvidence: 'panels:list-case-evidence',
   cite: 'panels:cite',
   emitFinding: 'panels:emit-finding',
   sendToAgent: 'panels:send-to-agent',
@@ -81,6 +82,10 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
   if (permissions.includes('readEvidence')) {
     api.readEvidence = (evidenceId: number, focusLine?: number): Promise<unknown> =>
       invoke(PANEL_BRIDGE_CHANNELS.readEvidence, evidenceId, focusLine)
+  }
+  if (permissions.includes('listCaseEvidence')) {
+    api.listCaseEvidence = (): Promise<unknown> =>
+      invoke(PANEL_BRIDGE_CHANNELS.listCaseEvidence)
   }
   if (permissions.includes('cite')) {
     api.cite = (relPath: string, line: number): Promise<unknown> =>

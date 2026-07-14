@@ -127,6 +127,7 @@ export const IPC = {
   panelsGetCaseContext: 'panels:get-case-context',
   panelsRequestEvidence: 'panels:request-evidence',
   panelsReadEvidence: 'panels:read-evidence',
+  panelsListCaseEvidence: 'panels:list-case-evidence',
   // — panels · docking UX (3a-3) —
   panelsDecls: 'panels:decls',
   panelsSetBounds: 'panels:set-bounds',
