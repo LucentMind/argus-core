@@ -111,3 +111,29 @@ it('ingestEvidence: throws when used with no bound session', async () => {
     b.ingestEvidence!({ source: { bytes: new Uint8Array([1]) }, filename: 'a.bin' })
   ).rejects.toThrow(/no bound session/)
 })
+
+it('ingestEvidence: rejects a path-traversal filename without calling the sink', async () => {
+  const b = bind(['ingestEvidence'], 4)
+  const res = await b.ingestEvidence!({
+    source: { bytes: new Uint8Array([1, 2, 3]) },
+    filename: '../../etc/passwd'
+  })
+  expect(res).toEqual({ ok: false, reason: 'invalid-filename' })
+  expect(calls).toEqual([])
+})
+
+it('ingestEvidence: rejects filenames containing a path separator or bare ".."', async () => {
+  const b = bind(['ingestEvidence'], 4)
+  const nested = await b.ingestEvidence!({
+    source: { bytes: new Uint8Array([1]) },
+    filename: 'a/b.txt'
+  })
+  expect(nested).toEqual({ ok: false, reason: 'invalid-filename' })
+
+  const dotdot = await b.ingestEvidence!({
+    source: { bytes: new Uint8Array([1]) },
+    filename: '..'
+  })
+  expect(dotdot).toEqual({ ok: false, reason: 'invalid-filename' })
+  expect(calls).toEqual([])
+})

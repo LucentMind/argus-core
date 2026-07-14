@@ -165,6 +165,17 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
   if (sink && granted.has('ingestEvidence')) {
     bridge.ingestEvidence = async (input) => {
       const sid = requireSession()
+      // Reject any path separator or traversal in the panel-supplied filename — it is joined
+      // under the case evidence dir downstream with no basename/.. guard (ingest.ts). A bare
+      // name only. Blocks '/', '\', '', '.', '..' regardless of platform.
+      if (
+        /[\\/]/.test(input.filename) ||
+        input.filename === '' ||
+        input.filename === '.' ||
+        input.filename === '..'
+      ) {
+        return { ok: false, reason: 'invalid-filename' }
+      }
       if ('url' in input.source) {
         const reqOrigin = originOf(input.source.url)
         const allowed =
