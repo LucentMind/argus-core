@@ -130,7 +130,7 @@ export const packWindowSchema = z
     /** Allowed origins folded into the panel CSP; empty ⇒ bundle-assets-only. */
     network: z.array(z.string().min(1)).default([]),
     /** Verbs/protocols the window may use — read verbs (3a), write verbs (3b),
-     *  case-file read protocol (3d-1). */
+     *  case-file read protocol (3d-1), evidence ingest protocol (3d-2). */
     permissions: z
       .array(
         z.enum([
@@ -140,7 +140,8 @@ export const packWindowSchema = z
           'cite',
           'emitFinding',
           'sendToAgent',
-          'readCaseFiles'
+          'readCaseFiles',
+          'ingestEvidence'
         ])
       )
       .default([]),
