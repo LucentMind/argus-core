@@ -1,11 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { WebContentsView, BrowserWindow, session as electronSession, net, Menu } from 'electron'
+import { Readable } from 'node:stream'
+import { WebContentsView, BrowserWindow, session as electronSession, Menu } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { IPC } from '../../../shared/ipc'
 import type { PanelThemeName } from '../../../shared/panelTheme'
-import { panelContentType, resolveCaseAsset } from './protocol'
+import { computeRange, panelContentType, resolveCaseAsset } from './protocol'
 import type { OpenPanelInput, PanelView, PanelViewFactory, PanelViewHooks } from './panelHost'
 
 /**
@@ -65,25 +65,36 @@ export function createElectronPanelFactory(
           const abs = resolveCaseAsset(argusHome, boundCaseSlug, request.url)
           if (!abs) return new Response('not found', { status: 404 })
           try {
-            // Forward the request headers (notably Range:) so net.fetch over file://
-            // can answer with 206 Partial Content — required for media seeking.
-            const res = await net.fetch(pathToFileURL(abs).toString(), { headers: request.headers })
+            const stat = await fs.promises.stat(abs)
+            if (!stat.isFile()) return new Response('not found', { status: 404 })
+            // Electron's net.fetch over file:// slices the body to a Range but still reports 200
+            // with no Content-Range, so a truncated body reaches the panel labeled complete
+            // (partial images, no media seeking). Serve ranges ourselves instead.
+            const range = computeRange(request.headers.get('range'), stat.size)
             // argus-case is a distinct origin from the panel's argus-panel:// bundle, so a
             // cross-origin fetch() needs an explicit ACAO to READ the bytes (spec §3 lists
             // fetch as a consumer, not just <img>/media). Access stays gated by the
             // per-(pack,case) partition registration + connect-src CSP, so '*' adds no reach.
-            // Re-wrap to preserve the streamed body, status (incl. 206) and Content-* headers.
-            const headers = new Headers(res.headers)
-            headers.set('access-control-allow-origin', '*')
-            headers.set(
-              'access-control-expose-headers',
-              'content-length, content-range, accept-ranges, content-type'
-            )
-            return new Response(res.body, {
-              status: res.status,
-              statusText: res.statusText,
-              headers
+            const headers = new Headers({
+              'content-type': panelContentType(abs),
+              'accept-ranges': 'bytes',
+              'access-control-allow-origin': '*',
+              'access-control-expose-headers':
+                'content-length, content-range, accept-ranges, content-type'
             })
+            if (range.status === 416) {
+              headers.set('content-range', range.contentRange!)
+              return new Response('range not satisfiable', { status: 416, headers })
+            }
+            headers.set('content-length', String(range.contentLength))
+            if (range.contentRange) headers.set('content-range', range.contentRange)
+            // Empty body: no bytes to stream (createReadStream with an inverted range would throw).
+            if (range.contentLength === 0)
+              return new Response(null, { status: range.status, headers })
+            const body = Readable.toWeb(
+              fs.createReadStream(abs, { start: range.start, end: range.end })
+            ) as ReadableStream<Uint8Array>
+            return new Response(body, { status: range.status, headers })
           } catch {
             return new Response('not found', { status: 404 })
           }
