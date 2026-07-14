@@ -236,9 +236,18 @@ export function createElectronPanelFactory(
             view.webContents.send(IPC.panelsCommand, { requestId, cmd, args })
           }
         },
-        // TODO(Task 6): real capture via view.webContents.capturePage().toPNG().
-        capturePage(): Promise<Buffer> {
-          return Promise.reject(new Error('capturePage not implemented yet (Task 6)'))
+        async capturePage(): Promise<Buffer> {
+          if (view.webContents.isDestroyed()) throw new Error('panel webContents destroyed')
+          // A docked-but-hidden or freshly-loaded view can paint blank; ensure it is
+          // visible, then verify a non-empty frame with one short retry.
+          view.setVisible(true)
+          let img = await view.webContents.capturePage()
+          if (img.isEmpty()) {
+            await new Promise((r) => setTimeout(r, 150))
+            img = await view.webContents.capturePage()
+            if (img.isEmpty()) throw new Error('captured an empty frame')
+          }
+          return img.toPNG()
         }
       }
     }
