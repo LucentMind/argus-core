@@ -321,7 +321,10 @@ export class CaseSession {
     const extraMeta: Record<string, unknown> = {}
     if ('url' in input.source) {
       try {
-        const res = await fetch(input.source.url)
+        // redirect:'manual' — the origin allowlist is enforced only on the initial URL (bridge),
+        // so following a redirect could reach an unallowlisted/internal target (SSRF). A 3xx
+        // becomes a non-ok response here and is rejected below.
+        const res = await fetch(input.source.url, { redirect: 'manual' })
         if (!res.ok) return { ok: false, reason: `fetch-failed:${res.status}` }
         content = Buffer.from(await res.arrayBuffer())
         extraMeta.sourceUrl = input.source.url

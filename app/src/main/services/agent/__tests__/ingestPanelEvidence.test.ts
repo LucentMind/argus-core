@@ -1,4 +1,4 @@
-import { it, expect, beforeEach, afterEach } from 'vitest'
+import { it, expect, beforeEach, afterEach, describe } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -86,4 +86,72 @@ it('returns { ok:false, reason:"denied" } and writes nothing on deny', async () 
   expect(await p).toEqual({ ok: false, reason: 'denied' })
   expect(fs.existsSync(path.join(caseDir(home, 'NAV-1'), 'evidence', 'note.txt'))).toBe(false)
   await svc.stopAll()
+})
+
+describe('url source', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('calls fetch with redirect:"manual" (SSRF: never auto-follow a redirect past the allowlisted origin)', async () => {
+    const fetchCalls: Array<[string, RequestInit | undefined]> = []
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      fetchCalls.push([url, init])
+      return { ok: false, status: 302 }
+    }) as unknown as typeof fetch
+    const svc = mkService()
+    const s = createSession(db, 'NAV-1')
+    const p = svc.ingestPanelEvidence('NAV-1', s.id, {
+      source: { url: 'https://example.com/file.bin' },
+      filename: 'remote.bin'
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    svc.respond('NAV-1', s.id, { requestId: opened.payload.requestId, kind: 'allow' })
+    await p
+    expect(fetchCalls).toHaveLength(1)
+    expect(fetchCalls[0][1]).toEqual({ redirect: 'manual' })
+    await svc.stopAll()
+  })
+
+  it('rejects a 3xx/non-ok response (redirect blocked) and writes nothing', async () => {
+    globalThis.fetch = (async () => ({ ok: false, status: 302 })) as unknown as typeof fetch
+    const svc = mkService()
+    const s = createSession(db, 'NAV-1')
+    const p = svc.ingestPanelEvidence('NAV-1', s.id, {
+      source: { url: 'https://example.com/file.bin' },
+      filename: 'remote.bin'
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    svc.respond('NAV-1', s.id, { requestId: opened.payload.requestId, kind: 'allow' })
+    expect(await p).toEqual({ ok: false, reason: 'fetch-failed:302' })
+    expect(fs.existsSync(path.join(caseDir(home, 'NAV-1'), 'evidence', 'remote.bin'))).toBe(false)
+    await svc.stopAll()
+  })
+
+  it('ingests the fetched bytes on a 2xx response', async () => {
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new TextEncoder().encode('remote bytes').buffer
+    })) as unknown as typeof fetch
+    const svc = mkService()
+    const s = createSession(db, 'NAV-1')
+    const p = svc.ingestPanelEvidence('NAV-1', s.id, {
+      source: { url: 'https://example.com/file.bin' },
+      filename: 'remote.bin'
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    const opened = events.find((e) => e.type === 'request.opened')!
+    svc.respond('NAV-1', s.id, { requestId: opened.payload.requestId, kind: 'allow' })
+    const res = await p
+    expect(res).toEqual({ ok: true, evidenceId: expect.any(String) })
+    expect(
+      fs.readFileSync(path.join(caseDir(home, 'NAV-1'), 'evidence', 'remote.bin'), 'utf8')
+    ).toBe('remote bytes')
+    await svc.stopAll()
+  })
 })
