@@ -317,6 +317,13 @@ export class CaseSession {
     const edited = outcome.updatedInput as { filename?: string } | undefined
     const filename = String(edited?.filename ?? input.filename)
 
+    // Defense in depth: the approval card's filename is operator-editable, so re-validate the
+    // EFFECTIVE name here (the bridge only checked the panel's original input). A traversal /
+    // separator in the edited name would otherwise escape the case evidence dir on write.
+    if (/[\\/]/.test(filename) || filename === '' || filename === '.' || filename === '..') {
+      return { ok: false, reason: 'invalid-filename' }
+    }
+
     let content: Buffer
     const extraMeta: Record<string, unknown> = {}
     if ('url' in input.source) {
