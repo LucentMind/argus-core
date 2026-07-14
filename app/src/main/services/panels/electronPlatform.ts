@@ -235,6 +235,10 @@ export function createElectronPanelFactory(
           if (!view.webContents.isDestroyed()) {
             view.webContents.send(IPC.panelsCommand, { requestId, cmd, args })
           }
+        },
+        // TODO(Task 6): real capture via view.webContents.capturePage().toPNG().
+        capturePage(): Promise<Buffer> {
+          return Promise.reject(new Error('capturePage not implemented yet (Task 6)'))
         }
       }
     }
