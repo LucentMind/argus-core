@@ -15,6 +15,7 @@
         "getCaseContext",
         "requestEvidence",
         "readEvidence",
+        "readCaseFiles",
         "cite",
         "emitFinding",
         "sendToAgent"

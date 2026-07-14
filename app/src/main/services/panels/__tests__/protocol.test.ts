@@ -4,6 +4,7 @@ import {
   resolvePanelAsset,
   buildPanelCsp,
   panelContentType,
+  resolveCaseAsset,
   type PanelWindowLoc
 } from '../protocol'
 
@@ -85,6 +86,17 @@ describe('buildPanelCsp', () => {
     expect(csp).toContain("connect-src 'self' https://ok.example.com")
     expect(csp).not.toContain('bad')
   })
+
+  it('adds the argus-case: scheme + media-src only when allowCaseFiles is set', () => {
+    const withoutCase = buildPanelCsp([])
+    expect(withoutCase).not.toContain('argus-case:')
+    expect(withoutCase).not.toContain('media-src')
+
+    const withCase = buildPanelCsp(['https://tiles.example.com'], { allowCaseFiles: true })
+    expect(withCase).toContain("img-src 'self' data: argus-case: https://tiles.example.com")
+    expect(withCase).toContain("media-src 'self' argus-case: https://tiles.example.com")
+    expect(withCase).toContain("connect-src 'self' argus-case: https://tiles.example.com")
+  })
 })
 
 describe('panelContentType', () => {
@@ -96,5 +108,69 @@ describe('panelContentType', () => {
 
   it('falls back to application/octet-stream for an unknown extension', () => {
     expect(panelContentType('x.bin')).toBe('application/octet-stream')
+  })
+})
+
+describe('resolveCaseAsset', () => {
+  const home = path.join('/argus-home')
+  const evidenceDir = path.join(home, 'cases', 'CASE-A', 'evidence')
+
+  it('resolves a file under the case evidence dir', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/photo.png')).toBe(
+      path.join(evidenceDir, 'photo.png')
+    )
+  })
+
+  it('resolves a nested relPath', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/sub/clip.mp4')).toBe(
+      path.join(evidenceDir, 'sub', 'clip.mp4')
+    )
+  })
+
+  it('returns null for a missing caseSlug or relPath', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case:///photo.png')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/')).toBeNull()
+  })
+
+  it('rejects a parent-dir traversal', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/../../etc/passwd')).toBeNull()
+  })
+
+  it('rejects an absolute or backslash relpath', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A//etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/a\\b')).toBeNull()
+  })
+
+  it('returns null for a non-argus-case scheme or garbage', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'file:///etc/passwd')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'not a url')).toBeNull()
+  })
+
+  it('allows a filename that merely contains consecutive dots (not a traversal)', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/notes..final.pdf')).toBe(
+      path.join(evidenceDir, 'notes..final.pdf')
+    )
+  })
+
+  it('rejects a URL naming a DIFFERENT case than the bound one (cross-case isolation)', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-B/secret.pdf')).toBeNull()
+  })
+
+  it('allows a URL whose case matches the bound one case-insensitively', () => {
+    // Chromium may canonicalize the standard-scheme host to lowercase; the path is still
+    // built from the trusted bound slug's on-disk casing.
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://case-a/photo.png')).toBe(
+      path.join(home, 'cases', 'CASE-A', 'evidence', 'photo.png')
+    )
+  })
+})
+
+describe('panelContentType · case-file extensions', () => {
+  it('maps common evidence file types', () => {
+    expect(panelContentType('scan.pdf')).toBe('application/pdf')
+    expect(panelContentType('call.mp3')).toBe('audio/mpeg')
+    expect(panelContentType('clip.mp4')).toBe('video/mp4')
+    expect(panelContentType('notes.md')).toBe('text/markdown; charset=utf-8')
+    expect(panelContentType('log.txt')).toBe('text/plain; charset=utf-8')
   })
 })
