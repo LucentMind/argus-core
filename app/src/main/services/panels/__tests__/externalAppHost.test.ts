@@ -184,4 +184,20 @@ describe('ExternalAppHost', () => {
     expect(host.list('CASE-A').length).toBe(1)
     expect(host.list('CASE-A')[0].status).toBe('running')
   })
+
+  it('stop on a running app removes it from list() once it exits (one-press stop)', () => {
+    host.open(input())
+    host.stop(input())
+    expect(host.list('CASE-A').length).toBe(1) // still present while terminating
+    spawner.handles[0].emitExit(0)
+    expect(host.list('CASE-A').length).toBe(0) // removed — no lingering 'exited' chip
+    expect(changes).toBeGreaterThan(0)
+  })
+
+  it('an unexpected exit (no stop) leaves a grey exited chip, not removed', () => {
+    host.open(input())
+    spawner.handles[0].emitExit(1) // crash / self-exit
+    expect(host.list('CASE-A').length).toBe(1)
+    expect(host.list('CASE-A')[0].status).toBe('exited')
+  })
 })

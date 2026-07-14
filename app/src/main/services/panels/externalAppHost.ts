@@ -38,6 +38,9 @@ interface RunningApp {
   status: 'running' | 'exited'
   stdoutBuf: string
   killTimer?: ReturnType<typeof setTimeout>
+  /** Set when the user pressed Stop: on exit the app is removed (no lingering
+   *  'exited' chip), distinguishing a user-stop from an unexpected crash. */
+  pendingRemoval?: boolean
 }
 
 const KILL_GRACE_MS = 5000
@@ -76,20 +79,20 @@ export class ExternalAppHost {
     return infoOf(app)
   }
 
-  focus(key: PanelKey): void {
-    this.apps.get(panelKeyStr(key))?.handle.focus()
-  }
-
   stop(key: PanelKey): void {
     const k = panelKeyStr(key)
     const app = this.apps.get(k)
-    if (app && app.status === 'exited') {
-      // A spent chip's Stop button becomes a dismiss: an already-exited app
-      // never re-enters terminate(), so this is the only way to clear it.
+    if (!app) return
+    if (app.status === 'exited') {
+      // A spent chip's Stop is a one-click dismiss (an exited app never
+      // re-enters terminate(), so this is the only way to clear it).
       this.apps.delete(k)
       this.deps.onChange?.()
       return
     }
+    // Running: terminate AND clear the chip once it exits — one press, no
+    // lingering grey 'exited' state for a user-initiated stop.
+    app.pendingRemoval = true
     this.terminate(k)
   }
 
@@ -154,7 +157,6 @@ export class ExternalAppHost {
   private onExit(key: string): void {
     const app = this.apps.get(key)
     if (!app) return
-    app.status = 'exited'
     if (app.killTimer) clearTimeout(app.killTimer)
     for (const [rid, entry] of this.pending) {
       if (entry.key === key) {
@@ -163,6 +165,9 @@ export class ExternalAppHost {
         entry.resolve({ ok: false, reason: 'process-exited' })
       }
     }
+    // User-stopped ⇒ remove the chip; crashed/self-exited ⇒ leave a grey chip.
+    if (app.pendingRemoval) this.apps.delete(key)
+    else app.status = 'exited'
     this.deps.onChange?.()
   }
 
