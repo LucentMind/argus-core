@@ -27,6 +27,7 @@ export const PANEL_BRIDGE_CHANNELS = {
   cite: 'panels:cite',
   emitFinding: 'panels:emit-finding',
   sendToAgent: 'panels:send-to-agent',
+  ingestEvidence: 'panels:ingest-evidence',
   theme: 'panels:theme',
   command: 'panels:command',
   commandResult: 'panels:command-result'
@@ -91,6 +92,12 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
   if (permissions.includes('sendToAgent')) {
     api.sendToAgent = (text: string): Promise<unknown> =>
       invoke(PANEL_BRIDGE_CHANNELS.sendToAgent, text)
+  }
+  if (permissions.includes('ingestEvidence')) {
+    api.ingestEvidence = (input: {
+      source: { url: string } | { bytes: ArrayBuffer | Uint8Array }
+      filename: string
+    }): Promise<unknown> => invoke(PANEL_BRIDGE_CHANNELS.ingestEvidence, input)
   }
   return api
 }
