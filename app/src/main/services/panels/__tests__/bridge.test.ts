@@ -74,4 +74,9 @@ describe('createPanelBridge', () => {
     const aBridge = bind('CASE-A', ['readEvidence'])
     expect(() => aBridge.readEvidence!(bHit.evidenceId)).toThrow(/CASE-A|not in case/)
   })
+
+  it('readCaseFiles is accepted but produces no bridge verb (protocol-only permission)', () => {
+    const b = bind('CASE-A', ['readCaseFiles'])
+    expect(b).toEqual({})
+  })
 })

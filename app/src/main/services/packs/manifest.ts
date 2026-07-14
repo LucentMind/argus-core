@@ -129,7 +129,8 @@ export const packWindowSchema = z
     placement: z.enum(['tab']).default('tab'),
     /** Allowed origins folded into the panel CSP; empty ⇒ bundle-assets-only. */
     network: z.array(z.string().min(1)).default([]),
-    /** Verbs the panel's window.argus may call — read verbs (3a) + write verbs (3b). */
+    /** Verbs/protocols the window may use — read verbs (3a), write verbs (3b),
+     *  case-file read protocol (3d-1). */
     permissions: z
       .array(
         z.enum([
@@ -138,7 +139,8 @@ export const packWindowSchema = z
           'readEvidence',
           'cite',
           'emitFinding',
-          'sendToAgent'
+          'sendToAgent',
+          'readCaseFiles'
         ])
       )
       .default([]),

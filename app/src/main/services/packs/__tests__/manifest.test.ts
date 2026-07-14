@@ -374,3 +374,13 @@ describe('packWindowSchema — externalApp (3c)', () => {
     expect(w.control).toBeUndefined()
   })
 })
+
+describe('packWindowSchema · 3d readCaseFiles permission', () => {
+  it('accepts readCaseFiles', () => {
+    const parsed = packWindowSchema.parse({
+      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      permissions: ['getCaseContext', 'readCaseFiles']
+    })
+    expect(parsed.permissions).toContain('readCaseFiles')
+  })
+})

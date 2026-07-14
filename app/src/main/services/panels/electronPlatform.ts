@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { WebContentsView, BrowserWindow, session as electronSession } from 'electron'
+import { pathToFileURL } from 'node:url'
+import { WebContentsView, BrowserWindow, session as electronSession, net, Menu } from 'electron'
+import { is } from '@electron-toolkit/utils'
 import { IPC } from '../../../shared/ipc'
 import type { PanelThemeName } from '../../../shared/panelTheme'
-import { panelContentType } from './protocol'
+import { panelContentType, resolveCaseAsset } from './protocol'
 import type { OpenPanelInput, PanelView, PanelViewFactory, PanelViewHooks } from './panelHost'
 
 /**
@@ -14,14 +16,24 @@ import type { OpenPanelInput, PanelView, PanelViewFactory, PanelViewHooks } from
  */
 export function createElectronPanelFactory(
   getMainWindow: () => BrowserWindow | null,
-  servePanel: (url: string) => { filePath: string; csp: string } | null
+  servePanel: (url: string) => { filePath: string; csp: string } | null,
+  argusHome: string
 ): PanelViewFactory {
   const partitionReady = new Set<string>()
+  const caseSchemeReady = new Set<string>()
 
   return {
     create(input: OpenPanelInput, hooks: PanelViewHooks): PanelView {
-      const partition = `pack-panel:${input.packId}`
+      // Case-scoped partition (3d-1): a partition never spans two cases, so the
+      // argus-case handler registered on it can safely serve that one case's
+      // evidence dir without needing per-request WebContents identity (which
+      // Electron's protocol.handle doesn't expose).
+      const partition = `pack-panel:${input.packId}:${input.caseSlug}`
       const sess = electronSession.fromPartition(partition)
+      // The case this partition (and therefore this handler) is bound to. This is the
+      // ONLY trusted case identity for argus-case reads — never the request URL's
+      // hostname, which is renderer-supplied (see resolveCaseAsset).
+      const boundCaseSlug = input.caseSlug
 
       // Serve argus-panel:// on THIS partition's session (handlers are per-session in
       // Electron — a default-session handler never fires for a partitioned panel). CSP
@@ -43,6 +55,24 @@ export function createElectronPanelFactory(
           }
         })
         partitionReady.add(partition)
+      }
+
+      // Registered lazily, and only for a window granted readCaseFiles — an
+      // ungranted window sharing this (pack, case) partition still can't reach it
+      // unless SOME window of the same pack+case opens with the permission first.
+      if (input.permissions.includes('readCaseFiles') && !caseSchemeReady.has(partition)) {
+        sess.protocol.handle('argus-case', async (request) => {
+          const abs = resolveCaseAsset(argusHome, boundCaseSlug, request.url)
+          if (!abs) return new Response('not found', { status: 404 })
+          try {
+            // Forward the request headers (notably Range:) so net.fetch over file://
+            // can answer with 206 Partial Content — required for media seeking.
+            return await net.fetch(pathToFileURL(abs).toString(), { headers: request.headers })
+          } catch {
+            return new Response('not found', { status: 404 })
+          }
+        })
+        caseSchemeReady.add(partition)
       }
 
       const view = new WebContentsView({
@@ -81,6 +111,25 @@ export function createElectronPanelFactory(
           error
         )
       })
+
+      // Dev-only: a docked panel is a WebContentsView (not a BrowserWindow), so the app's
+      // F12 handler never reaches it. Wire a right-click "Inspect element" that opens this
+      // view's own devtools at the click point — the only way to see a panel's console /
+      // Network tab. Gated to dev so sandboxed pack panels never expose devtools in prod.
+      if (is.dev) {
+        view.webContents.on('context-menu', (_e, params) => {
+          Menu.buildFromTemplate([
+            {
+              label: 'Inspect element',
+              click: () => {
+                if (!view.webContents.isDestroyed()) {
+                  view.webContents.inspectElement(params.x, params.y)
+                }
+              }
+            }
+          ]).popup()
+        })
+      }
 
       const attachDocked = (): void => {
         getMainWindow()?.contentView.addChildView(view)
