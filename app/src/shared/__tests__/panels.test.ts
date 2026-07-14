@@ -25,6 +25,16 @@ describe('buildPanelApi', () => {
     expect(invoke).toHaveBeenCalledWith(IPC.panelsRequestEvidence, 'foo')
     expect(invoke).toHaveBeenCalledWith(IPC.panelsReadEvidence, 5, 12)
   })
+
+  it('exposes listCaseEvidence when granted and wires it to its channel', async () => {
+    const invoke = vi.fn(async () => [])
+    const api = buildPanelApi(['listCaseEvidence'], invoke) as {
+      listCaseEvidence: () => Promise<unknown>
+    }
+    expect(typeof api.listCaseEvidence).toBe('function')
+    await api.listCaseEvidence()
+    expect(invoke).toHaveBeenCalledWith(IPC.panelsListCaseEvidence)
+  })
 })
 
 describe('panelThemeVars', () => {
