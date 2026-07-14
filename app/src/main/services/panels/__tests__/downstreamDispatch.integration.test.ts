@@ -29,6 +29,9 @@ function replyingFactory(reply: (cmd: string, args: unknown[]) => unknown): {
         setVisible() {},
         sendCommand(requestId, cmd, args) {
           host!.resolveCommand(requestId, { ok: true, result: reply(cmd, args) })
+        },
+        capturePage() {
+          return Promise.resolve(Buffer.alloc(0))
         }
       }
       return view

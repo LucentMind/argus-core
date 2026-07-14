@@ -13,6 +13,7 @@ import { writeProposal } from '../proposals'
 import { setCaseStatus } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
+import type { CapturePanelEvidence } from './capturePanel'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -32,6 +33,8 @@ export interface NativeToolDeps {
     windowId: string,
     evidenceId?: number
   ) => { ok: boolean; reason?: string; panel?: unknown }
+  /** Capture an open panel to evidence (session-bound by AgentService). Absent in sessions without panels. */
+  capturePanel?: (packId: string, windowId: string) => Promise<CapturePanelEvidence>
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -191,6 +194,25 @@ export function argusToolHandlers(
         null,
         2
       )
+    },
+
+    async capture_panel(args) {
+      if (!deps.capturePanel) throw new Error('capture_panel is not available in this session')
+      const res = await deps.capturePanel(String(args.pack_id ?? ''), String(args.window_id ?? ''))
+      if (res.ok) {
+        return JSON.stringify(
+          {
+            ok: true,
+            evidence_id: res.evidenceId,
+            rel_path: res.relPath,
+            artifact_type: res.artifactType,
+            hint: 'Use the Read tool on rel_path to view the panel.'
+          },
+          null,
+          2
+        )
+      }
+      return JSON.stringify({ ok: false, reason: res.reason, hint: res.hint }, null, 2)
     }
   }
 }
@@ -279,6 +301,12 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         "Open or focus a pack's window (webPanel or externalApp) in this case, optionally on a specific evidence item (webPanel only). Returns {ok, panel|reason}. Call this before a panel/app command if it may be closed.",
         { pack_id: z.string(), window_id: z.string(), evidence_id: z.number().optional() },
         async (a) => asText(await h.open_panel(a))
+      ),
+      tool(
+        'capture_panel',
+        'Screenshot an OPEN pack panel into case evidence, then use Read on the returned rel_path to view it. The panel must already be open — call open_panel first if it may be closed. Returns {ok, evidence_id, rel_path, artifact_type} — use the Read tool on rel_path to view the capture — or {ok:false, reason}.',
+        { pack_id: z.string(), window_id: z.string() },
+        async (a) => asText(await h.capture_panel(a))
       )
     ]
   })

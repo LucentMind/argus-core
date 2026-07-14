@@ -235,6 +235,23 @@ export function createElectronPanelFactory(
           if (!view.webContents.isDestroyed()) {
             view.webContents.send(IPC.panelsCommand, { requestId, cmd, args })
           }
+        },
+        async capturePage(): Promise<Buffer> {
+          if (view.webContents.isDestroyed()) throw new Error('panel webContents destroyed')
+          // Capture needs a painted frame: an occluded/hidden or freshly-loaded view can
+          // paint blank. We force the view visible and intentionally DO NOT restore prior
+          // visibility afterward — the primary flow is "agent opens (→visible) then captures",
+          // so a captured open-but-hidden panel is a rare edge that self-heals on the next
+          // layout pass. If that stray-visible flash ever matters, add a PanelView visibility
+          // getter and restore in a finally block.
+          view.setVisible(true)
+          let img = await view.webContents.capturePage()
+          if (img.isEmpty()) {
+            await new Promise((r) => setTimeout(r, 150))
+            img = await view.webContents.capturePage()
+            if (img.isEmpty()) throw new Error('captured an empty frame')
+          }
+          return img.toPNG()
         }
       }
     }
