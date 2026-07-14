@@ -4,7 +4,10 @@ import type { Detection } from '../packs/detection'
 import { ingestContent } from '../ingest'
 
 const slug = (s: string): string =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 
 /** Filesystem-safe slug from a panel title; falls back to the windowId, then 'panel'. */
 export function slugifyPanelTitle(title: string, fallback: string): string {
@@ -13,7 +16,10 @@ export function slugifyPanelTitle(title: string, fallback: string): string {
 
 /** Compact UTC timestamp for filenames: 2026-07-14T15:30:12.123Z -> 20260714T153012Z. */
 export function compactStamp(d: Date): string {
-  return d.toISOString().replace(/\.\d+Z$/, 'Z').replace(/[-:]/g, '')
+  return d
+    .toISOString()
+    .replace(/\.\d+Z$/, 'Z')
+    .replace(/[-:]/g, '')
 }
 
 export type CapturePanelEvidence =
@@ -39,10 +45,19 @@ export async function capturePanelToEvidence(
   if (!cap.ok) return { ok: false, reason: cap.reason, hint: cap.hint }
   const stamp = compactStamp((deps.clock ?? (() => new Date()))())
   const fileName = `panel-${slugifyPanelTitle(cap.title, windowId)}-${stamp}.png`
-  const rec = ingestContent(deps.db, deps.argusHome, deps.detection, caseSlug, fileName, cap.png, 'agent', {
-    packId,
-    windowId,
-    panelTitle: cap.title
-  })
+  const rec = ingestContent(
+    deps.db,
+    deps.argusHome,
+    deps.detection,
+    caseSlug,
+    fileName,
+    cap.png,
+    'agent',
+    {
+      packId,
+      windowId,
+      panelTitle: cap.title
+    }
+  )
   return { ok: true, evidenceId: rec.id, relPath: rec.relPath, artifactType: rec.artifactType }
 }
