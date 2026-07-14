@@ -586,6 +586,11 @@ function registerIpc(): void {
     if (!b?.readEvidence) throw new Error('panel bridge: readEvidence not granted')
     return b.readEvidence(evidenceId, focusLine)
   })
+  ipcMain.handle(IPC.panelsListCaseEvidence, (e) => {
+    const b = panelHost!.bridgeForWebContents(e.sender.id)
+    if (!b?.listCaseEvidence) throw new Error('panel bridge: listCaseEvidence not granted')
+    return b.listCaseEvidence()
+  })
 
   // Write bridge (3b) — routed by e.sender.id; each throws when the verb is ungranted or unbound.
   ipcMain.handle(IPC.panelsSendToAgent, (e, text: string) => {
