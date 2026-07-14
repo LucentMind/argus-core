@@ -116,19 +116,9 @@ export function PanelTabStrip({
               className={`h-1.5 w-1.5 rounded-full ${a.status === 'running' ? 'bg-signal' : 'bg-mute'}`}
             />
             <span className="max-w-32 truncate">{a.title}</span>
-            {a.status === 'running' && (
-              <button
-                aria-label={`Focus ${a.title}`}
-                title="Focus"
-                className="text-mute hover:text-ink"
-                onClick={() => void window.argus.externalApps.focus(k)}
-              >
-                <ExternalLink size={12} />
-              </button>
-            )}
             <button
               aria-label={`Stop ${a.title}`}
-              title="Stop"
+              title={a.status === 'running' ? 'Stop' : 'Dismiss'}
               className="text-mute hover:text-danger"
               onClick={() => void window.argus.externalApps.stop(k)}
             >

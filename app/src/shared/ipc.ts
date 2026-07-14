@@ -148,6 +148,5 @@ export const IPC = {
   // — external apps (3c) —
   externalAppsList: 'external-apps:list',
   externalAppsOpen: 'external-apps:open',
-  externalAppsFocus: 'external-apps:focus',
   externalAppsStop: 'external-apps:stop'
 } as const

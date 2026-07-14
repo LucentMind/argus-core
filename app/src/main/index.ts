@@ -560,7 +560,6 @@ function registerIpc(): void {
     (_e, req: { caseSlug: string; sessionId: number | null; packId: string; windowId: string }) =>
       openPanelFor(req.caseSlug, req.sessionId ?? 0, req.packId, req.windowId)
   )
-  ipcMain.handle(IPC.externalAppsFocus, (_e, key: PanelKey) => externalAppHost!.focus(key))
   ipcMain.handle(IPC.externalAppsStop, (_e, key: PanelKey) => {
     externalAppHost!.stop(key)
     broadcast(IPC.panelsChanged, undefined)

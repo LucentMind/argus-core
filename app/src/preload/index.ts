@@ -184,7 +184,6 @@ const argus = {
       packId: string
       windowId: string
     }): Promise<unknown> => ipcRenderer.invoke(IPC.externalAppsOpen, req),
-    focus: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.externalAppsFocus, key),
     stop: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.externalAppsStop, key)
   },
   search: {

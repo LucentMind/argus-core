@@ -70,7 +70,6 @@ describe('PanelTabStrip — externalApp (3c)', () => {
     window.argus = {
       externalApps: {
         open: vi.fn().mockResolvedValue({ ok: true }),
-        focus: vi.fn(),
         stop: vi.fn()
       },
       panels: { open: vi.fn().mockResolvedValue({}), onChanged: () => () => {} }
@@ -85,9 +84,10 @@ describe('PanelTabStrip — externalApp (3c)', () => {
     ])
   })
 
-  it('renders a running app as a presence chip with Stop', () => {
+  it('renders a running app as a presence chip with Stop and no Focus button', () => {
     render(<PanelTabStrip slug="CASE-A" sessionId={1} activeTab="chat" onSelect={vi.fn()} />)
     expect(screen.getByText('Sim')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Focus Sim')).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Stop Sim'))
     expect(window.argus.externalApps.stop).toHaveBeenCalledWith({
       caseSlug: 'CASE-A',
