@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 describe('bridge playground — upstream verbs end to end', () => {
-  it('declares the playground window with the six permissions', () => {
+  it('declares the playground window with the upstream verb permissions', () => {
     const { packs, errors } = loadPacks(packsSrc)
     expect(errors).toEqual([])
     const reg = new PackRegistry(packs)
