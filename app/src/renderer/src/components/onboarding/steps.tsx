@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AuthStatus } from '../../../../shared/types'
+import type { PacksListPayload } from '../../../../shared/packs'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
@@ -92,6 +93,46 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+export function PackStep({ setGate }: { setGate: (ok: boolean) => void }): React.JSX.Element {
+  const [payload, setPayload] = useState<PacksListPayload | null>(null)
+  // Resolve via .then so setState happens only inside the async callback, never
+  // synchronously in the effect body — mirrors ClaudeStep to avoid set-state-in-effect.
+  const load = useCallback(() => {
+    void window.argus.packs.list().then((p) => {
+      setPayload(p)
+      setGate(p.packs.length > 0)
+    })
+  }, [setGate])
+  useEffect(() => {
+    load()
+  }, [load])
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg text-ink">Install a pack</h2>
+      <p className="text-sm text-dim">
+        Argus Core is domain-free — packs add the detectors, skills, and tools for your evidence.
+      </p>
+      {payload && payload.packs.length > 0 ? (
+        <ul className="space-y-1 text-sm text-ink">
+          {payload.packs.map((p) => (
+            <li key={p.id} className="rounded-r2 border border-hair px-3 py-1.5">
+              {p.displayName}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-danger">
+          No packs installed yet. Open Packs settings to add one, then re-check.
+        </p>
+      )}
+      <button className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink" onClick={load}>
+        Re-check
+      </button>
     </div>
   )
 }
