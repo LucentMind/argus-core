@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { WIZARD_STEPS, type WizardStepId } from '../../../../shared/onboarding'
+import { SAMPLE_CASE_SLUG, WIZARD_STEPS, type WizardStepId } from '../../../../shared/onboarding'
 
 const LABELS: Record<WizardStepId, string> = {
   welcome: 'Welcome',
@@ -42,7 +42,12 @@ export function SetupWizard({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-void/80 p-6">
-      <div className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 border border-hair bg-deep">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Argus setup"
+        className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 border border-hair bg-deep"
+      >
         <nav
           aria-label="Setup steps"
           className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-hair p-3"
@@ -80,7 +85,7 @@ export function SetupWizard({
               <button
                 disabled={!gate}
                 className="rounded-r2 bg-hi px-3 py-1.5 text-xs text-ink disabled:opacity-40"
-                onClick={() => (isLast ? onComplete('sample-onboarding') : next())}
+                onClick={() => (isLast ? onComplete(SAMPLE_CASE_SLUG) : next())}
               >
                 {isLast ? 'Finish' : 'Continue'}
               </button>

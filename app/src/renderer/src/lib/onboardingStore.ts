@@ -1,9 +1,16 @@
 import type { AppSettings } from '../../../shared/settings'
-import { settingsStore, useSettingsPayload } from './settingsStore'
+import { settingsStore } from './settingsStore'
 
-/** True first run: never finished onboarding AND the user has no cases yet. */
-export function isFirstRun(settings: AppSettings, caseCount: number): boolean {
-  return settings.onboarding.completedAt == null && caseCount === 0
+/**
+ * Open the wizard on true first run (never completed AND no cases yet) OR on an
+ * explicit replay (completedAt cleared but the user already did phase 1 before).
+ * The `phase1Done` term is what makes "Re-run onboarding" work after the sample
+ * case exists, while still NOT auto-onboarding existing users who upgrade with
+ * cases but no onboarding record.
+ */
+export function shouldOpenOnboarding(settings: AppSettings, caseCount: number): boolean {
+  const ob = settings.onboarding
+  return ob.completedAt == null && (caseCount === 0 || ob.phase1Done)
 }
 
 export async function markPhase1Done(sampleCaseSlug: string): Promise<void> {
@@ -19,9 +26,4 @@ export async function markIntegration(
 
 export async function markCompleted(): Promise<void> {
   await settingsStore.patch({ onboarding: { completedAt: new Date().toISOString() } })
-}
-
-export function useOnboarding(): { settings: AppSettings | null } {
-  const payload = useSettingsPayload()
-  return { settings: payload?.settings ?? null }
 }
