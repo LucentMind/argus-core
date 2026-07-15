@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AuthStatus } from '../../../../shared/types'
 import type { PacksListPayload } from '../../../../shared/packs'
-import { markIntegration } from '../../lib/onboardingStore'
+import { markIntegration, markPhase1Done } from '../../lib/onboardingStore'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
@@ -202,6 +202,35 @@ export function IntegrationsStep(): React.JSX.Element {
         hint="Share skills and memory with your team."
         ok={state.hive}
       />
+    </div>
+  )
+}
+
+export function SeedStep({ onSeeded }: { onSeeded: (slug: string) => void }): React.JSX.Element {
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    window.argus.onboarding
+      .seedSample()
+      .then((r) =>
+        markPhase1Done(r.slug).then(() => {
+          setDone(true)
+          onSeeded(r.slug)
+        })
+      )
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  }, [onSeeded])
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg text-ink">Your sample case</h2>
+      {!done && !error && <p className="text-sm text-dim">Setting up a sample case to explore…</p>}
+      {done && (
+        <p className="text-sm text-signal">
+          Sample case ready. Finish to open it and take the feature tour.
+        </p>
+      )}
+      {error && <p className="text-sm text-danger">Couldn&apos;t seed the sample case: {error}</p>}
     </div>
   )
 }
