@@ -91,18 +91,26 @@ export function IconBtn({
 
 export interface MenuItem {
   label: string
-  onSelect: () => void
+  /** Leaf action. Omitted on parent items that only carry a submenu. */
+  onSelect?: () => void
   tone?: 'default' | 'danger'
   disabled?: boolean
+  /** When present, this row is a submenu parent: selecting is replaced by
+   *  revealing these nested items (one level of nesting). */
+  children?: MenuItem[]
 }
 
-/** Button + anchored dropdown menu. Closes on select, Escape, or outside click. */
+const MENU_ITEM_BASE = 'block w-full rounded-r2 px-3 py-1.5 text-left text-sm hover:bg-hair/50'
+
+/** Button + anchored dropdown menu. Closes on select, Escape, or outside click.
+ *  Items with `children` expand into a nested submenu on hover or click. */
 export function MenuButton({
   label,
   items,
   variant = 'ghost',
   align = 'right',
   onOpenChange,
+  triggerClassName = '',
   'aria-label': ariaLabel
 }: {
   label: React.ReactNode
@@ -115,10 +123,15 @@ export function MenuButton({
   /** Notified whenever the dropdown opens/closes. Used by callers (e.g. the panel launcher)
    *  that must hide a native overlay while the DOM menu is up. Also fired false on unmount. */
   onOpenChange?: (open: boolean) => void
+  /** Extra classes for the trigger button, e.g. to keep a case-id trigger looking
+   *  like its heading rather than a generic button. */
+  triggerClassName?: string
   'aria-label'?: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
+  // Index of the currently-expanded submenu parent, or null.
+  const [openSub, setOpenSub] = useState<number | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     onOpenChange?.(open)
@@ -151,11 +164,14 @@ export function MenuButton({
           // the settings panel) so the menu never renders off-screen or under other chrome.
           const rect = ref.current?.getBoundingClientRect()
           setOpenUp(Boolean(rect && window.innerHeight - rect.bottom < 220 && rect.top > 220))
+          // reset any expanded submenu so each open starts collapsed
+          setOpenSub(null)
           setOpen((o) => !o)
         }}
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
+        className={triggerClassName}
       >
         {label} <span aria-hidden="true">▾</span>
       </Btn>
@@ -166,22 +182,67 @@ export function MenuButton({
             openUp ? 'bottom-full mb-1' : 'mt-1'
           } ${align === 'left' ? 'left-0' : 'right-0'}`}
         >
-          {items.map((it, i) => (
-            <button
-              key={`${i}-${it.label}`}
-              role="menuitem"
-              disabled={it.disabled}
-              className={`block w-full rounded-r2 px-3 py-1.5 text-left text-sm hover:bg-hair/50 disabled:opacity-50 ${
-                it.tone === 'danger' ? 'text-danger' : 'text-ink'
-              }`}
-              onClick={() => {
-                setOpen(false)
-                it.onSelect()
-              }}
-            >
-              {it.label}
-            </button>
-          ))}
+          {items.map((it, i) =>
+            it.children ? (
+              <div
+                key={`${i}-${it.label}`}
+                className="relative"
+                onMouseEnter={() => setOpenSub(i)}
+                onMouseLeave={() => setOpenSub(null)}
+              >
+                <button
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={openSub === i}
+                  className={`flex items-center justify-between ${MENU_ITEM_BASE} text-ink`}
+                  onClick={() => setOpenSub((s) => (s === i ? null : i))}
+                >
+                  <span>{it.label}</span>
+                  <span aria-hidden="true" className="ml-3 text-mute">
+                    ▸
+                  </span>
+                </button>
+                {openSub === i && (
+                  <div
+                    role="menu"
+                    className="absolute left-full top-0 z-40 ml-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
+                  >
+                    {it.children.map((sub, j) => (
+                      <button
+                        key={`${j}-${sub.label}`}
+                        role="menuitem"
+                        disabled={sub.disabled}
+                        className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
+                          sub.tone === 'danger' ? 'text-danger' : 'text-ink'
+                        }`}
+                        onClick={() => {
+                          setOpen(false)
+                          sub.onSelect?.()
+                        }}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                key={`${i}-${it.label}`}
+                role="menuitem"
+                disabled={it.disabled}
+                className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
+                  it.tone === 'danger' ? 'text-danger' : 'text-ink'
+                }`}
+                onClick={() => {
+                  setOpen(false)
+                  it.onSelect?.()
+                }}
+              >
+                {it.label}
+              </button>
+            )
+          )}
         </div>
       )}
     </div>
