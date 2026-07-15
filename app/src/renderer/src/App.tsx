@@ -4,6 +4,7 @@ import { CaseWorkspace } from './components/CaseWorkspace'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewCaseDialog } from './components/NewCaseDialog'
+import { OnboardingProvider } from './components/onboarding/OnboardingProvider'
 import { ObservabilityView } from './components/observability/ObservabilityView'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView } from './components/settings/SettingsView'
@@ -194,6 +195,7 @@ function App(): React.JSX.Element {
           }}
         />
       )}
+      <OnboardingProvider onOpenCase={openCase} />
     </div>
   )
 }
