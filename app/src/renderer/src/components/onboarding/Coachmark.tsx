@@ -14,6 +14,12 @@ function readRect(anchor: string): Rect | null {
   return { top: r.top, left: r.left, width: r.width, height: r.height }
 }
 
+// A step transition can flip the app to a new view (e.g. settings) via an
+// effect in the parent, so the anchored DOM node may mount a frame or two
+// after Coachmark's own effect runs. Retry across a bounded number of
+// animation frames before giving up and falling back to the centered callout.
+const MAX_RESOLVE_ATTEMPTS = 30
+
 export function Coachmark({
   anchor,
   children
@@ -24,11 +30,33 @@ export function Coachmark({
   const [rect, setRect] = useState<Rect | null>(() => readRect(anchor))
 
   useEffect(() => {
+    let cancelled = false
+    let frameId: number | null = null
+    let attempts = 0
+
     const update = (): void => setRect(readRect(anchor))
-    update()
+
+    const tryResolve = (): void => {
+      const found = readRect(anchor)
+      if (found) {
+        if (!cancelled) setRect(found)
+        return
+      }
+      attempts += 1
+      if (attempts >= MAX_RESOLVE_ATTEMPTS) {
+        if (!cancelled) setRect(null)
+        return
+      }
+      frameId = requestAnimationFrame(tryResolve)
+    }
+
+    tryResolve()
+
     window.addEventListener('resize', update)
     window.addEventListener('scroll', update, true)
     return () => {
+      cancelled = true
+      if (frameId !== null) cancelAnimationFrame(frameId)
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
     }
