@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react'
+import { TOUR_STEPS, type TourStep } from '../components/onboarding/tourSteps'
+import type { AppSettings } from '../../../shared/settings'
 
 interface TourState {
   open: boolean
@@ -29,4 +31,9 @@ export const tourStore = new TourStore()
 
 export function useTour(): TourState {
   return useSyncExternalStore(tourStore.subscribe, () => tourStore.get())
+}
+
+/** Full ordered step list; live-vs-explain is decided at render from onboarding.integrations. */
+export function buildTourSteps(_settings: AppSettings): TourStep[] {
+  return TOUR_STEPS
 }

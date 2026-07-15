@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { tourStore } from '../tourStore'
+import { tourStore, buildTourSteps } from '../tourStore'
 import { markTourDone } from '../onboardingStore'
 import { settingsStore } from '../settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 
 describe('tourStore', () => {
   beforeEach(() => { tourStore.exitTour() })
@@ -26,5 +27,12 @@ describe('tourStore', () => {
     const arg = spy.mock.calls[0][0] as { onboarding: { tourDone: boolean; completedAt: string } }
     expect(arg.onboarding.tourDone).toBe(true)
     expect(typeof arg.onboarding.completedAt).toBe('string')
+  })
+
+  it('buildTourSteps returns the four features in order', () => {
+    const steps = buildTourSteps(defaultSettings())
+    expect(steps.map((s) => s.key)).toEqual(['memory', 'skills', 'references', 'hivemind'])
+    expect(steps.find((s) => s.key === 'references')?.requiresIntegration).toBe('confluence')
+    expect(steps.find((s) => s.key === 'hivemind')?.requiresIntegration).toBe('hive')
   })
 })
