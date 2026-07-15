@@ -73,12 +73,30 @@ const observabilitySchema = z.looseObject({
     .default(() => ({ hiddenCards: [] }))
 })
 
+const onboardingSchema = z.looseObject({
+  /** ISO time onboarding finished/was dismissed; null = never → treat as first-run. */
+  completedAt: z.string().nullable().default(null),
+  phase1Done: z.boolean().default(false),
+  tourDone: z.boolean().default(false),
+  /** Slug of the seeded sample case; null until seeded. */
+  sampleCaseSlug: z.string().nullable().default(null),
+  /** Which integrations were configured during setup (drives Phase-2 live vs explain). */
+  integrations: z
+    .looseObject({
+      jira: z.boolean().default(false),
+      confluence: z.boolean().default(false),
+      hive: z.boolean().default(false)
+    })
+    .default(() => ({ jira: false, confluence: false, hive: false }))
+})
+
 export const settingsSchema = z.looseObject({
   general: generalSchema.default(() => generalSchema.parse({})),
   agent: agentSchema.default(() => agentSchema.parse({})),
   tools: toolsSchema.default(() => toolsSchema.parse({})),
   hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
-  observability: observabilitySchema.default(() => observabilitySchema.parse({}))
+  observability: observabilitySchema.default(() => observabilitySchema.parse({})),
+  onboarding: onboardingSchema.default(() => onboardingSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>
