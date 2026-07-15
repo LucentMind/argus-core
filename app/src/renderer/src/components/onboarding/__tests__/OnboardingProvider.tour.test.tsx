@@ -43,7 +43,9 @@ beforeEach(() => {
       }))
     },
     connectors: { get: vi.fn(async () => ({ oauth: {} })) },
-    onboarding: { seedSample: vi.fn(async () => ({ slug: 'sample-onboarding', evidenceIds: [1] })) },
+    onboarding: {
+      seedSample: vi.fn(async () => ({ slug: 'sample-onboarding', evidenceIds: [1] }))
+    },
     sessions: { list: vi.fn(async () => [{ id: 1 }]) }
   } as never
   settingsStore.reset()
