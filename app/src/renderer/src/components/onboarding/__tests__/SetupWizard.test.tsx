@@ -1,7 +1,16 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { useEffect } from 'react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { SetupWizard } from '../SetupWizard'
+
+function AsyncGateStep({ setGate }: { setGate: (ok: boolean) => void }): React.JSX.Element {
+  useEffect(() => {
+    setGate(false) // synchronous: disable
+    void Promise.resolve().then(() => setGate(true)) // async: re-enable
+  }, []) // captured ONCE — exercises the stale-closure path
+  return <div data-testid="async-step" />
+}
 
 describe('SetupWizard shell', () => {
   it('starts on welcome and advances on Continue', () => {
@@ -16,5 +25,33 @@ describe('SetupWizard shell', () => {
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
     fireEvent.click(screen.getByRole('button', { name: /back/i }))
     expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy()
+  })
+
+  it('disables Continue while the active step gate is false', () => {
+    render(
+      <SetupWizard
+        onComplete={vi.fn()}
+        onDismiss={vi.fn()}
+        renderStep={(id, api) => {
+          if (id === 'welcome') { api.setGate(false); return <div data-testid="gated" /> }
+          return <div data-testid={`body-${id}`} />
+        }}
+      />
+    )
+    expect(screen.getByRole('button', { name: /continue/i }).disabled).toBe(true)
+  })
+
+  it('re-enables Continue when a step calls setGate asynchronously', async () => {
+    render(
+      <SetupWizard
+        onComplete={vi.fn()}
+        onDismiss={vi.fn()}
+        renderStep={(id, api) => (id === 'welcome' ? <AsyncGateStep setGate={api.setGate} /> : <div />)}
+      />
+    )
+    // after the microtask resolves, Continue must be enabled again
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /continue/i }).disabled).toBe(false)
+    )
   })
 })
