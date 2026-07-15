@@ -36,3 +36,16 @@ it('appends a findings.md block and inserts a pending findings row', () => {
     | undefined
   expect(row).toEqual({ summary: 'Race in tile cache', review_state: 'pending' })
 })
+
+it('embeds a <!-- finding:{id} --> marker whose id matches the inserted row', () => {
+  const c = getCase(db, 'CASE-A')!
+  const { findingId, block } = appendFinding(
+    { db, argusHome: home, caseId: c.id, caseSlug: 'CASE-A', sessionId: 7, turnId: null },
+    { title: 'Null deref in tile', markdown: 'body text' }
+  )
+  expect(block).toContain(`<!-- finding:${findingId} -->`)
+  const md = fs.readFileSync(path.join(caseDir(home, 'CASE-A'), 'findings.md'), 'utf8')
+  expect(md).toContain(`<!-- finding:${findingId} -->`)
+  // marker precedes the heading in the file
+  expect(md.indexOf(`<!-- finding:${findingId} -->`)).toBeLessThan(md.indexOf('## Null deref in tile'))
+})

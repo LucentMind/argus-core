@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import os from 'node:os'
 import { openDb } from '../db'
 import { globalMetrics } from '../observability/metrics'
 import { listFindings, reviewFinding } from '../findings'
@@ -16,7 +17,7 @@ describe('metrics/findings handlers (logic)', () => {
       )
       .run(now)
     reviewFinding(db, Number(r.lastInsertRowid), 'accepted')
-    expect(listFindings(db, 'c1')[0].reviewState).toBe('accepted')
+    expect(listFindings(db, os.tmpdir(), 'c1')[0].reviewState).toBe('accepted')
     expect(globalMetrics(db).findings.accepted).toBe(1)
   })
 })
