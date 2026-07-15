@@ -2,18 +2,36 @@ import { useCallback, useEffect, useState } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { Chip, MenuButton, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
-import type { ArtifactType, ArtifactTypeMeta, FileNode } from '../../../shared/types'
+import type { ArtifactType, ArtifactTypeMeta, EvidenceRecord, FileNode } from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
-function filterTree(nodes: FileNode[], type: ArtifactType | ''): FileNode[] {
-  if (!type) return nodes
-  return nodes
-    .map((n) => (n.kind === 'dir' ? { ...n, children: filterTree(n.children ?? [], type) } : n))
-    .filter((n) =>
-      n.kind === 'dir' ? (n.children?.length ?? 0) > 0 : n.evidence?.artifactType === type
-    )
+// derived rows (meta.derivedFrom) sort directly below their source row
+function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?: boolean })[] {
+  const derivedBySource = new Map<number, EvidenceRecord[]>()
+  const top: EvidenceRecord[] = []
+  for (const r of rows) {
+    const from = r.meta.derivedFrom
+    if (typeof from === 'number') {
+      const list = derivedBySource.get(from) ?? []
+      list.push(r)
+      derivedBySource.set(from, list)
+    } else {
+      top.push(r)
+    }
+  }
+  const ordered: (EvidenceRecord & { derived?: boolean })[] = []
+  for (const r of top) {
+    ordered.push(r)
+    for (const d of derivedBySource.get(r.id) ?? []) ordered.push({ ...d, derived: true })
+    derivedBySource.delete(r.id)
+  }
+  // orphans whose source is filtered out or gone still render (unindented source position)
+  for (const list of derivedBySource.values()) {
+    for (const d of list) ordered.push({ ...d, derived: true })
+  }
+  return ordered
 }
 
 export function CaseFiles({
@@ -29,9 +47,8 @@ export function CaseFiles({
   panelDecls?: PanelDecl[]
   onOpenInPanel?: (evidenceId: number, packId: string, windowId: string) => void
 }): React.JSX.Element {
-  const [tree, setTree] = useState<FileNode[]>([])
+  const [rows, setRows] = useState<EvidenceRecord[]>([])
   const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set()) // default: everything expanded
   const [parsing, setParsing] = useState<Set<number>>(new Set())
   const [dragOver, setDragOver] = useState(false)
   const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
@@ -46,18 +63,15 @@ export function CaseFiles({
 
   const reload = useCallback(
     (): Promise<void> =>
-      window.argus.files.list(caseSlug).then(setTree, (err) => {
-        console.warn(`[files] list failed for ${caseSlug}: ${(err as Error).message}`)
-        setTree([])
+      window.argus.evidence.list(caseSlug).then(setRows, (err) => {
+        console.warn(`[evidence] list failed for ${caseSlug}: ${(err as Error).message}`)
+        setRows([])
       }),
     [caseSlug]
   )
 
   useEffect(() => {
     void reload()
-    const offFiles = window.argus.files.onChanged((slug) => {
-      if (slug === caseSlug) void reload()
-    })
     const offEvidence = window.argus.evidence.onChanged?.((slug) => {
       if (slug === caseSlug) void reload()
     })
@@ -71,7 +85,6 @@ export function CaseFiles({
       })
     })
     return () => {
-      offFiles?.()
       offEvidence?.()
       offParsing?.()
     }
@@ -86,161 +99,125 @@ export function CaseFiles({
     await reload()
   }
 
-  function clickFile(node: FileNode): void {
-    if (TEXT_LIKE.test(node.name)) onOpenFile(node)
-    else void window.argus.files.open(caseSlug, node.relPath)
+  function clickFile(r: EvidenceRecord): void {
+    const name = r.relPath.split('/').pop() ?? r.relPath
+    if (TEXT_LIKE.test(name)) {
+      onOpenFile({ name, relPath: r.relPath, kind: 'file', size: r.size })
+    } else {
+      void window.argus.files.open(caseSlug, r.relPath)
+    }
   }
 
-  async function deleteEvidenceFile(n: FileNode): Promise<void> {
-    if (!n.evidence) return
-    const id = n.evidence.id
+  async function deleteEvidenceFile(r: EvidenceRecord): Promise<void> {
+    const id = r.id
     // count the derived closure client-side so the confirm names what goes with it
-    const all = (await window.argus.evidence.list(caseSlug)) as Array<{
-      id: number
-      meta: Record<string, unknown>
-    }>
+    // (use the already-loaded rows rather than re-fetching)
     const doomed = new Set([id])
     for (let grew = true; grew;) {
       grew = false
-      for (const r of all) {
-        const parent = r.meta.derivedFrom
-        if (!doomed.has(r.id) && typeof parent === 'number' && doomed.has(parent)) {
-          doomed.add(r.id)
+      for (const row of rows) {
+        const parent = row.meta.derivedFrom
+        if (!doomed.has(row.id) && typeof parent === 'number' && doomed.has(parent)) {
+          doomed.add(row.id)
           grew = true
         }
       }
     }
     const derived = doomed.size - 1
     const extra = derived > 0 ? ` and ${derived} derived file${derived > 1 ? 's' : ''}` : ''
-    if (!window.confirm(`Delete "${displayName(n.name)}"${extra}? This cannot be undone.`)) return
+    if (!window.confirm(`Delete "${displayName(r.relPath)}"${extra}? This cannot be undone.`)) return
     setDeleteError(null)
     try {
       await window.argus.evidence.delete(caseSlug, id)
     } catch (err) {
       setDeleteError((err as Error).message)
     } finally {
-      // a post-commit filesystem failure still needs the tree resynced — the DB row is gone either way
+      // a post-commit filesystem failure still needs the list resynced — the DB row is gone either way
       await reload()
     }
   }
 
-  function renderNodes(nodes: FileNode[], depth: number): React.JSX.Element[] {
-    return nodes.flatMap((n) => {
-      if (n.kind === 'dir') {
-        const isCollapsed = collapsed.has(n.relPath)
-        return [
-          <li key={n.relPath}>
-            <button
-              className="flex w-full items-center gap-1 py-1 font-mono text-xs text-dim hover:text-ink"
-              style={{ paddingLeft: depth * 12 }}
-              onClick={() =>
-                setCollapsed((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(n.relPath)) next.delete(n.relPath)
-                  else next.add(n.relPath)
-                  return next
-                })
-              }
-            >
-              <span className="text-mute">{isCollapsed ? '▸' : '▾'}</span>
-              <span>{n.name}</span>/
-            </button>
-            {!isCollapsed && <ul>{renderNodes(n.children ?? [], depth + 1)}</ul>}
-          </li>
-        ]
-      }
-      const skill = n.evidence
-        ? artifactMeta.find((m) => m.type === n.evidence?.artifactType)?.analyzeSkill
-        : undefined
-      const isParsing = n.evidence ? parsing.has(n.evidence.id) : false
-      return [
-        <li
-          key={n.relPath}
-          className="group flex items-center gap-2 border-t border-hair py-1.5"
-          style={{ paddingLeft: depth * 12 }}
-          title={n.relPath}
-        >
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <button
-              className="min-w-0 truncate text-left font-mono text-xs text-dim hover:text-ink"
-              onClick={() => clickFile(n)}
-            >
-              {displayName(n.name)}
-              {n.evidence?.derived && (
-                <span className="ml-2">
-                  <Chip tone="neutral">derived</Chip>
-                </span>
-              )}
-            </button>
-            <div className="flex items-center gap-2 text-xs text-mute">
-              {n.evidence && (
-                <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
-                  {n.evidence.artifactType}
-                </span>
-              )}
-              <span>{formatMb(n.size)}</span>
-              {isParsing && (
-                <span className="flex items-center gap-1 text-signal">
-                  <span className="h-2 w-2 animate-spin rounded-full border border-signal border-t-transparent" />
-                  parsing…
-                </span>
-              )}
-            </div>
-          </div>
-          {skill && onSuggest && (
-            <button
-              className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-              onClick={() => onSuggest(`/${skill} ${n.relPath}`)}
-            >
-              Analyze
-            </button>
-          )}
-          {n.evidence &&
-            onOpenInPanel &&
-            (() => {
-              const targets = panelHandlesType(panelDecls, n.evidence.artifactType)
-              const id = n.evidence.id
-              if (targets.length === 0) return null
-              if (targets.length === 1) {
-                const t = targets[0]
-                return (
-                  <button
-                    className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-                    onClick={() => onOpenInPanel(id, t.packId, t.windowId)}
-                  >
-                    Open in {t.title}
-                  </button>
-                )
-              }
-              return (
-                <div className="shrink-0">
-                  <MenuButton
-                    label="Open in"
-                    align="right"
-                    items={targets.map((t) => ({
-                      label: t.title,
-                      onSelect: () => onOpenInPanel(id, t.packId, t.windowId)
-                    }))}
-                  />
-                </div>
-              )
-            })()}
-          {n.evidence && (
-            <button
-              aria-label={`Delete ${n.name}`}
-              title="Delete evidence"
-              className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-              onClick={() => void deleteEvidenceFile(n)}
-            >
-              Delete
-            </button>
-          )}
-        </li>
-      ]
-    })
-  }
+  const visible = orderWithDerived(
+    typeFilter ? rows.filter((r) => r.artifactType === typeFilter) : rows
+  )
 
-  const visible = filterTree(tree, typeFilter)
+  function renderRow(r: EvidenceRecord & { derived?: boolean }): React.JSX.Element {
+    const skill = artifactMeta.find((m) => m.type === r.artifactType)?.analyzeSkill
+    const isParsing = parsing.has(r.id)
+    const targets = panelHandlesType(panelDecls, r.artifactType)
+    return (
+      <li key={r.id} className="group flex items-center gap-2 border-t border-hair py-1.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <button
+            className="min-w-0 truncate text-left font-mono text-xs text-dim hover:text-ink"
+            onClick={() => clickFile(r)}
+          >
+            {displayName(r.relPath)}
+            {r.derived && (
+              <span className="ml-2">
+                <Chip tone="neutral">derived</Chip>
+              </span>
+            )}
+          </button>
+          <div className="flex items-center gap-2 text-xs text-mute">
+            <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
+              {r.artifactType}
+            </span>
+            <span>{formatMb(r.size)}</span>
+            {isParsing && (
+              <span className="flex items-center gap-1 text-signal">
+                <span className="h-2 w-2 animate-spin rounded-full border border-signal border-t-transparent" />
+                parsing…
+              </span>
+            )}
+          </div>
+        </div>
+        {skill && onSuggest && (
+          <button
+            className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+            onClick={() => onSuggest(`/${skill} ${r.relPath}`)}
+          >
+            Analyze
+          </button>
+        )}
+        {onOpenInPanel &&
+          (() => {
+            if (targets.length === 0) return null
+            if (targets.length === 1) {
+              const t = targets[0]
+              return (
+                <button
+                  className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                  onClick={() => onOpenInPanel(r.id, t.packId, t.windowId)}
+                >
+                  Open in {t.title}
+                </button>
+              )
+            }
+            return (
+              <div className="shrink-0">
+                <MenuButton
+                  label="Open in"
+                  align="right"
+                  items={targets.map((t) => ({
+                    label: t.title,
+                    onSelect: () => onOpenInPanel(r.id, t.packId, t.windowId)
+                  }))}
+                />
+              </div>
+            )
+          })()}
+        <button
+          aria-label={`Delete ${displayName(r.relPath)}`}
+          title="Delete evidence"
+          className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={() => void deleteEvidenceFile(r)}
+        >
+          Delete
+        </button>
+      </li>
+    )
+  }
 
   return (
     <section
@@ -282,9 +259,9 @@ export function CaseFiles({
       </div>
       {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
       <ul className="text-xs">
-        {renderNodes(visible, 0)}
+        {visible.map(renderRow)}
         {visible.length === 0 && (
-          <li className="border-t border-hair py-2 text-mute">No files yet.</li>
+          <li className="border-t border-hair py-2 text-mute">No evidence yet.</li>
         )}
       </ul>
       <div className="mt-1 border-t border-dashed border-hair pt-2 text-center text-[11px] text-mute">
