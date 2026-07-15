@@ -1,9 +1,5 @@
 export type TourTarget =
-  | 'composer'
-  | 'settings-memory'
-  | 'settings-skills'
-  | 'settings-references'
-  | 'settings-hivemind'
+  'composer' | 'settings-memory' | 'settings-skills' | 'settings-references' | 'settings-hivemind'
 
 export interface TourStep {
   key: 'memory' | 'skills' | 'references' | 'hivemind'

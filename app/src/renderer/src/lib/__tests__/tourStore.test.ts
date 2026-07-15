@@ -6,7 +6,9 @@ import { settingsStore } from '../settingsStore'
 import { defaultSettings } from '../../../../shared/settings'
 
 describe('tourStore', () => {
-  beforeEach(() => { tourStore.exitTour() })
+  beforeEach(() => {
+    tourStore.exitTour()
+  })
 
   it('opens, advances, and exits', () => {
     expect(tourStore.get().open).toBe(false)

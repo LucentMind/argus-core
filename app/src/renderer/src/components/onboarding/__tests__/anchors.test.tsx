@@ -23,7 +23,12 @@ beforeEach(() => {
 describe('settings tab anchors', () => {
   it('memory/skills/references/hivemind tabs carry onboarding anchors', () => {
     const { container } = render(<SettingsView onClose={vi.fn()} />)
-    for (const id of ['settings-memory', 'settings-skills', 'settings-references', 'settings-hivemind']) {
+    for (const id of [
+      'settings-memory',
+      'settings-skills',
+      'settings-references',
+      'settings-hivemind'
+    ]) {
       expect(container.querySelector(`[data-onboarding-anchor="${id}"]`)).toBeTruthy()
     }
   })
