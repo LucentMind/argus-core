@@ -249,13 +249,15 @@ describe('CaseWorkspace panel tab host', () => {
   })
 })
 
-describe('CaseWorkspace status menu', () => {
-  it('closes the case as duplicate from the header menu', async () => {
+describe('CaseWorkspace case-id menu', () => {
+  it('closes the case as duplicate via the Close as… submenu', async () => {
     const setStatus = vi.fn().mockResolvedValue(undefined)
     window.argus.cases.setStatus = setStatus
     const onStatusChanged = vi.fn()
     renderWorkspace({ status: 'open', resolution: null, onStatusChanged })
-    fireEvent.click(screen.getByRole('button', { name: /close as/i }))
+    // case id opens the menu; "Close as…" expands its submenu; then pick a resolution
+    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /close as/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'duplicate' }))
     await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'closed', 'duplicate'))
     expect(onStatusChanged).toHaveBeenCalled()
@@ -266,8 +268,9 @@ describe('CaseWorkspace status menu', () => {
     window.argus.cases.setStatus = setStatus
     const onStatusChanged = vi.fn()
     renderWorkspace({ status: 'closed', resolution: 'wont-fix', onStatusChanged })
-    expect(screen.getByRole('button', { name: /closed · wont-fix/i })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /closed · wont-fix/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
+    // the closed status still reads on the submenu parent
+    fireEvent.click(screen.getByRole('menuitem', { name: /closed · wont-fix/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Reopen' }))
     await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'open', null))
     expect(onStatusChanged).toHaveBeenCalled()
@@ -275,8 +278,19 @@ describe('CaseWorkspace status menu', () => {
 
   it('shows a bare "Closed" label (not "Close as…") for a legacy closed case with no resolution', async () => {
     renderWorkspace({ status: 'closed', resolution: null })
-    expect(screen.getByRole('button', { name: 'Closed' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Closed' }))
+    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Closed' }))
     expect(screen.getByRole('menuitem', { name: 'Reopen' })).toBeTruthy()
+  })
+
+  it('exports the case via the Export submenu', async () => {
+    const exportFn = vi.fn().mockResolvedValue({ ok: true, fileCount: 3 })
+    window.argus.bundle = { export: exportFn } as never
+    renderWorkspace({ status: 'open', resolution: null })
+    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
+    await waitFor(() => expect(exportFn).toHaveBeenCalledWith('NAV-1', true))
+    expect(await screen.findByText(/exported 3 files/i)).toBeTruthy()
   })
 })

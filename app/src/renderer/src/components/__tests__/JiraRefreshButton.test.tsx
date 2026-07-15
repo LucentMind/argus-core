@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { JiraRefreshButton } from '../JiraRefreshButton'
+import { shortStamp } from '../../lib/time'
 
 let refreshCase: ReturnType<typeof vi.fn>
 
@@ -20,7 +21,7 @@ describe('JiraRefreshButton', () => {
   it('shows the last-refreshed datetime from the stored value', () => {
     render(<JiraRefreshButton slug="NAV-7" jiraKey="NAV-7" syncedAt="2026-07-10T10:00:00.000Z" />)
     const stamp = screen.getByText(/last refreshed/i)
-    expect(stamp).toHaveTextContent(new Date('2026-07-10T10:00:00.000Z').toLocaleString())
+    expect(stamp).toHaveTextContent(shortStamp('2026-07-10T10:00:00.000Z'))
   })
 
   it('shows no datetime before the first refresh', () => {
@@ -50,7 +51,7 @@ describe('JiraRefreshButton', () => {
     expect(note).toHaveTextContent('1 attachment deleted on Jira (kept locally)')
     expect(refreshCase).toHaveBeenCalledWith('NAV-7')
     expect(screen.getByText(/last refreshed/i)).toHaveTextContent(
-      new Date('2026-07-11T12:30:00.000Z').toLocaleString()
+      shortStamp('2026-07-11T12:30:00.000Z')
     )
   })
 
