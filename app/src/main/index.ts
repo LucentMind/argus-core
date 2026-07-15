@@ -52,6 +52,7 @@ import {
   type HttpConnectorConfig
 } from '../shared/connectors'
 import { createCase, listCases, deleteCase, setCaseStatus } from './services/caseService'
+import { OnboardingService } from './services/onboarding'
 import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
@@ -375,6 +376,17 @@ function registerIpc(): void {
     await autoLinkDefaultRepo(db, argusHome, rec.slug, settingsService.get().general.defaultRepo)
     return rec
   })
+  const sampleAssetsDir = resourcesPath
+    ? path.join(resourcesPath, 'onboarding-sample')
+    : path.join(app.getAppPath(), 'resources', 'onboarding-sample')
+  const onboardingService = new OnboardingService({
+    db,
+    argusHome,
+    detection,
+    sampleAssetsDir,
+    listCaseSlugs: () => listCases(db).map((c) => c.slug)
+  })
+  ipcMain.handle(IPC.onboardingSeedSample, () => onboardingService.seedSampleCase())
   ipcMain.handle(IPC.casesList, () => listCases(db))
   ipcMain.handle(
     IPC.casesSetStatus,
