@@ -149,6 +149,21 @@ describe('CaseFiles', () => {
     expect(screen.getByText('No evidence yet.')).toBeTruthy()
   })
 
+  it('caps a long artifact type badge at 2 lines instead of wrapping indefinitely', async () => {
+    window.argus.evidence.list = vi.fn(async () => [
+      {
+        ...evidenceFixture[0],
+        id: 4,
+        relPath: 'evidence/weird.pack',
+        artifactType: 'a-very-long-artifact-type-name-indeed',
+        createdAt: '2026-03-14T09:34:00.000Z'
+      }
+    ])
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    const badge = await screen.findByText('a-very-long-artifact-type-name-indeed')
+    expect(badge.classList.contains('line-clamp-2')).toBe(true)
+  })
+
   it('renders the derived chip for evidence with a derivedFrom parent', async () => {
     window.argus.evidence.list = vi.fn(async () => [
       ...evidenceFixture,
