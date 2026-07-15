@@ -10,7 +10,8 @@ import { defaultSettings } from '../../../../../shared/settings'
 const ROVO_PRESET = {
   kind: 'http',
   displayName: 'Atlassian Rovo',
-  config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true }
+  config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true },
+  links: { createApiToken: 'https://id.atlassian.com/manage-profile/security/api-tokens' }
 }
 
 function settingsPayload(repo = ''): unknown {
@@ -36,10 +37,24 @@ let settingsPatch: ReturnType<typeof vi.fn>
 let connPatch: ReturnType<typeof vi.fn>
 let oauth: ReturnType<typeof vi.fn>
 
-function setup(opts: { repo?: string; oauthState?: string; hasRovo?: boolean } = {}): void {
+let secretsSet: ReturnType<typeof vi.fn>
+
+function setup(
+  opts: {
+    repo?: string
+    oauthState?: string
+    hasRovo?: boolean
+    rovoConfig?: Record<string, unknown>
+  } = {}
+): void {
   settingsPatch = vi.fn(async () => settingsPayload(opts.repo))
   connPatch = vi.fn(async () => connPayload())
   oauth = vi.fn(async () => ({ ok: true }))
+  secretsSet = vi.fn(async () => undefined)
+  const rovo =
+    opts.hasRovo || opts.rovoConfig
+      ? { rovo: { kind: 'http', enabled: true, config: opts.rovoConfig ?? {} } }
+      : {}
   window.argus = {
     settings: {
       get: vi.fn(async () => settingsPayload(opts.repo)),
@@ -50,13 +65,15 @@ function setup(opts: { repo?: string; oauthState?: string; hasRovo?: boolean } =
       get: vi.fn(async () =>
         connPayload({
           oauth: opts.oauthState ? { rovo: opts.oauthState } : {},
-          connectors: opts.hasRovo ? { rovo: { kind: 'http', enabled: true, config: {} } } : {}
+          connectors: rovo
         })
       ),
       patch: connPatch,
       oauth,
       onChanged: vi.fn(() => () => {})
-    }
+    },
+    secrets: { set: secretsSet },
+    openExternal: vi.fn()
   } as never
   settingsStore.reset()
   connectorsStore.reset()
@@ -121,5 +138,55 @@ describe('IntegrationsStep (inline config)', () => {
     render(<IntegrationsStep />)
     fireEvent.click(await screen.findByRole('button', { name: /connect atlassian/i }))
     await waitFor(() => expect(screen.getByText(/user cancelled/i)).toBeTruthy())
+  })
+
+  it('REST: expanding ensures the rovo instance and reveals the token fields', async () => {
+    setup()
+    render(<IntegrationsStep />)
+    fireEvent.click(await screen.findByRole('button', { name: /REST API/i }))
+    await waitFor(() =>
+      expect(connPatch).toHaveBeenCalledWith(
+        expect.objectContaining({ rovo: expect.objectContaining({ preset: 'rovo' }) })
+      )
+    )
+    expect(screen.getByLabelText('Site URL (REST)')).toBeTruthy()
+    expect(screen.getByLabelText('Atlassian API token (PAT)')).toBeTruthy()
+  })
+
+  it('REST: commits the site URL to config and the API token as a secret', async () => {
+    setup({ hasRovo: true })
+    render(<IntegrationsStep />)
+    fireEvent.click(await screen.findByRole('button', { name: /REST API/i }))
+
+    const site = await screen.findByLabelText('Site URL (REST)')
+    fireEvent.focus(site)
+    fireEvent.change(site, { target: { value: 'https://acme.atlassian.net' } })
+    fireEvent.blur(site)
+    await waitFor(() =>
+      expect(connPatch).toHaveBeenCalledWith({
+        rovo: { config: { siteUrl: 'https://acme.atlassian.net' } }
+      })
+    )
+
+    const token = screen.getByLabelText('Atlassian API token (PAT)')
+    fireEvent.change(token, { target: { value: 'tok_abc' } })
+    fireEvent.blur(token)
+    await waitFor(() =>
+      expect(secretsSet).toHaveBeenCalledWith('connector/rovo/apiToken', 'tok_abc')
+    )
+  })
+
+  it('shows Configured via REST (siteUrl + apiToken) even without OAuth', async () => {
+    setup({
+      rovoConfig: {
+        siteUrl: 'https://acme.atlassian.net',
+        apiToken: { $secret: 'connector/rovo/apiToken' }
+      }
+    })
+    const spy = vi.spyOn(store, 'markIntegration').mockResolvedValue()
+    render(<IntegrationsStep />)
+    await waitFor(() => expect(screen.getByText('Configured')).toBeTruthy())
+    expect(spy).toHaveBeenCalledWith('jira', true)
+    expect(spy).toHaveBeenCalledWith('confluence', true)
   })
 })
