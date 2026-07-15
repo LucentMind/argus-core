@@ -158,7 +158,7 @@ export function CaseFiles({
             {name}
           </button>
           {r.derived && <Chip tone="neutral">derived</Chip>}
-          <span className="ml-auto max-w-[70px] shrink-0 whitespace-normal rounded-r1 bg-overlay px-1.5 py-0.5 text-center font-mono text-[10px] leading-tight text-dim">
+          <span className="ml-auto line-clamp-2 max-w-[70px] shrink-0 whitespace-normal rounded-r1 bg-overlay px-1.5 py-0.5 text-center font-mono text-[10px] leading-tight text-dim">
             {r.artifactType}
           </span>
         </div>
