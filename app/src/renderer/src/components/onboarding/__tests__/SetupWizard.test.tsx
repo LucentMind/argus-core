@@ -45,7 +45,9 @@ describe('SetupWizard shell', () => {
       />
     )
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /continue/i }).disabled).toBe(true)
+      expect(
+        (screen.getByRole('button', { name: /continue/i }) as HTMLButtonElement).disabled
+      ).toBe(true)
     )
   })
 
@@ -61,7 +63,9 @@ describe('SetupWizard shell', () => {
     )
     // after the microtask resolves, Continue must be enabled again
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /continue/i }).disabled).toBe(false)
+      expect(
+        (screen.getByRole('button', { name: /continue/i }) as HTMLButtonElement).disabled
+      ).toBe(false)
     )
   })
 })
