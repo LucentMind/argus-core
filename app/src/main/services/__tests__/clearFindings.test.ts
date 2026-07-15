@@ -38,7 +38,7 @@ describe('clearFindings', () => {
     const r = clearFindings(db, argusHome, 'NAV-1')
 
     expect(r.cleared).toBe(2)
-    expect(listFindings(db, 'NAV-1')).toHaveLength(0)
+    expect(listFindings(db, argusHome, 'NAV-1')).toHaveLength(0)
     expect(fs.readFileSync(md, 'utf8')).toBe('# Findings — NAV-1\n')
     const audit = readDeletionAudit(argusHome)
     expect(audit).toHaveLength(1)
