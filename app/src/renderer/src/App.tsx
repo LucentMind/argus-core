@@ -195,7 +195,12 @@ function App(): React.JSX.Element {
           }}
         />
       )}
-      <OnboardingProvider onOpenCase={openCase} />
+      <OnboardingProvider
+        onNavigate={(view, slug) => {
+          if (view === 'settings') openSettings()
+          else if (slug) openCase(slug)
+        }}
+      />
     </div>
   )
 }
