@@ -124,6 +124,11 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           Change…
         </Btn>
       </SettingRow>
+      <SettingRow label="Onboarding" description="Re-open the first-run setup wizard.">
+        <Btn onClick={() => void settingsStore.patch({ onboarding: { completedAt: null } })}>
+          Re-run onboarding
+        </Btn>
+      </SettingRow>
     </SettingsSection>
   )
 }
