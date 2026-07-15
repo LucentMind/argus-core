@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useSettingsPayload } from '../../lib/settingsStore'
-import { shouldOpenOnboarding, markCompleted } from '../../lib/onboardingStore'
+import { shouldOpenOnboarding, markCompleted, onboardingReplay } from '../../lib/onboardingStore'
 import { SetupWizard } from './SetupWizard'
 import { WelcomeStep, ClaudeStep, PackStep, IntegrationsStep, SeedStep } from './steps'
 import { SAMPLE_CASE_SLUG, type WizardStepId } from '../../../../shared/onboarding'
@@ -11,6 +11,7 @@ export function OnboardingProvider({
   onOpenCase: (slug: string) => void
 }): React.JSX.Element | null {
   const payload = useSettingsPayload()
+  const replay = useSyncExternalStore(onboardingReplay.subscribe, onboardingReplay.get)
   const [caseCount, setCaseCount] = useState<number | null>(null)
   const [dismissed, setDismissed] = useState(false)
   // The slug SeedStep actually seeded — completion navigates here (falling back
@@ -25,6 +26,7 @@ export function OnboardingProvider({
   const handleSeeded = useCallback((slug: string) => setSeededSlug(slug), [])
 
   const finish = useCallback((): void => {
+    onboardingReplay.clear()
     void markCompleted().then(() => {
       setDismissed(true)
       onOpenCase(seededSlug ?? SAMPLE_CASE_SLUG)
@@ -32,6 +34,7 @@ export function OnboardingProvider({
   }, [onOpenCase, seededSlug])
 
   const dismiss = useCallback((): void => {
+    onboardingReplay.clear()
     void markCompleted().then(() => setDismissed(true))
   }, [])
 
@@ -58,8 +61,12 @@ export function OnboardingProvider({
     [handleSeeded]
   )
 
-  if (!payload || caseCount == null || dismissed) return null
-  if (!shouldOpenOnboarding(payload.settings, caseCount)) return null
+  if (!payload || caseCount == null) return null
+  // Explicit replay (the "Re-run onboarding" button) always opens, regardless of
+  // the session's dismissed flag or the auto-open heuristics. Auto-open on launch
+  // stays settings-derived and is suppressed once dismissed this session.
+  const open = replay || (!dismissed && shouldOpenOnboarding(payload.settings, caseCount))
+  if (!open) return null
 
   return <SetupWizard renderStep={renderStep} onComplete={finish} onDismiss={dismiss} />
 }
