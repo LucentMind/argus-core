@@ -27,3 +27,9 @@ export async function markIntegration(
 export async function markCompleted(): Promise<void> {
   await settingsStore.patch({ onboarding: { completedAt: new Date().toISOString() } })
 }
+
+export async function markTourDone(): Promise<void> {
+  await settingsStore.patch({
+    onboarding: { tourDone: true, completedAt: new Date().toISOString() }
+  })
+}
