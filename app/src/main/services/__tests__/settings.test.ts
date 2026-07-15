@@ -151,4 +151,23 @@ describe('SettingsService', () => {
     expect(parsed.observability.langfuse.host).toBe('https://lf')
     expect(parsed.observability.langfuse.enabled).toBe(true)
   })
+
+  it('defaults include a dormant onboarding block', () => {
+    svc = new SettingsService(argusHome)
+    expect(svc.get().onboarding).toEqual({
+      completedAt: null,
+      phase1Done: false,
+      tourDone: false,
+      sampleCaseSlug: null,
+      integrations: { jira: false, confluence: false, hive: false }
+    })
+  })
+
+  it('onboarding patch persists sparsely and round-trips', () => {
+    svc = new SettingsService(argusHome)
+    svc.patch({ onboarding: { phase1Done: true, sampleCaseSlug: 'sample-onboarding' } })
+    expect(svc.get().onboarding.phase1Done).toBe(true)
+    const onDisk = JSON.parse(fs.readFileSync(settingsPath(argusHome), 'utf8'))
+    expect(onDisk.onboarding).toEqual({ phase1Done: true, sampleCaseSlug: 'sample-onboarding' })
+  })
 })
