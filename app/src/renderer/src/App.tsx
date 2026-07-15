@@ -7,7 +7,7 @@ import { NewCaseDialog } from './components/NewCaseDialog'
 import { OnboardingProvider } from './components/onboarding/OnboardingProvider'
 import { ObservabilityView } from './components/observability/ObservabilityView'
 import { SearchBar } from './components/SearchBar'
-import { SettingsView } from './components/settings/SettingsView'
+import { SettingsView, type PageId } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
 import { citationsTray } from './lib/citationsTray'
@@ -19,7 +19,7 @@ import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
 type View =
   | { kind: 'home' }
   | { kind: 'case'; slug: string }
-  | { kind: 'settings' }
+  | { kind: 'settings'; page?: PageId }
   | { kind: 'observability' }
 
 type Viewer =
@@ -94,11 +94,9 @@ function App(): React.JSX.Element {
     void reload()
   }
 
-  function openSettings(): void {
-    if (view.kind !== 'settings') {
-      setPrevView(view)
-      setView({ kind: 'settings' })
-    }
+  function openSettings(page?: PageId): void {
+    if (view.kind !== 'settings') setPrevView(view)
+    setView({ kind: 'settings', page })
   }
   function closeSettings(): void {
     setView(prevView)
@@ -124,7 +122,7 @@ function App(): React.JSX.Element {
         activeSlug={view.kind === 'case' ? view.slug : null}
         onHome={goHome}
         onSelect={openCase}
-        onSettings={openSettings}
+        onSettings={() => openSettings()}
         onObservability={openObservability}
         onNewCase={() => setNewCaseOpen(true)}
       />
@@ -143,7 +141,7 @@ function App(): React.JSX.Element {
             </div>
           </>
         ) : view.kind === 'settings' ? (
-          <SettingsView onClose={closeSettings} />
+          <SettingsView onClose={closeSettings} initialPage={view.page} />
         ) : view.kind === 'observability' ? (
           <ObservabilityView onOpenCase={openCase} />
         ) : (
@@ -195,7 +193,10 @@ function App(): React.JSX.Element {
           }}
         />
       )}
-      <OnboardingProvider onOpenCase={openCase} />
+      <OnboardingProvider
+        onOpenCase={openCase}
+        onOpenSettings={(page) => openSettings(page as PageId)}
+      />
     </div>
   )
 }

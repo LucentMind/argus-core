@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { createCase } from './caseService'
@@ -9,6 +10,24 @@ import {
   SAMPLE_EVIDENCE_FILES,
   type SeedSampleResult
 } from '../../shared/onboarding'
+
+/**
+ * Resolve the bundled onboarding-sample assets directory. Mirrors
+ * `seededPacksDir`: `process.resourcesPath` is set even in dev (it points at
+ * Electron's OWN dist resources, e.g. node_modules/electron/dist/resources),
+ * so we must existence-check the packaged path before trusting it and fall back
+ * to the in-repo source dir otherwise.
+ *
+ * - Packaged: `<resourcesPath>/onboarding-sample` (electron-builder extraResources).
+ * - Dev / source: `<appRoot>/resources/onboarding-sample`.
+ */
+export function resolveSampleAssetsDir(appRoot: string, resourcesPath?: string): string {
+  if (resourcesPath) {
+    const packaged = path.join(resourcesPath, 'onboarding-sample')
+    if (fs.existsSync(packaged)) return packaged
+  }
+  return path.join(appRoot, 'resources', 'onboarding-sample')
+}
 
 export interface OnboardingDeps {
   db: DatabaseSync
