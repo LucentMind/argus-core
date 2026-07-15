@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { uiStore, UI_SCALES, type Theme, type UiScale } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { onboardingReplay } from '../../lib/onboardingStore'
 import { Btn, Chip } from '../ui'
 import { SettingsSection, SettingRow, Switch, SelectField } from './settingsLayout'
 import {
@@ -125,9 +126,7 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
         </Btn>
       </SettingRow>
       <SettingRow label="Onboarding" description="Re-open the first-run setup wizard.">
-        <Btn onClick={() => void settingsStore.patch({ onboarding: { completedAt: null } })}>
-          Re-run onboarding
-        </Btn>
+        <Btn onClick={() => onboardingReplay.request()}>Re-run onboarding</Btn>
       </SettingRow>
     </SettingsSection>
   )

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { OnboardingProvider } from '../OnboardingProvider'
 import { settingsStore } from '../../../lib/settingsStore'
+import { onboardingReplay } from '../../../lib/onboardingStore'
 import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
 
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
@@ -19,16 +20,24 @@ function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
 beforeEach(() => {
   window.argus = {
     cases: { list: vi.fn(async () => []) },
-    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
+    settings: {
+      get: vi.fn(async () => payload()),
+      patch: vi.fn(async () => payload()),
+      onChanged: vi.fn(() => () => {})
+    },
     agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ok', email: 'x@y' })) },
     onboarding: {
       seedSample: vi.fn(async () => ({ slug: 'sample-onboarding', evidenceIds: [1] }))
     }
   } as never
   settingsStore.reset()
+  onboardingReplay.clear()
 })
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  onboardingReplay.clear()
+})
 
 describe('OnboardingProvider', () => {
   it('auto-opens the wizard on true first run', async () => {
@@ -58,6 +67,28 @@ describe('OnboardingProvider', () => {
     )
     settingsStore.reset()
     render(<OnboardingProvider onOpenCase={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy())
+  })
+
+  it('re-opens after being dismissed this session when replay is requested', async () => {
+    render(<OnboardingProvider onOpenCase={vi.fn()} />)
+    // auto-opens on first run
+    await waitFor(() => expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy())
+    // user skips the wizard → dismissed for this session
+    fireEvent.click(screen.getByRole('button', { name: /skip setup/i }))
+    await waitFor(() => expect(screen.queryByTestId('wizard-step-welcome')).toBeNull())
+    // user later clicks "Re-run onboarding" (fires an explicit replay request)
+    act(() => onboardingReplay.request())
+    await waitFor(() => expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy())
+  })
+
+  it('replay opens the wizard even for an existing user with cases who never onboarded', async () => {
+    window.argus.cases.list = vi.fn(async () => [{ slug: 'existing-case' }])
+    // default settings: completedAt null, phase1Done false → shouldOpenOnboarding is false with cases
+    render(<OnboardingProvider onOpenCase={vi.fn()} />)
+    await waitFor(() => expect(window.argus.cases.list).toHaveBeenCalled())
+    expect(screen.queryByTestId('wizard-step-welcome')).toBeNull()
+    act(() => onboardingReplay.request())
     await waitFor(() => expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy())
   })
 })
