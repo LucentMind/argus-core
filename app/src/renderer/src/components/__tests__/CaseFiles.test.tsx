@@ -94,6 +94,28 @@ describe('CaseFiles', () => {
     expect(onSuggest).toHaveBeenCalledWith('/analyze-binlog evidence/trace.binlog')
   })
 
+  it('truncated title carries the full filename as a tooltip', async () => {
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    const title = await screen.findByText('trace.binlog')
+    expect(title.getAttribute('title')).toBe('trace.binlog')
+  })
+
+  it('shows size and a "D Mon, HH:MM" date in the meta row', async () => {
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    await screen.findByText('trace.binlog')
+    const d = new Date('2026-03-14T09:32:00.000Z')
+    const expected = `${d.getDate()} ${d.toLocaleString(undefined, { month: 'short' })}, ${String(
+      d.getHours()
+    ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    expect(screen.getByText(expected)).toBeTruthy()
+  })
+
+  it('delete is an icon-only button with no visible "Delete" text', async () => {
+    render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
+    const btn = await screen.findByRole('button', { name: 'Delete trace.binlog' })
+    expect(btn.textContent?.trim()).toBe('')
+  })
+
   it('shows a parsing indicator while extraction is active', async () => {
     render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
     await screen.findByText('trace.binlog')

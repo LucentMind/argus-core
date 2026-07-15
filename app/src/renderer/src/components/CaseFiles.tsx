@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FolderOpen } from 'lucide-react'
+import { FolderOpen, Trash2 } from 'lucide-react'
 import { Chip, MenuButton, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
+import { chipStamp } from '../lib/time'
 import type { ArtifactType, ArtifactTypeMeta, EvidenceRecord, FileNode } from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 
@@ -145,76 +146,77 @@ export function CaseFiles({
     const skill = artifactMeta.find((m) => m.type === r.artifactType)?.analyzeSkill
     const isParsing = parsing.has(r.id)
     const targets = panelHandlesType(panelDecls, r.artifactType)
+    const name = displayName(r.relPath)
     return (
-      <li key={r.id} className="group flex items-center gap-2 border-t border-hair py-1.5">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <li key={r.id} className="group flex flex-col gap-1 border-t border-hair py-2">
+        <div className="flex items-center gap-2">
           <button
-            className="min-w-0 truncate text-left font-mono text-xs text-dim hover:text-ink"
+            className="max-w-[220px] min-w-0 truncate text-left font-mono text-xs text-dim hover:text-ink"
+            title={name}
             onClick={() => clickFile(r)}
           >
-            {displayName(r.relPath)}
-            {r.derived && (
-              <span className="ml-2">
-                <Chip tone="neutral">derived</Chip>
-              </span>
-            )}
+            {name}
           </button>
-          <div className="flex items-center gap-2 text-xs text-mute">
-            <span className="rounded-r1 bg-overlay px-1.5 py-0.5 font-mono text-dim">
-              {r.artifactType}
-            </span>
-            <span>{formatMb(r.size)}</span>
-            {isParsing && (
-              <span className="flex items-center gap-1 text-signal">
-                <span className="h-2 w-2 animate-spin rounded-full border border-signal border-t-transparent" />
-                parsing…
-              </span>
-            )}
-          </div>
+          {r.derived && <Chip tone="neutral">derived</Chip>}
+          <span className="ml-auto max-w-[70px] shrink-0 whitespace-normal rounded-r1 bg-overlay px-1.5 py-0.5 text-center font-mono text-[10px] leading-tight text-dim">
+            {r.artifactType}
+          </span>
         </div>
-        {skill && onSuggest && (
-          <button
-            className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-            onClick={() => onSuggest(`/${skill} ${r.relPath}`)}
-          >
-            Analyze
-          </button>
-        )}
-        {onOpenInPanel &&
-          (() => {
-            if (targets.length === 0) return null
-            if (targets.length === 1) {
-              const t = targets[0]
+        <div className="flex items-center gap-3 text-xs text-mute">
+          <span>{formatMb(r.size)}</span>
+          <span>{chipStamp(r.createdAt)}</span>
+          {isParsing && (
+            <span className="flex items-center gap-1 text-signal">
+              <span className="h-2 w-2 animate-spin rounded-full border border-signal border-t-transparent" />
+              parsing…
+            </span>
+          )}
+        </div>
+        <div className="flex h-6 items-center justify-end gap-1.5">
+          {skill && onSuggest && (
+            <button
+              className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+              onClick={() => onSuggest(`/${skill} ${r.relPath}`)}
+            >
+              Analyze
+            </button>
+          )}
+          {onOpenInPanel &&
+            (() => {
+              if (targets.length === 0) return null
+              if (targets.length === 1) {
+                const t = targets[0]
+                return (
+                  <button
+                    className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                    onClick={() => onOpenInPanel(r.id, t.packId, t.windowId)}
+                  >
+                    Open in {t.title}
+                  </button>
+                )
+              }
               return (
-                <button
-                  className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={() => onOpenInPanel(r.id, t.packId, t.windowId)}
-                >
-                  Open in {t.title}
-                </button>
+                <div className="shrink-0">
+                  <MenuButton
+                    label="Open in"
+                    align="right"
+                    items={targets.map((t) => ({
+                      label: t.title,
+                      onSelect: () => onOpenInPanel(r.id, t.packId, t.windowId)
+                    }))}
+                  />
+                </div>
               )
-            }
-            return (
-              <div className="shrink-0">
-                <MenuButton
-                  label="Open in"
-                  align="right"
-                  items={targets.map((t) => ({
-                    label: t.title,
-                    onSelect: () => onOpenInPanel(r.id, t.packId, t.windowId)
-                  }))}
-                />
-              </div>
-            )
-          })()}
-        <button
-          aria-label={`Delete ${displayName(r.relPath)}`}
-          title="Delete evidence"
-          className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-          onClick={() => void deleteEvidenceFile(r)}
-        >
-          Delete
-        </button>
+            })()}
+          <button
+            aria-label={`Delete ${name}`}
+            title="Delete evidence"
+            className="shrink-0 rounded-r1 border border-hair p-1 text-dim opacity-0 transition-all hover:bg-overlay hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+            onClick={() => void deleteEvidenceFile(r)}
+          >
+            <Trash2 size={12} strokeWidth={1.5} />
+          </button>
+        </div>
       </li>
     )
   }
