@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
-import { OnboardingService } from '../onboarding'
+import { OnboardingService, resolveSampleAssetsDir } from '../onboarding'
 import { listCases } from '../caseService'
 import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
@@ -56,5 +56,38 @@ describe('OnboardingService.seedSampleCase', () => {
     svc().seedSampleCase()
     expect(listCases(db).filter((c) => c.slug === SAMPLE_CASE_SLUG).length).toBe(1)
     expect(listEvidence(db, SAMPLE_CASE_SLUG).length).toBe(1)
+  })
+})
+
+describe('resolveSampleAssetsDir', () => {
+  let tmp2: string
+  beforeEach(() => {
+    tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-assets-'))
+  })
+  afterEach(() => fs.rmSync(tmp2, { recursive: true, force: true }))
+
+  it('uses the packaged path only when it actually exists there', () => {
+    const resources = path.join(tmp2, 'resources')
+    fs.mkdirSync(path.join(resources, 'onboarding-sample'), { recursive: true })
+    expect(resolveSampleAssetsDir(path.join(tmp2, 'app'), resources)).toBe(
+      path.join(resources, 'onboarding-sample')
+    )
+  })
+
+  it('falls back to <appRoot>/resources/onboarding-sample when resourcesPath lacks it (dev)', () => {
+    // resourcesPath is set (as in dev, pointing at electron dist) but has no onboarding-sample
+    const electronDist = path.join(tmp2, 'electron-dist', 'resources')
+    fs.mkdirSync(electronDist, { recursive: true })
+    const appRoot = path.join(tmp2, 'app')
+    expect(resolveSampleAssetsDir(appRoot, electronDist)).toBe(
+      path.join(appRoot, 'resources', 'onboarding-sample')
+    )
+  })
+
+  it('falls back to the source dir when resourcesPath is undefined', () => {
+    const appRoot = path.join(tmp2, 'app')
+    expect(resolveSampleAssetsDir(appRoot, undefined)).toBe(
+      path.join(appRoot, 'resources', 'onboarding-sample')
+    )
   })
 })

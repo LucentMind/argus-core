@@ -98,7 +98,14 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
   )
 }
 
-export function PackStep({ setGate }: { setGate: (ok: boolean) => void }): React.JSX.Element {
+export function PackStep({
+  setGate,
+  onOpenSettings
+}: {
+  setGate: (ok: boolean) => void
+  /** Open the Packs settings page (to install a pack) — the wizard is hidden while there. */
+  onOpenSettings?: () => void
+}): React.JSX.Element {
   const [payload, setPayload] = useState<PacksListPayload | null>(null)
   // Resolve via .then so setState happens only inside the async callback, never
   // synchronously in the effect body — mirrors ClaudeStep to avoid set-state-in-effect.
@@ -128,12 +135,25 @@ export function PackStep({ setGate }: { setGate: (ok: boolean) => void }): React
         </ul>
       ) : (
         <p className="text-sm text-danger">
-          No packs installed yet. Open Packs settings to add one, then re-check.
+          No packs installed yet. Install one in Packs settings, then re-check.
         </p>
       )}
-      <button className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink" onClick={load}>
-        Re-check
-      </button>
+      <div className="flex gap-2">
+        {onOpenSettings && (
+          <button
+            className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink hover:bg-hair"
+            onClick={onOpenSettings}
+          >
+            Install a pack…
+          </button>
+        )}
+        <button
+          className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink"
+          onClick={load}
+        >
+          Re-check
+        </button>
+      </div>
     </div>
   )
 }
@@ -143,26 +163,44 @@ export function PackStep({ setGate }: { setGate: (ok: boolean) => void }): React
 function IntegrationCard({
   name,
   hint,
-  ok
+  ok,
+  onSetUp
 }: {
   name: string
   hint: string
   ok: boolean
+  /** Open the relevant settings page to configure this integration. */
+  onSetUp?: () => void
 }): React.JSX.Element {
   return (
     <div className="rounded-r2 border border-hair px-3 py-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-ink">{name}</span>
-        <span className={`text-xs ${ok ? 'text-signal' : 'text-faint'}`}>
-          {ok ? 'Configured' : 'Not set up'}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`text-xs ${ok ? 'text-signal' : 'text-faint'}`}>
+            {ok ? 'Configured' : 'Not set up'}
+          </span>
+          {!ok && onSetUp && (
+            <button
+              className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink hover:bg-hair"
+              onClick={onSetUp}
+            >
+              Set up…
+            </button>
+          )}
+        </div>
       </div>
       <p className="mt-1 text-xs text-dim">{hint}</p>
     </div>
   )
 }
 
-export function IntegrationsStep(): React.JSX.Element {
+export function IntegrationsStep({
+  onOpenSettings
+}: {
+  /** Open a settings page (e.g. 'connectors', 'hivemind') to configure an integration. */
+  onOpenSettings?: (page: string) => void
+} = {}): React.JSX.Element {
   const [state, setState] = useState<{ atlassian: boolean; hive: boolean }>({
     atlassian: false,
     hive: false
@@ -196,11 +234,13 @@ export function IntegrationsStep(): React.JSX.Element {
         name="Atlassian (Jira & Confluence)"
         hint="Create cases from Jira tickets and sync Confluence reference docs the agent can cite."
         ok={state.atlassian}
+        onSetUp={onOpenSettings && (() => onOpenSettings('connectors'))}
       />
       <IntegrationCard
         name="HiveMind repo"
         hint="Share skills and memory with your team."
         ok={state.hive}
+        onSetUp={onOpenSettings && (() => onOpenSettings('hivemind'))}
       />
     </div>
   )

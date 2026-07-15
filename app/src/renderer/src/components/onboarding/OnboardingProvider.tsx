@@ -6,9 +6,12 @@ import { WelcomeStep, ClaudeStep, PackStep, IntegrationsStep, SeedStep } from '.
 import { SAMPLE_CASE_SLUG, type WizardStepId } from '../../../../shared/onboarding'
 
 export function OnboardingProvider({
-  onOpenCase
+  onOpenCase,
+  onOpenSettings
 }: {
   onOpenCase: (slug: string) => void
+  /** Open a settings page from a wizard step (to install a pack / configure a connector). */
+  onOpenSettings?: (page?: string) => void
 }): React.JSX.Element | null {
   const payload = useSettingsPayload()
   const replay = useSyncExternalStore(onboardingReplay.subscribe, onboardingReplay.get)
@@ -24,6 +27,18 @@ export function OnboardingProvider({
   }, [])
 
   const handleSeeded = useCallback((slug: string) => setSeededSlug(slug), [])
+
+  // A wizard step wants to configure something in Settings. Hide the wizard for
+  // this session (without marking onboarding complete) and open the page; the
+  // user resumes via "Re-run onboarding" (an explicit replay) once configured.
+  const openSettingsFromWizard = useCallback(
+    (page?: string): void => {
+      onboardingReplay.clear()
+      setDismissed(true)
+      onOpenSettings?.(page)
+    },
+    [onOpenSettings]
+  )
 
   const finish = useCallback((): void => {
     onboardingReplay.clear()
@@ -49,16 +64,21 @@ export function OnboardingProvider({
         case 'claude':
           return <ClaudeStep setGate={api.setGate} />
         case 'pack':
-          return <PackStep setGate={api.setGate} />
+          return (
+            <PackStep
+              setGate={api.setGate}
+              onOpenSettings={() => openSettingsFromWizard('packs')}
+            />
+          )
         case 'integrations':
-          return <IntegrationsStep />
+          return <IntegrationsStep onOpenSettings={openSettingsFromWizard} />
         case 'seed':
           return <SeedStep setGate={api.setGate} onSeeded={handleSeeded} />
         default:
           return null
       }
     },
-    [handleSeeded]
+    [handleSeeded, openSettingsFromWizard]
   )
 
   if (!payload || caseCount == null) return null

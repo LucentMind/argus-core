@@ -44,10 +44,16 @@ const PAGES = [
   enabled: boolean
   Icon: LucideIcon
 }>
-type PageId = (typeof PAGES)[number]['id']
+export type PageId = (typeof PAGES)[number]['id']
 
-export function SettingsView({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const [page, setPage] = useState<PageId>('general')
+export function SettingsView({
+  onClose,
+  initialPage
+}: {
+  onClose: () => void
+  initialPage?: PageId
+}): React.JSX.Element {
+  const [page, setPage] = useState<PageId>(initialPage ?? 'general')
   const payload = useSettingsPayload()
 
   useEffect(() => {

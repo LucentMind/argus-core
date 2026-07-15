@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { IntegrationsStep } from '../steps'
 import * as store from '../../../lib/onboardingStore'
@@ -38,5 +38,22 @@ describe('IntegrationsStep', () => {
     render(<IntegrationsStep />)
     await waitFor(() => expect(window.argus.connectors.get).toHaveBeenCalled())
     expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('offers "Set up" on unconfigured cards, opening the right settings page', async () => {
+    vi.spyOn(store, 'markIntegration').mockResolvedValue()
+    window.argus = {
+      connectors: { get: vi.fn(async () => ({ oauth: { rovo: 'not-authorized' } })) },
+      settings: { get: vi.fn(async () => ({ settings: { hivemind: { repo: '' } } })) }
+    } as never
+    const onOpenSettings = vi.fn()
+    render(<IntegrationsStep onOpenSettings={onOpenSettings} />)
+    // both cards are unconfigured → both show a Set up button
+    const buttons = await screen.findAllByRole('button', { name: /set up/i })
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[0]) // Atlassian card
+    expect(onOpenSettings).toHaveBeenCalledWith('connectors')
+    fireEvent.click(buttons[1]) // HiveMind card
+    expect(onOpenSettings).toHaveBeenCalledWith('hivemind')
   })
 })
