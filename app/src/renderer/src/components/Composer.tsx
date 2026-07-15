@@ -158,7 +158,7 @@ export function Composer({
   }
 
   return (
-    <div className="relative border-t border-hair bg-deep p-3">
+    <div className="relative border-t border-hair bg-deep p-3" data-onboarding-anchor="composer">
       {popupOpen && (
         <div className="absolute bottom-full left-3 z-20 mb-1 w-96 rounded-r2 border border-hair bg-overlay p-1 shadow-lg">
           {matches.map((s, i) => (
