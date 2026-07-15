@@ -26,6 +26,11 @@ beforeEach(() => {
 })
 
 describe('Composer', () => {
+  it('exposes the onboarding anchor on its root element', () => {
+    const { container } = render(<Composer disabled={false} onSend={vi.fn()} />)
+    expect(container.querySelector('[data-onboarding-anchor="composer"]')).toBeTruthy()
+  })
+
   it('renders session-option placeholders and lets a value be picked (local only)', () => {
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
