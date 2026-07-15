@@ -7,7 +7,15 @@ import { defaultSettings } from '../../../../shared/settings'
 describe('onboardingStore', () => {
   beforeEach(() => {
     window.argus = {
-      settings: { patch: vi.fn(async (p) => ({ settings: defaultSettings(), resolvedTools: [], dataRoot: { path: '', fromEnv: false }, loadError: null, ...p })) }
+      settings: {
+        patch: vi.fn(async (p) => ({
+          settings: defaultSettings(),
+          resolvedTools: [],
+          dataRoot: { path: '', fromEnv: false },
+          loadError: null,
+          ...p
+        }))
+      }
     } as never
     settingsStore.reset()
   })
