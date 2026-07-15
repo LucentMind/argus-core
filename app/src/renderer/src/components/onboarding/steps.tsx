@@ -4,7 +4,10 @@ import type { PacksListPayload } from '../../../../shared/packs'
 import { markIntegration, markPhase1Done } from '../../lib/onboardingStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
+import { formValue, commitField, commitSecret } from '../../lib/connectorForm'
 import { DraftInput, FIELD } from '../settings/settingsLayout'
+import { AnnotatedForm } from '../settings/AnnotatedForm'
+import { ROVO_FORM_EXTRAS } from '../../../../shared/connectors'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
@@ -101,11 +104,11 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
   )
 }
 
+// Final, NON-gating step: the user can finish setup or install a domain pack.
+// (Core ships with sample packs, so a fresh install is never a dead end here.)
 export function PackStep({
-  setGate,
   onOpenSettings
 }: {
-  setGate: (ok: boolean) => void
   /** Open the Packs settings page (to install a pack) — the wizard is hidden while there. */
   onOpenSettings?: () => void
 }): React.JSX.Element {
@@ -113,33 +116,30 @@ export function PackStep({
   // Resolve via .then so setState happens only inside the async callback, never
   // synchronously in the effect body — mirrors ClaudeStep to avoid set-state-in-effect.
   const load = useCallback(() => {
-    void window.argus.packs.list().then((p) => {
-      setPayload(p)
-      setGate(p.packs.length > 0)
-    })
-  }, [setGate])
+    void window.argus.packs.list().then((p) => setPayload(p))
+  }, [])
   useEffect(() => {
     load()
   }, [load])
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg text-ink">Install a pack</h2>
+      <h2 className="text-lg text-ink">You’re set up</h2>
       <p className="text-sm text-dim">
-        Argus Core is domain-free — packs add the detectors, skills, and tools for your evidence.
+        Install a domain pack to analyze your own evidence — it adds the detectors, skills, and
+        tools for your file formats. You can finish now and add one anytime from Settings.
       </p>
-      {payload && payload.packs.length > 0 ? (
-        <ul className="space-y-1 text-sm text-ink">
-          {payload.packs.map((p) => (
-            <li key={p.id} className="rounded-r2 border border-hair px-3 py-1.5">
-              {p.displayName}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-danger">
-          No packs installed yet. Install one in Packs settings, then re-check.
-        </p>
+      {payload && payload.packs.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-faint">Installed packs</p>
+          <ul className="space-y-1 text-sm text-ink">
+            {payload.packs.map((p) => (
+              <li key={p.id} className="rounded-r2 border border-hair px-3 py-1.5">
+                {p.displayName}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <div className="flex gap-2">
         {onOpenSettings && (
@@ -189,27 +189,29 @@ function IntegrationCard({
   )
 }
 
+/** Create the `rovo` (Atlassian) connector instance from its preset if it doesn't exist yet. */
+function ensureRovo(connectors: ReturnType<typeof connectorsStore.get>): Promise<void> {
+  if (connectors?.connectors?.rovo) return Promise.resolve()
+  const preset = connectors?.presets?.rovo
+  if (!preset) return Promise.resolve()
+  return connectorsStore.patch({
+    rovo: {
+      kind: preset.kind,
+      displayName: preset.displayName,
+      preset: 'rovo',
+      enabled: true,
+      config: preset.config
+    }
+  })
+}
+
 /** Ensure a `rovo` (Atlassian) connector instance exists, then run its OAuth flow. */
 function connectAtlassian(
   connectors: ReturnType<typeof connectorsStore.get>,
   onError: (msg: string) => void,
   onDone: () => void
 ): void {
-  const preset = connectors?.presets?.rovo
-  const exists = Boolean(connectors?.connectors?.rovo)
-  const ensure =
-    exists || !preset
-      ? Promise.resolve()
-      : connectorsStore.patch({
-          rovo: {
-            kind: preset.kind,
-            displayName: preset.displayName,
-            preset: 'rovo',
-            enabled: true,
-            config: preset.config
-          }
-        })
-  void ensure
+  void ensureRovo(connectors)
     .then(() => window.argus.connectors.oauth('rovo'))
     .then((r: { ok: boolean; error?: string }) => {
       if (!r.ok) onError(r.error ?? 'authorization failed')
@@ -223,9 +225,15 @@ export function IntegrationsStep(): React.JSX.Element {
   const connectors = useConnectorsPayload()
   const [connecting, setConnecting] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [restOpen, setRestOpen] = useState(false)
 
   const hive = Boolean(settings?.settings?.hivemind?.repo?.trim())
-  const atlassian = Object.values(connectors?.oauth ?? {}).some((v) => v === 'authorized')
+  const oauthOk = Object.values(connectors?.oauth ?? {}).some((v) => v === 'authorized')
+  const rovoConfig = (connectors?.connectors?.rovo?.config ?? {}) as Record<string, unknown>
+  // REST (Jira attachments + Confluence sync) needs a site URL and an API token.
+  const restOk = Boolean(rovoConfig.siteUrl) && Boolean(rovoConfig.apiToken)
+  const atlassian = oauthOk || restOk
+  const createTokenLink = connectors?.presets?.rovo?.links?.createApiToken
 
   // Record the onboarding flags reactively as each integration becomes configured.
   // These call settingsStore.patch (an async store update, not a local setState), so
@@ -246,6 +254,12 @@ export function IntegrationsStep(): React.JSX.Element {
     connectAtlassian(connectors, setAuthError, () => setConnecting(false))
   }
 
+  // The REST form edits the rovo connector's config, so the instance must exist first.
+  function toggleRest(): void {
+    if (!restOpen) void ensureRovo(connectors)
+    setRestOpen((o) => !o)
+  }
+
   return (
     <div className="space-y-3">
       <h2 className="text-lg text-ink">Connect your tools (optional)</h2>
@@ -258,15 +272,48 @@ export function IntegrationsStep(): React.JSX.Element {
         hint="Create cases from Jira tickets and sync Confluence reference docs the agent can cite."
         ok={atlassian}
         action={
-          <div className="flex items-center gap-2">
-            <button
-              className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink hover:bg-hair disabled:opacity-40"
-              disabled={connecting}
-              onClick={connect}
-            >
-              {connecting ? 'Connecting…' : 'Connect Atlassian'}
-            </button>
-            {authError && <span className="text-xs text-danger">{authError}</span>}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink hover:bg-hair disabled:opacity-40"
+                disabled={connecting}
+                onClick={connect}
+              >
+                {connecting ? 'Connecting…' : 'Connect Atlassian'}
+              </button>
+              <span className="text-xs text-faint">(agent · MCP)</span>
+              {authError && <span className="text-xs text-danger">{authError}</span>}
+              <button
+                className="ml-auto text-xs text-dim underline hover:text-ink"
+                onClick={toggleRest}
+              >
+                {restOpen ? 'Hide REST API' : 'REST API (Jira attachments)…'}
+              </button>
+            </div>
+            {restOpen && (
+              <div className="rounded-r2 border border-hair p-2">
+                <AnnotatedForm
+                  annotations={ROVO_FORM_EXTRAS}
+                  value={formValue('http', rovoConfig)}
+                  onChange={(k, v) => commitField('rovo', 'http', k, v)}
+                  onSecret={(k, v) => commitSecret('rovo', k, v)}
+                  badges={
+                    createTokenLink
+                      ? {
+                          apiToken: (
+                            <button
+                              className="text-xs text-defect underline"
+                              onClick={() => void window.argus.openExternal(createTokenLink)}
+                            >
+                              Create API token ↗
+                            </button>
+                          )
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            )}
           </div>
         }
       />

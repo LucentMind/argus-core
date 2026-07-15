@@ -64,12 +64,7 @@ export function OnboardingProvider({
         case 'claude':
           return <ClaudeStep setGate={api.setGate} />
         case 'pack':
-          return (
-            <PackStep
-              setGate={api.setGate}
-              onOpenSettings={() => openSettingsFromWizard('packs')}
-            />
-          )
+          return <PackStep onOpenSettings={() => openSettingsFromWizard('packs')} />
         case 'integrations':
           return <IntegrationsStep />
         case 'seed':

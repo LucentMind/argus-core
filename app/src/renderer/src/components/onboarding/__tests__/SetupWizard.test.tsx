@@ -34,6 +34,15 @@ describe('SetupWizard shell', () => {
     expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy()
   })
 
+  it('ends on the pack step, where the primary button is Finish', () => {
+    render(<SetupWizard onComplete={vi.fn()} onDismiss={vi.fn()} />)
+    // welcome → claude → integrations → seed → pack (4 Continues)
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+    expect(screen.getByTestId('wizard-step-pack')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /finish/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /continue/i })).toBeNull()
+  })
+
   it('disables Continue while the active step gate is false', async () => {
     render(
       <SetupWizard
