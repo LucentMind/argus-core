@@ -48,4 +48,7 @@ export interface FindingRow {
   reviewState: ReviewState
   reviewedAt: string | null
   createdAt: string
+  /** Finding body markdown (from findings.md, joined by id marker). Absent for
+   *  legacy findings written before markers existed. */
+  body?: string
 }
