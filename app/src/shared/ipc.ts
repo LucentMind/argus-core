@@ -105,6 +105,7 @@ export const IPC = {
   findingsList: 'findings:list',
   findingsReview: 'findings:review',
   casesDelete: 'cases:delete',
+  onboardingSeedSample: 'onboarding:seed-sample',
   evidenceDelete: 'evidence:delete',
   sessionsDelete: 'sessions:delete',
   findingsClear: 'findings:clear',

@@ -54,6 +54,7 @@ import type {
   ReviewState
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
+import type { SeedSampleResult } from '../shared/onboarding'
 import type {
   OpenPanelRequest,
   PanelInfo,
@@ -364,6 +365,9 @@ const argus = {
       ipcRenderer.on(IPC.settingsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.settingsChanged, listener)
     }
+  },
+  onboarding: {
+    seedSample: (): Promise<SeedSampleResult> => ipcRenderer.invoke(IPC.onboardingSeedSample)
   },
   connectors: {
     get: () => ipcRenderer.invoke(IPC.connectorsGet),
