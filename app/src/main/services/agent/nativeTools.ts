@@ -56,15 +56,18 @@ export function appendFinding(
 ): { findingId: number; block: string } {
   const title = input.title || 'Finding'
   const dir = caseDir(ctx.argusHome, ctx.caseSlug)
-  const block = `\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
-  fs.appendFileSync(path.join(dir, 'findings.md'), block)
+  // Insert first so the row id can be embedded in the findings.md block, giving
+  // FindingsPane an exact row↔block join (see findings.ts parseFindingBodies).
   const res = ctx.db
     .prepare(
       `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
        VALUES (?, ?, ?, ?, 'pending', ?)`
     )
     .run(ctx.caseId, ctx.sessionId, ctx.turnId, title, new Date().toISOString())
-  return { findingId: Number(res.lastInsertRowid), block }
+  const findingId = Number(res.lastInsertRowid)
+  const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
+  fs.appendFileSync(path.join(dir, 'findings.md'), block)
+  return { findingId, block }
 }
 
 export function argusToolHandlers(

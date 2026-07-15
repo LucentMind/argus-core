@@ -753,7 +753,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.metricsCase, (_e, caseSlug: string, q?: MetricsQuery) =>
     caseMetrics(db, caseSlug, q)
   )
-  ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, caseSlug))
+  ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, argusHome, caseSlug))
   ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
     const row = reviewFinding(db, id, state)
     langfuseExporter?.scoreFinding(row)

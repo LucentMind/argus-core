@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Btn } from './ui'
+import { shortStamp } from '../lib/time'
 import type { JiraRefreshSummary } from '../../../shared/jira'
 
 function summarize(s: JiraRefreshSummary): string {
@@ -64,9 +65,7 @@ export function JiraRefreshButton({
   return (
     <div className="flex min-w-0 items-center gap-2">
       {lastSynced && (
-        <span className="shrink-0 text-xs text-mute">
-          last refreshed {new Date(lastSynced).toLocaleString()}
-        </span>
+        <span className="shrink-0 text-xs text-mute">last refreshed {shortStamp(lastSynced)}</span>
       )}
       <Btn variant="outline" className="shrink-0" disabled={busy} onClick={() => void refresh()}>
         <RefreshIcon spinning={busy} />

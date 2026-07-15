@@ -1,10 +1,21 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Check, PanelRight, Trash2, X } from 'lucide-react'
+import { ChevronRight, PanelRight, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
-import type { FindingRow } from '../../../shared/observability'
+import type { FindingRow, ReviewState } from '../../../shared/observability'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
 
 export function FindingsPane({
   slug,
@@ -17,6 +28,7 @@ export function FindingsPane({
 }): React.JSX.Element {
   const [md, setMd] = useState('')
   const [findings, setFindings] = useState<FindingRow[]>([])
+  const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
@@ -24,17 +36,17 @@ export function FindingsPane({
       (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId)).findingsBump
   )
   useEffect(() => {
+    // readFindings is kept only to gate the Clear button (stray findings.md
+    // content with no rows should still be clearable); per-finding bodies come
+    // from findings.list now, not this blob.
     void window.argus.cases.readFindings(slug).then(setMd)
     void window.argus.findings.list(slug).then(setFindings)
-    // sessionId is in deps (not just bump) so switching sessions always
-    // refetches — two sessions can coincidentally share a bump count, which
-    // would otherwise skip the refetch on switch. findings.md itself is
-    // per-case, so this is about staying correct even if bump doesn't change;
-    // a background session's bump does NOT refresh a different active
-    // session's view (no cross-session bump plumbing here — see Task 8 notes).
   }, [slug, sessionId, bump])
 
-  async function reviewFinding(id: number, state: 'accepted' | 'rejected'): Promise<void> {
+  // Toggle semantics: clicking the active thumb returns the finding to pending.
+  async function setReview(id: number, next: 'accepted' | 'rejected'): Promise<void> {
+    const cur = findings.find((f) => f.id === id)?.reviewState
+    const state: ReviewState = cur === next ? 'pending' : next
     await window.argus.findings.review(id, state)
     setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, reviewState: state } : f)))
   }
@@ -56,13 +68,13 @@ export function FindingsPane({
     }
   }
 
-  // the seeded file is just "# Findings — <slug>" — nothing worth rendering or clearing
+  // the seeded file is just "# Findings — <slug>" — nothing worth clearing
   const hasBody = md.split('\n').some((l) => l.trim() !== '' && !/^#\s/.test(l.trim()))
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <SectionLabel>Findings</SectionLabel>
+        <SectionLabel>{findings.length > 0 ? `Findings · ${findings.length}` : 'Findings'}</SectionLabel>
         <div className="flex items-center gap-1">
           {(findings.length > 0 || hasBody) && (
             <button
@@ -85,35 +97,80 @@ export function FindingsPane({
         </div>
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
-      {findings.length > 0 && (
-        <ul className="flex flex-col gap-1">
-          {findings.map((f) => (
-            <li
-              key={f.id}
-              className="flex items-center gap-2 rounded-r1 border border-hair bg-deep px-2 py-1 text-xs"
-            >
-              <span className="flex-1 truncate text-ink">{f.summary}</span>
-              <span className="text-mute">{f.reviewState}</span>
-              <button
-                aria-label="Accept finding"
-                className="text-mute hover:text-signal"
-                onClick={() => void reviewFinding(f.id, 'accepted')}
+      {findings.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {findings.map((f) => {
+            const open = expandedId === f.id
+            const accepted = f.reviewState === 'accepted'
+            const rejected = f.reviewState === 'rejected'
+            const toggle = (): void => {
+              if (f.body) setExpandedId(open ? null : f.id)
+            }
+            return (
+              <li
+                key={f.id}
+                className={`rounded-r2 border bg-panel ${
+                  accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
+                }`}
               >
-                <Check size={13} />
-              </button>
-              <button
-                aria-label="Reject finding"
-                className="text-mute hover:text-danger"
-                onClick={() => void reviewFinding(f.id, 'rejected')}
-              >
-                <X size={13} />
-              </button>
-            </li>
-          ))}
+                <div className="flex items-start gap-1.5 px-2 py-1.5">
+                  <ChevronRight
+                    size={13}
+                    className={`mt-0.5 shrink-0 text-mute transition-transform ${
+                      open ? 'rotate-90' : ''
+                    } ${f.body ? '' : 'opacity-0'}`}
+                  />
+                  <button
+                    className="flex-1 text-left text-xs leading-snug text-ink disabled:cursor-default"
+                    disabled={!f.body}
+                    aria-expanded={f.body ? open : undefined}
+                    onClick={toggle}
+                  >
+                    {f.summary}
+                  </button>
+                </div>
+                {open && f.body && (
+                  <div className="border-t border-hair px-2 py-1.5 text-xs">
+                    <MessageView markdown={f.body} onCite={onCite} />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 px-2 pb-1.5">
+                  <span className="font-mono text-[10px] text-mute">
+                    {formatWhen(f.createdAt)}
+                    {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
+                  </span>
+                  <span className="flex-1" />
+                  <button
+                    aria-label="Mark finding good"
+                    aria-pressed={accepted}
+                    title="Good finding"
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                      accepted
+                        ? 'border-review bg-review/15 text-review'
+                        : 'border-hair2 text-mute hover:text-ink'
+                    }`}
+                    onClick={() => void setReview(f.id, 'accepted')}
+                  >
+                    <ThumbsUp size={13} />
+                  </button>
+                  <button
+                    aria-label="Mark finding not useful"
+                    aria-pressed={rejected}
+                    title="Not useful"
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                      rejected
+                        ? 'border-danger bg-danger/15 text-danger'
+                        : 'border-hair2 text-mute hover:text-ink'
+                    }`}
+                    onClick={() => void setReview(f.id, 'rejected')}
+                  >
+                    <ThumbsDown size={13} />
+                  </button>
+                </div>
+              </li>
+            )
+          })}
         </ul>
-      )}
-      {hasBody ? (
-        <MessageView markdown={md} onCite={onCite} />
       ) : (
         <p className="text-xs text-mute">No findings yet.</p>
       )}

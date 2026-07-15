@@ -164,29 +164,33 @@ export function CaseWorkspace({
       ? [{ label: 'Reopen', onSelect: () => void applyStatus('open', null) }]
       : [])
   ]
+  // The "Close as…" row doubles as the status readout, same as before it moved
+  // into the case-id menu: a closed case shows its resolution here.
+  const closeAsLabel =
+    status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
-        <h1 className="font-mono text-sm text-defect">{slug}</h1>
+        {/* The case id is the trigger for the case-action menu (Close as / Export),
+            each a submenu — keeps a crowded bar to one control. */}
         <MenuButton
-          label={
-            status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
-          }
+          label={slug}
+          triggerClassName="font-mono text-sm! text-defect!"
           align="left"
-          items={statusItems}
+          items={[
+            { label: closeAsLabel, children: statusItems },
+            {
+              label: 'Export',
+              children: [
+                { label: 'Export case…', onSelect: () => void exportBundle(true) },
+                { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
+              ]
+            }
+          ]}
         />
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
-        <MenuButton
-          label="Export"
-          aria-label="Export case"
-          align="left"
-          items={[
-            { label: 'Export case…', onSelect: () => void exportBundle(true) },
-            { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
-          ]}
-        />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <HeaderRepos slug={slug} />
         <div className="ml-auto">
