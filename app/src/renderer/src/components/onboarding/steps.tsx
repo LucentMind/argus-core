@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AuthStatus } from '../../../../shared/types'
 import type { PacksListPayload } from '../../../../shared/packs'
+import { markIntegration } from '../../lib/onboardingStore'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
@@ -133,6 +134,74 @@ export function PackStep({ setGate }: { setGate: (ok: boolean) => void }): React
       <button className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink" onClick={load}>
         Re-check
       </button>
+    </div>
+  )
+}
+
+// Declared outside IntegrationsStep (not nested) so it isn't recreated every render —
+// satisfies react-hooks/static-components.
+function IntegrationCard({
+  name,
+  hint,
+  ok
+}: {
+  name: string
+  hint: string
+  ok: boolean
+}): React.JSX.Element {
+  return (
+    <div className="rounded-r2 border border-hair px-3 py-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-ink">{name}</span>
+        <span className={`text-xs ${ok ? 'text-signal' : 'text-faint'}`}>
+          {ok ? 'Configured' : 'Not set up'}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-dim">{hint}</p>
+    </div>
+  )
+}
+
+export function IntegrationsStep(): React.JSX.Element {
+  const [state, setState] = useState<{ atlassian: boolean; hive: boolean }>({
+    atlassian: false,
+    hive: false
+  })
+
+  useEffect(() => {
+    // .then in the effect body (not an async wrapper) to avoid react-hooks/set-state-in-effect,
+    // mirroring ClaudeStep/PackStep.
+    Promise.all([window.argus.connectors.get(), window.argus.settings.get()]).then(
+      ([conn, payload]) => {
+        const atlassian = Object.values(conn?.oauth ?? {}).some((v) => v === 'authorized')
+        const hive = Boolean(payload?.settings?.hivemind?.repo)
+        setState({ atlassian, hive })
+        if (atlassian) {
+          void markIntegration('jira', true)
+          void markIntegration('confluence', true)
+        }
+        if (hive) void markIntegration('hive', true)
+      }
+    )
+  }, [])
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg text-ink">Connect your tools (optional)</h2>
+      <p className="text-sm text-dim">
+        Configure these now and the tour will show them working on real data. You can skip any and
+        set them up later in Settings.
+      </p>
+      <IntegrationCard
+        name="Atlassian (Jira & Confluence)"
+        hint="Create cases from Jira tickets and sync Confluence reference docs the agent can cite."
+        ok={state.atlassian}
+      />
+      <IntegrationCard
+        name="HiveMind repo"
+        hint="Share skills and memory with your team."
+        ok={state.hive}
+      />
     </div>
   )
 }
