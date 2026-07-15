@@ -71,7 +71,7 @@ export function OnboardingProvider({
             />
           )
         case 'integrations':
-          return <IntegrationsStep onOpenSettings={openSettingsFromWizard} />
+          return <IntegrationsStep />
         case 'seed':
           return <SeedStep setGate={api.setGate} onSeeded={handleSeeded} />
         default:

@@ -1,59 +1,125 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { IntegrationsStep } from '../steps'
 import * as store from '../../../lib/onboardingStore'
+import { settingsStore } from '../../../lib/settingsStore'
+import { connectorsStore } from '../../../lib/connectorsStore'
+import { defaultSettings } from '../../../../../shared/settings'
 
-// vi.spyOn on an already-spied export reuses the same mock and its accrued call
-// history (no clearMocks/restoreMocks configured globally), so the second test's
-// `not.toHaveBeenCalled()` would otherwise see calls left over from the first
-// test. Restore spies between tests to keep them isolated.
+const ROVO_PRESET = {
+  kind: 'http',
+  displayName: 'Atlassian Rovo',
+  config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true }
+}
+
+function settingsPayload(repo = ''): unknown {
+  const s = defaultSettings()
+  s.hivemind.repo = repo
+  return { settings: s, resolvedTools: [], dataRoot: { path: '', fromEnv: false }, loadError: null }
+}
+function connPayload(over: Record<string, unknown> = {}): unknown {
+  return {
+    connectors: {},
+    runtime: {},
+    oauth: {},
+    rest: {},
+    loadError: null,
+    secretsAvailable: true,
+    secretsLoadError: null,
+    presets: { rovo: ROVO_PRESET },
+    ...over
+  }
+}
+
+let settingsPatch: ReturnType<typeof vi.fn>
+let connPatch: ReturnType<typeof vi.fn>
+let oauth: ReturnType<typeof vi.fn>
+
+function setup(opts: { repo?: string; oauthState?: string; hasRovo?: boolean } = {}): void {
+  settingsPatch = vi.fn(async () => settingsPayload(opts.repo))
+  connPatch = vi.fn(async () => connPayload())
+  oauth = vi.fn(async () => ({ ok: true }))
+  window.argus = {
+    settings: {
+      get: vi.fn(async () => settingsPayload(opts.repo)),
+      patch: settingsPatch,
+      onChanged: vi.fn(() => () => {})
+    },
+    connectors: {
+      get: vi.fn(async () =>
+        connPayload({
+          oauth: opts.oauthState ? { rovo: opts.oauthState } : {},
+          connectors: opts.hasRovo ? { rovo: { kind: 'http', enabled: true, config: {} } } : {}
+        })
+      ),
+      patch: connPatch,
+      oauth,
+      onChanged: vi.fn(() => () => {})
+    }
+  } as never
+  settingsStore.reset()
+  connectorsStore.reset()
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
+  settingsStore.reset()
+  connectorsStore.reset()
 })
 
-beforeEach(() => {
-  window.argus = {
-    connectors: { get: vi.fn(async () => ({ oauth: { rovo: 'authorized' } })) },
-    settings: { get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } } })) }
-  } as never
-})
-
-describe('IntegrationsStep', () => {
-  it('marks Atlassian (jira+confluence) and hive when configured', async () => {
+describe('IntegrationsStep (inline config)', () => {
+  it('shows Configured and records flags when Atlassian is authorized and a repo is set', async () => {
+    setup({ repo: 'org/hive', oauthState: 'authorized' })
     const spy = vi.spyOn(store, 'markIntegration').mockResolvedValue()
     render(<IntegrationsStep />)
     await waitFor(() => expect(spy).toHaveBeenCalledWith('jira', true))
     expect(spy).toHaveBeenCalledWith('confluence', true)
     expect(spy).toHaveBeenCalledWith('hive', true)
-    expect(screen.getByText(/Atlassian/)).toBeTruthy()
+    await waitFor(() => expect(screen.getAllByText('Configured')).toHaveLength(2))
   })
 
-  it('marks nothing when no oauth authorized and no repo set', async () => {
-    window.argus = {
-      connectors: { get: vi.fn(async () => ({ oauth: { rovo: 'not-authorized' } })) },
-      settings: { get: vi.fn(async () => ({ settings: { hivemind: { repo: '' } } })) }
-    } as never
-    const spy = vi.spyOn(store, 'markIntegration').mockResolvedValue()
+  it('commits the HiveMind repo inline (no trip to Settings)', async () => {
+    setup()
     render(<IntegrationsStep />)
-    await waitFor(() => expect(window.argus.connectors.get).toHaveBeenCalled())
-    expect(spy).not.toHaveBeenCalled()
+    const input = await screen.findByLabelText('HiveMind repo')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'org/hive' } })
+    fireEvent.blur(input)
+    await waitFor(() =>
+      expect(settingsPatch).toHaveBeenCalledWith({ hivemind: { repo: 'org/hive' } })
+    )
   })
 
-  it('offers "Set up" on unconfigured cards, opening the right settings page', async () => {
-    vi.spyOn(store, 'markIntegration').mockResolvedValue()
-    window.argus = {
-      connectors: { get: vi.fn(async () => ({ oauth: { rovo: 'not-authorized' } })) },
-      settings: { get: vi.fn(async () => ({ settings: { hivemind: { repo: '' } } })) }
-    } as never
-    const onOpenSettings = vi.fn()
-    render(<IntegrationsStep onOpenSettings={onOpenSettings} />)
-    // both cards are unconfigured → both show a Set up button
-    const buttons = await screen.findAllByRole('button', { name: /set up/i })
-    expect(buttons).toHaveLength(2)
-    fireEvent.click(buttons[0]) // Atlassian card
-    expect(onOpenSettings).toHaveBeenCalledWith('connectors')
-    fireEvent.click(buttons[1]) // HiveMind card
-    expect(onOpenSettings).toHaveBeenCalledWith('hivemind')
+  it('Connect Atlassian creates the rovo instance then runs OAuth', async () => {
+    setup()
+    render(<IntegrationsStep />)
+    const btn = await screen.findByRole('button', { name: /connect atlassian/i })
+    fireEvent.click(btn)
+    await waitFor(() =>
+      expect(connPatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rovo: expect.objectContaining({ preset: 'rovo', enabled: true, kind: 'http' })
+        })
+      )
+    )
+    await waitFor(() => expect(oauth).toHaveBeenCalledWith('rovo'))
+  })
+
+  it('Connect Atlassian skips instance creation when a rovo connector already exists', async () => {
+    setup({ hasRovo: true })
+    render(<IntegrationsStep />)
+    const btn = await screen.findByRole('button', { name: /connect atlassian/i })
+    fireEvent.click(btn)
+    await waitFor(() => expect(oauth).toHaveBeenCalledWith('rovo'))
+    expect(connPatch).not.toHaveBeenCalled()
+  })
+
+  it('surfaces an OAuth failure inline without configuring', async () => {
+    setup()
+    oauth.mockResolvedValue({ ok: false, error: 'user cancelled' })
+    render(<IntegrationsStep />)
+    fireEvent.click(await screen.findByRole('button', { name: /connect atlassian/i }))
+    await waitFor(() => expect(screen.getByText(/user cancelled/i)).toBeTruthy())
   })
 })
