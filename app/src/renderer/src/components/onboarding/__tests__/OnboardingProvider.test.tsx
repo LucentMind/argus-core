@@ -32,7 +32,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('OnboardingProvider', () => {
   it('auto-opens the wizard on true first run', async () => {
-    render(<OnboardingProvider onOpenCase={vi.fn()} />)
+    render(<OnboardingProvider onNavigate={vi.fn()} />)
     await waitFor(() => expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy())
   })
 
@@ -43,7 +43,7 @@ describe('OnboardingProvider', () => {
       })
     )
     settingsStore.reset()
-    const { container } = render(<OnboardingProvider onOpenCase={vi.fn()} />)
+    const { container } = render(<OnboardingProvider onNavigate={vi.fn()} />)
     await waitFor(() => expect(window.argus.settings.get).toHaveBeenCalled())
     expect(container.querySelector('[data-testid^="wizard-step"]')).toBeNull()
   })
@@ -57,7 +57,7 @@ describe('OnboardingProvider', () => {
       })
     )
     settingsStore.reset()
-    render(<OnboardingProvider onOpenCase={vi.fn()} />)
+    render(<OnboardingProvider onNavigate={vi.fn()} />)
     await waitFor(() => expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy())
   })
 })
