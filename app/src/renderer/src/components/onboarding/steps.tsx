@@ -206,20 +206,31 @@ export function IntegrationsStep(): React.JSX.Element {
   )
 }
 
-export function SeedStep({ onSeeded }: { onSeeded: (slug: string) => void }): React.JSX.Element {
+export function SeedStep({
+  setGate,
+  onSeeded
+}: {
+  setGate: (ok: boolean) => void
+  onSeeded: (slug: string) => void
+}): React.JSX.Element {
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
+    // Disable Finish until the sample case is seeded. Deferred to a microtask so
+    // it's an async continuation (avoids react-hooks/set-state-in-effect), same
+    // technique as the wizard's async-gating test. On error the gate stays false.
+    void Promise.resolve().then(() => setGate(false))
     window.argus.onboarding
       .seedSample()
       .then((r) =>
         markPhase1Done(r.slug).then(() => {
           setDone(true)
+          setGate(true)
           onSeeded(r.slug)
         })
       )
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-  }, [onSeeded])
+  }, [setGate, onSeeded])
 
   return (
     <div className="space-y-3">

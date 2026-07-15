@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSettingsPayload } from '../../lib/settingsStore'
-import { isFirstRun, markCompleted } from '../../lib/onboardingStore'
+import { shouldOpenOnboarding, markCompleted } from '../../lib/onboardingStore'
 import { SetupWizard } from './SetupWizard'
 import { WelcomeStep, ClaudeStep, PackStep, IntegrationsStep, SeedStep } from './steps'
-import type { WizardStepId } from '../../../../shared/onboarding'
+import { SAMPLE_CASE_SLUG, type WizardStepId } from '../../../../shared/onboarding'
 
 export function OnboardingProvider({
   onOpenCase
@@ -13,24 +13,23 @@ export function OnboardingProvider({
   const payload = useSettingsPayload()
   const [caseCount, setCaseCount] = useState<number | null>(null)
   const [dismissed, setDismissed] = useState(false)
+  // The slug SeedStep actually seeded — completion navigates here (falling back
+  // to the well-known constant), never to a value trusted from the wizard's
+  // onComplete callback, since Finish can only fire once seeding succeeded.
+  const [seededSlug, setSeededSlug] = useState<string | null>(null)
 
   useEffect(() => {
     void window.argus.cases.list().then((c) => setCaseCount(c.length))
   }, [])
 
-  // Stable no-op: SeedStep's effect deps on `onSeeded`, so a fresh function each
-  // render would re-run seedSample() on every provider re-render.
-  const handleSeeded = useCallback(() => {}, [])
+  const handleSeeded = useCallback((slug: string) => setSeededSlug(slug), [])
 
-  const finish = useCallback(
-    (slug: string): void => {
-      void markCompleted().then(() => {
-        setDismissed(true)
-        onOpenCase(slug)
-      })
-    },
-    [onOpenCase]
-  )
+  const finish = useCallback((): void => {
+    void markCompleted().then(() => {
+      setDismissed(true)
+      onOpenCase(seededSlug ?? SAMPLE_CASE_SLUG)
+    })
+  }, [onOpenCase, seededSlug])
 
   const dismiss = useCallback((): void => {
     void markCompleted().then(() => setDismissed(true))
@@ -51,7 +50,7 @@ export function OnboardingProvider({
         case 'integrations':
           return <IntegrationsStep />
         case 'seed':
-          return <SeedStep onSeeded={handleSeeded} />
+          return <SeedStep setGate={api.setGate} onSeeded={handleSeeded} />
         default:
           return null
       }
@@ -60,7 +59,7 @@ export function OnboardingProvider({
   )
 
   if (!payload || caseCount == null || dismissed) return null
-  if (!isFirstRun(payload.settings, caseCount)) return null
+  if (!shouldOpenOnboarding(payload.settings, caseCount)) return null
 
   return <SetupWizard renderStep={renderStep} onComplete={finish} onDismiss={dismiss} />
 }
