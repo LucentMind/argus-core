@@ -140,23 +140,19 @@ function renderWorkspace(overrides?: {
   return render(workspace('NAV-1', overrides))
 }
 
-// post-WP-B the Analyze button is rendered by CaseFiles from files.list (not evidence.list)
+// CaseFiles is evidence-only: the Analyze button comes from evidence.list, not files.list
 function stubAnalyzableFile(): void {
-  window.argus.files.list = vi.fn(async () => [
+  window.argus.evidence.list = vi.fn(async () => [
     {
-      name: 'evidence',
-      relPath: 'evidence',
-      kind: 'dir',
-      size: 0,
-      children: [
-        {
-          name: 'trace.binlog',
-          relPath: 'evidence/trace.binlog',
-          kind: 'file',
-          size: 10,
-          evidence: { id: 1, artifactType: 'binlog', derived: false }
-        }
-      ]
+      id: 1,
+      caseId: 1,
+      relPath: 'evidence/trace.binlog',
+      sha256: 'x',
+      artifactType: 'binlog',
+      size: 10,
+      origin: 'upload',
+      meta: {},
+      createdAt: '2026-03-14T09:32:00.000Z'
     }
   ]) as never
 }
