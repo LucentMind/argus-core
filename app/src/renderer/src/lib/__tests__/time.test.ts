@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimestamp } from '../time'
+import { formatTimestamp, chipStamp } from '../time'
 
 const iso = '2026-07-10T15:04:05.000Z'
 
@@ -12,5 +12,16 @@ describe('formatTimestamp', () => {
     const h12 = formatTimestamp(iso, '12h')
     expect(h24).not.toMatch(/am|pm/i)
     expect(h12).not.toBe(h24)
+  })
+})
+
+describe('chipStamp', () => {
+  it('formats as "D Mon, HH:MM" in local time, zero-padded', () => {
+    const iso = '2026-03-14T09:32:00.000Z'
+    const d = new Date(iso)
+    const expected = `${d.getDate()} ${d.toLocaleString(undefined, { month: 'short' })}, ${String(
+      d.getHours()
+    ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    expect(chipStamp(iso)).toBe(expected)
   })
 })
