@@ -20,6 +20,10 @@ extraResources:
       - '**/*'
       - '!**/bin-src/**'
       - '!**/node_modules/**'
+  - from: resources/onboarding-sample
+    to: onboarding-sample
+    filter:
+      - '**/*'
 win:
   executableName: argus
 nsis:

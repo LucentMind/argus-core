@@ -1,0 +1,6 @@
+2026-07-15 09:14:02.113 INFO  boot        starting session id=demo-001
+2026-07-15 09:14:02.480 INFO  nav.core    map tiles loaded region=EU count=1284
+2026-07-15 09:14:07.902 WARN  sensor.imu  bearing drift detected delta=3.2deg window=500ms
+2026-07-15 09:14:08.010 ERROR nav.fusion  pose jump rejected: bearing discontinuity > 2.0deg
+2026-07-15 09:14:08.221 INFO  nav.fusion  recovering from last stable pose t=7.61s
+2026-07-15 09:14:12.774 INFO  boot        session healthy, telemetry nominal
