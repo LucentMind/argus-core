@@ -85,9 +85,6 @@ export class AgentService {
 
   private async getOrCreate(caseSlug: string, sessionId: number): Promise<CaseSession> {
     const key = this.keyOf(caseSlug, sessionId)
-    const existing = this.sessions.get(key)
-    if (existing && existing.state === 'running') return existing
-    if (existing) this.sessions.delete(key)
 
     // Validate before any side effects: sessionId is caller-provided (Task 5 threads it
     // from the renderer), so verify the row exists and actually belongs to this case —
@@ -102,7 +99,23 @@ export class AgentService {
     }
 
     const as = this.deps.agentSettings?.()
+    // Composed on EVERY call (spec §1/§2): connector config and credentials are re-derived
+    // at the point of use, never latched. Safe here — compose is pure and side-effect-free,
+    // so it cannot disturb the validation guard above.
     const mcp = await this.deps.composeMcp?.()
+    const fingerprint = mcp?.fingerprint ?? ''
+
+    const existing = this.sessions.get(key)
+    if (existing && existing.state === 'running') {
+      // Never tear down a turn in flight; the rebuild happens on the next idle send.
+      if (existing.activeTurn || existing.mcpFingerprint === fingerprint) return existing
+      // Connectors changed under a live session whose mcpServers map is frozen at
+      // query() construction — rebuild it. The resume cursor below preserves history.
+      await existing.stop('reconfigured')
+      this.sessions.delete(key)
+    } else if (existing) {
+      this.sessions.delete(key)
+    }
 
     // reap LRU idle session if at capacity
     const max = as?.maxSessions ?? this.deps.maxSessions ?? 3
@@ -145,6 +158,7 @@ export class AgentService {
       agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,
       mcpSkipped: mcp?.skipped,
+      mcpFingerprint: fingerprint,
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)

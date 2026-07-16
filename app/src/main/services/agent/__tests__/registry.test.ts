@@ -14,13 +14,20 @@ import { caseDir } from '../../paths'
 import type { CreateQueryFn } from '../session'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
+import { fingerprintServers } from '../../mcp'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
 
-function fakeCreateQuery(): { createQuery: CreateQueryFn; queues: AsyncQueue<unknown>[] } {
+function fakeCreateQuery(): {
+  createQuery: CreateQueryFn
+  queues: AsyncQueue<unknown>[]
+  optionsLog: Record<string, unknown>[]
+} {
   const queues: AsyncQueue<unknown>[] = []
-  const createQuery: CreateQueryFn = () => {
+  const optionsLog: Record<string, unknown>[] = []
+  const createQuery: CreateQueryFn = (args) => {
+    optionsLog.push(args.options as Record<string, unknown>)
     const q = new AsyncQueue<unknown>()
     queues.push(q)
     return Object.assign(
@@ -28,7 +35,7 @@ function fakeCreateQuery(): { createQuery: CreateQueryFn; queues: AsyncQueue<unk
       { interrupt: async () => q.end() }
     )
   }
-  return { createQuery, queues }
+  return { createQuery, queues, optionsLog }
 }
 
 beforeEach(() => {
@@ -102,6 +109,84 @@ describe('AgentService', () => {
     expect(states.every((s) => s.state === 'running')).toBe(true)
     expect(new Set(states.map((s) => s.sessionId))).toEqual(new Set([s1.id, s2.id]))
     expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
+  it('rebuilds a live session when the composed connector fingerprint changes', async () => {
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    let servers: Record<string, unknown> = {}
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
+    })
+    const s = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s.id, 'first') // built with NO connectors
+    queues[0].push({ type: 'result', is_error: false }) // finish the turn → idle
+    await new Promise((r) => setTimeout(r, 10))
+    expect(optionsLog).toHaveLength(1)
+    expect(optionsLog[0].mcpServers).not.toHaveProperty('rovo')
+
+    // the user authorizes the connector
+    servers = { rovo: { type: 'sse', url: 'https://x/y', headers: { Authorization: 'Bearer t' } } }
+    await svc.send('NAV-1', s.id, 'second')
+
+    expect(
+      events.some((e) => e.type === 'session.exited' && e.payload.reason === 'reconfigured')
+    ).toBe(true)
+    expect(optionsLog).toHaveLength(2)
+    expect(optionsLog[1].mcpServers).toHaveProperty('rovo')
+    expect(svc.states()).toHaveLength(1) // rebuilt, not leaked
+    await svc.stopAll()
+  })
+
+  it('reuses a live session when the fingerprint is unchanged', async () => {
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const servers = { rovo: { type: 'sse', url: 'https://x/y' } }
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
+    })
+    const s = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s.id, 'first')
+    queues[0].push({ type: 'result', is_error: false })
+    await new Promise((r) => setTimeout(r, 10))
+    await svc.send('NAV-1', s.id, 'second')
+    expect(optionsLog).toHaveLength(1) // one construction only
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
+  it('never tears down a session mid-turn, even when the fingerprint changed', async () => {
+    const { createQuery, optionsLog } = fakeCreateQuery()
+    let servers: Record<string, unknown> = {}
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
+    })
+    const s = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s.id, 'first') // no result pushed → activeTurn stays true
+    servers = { rovo: { type: 'sse', url: 'https://x/y' } }
+    await svc.send('NAV-1', s.id, 'second')
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    expect(optionsLog).toHaveLength(1)
     await svc.stopAll()
   })
 
