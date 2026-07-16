@@ -46,6 +46,12 @@ function referenceTier(file: string): string {
   return block ? fmField(block.fm, 'trust_tier') : ''
 }
 
+/** Bare 'x.md' or exactly 'confluence/x.md' — no traversal, no hidden files, no other subfolders. */
+function validReferenceName(name: string): boolean {
+  const base = name.startsWith('confluence/') ? name.slice('confluence/'.length) : name
+  return base.endsWith('.md') && !/[/\\]/.test(base) && !base.startsWith('.')
+}
+
 /** Pinned installs + last sync stamp — app-managed, not user-edited. */
 interface HivemindStateFile {
   lastSynced: string | null
@@ -219,14 +225,22 @@ export class HivemindService {
       fs.cpSync(src, dest, { recursive: true })
       state.skills[name] = await this.itemCommit(`skills/${name}`)
     } else {
+      if (!validReferenceName(name)) throw new Error(`Invalid reference name: ${name}`)
       const src = path.join(this.clone(), 'references', name)
       if (!fs.existsSync(src)) throw new Error(`No such HiveMind reference: ${name}`)
       const sha = await this.itemCommit(`references/${name}`)
-      const dest = path.join(sharedReferencesDir(this.deps.argusHome), name)
+      // Installs flatten: confluence/x.md lands at references/x.md, so pack
+      // manifests' referenceRouting (bare filenames) keeps resolving unchanged.
+      const dest = path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
       // A pushable local copy means this machine authored/curated it — keep that
-      // tier (and push rights); everything else is stamped hivemind as before.
+      // tier (and push rights). Hive confluence/ items are refsync-owned: always
+      // stamped confluence (un-claimable, un-pushable), a deliberate takeover.
       const prior = referenceTier(dest)
-      const tier = prior === 'user' || prior === 'team-knowledge' ? prior : 'hivemind'
+      const tier = name.startsWith('confluence/')
+        ? 'confluence'
+        : prior === 'user' || prior === 'team-knowledge'
+          ? prior
+          : 'hivemind'
       const stamped = withFrontmatter(fs.readFileSync(src, 'utf8'), {
         trust_tier: tier,
         source_repo: this.deps.repo().trim(),
