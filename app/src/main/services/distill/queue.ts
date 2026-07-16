@@ -166,7 +166,7 @@ export class DistillQueue {
     const db = this.deps.db
     db.prepare(`UPDATE distill_jobs SET state='running' WHERE id=?`).run(r.id)
     this.emit(this.get(r.id)!)
-    const finish = (fields: string, ...vals: unknown[]): void => {
+    const finish = (fields: string, ...vals: (string | number | null)[]): void => {
       db.prepare(`UPDATE distill_jobs SET ${fields}, finished_at=? WHERE id=?`).run(
         ...vals,
         new Date().toISOString(),
