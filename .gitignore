@@ -4,6 +4,7 @@ app/dist/
 *.log
 .DS_Store
 .superpowers/
+.claude/
 .venv/
 __pycache__/
 *.egg-info/
