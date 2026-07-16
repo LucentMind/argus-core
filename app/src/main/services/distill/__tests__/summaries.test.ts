@@ -63,4 +63,33 @@ describe('case summaries', () => {
     expect(hits).toHaveLength(1)
     expect(hits[0]).toMatchObject({ caseSlug: 'old-case', resolution: 'solved' })
   })
+
+  it('tolerates punctuation that would otherwise be raw FTS5 syntax', () => {
+    upsertCaseSummary(db, home, 'old-case', SUM, 'solved', '# s')
+    const hits = searchCaseSummaries(db, 'reset(): timestamps DLT')
+    expect(hits).not.toEqual([])
+    expect(hits[0].caseSlug).toBe('old-case')
+  })
+
+  it('neutralizes a column-filter-shaped token instead of silently scoping', () => {
+    upsertCaseSummary(db, home, 'old-case', SUM, 'solved', '# s')
+    expect(() => searchCaseSummaries(db, 'fix: dlt')).not.toThrow()
+    const hits = searchCaseSummaries(db, 'fix: dlt')
+    expect(hits).not.toEqual([])
+    expect(hits[0].caseSlug).toBe('old-case')
+  })
+
+  it('snippet reflects whichever column actually matched, not always column 0', () => {
+    upsertCaseSummary(
+      db,
+      home,
+      'old-case',
+      { ...SUM, symptoms: 'wakelock held during suspend' },
+      'solved',
+      '# s'
+    )
+    const hits = searchCaseSummaries(db, 'wakelock')
+    expect(hits).not.toEqual([])
+    expect(hits[0].snippet).toContain('«wakelock»')
+  })
 })

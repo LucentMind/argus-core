@@ -103,6 +103,18 @@ export function getCaseSummary(db: DatabaseSync, caseSlug: string): CaseSummaryR
   }
 }
 
+// Builds an FTS5 MATCH expression from free-text user input: each whitespace
+// token becomes a quoted phrase-prefix (`"<escaped>"*`), OR-joined. Quoting
+// every token (with internal `"` doubled per FTS5 escaping rules) prevents
+// ordinary punctuation — e.g. `reset():` — from being parsed as FTS5 syntax,
+// and prevents a `word:` token from being read as a column filter. Returns
+// null for blank/empty input so callers can skip the query entirely.
+function buildPrefixMatchQuery(query: string): string | null {
+  const terms = query.trim().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return null
+  return terms.map((t) => `"${t.replace(/"/g, '""')}"*`).join(' OR ')
+}
+
 export function searchCaseSummaries(
   db: DatabaseSync,
   query: string,
@@ -110,18 +122,13 @@ export function searchCaseSummaries(
 ): SummarySearchHit[] {
   const limit = opts.limit ?? 5
   const exclude = opts.excludeSlug ?? null
+  const ftsQuery = buildPrefixMatchQuery(query)
+  if (!ftsQuery) return []
   try {
-    // Use prefix matching with explicit OR for flexible matching
-    const ftsQuery = query
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `${t}*`)
-      .join(' OR ')
     const rows = db
       .prepare(
         `SELECT f.case_slug AS caseSlug, s.signature, s.resolution,
-              snippet(case_summaries_fts, 0, '«', '»', '…', 12) AS snippet
+              snippet(case_summaries_fts, -1, '«', '»', '…', 12) AS snippet
        FROM case_summaries_fts f JOIN case_summaries s ON s.case_slug = f.case_slug
        WHERE case_summaries_fts MATCH ? AND (? IS NULL OR f.case_slug <> ?)
        ORDER BY bm25(case_summaries_fts) LIMIT ?`
