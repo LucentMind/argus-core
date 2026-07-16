@@ -908,16 +908,18 @@ describe('CaseSession', () => {
   it('an error result that is not auth-shaped does not fire onAuthFailure', async () => {
     const sdk = fakeSdk()
     const onAuthFailure = vi.fn()
-    const s = makeSession(sdk, { onAuthFailure })
+    const onAuthVerified = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure, onAuthVerified })
     await s.send('hi')
     sdk.messages.push({
       type: 'result',
-      subtype: 'error_during_execution',
+      subtype: 'success',
       is_error: true,
       result: 'tool crashed'
     })
     await flush()
     expect(onAuthFailure).not.toHaveBeenCalled()
+    expect(onAuthVerified).not.toHaveBeenCalled()
   })
 
   // Pins the critical-correctness point: the is_error guard in handleResult is what keeps
