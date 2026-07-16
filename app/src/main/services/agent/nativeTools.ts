@@ -10,6 +10,7 @@ import {
   type CaseStatus
 } from '../../../shared/types'
 import { searchEvidence } from '../search'
+import { searchCaseSummaries } from '../distill/summaries'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
@@ -95,6 +96,15 @@ export function argusToolHandlers(
 
     async list_evidence() {
       return JSON.stringify(listEvidence(db, caseSlug), null, 2)
+    },
+
+    async search_case_history(args) {
+      const limit = args.limit == null ? 5 : Number(args.limit)
+      const hits = searchCaseSummaries(db, String(args.query ?? ''), { limit })
+      if (hits.length === 0) return 'No similar past cases found.'
+      return hits
+        .map((h) => `«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}`)
+        .join('\n')
     },
 
     async get_artifact_meta(args) {
@@ -252,6 +262,12 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'List all evidence artifacts of this case with types and metadata.',
         {},
         async (a) => asText(await h.list_evidence(a))
+      ),
+      tool(
+        'search_case_history',
+        'Search summaries of closed past cases by symptom/root-cause text. Read-only.',
+        { query: z.string(), limit: z.number().optional() },
+        async (a) => asText(await h.search_case_history(a))
       ),
       tool(
         'get_artifact_meta',
