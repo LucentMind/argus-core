@@ -98,4 +98,37 @@ describe('DistillQueue', () => {
     await q.idle()
     expect(() => q.retry(job.id)).toThrow(/not failed/i)
   })
+
+  it('throwing broadcast does not overwrite a done job with failed', async () => {
+    const { q } = makeQueue({
+      broadcast: () => {
+        throw new Error('renderer gone')
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    expect(q.statusFor('case-a')!.state).toBe('done')
+  })
+
+  it('throwing broadcast does not stall the loop for later jobs', async () => {
+    const { q } = makeQueue({
+      broadcast: () => {
+        throw new Error('renderer gone')
+      }
+    })
+    q.enqueue('a')
+    q.enqueue('b')
+    await q.idle()
+    expect(q.statusFor('a')!.state).toBe('done')
+    expect(q.statusFor('b')!.state).toBe('done')
+  })
+
+  it('enqueue never throws due to a throwing broadcast', () => {
+    const { q } = makeQueue({
+      broadcast: () => {
+        throw new Error('renderer gone')
+      }
+    })
+    expect(() => q.enqueue('c')).not.toThrow()
+  })
 })

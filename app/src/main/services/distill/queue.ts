@@ -130,8 +130,19 @@ export class DistillQueue {
       .get() as JobDbRow | undefined
   }
 
+  /**
+   * Invariant: emit() never throws. Broadcasts are advisory UI notifications,
+   * never load-bearing — job state persistence and kick-loop progress must not
+   * depend on renderer liveness (e.g. webContents.send throwing after the
+   * renderer has been destroyed). Any broadcast failure is logged and swallowed
+   * so callers (enqueue/retry/runJob) keep their own throw contracts intact.
+   */
   private emit(job: DistillJobRow): void {
-    this.deps.broadcast({ caseSlug: job.caseSlug, job })
+    try {
+      this.deps.broadcast({ caseSlug: job.caseSlug, job })
+    } catch (err) {
+      console.error('[distill] broadcast failed', err)
+    }
   }
 
   private kick(): void {
