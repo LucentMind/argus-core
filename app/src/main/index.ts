@@ -120,6 +120,7 @@ import { DistillQueue } from './services/distill/queue'
 import { assembleDistillInput } from './services/distill/input'
 import { runCaseDistill } from './services/distill/caseDistiller'
 import { stageDistillOutput } from './services/distill/staging'
+import { similarCases } from './services/distill/summaries'
 
 let agentService: AgentService | null = null
 let langfuseExporter: LangfuseExporter | null = null
@@ -944,6 +945,12 @@ function registerIpc(): void {
     panelHost?.closeCase(slug)
     externalAppHost?.closeCase(slug)
   })
+
+  // — case-close distillation (part 3a) —
+  ipcMain.handle(IPC.distillStatus, (_e, slug: string) => distillQueue.statusFor(slug))
+  ipcMain.handle(IPC.distillRetry, (_e, jobId: number) => distillQueue.retry(jobId))
+  ipcMain.handle(IPC.distillRedistill, (_e, slug: string) => distillQueue.enqueue(slug))
+  ipcMain.handle(IPC.distillSimilar, (_e, slug: string) => similarCases(db, slug))
 
   // — skills —
   const skillsPayload = (): SkillsPayload => ({
