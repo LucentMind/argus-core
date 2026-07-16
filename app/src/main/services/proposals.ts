@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { proposalsArchiveDir, proposalsDir, userSkillsDir } from './paths'
+import { memoryDir, proposalsArchiveDir, proposalsDir, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
@@ -10,6 +10,10 @@ import { PROPOSAL_TYPES, type ProposalRecord, type ProposalType } from '../../sh
 /** Target names: a skill dir name or a reference file name. Same shape as case slugs. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
+/** Frontmatter keys writeProposal already owns — extraFm may not shadow these. */
+const RESERVED_FM = new Set(['type', 'target', 'case', 'date', 'title', 'status'])
+const EXTRA_FM_KEY_RE = /^[a-z_]+$/
+
 function refFileName(target: string): string {
   return target.endsWith('.md') ? target : `${target}.md`
 }
@@ -17,7 +21,8 @@ function refFileName(target: string): string {
 export function writeProposal(
   argusHome: string,
   caseSlug: string,
-  input: { type: string; target: string; title: string; content: string }
+  input: { type: string; target: string; title: string; content: string },
+  extraFm?: Record<string, string>
 ): string {
   const type = input.type as ProposalType
   if (!PROPOSAL_TYPES.includes(type)) {
@@ -30,6 +35,12 @@ export function writeProposal(
     throw new Error(`Invalid proposal target: ${JSON.stringify(input.target)}`)
   }
   if (!input.content.trim()) throw new Error('write_proposal: content must not be empty')
+  for (const [k, v] of Object.entries(extraFm ?? {})) {
+    if (RESERVED_FM.has(k)) throw new Error(`writeProposal: extraFm key "${k}" is reserved`)
+    if (!EXTRA_FM_KEY_RE.test(k)) throw new Error(`writeProposal: invalid extraFm key "${k}"`)
+    if (/\r|\n/.test(v))
+      throw new Error(`writeProposal: extraFm value for "${k}" must be single-line`)
+  }
   const dir = proposalsDir(argusHome)
   fs.mkdirSync(dir, { recursive: true })
   const date = new Date().toISOString()
@@ -44,6 +55,7 @@ export function writeProposal(
     `date: ${date}`,
     `title: ${input.title.replace(/[\r\n]/g, ' ').trim() || target}`,
     'status: pending',
+    ...Object.entries(extraFm ?? {}).map(([k, v]) => `${k}: ${v}`),
     '---',
     ''
   ].join('\n')
@@ -62,6 +74,12 @@ function currentContent(argusHome: string, type: ProposalType, target: string): 
       return null
     }
   }
+  if (type === 'memory-append') {
+    // diff against the existing topic file so the reviewer sees what the lesson appends to
+    const p = path.join(memoryDir(argusHome), `${target}.md`)
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
+  }
+  if (type === 'case-summary') return null
   try {
     return fs.readFileSync(path.join(sharedReferencesDir(argusHome), refFileName(target)), 'utf8')
   } catch {
@@ -81,6 +99,7 @@ export function listProposals(argusHome: string): ProposalRecord[] {
     const type = fmField(block.fm, 'type') as ProposalType
     if (!PROPOSAL_TYPES.includes(type)) continue
     const target = fmField(block.fm, 'target')
+    const previouslyReviewed = fmField(block.fm, 'previously_reviewed') === 'true'
     out.push({
       file: ent.name,
       type,
@@ -89,10 +108,42 @@ export function listProposals(argusHome: string): ProposalRecord[] {
       date: fmField(block.fm, 'date'),
       title: fmField(block.fm, 'title'),
       content: block.body,
-      current: currentContent(argusHome, type, target)
+      current: currentContent(argusHome, type, target),
+      ...(previouslyReviewed ? { previouslyReviewed: true } : {})
     })
   }
   return out.sort((a, b) => b.date.localeCompare(a.date))
+}
+
+/** Type/target/status of every archived (accepted or rejected) proposal, across all cases. */
+export function listArchivedProposals(
+  argusHome: string
+): { type: string; target: string; caseSlug: string; status: 'accepted' | 'rejected' }[] {
+  const dir = proposalsArchiveDir(argusHome)
+  if (!fs.existsSync(dir)) return []
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.md'))
+    .flatMap((f) => {
+      const block = fmBlock(fs.readFileSync(path.join(dir, f), 'utf8'))
+      if (!block) return []
+      const status = fmField(block.fm, 'status')
+      if (status !== 'accepted' && status !== 'rejected') return []
+      return [
+        {
+          type: fmField(block.fm, 'type'),
+          target: fmField(block.fm, 'target'),
+          caseSlug: fmField(block.fm, 'case'),
+          status
+        }
+      ]
+    })
+}
+
+/** Delete a pending proposal outright — used by supersede flows; the file is NOT archived. */
+export function removePendingProposal(argusHome: string, file: string): void {
+  const p = path.join(proposalsDir(argusHome), path.basename(file))
+  if (fs.existsSync(p)) fs.rmSync(p)
 }
 
 function archive(argusHome: string, file: string, status: 'accepted' | 'rejected'): void {
