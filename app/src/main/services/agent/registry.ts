@@ -34,8 +34,8 @@ export interface AgentServiceDeps {
   agentSettings?: () => AgentSettings
   /** Live tool-risk overrides threaded into every session (consulted per call). */
   toolRisk?: () => Record<string, RiskLevel>
-  /** Composed per session construction (new sessions only), like agentSettings. */
-  composeMcp?: () => ComposedMcp
+  /** Composed fresh on every getOrCreate (spec §1) — never latched, never memoized. */
+  composeMcp?: () => Promise<ComposedMcp>
   /** Open a panel in a given case/session (3b-2); AgentService binds case+session per session. */
   openPanel?: (
     caseSlug: string,
@@ -102,7 +102,7 @@ export class AgentService {
     }
 
     const as = this.deps.agentSettings?.()
-    const mcp = this.deps.composeMcp?.()
+    const mcp = await this.deps.composeMcp?.()
 
     // reap LRU idle session if at capacity
     const max = as?.maxSessions ?? this.deps.maxSessions ?? 3
