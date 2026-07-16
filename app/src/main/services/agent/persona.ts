@@ -13,6 +13,18 @@ Non-negotiable working rules:
 `.trim()
 
 /**
+ * Appended as a persona fragment only when a skill named `contribute-back`
+ * resolves enabled at session construction (registry.ts) — disabling the skill
+ * on the Skills page silences the nudge too.
+ */
+export const CONTRIBUTE_BACK_NUDGE = `
+When an investigation produces a reusable lesson — a repeatable procedure, a reference
+correction, a proven recipe — draft it as a proposal with mcp__argus__write_proposal (see the
+contribute-back skill). Proposals are inert until the user accepts them on the Skills page;
+never apply such changes yourself.
+`.trim()
+
+/**
  * Compose the system-prompt append: neutral base + pack-contributed persona fragments
  * (in pack order) + the per-session personaAppend. Empty entries are dropped.
  */
