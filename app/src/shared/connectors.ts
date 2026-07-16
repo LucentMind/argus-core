@@ -231,4 +231,7 @@ export interface ConnectorsPayload {
 export interface ComposedMcp {
   servers: Record<string, unknown>
   skipped: Array<{ instanceId: string; reason: string }>
+  /** Stable hash of `servers` (main/services/mcp.ts `fingerprintServers`). A change means a
+   *  live session's frozen mcpServers map is stale and must be rebuilt. */
+  fingerprint: string
 }

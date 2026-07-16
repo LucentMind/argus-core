@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -30,6 +31,36 @@ function toStringRecord(v: unknown): Record<string, string> {
   return Object.fromEntries(
     Object.entries((v ?? {}) as Record<string, unknown>).map(([k, val]) => [k, String(val)])
   )
+}
+
+/** Deterministic JSON: object keys sorted at every depth, so an identical config always
+ *  hashes identically regardless of insertion order. */
+function canonicalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonicalize)
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([k, val]) => [k, canonicalize(val)])
+    )
+  }
+  return v
+}
+
+/**
+ * Stable hash of a composed mcpServers map. A change means a live session's frozen
+ * map is stale and the session must be rebuilt (spec §2).
+ *
+ * The bearer token is hashed deliberately (spec §3.1). Redacting it would avoid a
+ * rebuild per token rotation, but MCP's SSE transport re-sends headers on every POST,
+ * so a frozen session would keep POSTing a dead token and 401 mid-conversation —
+ * reintroducing the exact stale-credential class this spec removes. Lives in main,
+ * not shared/: node:crypto must never reach the renderer's typecheck:web.
+ */
+export function fingerprintServers(servers: Record<string, unknown>): string {
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalize(servers)))
+    .digest('hex')
 }
 
 /** Filled by McpOAuth (Task 7); optional so Tasks 5–6 test without OAuth. */
@@ -124,7 +155,7 @@ export class McpService {
         skipped.push({ instanceId: id, reason: (err as Error).message })
       }
     }
-    return { servers, skipped }
+    return { servers, skipped, fingerprint: fingerprintServers(servers) }
   }
 
   /** Test connection: connect → listTools → classify → cache → tear down. */

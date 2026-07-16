@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ConnectorRegistry } from '../connectors'
 import { SecretStore, type SecretCrypto } from '../secrets'
-import { McpService } from '../mcp'
+import { McpService, fingerprintServers } from '../mcp'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/fixture-mcp.mjs', import.meta.url))
 
@@ -344,5 +344,34 @@ describe('composeForSession', () => {
       headers: { Authorization: 'Bearer live-token' }
     })
     expect(skipped).toEqual([])
+  })
+
+  it('exposes a fingerprint that tracks the composed servers map', async () => {
+    registry.patch({ web: { kind: 'http', config: { url: 'https://example.test/mcp' } } })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    const first = await svc.composeForSession()
+    expect(first.fingerprint).toBe(fingerprintServers(first.servers))
+    // recomposing an unchanged registry is byte-identical — no spurious rebuilds
+    expect((await svc.composeForSession()).fingerprint).toBe(first.fingerprint)
+  })
+})
+
+describe('fingerprintServers', () => {
+  it('is stable across key order and nesting order', () => {
+    const a = { rovo: { type: 'sse', url: 'https://x/y', headers: { Authorization: 'Bearer t' } } }
+    const b = { rovo: { headers: { Authorization: 'Bearer t' }, url: 'https://x/y', type: 'sse' } }
+    expect(fingerprintServers(a)).toBe(fingerprintServers(b))
+  })
+
+  it('changes when a token rotates (spec §3.1: a frozen session must not keep POSTing a dead bearer)', () => {
+    const a = { rovo: { type: 'sse', headers: { Authorization: 'Bearer old' } } }
+    const b = { rovo: { type: 'sse', headers: { Authorization: 'Bearer new' } } }
+    expect(fingerprintServers(a)).not.toBe(fingerprintServers(b))
+  })
+
+  it('changes when a connector appears (the field bug: absent -> present)', () => {
+    expect(fingerprintServers({})).not.toBe(
+      fingerprintServers({ rovo: { type: 'sse', url: 'https://x/y' } })
+    )
   })
 })
