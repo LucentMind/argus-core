@@ -173,4 +173,18 @@ describe('probeAuth', () => {
     await probeAuth(spy)
     expect(captured?.pathToClaudeCodeExecutable).toBeUndefined()
   })
+
+  it('a successful init reports verified:false — init proves the CLI booted, not that credentials work', async () => {
+    const st = await probeAuth(
+      fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])
+    )
+    expect(st.ok).toBe(true)
+    expect(st.verified).toBe(false)
+  })
+
+  it('a probe failure is also unverified', async () => {
+    const st = await probeAuth(fake('throw'))
+    expect(st.ok).toBe(false)
+    expect(st.verified).toBe(false)
+  })
 })

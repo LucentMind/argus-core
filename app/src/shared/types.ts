@@ -178,6 +178,13 @@ export interface ApprovalDecision {
 export interface AuthStatus {
   ok: boolean
   detail: string // "logged in as x@y (subscription)" | "not logged in" | error text
+  /**
+   * True only once a real turn has authenticated against the API. The probe runs with
+   * maxTurns:0 and never contacts the API, so `ok: true, verified: false` means
+   * "CLI ready, account on file, sign-in not yet proven". Do not render this as
+   * "logged in" (spec §4).
+   */
+  verified: boolean
   /** From the SDK query handle's `initializationResult().account`. Absent when not logged in. */
   email?: string
   /** Human-readable subscription/auth-method label, e.g. "Claude Max Subscription" or "API key". */

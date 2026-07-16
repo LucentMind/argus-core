@@ -25,7 +25,7 @@ const deps = (over: Partial<HealthDeps> = {}): HealthDeps => ({
     id === 'tool-x'
       ? { ok: true, detail: 'C:\\tool-x.exe · 0.3.0' }
       : { ok: true, detail: '2 checks passed' },
-  agentAuth: async () => ({ ok: true, detail: 'logged in as x@y' }),
+  agentAuth: async () => ({ ok: true, verified: false, detail: 'logged in as x@y' }),
   gh: async () => ({ ok: true, detail: 'Logged in to github.com' }),
   enabledConnectors: () => [{ id: 'rovo', name: 'Atlassian Rovo' }],
   probeConnector: async () => ({ ok: true, tools: [{ name: 'get_x', risk: 'low' }] }),
@@ -110,7 +110,7 @@ describe('HealthService', () => {
     const out = await runAll(
       deps({
         checkBinary: async () => ({ ok: false, detail: 'not found', fixHint: 'Install it.' }),
-        agentAuth: async () => ({ ok: false, detail: 'not logged in' }),
+        agentAuth: async () => ({ ok: false, verified: false, detail: 'not logged in' }),
         gh: async () => ({ ok: false, detail: 'gh not installed' }),
         probeConnector: async () => ({ ok: false, error: 'connect ECONNREFUSED' })
       })
