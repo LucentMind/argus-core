@@ -177,22 +177,30 @@ export class HivemindService {
     }
     const refsRoot = path.join(this.clone(), 'references')
     if (fs.existsSync(refsRoot)) {
-      for (const ent of fs.readdirSync(refsRoot, { withFileTypes: true })) {
-        if (!ent.isFile() || !ent.name.endsWith('.md')) continue
-        const commit = await this.itemCommit(`references/${ent.name}`)
-        const installedCommit = state.references[ent.name] ?? null
-        const localPath = path.join(sharedReferencesDir(this.deps.argusHome), ent.name)
-        const installed = fs.existsSync(localPath)
-        items.push({
-          kind: 'reference',
-          name: ent.name,
-          description: '',
-          commit,
-          installed,
-          installedCommit,
-          localTier: installed ? referenceTier(localPath) || null : null,
-          updateAvailable: installed && installedCommit !== null && installedCommit !== commit
-        })
+      // Flat files plus the one specifically-named confluence/ subfolder —
+      // deliberately not a generic recursion (spec: subfolder-references design).
+      for (const subdir of ['', 'confluence']) {
+        const dir = subdir ? path.join(refsRoot, subdir) : refsRoot
+        if (!fs.existsSync(dir)) continue
+        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (!ent.isFile() || !ent.name.endsWith('.md')) continue
+          const name = subdir ? `${subdir}/${ent.name}` : ent.name
+          const commit = await this.itemCommit(`references/${name}`)
+          const installedCommit = state.references[name] ?? null
+          // Installs flatten: the local copy always lives at the bare basename.
+          const localPath = path.join(sharedReferencesDir(this.deps.argusHome), ent.name)
+          const installed = fs.existsSync(localPath)
+          items.push({
+            kind: 'reference',
+            name,
+            description: '',
+            commit,
+            installed,
+            installedCommit,
+            localTier: installed ? referenceTier(localPath) || null : null,
+            updateAvailable: installed && installedCommit !== null && installedCommit !== commit
+          })
+        }
       }
     }
     return items.sort((a, b) => a.name.localeCompare(b.name))
