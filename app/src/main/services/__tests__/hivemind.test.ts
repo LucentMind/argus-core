@@ -504,4 +504,43 @@ describe('confluence subfolder references', () => {
       /Invalid reference name/
     )
   })
+
+  it('a confluence-installed reference is un-claimable and un-pushable', async () => {
+    seedClone()
+    seedConfluenceRef()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.install('reference', 'confluence/adasis.md')
+    // claim targets the flattened local name and must reject the confluence tier
+    await expect(svc.claimReference('adasis.md')).rejects.toThrow(/Not an installed HiveMind/)
+    expect(p.pushable).not.toContainEqual({ kind: 'reference', name: 'adasis.md' })
+    expect(svc.pushable()).not.toContainEqual({ kind: 'reference', name: 'adasis.md' })
+  })
+
+  it('flat/confluence name collision: last install wins the file, pins stay per-item', async () => {
+    seedClone() // seeds flat references/hive-note.md
+    seedConfluenceRef('hive-note.md', '# distilled twin\n')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const local = path.join(home, 'references', 'hive-note.md')
+
+    let p = await svc.install('reference', 'hive-note.md')
+    expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: hivemind')
+
+    p = await svc.install('reference', 'confluence/hive-note.md')
+    expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: confluence')
+    expect(fs.readFileSync(local, 'utf8')).toContain('# distilled twin')
+
+    // re-installing the flat twin takes the file back (prior confluence tier is not preserved)
+    p = await svc.install('reference', 'hive-note.md')
+    expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: hivemind')
+
+    // both items keep their own pin, and both report installed (same flat file)
+    const flat = p.items.find((i) => i.name === 'hive-note.md')!
+    const conf = p.items.find((i) => i.name === 'confluence/hive-note.md')!
+    expect(flat.installed).toBe(true)
+    expect(conf.installed).toBe(true)
+    expect(flat.installedCommit).toBe('refsha')
+    expect(conf.installedCommit).toBe('refsha')
+  })
 })
