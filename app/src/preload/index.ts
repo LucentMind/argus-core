@@ -296,8 +296,8 @@ const argus = {
   },
   proposals: {
     list: (): Promise<ProposalsPayload> => ipcRenderer.invoke(IPC.proposalsList),
-    accept: (file: string): Promise<ProposalsPayload> =>
-      ipcRenderer.invoke(IPC.proposalsAccept, file),
+    accept: (file: string, editedContent?: string): Promise<ProposalsPayload> =>
+      ipcRenderer.invoke(IPC.proposalsAccept, file, editedContent),
     reject: (file: string): Promise<ProposalsPayload> =>
       ipcRenderer.invoke(IPC.proposalsReject, file)
   },
