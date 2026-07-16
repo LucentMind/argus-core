@@ -3,7 +3,12 @@ import path from 'node:path'
 import { z } from 'zod'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { DatabaseSync } from 'node:sqlite'
-import { CASE_RESOLUTIONS, type CaseResolution, type CaseStatus } from '../../../shared/types'
+import {
+  CASE_RESOLUTIONS,
+  type CaseRecord,
+  type CaseResolution,
+  type CaseStatus
+} from '../../../shared/types'
 import { searchEvidence } from '../search'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
@@ -35,6 +40,8 @@ export interface NativeToolDeps {
   ) => { ok: boolean; reason?: string; panel?: unknown }
   /** Capture an open panel to evidence (session-bound by AgentService). Absent in sessions without panels. */
   capturePanel?: (packId: string, windowId: string) => Promise<CapturePanelEvidence>
+  /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
+  onCaseClosed?: (rec: CaseRecord) => void
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -134,7 +141,7 @@ export function argusToolHandlers(
         }
         resolution = r as CaseResolution
       }
-      setCaseStatus(db, argusHome, caseSlug, status as CaseStatus, resolution)
+      setCaseStatus(db, argusHome, caseSlug, status as CaseStatus, resolution, deps.onCaseClosed)
       return resolution ? `status → ${status} (${resolution})` : `status → ${status}`
     },
 

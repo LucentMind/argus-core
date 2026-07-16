@@ -156,5 +156,7 @@ export const IPC = {
   // — external apps (3c) —
   externalAppsList: 'external-apps:list',
   externalAppsOpen: 'external-apps:open',
-  externalAppsStop: 'external-apps:stop'
+  externalAppsStop: 'external-apps:stop',
+  // — case-close distillation (part 3a) —
+  distillChanged: 'distill:changed'
 } as const
