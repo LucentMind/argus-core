@@ -69,6 +69,9 @@ export interface SessionDeps {
   extraMcpServers?: Record<string, unknown>
   /** Connectors that could not be composed; logged to the event stream at start. */
   mcpSkipped?: Array<{ instanceId: string; reason: string }>
+  /** Fingerprint of `extraMcpServers` at construction; AgentService compares it per send
+   *  to decide whether this session's frozen mcpServers map is still correct. */
+  mcpFingerprint?: string
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
@@ -95,6 +98,7 @@ export const PANEL_INGEST_TOOL = 'mcp__argus__panel_ingest_evidence'
 
 export class CaseSession {
   readonly sessionId: number
+  readonly mcpFingerprint: string
   state: 'running' | 'dead' = 'running'
   activeTurn = false
   lastActivity = Date.now()
@@ -113,6 +117,7 @@ export class CaseSession {
   constructor(deps: SessionDeps) {
     this.deps = deps
     this.sessionId = deps.sessionId
+    this.mcpFingerprint = deps.mcpFingerprint ?? ''
     touchSession(deps.db, deps.sessionId)
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
@@ -369,7 +374,7 @@ export class CaseSession {
     await this.query.interrupt().catch(() => undefined)
   }
 
-  async stop(reason: 'stopped' | 'reaped'): Promise<void> {
+  async stop(reason: 'stopped' | 'reaped' | 'reconfigured'): Promise<void> {
     if (this.state === 'dead') return
     this.state = 'dead'
     for (const id of this.approvals.drain()) {

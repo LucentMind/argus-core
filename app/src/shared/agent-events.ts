@@ -12,7 +12,10 @@ export interface AgentEventBase {
 export type AgentEvent = AgentEventBase &
   (
     | { type: 'session.started'; payload: { model: string; resumed: boolean } }
-    | { type: 'session.exited'; payload: { reason: 'stopped' | 'reaped' | 'crashed' } }
+    | {
+        type: 'session.exited'
+        payload: { reason: 'stopped' | 'reaped' | 'crashed' | 'reconfigured' }
+      }
     | { type: 'session.error'; payload: { message: string; raw?: unknown } }
     | { type: 'turn.started'; payload: { userText: string } }
     | {
