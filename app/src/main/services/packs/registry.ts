@@ -61,7 +61,12 @@ export class PackRegistry {
 
   /** All packs' window declarations (webPanel + externalApp), flattened in pack (id-sorted) order.
    *  `uiDir` is null for packs that ship no ui/ (externalApp-only packs). */
-  windowDecls(): Array<{ packId: string; packDir: string; uiDir: string | null; decl: PackWindow }> {
+  windowDecls(): Array<{
+    packId: string
+    packDir: string
+    uiDir: string | null
+    decl: PackWindow
+  }> {
     return this._packs.flatMap((p) =>
       p.manifest.windows.map((decl) => ({
         packId: p.id,

@@ -184,7 +184,15 @@ describe('PackRegistry.load (multi-dir)', () => {
   it('rejects an externalApp window whose entry is missing', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-missing-'))
     writePack(root, 'ext-missing', {
-      windows: [{ id: 'sim', kind: 'externalApp', title: 'Sim', entry: 'bin/nope.mjs', control: { channel: 'stdio' } }]
+      windows: [
+        {
+          id: 'sim',
+          kind: 'externalApp',
+          title: 'Sim',
+          entry: 'bin/nope.mjs',
+          control: { channel: 'stdio' }
+        }
+      ]
     })
     const reg = PackRegistry.load(root)
     expect(reg.errors().some((e) => /entry not found/.test(e.message))).toBe(true)
@@ -226,7 +234,15 @@ describe('windowDecls', () => {
       displayName: 'alpha',
       version: '1',
       argusApi: '^1',
-      windows: [{ id: 'viewer', kind: 'webPanel', title: 'Viewer', entry: 'viewer/index.html', handles: ['logcat'] }]
+      windows: [
+        {
+          id: 'viewer',
+          kind: 'webPanel',
+          title: 'Viewer',
+          entry: 'viewer/index.html',
+          handles: ['logcat']
+        }
+      ]
     })
     const reg = new PackRegistry([a, lp('beta', null)])
     const decls = reg.windowDecls()

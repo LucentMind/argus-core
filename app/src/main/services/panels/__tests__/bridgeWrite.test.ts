@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { createPanelBridge, type PanelWriteSink } from '../bridge'
+import { createPanelBridge, type PanelBridge, type PanelWriteSink } from '../bridge'
 
 let home: string, db: DatabaseSync, calls: string[]
 const sink: PanelWriteSink = {
@@ -32,10 +32,19 @@ beforeEach(() => {
   calls = []
 })
 
-const bind = (permissions: string[], sessionId: number | null, network: string[] = []) =>
+const bind = (
+  permissions: string[],
+  sessionId: number | null,
+  network: string[] = []
+): PanelBridge =>
   createPanelBridge({
-    db, argusHome: home, caseSlug: 'CASE-A',
-    permissions: permissions as never, sessionId, writeSink: sink, network
+    db,
+    argusHome: home,
+    caseSlug: 'CASE-A',
+    permissions: permissions as never,
+    sessionId,
+    writeSink: sink,
+    network
   })
 
 it('exposes only granted write verbs', () => {
@@ -47,8 +56,11 @@ it('exposes only granted write verbs', () => {
 
 it('omits write verbs when no sink is supplied', () => {
   const b = createPanelBridge({
-    db, argusHome: home, caseSlug: 'CASE-A',
-    permissions: ['sendToAgent', 'cite'] as never, sessionId: 1
+    db,
+    argusHome: home,
+    caseSlug: 'CASE-A',
+    permissions: ['sendToAgent', 'cite'] as never,
+    sessionId: 1
   })
   expect(b.sendToAgent).toBeUndefined()
   expect(b.cite).toBeUndefined()
@@ -73,7 +85,10 @@ it('throws when a write verb is used with no bound session', () => {
 
 it('ingestEvidence: routes a bytes source to the sink', async () => {
   const b = bind(['ingestEvidence'], 4)
-  const res = await b.ingestEvidence!({ source: { bytes: new Uint8Array([1, 2, 3]) }, filename: 'a.bin' })
+  const res = await b.ingestEvidence!({
+    source: { bytes: new Uint8Array([1, 2, 3]) },
+    filename: 'a.bin'
+  })
   expect(res).toEqual({ ok: true, evidenceId: '42' })
   expect(calls).toEqual(['ingest:CASE-A:4:a.bin'])
 })

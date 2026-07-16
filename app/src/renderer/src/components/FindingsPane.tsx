@@ -74,7 +74,9 @@ export function FindingsPane({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <SectionLabel>{findings.length > 0 ? `Findings · ${findings.length}` : 'Findings'}</SectionLabel>
+        <SectionLabel>
+          {findings.length > 0 ? `Findings · ${findings.length}` : 'Findings'}
+        </SectionLabel>
         <div className="flex items-center gap-1">
           {(findings.length > 0 || hasBody) && (
             <button

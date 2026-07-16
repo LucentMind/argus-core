@@ -3,7 +3,12 @@ import { FolderOpen, Trash2 } from 'lucide-react'
 import { Chip, MenuButton, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
-import type { ArtifactType, ArtifactTypeMeta, EvidenceRecord, FileNode } from '../../../shared/types'
+import type {
+  ArtifactType,
+  ArtifactTypeMeta,
+  EvidenceRecord,
+  FileNode
+} from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
@@ -126,7 +131,8 @@ export function CaseFiles({
     }
     const derived = doomed.size - 1
     const extra = derived > 0 ? ` and ${derived} derived file${derived > 1 ? 's' : ''}` : ''
-    if (!window.confirm(`Delete "${displayName(r.relPath)}"${extra}? This cannot be undone.`)) return
+    if (!window.confirm(`Delete "${displayName(r.relPath)}"${extra}? This cannot be undone.`))
+      return
     setDeleteError(null)
     try {
       await window.argus.evidence.delete(caseSlug, id)

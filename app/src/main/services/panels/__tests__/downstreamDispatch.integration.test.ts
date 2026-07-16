@@ -3,8 +3,13 @@ import path from 'node:path'
 import { loadPacks } from '../../packs/loader'
 import { PackRegistry } from '../../packs/registry'
 import { seededPacksDir } from '../../packs/paths'
-import { PanelHost, type PanelView, type PanelViewFactory } from '../panelHost'
-import { flattenPanelCommands, panelToolName, buildPanelCommandTools } from '../../agent/panelCommands'
+import { PanelHost, type PanelViewFactory } from '../panelHost'
+import { makeFakePanelViewFactory } from './fixtures'
+import {
+  flattenPanelCommands,
+  panelToolName,
+  buildPanelCommandTools
+} from '../../agent/panelCommands'
 
 // panels/__tests__ → up 5 = app/ (seededPacksDir → <repo>/packs).
 const packsSrc = seededPacksDir(path.resolve(__dirname, '../../../../..'))
@@ -15,29 +20,18 @@ function replyingFactory(reply: (cmd: string, args: unknown[]) => unknown): {
   bind: (h: PanelHost) => void
 } {
   let host: PanelHost | null = null
-  const factory: PanelViewFactory = {
-    create() {
-      const view: PanelView = {
-        webContentsId: 601,
-        loadPanel() {},
-        pushTheme() {},
-        floatOut() {},
-        dockBack() {},
-        destroy() {},
-        focus() {},
-        setBounds() {},
-        setVisible() {},
-        sendCommand(requestId, cmd, args) {
-          host!.resolveCommand(requestId, { ok: true, result: reply(cmd, args) })
-        },
-        capturePage() {
-          return Promise.resolve(Buffer.alloc(0))
-        }
-      }
-      return view
+  const { factory } = makeFakePanelViewFactory({
+    webContentsId: 601,
+    sendCommand(requestId, cmd, args) {
+      host!.resolveCommand(requestId, { ok: true, result: reply(cmd, args) })
+    }
+  })
+  return {
+    factory,
+    bind: (h) => {
+      host = h
     }
   }
-  return { factory, bind: (h) => { host = h } }
 }
 
 describe('downstream dispatch — playground commands end to end', () => {

@@ -42,7 +42,12 @@ export function PanelTabStrip({
       })
       return // external apps get a presence chip, not a tab
     }
-    await window.argus.panels.open({ caseSlug: slug, packId: d.packId, windowId: d.windowId, sessionId })
+    await window.argus.panels.open({
+      caseSlug: slug,
+      packId: d.packId,
+      windowId: d.windowId,
+      sessionId
+    })
     onSelect(panelKeyStr({ caseSlug: slug, packId: d.packId, windowId: d.windowId }))
   }
 

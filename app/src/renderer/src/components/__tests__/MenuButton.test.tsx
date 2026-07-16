@@ -40,7 +40,9 @@ describe('MenuButton', () => {
 
   it('reports open/close through onOpenChange (for occlusion wiring)', () => {
     const onOpenChange = vi.fn()
-    render(<MenuButton label="Edit" aria-label="actions" items={items()} onOpenChange={onOpenChange} />)
+    render(
+      <MenuButton label="Edit" aria-label="actions" items={items()} onOpenChange={onOpenChange} />
+    )
     onOpenChange.mockClear() // ignore the initial mount notification
     fireEvent.click(screen.getByRole('button', { name: 'actions' }))
     expect(onOpenChange).toHaveBeenLastCalledWith(true)

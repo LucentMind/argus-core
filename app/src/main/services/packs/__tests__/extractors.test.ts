@@ -58,7 +58,10 @@ describe('createExtractors', () => {
           {
             type: 'binlog',
             match: [{ nameEndsWith: ['.binlog'] }],
-            extract: { bin: 'fake-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] }
+            extract: {
+              bin: 'fake-parse',
+              args: ['binlog-to-text', '{input}', '--output', '{output}']
+            }
           }
         ]
       )

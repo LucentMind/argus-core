@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { packManifestSchema, PACK_MANIFEST_FILE, PACK_API_VERSION, packWindowSchema } from '../manifest'
+import {
+  packManifestSchema,
+  PACK_MANIFEST_FILE,
+  PACK_API_VERSION,
+  packWindowSchema
+} from '../manifest'
 
 describe('packManifestSchema', () => {
   const valid = { id: 'sample', displayName: 'Sample', version: '1.0.0', argusApi: '^1' }
@@ -56,7 +61,10 @@ describe('packManifestSchema', () => {
           kind: 'pathDir',
           displayName: 'sample-trace CLI',
           names: ['sample-trace'],
-          devPaths: ['bin-src/trace-tools/.venv/{platformBin}', '../../trace-tools/.venv/{platformBin}'],
+          devPaths: [
+            'bin-src/trace-tools/.venv/{platformBin}',
+            '../../trace-tools/.venv/{platformBin}'
+          ],
           doctor: { cmd: 'sample-trace', args: ['doctor', '--json'], json: true }
         }
       ]
@@ -121,7 +129,10 @@ describe('packManifestSchema', () => {
           displayName: 'Binary log',
           analyzeSkill: 'analyze-binlog',
           match: [{ magicHex: '444C5401' }, { nameEndsWith: ['.binlog'] }],
-          extract: { bin: 'sample-parse', args: ['binlog-to-text', '{input}', '--output', '{output}'] }
+          extract: {
+            bin: 'sample-parse',
+            args: ['binlog-to-text', '{input}', '--output', '{output}']
+          }
         },
         {
           type: 'applog',
@@ -163,11 +174,17 @@ describe('packManifestSchema', () => {
     const m = packManifestSchema.parse({
       ...valid,
       referenceRouting: [
-        { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' }
+        {
+          keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'],
+          target: 'binlog-protocol.md'
+        }
       ]
     })
     expect(m.referenceRouting).toEqual([
-      { keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'], target: 'binlog-protocol.md' }
+      {
+        keywords: ['binlog', 'automotive', 'OEM-A binlog', 'bintrace'],
+        target: 'binlog-protocol.md'
+      }
     ])
   })
 
@@ -219,7 +236,9 @@ describe('windows[] schema', () => {
   it('parses a webPanel window with defaults filled in', () => {
     const m = packManifestSchema.parse({
       ...base,
-      windows: [{ id: 'log-viewer', kind: 'webPanel', title: 'Log Viewer', entry: 'log-viewer/index.html' }]
+      windows: [
+        { id: 'log-viewer', kind: 'webPanel', title: 'Log Viewer', entry: 'log-viewer/index.html' }
+      ]
     })
     expect(m.windows[0]).toMatchObject({
       id: 'log-viewer',
@@ -259,7 +278,10 @@ describe('windows[] schema', () => {
 
   it('rejects a non-kebab window id', () => {
     expect(() =>
-      packManifestSchema.parse({ ...base, windows: [{ id: 'Log_Viewer', kind: 'webPanel', title: 'T', entry: 'i.html' }] })
+      packManifestSchema.parse({
+        ...base,
+        windows: [{ id: 'Log_Viewer', kind: 'webPanel', title: 'T', entry: 'i.html' }]
+      })
     ).toThrow()
   })
 
@@ -275,7 +297,10 @@ describe('windows[] schema', () => {
 describe('packWindowSchema · 3b write permissions', () => {
   it('accepts the write verbs cite/emitFinding/sendToAgent', () => {
     const parsed = packWindowSchema.parse({
-      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      id: 'pg',
+      kind: 'webPanel',
+      title: 'PG',
+      entry: 'pg/index.html',
       permissions: ['getCaseContext', 'cite', 'emitFinding', 'sendToAgent']
     })
     expect(parsed.permissions).toContain('emitFinding')
@@ -284,7 +309,10 @@ describe('packWindowSchema · 3b write permissions', () => {
   it('rejects an unknown permission verb', () => {
     expect(() =>
       packWindowSchema.parse({
-        id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+        id: 'pg',
+        kind: 'webPanel',
+        title: 'PG',
+        entry: 'pg/index.html',
         permissions: ['deleteEverything']
       })
     ).toThrow()
@@ -294,8 +322,14 @@ describe('packWindowSchema · 3b write permissions', () => {
 describe('packWindowSchema · 3b-2 commands', () => {
   it('accepts commands with id/risk/args and defaults args to []', () => {
     const w = packWindowSchema.parse({
-      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
-      commands: [{ id: 'highlight', risk: 'low', args: ['line'] }, { id: 'echo', risk: 'medium' }]
+      id: 'pg',
+      kind: 'webPanel',
+      title: 'PG',
+      entry: 'pg/index.html',
+      commands: [
+        { id: 'highlight', risk: 'low', args: ['line'] },
+        { id: 'echo', risk: 'medium' }
+      ]
     })
     expect(w.commands).toEqual([
       { id: 'highlight', risk: 'low', args: ['line'] },
@@ -303,8 +337,24 @@ describe('packWindowSchema · 3b-2 commands', () => {
     ])
   })
   it('rejects a non-kebab command id and an invalid risk', () => {
-    expect(() => packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html', commands: [{ id: 'Bad_Id', risk: 'low' }] })).toThrow()
-    expect(() => packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html', commands: [{ id: 'ok', risk: 'critical' }] })).toThrow()
+    expect(() =>
+      packWindowSchema.parse({
+        id: 'p',
+        kind: 'webPanel',
+        title: 'P',
+        entry: 'p/i.html',
+        commands: [{ id: 'Bad_Id', risk: 'low' }]
+      })
+    ).toThrow()
+    expect(() =>
+      packWindowSchema.parse({
+        id: 'p',
+        kind: 'webPanel',
+        title: 'P',
+        entry: 'p/i.html',
+        commands: [{ id: 'ok', risk: 'critical' }]
+      })
+    ).toThrow()
   })
   it('defaults commands to [] when absent', () => {
     const w = packWindowSchema.parse({ id: 'p', kind: 'webPanel', title: 'P', entry: 'p/i.html' })
@@ -312,10 +362,18 @@ describe('packWindowSchema · 3b-2 commands', () => {
   })
   it('accepts a command description + per-arg descriptions', () => {
     const w = packWindowSchema.parse({
-      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      id: 'pg',
+      kind: 'webPanel',
+      title: 'PG',
+      entry: 'pg/index.html',
       commands: [
-        { id: 'highlight', risk: 'low', args: ['line'],
-          description: 'Highlight a line.', argDescriptions: { line: '1-based line number' } }
+        {
+          id: 'highlight',
+          risk: 'low',
+          args: ['line'],
+          description: 'Highlight a line.',
+          argDescriptions: { line: '1-based line number' }
+        }
       ]
     })
     expect(w.commands[0]).toMatchObject({
@@ -378,7 +436,10 @@ describe('packWindowSchema — externalApp (3c)', () => {
 describe('packWindowSchema · 3d readCaseFiles permission', () => {
   it('accepts readCaseFiles', () => {
     const parsed = packWindowSchema.parse({
-      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      id: 'pg',
+      kind: 'webPanel',
+      title: 'PG',
+      entry: 'pg/index.html',
       permissions: ['getCaseContext', 'readCaseFiles']
     })
     expect(parsed.permissions).toContain('readCaseFiles')
@@ -388,7 +449,10 @@ describe('packWindowSchema · 3d readCaseFiles permission', () => {
 describe('packWindowSchema · 3d-2 ingestEvidence permission', () => {
   it('accepts ingestEvidence', () => {
     const parsed = packWindowSchema.parse({
-      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      id: 'pg',
+      kind: 'webPanel',
+      title: 'PG',
+      entry: 'pg/index.html',
       permissions: ['getCaseContext', 'ingestEvidence']
     })
     expect(parsed.permissions).toContain('ingestEvidence')
@@ -398,7 +462,10 @@ describe('packWindowSchema · 3d-2 ingestEvidence permission', () => {
 describe('packWindowSchema · 3d-3 listCaseEvidence permission', () => {
   it('accepts listCaseEvidence', () => {
     const parsed = packWindowSchema.parse({
-      id: 'pg', kind: 'webPanel', title: 'PG', entry: 'pg/index.html',
+      id: 'pg',
+      kind: 'webPanel',
+      title: 'PG',
+      entry: 'pg/index.html',
       permissions: ['getCaseContext', 'listCaseEvidence']
     })
     expect(parsed.permissions).toContain('listCaseEvidence')

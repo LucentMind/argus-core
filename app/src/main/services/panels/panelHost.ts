@@ -224,7 +224,8 @@ export class PanelHost {
   /** Screenshot an open panel to PNG bytes; closed/failed ⇒ structured error. */
   async capturePanel(key: PanelKey): Promise<PanelCaptureResult> {
     const p = this.panels.get(panelKeyStr(key))
-    if (!p) return { ok: false, reason: 'panel-not-open', hint: 'call mcp__argus__open_panel first' }
+    if (!p)
+      return { ok: false, reason: 'panel-not-open', hint: 'call mcp__argus__open_panel first' }
     try {
       const png = await p.view.capturePage()
       return { ok: true, png, title: p.input.title }
@@ -234,13 +235,18 @@ export class PanelHost {
   }
 
   /** Settle a dispatch with the panel's reply. Unknown/expired requestIds are ignored. */
-  resolveCommand(requestId: string, payload: { ok: boolean; result?: unknown; error?: string }): void {
+  resolveCommand(
+    requestId: string,
+    payload: { ok: boolean; result?: unknown; error?: string }
+  ): void {
     const entry = this.pending.get(requestId)
     if (!entry) return
     clearTimeout(entry.timer)
     this.pending.delete(requestId)
     entry.resolve(
-      payload.ok ? { ok: true, result: payload.result } : { ok: false, reason: 'error', hint: payload.error }
+      payload.ok
+        ? { ok: true, result: payload.result }
+        : { ok: false, reason: 'error', hint: payload.error }
     )
   }
 

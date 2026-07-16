@@ -21,7 +21,13 @@ beforeEach(() => {
 describe('FindingsPane', () => {
   it('expands a finding to show its body with citations', async () => {
     ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
-      { id: 1, summary: 'Tile crash', reviewState: 'pending', sessionId: 4, body: 'see [evidence/log.txt:3]' }
+      {
+        id: 1,
+        summary: 'Tile crash',
+        reviewState: 'pending',
+        sessionId: 4,
+        body: 'see [evidence/log.txt:3]'
+      }
     ])
     render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     // body is collapsed until the summary is clicked
@@ -39,9 +45,9 @@ describe('FindingsPane', () => {
 
   it('thumbs-up marks a pending finding accepted', async () => {
     const review = vi.fn().mockResolvedValue({ id: 1, reviewState: 'accepted' })
-    ;(window.argus.findings as unknown as { list: unknown; review: unknown }).list = vi.fn(async () => [
-      { id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }
-    ])
+    ;(window.argus.findings as unknown as { list: unknown; review: unknown }).list = vi.fn(
+      async () => [{ id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }]
+    )
     ;(window.argus.findings as unknown as { review: unknown }).review = review
     render(<FindingsPane slug="c1" sessionId={1} onCite={() => {}} />)
     const good = await screen.findByRole('button', { name: /mark finding good/i })
@@ -65,7 +71,9 @@ describe('FindingsPane', () => {
     window.confirm = vi.fn(() => true)
     const list = vi
       .fn()
-      .mockResolvedValueOnce([{ id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }])
+      .mockResolvedValueOnce([
+        { id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }
+      ])
       .mockResolvedValue([])
     ;(window.argus.findings as unknown as { list: unknown }).list = list
     render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
@@ -99,7 +107,9 @@ describe('FindingsPane', () => {
   })
 
   it('no clear button when there is nothing to clear', async () => {
-    ;(window.argus.cases as unknown as { readFindings: unknown }).readFindings = vi.fn(async () => '')
+    ;(window.argus.cases as unknown as { readFindings: unknown }).readFindings = vi.fn(
+      async () => ''
+    )
     render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     expect(await screen.findByText('No findings yet.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Clear findings' })).toBeNull()

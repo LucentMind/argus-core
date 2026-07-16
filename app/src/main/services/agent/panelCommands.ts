@@ -67,9 +67,7 @@ export interface PanelCommandTool {
  *  generic string is only a last resort so an undescribed command is still callable. */
 export function panelCommandDescription(d: PanelCommandDecl): string {
   return (
-    d.description ??
-    d.title ??
-    `Run the '${d.cmd}' command of the ${d.packId}/${d.windowId} panel.`
+    d.description ?? d.title ?? `Run the '${d.cmd}' command of the ${d.packId}/${d.windowId} panel.`
   )
 }
 

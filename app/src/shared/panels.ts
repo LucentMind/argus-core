@@ -84,8 +84,7 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
       invoke(PANEL_BRIDGE_CHANNELS.readEvidence, evidenceId, focusLine)
   }
   if (permissions.includes('listCaseEvidence')) {
-    api.listCaseEvidence = (): Promise<unknown> =>
-      invoke(PANEL_BRIDGE_CHANNELS.listCaseEvidence)
+    api.listCaseEvidence = (): Promise<unknown> => invoke(PANEL_BRIDGE_CHANNELS.listCaseEvidence)
   }
   if (permissions.includes('cite')) {
     api.cite = (relPath: string, line: number): Promise<unknown> =>

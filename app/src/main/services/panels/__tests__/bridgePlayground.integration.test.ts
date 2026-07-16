@@ -94,9 +94,9 @@ describe('bridge playground — upstream verbs end to end', () => {
     // sendToAgent → stages the text for the bound case+session (no turn is sent)
     expect(bridge.sendToAgent!('please investigate')).toEqual({ ok: true })
     expect(staged).toEqual([{ caseSlug: 'NAV-1', sessionId: s.id, text: 'please investigate' }])
-    const turns = db
-      .prepare('SELECT COUNT(*) n FROM turns WHERE session_id = ?')
-      .get(s.id) as { n: number }
+    const turns = db.prepare('SELECT COUNT(*) n FROM turns WHERE session_id = ?').get(s.id) as {
+      n: number
+    }
     expect(turns.n).toBe(0)
 
     // emitFinding → card raised, approve → finding written

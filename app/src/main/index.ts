@@ -87,7 +87,7 @@ import {
 } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
-import { capturePanelToEvidence } from './services/agent/capturePanel'
+import { capturePanelToEvidence, type CapturePanelEvidence } from './services/agent/capturePanel'
 import { seededPacksDir, ensurePacksDir } from './services/packs/paths'
 import { BinariesService } from './services/packs/binaries'
 import { CodeGraphService, graphsRoot } from './services/codeGraph'
@@ -526,7 +526,11 @@ function registerIpc(): void {
   }
 
   // Shared capture path for the agent's capture_panel tool (mirrors openPanelFor).
-  const capturePanelFor = (caseSlug: string, packId: string, windowId: string) =>
+  const capturePanelFor = (
+    caseSlug: string,
+    packId: string,
+    windowId: string
+  ): Promise<CapturePanelEvidence> =>
     capturePanelToEvidence(
       { panelHost: panelHost!, db, argusHome, detection },
       caseSlug,
