@@ -447,4 +447,61 @@ describe('confluence subfolder references', () => {
       git.calls.some((c) => c[0] === 'log' && c.includes('references/confluence/adasis.md'))
     ).toBe(true)
   })
+
+  it('install flattens confluence/x.md to references/x.md and stamps confluence tier', async () => {
+    seedClone()
+    seedConfluenceRef()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.install('reference', 'confluence/adasis.md')
+    expect(fs.existsSync(path.join(home, 'references', 'confluence'))).toBe(false) // no subfolder locally
+    const written = fs.readFileSync(path.join(home, 'references', 'adasis.md'), 'utf8')
+    expect(written).toContain('trust_tier: confluence')
+    expect(written).toContain('source_repo: acme/hivemind')
+    expect(written).toContain('source_commit: refsha')
+    expect(written).toContain('# adasis distilled')
+    const item = p.items.find((i) => i.name === 'confluence/adasis.md')!
+    expect(item.installed).toBe(true)
+    expect(item.installedCommit).toBe('refsha')
+    expect(item.localTier).toBe('confluence')
+    expect(item.updateAvailable).toBe(false)
+  })
+
+  it('confluence install restamps even a prior user-tier local copy (deliberate takeover)', async () => {
+    seedClone()
+    seedConfluenceRef()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'adasis.md'),
+      '---\ntrust_tier: user\n---\nmy local draft\n'
+    )
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.install('reference', 'confluence/adasis.md')
+    const written = fs.readFileSync(path.join(home, 'references', 'adasis.md'), 'utf8')
+    expect(written).toContain('trust_tier: confluence')
+    expect(written).not.toContain('my local draft')
+  })
+
+  it('install rejects traversal and non-confluence subfolder reference names', async () => {
+    seedClone()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await expect(svc.install('reference', '../evil.md')).rejects.toThrow(/Invalid reference name/)
+    await expect(svc.install('reference', 'confluence/../evil.md')).rejects.toThrow(
+      /Invalid reference name/
+    )
+    await expect(svc.install('reference', 'drafts/wip.md')).rejects.toThrow(
+      /Invalid reference name/
+    )
+    await expect(svc.install('reference', 'confluence\\x.md')).rejects.toThrow(
+      /Invalid reference name/
+    )
+    await expect(svc.install('reference', 'confluence/.hidden.md')).rejects.toThrow(
+      /Invalid reference name/
+    )
+    await expect(svc.install('reference', 'confluence/notes.txt')).rejects.toThrow(
+      /Invalid reference name/
+    )
+  })
 })
