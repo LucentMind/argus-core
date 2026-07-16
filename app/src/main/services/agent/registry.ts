@@ -36,6 +36,10 @@ export interface AgentServiceDeps {
   toolRisk?: () => Record<string, RiskLevel>
   /** Composed fresh on every getOrCreate (spec §1) — never latched, never memoized. */
   composeMcp?: () => Promise<ComposedMcp>
+  /** Fired when a turn fails auth-shaped; index.ts invalidates cachedAuth and broadcasts. */
+  onAuthFailure?: () => void
+  /** Fired when a turn completes normally — proof the credentials work. */
+  onAuthVerified?: () => void
   /** Open a panel in a given case/session (3b-2); AgentService binds case+session per session. */
   openPanel?: (
     caseSlug: string,
@@ -159,6 +163,8 @@ export class AgentService {
       extraMcpServers: mcp?.servers,
       mcpSkipped: mcp?.skipped,
       mcpFingerprint: fingerprint,
+      onAuthFailure: this.deps.onAuthFailure,
+      onAuthVerified: this.deps.onAuthVerified,
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)

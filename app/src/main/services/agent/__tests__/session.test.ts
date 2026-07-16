@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
-import { CaseSession, type CreateQueryFn } from '../session'
+import { CaseSession, isAuthFailure, type CreateQueryFn } from '../session'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
@@ -831,5 +831,84 @@ describe('CaseSession', () => {
     expect(title).toBe('investigate braking failure on route 66'.slice(0, 40))
     expect(session.sessionId).toBe(s2.id)
     await session.stop('stopped')
+  })
+
+  it('an auth-shaped error result fires onAuthFailure', async () => {
+    const sdk = fakeSdk()
+    const onAuthFailure = vi.fn()
+    const onAuthVerified = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure, onAuthVerified })
+    await s.send('hi')
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      result: 'Please run /login'
+    })
+    await flush()
+    expect(onAuthFailure).toHaveBeenCalled()
+    expect(onAuthVerified).not.toHaveBeenCalled()
+  })
+
+  it('a normal result fires onAuthVerified — the turn proves the credentials work', async () => {
+    const sdk = fakeSdk()
+    const onAuthFailure = vi.fn()
+    const onAuthVerified = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure, onAuthVerified })
+    await s.send('hi')
+    sdk.messages.push({ type: 'result', subtype: 'success', is_error: false, result: 'done' })
+    await flush()
+    expect(onAuthVerified).toHaveBeenCalled()
+    expect(onAuthFailure).not.toHaveBeenCalled()
+  })
+
+  it('an error result that is not auth-shaped does not fire onAuthFailure', async () => {
+    const sdk = fakeSdk()
+    const onAuthFailure = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure })
+    await s.send('hi')
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      result: 'tool crashed'
+    })
+    await flush()
+    expect(onAuthFailure).not.toHaveBeenCalled()
+  })
+
+  // Pins the critical-correctness point: the is_error guard in handleResult is what keeps
+  // ordinary (non-error) turn output from ever being matched against AUTH_FAILURE_RE. Without
+  // it, a successful turn whose result text merely mentions "please login" (e.g. relaying CLI
+  // guidance to the user) would wrongly flip the app to logged-out. Verified by temporarily
+  // deleting `msg.is_error &&` from the guard: this test fails (onAuthFailure gets called).
+  it('a successful result whose text happens to say "please login" does not fire onAuthFailure', async () => {
+    const sdk = fakeSdk()
+    const onAuthFailure = vi.fn()
+    const onAuthVerified = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure, onAuthVerified })
+    await s.send('hi')
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'Told the user: please run /login if they see this on their own CLI'
+    })
+    await flush()
+    expect(onAuthFailure).not.toHaveBeenCalled()
+    expect(onAuthVerified).toHaveBeenCalled()
+  })
+})
+
+describe('isAuthFailure', () => {
+  it('matches the CLI logged-out result', () => {
+    expect(isAuthFailure('Please run /login to authenticate')).toBe(true)
+    expect(isAuthFailure('API Error: 401 unauthorized')).toBe(true)
+    expect(isAuthFailure('authentication_error: invalid bearer token')).toBe(true)
+  })
+
+  it('does not match ordinary failures', () => {
+    expect(isAuthFailure('ENOENT: no such file or directory')).toBe(false)
+    expect(isAuthFailure('the tool returned 500')).toBe(false)
   })
 })
