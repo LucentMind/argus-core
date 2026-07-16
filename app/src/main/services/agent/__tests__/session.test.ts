@@ -833,7 +833,9 @@ describe('CaseSession', () => {
     await session.stop('stopped')
   })
 
-  it('an auth-shaped error result fires onAuthFailure', async () => {
+  // Real CLI shape (verified against the live SDK — see auth-shape-evidence.md), Mode A:
+  // not logged in at all. subtype is 'success' — is_error is the only discriminator.
+  it('an auth-shaped error result fires onAuthFailure (not-logged-in shape)', async () => {
     const sdk = fakeSdk()
     const onAuthFailure = vi.fn()
     const onAuthVerified = vi.fn()
@@ -841,9 +843,50 @@ describe('CaseSession', () => {
     await s.send('hi')
     sdk.messages.push({
       type: 'result',
-      subtype: 'error_during_execution',
+      subtype: 'success',
       is_error: true,
-      result: 'Please run /login'
+      result: 'Not logged in · Please run /login',
+      api_error_status: null
+    })
+    await flush()
+    expect(onAuthFailure).toHaveBeenCalled()
+    expect(onAuthVerified).not.toHaveBeenCalled()
+  })
+
+  // Real CLI shape, Mode B: invalid/expired API key. Also subtype 'success', but this time
+  // api_error_status carries a structured 401 alongside the text.
+  it('an auth-shaped error result fires onAuthFailure (invalid-api-key shape)', async () => {
+    const sdk = fakeSdk()
+    const onAuthFailure = vi.fn()
+    const onAuthVerified = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure, onAuthVerified })
+    await s.send('hi')
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      result: 'Invalid API key · Fix external API key',
+      api_error_status: 401
+    })
+    await flush()
+    expect(onAuthFailure).toHaveBeenCalled()
+    expect(onAuthVerified).not.toHaveBeenCalled()
+  })
+
+  // The structured signal alone (api_error_status === 401) must trigger onAuthFailure even
+  // when the result text contains none of the known auth phrases.
+  it('api_error_status:401 fires onAuthFailure even when the result text is not auth-shaped', async () => {
+    const sdk = fakeSdk()
+    const onAuthFailure = vi.fn()
+    const onAuthVerified = vi.fn()
+    const s = makeSession(sdk, { onAuthFailure, onAuthVerified })
+    await s.send('hi')
+    sdk.messages.push({
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      result: 'something with no auth words',
+      api_error_status: 401
     })
     await flush()
     expect(onAuthFailure).toHaveBeenCalled()
@@ -901,10 +944,18 @@ describe('CaseSession', () => {
 })
 
 describe('isAuthFailure', () => {
-  it('matches the CLI logged-out result', () => {
-    expect(isAuthFailure('Please run /login to authenticate')).toBe(true)
-    expect(isAuthFailure('API Error: 401 unauthorized')).toBe(true)
+  it('matches the real CLI auth-failure texts', () => {
+    expect(isAuthFailure('Not logged in · Please run /login')).toBe(true)
+    expect(isAuthFailure('Invalid API key · Fix external API key')).toBe(true)
     expect(isAuthFailure('authentication_error: invalid bearer token')).toBe(true)
+  })
+
+  // A bare "401"/"unauthorized" is deliberately NOT matched: real auth-failure text never
+  // contains them, and matching would let an unrelated connector's 401 (e.g. an Atlassian
+  // call surfacing in a thrown transport error) wrongly mark the user's session logged out.
+  // Real 401s are caught structurally via api_error_status in handleResult, not via text.
+  it('does not match a bare 401/unauthorized from an unrelated (e.g. connector) error', () => {
+    expect(isAuthFailure('API Error: 401 unauthorized')).toBe(false)
   })
 
   it('does not match ordinary failures', () => {
