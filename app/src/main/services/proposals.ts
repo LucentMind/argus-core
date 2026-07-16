@@ -1,11 +1,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
 import { memoryDir, proposalsArchiveDir, proposalsDir, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
 import { PROPOSAL_TYPES, type ProposalRecord, type ProposalType } from '../../shared/proposals'
+import { applyMemoryWrite } from './memory'
+import { upsertCaseSummary } from './distill/summaries'
+import type { CaseDistillSummary } from '../../shared/distill'
 
 /** Target names: a skill dir name or a reference file name. Same shape as case slugs. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -156,7 +160,11 @@ function archive(argusHome: string, file: string, status: 'accepted' | 'rejected
 }
 
 /** Apply to the USER tier (a proposal against a bundled asset shadows it — §1.4), then archive. */
-export function acceptProposal(argusHome: string, file: string): void {
+export function acceptProposal(
+  argusHome: string,
+  file: string,
+  opts: { db?: DatabaseSync; editedContent?: string } = {}
+): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
   // defense-in-depth: p.target came from on-disk frontmatter (trusted only because
@@ -164,17 +172,33 @@ export function acceptProposal(argusHome: string, file: string): void {
   if (!NAME_RE.test(p.target)) {
     throw new Error(`Invalid proposal target: ${JSON.stringify(p.target)}`)
   }
-  if (p.type === 'skill-new' || p.type === 'skill-edit') {
+  const body = opts.editedContent?.trim() ? opts.editedContent : p.content
+  const raw = fs.readFileSync(path.join(proposalsDir(argusHome), file), 'utf8')
+  const fm = fmBlock(raw)?.fm ?? ''
+
+  if (p.type === 'memory-append') {
+    const indexEntry = fmField(fm, 'index_entry') || undefined
+    // Index-cap errors from applyMemoryWrite propagate to the caller — the renderer
+    // surfaces them in the accept banner instead of silently discarding the write.
+    applyMemoryWrite(argusHome, p.caseSlug, { topic: p.target, content: body, indexEntry })
+  } else if (p.type === 'case-summary') {
+    if (!opts.db) throw new Error('case-summary accept requires db')
+    const sj = fmField(fm, 'summary_json')
+    if (!sj) throw new Error('case-summary proposal missing summary_json frontmatter')
+    const summary = JSON.parse(sj) as CaseDistillSummary
+    const resolution = fmField(fm, 'resolution') || 'solved'
+    upsertCaseSummary(opts.db, argusHome, p.target, summary, resolution, body)
+  } else if (p.type === 'skill-new' || p.type === 'skill-edit') {
     const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
-    fs.writeFileSync(path.join(dest, 'SKILL.md'), p.content)
+    fs.writeFileSync(path.join(dest, 'SKILL.md'), body)
   } else {
     // reference-edit + recipe land in the references dir; accepting = human curation
     const dir = sharedReferencesDir(argusHome)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, refFileName(p.target)),
-      withFrontmatter(p.content, { trust_tier: 'team-knowledge' })
+      withFrontmatter(body, { trust_tier: 'team-knowledge' })
     )
   }
   archive(argusHome, file, 'accepted')
