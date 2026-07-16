@@ -9,6 +9,8 @@ import {
   isNonPackTiered,
   resolveCoreSkillsDir
 } from '../skillsDir'
+import { frontmatterDescription, resolveSkills } from '../agent/skillsResolver'
+import { defaultAgentAccess } from '../../../shared/agentAccess'
 
 describe('seedSharedAssets', () => {
   it('seeds from multiple sources in order; later sources overwrite on collision', () => {
@@ -181,5 +183,27 @@ describe('resolveCoreSkillsDir', () => {
     expect(resolveCoreSkillsDir(appRoot, undefined)).toBe(
       path.join(appRoot, 'resources', 'core-skills')
     )
+  })
+})
+
+describe('core-skills assets', () => {
+  // the real in-repo asset dir (what resolveCoreSkillsDir returns in dev)
+  const coreDir = path.resolve(__dirname, '../../../../resources/core-skills')
+
+  it('ships contribute-back with a parseable single-line description', () => {
+    const desc = frontmatterDescription(path.join(coreDir, 'contribute-back'))
+    expect(desc).toMatch(/reusable/i)
+    expect(desc).toMatch(/proposal/i)
+  })
+
+  it('seeds into the bundled tier and resolves as an enabled bundled skill', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-core-seed-'))
+    const home = path.join(tmp, 'home')
+    seedSharedAssets(home, { skills: [coreDir], references: [] })
+    const cb = resolveSkills(home, defaultAgentAccess()).find((s) => s.name === 'contribute-back')
+    expect(cb).toBeDefined()
+    expect(cb!.tier).toBe('bundled')
+    expect(cb!.enabled).toBe(true)
+    fs.rmSync(tmp, { recursive: true, force: true })
   })
 })
