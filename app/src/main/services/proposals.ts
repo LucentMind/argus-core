@@ -119,10 +119,14 @@ export function listProposals(argusHome: string): ProposalRecord[] {
   return out.sort((a, b) => b.date.localeCompare(a.date))
 }
 
-/** Type/target/status of every archived (accepted or rejected) proposal, across all cases. */
-export function listArchivedProposals(
-  argusHome: string
-): { type: string; target: string; caseSlug: string; status: 'accepted' | 'rejected' }[] {
+/** Type/target/title/status of every archived (accepted or rejected) proposal, across all cases. */
+export function listArchivedProposals(argusHome: string): {
+  type: string
+  target: string
+  caseSlug: string
+  title: string
+  status: 'accepted' | 'rejected'
+}[] {
   const dir = proposalsArchiveDir(argusHome)
   if (!fs.existsSync(dir)) return []
   return fs
@@ -138,6 +142,7 @@ export function listArchivedProposals(
           type: fmField(block.fm, 'type'),
           target: fmField(block.fm, 'target'),
           caseSlug: fmField(block.fm, 'case'),
+          title: fmField(block.fm, 'title'),
           status
         }
       ]
