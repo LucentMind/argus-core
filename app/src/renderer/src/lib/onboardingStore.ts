@@ -62,3 +62,9 @@ class OnboardingReplay {
 }
 
 export const onboardingReplay = new OnboardingReplay()
+
+export async function markTourDone(): Promise<void> {
+  await settingsStore.patch({
+    onboarding: { tourDone: true, completedAt: new Date().toISOString() }
+  })
+}

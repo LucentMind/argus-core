@@ -4,17 +4,22 @@ import { shouldOpenOnboarding, markCompleted, onboardingReplay } from '../../lib
 import { SetupWizard } from './SetupWizard'
 import { WelcomeStep, ClaudeStep, PackStep, IntegrationsStep, SeedStep } from './steps'
 import { SAMPLE_CASE_SLUG, type WizardStepId } from '../../../../shared/onboarding'
+import { tourStore, useTour } from '../../lib/tourStore'
+import { TourCompanion } from './TourCompanion'
 
 export function OnboardingProvider({
-  onOpenCase,
-  onOpenSettings
+  onNavigate
 }: {
-  onOpenCase: (slug: string) => void
-  /** Open a settings page from a wizard step (to install a pack / configure a connector). */
-  onOpenSettings?: (page?: string) => void
+  /**
+   * Navigate the app. `target` is the case slug when `view === 'case'`, or the
+   * settings page id when `view === 'settings'` (used by wizard "configure in
+   * Settings" steps and, absent, opens Settings to its default page).
+   */
+  onNavigate: (view: 'case' | 'settings', target?: string) => void
 }): React.JSX.Element | null {
   const payload = useSettingsPayload()
   const replay = useSyncExternalStore(onboardingReplay.subscribe, onboardingReplay.get)
+  const tour = useTour()
   const [caseCount, setCaseCount] = useState<number | null>(null)
   const [dismissed, setDismissed] = useState(false)
   // The slug SeedStep actually seeded — completion navigates here (falling back
@@ -35,18 +40,20 @@ export function OnboardingProvider({
     (page?: string): void => {
       onboardingReplay.clear()
       setDismissed(true)
-      onOpenSettings?.(page)
+      onNavigate('settings', page)
     },
-    [onOpenSettings]
+    [onNavigate]
   )
 
   const finish = useCallback((): void => {
     onboardingReplay.clear()
+    const slug = seededSlug ?? SAMPLE_CASE_SLUG
     void markCompleted().then(() => {
       setDismissed(true)
-      onOpenCase(seededSlug ?? SAMPLE_CASE_SLUG)
+      onNavigate('case', slug)
+      tourStore.startTour()
     })
-  }, [onOpenCase, seededSlug])
+  }, [onNavigate, seededSlug])
 
   const dismiss = useCallback((): void => {
     onboardingReplay.clear()
@@ -75,6 +82,22 @@ export function OnboardingProvider({
     },
     [handleSeeded, openSettingsFromWizard]
   )
+
+  // Checked BEFORE the first-run/replay open-gate below: by the time the tour
+  // starts (wizard finish), markCompleted has already run, so the wizard branch
+  // would otherwise short-circuit to null. The Settings "Take the feature tour"
+  // replay reaches this same branch after onboarding is long complete.
+  if (payload && tour.open) {
+    const slug = payload.settings.onboarding.sampleCaseSlug ?? SAMPLE_CASE_SLUG
+    return (
+      <TourCompanion
+        sampleSlug={slug}
+        settings={payload.settings}
+        onNavigate={(view) => onNavigate(view, view === 'case' ? slug : undefined)}
+        onExit={() => onNavigate('case', slug)}
+      />
+    )
+  }
 
   if (!payload || caseCount == null) return null
   // Explicit replay (the "Re-run onboarding" button) always opens, regardless of

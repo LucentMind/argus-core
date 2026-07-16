@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { GeneralSettings } from '../GeneralSettings'
 import { onboardingReplay } from '../../../lib/onboardingStore'
+import { tourStore } from '../../../lib/tourStore'
 import { defaultSettings } from '../../../../../shared/settings'
 import type { SettingsPayload } from '../../../../../shared/settings'
 
@@ -17,6 +18,7 @@ const payload: SettingsPayload = {
 afterEach(() => {
   vi.restoreAllMocks()
   onboardingReplay.clear()
+  tourStore.exitTour()
 })
 
 describe('GeneralSettings onboarding replay', () => {
@@ -27,5 +29,11 @@ describe('GeneralSettings onboarding replay', () => {
     fireEvent.click(screen.getByRole('button', { name: /re-run onboarding/i }))
     expect(spy).toHaveBeenCalledTimes(1)
     expect(onboardingReplay.get()).toBe(true)
+  })
+
+  it('Take the feature tour opens the tour', () => {
+    render(<GeneralSettings payload={payload} />)
+    fireEvent.click(screen.getByRole('button', { name: /take the feature tour/i }))
+    expect(tourStore.get().open).toBe(true)
   })
 })
