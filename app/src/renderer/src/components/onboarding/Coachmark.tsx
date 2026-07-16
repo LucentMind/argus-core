@@ -71,6 +71,18 @@ export function Coachmark({
     )
   }
 
+  // Prefer the callout below the anchor, but if the anchor is docked near the
+  // bottom of the viewport (e.g. the chat composer) there isn't room — placing
+  // it below would push the panel, and its Exit control, off-screen. In that
+  // case dock it above the anchor via `bottom` so it grows upward and stays
+  // visible regardless of the panel's own height.
+  const GAP = 8
+  const spaceBelow = window.innerHeight - (rect.top + rect.height)
+  const calloutStyle: React.CSSProperties =
+    spaceBelow >= 200
+      ? { top: rect.top + rect.height + GAP, left: rect.left }
+      : { bottom: window.innerHeight - rect.top + GAP, left: rect.left }
+
   return (
     <div className="pointer-events-none fixed inset-0 z-[60]">
       <div
@@ -78,10 +90,7 @@ export function Coachmark({
         className="absolute rounded-r2 ring-2 ring-signal ring-offset-2 ring-offset-void"
         style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
       />
-      <div
-        className="pointer-events-auto absolute max-w-sm"
-        style={{ top: rect.top + rect.height + 8, left: rect.left }}
-      >
+      <div className="pointer-events-auto absolute max-w-sm" style={calloutStyle}>
         {children}
       </div>
     </div>

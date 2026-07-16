@@ -61,6 +61,38 @@ describe('Coachmark', () => {
     expect(screen.queryByTestId('coachmark-ring')).toBeNull()
   })
 
+  it('places the callout above a bottom-docked anchor so it stays on-screen', () => {
+    Object.defineProperty(window, 'innerHeight', { value: 768, configurable: true })
+    const target = document.createElement('button')
+    target.setAttribute('data-onboarding-anchor', 'composer')
+    // Docked at the very bottom of the viewport (like the chat composer): only
+    // 8px of room below, so the callout must render ABOVE the anchor instead of
+    // spilling off the bottom edge (where its Exit button would be unreachable).
+    target.getBoundingClientRect = () =>
+      ({
+        top: 720,
+        left: 40,
+        width: 600,
+        height: 40,
+        right: 640,
+        bottom: 760,
+        x: 40,
+        y: 720,
+        toJSON: () => ({})
+      }) as DOMRect
+    document.body.appendChild(target)
+    render(
+      <Coachmark anchor="composer">
+        <span>panel</span>
+      </Coachmark>
+    )
+    const callout = screen.getByText('panel').parentElement as HTMLElement
+    // Positioned via `bottom` (grows upward from the anchor), not `top`.
+    expect(callout.style.bottom).not.toBe('')
+    expect(callout.style.top).toBe('')
+    document.body.removeChild(target)
+  })
+
   it('resolves the ring once the anchor mounts after initial render', () => {
     render(
       <Coachmark anchor="late">
