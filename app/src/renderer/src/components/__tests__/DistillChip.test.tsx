@@ -52,4 +52,48 @@ describe('DistillChip', () => {
     )
     expect(screen.queryByText(/distill/i)).not.toBeInTheDocument()
   })
+
+  it('disables retry button while retry promise is pending', async () => {
+    let resolveRetry: (value: DistillJobRow) => void
+    const retryPromise = new Promise<DistillJobRow>((resolve) => {
+      resolveRetry = resolve
+    })
+    retry.mockReturnValue(retryPromise)
+    setup(job({ state: 'failed', error: 'boom', itemCount: null }))
+    const button = await screen.findByRole('button', { name: /retry/i })
+
+    fireEvent.click(button)
+    await waitFor(() => expect(button).toBeDisabled())
+
+    resolveRetry!(job({ state: 'queued' }))
+    // After successful retry, the component transitions from failed state to queued state
+    // and shows 'distilling…' instead of the button
+    await waitFor(() => expect(screen.getByText(/distilling/)).toBeInTheDocument())
+  })
+
+  it('rejected retry re-syncs from status without unhandled rejection', async () => {
+    const status = vi
+      .fn()
+      .mockResolvedValue(job({ state: 'failed', error: 'boom', itemCount: null }))
+    retry
+      .mockRejectedValueOnce(new Error('job not found'))
+      .mockResolvedValue(job({ state: 'queued' }))
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status,
+        retry,
+        onChanged: vi.fn().mockReturnValue(() => undefined)
+      }
+    }
+    render(<DistillChip slug="c1" />)
+    const button = await screen.findByRole('button', { name: /retry/i })
+    expect(status).toHaveBeenCalledWith('c1')
+
+    // After first click, status call count should increase as we re-sync
+    const initialStatusCallCount = (status as ReturnType<typeof vi.fn>).mock.calls.length
+    fireEvent.click(button)
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(1))
+    // On failure, status() is called again to re-sync
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(initialStatusCallCount + 1))
+  })
 })

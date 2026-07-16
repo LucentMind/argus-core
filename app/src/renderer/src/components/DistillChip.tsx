@@ -4,9 +4,12 @@ import { Chip } from './ui'
 
 export function DistillChip({ slug }: { slug: string }): React.JSX.Element | null {
   const [job, setJob] = useState<DistillJobRow | null>(null)
+  const [retrying, setRetrying] = useState(false)
 
   useEffect(() => {
     let mounted = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setJob(null)
     void window.argus.distill.status(slug).then((j) => {
       if (mounted) setJob(j)
     })
@@ -29,7 +32,20 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
     return (
       <button
         className="font-mono text-[10.5px] uppercase tracking-wide text-danger"
-        onClick={() => void window.argus.distill.retry(job.id).then(setJob)}
+        disabled={retrying}
+        onClick={() => {
+          setRetrying(true)
+          void window.argus.distill
+            .retry(job.id)
+            .then(setJob)
+            .catch(() =>
+              window.argus.distill
+                .status(slug)
+                .then((j) => j && setJob(j))
+                .catch(() => undefined)
+            )
+            .finally(() => setRetrying(false))
+        }}
       >
         distill failed — retry
       </button>
