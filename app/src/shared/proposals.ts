@@ -28,6 +28,8 @@ export interface ProposalRecord {
   current: string | null // current content of the target; null when the target is new
   /** distiller re-produced an item the user already accepted/rejected for this case */
   previouslyReviewed?: boolean
+  /** distill job id that produced this proposal; absent for user-authored proposals */
+  jobId?: string
 }
 export interface ProposalsPayload {
   proposals: ProposalRecord[]
