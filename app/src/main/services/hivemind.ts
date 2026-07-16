@@ -189,7 +189,7 @@ export class HivemindService {
         const dir = subdir ? path.join(refsRoot, subdir) : refsRoot
         if (!fs.existsSync(dir)) continue
         for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (!ent.isFile() || !ent.name.endsWith('.md')) continue
+          if (!ent.isFile() || !ent.name.endsWith('.md') || ent.name.startsWith('.')) continue
           const name = subdir ? `${subdir}/${ent.name}` : ent.name
           const commit = await this.itemCommit(`references/${name}`)
           const installedCommit = state.references[name] ?? null
