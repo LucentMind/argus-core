@@ -60,12 +60,12 @@ async function* oneMessage(text: string): AsyncGenerator<unknown> {
 }
 
 /**
- * Headless one-shot distillation (spec §3.4): no case, no sessions row, no
- * mirror, no tools. Throws on failure — the caller records a per-file failure
- * and other files stay unaffected.
+ * Headless one-shot session mechanics (spec §3.4): no case, no sessions row,
+ * no mirror, no tools. A single prompt message, held-open stream, timeout
+ * race, and interrupt-in-finally teardown. Throws on failure.
  */
-export async function distillTarget(
-  input: DistillInput,
+export async function runOneShot(
+  promptText: string,
   opts: DistillOptions = {},
   createQuery: CreateQueryFn = defaultCreateQuery
 ): Promise<string> {
@@ -73,7 +73,7 @@ export async function distillTarget(
   let q: ReturnType<CreateQueryFn> | null = null
   try {
     q = createQuery({
-      prompt: oneMessage(buildDistillPrompt(input)),
+      prompt: oneMessage(promptText),
       options: {
         maxTurns: 1,
         allowedTools: [],
@@ -92,6 +92,19 @@ export async function distillTarget(
   } finally {
     await q?.interrupt().catch(() => undefined)
   }
+}
+
+/**
+ * Headless one-shot distillation (spec §3.4): no case, no sessions row, no
+ * mirror, no tools. Throws on failure — the caller records a per-file failure
+ * and other files stay unaffected.
+ */
+export async function distillTarget(
+  input: DistillInput,
+  opts: DistillOptions = {},
+  createQuery: CreateQueryFn = defaultCreateQuery
+): Promise<string> {
+  return runOneShot(buildDistillPrompt(input), opts, createQuery)
 }
 
 async function collectAssistantText(q: ReturnType<CreateQueryFn>): Promise<string> {
