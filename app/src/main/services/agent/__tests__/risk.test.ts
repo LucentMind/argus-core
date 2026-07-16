@@ -305,8 +305,8 @@ describe('MCP connector tools (spec 2.5)', () => {
 describe('classifyToolCall · panel commands + open_panel', () => {
   const pcr = {
     'mcp__sample-bridge-playground__playground_highlight': 'low' as const,
-    'mcp__pk__win_danger': 'high' as const,
-    'mcp__pk__win_edit': 'medium' as const
+    mcp__pk__win_danger: 'high' as const,
+    mcp__pk__win_edit: 'medium' as const
   }
   it('open_panel is allow/LOW', () => {
     expect(classifyToolCall('mcp__argus__open_panel', {}, ctx())).toMatchObject({

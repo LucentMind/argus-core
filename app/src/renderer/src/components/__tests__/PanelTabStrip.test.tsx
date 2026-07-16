@@ -11,7 +11,13 @@ beforeEach(() => {
   // fresh for each test so a launcher item is always available to click.
   panelsStore.setCase('CASE-A')
   panelsStore.setDecls([
-    { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: [], kind: 'webPanel' }
+    {
+      packId: 'sample-pack',
+      windowId: 'text-viewer',
+      title: 'Text Viewer',
+      handles: [],
+      kind: 'webPanel'
+    }
   ])
   panelsStore.setPanels([])
 })

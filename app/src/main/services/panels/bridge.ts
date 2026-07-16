@@ -86,7 +86,10 @@ export interface PanelBridge {
   /** 3d-3: enumerate the bound case's evidence registry metadata (read-only, no bytes). */
   listCaseEvidence?(): EvidenceSummary[]
   sendToAgent?(text: string): { ok: true }
-  emitFinding?(input: { title: string; markdown: string }): Promise<{ ok: boolean; findingId?: number }>
+  emitFinding?(input: {
+    title: string
+    markdown: string
+  }): Promise<{ ok: boolean; findingId?: number }>
   cite?(relPath: string, line: number): { ok: true }
   ingestEvidence?(input: {
     source: { url: string } | { bytes: ArrayBuffer | Uint8Array }

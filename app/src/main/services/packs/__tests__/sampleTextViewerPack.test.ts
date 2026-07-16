@@ -24,7 +24,9 @@ describe('sample-text-viewer pack', () => {
 
   it('surfaces the window via windowDecls with its entry files present on disk', () => {
     const reg = new PackRegistry(loadPacks(packsSrc).packs)
-    const w = reg.windowDecls().find((d) => d.packId === 'sample-text-viewer' && d.decl.id === 'text-viewer')
+    const w = reg
+      .windowDecls()
+      .find((d) => d.packId === 'sample-text-viewer' && d.decl.id === 'text-viewer')
     expect(w).toBeTruthy()
     for (const f of ['index.html', 'app.js', 'app.css']) {
       // webPanel-only; Task 6 routes externalApp before this

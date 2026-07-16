@@ -28,7 +28,9 @@ describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
   })
   it('detects binlog by magic', () => {
     expect(
-      det.detectType(write('trace.bin', Buffer.concat([Buffer.from('\x44\x4C\x54\x01'), Buffer.alloc(16)])))
+      det.detectType(
+        write('trace.bin', Buffer.concat([Buffer.from('\x44\x4C\x54\x01'), Buffer.alloc(16)]))
+      )
     ).toBe('binlog')
   })
   it('detects zip archives', () => {
@@ -50,16 +52,12 @@ describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
   })
   it('detects applog', () => {
     expect(
-      det.detectType(
-        write('log.txt', '07-08 14:23:01.123  1234  1234 I AppService: created\n')
-      )
+      det.detectType(write('log.txt', '07-08 14:23:01.123  1234  1234 I AppService: created\n'))
     ).toBe('applog')
   })
   it('detects tagged traces by filename', () => {
     expect(
-      det.detectType(
-        write('session-tagged-json.json', JSON.stringify({ version: 1, events: [] }))
-      )
+      det.detectType(write('session-tagged-json.json', JSON.stringify({ version: 1, events: [] })))
     ).toBe('tagged-json')
   })
   it('detects tagged traces by top-level key', () => {
@@ -89,9 +87,9 @@ describe('createDetection with nav-style rules (ported detect.test.ts)', () => {
     expect(det.detectType(write('weird.binlog', zlib.gzipSync(Buffer.from('x'))))).toBe('binlog')
   })
   it('DEVIATION: .list.json with tagged marker is tagged-json (was list-json)', () => {
-    expect(
-      det.detectType(write('report-tagged.list.json', JSON.stringify({ version: 1 })))
-    ).toBe('tagged-json')
+    expect(det.detectType(write('report-tagged.list.json', JSON.stringify({ version: 1 })))).toBe(
+      'tagged-json'
+    )
   })
 
   it('isText covers text + declared isText types only', () => {

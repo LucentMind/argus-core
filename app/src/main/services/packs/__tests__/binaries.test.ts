@@ -430,13 +430,34 @@ describe('BinariesService', () => {
   it('preflight dedupes checks by name, keeping the first occurrence', async () => {
     const dev = mkExe(path.join(tmp, 'bin-out'), 'fake-parse')
     const svc = new BinariesService({
-      registry: new PackRegistry([packWith([
-        { id: 'fake-parse', kind: 'exe', displayName: 'F', names: ['fake-parse'], devPaths: ['bin-out'] },
-        { id: 'fake-trace', kind: 'pathDir', displayName: 'T', names: ['fake-trace'],
-          doctor: { cmd: process.execPath,
-            args: ['-e', 'console.log(JSON.stringify({ok:true,checks:[{name:"fake-parse",ok:false,detail:"doctor dup"},{name:"venv",ok:true,detail:"3.11"}]}))'],
-            json: true } }
-      ], tmp)]),
+      registry: new PackRegistry([
+        packWith(
+          [
+            {
+              id: 'fake-parse',
+              kind: 'exe',
+              displayName: 'F',
+              names: ['fake-parse'],
+              devPaths: ['bin-out']
+            },
+            {
+              id: 'fake-trace',
+              kind: 'pathDir',
+              displayName: 'T',
+              names: ['fake-trace'],
+              doctor: {
+                cmd: process.execPath,
+                args: [
+                  '-e',
+                  'console.log(JSON.stringify({ok:true,checks:[{name:"fake-parse",ok:false,detail:"doctor dup"},{name:"venv",ok:true,detail:"3.11"}]}))'
+                ],
+                json: true
+              }
+            }
+          ],
+          tmp
+        )
+      ]),
       settingsTools: () => ({}),
       capturedEnv: {}
     })

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import type { DatabaseSync } from 'node:sqlite'
 import { BASE_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
-import { CaseSession } from '../session'
+import { CaseSession, type CreateQueryFn } from '../session'
+import { createDetection } from '../../packs/detection'
 
 describe('BASE_PERSONA', () => {
   it('is domain-neutral (no navigation/DLT wording)', () => {
@@ -40,25 +42,34 @@ describe('CONTRIBUTE_BACK_NUDGE', () => {
 
 describe('CaseSession persona wiring', () => {
   it('injects pack fragments into the system prompt append', () => {
-    let captured: any
-    const fakeQuery = (args: any) => {
+    let captured: Parameters<CreateQueryFn>[0] | undefined
+    const fakeQuery: CreateQueryFn = (args) => {
       captured = args
-      return { async *[Symbol.asyncIterator]() {}, interrupt: async () => {} } as any
+      return {
+        async *[Symbol.asyncIterator]() {
+          // the session never consumes messages in this test
+        },
+        interrupt: async () => undefined
+      }
     }
     // Minimal deps: only fields read before the first prompt matter for systemPrompt assembly.
     new CaseSession({
-      db: { prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }) } as any,
+      db: {
+        prepare: () => ({ get: () => undefined, all: () => [], run: () => undefined })
+      } as unknown as DatabaseSync,
       argusHome: '/tmp/argus',
+      detection: createDetection(),
       caseId: 1,
       caseSlug: 'demo',
       sessionId: 1,
       workspaceRoots: [],
       skillsRoots: [],
-      emit: () => {},
-      createQuery: fakeQuery as any,
+      emit: () => undefined,
+      createQuery: fakeQuery,
+      resumeSdkSessionId: null,
       personaFragments: ['NAV TRACE RULES']
-    } as any)
-    const append = captured.options.systemPrompt.append as string
+    })
+    const append = (captured!.options.systemPrompt as { append: string }).append
     expect(append).toContain('NAV TRACE RULES')
     expect(append).toContain('CITATIONS') // base still present
   })

@@ -28,18 +28,36 @@ async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<void> {
 describe('externalApp integration (3c)', () => {
   it('spawns the sample app, dispatches commands, logs to stderr, and tears down', async () => {
     logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-ext-'))
-    host = new ExternalAppHost({ spawner: createElectronProcessSpawner(), logDir, dispatchTimeoutMs: 8000 })
+    host = new ExternalAppHost({
+      spawner: createElectronProcessSpawner(),
+      logDir,
+      dispatchTimeoutMs: 8000
+    })
 
-    const info = host.open({ ...key, title: 'Sample', entry: ENTRY, cwd: PACK_DIR, runtime: 'node' })
+    const info = host.open({
+      ...key,
+      title: 'Sample',
+      entry: ENTRY,
+      cwd: PACK_DIR,
+      runtime: 'node'
+    })
     expect(info.status).toBe('running')
 
-    await expect(host.dispatchToProcess(key, 'ping', [])).resolves.toEqual({ ok: true, result: { pong: true } })
-    await expect(host.dispatchToProcess(key, 'echo', ['hi'])).resolves.toEqual({ ok: true, result: { echoed: 'hi' } })
+    await expect(host.dispatchToProcess(key, 'ping', [])).resolves.toEqual({
+      ok: true,
+      result: { pong: true }
+    })
+    await expect(host.dispatchToProcess(key, 'echo', ['hi'])).resolves.toEqual({
+      ok: true,
+      result: { echoed: 'hi' }
+    })
 
     // stderr is teed to the per-process log asynchronously (separate pipe from
     // stdout) — poll briefly instead of a fixed sleep to stay deterministic.
     const logFile = path.join(logDir, 'CASE-A_sample-external-app_console.log')
-    await waitFor(() => fs.existsSync(logFile) && fs.readFileSync(logFile, 'utf8').includes('cmd=ping'))
+    await waitFor(
+      () => fs.existsSync(logFile) && fs.readFileSync(logFile, 'utf8').includes('cmd=ping')
+    )
     expect(fs.readFileSync(logFile, 'utf8')).toContain('cmd=ping')
 
     host.closeAll()
@@ -47,7 +65,9 @@ describe('externalApp integration (3c)', () => {
     // so the host's status flips to 'exited' a tick or two after closeAll()
     // returns. Wait for that real exit before asserting the process-exited
     // dispatch path, rather than racing it.
-    await waitFor(() => host.list(key.caseSlug).find((a) => a.windowId === key.windowId)?.status === 'exited')
+    await waitFor(
+      () => host.list(key.caseSlug).find((a) => a.windowId === key.windowId)?.status === 'exited'
+    )
     // after teardown, dispatch reports process-exited (no auto-spawn)
     await expect(host.dispatchToProcess(key, 'ping', [])).resolves.toEqual({
       ok: false,

@@ -12,13 +12,8 @@ import { PackRegistry } from '../../packs/registry'
 import { seededPacksDir } from '../../packs/paths'
 import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from '../protocol'
 import { createPanelBridge } from '../bridge'
-import {
-  PanelHost,
-  type OpenPanelInput,
-  type PanelView,
-  type PanelViewFactory,
-  type PanelViewHooks
-} from '../panelHost'
+import { makeFakePanelViewFactory } from './fixtures'
+import { PanelHost } from '../panelHost'
 import type { PanelPermission } from '../../../../shared/panels'
 
 // panels/__tests__ → up 5 = app/ (seededPacksDir → <repo>/packs); up 6 = <repo> (fixtures).
@@ -42,8 +37,12 @@ beforeEach(() => {
   registry = new PackRegistry(packs)
 })
 
-const viewer = () =>
-  registry.windowDecls().find((d) => d.packId === 'sample-text-viewer' && d.decl.id === 'text-viewer')!
+type WindowDecl = ReturnType<PackRegistry['windowDecls']>[number]
+
+const viewer = (): WindowDecl =>
+  registry
+    .windowDecls()
+    .find((d) => d.packId === 'sample-text-viewer' && d.decl.id === 'text-viewer')!
 
 describe('sample-text-viewer end-to-end read path', () => {
   it('ingests the fixture as a "text" artifact the viewer handles', () => {
@@ -98,32 +97,11 @@ describe('sample-text-viewer end-to-end read path', () => {
   })
 
   it('PanelHost.open loads the viewer entry URL and exposes a case-bound bridge', () => {
-    class FakeView implements PanelView {
-      loaded: string[] = []
-      constructor(readonly webContentsId: number) {}
-      loadPanel(url: string): void {
-        this.loaded.push(url)
-      }
-      pushTheme(): void {}
-      floatOut(): void {}
-      dockBack(): void {}
-      destroy(): void {}
-      focus(): void {}
-      setBounds(): void {}
-      setVisible(): void {}
-      sendCommand(): void {}
-      async capturePage(): Promise<Buffer> {
-        return Buffer.alloc(0)
-      }
-    }
-    const created: FakeView[] = []
-    const factory: PanelViewFactory = {
-      create: (_i: OpenPanelInput, _h: PanelViewHooks): PanelView => {
-        const v = new FakeView(1)
-        created.push(v)
-        return v
-      }
-    }
+    const loaded: string[] = []
+    const { factory, views } = makeFakePanelViewFactory({
+      webContentsId: 1,
+      loadPanel: (url) => loaded.push(url)
+    })
     const host = new PanelHost({ db, argusHome: home, factory })
     const w = viewer()
     host.open({
@@ -138,8 +116,8 @@ describe('sample-text-viewer end-to-end read path', () => {
       permissions: w.decl.permissions as PanelPermission[],
       focus: { evidenceId, line: 5 }
     })
-    expect(created[0].loaded).toEqual(['argus-panel://sample-text-viewer/text-viewer/index.html'])
-    const bridge = host.bridgeForWebContents(1)
+    expect(loaded).toEqual(['argus-panel://sample-text-viewer/text-viewer/index.html'])
+    const bridge = host.bridgeForWebContents(views[0].webContentsId)
     expect(bridge?.getCaseContext!().focus).toEqual({ evidenceId, line: 5 })
     expect(bridge?.readEvidence!(evidenceId).content).toContain('Router error: NoRoute')
   })

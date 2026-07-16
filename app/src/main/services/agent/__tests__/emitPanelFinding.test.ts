@@ -38,7 +38,10 @@ afterEach(() => {
 
 const mkService = (): AgentService =>
   new AgentService({
-    db, argusHome: home, detection, skillsRoots: [],
+    db,
+    argusHome: home,
+    detection,
+    skillsRoots: [],
     agentAccess: () => defaultAgentAccess(),
     onEvent: (e) => events.push(e),
     createQuery: fakeCreateQuery()
@@ -58,7 +61,8 @@ it('raises a MEDIUM editable card and, on approve, writes the (edited) finding',
 
   // user edits the body and approves
   svc.respond('NAV-1', s.id, {
-    requestId: opened.payload.requestId, kind: 'allow',
+    requestId: opened.payload.requestId,
+    kind: 'allow',
     updatedInput: { title: 'T', markdown: 'EDITED body' }
   })
   const res = await p

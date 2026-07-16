@@ -13,7 +13,9 @@ import path from 'node:path'
 const slug = process.argv[2]
 const argusHome = process.argv[3] ?? process.env.ARGUS_HOME ?? path.join(os.homedir(), 'Argus')
 if (!slug) {
-  console.error('usage: node --experimental-sqlite app/scripts/seed-demo-findings.mjs <SLUG> [ARGUS_HOME]')
+  console.error(
+    'usage: node --experimental-sqlite app/scripts/seed-demo-findings.mjs <SLUG> [ARGUS_HOME]'
+  )
   process.exit(1)
 }
 
@@ -55,7 +57,9 @@ for (const f of demo) {
   const reviewedAt = f.state === 'pending' ? null : now
   const res = insert.run(kase.id, f.session, null, f.title, f.state, reviewedAt, now)
   const id = Number(res.lastInsertRowid)
-  parts.push(`\n<!-- finding:${id} -->\n## ${f.title}\n_${now} · session ${f.session}_\n\n${f.body}\n`)
+  parts.push(
+    `\n<!-- finding:${id} -->\n## ${f.title}\n_${now} · session ${f.session}_\n\n${f.body}\n`
+  )
 }
 fs.writeFileSync(path.join(argusHome, 'cases', slug, 'findings.md'), parts.join(''))
 console.log(`seeded ${demo.length} findings into ${slug} (rows + findings.md markers in sync)`)

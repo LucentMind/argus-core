@@ -5,7 +5,10 @@ import { IPC } from '../ipc'
 
 describe('buildPanelApi', () => {
   it('includes only granted verbs', () => {
-    const api = buildPanelApi(['readEvidence'], vi.fn(async () => undefined))
+    const api = buildPanelApi(
+      ['readEvidence'],
+      vi.fn(async () => undefined)
+    )
     expect(typeof api.readEvidence).toBe('function')
     expect(api.getCaseContext).toBeUndefined()
     expect(api.requestEvidence).toBeUndefined()
@@ -54,15 +57,21 @@ import { panelKeyStr, panelHandlesType, type PanelDecl } from '../panels'
 
 describe('panelKeyStr', () => {
   it('joins the identity triple stably', () => {
-    expect(panelKeyStr({ caseSlug: 'CASE-A', packId: 'sample-pack', windowId: 'text-viewer' })).toBe(
-      'CASE-A::sample-pack::text-viewer'
-    )
+    expect(
+      panelKeyStr({ caseSlug: 'CASE-A', packId: 'sample-pack', windowId: 'text-viewer' })
+    ).toBe('CASE-A::sample-pack::text-viewer')
   })
 })
 
 describe('panelHandlesType', () => {
   const decls: PanelDecl[] = [
-    { packId: 'sample-pack', windowId: 'text-viewer', title: 'Text Viewer', handles: ['logcat', 'dlt-text'], kind: 'webPanel' },
+    {
+      packId: 'sample-pack',
+      windowId: 'text-viewer',
+      title: 'Text Viewer',
+      handles: ['logcat', 'dlt-text'],
+      kind: 'webPanel'
+    },
     { packId: 'p2', windowId: 'w2', title: 'Other', handles: ['pcap'], kind: 'webPanel' },
     { packId: 'p3', windowId: 'w3', title: 'Launcher only', handles: [], kind: 'webPanel' }
   ]

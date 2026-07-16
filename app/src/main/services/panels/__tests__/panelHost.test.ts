@@ -9,6 +9,7 @@ import {
   type PanelKey
 } from '../panelHost'
 import type { PanelWriteSink } from '../bridge'
+import { makeFakePanelViewFactory } from './fixtures'
 
 // A fake WebContentsView recording lifecycle calls; identity = webContentsId.
 class FakeView implements PanelView {
@@ -98,7 +99,14 @@ const key = (over: Partial<OpenPanelInput> = {}): PanelKey => ({
 beforeEach(() => {
   factory = new FakeFactory()
   changes = 0
-  host = new PanelHost({ db: fakeDb, argusHome: '/home', factory, onChange: () => { changes++ } })
+  host = new PanelHost({
+    db: fakeDb,
+    argusHome: '/home',
+    factory,
+    onChange: () => {
+      changes++
+    }
+  })
 })
 
 describe('PanelHost lifecycle', () => {
@@ -197,27 +205,8 @@ describe('PanelHost lifecycle', () => {
   })
 })
 
-function fakeFactory(): { factory: PanelViewFactory; views: PanelView[] } {
-  const views: PanelView[] = []
-  let nextId = 100
-  const factory: PanelViewFactory = {
-    create() {
-      const id = nextId++
-      const view: PanelView = {
-        webContentsId: id,
-        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {},
-        destroy() {}, focus() {}, setBounds() {}, setVisible() {}, sendCommand() {},
-        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
-      }
-      views.push(view)
-      return view
-    }
-  }
-  return { factory, views }
-}
-
 it('builds a bridge with write verbs when a sink + write permission are present', () => {
-  const { factory, views } = fakeFactory()
+  const { factory, views } = makeFakePanelViewFactory()
   const sink = {
     sendToAgent: () => {},
     emitFinding: async () => ({ ok: true }),
@@ -225,9 +214,15 @@ it('builds a bridge with write verbs when a sink + write permission are present'
   } as unknown as PanelWriteSink
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, writeSink: sink })
   host.open({
-    caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W',
-    entry: 'w/index.html', uiDir: '/ui', network: [],
-    permissions: ['sendToAgent', 'cite'], sessionId: 3
+    caseSlug: 'CASE-A',
+    packId: 'p',
+    windowId: 'w',
+    title: 'W',
+    entry: 'w/index.html',
+    uiDir: '/ui',
+    network: [],
+    permissions: ['sendToAgent', 'cite'],
+    sessionId: 3
   })
   const bridge = host.bridgeForWebContents(views[0].webContentsId)!
   expect(typeof bridge.sendToAgent).toBe('function')
@@ -237,21 +232,29 @@ it('builds a bridge with write verbs when a sink + write permission are present'
 
 it('dispatchToPanel: delivers to an open panel and resolves with the reply', async () => {
   const sent: Array<{ requestId: string; cmd: string; args: unknown[] }> = []
-  const factory: PanelViewFactory = {
-    create() {
-      const id = 501
-      return {
-        webContentsId: id,
-        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
-        setBounds() {}, setVisible() {},
-        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) },
-        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
-      }
+  const { factory } = makeFakePanelViewFactory({
+    webContentsId: 501,
+    sendCommand(requestId, cmd, args) {
+      sent.push({ requestId, cmd, args })
     }
-  }
+  })
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory })
-  host.open({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W', entry: 'w/i.html', uiDir: '/ui', network: [], permissions: [], sessionId: 1 })
-  const p = host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' }, 'highlight', [4])
+  host.open({
+    caseSlug: 'CASE-A',
+    packId: 'p',
+    windowId: 'w',
+    title: 'W',
+    entry: 'w/i.html',
+    uiDir: '/ui',
+    network: [],
+    permissions: [],
+    sessionId: 1
+  })
+  const p = host.dispatchToPanel(
+    { caseSlug: 'CASE-A', packId: 'p', windowId: 'w' },
+    'highlight',
+    [4]
+  )
   // the host sent a correlated request; simulate the panel replying
   expect(sent).toHaveLength(1)
   host.resolveCommand(sent[0].requestId, { ok: true, result: { echoed: [4] } })
@@ -259,36 +262,53 @@ it('dispatchToPanel: delivers to an open panel and resolves with the reply', asy
 })
 
 it('dispatchToPanel: closed panel → structured panel-not-open error (no auto-open)', async () => {
-  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory: fakeFactory().factory })
-  const r = await host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'nope' }, 'x', [])
+  const host = new PanelHost({
+    db: {} as never,
+    argusHome: '/x',
+    factory: makeFakePanelViewFactory().factory
+  })
+  const r = await host.dispatchToPanel(
+    { caseSlug: 'CASE-A', packId: 'p', windowId: 'nope' },
+    'x',
+    []
+  )
   expect(r).toMatchObject({ ok: false, reason: 'panel-not-open' })
 })
 
 it('resolveCommand ignores an unknown requestId', () => {
-  const host = new PanelHost({ db: {} as never, argusHome: '/x', factory: fakeFactory().factory })
+  const host = new PanelHost({
+    db: {} as never,
+    argusHome: '/x',
+    factory: makeFakePanelViewFactory().factory
+  })
   expect(() => host.resolveCommand('nope', { ok: true, result: 1 })).not.toThrow()
 })
 
 it('dispatchToPanel: no reply within dispatchTimeoutMs → structured timeout error', async () => {
-  const factory: PanelViewFactory = {
-    create() {
-      return {
-        webContentsId: 502,
-        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
-        setBounds() {}, setVisible() {},
-        sendCommand() {}, // never replies
-        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
-      }
-    }
-  }
+  // the default fake's sendCommand never replies — exactly what this test needs
+  const { factory } = makeFakePanelViewFactory({ webContentsId: 502 })
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, dispatchTimeoutMs: 5 })
-  host.open({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W', entry: 'w/i.html', uiDir: '/ui', network: [], permissions: [], sessionId: 1 })
-  const r = await host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' }, 'highlight', [4])
+  host.open({
+    caseSlug: 'CASE-A',
+    packId: 'p',
+    windowId: 'w',
+    title: 'W',
+    entry: 'w/i.html',
+    uiDir: '/ui',
+    network: [],
+    permissions: [],
+    sessionId: 1
+  })
+  const r = await host.dispatchToPanel(
+    { caseSlug: 'CASE-A', packId: 'p', windowId: 'w' },
+    'highlight',
+    [4]
+  )
   expect(r).toEqual({ ok: false, reason: 'timeout' })
 })
 
 it('threads the window network allowlist into the bridge for ingestEvidence', async () => {
-  const { factory, views } = fakeFactory()
+  const { factory, views } = makeFakePanelViewFactory()
   const sink: PanelWriteSink = {
     sendToAgent: () => {},
     emitFinding: async () => ({ ok: true }),
@@ -297,9 +317,15 @@ it('threads the window network allowlist into the bridge for ingestEvidence', as
   }
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, writeSink: sink })
   host.open({
-    caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W',
-    entry: 'w/index.html', uiDir: '/ui', network: ['https://tiles.example.com'],
-    permissions: ['ingestEvidence'], sessionId: 3
+    caseSlug: 'CASE-A',
+    packId: 'p',
+    windowId: 'w',
+    title: 'W',
+    entry: 'w/index.html',
+    uiDir: '/ui',
+    network: ['https://tiles.example.com'],
+    permissions: ['ingestEvidence'],
+    sessionId: 3
   })
   const bridge = host.bridgeForWebContents(views[0].webContentsId)!
   const res = await bridge.ingestEvidence!({
@@ -311,20 +337,29 @@ it('threads the window network allowlist into the bridge for ingestEvidence', as
 
 it('dispatchToPanel: panel-side handler error → structured error (not timeout)', async () => {
   const sent: Array<{ requestId: string; cmd: string; args: unknown[] }> = []
-  const factory: PanelViewFactory = {
-    create() {
-      return {
-        webContentsId: 503,
-        loadPanel() {}, pushTheme() {}, floatOut() {}, dockBack() {}, destroy() {}, focus() {},
-        setBounds() {}, setVisible() {},
-        sendCommand(requestId, cmd, args) { sent.push({ requestId, cmd, args }) },
-        capturePage() { return Promise.resolve(Buffer.alloc(0)) }
-      }
+  const { factory } = makeFakePanelViewFactory({
+    webContentsId: 503,
+    sendCommand(requestId, cmd, args) {
+      sent.push({ requestId, cmd, args })
     }
-  }
+  })
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory })
-  host.open({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w', title: 'W', entry: 'w/i.html', uiDir: '/ui', network: [], permissions: [], sessionId: 1 })
-  const p = host.dispatchToPanel({ caseSlug: 'CASE-A', packId: 'p', windowId: 'w' }, 'highlight', [4])
+  host.open({
+    caseSlug: 'CASE-A',
+    packId: 'p',
+    windowId: 'w',
+    title: 'W',
+    entry: 'w/i.html',
+    uiDir: '/ui',
+    network: [],
+    permissions: [],
+    sessionId: 1
+  })
+  const p = host.dispatchToPanel(
+    { caseSlug: 'CASE-A', packId: 'p', windowId: 'w' },
+    'highlight',
+    [4]
+  )
   expect(sent).toHaveLength(1)
   host.resolveCommand(sent[0].requestId, { ok: false, error: 'boom' })
   expect(await p).toEqual({ ok: false, reason: 'error', hint: 'boom' })

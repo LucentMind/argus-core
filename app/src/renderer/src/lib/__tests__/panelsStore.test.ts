@@ -18,7 +18,12 @@ beforeEach(() => {
 
 describe('PanelsStore', () => {
   it('starts empty on the Chat tab', () => {
-    expect(store.get()).toMatchObject({ caseSlug: null, panels: [], activeTab: CHAT_TAB, occluded: false })
+    expect(store.get()).toMatchObject({
+      caseSlug: null,
+      panels: [],
+      activeTab: CHAT_TAB,
+      occluded: false
+    })
   })
 
   it('setCase resets panels + active tab when the slug changes', () => {
@@ -41,7 +46,11 @@ describe('PanelsStore', () => {
     store.setPanels([info()])
     expect(store.activeKey()).toBeNull()
     store.setActiveTab(panelKeyStr(info()))
-    expect(store.activeKey()).toEqual({ caseSlug: 'CASE-A', packId: 'sample-pack', windowId: 'text-viewer' })
+    expect(store.activeKey()).toEqual({
+      caseSlug: 'CASE-A',
+      packId: 'sample-pack',
+      windowId: 'text-viewer'
+    })
   })
 
   it('falls back to Chat when the active panel is no longer open', () => {
@@ -82,7 +91,9 @@ describe('PanelsStore', () => {
 
   it('notifies subscribers on change', () => {
     let n = 0
-    const off = store.subscribe(() => { n++ })
+    const off = store.subscribe(() => {
+      n++
+    })
     store.setOccluded(true)
     store.setDecls([{ packId: 'p', windowId: 'w', title: 'T', handles: [], kind: 'webPanel' }])
     off()

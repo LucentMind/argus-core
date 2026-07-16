@@ -38,7 +38,10 @@ afterEach(() => {
 
 const mkService = (): AgentService =>
   new AgentService({
-    db, argusHome: home, detection, skillsRoots: [],
+    db,
+    argusHome: home,
+    detection,
+    skillsRoots: [],
     agentAccess: () => defaultAgentAccess(),
     onEvent: (e) => events.push(e),
     createQuery: fakeCreateQuery()
@@ -59,7 +62,8 @@ it('raises a MEDIUM editable card and, on approve, ingests the (edited) filename
   expect(opened.payload.input).toEqual({ filename: 'note.txt', source: '16 bytes from panel' })
 
   svc.respond('NAV-1', s.id, {
-    requestId: opened.payload.requestId, kind: 'allow',
+    requestId: opened.payload.requestId,
+    kind: 'allow',
     updatedInput: { filename: 'renamed.txt' }
   })
   const res = await p
@@ -85,7 +89,8 @@ it('rejects an operator-edited filename containing a traversal, and writes nothi
   const opened = events.find((e) => e.type === 'request.opened')!
 
   svc.respond('NAV-1', s.id, {
-    requestId: opened.payload.requestId, kind: 'allow',
+    requestId: opened.payload.requestId,
+    kind: 'allow',
     updatedInput: { filename: '../../evil.txt' }
   })
   const res = await p

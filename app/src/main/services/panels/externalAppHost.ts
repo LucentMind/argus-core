@@ -20,7 +20,11 @@ export interface ProcessHandle {
 }
 
 export interface ProcessSpawner {
-  spawn(cmd: string, args: string[], opts: { cwd: string; env?: Record<string, string> }): ProcessHandle
+  spawn(
+    cmd: string,
+    args: string[],
+    opts: { cwd: string; env?: Record<string, string> }
+  ): ProcessHandle
 }
 
 export interface OpenExternalAppInput extends PanelKey {
@@ -100,7 +104,11 @@ export class ExternalAppHost {
     const k = panelKeyStr(key)
     const app = this.apps.get(k)
     if (!app || app.status !== 'running') {
-      return Promise.resolve({ ok: false, reason: 'process-exited', hint: 'call mcp__argus__open_panel first' })
+      return Promise.resolve({
+        ok: false,
+        reason: 'process-exited',
+        hint: 'call mcp__argus__open_panel first'
+      })
     }
     const requestId = crypto.randomUUID()
     return new Promise<DispatchResult>((resolve) => {

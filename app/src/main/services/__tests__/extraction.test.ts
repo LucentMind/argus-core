@@ -100,6 +100,8 @@ describe('extraction pipeline', () => {
     const src = path.join(tmp, 'notes.txt')
     fs.writeFileSync(src, 'plain text\n')
     const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src)
-    await expect(extractDerivedText(db, argusHome, rec, stubExtractors('binlog'))).resolves.toBeNull()
+    await expect(
+      extractDerivedText(db, argusHome, rec, stubExtractors('binlog'))
+    ).resolves.toBeNull()
   })
 })

@@ -14,8 +14,7 @@ export function parseCiteHref(href: string): { relPath: string; line: number } |
 }
 
 export type CiteSegment =
-  | { type: 'text'; text: string }
-  | { type: 'cite'; relPath: string; line: number }
+  { type: 'text'; text: string } | { type: 'cite'; relPath: string; line: number }
 
 /**
  * Split plain text into alternating text / `[relPath:line]` citation segments.

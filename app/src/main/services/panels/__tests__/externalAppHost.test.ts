@@ -45,10 +45,18 @@ class FakeHandle implements ProcessHandle {
 }
 
 class FakeSpawner implements ProcessSpawner {
-  spawned: Array<{ cmd: string; args: string[]; opts: { cwd: string; env?: Record<string, string> } }> = []
+  spawned: Array<{
+    cmd: string
+    args: string[]
+    opts: { cwd: string; env?: Record<string, string> }
+  }> = []
   handles: FakeHandle[] = []
   private next = 1000
-  spawn(cmd: string, args: string[], opts: { cwd: string; env?: Record<string, string> }): ProcessHandle {
+  spawn(
+    cmd: string,
+    args: string[],
+    opts: { cwd: string; env?: Record<string, string> }
+  ): ProcessHandle {
     this.spawned.push({ cmd, args, opts })
     const h = new FakeHandle(this.next++)
     this.handles.push(h)
@@ -74,7 +82,12 @@ let changes: number
 beforeEach(() => {
   spawner = new FakeSpawner()
   changes = 0
-  host = new ExternalAppHost({ spawner, logDir: '/tmp/logs', onChange: () => changes++, dispatchTimeoutMs: 50 })
+  host = new ExternalAppHost({
+    spawner,
+    logDir: '/tmp/logs',
+    onChange: () => changes++,
+    dispatchTimeoutMs: 50
+  })
 })
 
 describe('ExternalAppHost', () => {
@@ -104,9 +117,15 @@ describe('ExternalAppHost', () => {
   it('dispatch writes a JSON command line and resolves on the correlated stdout reply', async () => {
     host.open(input())
     const p = host.dispatchToProcess(input(), 'ping', [])
-    const sent = JSON.parse(spawner.handles[0].written[0]) as { requestId: string; cmd: string; args: unknown[] }
+    const sent = JSON.parse(spawner.handles[0].written[0]) as {
+      requestId: string
+      cmd: string
+      args: unknown[]
+    }
     expect(sent.cmd).toBe('ping')
-    spawner.handles[0].emitStdout(JSON.stringify({ requestId: sent.requestId, ok: true, result: { pong: true } }) + '\n')
+    spawner.handles[0].emitStdout(
+      JSON.stringify({ requestId: sent.requestId, ok: true, result: { pong: true } }) + '\n'
+    )
     await expect(p).resolves.toEqual({ ok: true, result: { pong: true } })
   })
 
@@ -138,7 +157,10 @@ describe('ExternalAppHost', () => {
 
   it('dispatch times out', async () => {
     host.open(input())
-    await expect(host.dispatchToProcess(input(), 'ping', [])).resolves.toEqual({ ok: false, reason: 'timeout' })
+    await expect(host.dispatchToProcess(input(), 'ping', [])).resolves.toEqual({
+      ok: false,
+      reason: 'timeout'
+    })
   })
 
   it('stop escalates close-stdin → SIGTERM → SIGKILL', () => {

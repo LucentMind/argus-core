@@ -57,11 +57,7 @@ function stripHeadingAndMeta(segment: string): string {
   return lines.slice(i).join('\n').trim()
 }
 
-export function listFindings(
-  db: DatabaseSync,
-  argusHome: string,
-  caseSlug: string
-): FindingRow[] {
+export function listFindings(db: DatabaseSync, argusHome: string, caseSlug: string): FindingRow[] {
   const rows = (
     db
       .prepare(

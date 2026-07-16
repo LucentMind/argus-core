@@ -31,9 +31,9 @@ it('appends a findings.md block and inserts a pending findings row', () => {
   expect(fs.readFileSync(path.join(caseDir(home, 'CASE-A'), 'findings.md'), 'utf8')).toContain(
     'Race in tile cache'
   )
-  const row = db.prepare('SELECT summary, review_state FROM findings WHERE id = ?').get(findingId) as
-    | { summary: string; review_state: string }
-    | undefined
+  const row = db
+    .prepare('SELECT summary, review_state FROM findings WHERE id = ?')
+    .get(findingId) as { summary: string; review_state: string } | undefined
   expect(row).toEqual({ summary: 'Race in tile cache', review_state: 'pending' })
 })
 
@@ -47,5 +47,7 @@ it('embeds a <!-- finding:{id} --> marker whose id matches the inserted row', ()
   const md = fs.readFileSync(path.join(caseDir(home, 'CASE-A'), 'findings.md'), 'utf8')
   expect(md).toContain(`<!-- finding:${findingId} -->`)
   // marker precedes the heading in the file
-  expect(md.indexOf(`<!-- finding:${findingId} -->`)).toBeLessThan(md.indexOf('## Null deref in tile'))
+  expect(md.indexOf(`<!-- finding:${findingId} -->`)).toBeLessThan(
+    md.indexOf('## Null deref in tile')
+  )
 })
