@@ -234,12 +234,13 @@ function registerIpc(): void {
   })
 
   const packsState = new PacksStateStore(argusHome)
+  const coreSkillsDir = resolveCoreSkillsDir(app.getAppPath(), resourcesPath)
   seedSharedAssets(argusHome, {
     skills: [
       ...packRegistry.skillsSources(),
       // Core-shipped skills seed AFTER packs: later-wins means a pack cannot
       // silently replace a core capability. The dev env override stays last.
-      resolveCoreSkillsDir(app.getAppPath(), resourcesPath),
+      coreSkillsDir,
       ...(process.env.ARGUS_SKILLS_DIR ? [process.env.ARGUS_SKILLS_DIR] : [])
     ],
     references: [
@@ -465,7 +466,7 @@ function registerIpc(): void {
     return res
   })
   ipcMain.handle(IPC.packsUninstall, (_e, id: string) => {
-    const res = uninstallPack(id, { argusHome, state: packsState })
+    const res = uninstallPack(id, { argusHome, state: packsState, coreSkillsDir })
     if (res.ok) broadcast(IPC.packsChanged, undefined)
     return res
   })

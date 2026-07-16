@@ -430,6 +430,14 @@ describe('AgentService', () => {
     const s3 = createSession(db, 'NAV-3')
     await svc.send('NAV-3', s3.id, 'hi')
     expect(appendOf(2)).toContain('mcp__argus__write_proposal')
+
+    // converse: the user-tier shadow (still on disk from NAV-3) disabled at its own key
+    // suppresses the nudge too — resolution follows the shadow's key, not the bundled one
+    access = agentAccessSchema.parse({ skills: { 'user/contribute-back': false } })
+    const s4 = createSession(db, 'NAV-4')
+    await svc.send('NAV-4', s4.id, 'hi')
+    expect(appendOf(3)).not.toContain('mcp__argus__write_proposal')
+
     await svc.stopAll()
   })
 })
