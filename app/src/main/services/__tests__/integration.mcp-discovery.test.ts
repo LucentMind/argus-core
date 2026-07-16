@@ -134,7 +134,7 @@ describe('McpService discovery against the fixture stdio server', () => {
 })
 
 describe('composeForSession', () => {
-  it('composes enabled connectors, resolves secrets, skips the rest with reasons', () => {
+  it('composes enabled connectors, resolves secrets, skips the rest with reasons', async () => {
     secrets.set('hdr-token', 'tok123')
     registry.patch({
       fix: {
@@ -156,7 +156,7 @@ describe('composeForSession', () => {
     })
     const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
     svc.markError('remote-broken', 'noop') // marking an unknown id must not throw
-    const { servers, skipped } = svc.composeForSession()
+    const { servers, skipped } = await svc.composeForSession()
     expect(servers.fix).toEqual({
       type: 'stdio',
       command: 'node',
@@ -178,7 +178,7 @@ describe('composeForSession', () => {
     )
   })
 
-  it('non-string plain env/header values (hand-edited JSON) are coerced to strings', () => {
+  it('non-string plain env/header values (hand-edited JSON) are coerced to strings', async () => {
     registry.patch({
       numenv: {
         kind: 'stdio',
@@ -190,7 +190,7 @@ describe('composeForSession', () => {
       }
     })
     const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
-    const { servers, skipped } = svc.composeForSession()
+    const { servers, skipped } = await svc.composeForSession()
     expect(skipped).toEqual([])
     expect((servers.numenv as { env: Record<string, string> }).env).toEqual({
       PORT: '8080',
@@ -201,7 +201,7 @@ describe('composeForSession', () => {
     })
   })
 
-  it('error-state connectors are skipped; oauth connectors without a token are skipped and marked needs-auth', () => {
+  it('compose ignores runtime state entirely and never writes it', async () => {
     registry.patch({
       dead: { kind: 'stdio', config: { command: 'x' } },
       rovo: {
@@ -216,15 +216,18 @@ describe('composeForSession', () => {
       oauth: { accessToken: () => null, refresh: async () => false, status: () => 'not-authorized' }
     })
     svc.markError('dead', 'spawn failed')
-    const { servers, skipped } = svc.composeForSession()
-    expect(servers.dead).toBeUndefined()
-    expect(skipped).toContainEqual({ instanceId: 'dead', reason: 'spawn failed' })
+    const { servers, skipped } = await svc.composeForSession()
+    // a probe-set error no longer suppresses the connector — compose attempts it
+    expect(servers.dead).toMatchObject({ type: 'stdio', command: 'x' })
+    // a genuinely missing token still skips, with a reason for the event stream
     expect(servers.rovo).toBeUndefined()
-    expect(skipped.find((s) => s.instanceId === 'rovo')?.reason).toMatch(/OAuth/)
-    expect(svc.runtimeStates().rovo).toEqual({ state: 'needs-auth' })
+    expect(skipped.find((s) => s.instanceId === 'rovo')?.reason).toMatch(/unauthorized/)
+    // display state is probe-owned: compose must not have touched it
+    expect(svc.runtimeStates().rovo).toEqual({ state: 'never-connected' })
+    expect(svc.runtimeStates().dead).toEqual({ state: 'error', reason: 'spawn failed' })
   })
 
-  it('a connector already marked needs-auth (e.g. from a prior 401 probe) is skipped with the auth-card reason', async () => {
+  it('a needs-auth runtime state from a prior 401 probe does not suppress the next compose', async () => {
     const server = http.createServer((_req, res) => {
       res.statusCode = 401
       res.end()
@@ -236,15 +239,15 @@ describe('composeForSession', () => {
       const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
       await svc.probe('web') // observes the 401 and marks runtime state needs-auth
       expect(svc.runtimeStates().web).toMatchObject({ state: 'needs-auth' })
-      const { servers, skipped } = svc.composeForSession()
-      expect(servers.web).toBeUndefined()
-      expect(skipped.find((s) => s.instanceId === 'web')?.reason).toMatch(/needs authorization/)
+      const { servers, skipped } = await svc.composeForSession()
+      expect(servers.web).toMatchObject({ type: 'http', url: `http://127.0.0.1:${port}/mcp` })
+      expect(skipped).toEqual([])
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
   }, 30000)
 
-  it('clearRuntime after a successful authorize releases the needs-auth latch — compose includes the connector', () => {
+  it('a token that becomes valid is picked up by the next compose — no clearRuntime needed', async () => {
     registry.patch({
       rovo: {
         kind: 'http',
@@ -262,15 +265,12 @@ describe('composeForSession', () => {
         status: () => (token != null ? 'authorized' : 'not-authorized')
       }
     })
-    // first compose with no token sets the needs-auth latch
-    expect(svc.composeForSession().servers.rovo).toBeUndefined()
-    expect(svc.runtimeStates().rovo).toEqual({ state: 'needs-auth' })
-    // the user authorizes: token now valid — but the latch alone still skips
+    // no token: skipped, and crucially nothing is latched
+    expect((await svc.composeForSession()).servers.rovo).toBeUndefined()
+    expect(svc.runtimeStates().rovo).toEqual({ state: 'never-connected' })
+    // the user authorizes — the very next compose includes it, with no clearRuntime call
     token = 'live-token'
-    expect(svc.composeForSession().servers.rovo).toBeUndefined()
-    // the connectors:oauth success path clears the latch → compose includes it
-    svc.clearRuntime('rovo')
-    const { servers, skipped } = svc.composeForSession()
+    const { servers, skipped } = await svc.composeForSession()
     expect(servers.rovo).toEqual({
       type: 'sse',
       url: 'https://mcp.atlassian.com/v1/sse',
@@ -279,7 +279,48 @@ describe('composeForSession', () => {
     expect(skipped).toEqual([])
   })
 
-  it('oauth connector with a valid token gets the bearer header', () => {
+  it('an expired token is healed by refreshOnExpiry — the connector composes with no user action', async () => {
+    registry.patch({
+      rovo: {
+        kind: 'http',
+        config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+      }
+    })
+    // accessToken() returns null within 60s of expiry (oauth.ts EXPIRY_SLACK_MS) — the
+    // exact condition that used to latch needs-auth forever.
+    let token: string | null = null
+    const svc = new McpService({
+      registry,
+      secrets,
+      toolRisk: () => ({}),
+      oauth: {
+        accessToken: () => token,
+        refresh: async () => {
+          token = 'refreshed-token'
+          return true
+        },
+        status: () => 'authorized'
+      }
+    })
+    const { servers, skipped } = await svc.composeForSession()
+    expect(servers.rovo).toMatchObject({ headers: { Authorization: 'Bearer refreshed-token' } })
+    expect(skipped).toEqual([])
+  })
+
+  it('an oauth connector with no oauth provider configured is skipped, not silently unauthenticated', async () => {
+    registry.patch({
+      rovo: {
+        kind: 'http',
+        config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+      }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) }) // no oauth dep
+    const { servers, skipped } = await svc.composeForSession()
+    expect(servers.rovo).toBeUndefined()
+    expect(skipped.find((s) => s.instanceId === 'rovo')?.reason).toMatch(/oauth/i)
+  })
+
+  it('oauth connector with a valid token gets the bearer header', async () => {
     registry.patch({
       rovo: {
         kind: 'http',
@@ -296,7 +337,7 @@ describe('composeForSession', () => {
         status: () => 'authorized'
       }
     })
-    const { servers, skipped } = svc.composeForSession()
+    const { servers, skipped } = await svc.composeForSession()
     expect(servers.rovo).toEqual({
       type: 'sse',
       url: 'https://mcp.atlassian.com/v1/sse',

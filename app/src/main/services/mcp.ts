@@ -74,20 +74,23 @@ export class McpService {
 
   /**
    * Drop a connector's runtime state (back to never-connected). Called after a
-   * successful authorize so a compose-set needs-auth latch can't outlive the
-   * condition that set it.
+   * successful authorize so the connector card stops showing a stale needs-auth
+   * badge. Display-only: compose does not consult runtime state.
    */
   clearRuntime(instanceId: string): void {
     this.runtime.delete(instanceId)
   }
 
   /**
-   * Build the Agent SDK mcpServers additions for a NEW session (spec §2.3).
-   * Sync on purpose — called inside AgentService.getOrCreate. Enabled,
-   * non-error connectors only; $secret refs resolved now; every non-silent
-   * skip is returned so the session can log it to its event stream.
+   * Build the Agent SDK mcpServers additions for a session (spec §1).
+   *
+   * PURE: a function of (registry, secrets, live token) only. It must never read or
+   * write `this.runtime` — that Map is display-only, owned by probe()/markError. A
+   * verdict cached here outlives the condition that set it, which is exactly the bug
+   * this shape exists to prevent. Async so it can reuse composeHeaders' OAuth refresh:
+   * an expired token heals here instead of latching.
    */
-  composeForSession(): ComposedMcp {
+  async composeForSession(): Promise<ComposedMcp> {
     const servers: Record<string, unknown> = {}
     const skipped: ComposedMcp['skipped'] = []
     for (const [id, inst] of Object.entries(this.deps.registry.get())) {
@@ -96,18 +99,6 @@ export class McpService {
         continue
       }
       if (!inst.enabled) continue // disabled by the user: silent
-      const rt = this.runtime.get(id)
-      if (rt?.state === 'error') {
-        skipped.push({ instanceId: id, reason: rt.reason })
-        continue
-      }
-      if (rt?.state === 'needs-auth') {
-        skipped.push({
-          instanceId: id,
-          reason: 'needs authorization — use Authorize on the connector card'
-        })
-        continue
-      }
       try {
         if (inst.kind === 'stdio') {
           const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
@@ -121,21 +112,7 @@ export class McpService {
           }
         } else if (inst.kind === 'http') {
           const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-          const { value, missing } = resolveSecretRefs(cfg.headers, (n) =>
-            this.deps.secrets.resolve(n)
-          )
-          if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
-          const headers = toStringRecord(value)
-          if (cfg.oauth) {
-            const token = this.deps.oauth?.accessToken(id) ?? null
-            if (token == null) {
-              this.runtime.set(id, { state: 'needs-auth' })
-              throw new Error(
-                'OAuth token missing or expired — run Test connection or Re-authorize'
-              )
-            }
-            headers.Authorization = `Bearer ${token}`
-          }
+          const headers = await this.composeHeaders(id, cfg, { refreshOnExpiry: true })
           servers[id] =
             cfg.transport === 'sse'
               ? { type: 'sse', url: cfg.url, headers }
@@ -244,7 +221,11 @@ export class McpService {
     const { value, missing } = resolveSecretRefs(cfg.headers, (n) => this.deps.secrets.resolve(n))
     if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
     const headers = toStringRecord(value)
-    if (cfg.oauth && this.deps.oauth) {
+    if (cfg.oauth) {
+      // Guard, not a silent skip: the pre-refactor inline compose threw when the oauth
+      // dep was absent. Without this, an oauth connector would compose with NO
+      // Authorization header and fail opaquely at the transport instead.
+      if (!this.deps.oauth) throw new Error('oauth connector but no oauth provider configured')
       let token = this.deps.oauth.accessToken(instanceId)
       if (token == null && opts.refreshOnExpiry) {
         await this.deps.oauth.refresh(instanceId, cfg.url)
