@@ -123,7 +123,7 @@ export function ProposalsTab({
           <option value="all">all</option>
           {typesPresent.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {PROPOSAL_TYPE_LABELS[t]}
             </option>
           ))}
         </select>
@@ -144,7 +144,7 @@ export function ProposalsTab({
               <SettingsSection title={p.title}>
                 <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
                   <Chip tone="neutral">{PROPOSAL_TYPE_LABELS[p.type]}</Chip>
-                  {!isMarkdown && <Chip tone="neutral">→ {p.target}</Chip>}
+                  {p.type !== 'case-summary' && <Chip tone="neutral">→ {p.target}</Chip>}
                   <span className="text-xs text-mute">{new Date(p.date).toLocaleString()}</span>
                   {p.current === null && <Chip tone="review">new file</Chip>}
                   {p.previouslyReviewed && <Chip tone="review">previously reviewed</Chip>}
