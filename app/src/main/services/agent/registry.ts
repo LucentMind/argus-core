@@ -36,7 +36,7 @@ export interface AgentServiceDeps {
   toolRisk?: () => Record<string, RiskLevel>
   /** Composed fresh on every getOrCreate (spec §1) — never latched, never memoized. */
   composeMcp?: () => Promise<ComposedMcp>
-  /** Fired when a turn fails auth-shaped; index.ts invalidates cachedAuth and broadcasts. */
+  /** Fired when a turn fails auth-shaped; index.ts calls authCache.onAuthFailure() to clear and broadcast. */
   onAuthFailure?: () => void
   /** Fired when a turn completes normally — proof the credentials work. */
   onAuthVerified?: () => void

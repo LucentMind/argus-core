@@ -9,6 +9,11 @@ import type { AuthStatus } from '../../../shared/types'
  */
 export class AuthCache {
   private cached: AuthStatus | null = null
+  // Bumped by every path that deliberately drops the cache (onAuthFailure, invalidate).
+  // A get() that started probing before the bump is answering a question that's no longer
+  // being asked — turn evidence outranks a probe that was already in flight, so its result
+  // is still handed back to its own caller but must not overwrite what came after it.
+  private generation = 0
 
   constructor(
     private probe: () => Promise<AuthStatus>,
@@ -18,15 +23,17 @@ export class AuthCache {
   async get(force = false): Promise<AuthStatus> {
     if (force) this.cached = null
     if (this.cached) return this.cached
+    const generation = this.generation
     const status = await this.probe()
     // only cache success — a failed probe should retry on the next case open
-    if (status.ok) this.cached = status
+    if (status.ok && generation === this.generation) this.cached = status
     return status
   }
 
   /** A turn failed auth-shaped: the cached verdict is now known-wrong. */
   onAuthFailure(): void {
     this.cached = null
+    this.generation++
     this.notify()
   }
 
@@ -40,5 +47,6 @@ export class AuthCache {
   /** Settings changed — the probe target may differ. */
   invalidate(): void {
     this.cached = null
+    this.generation++
   }
 }

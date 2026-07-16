@@ -367,8 +367,8 @@ function registerIpc(): void {
 
   agentAccessStore.subscribe(() => broadcast(IPC.accessChanged, agentAccessStore.payload()))
 
-  // shared with the agent:auth-status handler below — settings changes (e.g. a new
-  // cliPath) must invalidate the cached probe result so the next open re-probes
+  // shared with the agent:auth-status handler below (see AuthCache's docblock for the
+  // invalidation contract)
   const authCache = new AuthCache(
     async () => {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
