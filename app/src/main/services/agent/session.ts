@@ -94,13 +94,23 @@ export interface SessionDeps {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Auth-shaped failure detection (spec §5). Deliberately narrow, and matched ONLY against
- * error results and thrown transport errors — never against assistant text — so a user
- * prompt or model reply containing "please login" cannot trip it. This is a heuristic:
- * the SDK surfaces no structured auth-error code.
+ * Auth-shaped failure detection (spec §5), calibrated against the real CLI (verified
+ * 2026-07-16 — see .superpowers/sdd/auth-shape-evidence.md). Both real auth failures come
+ * back as `subtype: 'success'` with `is_error: true` — the SDK does not use an error
+ * subtype for them, so `is_error` is the ONLY reliable discriminator:
+ *   - not logged in:      result: "Not logged in · Please run /login", api_error_status: null
+ *   - invalid/expired key: result: "Invalid API key · Fix external API key", api_error_status: 401
+ * `api_error_status` is a structured 401 signal, but it's populated ONLY for the bad-key
+ * mode — the not-logged-in mode has to be caught by text. This regex is that fallback, and
+ * (like the structured check) it is matched ONLY against error-flagged results and thrown
+ * transport errors — never assistant text — so a user prompt or model reply that merely
+ * mentions logging in can never trip it. Deliberately excludes bare "401"/"unauthorized":
+ * neither appears in a real auth message, and unqualified they'd let an unrelated
+ * connector's 401 (e.g. an Atlassian call surfacing as a thrown transport error) wrongly
+ * mark the user's Claude session logged out.
  */
 const AUTH_FAILURE_RE =
-  /please run \/login|not logged in|invalid api key|unauthorized|\b401\b|authentication_error|oauth token (has )?expired/i
+  /not logged in|please run \/login|invalid api key|authentication_error|oauth token (has )?expired/i
 
 export function isAuthFailure(text: string): boolean {
   return AUTH_FAILURE_RE.test(text)
@@ -564,7 +574,12 @@ export class CaseSession {
       .run(new Date().toISOString(), this.sessionId)
     // The turn is the ONLY thing that actually authenticates against the API — the
     // maxTurns:0 probe never does. Treat its outcome as the source of truth.
-    if (msg.is_error && isAuthFailure(String(msg.result ?? msg.error ?? ''))) {
+    // Both real auth failures are subtype:'success' with is_error:true and the text in
+    // `result` (verified against the live CLI: "Not logged in · Please run /login" and
+    // "Invalid API key · Fix external API key"). is_error is the ONLY discriminator —
+    // subtype is 'success' in both cases, so it must not be used here. api_error_status
+    // is 401 for a bad key but null when simply not logged in, so text is still needed.
+    if (msg.is_error && (msg.api_error_status === 401 || isAuthFailure(String(msg.result ?? '')))) {
       this.deps.onAuthFailure?.()
     } else if (!msg.is_error) {
       this.deps.onAuthVerified?.()
