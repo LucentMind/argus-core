@@ -6,6 +6,7 @@ import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
 import { HeaderRepos } from './HeaderRepos'
+import { DistillChip } from './DistillChip'
 import { JiraRefreshButton } from './JiraRefreshButton'
 import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
@@ -186,12 +187,18 @@ export function CaseWorkspace({
                 { label: 'Export case…', onSelect: () => void exportBundle(true) },
                 { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
               ]
+            },
+            {
+              label: 'Re-distill',
+              disabled: status !== 'closed',
+              onSelect: () => void window.argus.distill.redistill(slug)
             }
           ]}
         />
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
+        <DistillChip slug={slug} />
         <HeaderRepos slug={slug} />
         <div className="ml-auto">
           <HeaderChips slug={slug} sessionId={sessionId} />
