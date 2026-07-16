@@ -40,7 +40,8 @@ beforeEach(() => {
       send: vi.fn(),
       interrupt: vi.fn(),
       authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })),
-      preflight: vi.fn(async () => ({ ok: true, checks: [] }))
+      preflight: vi.fn(async () => ({ ok: true, checks: [] })),
+      onAuthChanged: vi.fn(() => () => {})
     },
     sessions: {
       list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
