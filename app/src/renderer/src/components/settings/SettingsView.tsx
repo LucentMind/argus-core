@@ -46,6 +46,13 @@ const PAGES = [
 }>
 export type PageId = (typeof PAGES)[number]['id']
 
+const ANCHOR: Partial<Record<PageId, string>> = {
+  memory: 'settings-memory',
+  skills: 'settings-skills',
+  references: 'settings-references',
+  hivemind: 'settings-hivemind'
+}
+
 export function SettingsView({
   onClose,
   initialPage
@@ -76,6 +83,7 @@ export function SettingsView({
         {PAGES.map((p) => (
           <button
             key={p.id}
+            data-onboarding-anchor={ANCHOR[p.id]}
             disabled={!p.enabled}
             className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
               page === p.id

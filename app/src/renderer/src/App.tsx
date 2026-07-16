@@ -194,8 +194,10 @@ function App(): React.JSX.Element {
         />
       )}
       <OnboardingProvider
-        onOpenCase={openCase}
-        onOpenSettings={(page) => openSettings(page as PageId)}
+        onNavigate={(view, target) => {
+          if (view === 'settings') openSettings(target as PageId | undefined)
+          else if (target) openCase(target)
+        }}
       />
     </div>
   )
