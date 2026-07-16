@@ -383,3 +383,68 @@ describe('check', () => {
     expect(seenOpts?.timeoutMs).toBe(15000)
   })
 })
+
+describe('confluence subfolder references', () => {
+  /** Adds references/confluence/<name> to the seeded clone (call seedClone() first). */
+  function seedConfluenceRef(name = 'adasis.md', content = '# adasis distilled\n'): void {
+    const dir = path.join(home, 'hivemind', 'references', 'confluence')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, name), content)
+  }
+
+  it('listItems surfaces references/confluence/*.md as confluence/<basename>.md', async () => {
+    seedClone()
+    seedConfluenceRef()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    const refs = p.items.filter((i) => i.kind === 'reference').map((i) => i.name)
+    expect(refs).toContain('hive-note.md') // flat scan unchanged
+    expect(refs).toContain('confluence/adasis.md')
+    const item = p.items.find((i) => i.name === 'confluence/adasis.md')!
+    expect(item.installed).toBe(false)
+    expect(item.localTier).toBeNull()
+  })
+
+  it('other subdirectories under references/ stay invisible', async () => {
+    seedClone()
+    const dir = path.join(home, 'hivemind', 'references', 'drafts')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'wip.md'), '# wip\n')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const names = (await svc.payload()).items.map((i) => i.name)
+    expect(names).not.toContain('drafts/wip.md')
+    expect(names).not.toContain('wip.md')
+  })
+
+  it('installed/localTier of a confluence item track the flattened local copy', async () => {
+    seedClone()
+    seedConfluenceRef()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'adasis.md'),
+      '---\ntrust_tier: confluence\n---\n# adasis distilled\n'
+    )
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const item = (await svc.payload()).items.find((i) => i.name === 'confluence/adasis.md')!
+    expect(item.installed).toBe(true)
+    expect(item.localTier).toBe('confluence')
+  })
+
+  it('itemCommit/diff use the full in-clone relative path for confluence items', async () => {
+    seedClone()
+    seedConfluenceRef()
+    const git = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: git.runner
+    })
+    await svc.payload()
+    expect(
+      git.calls.some((c) => c[0] === 'log' && c.includes('references/confluence/adasis.md'))
+    ).toBe(true)
+  })
+})
