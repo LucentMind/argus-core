@@ -18,7 +18,7 @@ function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
 }
 
 function mockAuth(overrides?: Partial<AuthStatus>): AuthStatus {
-  return { ok: true, detail: 'claude ready (claude-fable-5)', ...overrides }
+  return { ok: true, verified: false, detail: 'claude ready (claude-fable-5)', ...overrides }
 }
 
 function authStatusMock(status: AuthStatus): (force?: boolean) => Promise<AuthStatus> {
@@ -87,7 +87,11 @@ describe('AgentSettings', () => {
   })
 
   it('shows a danger line with the probe detail when auth fails', async () => {
-    window.argus.agent.authStatus = authStatusMock({ ok: false, detail: 'not logged in' })
+    window.argus.agent.authStatus = authStatusMock({
+      ok: false,
+      verified: false,
+      detail: 'not logged in'
+    })
     render(<AgentSettings payload={payload()} />)
     const line = await screen.findByText('not logged in')
     expect(line.className).toMatch(/text-danger/)
