@@ -72,6 +72,10 @@ export interface SessionDeps {
   /** Fingerprint of `extraMcpServers` at construction; AgentService compares it per send
    *  to decide whether this session's frozen mcpServers map is still correct. */
   mcpFingerprint?: string
+  /** Fired when a turn fails auth-shaped (spec §5); index.ts invalidates cachedAuth. */
+  onAuthFailure?: () => void
+  /** Fired when a turn completes normally — the only real proof the credentials work. */
+  onAuthVerified?: () => void
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
@@ -88,6 +92,19 @@ export interface SessionDeps {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Auth-shaped failure detection (spec §5). Deliberately narrow, and matched ONLY against
+ * error results and thrown transport errors — never against assistant text — so a user
+ * prompt or model reply containing "please login" cannot trip it. This is a heuristic:
+ * the SDK surfaces no structured auth-error code.
+ */
+const AUTH_FAILURE_RE =
+  /please run \/login|not logged in|invalid api key|unauthorized|\b401\b|authentication_error|oauth token (has )?expired/i
+
+export function isAuthFailure(text: string): boolean {
+  return AUTH_FAILURE_RE.test(text)
+}
 
 /** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
  *  agent's own mcp__argus__append_finding, which stays auto-approved. */
@@ -545,6 +562,13 @@ export class CaseSession {
     this.deps.db
       .prepare(`UPDATE sessions SET turn_count = turn_count + 1, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), this.sessionId)
+    // The turn is the ONLY thing that actually authenticates against the API — the
+    // maxTurns:0 probe never does. Treat its outcome as the source of truth.
+    if (msg.is_error && isAuthFailure(String(msg.result ?? msg.error ?? ''))) {
+      this.deps.onAuthFailure?.()
+    } else if (!msg.is_error) {
+      this.deps.onAuthVerified?.()
+    }
     this.activeTurn = false
   }
 
@@ -574,6 +598,7 @@ export class CaseSession {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const interrupted = /abort|interrupt/i.test(message)
+      if (!interrupted && isAuthFailure(message)) this.deps.onAuthFailure?.()
       if (this.state !== 'dead') {
         this.state = 'dead'
         if (!interrupted) {
