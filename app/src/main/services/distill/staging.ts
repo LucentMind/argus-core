@@ -16,7 +16,8 @@ export interface StageResult {
 }
 
 const key = (type: string, target: string): string => `${type} ${target}`
-const firstLine = (s: string): string => (s.split('\n').find((l) => l.trim()) ?? '').slice(0, 80)
+const firstLine = (s: string): string =>
+  (s.split(/\r\n|\r|\n/).find((l) => l.trim()) ?? '').trim().slice(0, 80)
 
 /**
  * Bridges parsed distiller output into inert proposal files.
@@ -35,6 +36,18 @@ export function stageDistillOutput(
   jobId: number,
   output: CaseDistillOutput
 ): StageResult {
+  // Normalize every LLM-sourced indexEntry BEFORE the destructive supersede step below.
+  // writeProposal throws on any extraFm value containing \r or \n, and index_entry is
+  // the only LLM-sourced extraFm value — an unvalidated multi-line indexEntry could
+  // otherwise throw mid-batch after the case's old proposals are already gone, losing
+  // staged knowledge with nothing written to replace it. Normalizing here guarantees no
+  // write below can throw on line-break grounds. The normalized value also feeds the
+  // item's title, so it's computed once and reused.
+  const memoryAppends = (output.memoryAppends ?? []).map((m) => ({
+    ...m,
+    indexEntry: m.indexEntry ? firstLine(m.indexEntry) : undefined
+  }))
+
   let supersededRemoved = 0
   for (const p of listProposals(argusHome)) {
     if (p.caseSlug === caseSlug && p.jobId !== undefined) {
@@ -79,10 +92,11 @@ export function stageDistillOutput(
       { type, target, title, content },
       { job, ...extra, ...prevReviewedFm }
     )
+    pendingKeys.add(k)
     staged++
   }
 
-  for (const m of output.memoryAppends ?? []) {
+  for (const m of memoryAppends) {
     stage(
       'memory-append',
       m.topic,

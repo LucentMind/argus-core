@@ -73,4 +73,37 @@ describe('stageDistillOutput', () => {
     })
     expect(listProposals(home)[0].previouslyReviewed).toBe(true)
   })
+
+  it('normalizes a multi-line indexEntry so the destructive supersede never precedes an unwritable write', () => {
+    // job-stamped pending proposal that must be superseded before the new batch lands
+    writeProposal(
+      home,
+      'case-a',
+      { type: 'memory-append', target: 'old-topic', title: 'old', content: 'x' },
+      { job: '3' }
+    )
+    const res = stageDistillOutput(db, home, 'case-a', 9, {
+      memoryAppends: [{ topic: 'new-topic', content: 'fact', indexEntry: 'line one\nline two' }]
+    })
+    expect(res.supersededRemoved).toBe(1)
+    const ps = listProposals(home)
+    const p = ps.find((x) => x.target === 'new-topic')
+    expect(p).toBeDefined()
+    expect(p!.title).toBe('line one')
+    const raw = fs.readFileSync(path.join(home, 'proposals', p!.file), 'utf8')
+    expect(raw).toContain('index_entry: line one')
+    expect(raw).not.toContain('line two')
+  })
+
+  it('dedupes intra-batch duplicates (same topic twice in one memoryAppends batch)', () => {
+    const res = stageDistillOutput(db, home, 'case-a', 10, {
+      memoryAppends: [
+        { topic: 'dup-topic', content: 'fact 1' },
+        { topic: 'dup-topic', content: 'fact 2' }
+      ]
+    })
+    expect(res.staged).toBe(1)
+    expect(res.droppedDuplicates).toBe(1)
+    expect(listProposals(home).filter((p) => p.target === 'dup-topic').length).toBe(1)
+  })
 })
