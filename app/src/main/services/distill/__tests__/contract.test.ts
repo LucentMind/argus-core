@@ -71,7 +71,9 @@ describe('parseCaseDistillOutput', () => {
       fence('{"proposals":[{"type":"memory-append","target":"t","title":"t","content":"c"}]}')
     ],
     ['summary missing field', fence('{"summary":{"signature":"s"}}')],
-    ['empty topic', fence('{"memoryAppends":[{"topic":"","content":"c"}]}')]
+    ['empty topic', fence('{"memoryAppends":[{"topic":"","content":"c"}]}')],
+    ['null memoryAppends entry', fence('{"memoryAppends":[null]}')],
+    ['null proposal entry', fence('{"proposals":[null]}')]
   ])('rejects %s with DistillParseError carrying raw', (_name, text) => {
     expect(() => parseCaseDistillOutput(text)).toThrow(DistillParseError)
     try {

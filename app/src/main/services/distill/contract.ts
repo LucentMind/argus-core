@@ -33,7 +33,7 @@ export function buildCaseDistillPrompt(input: CaseDistillInput): string {
   return [
     CASE_DISTILL_CONTRACT,
     `# Case\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}\nclosed: ${m.closedAt}`,
-    `# Findings (with review states)\n\n${findings || '(no findings)'}`,
+    `# Findings (with review states)\n\n${findings || '(none)'}`,
     `# Evidence inventory\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
     `# Chat sessions\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,
     `# Memory index (topics that already exist)\n${input.memoryIndex || '(empty)'}`,
@@ -94,6 +94,8 @@ export function parseCaseDistillOutput(text: string): CaseDistillOutput {
     if (!Array.isArray(o.memoryAppends))
       throw new DistillParseError('memoryAppends must be an array', text)
     for (const m of o.memoryAppends as Record<string, unknown>[]) {
+      if (typeof m !== 'object' || m === null)
+        throw new DistillParseError('memoryAppends entry must be an object', text)
       if (!isStr(m.topic) || !isStr(m.content))
         throw new DistillParseError('memoryAppends entry invalid', text)
       if (m.indexEntry !== undefined && !isStr(m.indexEntry))
@@ -104,6 +106,8 @@ export function parseCaseDistillOutput(text: string): CaseDistillOutput {
   if (o.proposals !== undefined) {
     if (!Array.isArray(o.proposals)) throw new DistillParseError('proposals must be an array', text)
     for (const p of o.proposals as Record<string, unknown>[]) {
+      if (typeof p !== 'object' || p === null)
+        throw new DistillParseError('proposal must be an object', text)
       if (!isStr(p.type) || !PROPOSAL_OUT_TYPES.has(p.type))
         throw new DistillParseError(`bad proposal type "${String(p.type)}"`, text)
       if (!isStr(p.target) || !isStr(p.title) || !isStr(p.content))
