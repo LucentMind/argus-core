@@ -79,7 +79,12 @@ import { activeInstanceConfig, effectiveDefaultModel } from '../shared/drivers'
 import { settingsSchema } from '../shared/settings'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
-import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir } from './services/skillsDir'
+import {
+  seedSharedAssets,
+  sharedSkillsDir,
+  sharedReferencesDir,
+  resolveCoreSkillsDir
+} from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
 import { capturePanelToEvidence } from './services/agent/capturePanel'
@@ -232,6 +237,9 @@ function registerIpc(): void {
   seedSharedAssets(argusHome, {
     skills: [
       ...packRegistry.skillsSources(),
+      // Core-shipped skills seed AFTER packs: later-wins means a pack cannot
+      // silently replace a core capability. The dev env override stays last.
+      resolveCoreSkillsDir(app.getAppPath(), resourcesPath),
       ...(process.env.ARGUS_SKILLS_DIR ? [process.env.ARGUS_SKILLS_DIR] : [])
     ],
     references: [
@@ -518,7 +526,12 @@ function registerIpc(): void {
 
   // Shared capture path for the agent's capture_panel tool (mirrors openPanelFor).
   const capturePanelFor = (caseSlug: string, packId: string, windowId: string) =>
-    capturePanelToEvidence({ panelHost: panelHost!, db, argusHome, detection }, caseSlug, packId, windowId)
+    capturePanelToEvidence(
+      { panelHost: panelHost!, db, argusHome, detection },
+      caseSlug,
+      packId,
+      windowId
+    )
 
   ipcMain.handle(IPC.panelsList, (_e, caseSlug?: string) => panelHost!.list(caseSlug))
   ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
@@ -629,7 +642,10 @@ function registerIpc(): void {
   })
   ipcMain.handle(
     IPC.panelsIngestEvidence,
-    (e, input: { source: { url: string } | { bytes: ArrayBuffer | Uint8Array }; filename: string }) => {
+    (
+      e,
+      input: { source: { url: string } | { bytes: ArrayBuffer | Uint8Array }; filename: string }
+    ) => {
       const b = panelHost!.bridgeForWebContents(e.sender.id)
       if (!b?.ingestEvidence) throw new Error('panel bridge: ingestEvidence not granted')
       return b.ingestEvidence(input)

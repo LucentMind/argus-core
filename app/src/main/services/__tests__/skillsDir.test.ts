@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { seedSharedAssets, sharedSkillsDir, sharedReferencesDir, isNonPackTiered } from '../skillsDir'
+import {
+  seedSharedAssets,
+  sharedSkillsDir,
+  sharedReferencesDir,
+  isNonPackTiered,
+  resolveCoreSkillsDir
+} from '../skillsDir'
 
 describe('seedSharedAssets', () => {
   it('seeds from multiple sources in order; later sources overwrite on collision', () => {
@@ -97,6 +103,29 @@ describe('seedSharedAssets', () => {
     expect(fs.readFileSync(path.join(skills, 'keep.md'), 'utf8')).toBe('x')
     fs.rmSync(tmp, { recursive: true, force: true })
   })
+
+  it('documented skill-source order: packs < core < env override (later wins)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-sa-'))
+    const mk = (root: string, body: string): string => {
+      fs.mkdirSync(path.join(root, 'contribute-back'), { recursive: true })
+      fs.writeFileSync(path.join(root, 'contribute-back', 'SKILL.md'), body)
+      return root
+    }
+    const pack = mk(path.join(tmp, 'pack', 'skills'), 'from-pack')
+    const core = mk(path.join(tmp, 'core-skills'), 'from-core')
+    const env = mk(path.join(tmp, 'env-override'), 'from-env')
+    const home = path.join(tmp, 'home')
+
+    // core after packs: a pack cannot silently replace a core skill
+    seedSharedAssets(home, { skills: [pack, core], references: [] })
+    const dest = path.join(sharedSkillsDir(home), 'contribute-back', 'SKILL.md')
+    expect(fs.readFileSync(dest, 'utf8')).toBe('from-core')
+
+    // env override last: dev dir still beats core
+    seedSharedAssets(home, { skills: [pack, core, env], references: [] })
+    expect(fs.readFileSync(dest, 'utf8')).toBe('from-env')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
 })
 
 describe('isNonPackTiered (reap guard)', () => {
@@ -119,5 +148,38 @@ describe('isNonPackTiered (reap guard)', () => {
 
   it('is false for a missing file', () => {
     expect(isNonPackTiered(path.join(tmp, 'nope.md'))).toBe(false)
+  })
+})
+
+describe('resolveCoreSkillsDir', () => {
+  let tmp2: string
+  beforeEach(() => {
+    tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-core-skills-'))
+  })
+  afterEach(() => fs.rmSync(tmp2, { recursive: true, force: true }))
+
+  it('uses the packaged path only when it actually exists there', () => {
+    const resources = path.join(tmp2, 'resources')
+    fs.mkdirSync(path.join(resources, 'core-skills'), { recursive: true })
+    expect(resolveCoreSkillsDir(path.join(tmp2, 'app'), resources)).toBe(
+      path.join(resources, 'core-skills')
+    )
+  })
+
+  it('falls back to <appRoot>/resources/core-skills when resourcesPath lacks it (dev)', () => {
+    // resourcesPath is set (as in dev, pointing at electron dist) but has no core-skills
+    const electronDist = path.join(tmp2, 'electron-dist', 'resources')
+    fs.mkdirSync(electronDist, { recursive: true })
+    const appRoot = path.join(tmp2, 'app')
+    expect(resolveCoreSkillsDir(appRoot, electronDist)).toBe(
+      path.join(appRoot, 'resources', 'core-skills')
+    )
+  })
+
+  it('falls back to the source dir when resourcesPath is undefined', () => {
+    const appRoot = path.join(tmp2, 'app')
+    expect(resolveCoreSkillsDir(appRoot, undefined)).toBe(
+      path.join(appRoot, 'resources', 'core-skills')
+    )
   })
 })
