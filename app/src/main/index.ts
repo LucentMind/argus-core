@@ -68,6 +68,7 @@ import {
 } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import { probeAuth } from './services/agent/probe'
+import { AuthCache } from './services/agent/authCache'
 import {
   linkWorkspace,
   unlinkWorkspace,
@@ -103,7 +104,6 @@ import { createElectronProcessSpawner } from './services/panels/electronProcessS
 import type { OpenPanelRequest, PanelKey, PanelPermission, PanelRect } from '../shared/panels'
 import type {
   ApprovalDecision,
-  AuthStatus,
   CaseResolution,
   CaseStatus,
   NewCaseInput,
@@ -369,10 +369,22 @@ function registerIpc(): void {
 
   // shared with the agent:auth-status handler below — settings changes (e.g. a new
   // cliPath) must invalidate the cached probe result so the next open re-probes
-  let cachedAuth: AuthStatus | null = null
+  const authCache = new AuthCache(
+    async () => {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+      return probeAuth(
+        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
+        {
+          timeoutMs: settingsService.get().agent.probeTimeoutMs,
+          cliPath: activeInstanceConfig(settingsService.get()).cliPath
+        }
+      )
+    },
+    () => broadcast(IPC.agentAuthChanged, undefined)
+  )
   settingsService.subscribe(() => {
     binariesService.recompute()
-    cachedAuth = null
+    authCache.invalidate()
     const old = langfuseExporter
     void old?.shutdown()
     buildExporter()
@@ -681,6 +693,8 @@ function registerIpc(): void {
     agentAccess: () => agentAccessStore.get(),
     agentSettings: () => settingsService.get().agent,
     composeMcp: () => mcpService.composeForSession(),
+    onAuthFailure: () => authCache.onAuthFailure(),
+    onAuthVerified: () => authCache.onAuthVerified(),
     toolRisk: () => toolRiskStore.get(),
     openPanel: openPanelFor,
     capturePanel: capturePanelFor,
@@ -713,23 +727,7 @@ function registerIpc(): void {
       return agentService!.respond(caseSlug, sessionId, d)
     }
   )
-  ipcMain.handle(IPC.agentAuthStatus, async (_e, force?: boolean) => {
-    if (force) cachedAuth = null
-    if (!cachedAuth) {
-      const { query } = await import('@anthropic-ai/claude-agent-sdk')
-      const status = await probeAuth(
-        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
-        {
-          timeoutMs: settingsService.get().agent.probeTimeoutMs,
-          cliPath: activeInstanceConfig(settingsService.get()).cliPath
-        }
-      )
-      // only cache success — a failed probe should retry on the next case open
-      if (status.ok) cachedAuth = status
-      return status
-    }
-    return cachedAuth
-  })
+  ipcMain.handle(IPC.agentAuthStatus, (_e, force?: boolean) => authCache.get(force ?? false))
   ipcMain.handle(IPC.agentPreflight, () => binariesService.preflight())
   ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) => {
     assertSlug(caseSlug)
