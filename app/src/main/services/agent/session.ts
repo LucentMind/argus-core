@@ -72,7 +72,7 @@ export interface SessionDeps {
   /** Fingerprint of `extraMcpServers` at construction; AgentService compares it per send
    *  to decide whether this session's frozen mcpServers map is still correct. */
   mcpFingerprint?: string
-  /** Fired when a turn fails auth-shaped (spec §5); index.ts invalidates cachedAuth. */
+  /** Fired when a turn fails auth-shaped (spec §5); index.ts calls authCache.onAuthFailure(). */
   onAuthFailure?: () => void
   /** Fired when a turn completes normally — the only real proof the credentials work. */
   onAuthVerified?: () => void
