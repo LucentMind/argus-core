@@ -7,7 +7,8 @@ import { openDb } from '../../db'
 import { createCase, setCaseStatus } from '../../caseService'
 import { applyMemoryWrite } from '../../memory'
 import { writeProposal, rejectProposal } from '../../proposals'
-import { assembleDistillInput } from '../input'
+import { assembleDistillInput, buildReferencesIndex } from '../input'
+import { sharedReferencesDir } from '../../skillsDir'
 
 let home: string
 let db: DatabaseSync
@@ -66,5 +67,38 @@ describe('assembleDistillInput', () => {
 
   it('throws on unknown case', () => {
     expect(() => assembleDistillInput(db, home, 'nope')).toThrow(/Unknown case/)
+  })
+})
+
+describe('buildReferencesIndex', () => {
+  it('summarizes from the body paragraph, falling back to the title only when no body line exists', () => {
+    const dir = sharedReferencesDir(home)
+    fs.mkdirSync(dir, { recursive: true })
+    // 1. Titled file whose body has a real paragraph line — summary is that
+    //    paragraph, not a duplicate of the title.
+    fs.writeFileSync(
+      path.join(dir, 'titled.md'),
+      '---\ntitle: DLT Drift Runbook\ntrust_tier: team-knowledge\n---\n\nRun the resync script before escalating.\n\nMore detail below.\n'
+    )
+    // 2. Untitled-summary case: content after frontmatter starts with a blank
+    //    line, then a heading, then a paragraph — summary is the paragraph.
+    fs.writeFileSync(
+      path.join(dir, 'heading-first.md'),
+      '---\ntitle: Heading First\ntrust_tier: team-knowledge\n---\n\n# Heading\n\nThe actual useful summary line.\n'
+    )
+    // 3. Only a heading and nothing else — falls back to the title text.
+    fs.writeFileSync(
+      path.join(dir, 'only-heading.md'),
+      '---\ntitle: Only Heading Title\ntrust_tier: team-knowledge\n---\n\n# Just A Heading\n'
+    )
+
+    const index = buildReferencesIndex(home)
+    expect(index).toEqual(
+      expect.arrayContaining([
+        { name: 'titled', summary: 'Run the resync script before escalating.' },
+        { name: 'heading-first', summary: 'The actual useful summary line.' },
+        { name: 'only-heading', summary: 'Only Heading Title' }
+      ])
+    )
   })
 })

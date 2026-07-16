@@ -11,8 +11,9 @@ import { listProposals, listArchivedProposals } from '../proposals'
 import { refTitle, refBody } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
 
-/** Reference name/summary pairs for the shared references/ dir — title from frontmatter,
- *  falling back to the first line of the body, so untitled reference files still surface. */
+/** Reference name/summary pairs for the shared references/ dir — summary is the first
+ *  trimmed, non-blank, non-heading line of the body (matching generateReferencesIndex in
+ *  refSync/engine.ts), falling back to the frontmatter title when no such line exists. */
 export function buildReferencesIndex(argusHome: string): { name: string; summary: string }[] {
   const dir = sharedReferencesDir(argusHome)
   if (!fs.existsSync(dir)) return []
@@ -21,9 +22,13 @@ export function buildReferencesIndex(argusHome: string): { name: string; summary
     .filter((f) => f.endsWith('.md') && !f.startsWith('.') && f !== 'INDEX.md')
     .map((f) => {
       const raw = fs.readFileSync(path.join(dir, f), 'utf8')
+      const bodyLine = refBody(raw)
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith('#'))
       return {
         name: f.replace(/\.md$/, ''),
-        summary: refTitle(raw) || refBody(raw).split('\n')[0] || ''
+        summary: bodyLine ?? refTitle(raw) ?? ''
       }
     })
 }
