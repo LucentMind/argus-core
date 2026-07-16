@@ -159,6 +159,7 @@ function App(): React.JSX.Element {
             onOpenFile={(node) =>
               setViewer({ kind: 'file', slug: view.slug, relPath: node.relPath })
             }
+            onOpenCase={openCase}
           />
         )}
       </div>
