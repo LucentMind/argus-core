@@ -4,7 +4,8 @@ import {
   writeProposal,
   listProposals,
   listArchivedProposals,
-  removePendingProposal
+  removePendingProposal,
+  isValidProposalTarget
 } from '../proposals'
 import { renderSummaryMarkdown } from './summaries'
 import { getCase } from '../caseService'
@@ -47,6 +48,23 @@ export function stageDistillOutput(
     ...m,
     indexEntry: m.indexEntry ? firstLine(m.indexEntry) : undefined
   }))
+
+  // Validate every staged-item target up front, before the destructive supersede step
+  // below removes anything. writeProposal throws on a target failing NAME_RE, and the
+  // distiller's LLM output can plausibly produce an invalid target (spaces, >64 chars)
+  // for a memory topic or proposal target. If that throw happened inside the write loop
+  // below, it would fire after the case's old job-stamped pending proposals were already
+  // deleted, losing staged knowledge with nothing written to replace it. Failing here,
+  // before anything is touched, keeps the old staged items intact when the job errors.
+  const invalidTargets = [
+    ...memoryAppends.map((m) => m.topic),
+    ...(output.proposals ?? []).map((p) => p.target)
+  ].filter((t) => !isValidProposalTarget(t))
+  if (invalidTargets.length > 0) {
+    throw new Error(
+      `stageDistillOutput: invalid target(s): ${invalidTargets.map((t) => JSON.stringify(t)).join(', ')}`
+    )
+  }
 
   let supersededRemoved = 0
   for (const p of listProposals(argusHome)) {

@@ -95,6 +95,26 @@ describe('stageDistillOutput', () => {
     expect(raw).not.toContain('line two')
   })
 
+  it('validates targets before the destructive supersede step: invalid target throws and leaves old proposals intact', () => {
+    // job-stamped pending proposal that must survive the throw below
+    writeProposal(
+      home,
+      'case-a',
+      { type: 'memory-append', target: 'old-topic', title: 'old', content: 'x' },
+      { job: '3' }
+    )
+    expect(() =>
+      stageDistillOutput(db, home, 'case-a', 9, {
+        proposals: [{ type: 'recipe', target: 'has spaces', title: 't', content: 'c' }],
+        memoryAppends: [{ topic: 'valid-topic', content: 'fact' }]
+      })
+    ).toThrow(/invalid target/)
+    const ps = listProposals(home)
+    expect(ps).toHaveLength(1)
+    expect(ps[0].target).toBe('old-topic')
+    expect(ps[0].jobId).toBe('3')
+  })
+
   it('dedupes intra-batch duplicates (same topic twice in one memoryAppends batch)', () => {
     const res = stageDistillOutput(db, home, 'case-a', 10, {
       memoryAppends: [
