@@ -12,10 +12,36 @@ function withIntegrations(mut: (s: AppSettings) => void): AppSettings {
   return s
 }
 
+let emitAgentEvent: ((e: unknown) => void) | null = null
+
 beforeEach(() => {
-  window.argus = { sessions: { list: vi.fn(async () => [{ id: 7 }]) } } as never
+  emitAgentEvent = null
+  window.argus = {
+    sessions: { list: vi.fn(async () => [{ id: 7 }]) },
+    agent: {
+      onEvent: vi.fn((cb: (e: unknown) => void) => {
+        emitAgentEvent = cb
+        return () => {
+          emitAgentEvent = null
+        }
+      })
+    }
+  } as never
   tourStore.startTour()
 })
+
+function writeMemoryDone(caseSlug: string): void {
+  emitAgentEvent?.({
+    type: 'tool.call.completed',
+    caseSlug,
+    payload: {
+      toolCallId: 't1',
+      name: 'mcp__argus__write_memory',
+      outputPreview: 'memory/topic.md updated',
+      isError: false
+    }
+  })
+}
 
 describe('TourCompanion', () => {
   it('memory step stages the suggested prompt into the composer', async () => {
@@ -36,6 +62,44 @@ describe('TourCompanion', () => {
         expect.stringContaining('Remember')
       )
     )
+  })
+
+  it('memory step reveals the Memory settings tab after the agent writes a memory', async () => {
+    const onNavigate = vi.fn()
+    render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={onNavigate}
+        onExit={vi.fn()}
+      />
+    )
+    // Phase A: staging the prompt on the case view.
+    expect(screen.getByRole('button', { name: /stage prompt/i })).toBeTruthy()
+
+    // The agent finishes writing the memory on the sample case.
+    act(() => writeMemoryDone('sample-onboarding'))
+
+    // Phase B: navigate to Settings and drop the stage-prompt affordance.
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('settings'))
+    expect(screen.getByText(/just stored/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /stage prompt/i })).toBeNull()
+  })
+
+  it('ignores write_memory completions from other cases', () => {
+    const onNavigate = vi.fn()
+    render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={onNavigate}
+        onExit={vi.fn()}
+      />
+    )
+    act(() => writeMemoryDone('some-other-case'))
+    // Still on the case view (phase A); no settings navigation triggered.
+    expect(onNavigate).not.toHaveBeenCalledWith('settings')
+    expect(screen.getByRole('button', { name: /stage prompt/i })).toBeTruthy()
   })
 
   it('references step shows the explain card when Confluence is not configured', () => {
