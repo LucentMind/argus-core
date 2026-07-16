@@ -186,7 +186,8 @@ export function setCaseStatus(
   argusHome: string,
   slug: string,
   status: CaseStatus,
-  resolution: CaseResolution | null
+  resolution: CaseResolution | null,
+  onClosed?: (rec: CaseRecord) => void
 ): CaseRecord {
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
@@ -215,7 +216,16 @@ export function setCaseStatus(
     file,
     JSON.stringify({ ...onDisk, status, resolution: nextResolution, updatedAt: now }, null, 2)
   )
-  return getCase(db, slug)!
+  const closingNow = existing.status !== 'closed' && status === 'closed'
+  const updated = getCase(db, slug)!
+  if (closingNow && onClosed) {
+    try {
+      onClosed(updated)
+    } catch (err) {
+      console.error('[caseService] onClosed hook failed', err)
+    }
+  }
+  return updated
 }
 
 /**
