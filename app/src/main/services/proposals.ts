@@ -22,6 +22,11 @@ function refFileName(target: string): string {
   return target.endsWith('.md') ? target : `${target}.md`
 }
 
+/** Target names: a skill dir name or a reference file name. Same shape as case slugs. */
+export function isValidProposalTarget(target: string): boolean {
+  return NAME_RE.test(target)
+}
+
 export function writeProposal(
   argusHome: string,
   caseSlug: string,
@@ -35,7 +40,7 @@ export function writeProposal(
     )
   }
   const target = input.target.trim()
-  if (!NAME_RE.test(target)) {
+  if (!isValidProposalTarget(target)) {
     throw new Error(`Invalid proposal target: ${JSON.stringify(input.target)}`)
   }
   if (!input.content.trim()) throw new Error('write_proposal: content must not be empty')
