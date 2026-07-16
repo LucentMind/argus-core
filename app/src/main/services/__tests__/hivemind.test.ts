@@ -418,6 +418,17 @@ describe('confluence subfolder references', () => {
     expect(names).not.toContain('wip.md')
   })
 
+  it('dot-prefixed .md files are not listed (install would reject them)', async () => {
+    seedClone()
+    seedConfluenceRef('.hidden.md', '# hidden\n')
+    fs.writeFileSync(path.join(home, 'hivemind', 'references', '.flat-hidden.md'), '# hidden\n')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const names = (await svc.payload()).items.map((i) => i.name)
+    expect(names).not.toContain('confluence/.hidden.md')
+    expect(names).not.toContain('.flat-hidden.md')
+  })
+
   it('installed/localTier of a confluence item track the flattened local copy', async () => {
     seedClone()
     seedConfluenceRef()
