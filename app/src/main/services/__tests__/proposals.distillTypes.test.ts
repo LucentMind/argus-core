@@ -74,7 +74,7 @@ describe('distill proposal types', () => {
     })
     rejectProposal(home, f1)
     expect(listArchivedProposals(home)).toEqual([
-      { type: 'memory-append', target: 't1', caseSlug: 'case-a', status: 'rejected' }
+      { type: 'memory-append', target: 't1', caseSlug: 'case-a', title: 'a', status: 'rejected' }
     ])
     const f2 = writeProposal(home, 'case-a', {
       type: 'memory-append',
