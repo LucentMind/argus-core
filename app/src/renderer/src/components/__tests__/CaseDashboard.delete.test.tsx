@@ -39,7 +39,8 @@ function setup(p: SettingsPayload): void {
   window.argus = {
     cases: { delete: deleteMock },
     settings: { get: vi.fn(async () => p), onChanged: vi.fn(() => () => {}) },
-    bundle: { export: vi.fn() }
+    bundle: { export: vi.fn() },
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
   } as never
   settingsStore.reset()
 }

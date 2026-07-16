@@ -79,7 +79,7 @@ export interface FileNode {
 
 export type FileReadResult = { content: string; tooLarge?: never } | { tooLarge: true }
 
-export type SearchSource = 'evidence' | 'chat'
+export type SearchSource = 'evidence' | 'chat' | 'summaries'
 
 export interface SearchFilters {
   caseSlug?: string
@@ -113,7 +113,15 @@ export interface ChatHit {
   snippet: string // matched terms wrapped in « »
 }
 
-export type UnifiedHit = EvidenceHit | ChatHit
+export interface SummaryHit {
+  kind: 'summary'
+  caseSlug: string
+  signature: string
+  resolution: string
+  snippet: string // matched terms wrapped in « »
+}
+
+export type UnifiedHit = EvidenceHit | ChatHit | SummaryHit
 
 export interface ChatSearchHit {
   sessionId: number
