@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTour, tourStore, buildTourSteps } from '../../lib/tourStore'
 import { markTourDone } from '../../lib/onboardingStore'
 import { composerDraft } from '../../lib/composerDraft'
@@ -21,10 +21,36 @@ export function TourCompanion({
   const steps = buildTourSteps(settings)
   const step: TourStep | undefined = steps[index]
 
-  // Navigate to the step's view whenever the step changes.
+  // Reveal phase: a step carrying `reveal` flips to a second target once the
+  // watched tool completes on the sample case (e.g. Memory: stage the prompt,
+  // then spotlight Settings > Memory after the agent stores it). We track the
+  // step index the reveal fired for (rather than a boolean we'd have to reset),
+  // so navigating away and back naturally re-derives the right phase.
+  const [revealedIndex, setRevealedIndex] = useState<number | null>(null)
+  const reveal = step?.reveal
+  const showReveal = !!reveal && revealedIndex === index
+
   useEffect(() => {
-    if (open && step) onNavigate(step.view)
-  }, [open, step, onNavigate])
+    if (!open || !reveal || showReveal) return
+    return window.argus.agent?.onEvent?.((e) => {
+      if (
+        e.type === 'tool.call.completed' &&
+        e.caseSlug === sampleSlug &&
+        e.payload.name === reveal.watchTool &&
+        !e.payload.isError
+      ) {
+        setRevealedIndex(index)
+      }
+    })
+  }, [open, reveal, showReveal, sampleSlug, index])
+  const effView = showReveal && reveal ? reveal.view : step?.view
+  const effTarget = showReveal && reveal ? reveal.target : step?.target
+  const effNarration = showReveal && reveal ? reveal.narration : step?.narration
+
+  // Navigate to the effective view whenever it changes.
+  useEffect(() => {
+    if (open && step && effView) onNavigate(effView)
+  }, [open, step, effView, onNavigate])
 
   if (!open || !step) return null
 
@@ -54,9 +80,9 @@ export function TourCompanion({
       {unmet ? (
         <p className="mt-2 text-xs text-dim">{step.explain}</p>
       ) : (
-        <p className="mt-2 text-xs text-dim">{step.narration}</p>
+        <p className="mt-2 text-xs text-dim">{effNarration}</p>
       )}
-      {!unmet && step.view === 'case' && step.suggestedPrompt && (
+      {!unmet && effView === 'case' && step.suggestedPrompt && (
         <button
           className="mt-3 rounded-r2 bg-hi px-3 py-1.5 text-xs text-ink"
           onClick={() => void stagePrompt()}
@@ -92,5 +118,5 @@ export function TourCompanion({
   if (unmet) {
     return <div className="pointer-events-none fixed bottom-6 right-6 z-[60]">{panel}</div>
   }
-  return <Coachmark anchor={step.target}>{panel}</Coachmark>
+  return <Coachmark anchor={effTarget ?? step.target}>{panel}</Coachmark>
 }

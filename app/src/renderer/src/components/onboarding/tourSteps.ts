@@ -10,6 +10,18 @@ export interface TourStep {
   suggestedPrompt?: string
   requiresIntegration?: 'confluence' | 'hive'
   explain: string
+  /**
+   * Optional second phase: once the agent finishes the named tool call on the
+   * sample case, the companion re-points to `target` in `view` and swaps in
+   * `narration` — used to guide the user from staging a prompt to seeing its
+   * result (e.g. Memory: send the prompt, then spotlight Settings > Memory).
+   */
+  reveal?: {
+    watchTool: string
+    target: TourTarget
+    view: 'case' | 'settings'
+    narration: string
+  }
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -19,10 +31,17 @@ export const TOUR_STEPS: TourStep[] = [
     target: 'composer',
     view: 'case',
     narration:
-      'Argus remembers durable facts across cases. Send this prompt, then open Settings > Memory to see the new topic.',
+      'Argus remembers durable facts across cases. Send this prompt and approve the memory write - then I will show you where it is stored.',
     suggestedPrompt:
       'Remember for future cases: bearing-discontinuity errors in nav.fusion usually follow an IMU bearing drift warning.',
-    explain: ''
+    explain: '',
+    reveal: {
+      watchTool: 'mcp__argus__write_memory',
+      target: 'settings-memory',
+      view: 'settings',
+      narration:
+        'Here is the topic the agent just stored. Argus recalls these durable facts in future cases, no re-explaining.'
+    }
   },
   {
     key: 'skills',
