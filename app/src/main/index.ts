@@ -120,7 +120,7 @@ import { DistillQueue } from './services/distill/queue'
 import { assembleDistillInput } from './services/distill/input'
 import { runCaseDistill } from './services/distill/caseDistiller'
 import { stageDistillOutput } from './services/distill/staging'
-import { similarCases } from './services/distill/summaries'
+import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 
 let agentService: AgentService | null = null
 let langfuseExporter: LangfuseExporter | null = null
@@ -468,6 +468,10 @@ function registerIpc(): void {
     if (sources.includes('evidence'))
       hits.push(...searchEvidence(db, q, f).map((h) => ({ kind: 'evidence' as const, ...h })))
     if (sources.includes('chat')) hits.push(...searchAllMessages(db, q, f.caseSlug))
+    if (sources.includes('summaries'))
+      hits.push(
+        ...searchCaseSummaries(db, q, { limit: 5 }).map((h) => ({ kind: 'summary' as const, ...h }))
+      )
     return hits
   })
   ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
