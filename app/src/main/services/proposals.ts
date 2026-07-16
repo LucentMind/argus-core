@@ -104,6 +104,7 @@ export function listProposals(argusHome: string): ProposalRecord[] {
     if (!PROPOSAL_TYPES.includes(type)) continue
     const target = fmField(block.fm, 'target')
     const previouslyReviewed = fmField(block.fm, 'previously_reviewed') === 'true'
+    const job = fmField(block.fm, 'job')
     out.push({
       file: ent.name,
       type,
@@ -113,7 +114,8 @@ export function listProposals(argusHome: string): ProposalRecord[] {
       title: fmField(block.fm, 'title'),
       content: block.body,
       current: currentContent(argusHome, type, target),
-      ...(previouslyReviewed ? { previouslyReviewed: true } : {})
+      ...(previouslyReviewed ? { previouslyReviewed: true } : {}),
+      ...(job ? { jobId: job } : {})
     })
   }
   return out.sort((a, b) => b.date.localeCompare(a.date))
