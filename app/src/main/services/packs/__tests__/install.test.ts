@@ -255,4 +255,40 @@ describe('uninstallPack', () => {
   it('errors when the pack is not installed', () => {
     expect(uninstallPack('ghost', { argusHome: home, state }).ok).toBe(false)
   })
+
+  it('protects a core-shipped skill from reaping when a pack ships a same-named skill, but still reaps pack-only skills', async () => {
+    // install a pack that ships two skills: one collides with a core skill name, one doesn't
+    await installPack(
+      makeBundleDir(
+        {},
+        {
+          'skills/contribute-back/SKILL.md': '# pack copy of contribute-back',
+          'skills/pack-only/SKILL.md': '# pack-only skill'
+        }
+      ),
+      { argusHome: home, state, host: HOST }
+    )
+    // simulate seedSharedAssets having copied the pack's skills, then core-skills seeding
+    // AFTER packs (core wins the name collision) into the same bundled skills dir
+    fs.mkdirSync(path.join(sharedSkillsDir(home), 'contribute-back'), { recursive: true })
+    fs.writeFileSync(
+      path.join(sharedSkillsDir(home), 'contribute-back', 'SKILL.md'),
+      '# core contribute-back'
+    )
+    fs.mkdirSync(path.join(sharedSkillsDir(home), 'pack-only'), { recursive: true })
+    fs.writeFileSync(path.join(sharedSkillsDir(home), 'pack-only', 'SKILL.md'), '# pack-only skill')
+
+    // core-skills source dir (fixture, DI-style — not electron's resourcesPath)
+    const coreSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-core-skills-'))
+    fs.mkdirSync(path.join(coreSkillsDir, 'contribute-back'), { recursive: true })
+    fs.writeFileSync(
+      path.join(coreSkillsDir, 'contribute-back', 'SKILL.md'),
+      '# core contribute-back'
+    )
+
+    const r = uninstallPack('sample', { argusHome: home, state, coreSkillsDir })
+    expect(r.ok).toBe(true)
+    expect(fs.existsSync(path.join(sharedSkillsDir(home), 'contribute-back'))).toBe(true) // core skill survives
+    expect(fs.existsSync(path.join(sharedSkillsDir(home), 'pack-only'))).toBe(false) // pack-only skill reaped
+  })
 })

@@ -9,6 +9,24 @@ export function sharedReferencesDir(argusHome: string): string {
   return path.join(argusHome, 'references')
 }
 
+/**
+ * Resolve the core-shipped skills asset dir — skills argus-core ships itself,
+ * independent of any pack. Mirrors resolveSampleAssetsDir (onboarding.ts):
+ * process.resourcesPath is set even in dev (pointing at Electron's OWN dist
+ * resources), so existence-check the packaged path before trusting it and fall
+ * back to the in-repo source dir otherwise.
+ *
+ * - Packaged: `<resourcesPath>/core-skills` (electron-builder extraResources).
+ * - Dev / source: `<appRoot>/resources/core-skills`.
+ */
+export function resolveCoreSkillsDir(appRoot: string, resourcesPath?: string): string {
+  if (resourcesPath) {
+    const packaged = path.join(resourcesPath, 'core-skills')
+    if (fs.existsSync(packaged)) return packaged
+  }
+  return path.join(appRoot, 'resources', 'core-skills')
+}
+
 /** Tiers whose files were written after seeding (synced/authored) — never clobbered by a pack copy. */
 const nonPackTiers = new Set(['confluence', 'user', 'team-knowledge', 'hivemind'])
 

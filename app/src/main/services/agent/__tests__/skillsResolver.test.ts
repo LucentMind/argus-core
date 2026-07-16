@@ -115,4 +115,10 @@ describe('materializeSessionSkills', () => {
     const sharedSkills = fs.readdirSync(path.join(argusHome, 'skills')).sort()
     expect(sharedSkills).toEqual(['analyze-applog', 'rca'])
   })
+
+  it('returns the resolved skills so callers can reuse the scan', () => {
+    const resolved = materializeSessionSkills(argusHome, 'NAV-3', defaultAgentAccess())
+    expect(resolved.map((s) => s.name).sort()).toEqual(['analyze-applog', 'rca'])
+    expect(resolved.find((s) => s.name === 'rca')!.tier).toBe('user')
+  })
 })

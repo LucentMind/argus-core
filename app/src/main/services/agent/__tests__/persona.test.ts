@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { BASE_PERSONA, composePersona } from '../persona'
+import { BASE_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
 import { CaseSession } from '../session'
 
 describe('BASE_PERSONA', () => {
@@ -27,6 +27,14 @@ describe('composePersona', () => {
   })
   it('drops empty fragments and an empty append', () => {
     expect(composePersona(['', 'FRAG'], '')).toBe(`${BASE_PERSONA}\n\nFRAG`)
+  })
+})
+
+describe('CONTRIBUTE_BACK_NUDGE', () => {
+  it('points at write_proposal and forbids self-applying', () => {
+    expect(CONTRIBUTE_BACK_NUDGE).toContain('mcp__argus__write_proposal')
+    expect(CONTRIBUTE_BACK_NUDGE).toMatch(/inert/i)
+    expect(CONTRIBUTE_BACK_NUDGE).toMatch(/never apply/i)
   })
 })
 

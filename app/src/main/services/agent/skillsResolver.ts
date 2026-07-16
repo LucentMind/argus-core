@@ -92,12 +92,14 @@ export function materializeSessionSkills(
   argusHome: string,
   caseSlug: string,
   access: AgentAccess
-): void {
+): ResolvedSkill[] {
   const linkDir = path.join(caseDir(argusHome, caseSlug), '.claude', 'skills')
   fs.rmSync(linkDir, { recursive: true, force: true })
   fs.mkdirSync(linkDir, { recursive: true })
-  for (const s of resolveSkills(argusHome, access)) {
+  const resolved = resolveSkills(argusHome, access)
+  for (const s of resolved) {
     if (!s.enabled) continue
     fs.symlinkSync(s.dir, path.join(linkDir, s.name), 'junction')
   }
+  return resolved
 }

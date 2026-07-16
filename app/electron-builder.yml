@@ -24,6 +24,10 @@ extraResources:
     to: onboarding-sample
     filter:
       - '**/*'
+  - from: resources/core-skills
+    to: core-skills
+    filter:
+      - '**/*'
 win:
   executableName: argus
 nsis:
