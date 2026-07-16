@@ -138,17 +138,30 @@ export async function installPack(
 
 export function uninstallPack(
   id: string,
-  opts: { argusHome: string; state: PacksStateStore }
+  opts: { argusHome: string; state: PacksStateStore; coreSkillsDir?: string }
 ): { ok: boolean; error?: string } {
-  const { argusHome, state } = opts
+  const { argusHome, state, coreSkillsDir } = opts
   const dir = path.join(packsDir(argusHome), id)
   if (!fs.existsSync(dir)) return { ok: false, error: `pack '${id}' is not installed` }
 
+  const coreSkillNames = new Set(
+    coreSkillsDir && fs.existsSync(coreSkillsDir)
+      ? fs
+          .readdirSync(coreSkillsDir, { withFileTypes: true })
+          .filter((e) => e.isDirectory())
+          .map((e) => e.name)
+      : []
+  )
+
   // Reap the pack's seeded skills (whole subdir) and untiered references (protect tiered copies).
+  // The bundled skills tier is no longer pack-exclusive — core-shipped skills seed into it too
+  // (after packs, so they win name collisions) — so skip any name that's core-owned; otherwise
+  // uninstalling a pack that collided with a core skill would delete the core skill until the
+  // next app boot re-seeds it.
   const skillsSrc = path.join(dir, 'skills')
   if (fs.existsSync(skillsSrc)) {
     for (const ent of fs.readdirSync(skillsSrc, { withFileTypes: true })) {
-      if (ent.isDirectory())
+      if (ent.isDirectory() && !coreSkillNames.has(ent.name))
         fs.rmSync(path.join(sharedSkillsDir(argusHome), ent.name), { recursive: true, force: true })
     }
   }
