@@ -7,7 +7,7 @@ import { createCase } from '../../caseService'
 import { AgentService } from '../registry'
 import { createSession, deleteSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
-import { defaultAgentAccess } from '../../../../shared/agentAccess'
+import { defaultAgentAccess, agentAccessSchema } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
 import { SessionMirror } from '../mirror'
 import { caseDir } from '../../paths'
@@ -378,5 +378,58 @@ describe('AgentService', () => {
     // wait past the mirror's 250ms write-behind flush window
     await new Promise((r) => setTimeout(r, 350))
     expect(fs.existsSync(file)).toBe(false)
+  })
+
+  it('appends the contribute-back nudge only when the skill resolves enabled', async () => {
+    // bundled-tier contribute-back skill in the shared skills dir
+    const skillDir = path.join(argusHome, 'skills', 'contribute-back')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: contribute-back\ndescription: draft proposals\n---\n'
+    )
+    const captured: Record<string, unknown>[] = []
+    const createQuery: CreateQueryFn = (args) => {
+      captured.push(args.options as Record<string, unknown>)
+      const q = new AsyncQueue<unknown>()
+      return Object.assign(
+        { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
+        { interrupt: async () => q.end() }
+      )
+    }
+    let access = defaultAgentAccess()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => access,
+      onEvent: () => {},
+      createQuery
+    })
+    const appendOf = (i: number): string => (captured[i].systemPrompt as { append: string }).append
+
+    // enabled (default) → nudge present
+    const s1 = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s1.id, 'hi')
+    expect(appendOf(0)).toContain('mcp__argus__write_proposal')
+
+    // disabled via agent access → a fresh session gets no nudge
+    access = agentAccessSchema.parse({ skills: { 'bundled/contribute-back': false } })
+    const s2 = createSession(db, 'NAV-2')
+    await svc.send('NAV-2', s2.id, 'hi')
+    expect(appendOf(1)).not.toContain('mcp__argus__write_proposal')
+
+    // a user-tier shadow wins resolution: its enabled state governs, not the bundled key
+    const userDir = path.join(argusHome, 'skills-user', 'contribute-back')
+    fs.mkdirSync(userDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(userDir, 'SKILL.md'),
+      '---\nname: contribute-back\ndescription: user override\n---\n'
+    )
+    const s3 = createSession(db, 'NAV-3')
+    await svc.send('NAV-3', s3.id, 'hi')
+    expect(appendOf(2)).toContain('mcp__argus__write_proposal')
+    await svc.stopAll()
   })
 })
