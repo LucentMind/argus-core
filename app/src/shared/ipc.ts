@@ -14,6 +14,7 @@ export const IPC = {
   agentInterrupt: 'agent:interrupt',
   agentRespond: 'agent:respond',
   agentAuthStatus: 'agent:auth-status',
+  agentAuthChanged: 'agent:auth-changed',
   agentPreflight: 'agent:preflight',
   agentEventChannel: 'agent:event',
   agentHistory: 'agent:history',

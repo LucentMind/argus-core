@@ -208,6 +208,11 @@ const argus = {
     respond: (caseSlug: string, sessionId: number, d: ApprovalDecision) =>
       ipcRenderer.invoke(IPC.agentRespond, caseSlug, sessionId, d),
     authStatus: (force?: boolean) => ipcRenderer.invoke(IPC.agentAuthStatus, force),
+    onAuthChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.agentAuthChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.agentAuthChanged, listener)
+    },
     history: (caseSlug: string, sessionId: number): Promise<AgentEvent[]> =>
       ipcRenderer.invoke(IPC.agentHistory, caseSlug, sessionId),
     preflight: () => ipcRenderer.invoke(IPC.agentPreflight),
