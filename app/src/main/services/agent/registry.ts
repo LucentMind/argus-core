@@ -12,6 +12,7 @@ import { sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
+import { CONTRIBUTE_BACK_NUDGE } from './persona'
 import type { Detection } from '../packs/detection'
 
 export interface AgentServiceDeps {
@@ -118,7 +119,10 @@ export class AgentService {
     const cursor = sessionCursor(this.deps.db, sessionId)
 
     const access = this.deps.agentAccess()
-    materializeSessionSkills(this.deps.argusHome, caseSlug, access)
+    const resolvedSkills = materializeSessionSkills(this.deps.argusHome, caseSlug, access)
+    // Nudge follows the resolution winner (a user-tier shadow's enabled state
+    // governs), so one Skills-page toggle silences both skill and nudge.
+    const contributeBack = resolvedSkills.some((s) => s.name === 'contribute-back' && s.enabled)
 
     const session = new CaseSession({
       db: this.deps.db,
@@ -129,7 +133,10 @@ export class AgentService {
       sessionId,
       workspaceRoots: await workspaceSandboxRoots(this.deps.db, this.deps.argusHome, caseSlug),
       skillsRoots: this.deps.skillsRoots,
-      personaFragments: this.deps.personaFragments?.() ?? [],
+      personaFragments: [
+        ...(this.deps.personaFragments?.() ?? []),
+        ...(contributeBack ? [CONTRIBUTE_BACK_NUDGE] : [])
+      ],
       packCliNames: this.deps.packCliNames?.() ?? [],
       emit: this.deps.onEvent,
       createQuery: this.deps.createQuery ?? defaultCreateQuery,
