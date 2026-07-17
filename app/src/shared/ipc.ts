@@ -9,6 +9,14 @@ export const IPC = {
   evidenceRead: 'evidence:read',
   evidenceReadSnippet: 'evidence:read-snippet',
   evidenceChanged: 'evidence:changed',
+  textdocOpen: 'textdoc:open',
+  textdocLines: 'textdoc:lines',
+  textdocSearch: 'textdoc:search',
+  textdocCancelSearch: 'textdoc:cancel-search',
+  /** main → renderer: streaming search result batches for the viewer find bar. */
+  textdocSearchHits: 'textdoc:search-hits',
+  /** main → renderer: lazy line-index build progress { key, fraction }. */
+  textdocIndexProgress: 'textdoc:index-progress',
   searchQuery: 'search:query',
   chatSearch: 'chat:search',
   agentSend: 'agent:send',
