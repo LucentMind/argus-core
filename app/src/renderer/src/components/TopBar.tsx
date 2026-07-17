@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { Sun, Moon, Plus, Settings, Gauge } from 'lucide-react'
+import { Sun, Moon, Settings, Gauge } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import wordmarkDark from '../assets/argus-wordmark.svg'
 import wordmarkLight from '../assets/argus-wordmark-light.svg'
@@ -12,15 +12,13 @@ export function TopBar({
   onHome,
   onSelect,
   onSettings,
-  onObservability,
-  onNewCase
+  onObservability
 }: {
   activeSlug: string | null
   onHome: () => void
   onSelect: (slug: string) => void
   onSettings: () => void
   onObservability?: () => void
-  onNewCase: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -76,9 +74,6 @@ export function TopBar({
           )
         })}
       </nav>
-      <button className={ACTION_BTN} aria-label="New case" title="New case" onClick={onNewCase}>
-        <Plus size={21} strokeWidth={1.5} />
-      </button>
       {onObservability && (
         <button
           className={ACTION_BTN}

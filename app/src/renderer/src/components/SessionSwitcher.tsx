@@ -183,7 +183,7 @@ export function SessionSwitcher({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
       <div className="relative">
         <button
           type="button"
@@ -233,6 +233,15 @@ export function SessionSwitcher({
                 </>
               ) : (
                 <>
+                  <button
+                    type="button"
+                    aria-label="New chat"
+                    className="flex w-full items-center gap-1.5 rounded-r1 px-2 py-1.5 text-left text-xs text-dim transition-colors hover:bg-hi hover:text-ink"
+                    onClick={() => void createChat()}
+                  >
+                    <MessageSquarePlus size={12} strokeWidth={1.5} aria-hidden="true" />
+                    <span>New chat</span>
+                  </button>
                   {deleteError && <p className="px-1.5 py-1 text-xs text-danger">{deleteError}</p>}
                   {sorted.map((s) => {
                     const title = displayTitle(s)
@@ -305,19 +314,11 @@ export function SessionSwitcher({
           overlay (fixed inset-0 z-10, see above). The overlay lives inside
           the trigger's wrapper, not here, so this container's positioned
           descendant status wins the comparison directly — without this, the
-          overlay (a positioned descendant) paints above these static
-          controls regardless of DOM order, swallowing their first click. */}
-      <div className="relative z-20 flex items-center gap-2">
-        <button
-          type="button"
-          aria-label="New chat"
-          title="New chat"
-          className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
-          onClick={() => void createChat()}
-        >
-          <MessageSquarePlus size={12} strokeWidth={1.5} aria-hidden="true" />
-          <span>New chat</span>
-        </button>
+          overlay (a positioned descendant) paints above this static input
+          regardless of DOM order, swallowing its first click.
+          ml-auto: pin the search to the right edge so it doesn't shift as
+          the active chat title's width changes. */}
+      <div className="relative z-20 ml-auto flex items-center">
         <input
           aria-label="Search chats"
           placeholder="Search chats"

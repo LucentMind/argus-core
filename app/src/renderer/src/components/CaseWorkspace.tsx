@@ -249,20 +249,22 @@ export function CaseWorkspace({
           </button>
         ) : (
           <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
-            <div className="flex items-center justify-between">
-              <SectionLabel>Evidence</SectionLabel>
-              <button
-                aria-label="Collapse evidence"
-                title="Collapse evidence"
-                className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
-                onClick={() => uiStore.setEvidenceCollapsed(true)}
-              >
-                <PanelLeft size={14} strokeWidth={1.5} />
-              </button>
-            </div>
+            <ReposSection
+              slug={slug}
+              headerExtra={
+                <button
+                  aria-label="Collapse evidence"
+                  title="Collapse evidence"
+                  className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
+                  onClick={() => uiStore.setEvidenceCollapsed(true)}
+                >
+                  <PanelLeft size={14} strokeWidth={1.5} />
+                </button>
+              }
+            />
+            <SectionLabel>Evidence</SectionLabel>
             <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
             <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-            <ReposSection slug={slug} />
             {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
             <CaseFiles
               key={slug}

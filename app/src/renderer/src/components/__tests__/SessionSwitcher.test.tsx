@@ -41,12 +41,18 @@ describe('SessionSwitcher', () => {
     expect(onSwitch).toHaveBeenCalledWith(2)
   })
 
-  it('New Chat creates and switches', async () => {
+  it('New Chat is the first entry in the popup; creates and switches', async () => {
     const onSwitch = vi.fn()
     render(
       <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
     )
-    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+    // the button lives inside the popup now, not beside the trigger
+    expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    const panel = screen.getByRole('group', { name: 'Sessions' })
+    const buttons = panel.querySelectorAll('button')
+    expect(buttons[0].getAttribute('aria-label')).toBe('New chat')
+    fireEvent.click(buttons[0])
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith(3))
   })
 
@@ -83,7 +89,7 @@ describe('SessionSwitcher', () => {
       <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
     )
     // wait for the list fetch so the empty chat is known
-    await screen.findByRole('button', { name: /chat 1/i })
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
     fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
     await waitFor(() => expect(onSwitch).toHaveBeenCalledWith(5))
     expect(window.argus.sessions.create).not.toHaveBeenCalled()
@@ -134,23 +140,21 @@ describe('SessionSwitcher', () => {
   })
 
   // The click-away overlay (`fixed inset-0 z-10`) sits above the header's
-  // static New Chat button and Search input, swallowing clicks on them while
-  // the popup is open. jsdom doesn't do layout/paint, so fireEvent dispatches
-  // straight to the target node and can't reproduce that hit-testing bug —
-  // assert the structural fix instead: New Chat + Search share a positioned
-  // ancestor with a z-index above the overlay's (z-10), and that ancestor
-  // does NOT also host the overlay (else the overlay would still out-rank
-  // them as a positioned descendant within the same stacking context).
-  it('keeps New Chat and Search in a stacking context above the click-away overlay', async () => {
+  // static Search input, swallowing clicks on it while the popup is open.
+  // jsdom doesn't do layout/paint, so fireEvent dispatches straight to the
+  // target node and can't reproduce that hit-testing bug — assert the
+  // structural fix instead: Search has a positioned ancestor with a z-index
+  // above the overlay's (z-10), and that ancestor does NOT also host the
+  // overlay (else the overlay would still out-rank it as a positioned
+  // descendant within the same stacking context).
+  it('keeps Search in a stacking context above the click-away overlay', async () => {
     render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
-    const newChatButton = screen.getByRole('button', { name: 'New chat' })
     const searchInput = screen.getByLabelText('Search chats')
-    const controlsContainer = newChatButton.closest('.relative.z-20')
+    const controlsContainer = searchInput.closest('.relative.z-20')
     expect(controlsContainer).not.toBeNull()
-    expect(controlsContainer?.contains(searchInput)).toBe(true)
     // the overlay must live outside this container, or its own positioned
-    // descendant status would still out-rank the static button/input inside it
+    // descendant status would still out-rank the static input inside it
     expect(controlsContainer?.querySelector('.fixed.inset-0')).toBeNull()
   })
 

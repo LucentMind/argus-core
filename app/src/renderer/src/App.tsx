@@ -140,7 +140,6 @@ function App(): React.JSX.Element {
         onSelect={openCase}
         onSettings={() => openSettings()}
         onObservability={openObservability}
-        onNewCase={() => setNewCaseOpen(true)}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {view.kind === 'home' ? (
