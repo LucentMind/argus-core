@@ -125,7 +125,6 @@ export async function ensureIndex(
 }
 
 export const MAX_LINES_PER_READ = 2000
-const READ_CHUNK_BYTES = 1024 * 1024
 
 /** Read a clamped [from, to] line range via checkpoint seek. Synchronous —
  *  bounded work: one seek plus at most (checkpoint gap + range) lines. */
@@ -136,8 +135,8 @@ export function getLines(
   to: number
 ): { from: number; lines: string[] } {
   const start = Math.max(1, from)
-  const end = Math.min(Math.max(to, start), start + MAX_LINES_PER_READ - 1, index.totalLines)
-  if (start > index.totalLines) return { from: start, lines: [] }
+  const end = Math.min(to, start + MAX_LINES_PER_READ - 1, index.totalLines)
+  if (start > index.totalLines || end < start) return { from: start, lines: [] }
 
   const [cpLine, cpByte] = checkpointAtOrBelow(index, start)
   const lines: string[] = []
@@ -148,10 +147,10 @@ export function getLines(
   }
   const fd = fs.openSync(absPath, 'r')
   try {
-    const buf = Buffer.alloc(READ_CHUNK_BYTES)
+    const buf = Buffer.alloc(BUILD_CHUNK_BYTES)
     let offset = cpByte
     while (true) {
-      const n = fs.readSync(fd, buf, 0, READ_CHUNK_BYTES, offset)
+      const n = fs.readSync(fd, buf, 0, BUILD_CHUNK_BYTES, offset)
       if (n === 0) break
       offset += n
       if (!splitter.push(buf.subarray(0, n), onLine)) return { from: start, lines }
