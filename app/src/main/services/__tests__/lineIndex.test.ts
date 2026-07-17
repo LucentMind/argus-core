@@ -159,6 +159,12 @@ describe('getLines', () => {
     expect(getLines(idx, p, 1, 3000).lines).toHaveLength(MAX_LINES_PER_READ)
   })
 
+  it('returns empty for a reversed range', async () => {
+    const p = writeLines('h.txt', 3000)
+    const idx = await ensureIndex(argusHome, p)
+    expect(getLines(idx, p, 10, 5).lines).toEqual([])
+  })
+
   it('reads the final unterminated line', async () => {
     const p = path.join(tmp, 'tail.txt')
     fs.writeFileSync(p, 'a\nb\nlast-no-newline')
