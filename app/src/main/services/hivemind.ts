@@ -99,6 +99,22 @@ export class HivemindService {
     return hivemindCloneDir(this.deps.argusHome)
   }
 
+  /**
+   * True when the on-disk clone's origin positively differs from the configured
+   * repo (i.e. the setting changed after cloning). Unknown/unreadable origins
+   * count as matching so a git hiccup can never wipe a healthy clone.
+   */
+  private async cloneIsStale(repo: string): Promise<boolean> {
+    if (!fs.existsSync(path.join(this.clone(), '.git'))) return false
+    let origin: string
+    try {
+      origin = (await this.git(['remote', 'get-url', 'origin'], this.clone())).trim()
+    } catch {
+      return false
+    }
+    return origin !== '' && origin !== cloneUrl(repo)
+  }
+
   async payload(): Promise<HivemindPayload> {
     const repo = this.deps.repo().trim()
     const base = {
@@ -111,6 +127,9 @@ export class HivemindService {
     }
     if (!repo) return { ...base, state: 'dormant' }
     if (!fs.existsSync(path.join(this.clone(), '.git'))) return { ...base, state: 'not-cloned' }
+    // A clone of a previously-configured repo is not this repo's content —
+    // report not-cloned (sync will replace it) rather than listing stale items.
+    if (await this.cloneIsStale(repo)) return { ...base, state: 'not-cloned' }
     try {
       const headCommit = await this.git(['rev-parse', 'HEAD'], this.clone())
       return { ...base, state: 'ready', headCommit, items: await this.listItems() }
@@ -124,6 +143,12 @@ export class HivemindService {
     const repo = this.deps.repo().trim()
     if (!repo) return this.payload()
     try {
+      if (await this.cloneIsStale(repo)) {
+        // Repo setting changed: replace the clone and drop the old repo's pins.
+        // Installed copies stay — they are pinned snapshots by design (spec §2.3).
+        fs.rmSync(this.clone(), { recursive: true, force: true })
+        this.store.write({ ...this.state(), skills: {}, references: {} })
+      }
       if (!fs.existsSync(path.join(this.clone(), '.git'))) {
         await this.git(['clone', cloneUrl(repo), this.clone()])
       } else {
