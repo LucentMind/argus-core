@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseFiles } from '../CaseFiles'
 import type { ArtifactTypeMeta, EvidenceRecord } from '../../../../shared/types'
@@ -55,7 +57,8 @@ beforeEach(() => {
         return () => {}
       }),
       list: vi.fn(async () => evidenceFixture),
-      delete: vi.fn(async () => ({ deleted: [] }))
+      delete: vi.fn(async () => ({ deleted: [] })),
+      scan: vi.fn(async () => ({ added: [], modified: [], missing: [], errors: [] }))
     },
     packs: {
       artifactMeta: vi.fn(async () => artifactMetaFixture)
@@ -233,6 +236,53 @@ describe('CaseFiles', () => {
     expect(await screen.findByText('evidence locked')).toBeTruthy()
     // initial mount + the finally-block reload after the failed delete
     await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalledTimes(2))
+  })
+
+  it('Refresh scans and shows the summary', async () => {
+    window.argus.evidence.scan = vi.fn(async () => ({
+      added: ['evidence/a.txt', 'evidence/b.txt'],
+      modified: ['evidence/c.txt'],
+      missing: [],
+      errors: []
+    }))
+    render(<CaseFiles caseSlug="C1" onOpenFile={() => {}} />)
+    await userEvent.click(screen.getByRole('button', { name: /rescan evidence folder/i }))
+    expect(window.argus.evidence.scan).toHaveBeenCalledWith('C1')
+    await screen.findByText('2 added · 1 updated')
+  })
+
+  it('files.onChanged for this case lights the staleness dot; scanning clears it', async () => {
+    let onFiles: ((slug: string) => void) | null = null
+    window.argus.files.onChanged = vi.fn((cb) => {
+      onFiles = cb
+      return () => {}
+    })
+    render(<CaseFiles caseSlug="C1" onOpenFile={() => {}} />)
+    await waitFor(() => expect(onFiles).not.toBeNull())
+    act(() => onFiles!('OTHER'))
+    expect(screen.queryByTestId('files-stale-dot')).toBeNull()
+    act(() => onFiles!('C1'))
+    expect(screen.getByTestId('files-stale-dot')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /rescan evidence folder/i }))
+    await waitFor(() => expect(screen.queryByTestId('files-stale-dot')).toBeNull())
+  })
+
+  it('rows with meta.missing render a missing badge', async () => {
+    window.argus.evidence.list = vi.fn(async () => [
+      {
+        id: 1,
+        caseId: 1,
+        relPath: 'evidence/gone.txt',
+        sha256: 'x',
+        artifactType: 'text',
+        size: 3,
+        origin: 'scan',
+        meta: { missing: true },
+        createdAt: '2026-07-17T00:00:00Z'
+      }
+    ])
+    render(<CaseFiles caseSlug="C1" onOpenFile={() => {}} />)
+    await screen.findByText('missing')
   })
 })
 
