@@ -6,8 +6,6 @@ import {
   ensureIndex,
   sidecarPath,
   checkpointAtOrBelow,
-  CHECKPOINT_LINES,
-  CHECKPOINT_BYTES,
   __clearIndexCacheForTests
 } from '../lineIndex'
 
@@ -81,13 +79,50 @@ describe('ensureIndex', () => {
     await ensureIndex(argusHome, p, (f) => fractions.push(f))
     expect(fractions[fractions.length - 1]).toBe(1)
   })
+
+  it('returns the same object from the memory cache on a hit', async () => {
+    const p = writeLines('hit.txt', 10)
+    const a = await ensureIndex(argusHome, p)
+    const b = await ensureIndex(argusHome, p)
+    expect(b).toBe(a)
+  })
+
+  it('promotes entries on hit so LRU evicts the least recently used', async () => {
+    const pA = writeLines('lru-a.txt', 5)
+    const a1 = await ensureIndex(argusHome, pA)
+    // fill the cache to capacity (16) with 15 more distinct files
+    const others: string[] = []
+    const otherIdx: unknown[] = []
+    for (let i = 0; i < 15; i++) {
+      const p = writeLines(`lru-${i}.txt`, 5)
+      others.push(p)
+      otherIdx.push(await ensureIndex(argusHome, p))
+    }
+    // re-hit A → promotion moves it to most-recently-used
+    const a2 = await ensureIndex(argusHome, pA)
+    expect(a2).toBe(a1)
+    // 17th distinct file → evicts the true LRU (others[0]), not A
+    const pNew = writeLines('lru-new.txt', 5)
+    await ensureIndex(argusHome, pNew)
+    const a3 = await ensureIndex(argusHome, pA)
+    expect(a3).toBe(a1)
+    // others[0] was evicted → re-ensure yields a fresh object, not the cached one
+    const rebuilt = await ensureIndex(argusHome, others[0])
+    expect(rebuilt).not.toBe(otherIdx[0])
+  })
 })
 
 describe('checkpointAtOrBelow', () => {
   it('binary-searches the greatest checkpoint ≤ line', () => {
     const idx = {
-      mtimeMs: 0, size: 0, totalLines: 5000,
-      checkpoints: [[1, 0], [1001, 11000], [2001, 22000]] as Array<[number, number]>
+      mtimeMs: 0,
+      size: 0,
+      totalLines: 5000,
+      checkpoints: [
+        [1, 0],
+        [1001, 11000],
+        [2001, 22000]
+      ] as Array<[number, number]>
     }
     expect(checkpointAtOrBelow(idx, 1)).toEqual([1, 0])
     expect(checkpointAtOrBelow(idx, 1000)).toEqual([1, 0])

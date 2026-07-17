@@ -98,19 +98,25 @@ export async function ensureIndex(
   absPath: string,
   onProgress?: (fraction: number) => void
 ): Promise<LineIndex> {
-  const stat = fs.statSync(absPath)
-  const cached = memCache.get(absPath)
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached
+  const resolved = path.resolve(absPath)
+  const stat = fs.statSync(resolved)
+  const cached = memCache.get(resolved)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    // promote on hit so eviction tracks recency, not insertion order
+    memCache.delete(resolved)
+    memCache.set(resolved, cached)
+    return cached
+  }
 
-  const side = sidecarPath(argusHome, absPath)
+  const side = sidecarPath(argusHome, resolved)
   let index = loadSidecar(side, stat.mtimeMs, stat.size)
   if (!index) {
-    index = await buildIndex(absPath, stat.mtimeMs, stat.size, onProgress)
+    index = await buildIndex(resolved, stat.mtimeMs, stat.size, onProgress)
     fs.mkdirSync(path.dirname(side), { recursive: true })
     fs.writeFileSync(side, JSON.stringify({ version: 1, ...index }))
   }
-  memCache.delete(absPath)
-  memCache.set(absPath, index)
+  memCache.delete(resolved)
+  memCache.set(resolved, index)
   if (memCache.size > MEM_CACHE_MAX) {
     const oldest = memCache.keys().next().value
     if (oldest !== undefined) memCache.delete(oldest)
