@@ -60,9 +60,12 @@ export function createCaseWatchHub(
       const t = timers.get(slug)
       if (t) clearTimeout(t)
       timers.delete(slug)
+      suppressUntil.delete(slug)
     },
     suppress(slug, ms = 1500) {
-      suppressUntil.set(slug, Date.now() + ms)
+      const until = Date.now() + ms
+      // monotonic: a later short suppression must not shrink an outstanding longer window
+      suppressUntil.set(slug, Math.max(suppressUntil.get(slug) ?? 0, until))
     },
     close() {
       for (const slug of [...watchers.keys()]) this.unwatch(slug)

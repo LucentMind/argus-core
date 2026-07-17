@@ -48,4 +48,13 @@ describe('caseWatch hub', () => {
     await new Promise((r) => setTimeout(r, 800))
     expect(events).toEqual([])
   })
+
+  it('suppress() is monotonic — a later short window never shrinks a longer one', async () => {
+    hub.watch('C1')
+    hub.suppress('C1', 5000)
+    hub.suppress('C1', 1) // must NOT shrink the 5000ms window
+    fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'evidence', 'm.txt'), 'hi')
+    await new Promise((r) => setTimeout(r, 800)) // > debounce; inside the 5000ms window
+    expect(events).toEqual([])
+  })
 })
