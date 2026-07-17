@@ -5,8 +5,8 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { caseDir } from '../paths'
-import { createCase } from '../caseService'
-import { ingestContent, listEvidence } from '../ingest'
+import { createCase, getCase } from '../caseService'
+import { ingestContent, listEvidence, updateEvidenceContent } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { scanEvidence, type ScanDeps } from '../scan'
@@ -100,6 +100,47 @@ describe('scanEvidence', () => {
     const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
     expect(s.added).toEqual([]) // .derived content not re-ingested
     expect(s.missing).toEqual([]) // .derived record not flagged missing
+  })
+
+  it('advances an open case to analyzing when a scan adds evidence and a turn exists', () => {
+    // mirror the maybeAdvanceToAnalyzing precondition used by interactive ingest:
+    // the case needs BOTH evidence and a started chat (a turn row)
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug = 'C1'`).get() as { id: number }).id
+    db.prepare(
+      `INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?, 'now', 'now')`
+    ).run(caseId)
+    db.prepare(
+      `INSERT INTO turns (case_id, session_id, turn_index, status, created_at)
+       VALUES (?, 1, 0, 'done', 'now')`
+    ).run(caseId)
+    fs.writeFileSync(path.join(evDir('C1'), 'found.txt'), 'scanned in')
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    expect(getCase(db, 'C1')!.status).toBe('analyzing')
+  })
+
+  it('a scan that adds nothing does not advance the case', () => {
+    // evidence ingested BEFORE any turn exists → case stays open at ingest time
+    ingestContent(db, argusHome, detection, 'C1', 'seed.txt', 'seeded', 'upload')
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug = 'C1'`).get() as { id: number }).id
+    db.prepare(
+      `INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?, 'now', 'now')`
+    ).run(caseId)
+    db.prepare(
+      `INSERT INTO turns (case_id, session_id, turn_index, status, created_at)
+       VALUES (?, 1, 0, 'done', 'now')`
+    ).run(caseId)
+    // nothing new on disk: scan reconciles but must not advance an untouched case
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    expect(getCase(db, 'C1')!.status).toBe('open')
+  })
+
+  it('updateEvidenceContent clears a stale missing flag (file rewritten in place)', () => {
+    const rec = ingestContent(db, argusHome, detection, 'C1', 'ticket.md', 'v1 body', 'jira')
+    fs.rmSync(path.join(caseDir(argusHome, 'C1'), rec.relPath))
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    expect(listEvidence(db, 'C1').find((e) => e.id === rec.id)!.meta.missing).toBe(true)
+    updateEvidenceContent(db, argusHome, detection, rec.id, 'v2 rewritten in place')
+    expect(listEvidence(db, 'C1').find((e) => e.id === rec.id)!.meta.missing).toBeUndefined()
   })
 
   it('isolates per-file failures as errors and continues', () => {
