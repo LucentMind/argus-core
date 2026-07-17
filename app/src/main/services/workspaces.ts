@@ -10,7 +10,7 @@ import { updateClaudeMdWorkspaces } from './skillsDir'
 
 const execFileAsync = promisify(execFile)
 
-interface StoredWorkspace {
+export interface StoredWorkspace {
   path: string
   remote: string | null
   branch: string | null
@@ -25,7 +25,7 @@ export function worktreesRoot(argusHome: string): string {
   return path.join(argusHome, 'worktrees')
 }
 
-function worktreeDir(argusHome: string, caseSlug: string, repoPath: string): string {
+export function caseWorktreeDir(argusHome: string, caseSlug: string, repoPath: string): string {
   return path.join(worktreesRoot(argusHome), `${path.basename(repoPath)}-${caseSlug}`)
 }
 
@@ -42,7 +42,7 @@ async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<
   return run
 }
 
-function readStored(db: DatabaseSync, caseSlug: string): StoredWorkspace[] {
+export function listStoredWorkspaces(db: DatabaseSync, caseSlug: string): StoredWorkspace[] {
   const row = db.prepare(`SELECT workspaces FROM cases WHERE slug = ?`).get(caseSlug) as
     { workspaces: string } | undefined
   if (!row) throw new Error(`Unknown case: ${caseSlug}`)
@@ -78,7 +78,7 @@ async function describeWorkspace(
   caseSlug: string,
   stored: StoredWorkspace
 ): Promise<WorkspaceInfo> {
-  const wt = worktreeDir(argusHome, caseSlug, stored.path)
+  const wt = caseWorktreeDir(argusHome, caseSlug, stored.path)
   const worktreePath = fs.existsSync(wt) ? wt : null
   const tree = worktreePath ?? stored.path
   const currentRef = await git(tree, 'rev-parse', '--abbrev-ref', 'HEAD')
@@ -105,7 +105,7 @@ export async function linkWorkspace(
   } catch {
     remote = null
   }
-  const stored = readStored(db, caseSlug).filter((w) => w.path !== repoPath)
+  const stored = listStoredWorkspaces(db, caseSlug).filter((w) => w.path !== repoPath)
   const entry: StoredWorkspace = { path: repoPath, remote, branch }
   writeStored(db, argusHome, caseSlug, [...stored, entry])
   return describeWorkspace(argusHome, caseSlug, entry)
@@ -118,7 +118,7 @@ export async function unlinkWorkspace(
   repoPath: string
 ): Promise<void> {
   await withRepoLock(repoPath, async () => {
-    const wt = worktreeDir(argusHome, caseSlug, repoPath)
+    const wt = caseWorktreeDir(argusHome, caseSlug, repoPath)
     if (fs.existsSync(wt)) {
       await git(repoPath, 'worktree', 'remove', '--force', wt)
       await git(repoPath, 'worktree', 'prune')
@@ -128,7 +128,7 @@ export async function unlinkWorkspace(
     db,
     argusHome,
     caseSlug,
-    readStored(db, caseSlug).filter((w) => w.path !== repoPath)
+    listStoredWorkspaces(db, caseSlug).filter((w) => w.path !== repoPath)
   )
 }
 
@@ -138,7 +138,7 @@ export async function listWorkspaces(
   caseSlug: string
 ): Promise<WorkspaceInfo[]> {
   const out: WorkspaceInfo[] = []
-  for (const s of readStored(db, caseSlug))
+  for (const s of listStoredWorkspaces(db, caseSlug))
     out.push(await describeWorkspace(argusHome, caseSlug, s))
   return out
 }
@@ -150,7 +150,7 @@ export async function ensureWorktree(
   ref: string
 ): Promise<string> {
   return withRepoLock(repoPath, async () => {
-    const wt = worktreeDir(argusHome, caseSlug, repoPath)
+    const wt = caseWorktreeDir(argusHome, caseSlug, repoPath)
     if (fs.existsSync(wt)) {
       // Check if already at the requested ref; if so, skip switching to avoid detaching
       const current = await git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')
@@ -190,7 +190,7 @@ export async function workspaceSandboxRoots(
   argusHome: string,
   caseSlug: string
 ): Promise<string[]> {
-  return [...readStored(db, caseSlug).map((w) => w.path), worktreesRoot(argusHome)]
+  return [...listStoredWorkspaces(db, caseSlug).map((w) => w.path), worktreesRoot(argusHome)]
 }
 
 /** Auto-link the settings-default repo at case creation. Best-effort:
