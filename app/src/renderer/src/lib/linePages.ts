@@ -21,6 +21,7 @@ export class LinePageCache {
   ) {}
 
   getLine(n: number): string | undefined {
+    if (n < 1) return undefined
     const pageNo = Math.floor((n - 1) / PAGE_LINES)
     const page = this.pages.get(pageNo)
     if (page) {
@@ -68,6 +69,9 @@ export class LinePageCache {
         }
         this.subs.forEach((cb) => cb())
       })
+      // a failed fetch leaves the page uncached (skeleton rows persist); inflight is
+      // cleared below, so a later getLine/prefetch naturally retries
+      .catch(() => undefined)
       .finally(() => this.inflight.delete(pageNo))
   }
 }
