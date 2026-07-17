@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Btn } from './ui'
+import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
 import { shortStamp } from '../lib/time'
 import type { JiraRefreshSummary } from '../../../shared/jira'
 
@@ -15,6 +16,8 @@ function summarize(s: JiraRefreshSummary): string {
     parts.push(
       `${s.deletedOnJira.length} attachment${s.deletedOnJira.length === 1 ? '' : 's'} deleted on Jira (kept locally)`
     )
+  if (s.newComments) parts.push(`${s.newComments} new comment${s.newComments === 1 ? '' : 's'}`)
+  if (s.commentsError) parts.push(`comments fetch failed`)
   return parts.length ? parts.join(' · ') : 'no changes'
 }
 
@@ -42,6 +45,7 @@ export function JiraRefreshButton({
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState(syncedAt)
+  const [pending, setPending] = useState<JiraRefreshSummary | null>(null)
   // derived-state sync: adopt a changed stored value (e.g. cases reload after mount)
   const [prevSyncedAt, setPrevSyncedAt] = useState(syncedAt)
   if (syncedAt !== prevSyncedAt) {
@@ -59,24 +63,38 @@ export function JiraRefreshButton({
     if (r.ok) {
       setNote(summarize(r.value))
       setLastSynced(r.value.syncedAt)
+      if (r.value.newAttachments.length) setPending(r.value)
     } else setError(r.message)
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      {lastSynced && (
-        <span className="shrink-0 text-xs text-mute">last refreshed {shortStamp(lastSynced)}</span>
+    <>
+      <div className="flex min-w-0 items-center gap-2">
+        {lastSynced && (
+          <span className="shrink-0 text-xs text-mute">
+            last refreshed {shortStamp(lastSynced)}
+          </span>
+        )}
+        <Btn variant="outline" className="shrink-0" disabled={busy} onClick={() => void refresh()}>
+          <RefreshIcon spinning={busy} />
+          {busy ? 'Refreshing…' : 'Refresh'}
+        </Btn>
+        {note && <span className="min-w-0 truncate text-xs text-dim">{note}</span>}
+        {error && (
+          <span role="alert" className="min-w-0 truncate text-xs text-danger">
+            {error}
+          </span>
+        )}
+      </div>
+      {pending && (
+        <JiraAttachmentsDialog
+          slug={slug}
+          newAttachments={pending.newAttachments}
+          deselectedAttachments={pending.deselectedAttachments}
+          ingestedAttachments={pending.ingestedAttachments}
+          onClose={() => setPending(null)}
+        />
       )}
-      <Btn variant="outline" className="shrink-0" disabled={busy} onClick={() => void refresh()}>
-        <RefreshIcon spinning={busy} />
-        {busy ? 'Refreshing…' : 'Refresh'}
-      </Btn>
-      {note && <span className="min-w-0 truncate text-xs text-dim">{note}</span>}
-      {error && (
-        <span role="alert" className="min-w-0 truncate text-xs text-danger">
-          {error}
-        </span>
-      )}
-    </div>
+    </>
   )
 }

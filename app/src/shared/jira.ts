@@ -20,6 +20,14 @@ export interface JiraIssuePreview {
   attachments: JiraAttachmentInfo[]
 }
 
+export interface JiraCommentInfo {
+  id: string
+  author: string | null
+  created: string
+  updated: string
+  bodyMarkdown: string
+}
+
 export interface JiraAttachmentProgress {
   caseSlug: string
   attachmentId: string
@@ -32,9 +40,18 @@ export interface JiraAttachmentProgress {
 export interface JiraRefreshSummary {
   key: string
   statusChange: { from: string; to: string } | null
+  /** New on the ticket and pending a user decision — refresh does NOT download. */
   newAttachments: JiraAttachmentInfo[]
+  /** Previously deselected ids still live on the ticket (offered unchecked in the dialog). */
+  deselectedAttachments: JiraAttachmentInfo[]
+  /** Live on the ticket AND already ingested — shown as synced, not re-selectable (spec §4). */
+  ingestedAttachments: JiraAttachmentInfo[]
   /** Noted only — evidence is append-only, nothing is removed locally. */
   deletedOnJira: Array<{ attachmentId: string; filename: string }>
+  /** Count of comments added since the last sync (0 when the fetch failed). */
+  newComments: number
+  /** Set when the comments fetch failed; the rest of the refresh still ran. */
+  commentsError?: string
   /** When this refresh ran (also persisted as CaseRecord.jiraSyncedAt). */
   syncedAt: string
 }
