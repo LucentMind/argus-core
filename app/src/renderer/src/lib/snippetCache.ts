@@ -18,10 +18,14 @@ export function fetchSnippet(
   const key = `${caseSlug}|${relPath}|${line}`
   const hit = cache.get(key)
   if (hit) return hit
-  const p = window.argus.evidence.readSnippet(caseSlug, relPath, line).catch(() => {
-    cache.delete(key) // transient IPC failures shouldn't stick
-    return { ok: false, reason: 'not-found' } as const
-  })
+  const p: Promise<SnippetResult> = window.argus.evidence
+    .readSnippet(caseSlug, relPath, line)
+    .catch(() => {
+      // Transient IPC failures shouldn't stick, but only evict our own entry:
+      // the key may have been invalidated and re-fetched while we were pending.
+      if (cache.get(key) === p) cache.delete(key)
+      return { ok: false, reason: 'not-found' } as const
+    })
   cache.set(key, p)
   if (cache.size > MAX_ENTRIES) {
     const oldest = cache.keys().next().value
