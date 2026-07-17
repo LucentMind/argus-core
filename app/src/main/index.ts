@@ -786,6 +786,7 @@ function registerIpc(): void {
     capturePanel: capturePanelFor,
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
     onCaseClosed,
+    onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) => {
       const w = panelWindow(packId, windowId)
       return w?.decl.kind === 'externalApp'

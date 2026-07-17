@@ -27,6 +27,14 @@ export function ReposSection({ slug }: { slug: string }): React.JSX.Element {
   useEffect(() => {
     void window.argus.workspaces.refs(slug).then(setRefs)
   }, [slug])
+  // live refresh: the agent's workspace_checkout materializes a worktree without
+  // any renderer action — the main process broadcasts so the chip updates in place
+  useEffect(() => {
+    if (!window.argus.workspaces.onChanged) return
+    return window.argus.workspaces.onChanged((changed) => {
+      if (changed === slug) void reload()
+    })
+  }, [slug, reload])
 
   async function link(): Promise<void> {
     const p = await window.argus.workspaces.pick()

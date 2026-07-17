@@ -80,4 +80,24 @@ describe('ReposSection', () => {
       expect(window.argus.workspaces.link).toHaveBeenCalledWith('C-1', 'C:\\code\\other')
     )
   })
+
+  it('reloads on a workspaces:changed broadcast for this case only', async () => {
+    let fire: ((slug: string) => void) | undefined
+    ;(window.argus.workspaces as unknown as { onChanged: unknown }).onChanged = vi.fn(
+      (cb: (slug: string) => void) => {
+        fire = cb
+        return () => undefined
+      }
+    )
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText(/hivemindtest/)
+    const list = (window.argus.workspaces as unknown as { list: ReturnType<typeof vi.fn> }).list
+    const before = list.mock.calls.length
+    fire!('C-1')
+    await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(before))
+    const after = list.mock.calls.length
+    fire!('OTHER-CASE')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(list.mock.calls.length).toBe(after)
+  })
 })
