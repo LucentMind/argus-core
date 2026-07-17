@@ -35,7 +35,7 @@ describe('PanelTabStrip', () => {
 
     render(<PanelTabStrip slug="CASE-A" sessionId={42} activeTab="chat" onSelect={vi.fn()} />)
 
-    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(screen.getByLabelText('New panel'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Text Viewer' }))
 
     await waitFor(() =>
@@ -58,7 +58,7 @@ describe('PanelTabStrip', () => {
     render(<PanelTabStrip slug="CASE-A" sessionId={1} activeTab="chat" onSelect={vi.fn()} />)
 
     expect(panelsStore.get().occluded).toBe(false)
-    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(screen.getByLabelText('New panel'))
     expect(panelsStore.get().occluded).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(panelsStore.get().occluded).toBe(false))
@@ -76,7 +76,7 @@ describe('PanelTabStrip', () => {
 
     render(<PanelTabStrip slug="CASE-A" sessionId={null} activeTab="chat" onSelect={vi.fn()} />)
 
-    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(screen.getByLabelText('New panel'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Text Viewer' }))
 
     await waitFor(() =>
@@ -118,7 +118,7 @@ describe('PanelTabStrip — externalApp (3c)', () => {
 
   it('launching an externalApp decl calls externalApps.open, not panels.open', async () => {
     render(<PanelTabStrip slug="CASE-A" sessionId={1} activeTab="chat" onSelect={vi.fn()} />)
-    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(screen.getByLabelText('New panel'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Sim' }))
     await waitFor(() => expect(window.argus.externalApps.open).toHaveBeenCalled())
     expect(window.argus.panels.open).not.toHaveBeenCalled()

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { X, ExternalLink, PinOff, Plus } from 'lucide-react'
+import { X, ExternalLink, PinOff, PanelTop } from 'lucide-react'
 import { MenuButton } from './ui'
 import { panelsStore } from '../lib/panelsStore'
 import { CHAT_TAB } from '../lib/panelsStore'
@@ -135,8 +135,13 @@ export function PanelTabStrip({
       {launcherItems.length > 0 && (
         <div className="ml-1">
           <MenuButton
-            label={<Plus size={14} aria-hidden="true" />}
-            aria-label="Open panel"
+            label={
+              <span className="flex items-center gap-1">
+                <PanelTop size={14} aria-hidden="true" />
+                <span>New panel</span>
+              </span>
+            }
+            aria-label="New panel"
             align="left"
             items={launcherItems}
             // Hide the docked panel's native view (which paints over DOM) while this dropdown is

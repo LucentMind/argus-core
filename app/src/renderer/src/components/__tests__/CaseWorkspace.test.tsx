@@ -263,7 +263,7 @@ describe('CaseWorkspace panel tab host', () => {
   it('shows a Chat tab and lists available panels in the launcher', async () => {
     renderWorkspace()
     expect(await screen.findByText('Chat')).toBeTruthy()
-    fireEvent.click(screen.getByLabelText('Open panel'))
+    fireEvent.click(screen.getByLabelText('New panel'))
     expect(await screen.findByText('Text Viewer')).toBeTruthy()
   })
 })

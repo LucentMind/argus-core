@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
 
 function displayTitle(s: { id: number; title: string }): string {
@@ -315,7 +315,7 @@ export function SessionSwitcher({
           className="flex items-center gap-1 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
           onClick={() => void createChat()}
         >
-          <Plus size={12} strokeWidth={1.5} aria-hidden="true" />
+          <MessageSquarePlus size={12} strokeWidth={1.5} aria-hidden="true" />
           <span>New chat</span>
         </button>
         <input
