@@ -7,6 +7,7 @@ import {
   AtlassianClient,
   AtlassianError,
   atlassianRestConfigured,
+  atlassianSiteUrl,
   jiraBrowseUrl,
   resolveAtlassianCreds
 } from '../atlassian'
@@ -139,6 +140,23 @@ describe('resolveAtlassianCreds', () => {
     expect(() =>
       resolveAtlassianCreds(reg({ siteUrl: 'https://a.atlassian.net' }), () => null)
     ).toThrowError(expect.objectContaining({ code: 'no-token', instanceId: 'rovo' }))
+  })
+})
+
+describe('atlassianSiteUrl', () => {
+  const reg = (cfg: Record<string, unknown>): ConnectorMap =>
+    ({ rovo: { kind: 'http', preset: 'rovo', enabled: true, config: cfg } }) as never
+
+  it('returns the trimmed siteUrl without requiring an API token (Open in Jira)', () => {
+    expect(atlassianSiteUrl(reg({ siteUrl: 'https://acme.atlassian.net/' }))).toBe(
+      'https://acme.atlassian.net'
+    )
+  })
+
+  it('returns null with no rovo connector or no usable siteUrl', () => {
+    expect(atlassianSiteUrl({} as never)).toBeNull()
+    expect(atlassianSiteUrl(reg({}))).toBeNull()
+    expect(atlassianSiteUrl(reg({ siteUrl: 'acme.atlassian.net' }))).toBeNull()
   })
 })
 
