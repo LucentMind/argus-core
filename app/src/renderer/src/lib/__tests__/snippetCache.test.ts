@@ -76,4 +76,22 @@ describe('snippetCache', () => {
     })
     expect(await fetchSnippet('C-1', 'evidence/a.log', 5)).toEqual(ok)
   })
+
+  it('a rejected fetch does not evict a newer entry for the same key', async () => {
+    const { readSnippet } = stubArgus()
+    let rejectFirst: ((e: Error) => void) | undefined
+    readSnippet.mockImplementationOnce(
+      () =>
+        new Promise((_, rej) => {
+          rejectFirst = rej
+        })
+    )
+    const first = fetchSnippet('C-1', 'evidence/a.log', 5) // p1, pending
+    invalidateCase('C-1') // key removed while p1 pending
+    await fetchSnippet('C-1', 'evidence/a.log', 5) // p2 cached, resolves ok
+    rejectFirst!(new Error('boom'))
+    expect(await first).toEqual({ ok: false, reason: 'not-found' })
+    await fetchSnippet('C-1', 'evidence/a.log', 5) // must hit p2's cache entry
+    expect(readSnippet).toHaveBeenCalledTimes(2)
+  })
 })
