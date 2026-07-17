@@ -6,7 +6,8 @@ const EMPTY: CaseRepos = { names: [] }
 
 /** Per-case linked-repo names (basenames of linked workspaces + imported ref
  *  names) — the dynamic citation domain. Loaded by CaseWorkspace on mount and
- *  by ReposSection after link/unlink. */
+ *  by the repos UI after link/unlink (see ReposSection, added in the
+ *  follow-up task). */
 class ReposStore {
   private byCase = new Map<string, CaseRepos>()
   private listeners = new Set<() => void>()

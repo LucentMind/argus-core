@@ -136,6 +136,7 @@ function workspace(
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
+      onOpenRepoFile={vi.fn()}
     />
   )
 }
