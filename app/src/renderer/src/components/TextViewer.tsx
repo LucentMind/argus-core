@@ -5,7 +5,8 @@ import { langForPath } from '../../../shared/snippets'
 
 interface Props {
   evidenceId: number
-  focusLine: number
+  focusStart: number
+  focusEnd: number
   onClose: () => void
 }
 
@@ -17,12 +18,17 @@ interface Doc {
   truncated: boolean
 }
 
-export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX.Element {
+export function TextViewer({
+  evidenceId,
+  focusStart,
+  focusEnd,
+  onClose
+}: Props): React.JSX.Element {
   const [doc, setDoc] = useState<Doc | null>(null)
   const [derivedFrom, setDerivedFrom] = useState<string | null>(null)
 
   // adjust-state-during-render pattern: reset doc when evidence/line changes
-  const key = `${evidenceId}:${focusLine}`
+  const key = `${evidenceId}:${focusStart}`
   const [lastKey, setLastKey] = useState(key)
   if (key !== lastKey) {
     setLastKey(key)
@@ -30,12 +36,12 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
   }
 
   useEffect(() => {
-    void window.argus.evidence.read(evidenceId, focusLine).then(setDoc)
-  }, [evidenceId, focusLine])
+    void window.argus.evidence.read(evidenceId, focusStart).then(setDoc)
+  }, [evidenceId, focusStart])
 
   useEffect(() => {
-    if (doc) document.getElementById(`line-${focusLine}`)?.scrollIntoView({ block: 'center' })
-  }, [doc, focusLine])
+    if (doc) document.getElementById(`line-${focusStart}`)?.scrollIntoView({ block: 'center' })
+  }, [doc, focusStart])
 
   // provenance: when this evidence was derived from a binary source, name it
   useEffect(() => {
@@ -62,7 +68,7 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
           <span className="flex items-center gap-2 font-mono text-sm text-ink">
             {doc ? `${doc.caseSlug} / ${doc.relPath}` : 'Loading…'}
             {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
-            {doc?.truncated && <Chip tone="neutral">showing lines near {focusLine} only</Chip>}
+            {doc?.truncated && <Chip tone="neutral">showing lines near {focusStart} only</Chip>}
           </span>
           <Btn variant="ghost" onClick={onClose}>
             Close
@@ -73,7 +79,8 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
             className="flex-1 p-3"
             lines={doc.content.split('\n')}
             startLine={doc.startLine}
-            focusLine={focusLine}
+            focusStart={focusStart}
+            focusEnd={focusEnd}
             lang={langForPath(doc.relPath).lang}
             lineIdPrefix="line-"
           />

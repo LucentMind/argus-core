@@ -9,7 +9,8 @@ describe('HighlightedLines', () => {
       <HighlightedLines
         lines={['alpha', 'beta', 'gamma']}
         startLine={41}
-        focusLine={42}
+        focusStart={42}
+        focusEnd={42}
         lang={null}
         lineIdPrefix="line-"
       />
@@ -25,7 +26,13 @@ describe('HighlightedLines', () => {
 
   it('applies hljs token spans once the language chunk loads', async () => {
     const { container } = render(
-      <HighlightedLines lines={['const x = 1']} startLine={1} focusLine={null} lang="typescript" />
+      <HighlightedLines
+        lines={['const x = 1']}
+        startLine={1}
+        focusStart={null}
+        focusEnd={null}
+        lang="typescript"
+      />
     )
     await waitFor(() => expect(container.querySelector('.hljs-keyword')).not.toBeNull())
     expect(container.querySelector('.hljs-keyword')!.textContent).toBe('const')
@@ -33,14 +40,21 @@ describe('HighlightedLines', () => {
 
   it('switching lang on a mounted instance falls back to plain, then re-highlights', async () => {
     const { container, rerender } = render(
-      <HighlightedLines lines={['const x = 1']} startLine={1} focusLine={null} lang="typescript" />
+      <HighlightedLines
+        lines={['const x = 1']}
+        startLine={1}
+        focusStart={null}
+        focusEnd={null}
+        lang="typescript"
+      />
     )
     await waitFor(() => expect(container.querySelector('.hljs-keyword')).not.toBeNull())
     rerender(
       <HighlightedLines
         lines={['SELECT id FROM users']}
         startLine={1}
-        focusLine={null}
+        focusStart={null}
+        focusEnd={null}
         lang="sql"
       />
     )
@@ -51,8 +65,31 @@ describe('HighlightedLines', () => {
 
   it('falls back to plain text for an unknown language id', () => {
     const { container } = render(
-      <HighlightedLines lines={['whatever']} startLine={1} focusLine={null} lang="no-such-lang" />
+      <HighlightedLines
+        lines={['whatever']}
+        startLine={1}
+        focusStart={null}
+        focusEnd={null}
+        lang="no-such-lang"
+      />
     )
     expect(container.textContent).toContain('whatever')
+  })
+
+  it('highlights every line of a range', () => {
+    const { container } = render(
+      <HighlightedLines
+        lines={['a', 'b', 'c', 'd']}
+        startLine={10}
+        focusStart={11}
+        focusEnd={12}
+        lang={null}
+        lineIdPrefix="line-"
+      />
+    )
+    expect(container.querySelector('#line-10')!.className).not.toContain('bg-defect/20')
+    expect(container.querySelector('#line-11')!.className).toContain('bg-defect/20')
+    expect(container.querySelector('#line-12')!.className).toContain('bg-defect/20')
+    expect(container.querySelector('#line-13')!.className).not.toContain('bg-defect/20')
   })
 })

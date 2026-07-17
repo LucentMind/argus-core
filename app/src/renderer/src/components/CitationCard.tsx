@@ -126,7 +126,8 @@ export function CitationCard({
               <HighlightedLines
                 lines={snippet.lines}
                 startLine={snippet.startLine}
-                focusLine={line}
+                focusStart={line}
+                focusEnd={line}
                 lang={snippet.lang}
                 className="px-2 py-1"
               />
