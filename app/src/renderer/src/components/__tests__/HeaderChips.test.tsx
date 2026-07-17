@@ -26,9 +26,17 @@ beforeEach(() => {
   } as never
 })
 
+// The real, only way get() ever returns ok:false with this text (see AuthCache.get):
+// a prior turn 401'd (onAuthFailure), and the probe — which runs with maxTurns:0 and
+// never contacts the API — cannot override that verdict.
+const AUTH_FAILURE_DETAIL =
+  'Claude rejected the last message — sign in with /login, then send again'
+
 describe('HeaderChips auth reactivity', () => {
   it('refetches and updates the chip when agent:auth-changed broadcasts', async () => {
-    window.argus.agent.authStatus = vi.fn(async () => auth({ ok: false, detail: 'not logged in' }))
+    window.argus.agent.authStatus = vi.fn(async () =>
+      auth({ ok: false, detail: AUTH_FAILURE_DETAIL })
+    )
     render(<HeaderChips slug="case-a" sessionId={null} />)
     expect(await screen.findByText('claude ✗')).toBeTruthy()
 
@@ -48,8 +56,9 @@ describe('HeaderChips auth reactivity', () => {
       .fn<(force?: boolean) => Promise<AuthStatus>>()
       // 1st call: the mount-time probe — stays pending until we resolve it below.
       .mockImplementationOnce(() => mountProbe)
-      // 2nd call: triggered by the auth-changed broadcast — resolves immediately.
-      .mockImplementationOnce(async () => auth({ ok: false, detail: 'auth failed mid-turn' }))
+      // 2nd call: triggered by the auth-changed broadcast — resolves immediately, as it
+      // does for real once onAuthFailure() has recorded turn evidence (no re-probe needed).
+      .mockImplementationOnce(async () => auth({ ok: false, detail: AUTH_FAILURE_DETAIL }))
     window.argus.agent.authStatus = authStatus
 
     render(<HeaderChips slug="case-a" sessionId={null} />)
