@@ -91,6 +91,7 @@ export function JiraRefreshButton({
           slug={slug}
           newAttachments={pending.newAttachments}
           deselectedAttachments={pending.deselectedAttachments}
+          ingestedAttachments={pending.ingestedAttachments}
           onClose={() => setPending(null)}
         />
       )}

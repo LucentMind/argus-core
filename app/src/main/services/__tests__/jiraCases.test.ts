@@ -260,6 +260,18 @@ describe('JiraCases.refresh attachment classification (no auto-ingest)', () => {
     expect(summary.deselectedAttachments.map((a) => a.id)).toEqual(['10001'])
   })
 
+  it('lists already-ingested live attachments as ingestedAttachments (synced in the dialog)', async () => {
+    const client = fakeClient(() =>
+      issue({ attachments: [att('10001', 'log.txt'), att('10002', 'new.txt')] })
+    )
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    const summary = await svc.refresh('NAV-7')
+    expect(summary.ingestedAttachments.map((a) => a.id)).toEqual(['10001'])
+    expect(summary.newAttachments.map((a) => a.id)).toEqual(['10002'])
+  })
+
   it('still reports deletions on Jira for ingested attachments', async () => {
     const client = fakeClient(() => issue({ attachments: [att('10001', 'log.txt')] }))
     const svc = service(client)

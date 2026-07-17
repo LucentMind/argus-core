@@ -47,6 +47,7 @@ describe('JiraRefreshButton', () => {
           { id: '2', filename: 'b', size: 1, mimeType: '', createdAt: '' }
         ],
         deselectedAttachments: [],
+        ingestedAttachments: [],
         deletedOnJira: [{ attachmentId: '3', filename: 'gone.txt' }],
         newComments: 2,
         syncedAt: '2026-07-11T12:30:00.000Z'
@@ -79,6 +80,7 @@ describe('JiraRefreshButton', () => {
         statusChange: null,
         newAttachments: [],
         deselectedAttachments: [],
+        ingestedAttachments: [],
         deletedOnJira: [],
         newComments: 0,
         syncedAt: '2026-07-11T12:30:00.000Z'
@@ -105,6 +107,7 @@ describe('JiraRefreshButton', () => {
         statusChange: null,
         newAttachments: [{ id: '1', filename: 'a.txt', size: 1, mimeType: '', createdAt: '' }],
         deselectedAttachments: [],
+        ingestedAttachments: [],
         deletedOnJira: [],
         newComments: 0,
         syncedAt: '2026-07-11T12:30:00.000Z'
@@ -123,6 +126,7 @@ describe('JiraRefreshButton', () => {
         statusChange: null,
         newAttachments: [],
         deselectedAttachments: [],
+        ingestedAttachments: [],
         deletedOnJira: [],
         newComments: 0,
         syncedAt: '2026-07-11T12:30:00.000Z'
