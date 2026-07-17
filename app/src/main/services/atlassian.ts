@@ -7,7 +7,12 @@ import {
   type ConnectorMap,
   type HttpConnectorConfig
 } from '../../shared/connectors'
-import type { AtlassianErrorCode, JiraAttachmentInfo, JiraIssuePreview } from '../../shared/jira'
+import type {
+  AtlassianErrorCode,
+  JiraAttachmentInfo,
+  JiraCommentInfo,
+  JiraIssuePreview
+} from '../../shared/jira'
 import type {
   ConfluenceSpace,
   ConfluencePageNode,
@@ -164,6 +169,32 @@ export class AtlassianClient {
       attachments
     }
     return { preview, descriptionMarkdown: adfToMarkdown(f.description), raw }
+  }
+
+  /** All comments on an issue, oldest first; paginated so long threads are never truncated. */
+  async getComments(key: string): Promise<JiraCommentInfo[]> {
+    const out: JiraCommentInfo[] = []
+    for (let startAt = 0; ;) {
+      const res = await this.request(
+        `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=created&startAt=${startAt}&maxResults=50`
+      )
+      const body = await this.parseJson<{
+        comments?: Array<Record<string, unknown>>
+        total?: number
+      }>(res)
+      const page = body.comments ?? []
+      for (const c of page) {
+        out.push({
+          id: String(c.id ?? ''),
+          author: (c.author as { displayName?: string } | undefined)?.displayName ?? null,
+          created: String(c.created ?? ''),
+          updated: String(c.updated ?? ''),
+          bodyMarkdown: adfToMarkdown(c.body)
+        })
+      }
+      startAt += page.length
+      if (page.length === 0 || startAt >= Number(body.total ?? 0)) return out
+    }
   }
 
   /** Downloads attachment bytes to destPath (follows Jira's redirect to the media host). */

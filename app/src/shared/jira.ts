@@ -20,6 +20,14 @@ export interface JiraIssuePreview {
   attachments: JiraAttachmentInfo[]
 }
 
+export interface JiraCommentInfo {
+  id: string
+  author: string | null
+  created: string
+  updated: string
+  bodyMarkdown: string
+}
+
 export interface JiraAttachmentProgress {
   caseSlug: string
   attachmentId: string
