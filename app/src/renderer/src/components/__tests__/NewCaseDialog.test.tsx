@@ -31,6 +31,7 @@ let jira: {
   createCase: ReturnType<typeof vi.fn>
   ingestAttachments: ReturnType<typeof vi.fn>
   onAttachmentProgress: ReturnType<typeof vi.fn>
+  setAttachmentSelection: ReturnType<typeof vi.fn>
 }
 
 beforeEach(() => {
@@ -42,7 +43,8 @@ beforeEach(() => {
     onAttachmentProgress: vi.fn((cb: (p: JiraAttachmentProgress) => void) => {
       progressCb = cb
       return () => {}
-    })
+    }),
+    setAttachmentSelection: vi.fn(async () => ({ ok: true, value: {} }))
   }
   window.argus = { jira } as never
 })
@@ -115,6 +117,18 @@ describe('NewCaseDialog', () => {
     expect(await screen.findByText(/done/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /start triage/i }))
     expect(noop.onOpenCase).toHaveBeenCalledWith('PROJ-7')
+  })
+
+  it('persists deselected attachment ids after case creation', async () => {
+    render(<NewCaseDialog {...noop} />)
+    fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })
+    fireEvent.click(screen.getByRole('button', { name: /fetch ticket/i }))
+    await screen.findByDisplayValue('Route flickers')
+    fireEvent.click(screen.getAllByRole('checkbox')[1]) // uncheck log.txt
+    fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
+    await waitFor(() =>
+      expect(jira.setAttachmentSelection).toHaveBeenCalledWith('PROJ-7', ['10002'])
+    )
   })
 
   it('a failed file shows Retry and re-calls ingestAttachments for just that file', async () => {
