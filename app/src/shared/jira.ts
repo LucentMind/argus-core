@@ -43,6 +43,10 @@ export interface JiraRefreshSummary {
   newAttachments: JiraAttachmentInfo[]
   /** Noted only — evidence is append-only, nothing is removed locally. */
   deletedOnJira: Array<{ attachmentId: string; filename: string }>
+  /** Count of comments added since the last sync (0 when the fetch failed). */
+  newComments: number
+  /** Set when the comments fetch failed; the rest of the refresh still ran. */
+  commentsError?: string
   /** When this refresh ran (also persisted as CaseRecord.jiraSyncedAt). */
   syncedAt: string
 }
