@@ -7,6 +7,7 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { linkWorkspace, ensureWorktree } from '../workspaces'
 import { readRepoSnippet, readRepoText, resolveRepoTree } from '../workspaceRead'
+import { WINDOW_LINES_BEFORE } from '../search'
 import { MAX_SNIPPET_LINES, SNIPPET_BEFORE, SNIPPET_AFTER } from '../../../shared/snippets'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -98,6 +99,17 @@ describe('readRepoSnippet', () => {
     })
   })
 
+  it('rejects backslash traversal relPaths as not-found', async () => {
+    fs.writeFileSync(path.join(tmp, 'outside.txt'), 'secret\n')
+    expect(
+      await readRepoSnippet(db, argusHome, 'NAV-1', 'myrepo', '..\\..\\outside.txt', 1)
+    ).toEqual({ ok: false, reason: 'not-found' })
+    expect(await readRepoSnippet(db, argusHome, 'NAV-1', 'myrepo', '..\\outside.txt', 1)).toEqual({
+      ok: false,
+      reason: 'not-found'
+    })
+  })
+
   it('reads from the worktree once one exists', async () => {
     const wt = await ensureWorktree(argusHome, 'NAV-1', repo, 'main')
     fs.writeFileSync(path.join(wt, 'src', 'camera.ts'), 'worktree line 1\n')
@@ -118,6 +130,20 @@ describe('readRepoText', () => {
     expect(r.content).toContain('code line 60')
     expect(r.lang).toBe('typescript')
     expect(r.ref).toBe('main')
+  })
+
+  it('readRepoText windows large files around the focus line', async () => {
+    const line = 'x'.repeat(80)
+    fs.writeFileSync(
+      path.join(repo, 'big.log'),
+      Array.from({ length: 30000 }, (_, i) => `${line} ${i + 1}`).join('\n')
+    )
+    const r = await readRepoText(db, argusHome, 'NAV-1', 'myrepo', 'big.log', 10000)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.truncated).toBe(true)
+    expect(r.startLine).toBe(10000 - WINDOW_LINES_BEFORE)
+    expect(r.content.split('\n')[0].endsWith(` ${10000 - WINDOW_LINES_BEFORE}`)).toBe(true)
   })
 
   it('degrades to repo-not-linked / not-found like the snippet read', async () => {
