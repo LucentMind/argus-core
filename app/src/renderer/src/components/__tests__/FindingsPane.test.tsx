@@ -3,13 +3,27 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FindingsPane } from '../FindingsPane'
 import { uiStore } from '../../lib/uiStore'
+import { clearSnippetCache } from '../../lib/snippetCache'
 
 beforeEach(() => {
   localStorage.clear()
+  clearSnippetCache()
   uiStore.setFindingsCollapsed(false)
   window.argus = {
     cases: { readFindings: vi.fn(async () => '# Findings — NAV-1\n') },
     agent: { onEvent: vi.fn(() => () => undefined) },
+    evidence: {
+      readSnippet: vi.fn(async () => ({
+        ok: true,
+        evidenceId: 3,
+        relPath: 'evidence/log.txt',
+        startLine: 1,
+        lines: ['a', 'b', 'boom'],
+        lang: null,
+        eof: false
+      })),
+      onChanged: vi.fn(() => () => undefined)
+    },
     findings: {
       list: vi.fn(async () => []),
       review: vi.fn(),
@@ -19,7 +33,7 @@ beforeEach(() => {
 })
 
 describe('FindingsPane', () => {
-  it('expands a finding to show its body with citations', async () => {
+  it('expands a finding to show its body with auto-expanded citation cards', async () => {
     ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
       {
         id: 1,
@@ -32,9 +46,13 @@ describe('FindingsPane', () => {
     render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     // body is collapsed until the summary is clicked
     const summary = await screen.findByText('Tile crash')
-    expect(screen.queryByRole('link', { name: 'evidence/log.txt:3' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /log\.txt:3/ })).toBeNull()
     summary.click()
-    expect(await screen.findByRole('link', { name: 'evidence/log.txt:3' })).toBeTruthy()
+    // citation renders as a chip that is ALREADY expanded (findings default)
+    const chip = await screen.findByRole('button', { name: /log\.txt:3/ })
+    expect(chip.getAttribute('aria-expanded')).toBe('true')
+    // and the snippet preview around line 3 is visible without any further click
+    expect(await screen.findByText('boom')).toBeTruthy()
   })
 
   it('collapse button collapses the pane via the ui store', () => {

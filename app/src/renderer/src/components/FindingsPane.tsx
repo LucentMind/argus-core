@@ -133,7 +133,12 @@ export function FindingsPane({
                 </div>
                 {open && f.body && (
                   <div className="border-t border-hair px-2 py-1.5 text-xs">
-                    <MessageView markdown={f.body} onCite={onCite} />
+                    <MessageView
+                      markdown={f.body}
+                      onCite={onCite}
+                      caseSlug={slug}
+                      citationMode="expanded"
+                    />
                   </div>
                 )}
                 <div className="flex items-center gap-2 px-2 pb-1.5">
