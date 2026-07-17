@@ -25,9 +25,21 @@ export function CitationCard({
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [snippet, setSnippet] = useState<SnippetResult | null>(null)
+  // adjust-state-during-render: a mounted card whose citation identity changes
+  // must drop the old snippet and refetch (expanded cards don't otherwise
+  // live-refresh — see the fetch effect note below)
+  const identity = `${caseSlug}|${relPath}|${line}`
+  const [lastIdentity, setLastIdentity] = useState(identity)
+  if (identity !== lastIdentity) {
+    setLastIdentity(identity)
+    setSnippet(null)
+  }
   const { kind } = langForPath(relPath)
   const Icon = kind === 'code' ? FileCode2 : FileText
 
+  // NOTE: an already-expanded card keeps its fetched snippet even if the
+  // evidence changes on disk (cache invalidates, mounted state doesn't) —
+  // accepted: re-open the card or viewer to refresh.
   useEffect(() => {
     if (!expanded || snippet !== null) return
     let alive = true

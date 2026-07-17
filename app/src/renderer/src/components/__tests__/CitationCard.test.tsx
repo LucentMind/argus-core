@@ -136,4 +136,29 @@ describe('CitationCard', () => {
     expect(screen.getByRole('button', { name: /^app\.log:412/ })).toBeTruthy()
     expect(screen.getByText('evidence/app.log:412')).toBeTruthy()
   })
+
+  it('refetches when the citation identity changes on a mounted card', async () => {
+    const { rerender } = render(
+      <CitationCard
+        caseSlug="C-1"
+        relPath="evidence/app.log"
+        line={412}
+        defaultExpanded={true}
+        onOpenViewer={vi.fn()}
+      />
+    )
+    await screen.findByText('crash here')
+    readSnippet.mockResolvedValue({ ...snippet, startLine: 508, lines: ['other line'] })
+    rerender(
+      <CitationCard
+        caseSlug="C-1"
+        relPath="evidence/app.log"
+        line={512}
+        defaultExpanded={true}
+        onOpenViewer={vi.fn()}
+      />
+    )
+    expect(await screen.findByText('other line')).toBeTruthy()
+    expect(readSnippet).toHaveBeenLastCalledWith('C-1', 'evidence/app.log', 512)
+  })
 })
