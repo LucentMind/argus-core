@@ -228,6 +228,7 @@ function registerIpc(): void {
       agentService!.emitPanelFinding(caseSlug, sessionId, input),
     cite: (target, relPath, line) => broadcast(IPC.panelsCiteAdded, { ...target, relPath, line }),
     ingestEvidence: async (caseSlug, sessionId, input) => {
+      caseWatch.suppress(caseSlug) // pre-write: the ingest lands inside the watched evidence dir
       const res = await agentService!.ingestPanelEvidence(caseSlug, sessionId, input)
       if (res.ok) broadcast(IPC.panelsEvidenceIngested, { caseSlug, evidenceId: res.evidenceId })
       return res
@@ -461,6 +462,7 @@ function registerIpc(): void {
       setCaseStatus(db, argusHome, slug, status, resolution, onCaseClosed)
   )
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
+    caseWatch.suppress(caseSlug) // pre-write: our own copies must not light the staleness dot
     const records = absPaths.map((p) => ingestArtifact(db, argusHome, detection, caseSlug, p))
     // fire-and-forget: derived text appears via evidence:changed when ready
     for (const rec of records) {
@@ -618,13 +620,15 @@ function registerIpc(): void {
     caseSlug: string,
     packId: string,
     windowId: string
-  ): Promise<CapturePanelEvidence> =>
-    capturePanelToEvidence(
+  ): Promise<CapturePanelEvidence> => {
+    caseWatch.suppress(caseSlug) // pre-write: capture writes a screenshot into evidence/
+    return capturePanelToEvidence(
       { panelHost: panelHost!, db, argusHome, detection },
       caseSlug,
       packId,
       windowId
     )
+  }
 
   ipcMain.handle(IPC.panelsList, (_e, caseSlug?: string) => panelHost!.list(caseSlug))
   ipcMain.handle(IPC.panelsOpen, (_e, req: OpenPanelRequest) => {
