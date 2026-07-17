@@ -194,7 +194,7 @@ export function CaseWorkspace({
             {
               label: 'Re-distill',
               disabled: status !== 'closed',
-              onSelect: () => void window.argus.distill.redistill(slug)
+              onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
             }
           ]}
         />

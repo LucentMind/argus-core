@@ -92,6 +92,32 @@ describe('DistillQueue', () => {
     expect(q.statusFor('z')!.state).toBe('failed')
   })
 
+  it('recoverOnBoot resumes a job stranded in queued state (e.g. app quit before its kick loop ran)', async () => {
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('z','queued','{"caseMeta":{"slug":"z"}}','t')`
+    ).run()
+    const { q } = makeQueue()
+    q.recoverOnBoot()
+    await q.idle()
+    expect(q.statusFor('z')!.state).toBe('done')
+  })
+
+  it('loop continues past a failed job onto a distinct downstream job', async () => {
+    const { q } = makeQueue({
+      distill: async (input) => {
+        const slug = (input as CaseDistillInput).caseMeta.slug
+        if (slug === 'a') throw new Error('boom')
+        return { raw: '', output: {} }
+      },
+      assembleInput: (slug) => ({ caseMeta: { slug } }) as unknown as CaseDistillInput
+    })
+    q.enqueue('a')
+    q.enqueue('b')
+    await q.idle()
+    expect(q.statusFor('a')!.state).toBe('failed')
+    expect(q.statusFor('b')!.state).toBe('done')
+  })
+
   it('retry on a non-failed job throws', async () => {
     const { q } = makeQueue()
     const job = q.enqueue('case-a')
