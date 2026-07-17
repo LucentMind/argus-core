@@ -26,7 +26,7 @@ export interface ArtifactTypeMeta {
   isText: boolean
 }
 
-export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent' | 'panel'
+export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent' | 'panel' | 'scan'
 
 export interface NewCaseInput {
   slug: string
@@ -56,6 +56,14 @@ export interface SessionSummary {
   title: string
   turnCount: number
   updatedAt: string
+}
+
+/** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */
+export interface ScanSummary {
+  added: string[]
+  modified: string[]
+  missing: string[]
+  errors: Array<{ relPath: string; error: string }>
 }
 
 export interface EvidenceRecord {
