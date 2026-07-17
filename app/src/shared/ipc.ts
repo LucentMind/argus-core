@@ -7,6 +7,7 @@ export const IPC = {
   evidenceIngest: 'evidence:ingest',
   evidenceList: 'evidence:list',
   evidenceRead: 'evidence:read',
+  evidenceReadSnippet: 'evidence:read-snippet',
   evidenceChanged: 'evidence:changed',
   searchQuery: 'search:query',
   chatSearch: 'chat:search',
