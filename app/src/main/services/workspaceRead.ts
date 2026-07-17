@@ -49,15 +49,17 @@ export function resolveRepoTree(
 }
 
 /** Containment-guarded absolute file path for a repo-relative path, or null.
- *  Same discipline as resolveCasePath: lexical rejection of absolute/'..'
- *  paths, then a realpath check so symlinks can't escape the tree. */
+ *  Same discipline as resolveCasePath: containment on the resolved path BEFORE
+ *  any filesystem access (path.resolve collapses '..' in both separator
+ *  styles), then a realpath check so symlinks can't escape the tree. */
 function resolveRepoFile(root: string, relPath: string): string | null {
   if (path.isAbsolute(relPath)) return null
-  if (relPath.split('/').some((seg) => seg === '..' || seg === '')) return null
-  const abs = path.join(root, relPath)
-  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return null
-  const realRoot = fs.realpathSync(root)
-  const real = fs.realpathSync(abs)
+  const rootResolved = path.resolve(root)
+  const target = path.resolve(rootResolved, relPath)
+  if (target !== rootResolved && !target.startsWith(rootResolved + path.sep)) return null
+  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return null
+  const realRoot = fs.realpathSync(rootResolved)
+  const real = fs.realpathSync(target)
   if (real !== realRoot && !real.startsWith(realRoot + path.sep)) return null
   return real
 }
