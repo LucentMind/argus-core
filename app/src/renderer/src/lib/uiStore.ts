@@ -10,6 +10,7 @@ export interface UiState {
   uiScale: UiScale
   showToolCalls: boolean
   findingsCollapsed: boolean
+  evidenceCollapsed: boolean
   findingsWidth: number
   /** Recently opened cases shown as top-bar tabs. Intentionally not persisted — resets on app restart. */
   recentTabs: string[]
@@ -22,6 +23,7 @@ const KEYS = {
   uiScale: 'argus.ui.uiScale',
   showToolCalls: 'argus.ui.showToolCalls',
   findingsCollapsed: 'argus.ui.findingsCollapsed',
+  evidenceCollapsed: 'argus.ui.evidenceCollapsed',
   findingsWidth: 'argus.ui.findingsWidth'
 } as const
 
@@ -42,6 +44,7 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
       : UI_SCALE_DEFAULT,
     showToolCalls: localStorage.getItem(KEYS.showToolCalls) !== 'false',
     findingsCollapsed: localStorage.getItem(KEYS.findingsCollapsed) === 'true',
+    evidenceCollapsed: localStorage.getItem(KEYS.evidenceCollapsed) === 'true',
     findingsWidth:
       Number.isFinite(width) && width >= FINDINGS_MIN_WIDTH && width <= FINDINGS_MAX_WIDTH
         ? width
@@ -111,6 +114,11 @@ export class UiStore {
   setFindingsCollapsed(collapsed: boolean): void {
     this.set({ findingsCollapsed: collapsed })
     localStorage.setItem(KEYS.findingsCollapsed, String(collapsed))
+  }
+
+  setEvidenceCollapsed(collapsed: boolean): void {
+    this.set({ evidenceCollapsed: collapsed })
+    localStorage.setItem(KEYS.evidenceCollapsed, String(collapsed))
   }
 
   setFindingsWidth(width: number): void {

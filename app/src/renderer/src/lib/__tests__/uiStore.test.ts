@@ -72,3 +72,18 @@ describe('UiStore', () => {
     expect(setTheme).toHaveBeenCalledWith('light')
   })
 })
+
+describe('evidenceCollapsed', () => {
+  it('defaults to false, persists, and survives a reload', () => {
+    localStorage.removeItem('argus.ui.evidenceCollapsed')
+    const store = new UiStore()
+    expect(store.get().evidenceCollapsed).toBe(false)
+
+    store.setEvidenceCollapsed(true)
+    expect(store.get().evidenceCollapsed).toBe(true)
+    expect(localStorage.getItem('argus.ui.evidenceCollapsed')).toBe('true')
+
+    const fresh = new UiStore()
+    expect(fresh.get().evidenceCollapsed).toBe(true)
+  })
+})
