@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, SearchFilters, SearchHit } from '../../shared/types'
+import { SNIPPET_BEFORE, SNIPPET_AFTER, langForPath } from '../../shared/snippets'
+import type { SnippetResult } from '../../shared/snippets'
 import { caseDir } from './paths'
 
 const MAX_READ_BYTES = 2 * 1024 * 1024
@@ -184,5 +186,40 @@ export function readEvidenceText(
     content,
     startLine: windowStart,
     truncated
+  }
+}
+
+/** Small windowed read for CitationCard previews: SNIPPET_BEFORE/AFTER lines
+ *  around the cited line. Resolves relPath directly (no evidence.list roundtrip)
+ *  and never throws — missing rows/files come back as { ok: false }. */
+export function readEvidenceSnippet(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  relPath: string,
+  line: number
+): SnippetResult {
+  const row = db
+    .prepare(
+      `SELECT e.id AS id FROM evidence e
+       JOIN cases c ON c.id = e.case_id
+       WHERE c.slug = ? AND e.rel_path = ?`
+    )
+    .get(caseSlug, relPath) as { id: number } | undefined
+  if (!row) return { ok: false, reason: 'not-found' }
+  const abs = path.join(caseDir(argusHome, caseSlug), relPath)
+  if (!fs.existsSync(abs)) return { ok: false, reason: 'not-found' }
+  const target = line > 0 ? line : 1
+  const windowStart = Math.max(1, target - SNIPPET_BEFORE)
+  const windowEnd = target + SNIPPET_AFTER
+  const { content, reachedEof } = readLineWindow(abs, windowStart, windowEnd)
+  return {
+    ok: true,
+    evidenceId: Number(row.id),
+    relPath,
+    startLine: windowStart,
+    lines: content === '' ? [] : content.split('\n'),
+    lang: langForPath(relPath).lang,
+    eof: reachedEof
   }
 }

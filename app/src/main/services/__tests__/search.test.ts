@@ -6,7 +6,8 @@ import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
-import { searchEvidence, readEvidenceText } from '../search'
+import { searchEvidence, readEvidenceText, readEvidenceSnippet } from '../search'
+import { SNIPPET_BEFORE, SNIPPET_AFTER } from '../../../shared/snippets'
 import type { DatabaseSync } from 'node:sqlite'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
@@ -67,5 +68,49 @@ describe('readEvidenceText', () => {
     const doc = readEvidenceText(db, home, hit.evidenceId)
     expect(doc.caseSlug).toBe('NAVAPI-1')
     expect(doc.content).toContain('Router error: NoRoute')
+  })
+})
+
+describe('readEvidenceSnippet', () => {
+  it('returns a window around the target line, clamped at the start of file', () => {
+    const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/sample-applog.txt', 3)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.startLine).toBe(1) // max(1, 3-4) = 1
+    expect(r.lines.length).toBeLessThanOrEqual(SNIPPET_BEFORE + 1 + SNIPPET_AFTER)
+    expect(r.lines[3 - r.startLine]).toContain('TileStore')
+    expect(r.lang).toBeNull() // .txt is plain
+    expect(typeof r.evidenceId).toBe('number')
+    expect(r.relPath).toBe('evidence/sample-applog.txt')
+  })
+
+  it('fills lang for code extensions', () => {
+    const src = path.join(home, 'util.ts')
+    fs.writeFileSync(src, 'const a = 1\nconst b = 2\nconst c = 3\n')
+    ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/util.ts', 2)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lang).toBe('typescript')
+    expect(r.lines[2 - r.startLine]).toBe('const b = 2')
+  })
+
+  it('returns not-found for an unknown relPath and an unknown case', () => {
+    expect(readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/nope.log', 1)).toEqual({
+      ok: false,
+      reason: 'not-found'
+    })
+    expect(readEvidenceSnippet(db, home, 'NO-SUCH-CASE', 'evidence/sample-applog.txt', 1)).toEqual({
+      ok: false,
+      reason: 'not-found'
+    })
+  })
+
+  it('returns empty lines with eof for a target beyond the end of file', () => {
+    const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/sample-applog.txt', 100000)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines).toEqual([])
+    expect(r.eof).toBe(true)
   })
 })
