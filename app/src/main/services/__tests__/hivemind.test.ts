@@ -78,12 +78,90 @@ describe('HivemindService states', () => {
     seedClone()
     const runner: Runner = async (_c, args) => {
       if (args[0] === 'pull') throw new Error('divergent history')
+      if (args[0] === 'remote') return 'https://github.com/acme/hivemind.git'
       return 'x'
     }
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
     const p = await svc.sync()
     expect(p.state).toBe('error')
     expect(p.error).toMatch(/divergent/)
+  })
+})
+
+describe('repo switch', () => {
+  const OLD_URL = 'https://github.com/acme/old.git'
+
+  it('payload hides a clone from a different repo instead of listing its items', async () => {
+    seedClone()
+    const { runner } = fakeGit({ remote: OLD_URL, 'rev-parse': 'headsha', log: 'sha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/new', git: runner })
+    const p = await svc.payload()
+    expect(p.state).toBe('not-cloned')
+    expect(p.items).toEqual([])
+    // read-only: the stale clone stays on disk for sync to replace
+    expect(fs.existsSync(path.join(home, 'hivemind', '.git'))).toBe(true)
+  })
+
+  it('sync replaces a clone whose origin mismatches and drops the old pins', async () => {
+    seedClone()
+    // install from the old repo so a pin exists
+    const old = fakeGit({ remote: OLD_URL, 'rev-parse': 'headsha', log: 'oldsha' })
+    const svcOld = new HivemindService({ argusHome: home, repo: () => 'acme/old', git: old.runner })
+    await svcOld.install('skill', 'hive-probe')
+
+    let origin = OLD_URL
+    const calls: string[][] = []
+    const runner: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'remote') return origin
+      if (args[0] === 'clone') {
+        // simulate git: fresh clone of repo B, which also happens to ship 'hive-probe'
+        origin = args[1]
+        const dest = args[2]
+        for (const skill of ['new-skill', 'hive-probe']) {
+          fs.mkdirSync(path.join(dest, 'skills', skill), { recursive: true })
+          fs.writeFileSync(
+            path.join(dest, 'skills', skill, 'SKILL.md'),
+            `---\ndescription: ${skill} from repo B\n---\n`
+          )
+        }
+        fs.mkdirSync(path.join(dest, '.git'), { recursive: true })
+        return ''
+      }
+      if (args[0] === 'rev-parse') return 'newhead'
+      if (args[0] === 'log') return 'newsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/new', git: runner })
+    const p = await svc.sync()
+
+    expect(calls.some((c) => c[0] === 'clone' && c[1] === 'https://github.com/acme/new.git')).toBe(
+      true
+    )
+    expect(calls.every((c) => c[0] !== 'pull')).toBe(true)
+    expect(p.state).toBe('ready')
+    expect(p.items.map((i) => i.name)).toContain('new-skill')
+    // the installed copy survives the switch, but its repo-A pin does not:
+    // no cross-repo updateAvailable from comparing old-repo shas to new-repo shas
+    expect(fs.existsSync(path.join(home, 'skills-hivemind', 'hive-probe', 'SKILL.md'))).toBe(true)
+    const probe = p.items.find((i) => i.name === 'hive-probe')!
+    expect(probe.installed).toBe(true)
+    expect(probe.installedCommit).toBeNull()
+    expect(probe.updateAvailable).toBe(false)
+  })
+
+  it('sync pulls in place when the clone origin matches the configured repo', async () => {
+    seedClone()
+    const { runner, calls } = fakeGit({
+      remote: 'https://github.com/acme/hivemind.git',
+      'rev-parse': 'headsha',
+      log: 'sha'
+    })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.sync()
+    expect(calls.some((c) => c[0] === 'pull')).toBe(true)
+    expect(calls.every((c) => c[0] !== 'clone')).toBe(true)
+    expect(p.state).toBe('ready')
   })
 })
 
