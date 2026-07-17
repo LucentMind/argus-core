@@ -31,3 +31,27 @@ it('renders citations as collapsed CitationCard chips when caseSlug is set', () 
   expect(chip.getAttribute('aria-expanded')).toBe('false')
   expect(readSnippet).not.toHaveBeenCalled()
 })
+
+it('expanding a chip and clicking through opens the viewer via onCite', async () => {
+  clearSnippetCache()
+  window.argus = {
+    evidence: {
+      readSnippet: vi.fn(async () => ({
+        ok: true,
+        evidenceId: 1,
+        relPath: 'evidence/app.log',
+        startLine: 10,
+        lines: ['a', 'b', 'target line'],
+        lang: null,
+        eof: false
+      })),
+      onChanged: vi.fn(() => () => undefined)
+    }
+  } as never
+  const onCite = vi.fn()
+  render(<CitedText text={'see [evidence/app.log:12]'} onCite={onCite} caseSlug="C-1" />)
+  fireEvent.click(screen.getByRole('button', { name: /app\.log:12/ })) // expand
+  await screen.findByText('target line')
+  fireEvent.click(screen.getByLabelText('Open in viewer'))
+  expect(onCite).toHaveBeenCalledWith('evidence/app.log', 12)
+})
