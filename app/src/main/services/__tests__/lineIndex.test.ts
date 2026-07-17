@@ -8,7 +8,8 @@ import {
   checkpointAtOrBelow,
   __clearIndexCacheForTests,
   getLines,
-  MAX_LINES_PER_READ
+  MAX_LINES_PER_READ,
+  searchLines
 } from '../lineIndex'
 
 let tmp: string, argusHome: string
@@ -170,5 +171,70 @@ describe('getLines', () => {
     fs.writeFileSync(p, 'a\nb\nlast-no-newline')
     const idx = await ensureIndex(argusHome, p)
     expect(getLines(idx, p, 3, 3).lines).toEqual(['last-no-newline'])
+  })
+})
+
+async function drain(
+  gen: AsyncGenerator<{ hits: number[]; scannedTo: number; done: boolean; capped: boolean }>
+): Promise<{ hits: number[]; scannedTo: number; done: boolean; capped: boolean }> {
+  const hits: number[] = []
+  let last = { scannedTo: 0, done: false, capped: false }
+  for await (const b of gen) {
+    hits.push(...b.hits)
+    last = b
+  }
+  return { hits, ...last }
+}
+
+describe('searchLines', () => {
+  it('finds substring matches with correct line numbers (case-insensitive default)', async () => {
+    const p = path.join(tmp, 's.txt')
+    fs.writeFileSync(p, 'alpha\nBETA\ngamma\nbeta tail\n')
+    const idx = await ensureIndex(argusHome, p)
+    const r = await drain(searchLines(idx, p, 'beta'))
+    expect(r.hits).toEqual([2, 4])
+    expect(r.done).toBe(true)
+    expect(r.capped).toBe(false)
+    expect((await drain(searchLines(idx, p, 'BETA', { caseSensitive: true }))).hits).toEqual([2])
+  })
+
+  it('supports regex mode', async () => {
+    const p = path.join(tmp, 'r.txt')
+    fs.writeFileSync(p, 'err 1\nwarn\nerr 22\n')
+    const idx = await ensureIndex(argusHome, p)
+    expect((await drain(searchLines(idx, p, 'err \\d+', { regex: true }))).hits).toEqual([1, 3])
+  })
+
+  it('scopes to [fromLine, toLine] — second-half search works', async () => {
+    const p = writeLines('half.txt', 4000) // every line matches '0'
+    const idx = await ensureIndex(argusHome, p)
+    const r = await drain(searchLines(idx, p, '0', { fromLine: 2001 }))
+    expect(r.hits[0]).toBe(2001)
+    expect(r.hits).toHaveLength(2000)
+    const r2 = await drain(searchLines(idx, p, '0', { fromLine: 100, toLine: 110 }))
+    expect(r2.hits).toEqual([100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110])
+  })
+
+  it('caps at maxResults with a resume cursor', async () => {
+    const p = writeLines('cap.txt', 500)
+    const idx = await ensureIndex(argusHome, p)
+    const r = await drain(searchLines(idx, p, '0', { maxResults: 100 }))
+    expect(r.hits).toHaveLength(100)
+    expect(r.capped).toBe(true)
+    expect(r.scannedTo).toBe(100)
+    const resumed = await drain(
+      searchLines(idx, p, '0', { fromLine: r.scannedTo + 1, maxResults: 100 })
+    )
+    expect(resumed.hits[0]).toBe(101)
+  })
+
+  it('aborts via signal', async () => {
+    const p = writeLines('ab.txt', 2000)
+    const idx = await ensureIndex(argusHome, p)
+    const ac = new AbortController()
+    ac.abort()
+    const r = await drain(searchLines(idx, p, '0', { signal: ac.signal }))
+    expect(r.hits).toEqual([])
+    expect(r.done).toBe(false)
   })
 })

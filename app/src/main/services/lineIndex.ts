@@ -163,3 +163,103 @@ export function getLines(
   }
   return { from: start, lines }
 }
+
+export const DEFAULT_MAX_RESULTS = 100_000
+const SEARCH_BATCH_LINES = 100_000 // yield cadence: lines scanned per batch
+
+export interface SearchLinesOpts {
+  regex?: boolean
+  caseSensitive?: boolean
+  fromLine?: number
+  toLine?: number
+  maxResults?: number
+  signal?: AbortSignal
+}
+
+export interface SearchBatch {
+  hits: number[]
+  scannedTo: number
+  done: boolean
+  capped: boolean
+}
+
+/** Streaming scan over [fromLine, toLine], yielding batches of matching line
+ *  numbers. Seeks via checkpoint — a second-half search never touches the
+ *  first half. On cap, resume with fromLine = last scannedTo + 1. */
+export async function* searchLines(
+  index: LineIndex,
+  absPath: string,
+  query: string,
+  opts: SearchLinesOpts = {}
+): AsyncGenerator<SearchBatch> {
+  const fromLine = Math.max(1, opts.fromLine ?? 1)
+  const toLine = Math.min(opts.toLine ?? index.totalLines, index.totalLines)
+  const maxResults = opts.maxResults ?? DEFAULT_MAX_RESULTS
+  if (fromLine > toLine) {
+    yield { hits: [], scannedTo: toLine, done: true, capped: false }
+    return
+  }
+  const matcher: (s: string) => boolean = opts.regex
+    ? (
+        (re) => (s: string) =>
+          re.test(s)
+      )(new RegExp(query, opts.caseSensitive ? '' : 'i'))
+    : ((q) =>
+        opts.caseSensitive
+          ? (s: string) => s.includes(q)
+          : (s: string) => s.toLowerCase().includes(q))(
+        opts.caseSensitive ? query : query.toLowerCase()
+      )
+
+  const [cpLine, cpByte] = checkpointAtOrBelow(index, fromLine)
+  const splitter = new LineSplitter(cpLine, cpByte)
+  let hits: number[] = []
+  let found = 0
+  let scannedTo = fromLine - 1
+  let capped = false
+  let sinceYield = 0
+
+  const onLine = (line: Buffer, n: number): boolean => {
+    if (n < fromLine) return true
+    if (n > toLine) return false
+    scannedTo = n
+    sinceYield++
+    if (matcher(line.toString('utf8'))) {
+      hits.push(n)
+      if (++found >= maxResults) {
+        capped = true
+        return false
+      }
+    }
+    return true
+  }
+
+  const fh = await fs.promises.open(absPath, 'r')
+  try {
+    const buf = Buffer.alloc(BUILD_CHUNK_BYTES)
+    let offset = cpByte
+    let running = true
+    while (running) {
+      if (opts.signal?.aborted) {
+        yield { hits, scannedTo, done: false, capped: false }
+        return
+      }
+      const { bytesRead } = await fh.read(buf, 0, BUILD_CHUNK_BYTES, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+      running = splitter.push(buf.subarray(0, bytesRead), onLine)
+      if (sinceYield >= SEARCH_BATCH_LINES && hits.length > 0) {
+        sinceYield = 0
+        const batch = hits
+        hits = []
+        yield { hits: batch, scannedTo, done: false, capped: false }
+      }
+    }
+    if (running && !capped) {
+      splitter.flush((line, n) => void onLine(line, n))
+    }
+  } finally {
+    await fh.close()
+  }
+  yield { hits, scannedTo: capped ? scannedTo : Math.max(scannedTo, toLine), done: !capped, capped }
+}
