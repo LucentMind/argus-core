@@ -113,5 +113,7 @@ describe('scanEvidence', () => {
     expect(s.errors).toHaveLength(1)
     expect(s.errors[0].relPath).toBe('evidence/ok.txt')
     expect(s.added).toEqual([]) // the failed file is not reported as added
+    // a failed registration must leave NO ghost row behind
+    expect(listEvidence(db, 'C1')).toHaveLength(0)
   })
 })
