@@ -74,6 +74,19 @@ export function resolveAtlassianCreds(
 }
 
 /**
+ * Site URL of the rovo-preset connector, or null if none is set. Unlike
+ * resolveAtlassianCreds this never requires the API token — browser deep-links
+ * (Open in Jira) need no REST auth, the user's browser session covers it.
+ */
+export function atlassianSiteUrl(connectors: ConnectorMap): string | null {
+  const inst = Object.values(connectors).find((i) => i.preset === 'rovo')
+  if (!inst) return null
+  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '')
+  return /^https?:\/\//.test(siteUrl) ? siteUrl : null
+}
+
+/**
  * True once REST configuration has begun on a rovo-preset connector (siteUrl or
  * token set). Gates the Health page's Atlassian REST row: a Rovo connector used
  * MCP-only is fully healthy without REST, so an untouched REST config is not a

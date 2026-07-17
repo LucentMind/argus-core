@@ -42,6 +42,7 @@ import {
   AtlassianClient,
   AtlassianError,
   atlassianRestConfigured,
+  atlassianSiteUrl,
   jiraBrowseUrl,
   resolveAtlassianCreds
 } from './services/atlassian'
@@ -1276,12 +1277,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.jiraOpenIssue, (_e, caseSlug: string) => {
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey) return
-    let siteUrl: string
-    try {
-      siteUrl = atlassianCreds().siteUrl
-    } catch {
-      return // no Atlassian connector configured — menu item is a no-op
-    }
+    // siteUrl only, no creds: the browser opens the issue on the user's own
+    // Atlassian session, so a missing API token must not block this.
+    const siteUrl = atlassianSiteUrl(connectorRegistry.get())
+    if (!siteUrl) return // no connector / site URL — menu item is a no-op
     const url = jiraBrowseUrl(siteUrl, kase.jiraKey)
     if (!isOpenableUrl(url)) return
     void shell.openExternal(url)
