@@ -19,12 +19,13 @@ export function HighlightedLines({
   lineIdPrefix?: string
   className?: string
 }): React.JSX.Element {
-  const [hl, setHl] = useState(() => lang !== null && isRegistered(lang))
+  const [, bump] = useState(0)
+  const canHighlight = lang !== null && isRegistered(lang)
   useEffect(() => {
-    if (lang === null) return
+    if (lang === null || isRegistered(lang)) return
     let alive = true
     void ensureLanguage(lang).then((ok) => {
-      if (alive && ok) setHl(true)
+      if (alive && ok) bump((n) => n + 1)
     })
     return () => {
       alive = false
@@ -41,7 +42,7 @@ export function HighlightedLines({
             className={n === focusLine ? 'bg-defect/20 text-ink' : undefined}
           >
             <span className="mr-3 inline-block w-10 select-none text-right text-mute">{n}</span>
-            {hl && lang ? (
+            {canHighlight && lang ? (
               <span dangerouslySetInnerHTML={{ __html: highlightLine(line, lang) }} />
             ) : (
               <span>{line}</span>

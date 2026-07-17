@@ -31,6 +31,24 @@ describe('HighlightedLines', () => {
     expect(container.querySelector('.hljs-keyword')!.textContent).toBe('const')
   })
 
+  it('switching lang on a mounted instance falls back to plain, then re-highlights', async () => {
+    const { container, rerender } = render(
+      <HighlightedLines lines={['const x = 1']} startLine={1} focusLine={null} lang="typescript" />
+    )
+    await waitFor(() => expect(container.querySelector('.hljs-keyword')).not.toBeNull())
+    rerender(
+      <HighlightedLines
+        lines={['SELECT id FROM users']}
+        startLine={1}
+        focusLine={null}
+        lang="sql"
+      />
+    )
+    // must not throw while sql loads; renders plain immediately
+    expect(container.textContent).toContain('SELECT id FROM users')
+    await waitFor(() => expect(container.querySelector('.hljs-keyword')).not.toBeNull())
+  })
+
   it('falls back to plain text for an unknown language id', () => {
     const { container } = render(
       <HighlightedLines lines={['whatever']} startLine={1} focusLine={null} lang="no-such-lang" />
