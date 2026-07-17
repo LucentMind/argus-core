@@ -78,6 +78,9 @@ function App(): React.JSX.Element {
       // uiStore.activeSessions[slug] when its session list resolves
       uiStore.setActiveSession(hit.caseSlug, hit.sessionId)
       openCase(hit.caseSlug)
+    } else if (hit.kind === 'summary') {
+      // closed-case summary hits have no session context — just navigate to the case
+      openCase(hit.caseSlug)
     } else {
       setViewer({ kind: 'evidence', evidenceId: hit.evidenceId, focusLine: hit.matchLine })
     }
@@ -159,6 +162,7 @@ function App(): React.JSX.Element {
             onOpenFile={(node) =>
               setViewer({ kind: 'file', slug: view.slug, relPath: node.relPath })
             }
+            onOpenCase={openCase}
           />
         )}
       </div>

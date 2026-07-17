@@ -186,7 +186,8 @@ export function setCaseStatus(
   argusHome: string,
   slug: string,
   status: CaseStatus,
-  resolution: CaseResolution | null
+  resolution: CaseResolution | null,
+  onClosed?: (rec: CaseRecord) => void
 ): CaseRecord {
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
@@ -215,7 +216,16 @@ export function setCaseStatus(
     file,
     JSON.stringify({ ...onDisk, status, resolution: nextResolution, updatedAt: now }, null, 2)
   )
-  return getCase(db, slug)!
+  const closingNow = existing.status !== 'closed' && status === 'closed'
+  const updated = getCase(db, slug)!
+  if (closingNow && onClosed) {
+    try {
+      onClosed(updated)
+    } catch (err) {
+      console.error('[caseService] onClosed hook failed', err)
+    }
+  }
+  return updated
 }
 
 /**
@@ -240,7 +250,9 @@ export function maybeAdvanceToAnalyzing(db: DatabaseSync, argusHome: string, cas
 /**
  * Hard-delete a case. Order: FTS rows (evidence_fts has no case_id — clean it
  * via the evidence subquery BEFORE the cascade destroys those rows) → cases
- * row (FK cascade takes evidence/sessions/turns/tool_calls/findings) → audit →
+ * row (FK cascade takes evidence/sessions/turns/tool_calls/findings) → distill
+ * tables (case_summaries, case_summaries_fts, distill_jobs — keyed by
+ * case_slug, not case_id, so the cascade above doesn't touch them) → audit →
  * case directory. Callers must first stop live sessions
  * (AgentService.stopAllForCase) and close the case's file watcher. rmSync
  * removes the .claude junctions as links, never their targets.
@@ -270,6 +282,9 @@ export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): v
     ).run(rec.id)
     db.prepare(`DELETE FROM messages_fts WHERE case_id = ?`).run(rec.id)
     db.prepare(`DELETE FROM cases WHERE id = ?`).run(rec.id)
+    db.prepare(`DELETE FROM case_summaries WHERE case_slug = ?`).run(slug)
+    db.prepare(`DELETE FROM case_summaries_fts WHERE case_slug = ?`).run(slug)
+    db.prepare(`DELETE FROM distill_jobs WHERE case_slug = ?`).run(slug)
     db.exec('COMMIT')
   } catch (err) {
     db.exec('ROLLBACK')

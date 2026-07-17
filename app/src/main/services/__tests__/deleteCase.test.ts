@@ -10,6 +10,7 @@ import { createSession } from '../agent/sessionStore'
 import { readDeletionAudit } from '../deletionAudit'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
+import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 const detection = createDetection(samplePackRegistry())
@@ -121,6 +122,43 @@ describe('deleteCase', () => {
 
     expect(listCases(db).map((c) => c.slug)).toEqual(['NAV-2'])
     expect(fs.existsSync(path.join(argusHome, 'cases', 'NAV-2', 'evidence', 'x.txt'))).toBe(true)
+  })
+
+  it('cleans up distill data (case_summaries, case_summaries_fts, distill_jobs) so nothing orphans a dead slug', () => {
+    createCase(db, argusHome, { slug: 'NAV-1', title: 'Bearing jumps' })
+    upsertCaseSummary(
+      db,
+      argusHome,
+      'NAV-1',
+      { signature: 'sig', symptoms: 'sy', rootCause: 'rc', fix: 'fx', keywords: ['k'] },
+      'solved',
+      '# summary'
+    )
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('NAV-1', 'done', '{}', ?)`
+    ).run(new Date().toISOString())
+
+    deleteCase(db, argusHome, 'NAV-1')
+
+    const summaryCount = (
+      db.prepare(`SELECT COUNT(*) AS n FROM case_summaries WHERE case_slug = ?`).get('NAV-1') as {
+        n: number
+      }
+    ).n
+    const ftsCount = (
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM case_summaries_fts WHERE case_slug = ?`)
+        .get('NAV-1') as { n: number }
+    ).n
+    const jobsCount = (
+      db.prepare(`SELECT COUNT(*) AS n FROM distill_jobs WHERE case_slug = ?`).get('NAV-1') as {
+        n: number
+      }
+    ).n
+    expect(summaryCount).toBe(0)
+    expect(ftsCount).toBe(0)
+    expect(jobsCount).toBe(0)
+    expect(searchCaseSummaries(db, 'sig')).toEqual([])
   })
 
   it('rejects unknown cases and hostile slugs before touching anything', () => {

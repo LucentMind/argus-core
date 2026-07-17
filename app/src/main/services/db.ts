@@ -83,6 +83,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   turn_id UNINDEXED,
   role UNINDEXED
 );
+CREATE TABLE IF NOT EXISTS distill_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_slug TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'queued',
+  input_snapshot TEXT NOT NULL,
+  raw_output TEXT,
+  error TEXT,
+  item_count INTEGER,
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS case_summaries (
+  case_slug TEXT PRIMARY KEY,
+  signature TEXT NOT NULL,
+  symptoms TEXT NOT NULL,
+  root_cause TEXT NOT NULL,
+  fix TEXT NOT NULL,
+  keywords TEXT NOT NULL,
+  resolution TEXT NOT NULL,
+  accepted_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS case_summaries_fts USING fts5(
+  signature, symptoms, root_cause, fix, keywords, case_slug UNINDEXED
+);
 `
 
 export function openDb(file: string): DatabaseSync {

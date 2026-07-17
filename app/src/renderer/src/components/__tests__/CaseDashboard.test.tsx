@@ -32,7 +32,8 @@ function payload(): SettingsPayload {
 
 beforeEach(() => {
   window.argus = {
-    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) }
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
   } as never
   settingsStore.reset()
 })

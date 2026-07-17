@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../shared/agent-events'
-import type { ApprovalDecision } from '../../../shared/types'
+import type { ApprovalDecision, CaseRecord } from '../../../shared/types'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
@@ -52,6 +52,8 @@ export interface AgentServiceDeps {
   ) => Promise<import('./capturePanel').CapturePanelEvidence>
   /** Live pack-declared panel commands (3b-2); read at each session construction. */
   panelCommandDecls?: () => PanelCommandDecl[]
+  /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
+  onCaseClosed?: (rec: CaseRecord) => void
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
   dispatchPanelCommand?: (
     caseSlug: string,
@@ -152,6 +154,7 @@ export class AgentService {
       capturePanel: this.deps.capturePanel
         ? (packId, windowId) => this.deps.capturePanel!(caseSlug, packId, windowId)
         : undefined,
+      onCaseClosed: this.deps.onCaseClosed,
       panelCommandDecls: this.deps.panelCommandDecls?.(),
       dispatchPanelCommand: this.deps.dispatchPanelCommand
         ? (packId, windowId, cmd, args) =>

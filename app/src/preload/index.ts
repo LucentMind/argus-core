@@ -63,6 +63,7 @@ import type {
   PanelRect,
   ExternalAppInfo
 } from '../shared/panels'
+import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
 
 // Custom API for renderer
 const argus = {
@@ -192,6 +193,20 @@ const argus = {
     }): Promise<unknown> => ipcRenderer.invoke(IPC.externalAppsOpen, req),
     stop: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.externalAppsStop, key)
   },
+  distill: {
+    status: (slug: string): Promise<DistillJobRow | null> =>
+      ipcRenderer.invoke(IPC.distillStatus, slug),
+    retry: (jobId: number): Promise<DistillJobRow> => ipcRenderer.invoke(IPC.distillRetry, jobId),
+    redistill: (slug: string): Promise<DistillJobRow> =>
+      ipcRenderer.invoke(IPC.distillRedistill, slug),
+    similar: (slug: string): Promise<SummarySearchHit[]> =>
+      ipcRenderer.invoke(IPC.distillSimilar, slug),
+    onChanged: (cb: (p: DistillStatusPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
+      ipcRenderer.on(IPC.distillChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.distillChanged, listener)
+    }
+  },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>
       ipcRenderer.invoke(IPC.searchQuery, q, filters)
@@ -296,8 +311,8 @@ const argus = {
   },
   proposals: {
     list: (): Promise<ProposalsPayload> => ipcRenderer.invoke(IPC.proposalsList),
-    accept: (file: string): Promise<ProposalsPayload> =>
-      ipcRenderer.invoke(IPC.proposalsAccept, file),
+    accept: (file: string, editedContent?: string): Promise<ProposalsPayload> =>
+      ipcRenderer.invoke(IPC.proposalsAccept, file, editedContent),
     reject: (file: string): Promise<ProposalsPayload> =>
       ipcRenderer.invoke(IPC.proposalsReject, file)
   },

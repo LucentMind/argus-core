@@ -6,6 +6,8 @@ import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
 import { HeaderRepos } from './HeaderRepos'
+import { DistillChip } from './DistillChip'
+import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
 import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
@@ -33,7 +35,8 @@ export function CaseWorkspace({
   onStatusChanged,
   onOpenHit,
   onOpenCitation,
-  onOpenFile
+  onOpenFile,
+  onOpenCase
 }: {
   slug: string
   jiraKey: string | null
@@ -44,6 +47,7 @@ export function CaseWorkspace({
   onOpenHit: (hit: UnifiedHit) => void
   onOpenCitation: (evidenceId: number, line: number) => void
   onOpenFile: (node: FileNode) => void
+  onOpenCase?: (slug: string) => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -186,12 +190,18 @@ export function CaseWorkspace({
                 { label: 'Export case…', onSelect: () => void exportBundle(true) },
                 { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
               ]
+            },
+            {
+              label: 'Re-distill',
+              disabled: status !== 'closed',
+              onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
             }
           ]}
         />
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
+        <DistillChip slug={slug} />
         <HeaderRepos slug={slug} />
         <div className="ml-auto">
           <HeaderChips slug={slug} sessionId={sessionId} />
@@ -199,6 +209,7 @@ export function CaseWorkspace({
       </header>
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
+          <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
           {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
           <CaseFiles

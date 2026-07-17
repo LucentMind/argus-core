@@ -104,6 +104,7 @@ import type { OpenPanelRequest, PanelKey, PanelPermission, PanelRect } from '../
 import type {
   ApprovalDecision,
   AuthStatus,
+  CaseRecord,
   CaseResolution,
   CaseStatus,
   NewCaseInput,
@@ -115,6 +116,11 @@ import { LangfuseExporter } from './services/observability/langfuse'
 import { buildLangfuseClient } from './services/observability/langfuseClient'
 import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
+import { DistillQueue } from './services/distill/queue'
+import { assembleDistillInput } from './services/distill/input'
+import { runCaseDistill } from './services/distill/caseDistiller'
+import { stageDistillOutput } from './services/distill/staging'
+import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 
 let agentService: AgentService | null = null
 let langfuseExporter: LangfuseExporter | null = null
@@ -326,17 +332,41 @@ function registerIpc(): void {
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
 
   // — reference sync (Wave 3 Part 3; UI-native REST + headless distillation) —
+  const distillOptions = (): { model?: string; cliPath?: string } => {
+    const parsed = settingsSchema.parse({ agent: settingsService.get().agent })
+    const cfg = activeInstanceConfig(parsed)
+    return { model: cfg.model ?? effectiveDefaultModel(parsed), cliPath: cfg.cliPath }
+  }
   const refSync = new RefSyncService({
     argusHome,
     store: refSyncStore,
     reader: atlassian,
-    distillOptions: () => {
-      const parsed = settingsSchema.parse({ agent: settingsService.get().agent })
-      const cfg = activeInstanceConfig(parsed)
-      return { model: cfg.model ?? effectiveDefaultModel(parsed), cliPath: cfg.cliPath }
-    }
+    distillOptions
   })
   refSyncStore.subscribe(() => broadcast(IPC.refsyncChanged, refSync.payload()))
+
+  // — case-close distillation (part 3a): mirrors the resolveSkills(...) call used by
+  // skillsPayload() below, filtered to enabled and mapped to the {name, description}
+  // shape the distiller's prompt expects.
+  const skillsIndexForDistill = (): { name: string; description: string }[] =>
+    resolveSkills(argusHome, agentAccessStore.get())
+      .filter((s) => s.enabled)
+      .map((s) => ({ name: s.name, description: s.description }))
+  const distillQueue = new DistillQueue({
+    db,
+    assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
+    distill: (input) => runCaseDistill(input, distillOptions()),
+    stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
+    broadcast: (p) => broadcast(IPC.distillChanged, p)
+  })
+  distillQueue.recoverOnBoot()
+  const onCaseClosed = (rec: CaseRecord): void => {
+    try {
+      distillQueue.enqueue(rec.slug)
+    } catch (err) {
+      console.error('[distill] enqueue failed', err)
+    }
+  }
 
   const connectorsPayload = (): ConnectorsPayload => ({
     connectors: connectorRegistry.get(),
@@ -398,7 +428,7 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.casesSetStatus,
     (_e, slug: string, status: CaseStatus, resolution: CaseResolution | null) =>
-      setCaseStatus(db, argusHome, slug, status, resolution)
+      setCaseStatus(db, argusHome, slug, status, resolution, onCaseClosed)
   )
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
     const records = absPaths.map((p) => ingestArtifact(db, argusHome, detection, caseSlug, p))
@@ -438,6 +468,10 @@ function registerIpc(): void {
     if (sources.includes('evidence'))
       hits.push(...searchEvidence(db, q, f).map((h) => ({ kind: 'evidence' as const, ...h })))
     if (sources.includes('chat')) hits.push(...searchAllMessages(db, q, f.caseSlug))
+    if (sources.includes('summaries'))
+      hits.push(
+        ...searchCaseSummaries(db, q, { limit: 5 }).map((h) => ({ kind: 'summary' as const, ...h }))
+      )
     return hits
   })
   ipcMain.handle(IPC.chatSearch, (_e, caseSlug: string, q: string) =>
@@ -685,6 +719,7 @@ function registerIpc(): void {
     openPanel: openPanelFor,
     capturePanel: capturePanelFor,
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
+    onCaseClosed,
     dispatchPanelCommand: (caseSlug, packId, windowId, cmd, args) => {
       const w = panelWindow(packId, windowId)
       return w?.decl.kind === 'externalApp'
@@ -915,6 +950,12 @@ function registerIpc(): void {
     externalAppHost?.closeCase(slug)
   })
 
+  // — case-close distillation (part 3a) —
+  ipcMain.handle(IPC.distillStatus, (_e, slug: string) => distillQueue.statusFor(slug))
+  ipcMain.handle(IPC.distillRetry, (_e, jobId: number) => distillQueue.retry(jobId))
+  ipcMain.handle(IPC.distillRedistill, (_e, slug: string) => distillQueue.enqueue(slug))
+  ipcMain.handle(IPC.distillSimilar, (_e, slug: string) => similarCases(db, slug))
+
   // — skills —
   const skillsPayload = (): SkillsPayload => ({
     skills: resolveSkills(argusHome, agentAccessStore.get()).map((s) => ({
@@ -958,8 +999,8 @@ function registerIpc(): void {
 
   // — proposals (spec §2.4) —
   ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
-  ipcMain.handle(IPC.proposalsAccept, (_e, file: string) => {
-    acceptProposal(argusHome, file)
+  ipcMain.handle(IPC.proposalsAccept, (_e, file: string, editedContent?: string) => {
+    acceptProposal(argusHome, file, { db, editedContent })
     return { proposals: listProposals(argusHome) }
   })
   ipcMain.handle(IPC.proposalsReject, (_e, file: string) => {
