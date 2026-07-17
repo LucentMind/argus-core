@@ -104,8 +104,10 @@ export class AgentService {
 
     const as = this.deps.agentSettings?.()
     // Composed on EVERY call (spec §1/§2): connector config and credentials are re-derived
-    // at the point of use, never latched. Safe here — compose is pure and side-effect-free,
-    // so it cannot disturb the validation guard above.
+    // at the point of use, never latched. compose is NOT side-effect-free — it can perform
+    // a network OAuth refresh and persist rotated tokens — but it never touches
+    // this.sessions, so it cannot evict a live session. That's what makes it safe to run
+    // here, between the validation guard above and the reap below.
     const mcp = await this.deps.composeMcp?.()
     const fingerprint = mcp?.fingerprint ?? ''
 

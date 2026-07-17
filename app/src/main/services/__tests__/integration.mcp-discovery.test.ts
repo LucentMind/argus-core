@@ -227,6 +227,23 @@ describe('composeForSession', () => {
     expect(svc.runtimeStates().dead).toEqual({ state: 'error', reason: 'spawn failed' })
   })
 
+  it('clearRuntime resets a connector to never-connected and does not affect what compose produces', async () => {
+    registry.patch({
+      dead: { kind: 'stdio', config: { command: 'x' } }
+    })
+    const svc = new McpService({ registry, secrets, toolRisk: () => ({}) })
+    svc.markError('dead', 'spawn failed')
+    expect(svc.runtimeStates().dead).toEqual({ state: 'error', reason: 'spawn failed' })
+
+    const before = await svc.composeForSession()
+    svc.clearRuntime('dead')
+    expect(svc.runtimeStates().dead).toEqual({ state: 'never-connected' })
+    const after = await svc.composeForSession()
+    // display-only: compose ignores runtime state entirely, so clearing it changes
+    // nothing about what the next session gets composed
+    expect(after).toEqual(before)
+  })
+
   it('a needs-auth runtime state from a prior 401 probe does not suppress the next compose', async () => {
     const server = http.createServer((_req, res) => {
       res.statusCode = 401

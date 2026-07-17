@@ -115,11 +115,13 @@ export class McpService {
   /**
    * Build the Agent SDK mcpServers additions for a session (spec §1).
    *
-   * PURE: a function of (registry, secrets, live token) only. It must never read or
-   * write `this.runtime` — that Map is display-only, owned by probe()/markError. A
-   * verdict cached here outlives the condition that set it, which is exactly the bug
-   * this shape exists to prevent. Async so it can reuse composeHeaders' OAuth refresh:
-   * an expired token heals here instead of latching.
+   * NOT side-effect-free: composeHeaders(..., { refreshOnExpiry: true }) can perform a
+   * network OAuth token refresh and persist the rotated tokens to disk. The property
+   * that actually matters here is narrower: this method must never read or write
+   * `this.runtime` — that Map is display-only, owned by probe()/markError. A verdict
+   * cached there would outlive the condition that set it, which is exactly the bug this
+   * shape exists to prevent. Async so it can reuse composeHeaders' OAuth refresh: an
+   * expired token heals here instead of latching.
    */
   async composeForSession(): Promise<ComposedMcp> {
     const servers: Record<string, unknown> = {}

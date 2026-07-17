@@ -109,8 +109,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * connector's 401 (e.g. an Atlassian call surfacing as a thrown transport error) wrongly
  * mark the user's Claude session logged out.
  */
-const AUTH_FAILURE_RE =
-  /not logged in|please run \/login|invalid api key|authentication_error|oauth token (has )?expired/i
+const AUTH_FAILURE_RE = /not logged in|please run \/login|invalid api key|authentication_error/i
 
 export function isAuthFailure(text: string): boolean {
   return AUTH_FAILURE_RE.test(text)
