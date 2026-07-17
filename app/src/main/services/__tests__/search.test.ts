@@ -7,7 +7,7 @@ import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { searchEvidence, readEvidenceText, readEvidenceSnippet } from '../search'
-import { SNIPPET_BEFORE, SNIPPET_AFTER } from '../../../shared/snippets'
+import { SNIPPET_BEFORE, SNIPPET_AFTER, MAX_SNIPPET_LINES } from '../../../shared/snippets'
 import type { DatabaseSync } from 'node:sqlite'
 
 const FIXTURE = path.resolve(__dirname, '../../../../../tests/fixtures/sample-applog.txt')
@@ -112,5 +112,38 @@ describe('readEvidenceSnippet', () => {
     if (!r.ok) return
     expect(r.lines).toEqual([])
     expect(r.eof).toBe(true)
+  })
+
+  it('windows around a range: start-BEFORE to end+AFTER', () => {
+    const src = path.join(home, 'range.ts')
+    fs.writeFileSync(src, Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n') + '\n')
+    ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/range.ts', 20, 24)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.startLine).toBe(20 - SNIPPET_BEFORE)
+    expect(r.lines[0]).toBe(`line ${20 - SNIPPET_BEFORE}`)
+    expect(r.lines[r.lines.length - 1]).toBe(`line ${24 + SNIPPET_AFTER}`)
+    expect(r.truncated).toBe(false)
+  })
+
+  it('caps huge ranges at MAX_SNIPPET_LINES and flags truncated', () => {
+    const src = path.join(home, 'big.ts')
+    fs.writeFileSync(src, Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join('\n') + '\n')
+    ingestArtifact(db, home, detection, 'NAVAPI-1', src)
+    const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/big.ts', 10, 150)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines.length).toBe(MAX_SNIPPET_LINES)
+    expect(r.startLine).toBe(10 - SNIPPET_BEFORE)
+    expect(r.truncated).toBe(true)
+  })
+
+  it('single-line call keeps prior behavior (end defaults to start)', () => {
+    const r = readEvidenceSnippet(db, home, 'NAVAPI-1', 'evidence/sample-applog.txt', 3)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.startLine).toBe(1)
+    expect(r.truncated).toBe(false)
   })
 })
