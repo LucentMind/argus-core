@@ -6,7 +6,9 @@ import {
   ensureIndex,
   sidecarPath,
   checkpointAtOrBelow,
-  __clearIndexCacheForTests
+  __clearIndexCacheForTests,
+  getLines,
+  MAX_LINES_PER_READ
 } from '../lineIndex'
 
 let tmp: string, argusHome: string
@@ -128,5 +130,39 @@ describe('checkpointAtOrBelow', () => {
     expect(checkpointAtOrBelow(idx, 1000)).toEqual([1, 0])
     expect(checkpointAtOrBelow(idx, 1001)).toEqual([1001, 11000])
     expect(checkpointAtOrBelow(idx, 4999)).toEqual([2001, 22000])
+  })
+})
+
+describe('getLines', () => {
+  it('returns exactly the requested range, matching a naive full read', async () => {
+    const p = writeLines('g.txt', 5000)
+    const idx = await ensureIndex(argusHome, p)
+    const naive = fs.readFileSync(p, 'utf8').split('\n')
+    for (const [from, to] of [
+      [1, 5],
+      [999, 1002],
+      [1001, 1001],
+      [4990, 5000]
+    ]) {
+      const r = getLines(idx, p, from, to)
+      expect(r.from).toBe(from)
+      expect(r.lines).toEqual(naive.slice(from - 1, to))
+    }
+  })
+
+  it('clamps: from<1, to>totalLines, from>totalLines, and MAX_LINES_PER_READ', async () => {
+    const p = writeLines('h.txt', 3000)
+    const idx = await ensureIndex(argusHome, p)
+    expect(getLines(idx, p, -5, 2).from).toBe(1)
+    expect(getLines(idx, p, 2999, 99999).lines).toHaveLength(2)
+    expect(getLines(idx, p, 5000, 5100).lines).toEqual([])
+    expect(getLines(idx, p, 1, 3000).lines).toHaveLength(MAX_LINES_PER_READ)
+  })
+
+  it('reads the final unterminated line', async () => {
+    const p = path.join(tmp, 'tail.txt')
+    fs.writeFileSync(p, 'a\nb\nlast-no-newline')
+    const idx = await ensureIndex(argusHome, p)
+    expect(getLines(idx, p, 3, 3).lines).toEqual(['last-no-newline'])
   })
 })
