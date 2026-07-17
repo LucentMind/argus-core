@@ -128,6 +128,11 @@ export function NewCaseDialog({
       setError(r.message)
       return
     }
+    const deselectedIds = step.preview.attachments
+      .filter((a) => !checked.has(a.id))
+      .map((a) => a.id)
+    if (deselectedIds.length)
+      void window.argus.jira.setAttachmentSelection(r.value.slug, deselectedIds)
     const selected = step.preview.attachments.filter((a) => checked.has(a.id))
     setStep({
       step: 'ingest',
