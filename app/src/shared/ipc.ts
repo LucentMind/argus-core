@@ -110,6 +110,7 @@ export const IPC = {
   casesDelete: 'cases:delete',
   onboardingSeedSample: 'onboarding:seed-sample',
   evidenceDelete: 'evidence:delete',
+  evidenceScan: 'evidence:scan',
   sessionsDelete: 'sessions:delete',
   findingsClear: 'findings:clear',
   graphBuild: 'graph:build',

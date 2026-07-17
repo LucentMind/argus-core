@@ -56,12 +56,15 @@ import {
   listCases,
   deleteCase,
   setCaseStatus,
-  setCaseJiraDeselected
+  setCaseJiraDeselected,
+  getCase
 } from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
+import { createCaseWatchHub } from './services/caseWatch'
+import { scanEvidence } from './services/scan'
 import { searchEvidence, readEvidenceText, readEvidenceSnippet } from './services/search'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
@@ -297,6 +300,15 @@ function registerIpc(): void {
   // 1d: extraction commands are resolved from pack detector declarations, not hardcoded ids.
   const extractors = createExtractors(packRegistry, binariesService)
 
+  // — case-dir watcher hub (files explorer staleness hint) —
+  const caseWatch = createCaseWatchHub(argusHome, (slug) => broadcast(IPC.filesChanged, slug))
+  // every main-side evidence mutation announces itself here; the paired suppress()
+  // keeps the watcher's staleness hint from re-lighting on our own writes
+  const evidenceChangedB = (slug: string): void => {
+    caseWatch.suppress(slug)
+    broadcast(IPC.evidenceChanged, slug)
+  }
+
   const secretStore = new SecretStore(argusHome, safeStorage)
 
   // — observability: Langfuse exporter (off by default; needs enabled+host+publicKey+secret) —
@@ -457,7 +469,7 @@ function registerIpc(): void {
       // outside its internal try/catch); swallow the fire-and-forget rejection explicitly.
       void extractDerivedText(db, argusHome, rec, extractors)
         .then((derived) => {
-          if (derived) broadcast(IPC.evidenceChanged, caseSlug)
+          if (derived) evidenceChangedB(caseSlug)
         })
         .catch((err) =>
           console.warn(`[ingest] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
@@ -468,7 +480,11 @@ function registerIpc(): void {
     }
     return records
   })
-  ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => listEvidence(db, caseSlug))
+  ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => {
+    // start the staleness watcher on first listing; unknown slugs stay unwatched
+    if (getCase(db, caseSlug)) caseWatch.watch(caseSlug)
+    return listEvidence(db, caseSlug)
+  })
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
   )
@@ -480,8 +496,24 @@ function registerIpc(): void {
     assertSlug(caseSlug)
     if (!Number.isInteger(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`)
     const r = deleteEvidence(db, argusHome, caseSlug, evidenceId)
-    broadcast(IPC.evidenceChanged, caseSlug)
+    evidenceChangedB(caseSlug)
     return r
+  })
+  ipcMain.handle(IPC.evidenceScan, (_e, caseSlug: string) => {
+    assertSlug(caseSlug)
+    caseWatch.suppress(caseSlug, 5000) // hashing a large folder outlives the default window
+    return scanEvidence(
+      db,
+      argusHome,
+      detection,
+      extractors,
+      {
+        evidenceChanged: evidenceChangedB,
+        parsing: (slug, id, active) =>
+          broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
+      },
+      caseSlug
+    )
   })
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) => {
     const f = filters ?? {}
@@ -897,37 +929,11 @@ function registerIpc(): void {
   })
 
   // — files (case-dir explorer) —
-  const caseWatchers = new Map<string, fs.FSWatcher>()
-  const watchCaseDir = (slug: string): void => {
-    if (caseWatchers.has(slug)) return
-    assertSlug(slug) // a hostile slug ('..') must not become a recursive watch over argusHome
-    const root = caseDir(argusHome, slug)
-    try {
-      let t: NodeJS.Timeout | null = null
-      const w = fs.watch(root, { recursive: true }, () => {
-        if (t) clearTimeout(t)
-        t = setTimeout(() => broadcast(IPC.filesChanged, slug), 300)
-      })
-      // fs.watch's try/catch only covers sync setup; on Windows, deleting the
-      // watched dir out from under the watcher emits an async 'error' event —
-      // unhandled, that crashes the main process.
-      w.on('error', (err) => {
-        console.warn(`[files] watcher error for ${slug}: ${(err as Error).message}`)
-        w.close()
-        caseWatchers.delete(slug)
-      })
-      caseWatchers.set(slug, w)
-    } catch (err) {
-      // network drives / EPERM: degrade silently — tree still reloads on evidence:changed
-      console.warn(`[files] watch failed for ${slug}: ${(err as Error).message}`)
-    }
-  }
-
   ipcMain.handle(IPC.filesList, (_e, slug: string) => {
     // Validate via listCaseFiles (unknown/invalid slugs throw) before a watcher
     // is ever started — an unknown or malicious slug must not leave one behind.
     const out = listCaseFiles(db, argusHome, slug)
-    watchCaseDir(slug)
+    caseWatch.watch(slug)
     return out
   })
   ipcMain.handle(IPC.filesRead, (_e, slug: string, relPath: string) =>
@@ -948,11 +954,7 @@ function registerIpc(): void {
     assertSlug(slug)
     // strict order: live sessions → watcher → DB/audit/filesystem (in deleteCase)
     await agentService!.stopAllForCase(slug)
-    const w = caseWatchers.get(slug)
-    if (w) {
-      w.close()
-      caseWatchers.delete(slug)
-    }
+    caseWatch.unwatch(slug)
     deleteCase(db, argusHome, slug)
     panelHost?.closeCase(slug)
     externalAppHost?.closeCase(slug)
@@ -1182,7 +1184,7 @@ function registerIpc(): void {
     site: () => atlassianCreds().siteUrl,
     extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
-    evidenceChanged: (slug) => broadcast(IPC.evidenceChanged, slug),
+    evidenceChanged: evidenceChangedB,
     parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
   })
 
