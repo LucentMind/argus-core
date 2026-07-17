@@ -282,23 +282,22 @@ export class JiraCases {
 
     this.deps.evidenceChanged(caseSlug)
 
-    // Attachment diff by id — append-only: ingest new, only report deleted.
-    // "New" is judged against local evidence, not against what the user selected at
-    // create time: an attachment deselected on the New Case dialog is simply absent
-    // from evidence, so refresh treats it as new and pulls it. This is intended —
-    // deselection at create time defers ingestion, it does not blocklist the file.
-    // See docs/superpowers/plans/2026-07-10-wave-2-part-3-exit-check.md step 5.
-    const known = new Map<string, string>() // attachmentId → filename
+    // Attachment diff by id. Refresh NEVER downloads: new ids (neither ingested
+    // nor deselected) are returned for the renderer's selection dialog, which
+    // ingests via jira:ingest-attachments and persists deselection. Spec:
+    // docs/superpowers/specs/2026-07-17-jira-comments-evidence-scan-design.md §4.
+    const known = new Map<string, string>() // attachmentId → filename (ingested only)
     for (const e of evidence) {
       const m = jiraMeta(e.meta)
       if (m.attachmentId) known.set(m.attachmentId, m.filename ?? e.relPath)
     }
-    const fresh = preview.attachments.filter((a) => !known.has(a.id))
+    const deselected = new Set(kase.jiraDeselected)
+    const fresh = preview.attachments.filter((a) => !known.has(a.id) && !deselected.has(a.id))
+    const deselectedAttachments = preview.attachments.filter((a) => deselected.has(a.id))
     const liveIds = new Set(preview.attachments.map((a) => a.id))
     const deletedOnJira = [...known.entries()]
       .filter(([id]) => !liveIds.has(id))
       .map(([attachmentId, filename]) => ({ attachmentId, filename }))
-    if (fresh.length) await this.ingestAttachments(caseSlug, fresh)
 
     setCaseJira(db, argusHome, caseSlug, {
       key: preview.key,
@@ -310,6 +309,7 @@ export class JiraCases {
       statusChange:
         oldStatus && oldStatus !== preview.status ? { from: oldStatus, to: preview.status } : null,
       newAttachments: fresh,
+      deselectedAttachments,
       deletedOnJira,
       newComments,
       ...(commentsError ? { commentsError } : {}),

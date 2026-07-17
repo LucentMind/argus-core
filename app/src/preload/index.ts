@@ -423,6 +423,11 @@ const argus = {
       ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
     refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
       ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+    setAttachmentSelection: (
+      caseSlug: string,
+      deselectedIds: string[]
+    ): Promise<JiraResult<CaseRecord>> =>
+      ipcRenderer.invoke(IPC.jiraSetAttachmentSelection, caseSlug, deselectedIds),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)

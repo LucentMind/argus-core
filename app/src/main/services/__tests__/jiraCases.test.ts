@@ -9,12 +9,14 @@ import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
+import { setCaseJiraDeselected } from '../caseService'
 import type {
   JiraAttachmentProgress,
   JiraCommentInfo,
   JiraIssuePreview
 } from '../../../shared/jira'
 import type { JiraIssueData } from '../atlassian'
+import type { EvidenceRecord } from '../../../shared/types'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 let progress: JiraAttachmentProgress[]
@@ -194,7 +196,7 @@ describe('JiraCases.ingestAttachments', () => {
 })
 
 describe('JiraCases.refresh', () => {
-  it('updates ticket evidence in place, ingests only new attachments, reports the diff', async () => {
+  it('updates ticket evidence in place; reports the attachment diff without downloading', async () => {
     let current = issue()
     const svc = service(fakeClient(() => current))
     await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
@@ -205,15 +207,18 @@ describe('JiraCases.refresh', () => {
       status: 'Resolved',
       attachments: [att('10002', 'new.txt')] // 10001 deleted on Jira, 10002 added
     })
-    const summary = await svc.refresh('NAV-7')
+    const grown = fakeClient(() => current)
+    const summary = await service(grown).refresh('NAV-7')
 
     expect(summary.statusChange).toEqual({ from: 'Open', to: 'Resolved' })
     expect(summary.syncedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/) // refresh timestamp for the header
+    // refresh never downloads: 10002 is only reported, not ingested
     expect(summary.newAttachments.map((a) => a.id)).toEqual(['10002'])
     expect(summary.deletedOnJira).toEqual([{ attachmentId: '10001', filename: 'log.txt' }])
+    expect(grown.downloadAttachment).not.toHaveBeenCalled()
 
     const ev = listEvidence(db, 'NAV-7')
-    expect(ev.length).toBe(before + 1) // ticket files updated in place; one new attachment
+    expect(ev.length).toBe(before) // ticket files updated in place; no attachment ingested
     expect(ev.some((e) => e.relPath === 'evidence/log.txt')).toBe(true) // never removed locally
     const md = ev.find((e) => e.relPath === 'evidence/NAV-7.ticket.md')!
     expect((md.meta.jira as { status: string }).status).toBe('Resolved')
@@ -224,6 +229,45 @@ describe('JiraCases.refresh', () => {
     const { createCase } = await import('../caseService')
     createCase(db, argusHome, { slug: 'BLANK-1', title: 'b' })
     await expect(svc.refresh('BLANK-1')).rejects.toMatchObject({ code: 'not-configured' })
+  })
+})
+
+const jiraMetaOf = (e: EvidenceRecord): { attachmentId?: string } =>
+  (e.meta.jira ?? {}) as { attachmentId?: string }
+
+describe('JiraCases.refresh attachment classification (no auto-ingest)', () => {
+  it('never downloads on refresh; new attachments are reported as pending', async () => {
+    const client = fakeClient(() => issue({ attachments: [] }))
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    // ticket grew an attachment since creation
+    const grown = fakeClient(() => issue({ attachments: [att('10001', 'log.txt')] }))
+    const summary = await service(grown).refresh('NAV-7')
+    expect(summary.newAttachments.map((a) => a.id)).toEqual(['10001'])
+    expect(grown.downloadAttachment).not.toHaveBeenCalled()
+    expect(listEvidence(db, 'NAV-7').some((e) => jiraMetaOf(e).attachmentId)).toBe(false)
+  })
+
+  it('deselected ids are excluded from newAttachments and listed separately', async () => {
+    const client = fakeClient(() =>
+      issue({ attachments: [att('10001', 'a.txt'), att('10002', 'b.txt')] })
+    )
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    setCaseJiraDeselected(db, argusHome, 'NAV-7', ['10001'])
+    const summary = await svc.refresh('NAV-7')
+    expect(summary.newAttachments.map((a) => a.id)).toEqual(['10002'])
+    expect(summary.deselectedAttachments.map((a) => a.id)).toEqual(['10001'])
+  })
+
+  it('still reports deletions on Jira for ingested attachments', async () => {
+    const client = fakeClient(() => issue({ attachments: [att('10001', 'log.txt')] }))
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    await svc.ingestAttachments('NAV-7', [att('10001', 'log.txt')])
+    const gone = service(fakeClient(() => issue({ attachments: [] })))
+    const summary = await gone.refresh('NAV-7')
+    expect(summary.deletedOnJira).toEqual([{ attachmentId: '10001', filename: 'log.txt' }])
   })
 })
 
