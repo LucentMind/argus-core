@@ -4,16 +4,16 @@ import { splitCitations } from '../citations'
 it('splits text into plain + citation segments', () => {
   expect(splitCitations('HI\n\n[evidence/project-pitch.md:10]')).toEqual([
     { type: 'text', text: 'HI\n\n' },
-    { type: 'cite', relPath: 'evidence/project-pitch.md', line: 10 }
+    { type: 'cite', relPath: 'evidence/project-pitch.md', start: 10, end: 10 }
   ])
 })
 
 it('handles a citation in the middle and multiple citations', () => {
   expect(splitCitations('see [evidence/a.log:3] and [findings.md:7] here')).toEqual([
     { type: 'text', text: 'see ' },
-    { type: 'cite', relPath: 'evidence/a.log', line: 3 },
+    { type: 'cite', relPath: 'evidence/a.log', start: 3, end: 3 },
     { type: 'text', text: ' and ' },
-    { type: 'cite', relPath: 'findings.md', line: 7 },
+    { type: 'cite', relPath: 'findings.md', start: 7, end: 7 },
     { type: 'text', text: ' here' }
   ])
 })

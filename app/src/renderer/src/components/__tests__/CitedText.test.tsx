@@ -10,7 +10,7 @@ it('renders a citation in a user message as a clickable link and fires onCite', 
   const link = screen.getByText('evidence/project-pitch.md:10')
   expect(link.tagName).toBe('A')
   fireEvent.click(link)
-  expect(onCite).toHaveBeenCalledWith('evidence/project-pitch.md', 10)
+  expect(onCite).toHaveBeenCalledWith({ relPath: 'evidence/project-pitch.md', start: 10, end: 10 })
 })
 
 it('leaves plain non-citation text alone (no link)', () => {
@@ -53,5 +53,5 @@ it('expanding a chip and clicking through opens the viewer via onCite', async ()
   fireEvent.click(screen.getByRole('button', { name: /app\.log:12/ })) // expand
   await screen.findByText('target line')
   fireEvent.click(screen.getByLabelText('Open in viewer'))
-  expect(onCite).toHaveBeenCalledWith('evidence/app.log', 12)
+  expect(onCite).toHaveBeenCalledWith({ relPath: 'evidence/app.log', start: 12, end: 12 })
 })

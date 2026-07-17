@@ -3,6 +3,8 @@ import type { ChatJumpTarget } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
+import { reposStore } from '../lib/reposStore'
+import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
@@ -59,7 +61,7 @@ export function ChatPane({
   slug: string
   sessionId: number
   onSwitchSession: (id: number) => void
-  onCite: (relPath: string, line: number) => void
+  onCite: (cite: CiteTarget) => void
   onJumpToTurn?: (sessionId: number, target: ChatJumpTarget) => void
   focusTarget?: ChatJumpTarget | null
   onFocusConsumed?: () => void
@@ -77,6 +79,10 @@ export function ChatPane({
     (cb) => citationsTray.subscribe(cb),
     () => citationsTray.get(slug, sessionId)
   )
+  const repoNames = useSyncExternalStore(
+    (cb) => reposStore.subscribe(cb),
+    () => reposStore.get(slug)
+  ).names
   // text a panel staged via sendToAgent for this session, fed to the Composer as
   // prefill so the user reviews/edits before sending
   const stagedDraft = useSyncExternalStore(
@@ -204,7 +210,7 @@ export function ChatPane({
                   i === flashIndex ? 'bg-signal/20' : 'bg-hi'
                 } ${findRingClass(i)}`}
               >
-                <CitedText text={item.text} onCite={onCite} caseSlug={slug} />
+                <CitedText text={item.text} onCite={onCite} caseSlug={slug} repoNames={repoNames} />
               </div>
             )
           }
@@ -217,7 +223,12 @@ export function ChatPane({
                   i === flashIndex ? 'bg-signal/20' : ''
                 } ${findRingClass(i)}`}
               >
-                <MessageView markdown={item.text} onCite={onCite} caseSlug={slug} />
+                <MessageView
+                  markdown={item.text}
+                  onCite={onCite}
+                  caseSlug={slug}
+                  repoNames={repoNames}
+                />
                 {item.streaming && <span className="text-xs text-mute">…</span>}
               </div>
             )

@@ -77,7 +77,21 @@ beforeEach(() => {
       ])
     },
     pathForFile: vi.fn(),
-    workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) },
+    workspaces: {
+      list: vi.fn(async () => []),
+      refs: vi.fn(async () => []),
+      pick: vi.fn(async () => null),
+      link: vi.fn(async () => undefined),
+      unlink: vi.fn(async () => undefined)
+    },
+    graph: {
+      status: vi.fn(async () => []),
+      build: vi.fn(async () => ({ started: true })),
+      install: vi.fn(async () => ({ ok: true, log: '' })),
+      onBuilding: vi.fn(() => () => {}),
+      onChanged: vi.fn(() => () => undefined),
+      onProgress: vi.fn(() => () => {})
+    },
     skills: { list: vi.fn(async () => ({ skills: [] })) },
     search: { query: vi.fn(async () => []) },
     settings: {
@@ -136,6 +150,7 @@ function workspace(
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
+      onOpenRepoFile={vi.fn()}
     />
   )
 }

@@ -5,7 +5,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
-import { HeaderRepos } from './HeaderRepos'
+import { ReposSection } from './ReposSection'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
@@ -16,6 +16,7 @@ import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
+import { reposStore } from '../lib/reposStore'
 import { panelKeyStr } from '../../../shared/panels'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type {
@@ -25,6 +26,7 @@ import type {
   FileNode,
   UnifiedHit
 } from '../../../shared/types'
+import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 
 export function CaseWorkspace({
   slug,
@@ -36,7 +38,8 @@ export function CaseWorkspace({
   onOpenHit,
   onOpenCitation,
   onOpenFile,
-  onOpenCase
+  onOpenCase,
+  onOpenRepoFile
 }: {
   slug: string
   jiraKey: string | null
@@ -45,9 +48,10 @@ export function CaseWorkspace({
   resolution: CaseResolution | null
   onStatusChanged: () => void
   onOpenHit: (hit: UnifiedHit) => void
-  onOpenCitation: (evidenceId: number, line: number) => void
+  onOpenCitation: (evidenceId: number, start: number, end: number) => void
   onOpenFile: (node: FileNode) => void
   onOpenCase?: (slug: string) => void
+  onOpenRepoFile: (repoName: string, relPath: string, start: number, end: number) => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -111,6 +115,10 @@ export function CaseWorkspace({
     }
   }, [slug])
 
+  useEffect(() => {
+    void reposStore.load(slug)
+  }, [slug])
+
   async function openInPanel(evidenceId: number, packId: string, windowId: string): Promise<void> {
     await window.argus.panels.open({
       caseSlug: slug,
@@ -142,10 +150,21 @@ export function CaseWorkspace({
       .then((events) => agentStore.hydrate(slug, sessionId, events))
   }, [slug, sessionId])
 
-  async function handleCite(relPath: string, line: number): Promise<void> {
+  async function handleCite(cite: CiteTarget): Promise<void> {
+    const names = toRepoNameSet(reposStore.get(slug).names)
+    if (classifyCitePath(cite.relPath, names) === 'repo') {
+      const slash = cite.relPath.indexOf('/')
+      onOpenRepoFile(
+        cite.relPath.slice(0, slash),
+        cite.relPath.slice(slash + 1),
+        cite.start,
+        cite.end
+      )
+      return
+    }
     const list = await window.argus.evidence.list(slug)
-    const rec = list.find((e) => e.relPath === relPath)
-    if (rec) onOpenCitation(rec.id, line)
+    const rec = list.find((e) => e.relPath === cite.relPath)
+    if (rec) onOpenCitation(rec.id, cite.start, cite.end)
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
@@ -202,7 +221,6 @@ export function CaseWorkspace({
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
-        <HeaderRepos slug={slug} />
         <div className="ml-auto">
           <HeaderChips slug={slug} sessionId={sessionId} />
         </div>
@@ -211,6 +229,7 @@ export function CaseWorkspace({
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+          <ReposSection slug={slug} />
           {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
           <CaseFiles
             key={slug}
@@ -238,7 +257,7 @@ export function CaseWorkspace({
                   slug={slug}
                   sessionId={sessionId}
                   onSwitchSession={handleSwitchSession}
-                  onCite={(p, l) => void handleCite(p, l)}
+                  onCite={(c) => void handleCite(c)}
                   onJumpToTurn={handleJumpToTurn}
                   focusTarget={focusTurn?.target ?? null}
                   onFocusConsumed={() => setFocusTurn(null)}
@@ -291,11 +310,7 @@ export function CaseWorkspace({
               className="shrink-0 overflow-y-auto border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth }}
             >
-              <FindingsPane
-                slug={slug}
-                sessionId={sessionId}
-                onCite={(p, l) => void handleCite(p, l)}
-              />
+              <FindingsPane slug={slug} sessionId={sessionId} onCite={(c) => void handleCite(c)} />
             </aside>
           </>
         )}

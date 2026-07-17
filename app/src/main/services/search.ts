@@ -2,14 +2,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, SearchFilters, SearchHit } from '../../shared/types'
-import { SNIPPET_BEFORE, SNIPPET_AFTER, langForPath } from '../../shared/snippets'
+import {
+  SNIPPET_BEFORE,
+  SNIPPET_AFTER,
+  MAX_SNIPPET_LINES,
+  langForPath
+} from '../../shared/snippets'
 import type { SnippetResult } from '../../shared/snippets'
 import { caseDir } from './paths'
 
-const MAX_READ_BYTES = 2 * 1024 * 1024
+export const MAX_READ_BYTES = 2 * 1024 * 1024
 // window around a citation's target line, for files too big to load whole
-const WINDOW_LINES_BEFORE = 500
-const WINDOW_LINES_AFTER = 2000
+export const WINDOW_LINES_BEFORE = 500
+export const WINDOW_LINES_AFTER = 2000
 const SCAN_CHUNK_BYTES = 1024 * 1024
 
 export function escapeFtsQuery(q: string): string {
@@ -103,7 +108,7 @@ export function searchEvidence(
 // Scans a file from the start counting newlines (never loading it whole),
 // keeping only lines within [windowStart, windowEnd]. Splits on raw \n bytes
 // so multi-byte UTF-8 characters are never decoded across a chunk boundary.
-function readLineWindow(
+export function readLineWindow(
   absPath: string,
   windowStart: number,
   windowEnd: number
@@ -197,7 +202,8 @@ export function readEvidenceSnippet(
   argusHome: string,
   caseSlug: string,
   relPath: string,
-  line: number
+  start: number,
+  end: number = start
 ): SnippetResult {
   const row = db
     .prepare(
@@ -209,9 +215,10 @@ export function readEvidenceSnippet(
   if (!row) return { ok: false, reason: 'not-found' }
   const abs = path.join(caseDir(argusHome, caseSlug), relPath)
   if (!fs.existsSync(abs)) return { ok: false, reason: 'not-found' }
-  const target = line > 0 ? line : 1
-  const windowStart = Math.max(1, target - SNIPPET_BEFORE)
-  const windowEnd = target + SNIPPET_AFTER
+  const s = start > 0 ? start : 1
+  const e = Math.max(end, s)
+  const windowStart = Math.max(1, s - SNIPPET_BEFORE)
+  const windowEnd = Math.min(e + SNIPPET_AFTER, windowStart + MAX_SNIPPET_LINES - 1)
   const { content, reachedEof } = readLineWindow(abs, windowStart, windowEnd)
   return {
     ok: true,
@@ -220,6 +227,7 @@ export function readEvidenceSnippet(
     startLine: windowStart,
     lines: content === '' ? [] : content.split('\n'),
     lang: langForPath(relPath).lang,
-    eof: reachedEof
+    eof: reachedEof,
+    truncated: e + SNIPPET_AFTER > windowEnd
   }
 }

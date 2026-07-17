@@ -1,20 +1,44 @@
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
-import { linkifyCitations, parseCiteHref } from '../lib/citations'
+import {
+  classifyCitePath,
+  linkifyCitations,
+  parseCiteHref,
+  toRepoNameSet,
+  type CiteTarget
+} from '../lib/citations'
 import { CitationCard } from './CitationCard'
+import type { CiteSource } from '../lib/snippetCache'
+
+function citeSource(caseSlug: string, cite: CiteTarget, names: ReadonlySet<string>): CiteSource {
+  if (classifyCitePath(cite.relPath, names) === 'repo') {
+    const slash = cite.relPath.indexOf('/')
+    return {
+      kind: 'repo',
+      caseSlug,
+      repoName: cite.relPath.slice(0, slash),
+      relPath: cite.relPath.slice(slash + 1)
+    }
+  }
+  return { kind: 'evidence', caseSlug, relPath: cite.relPath }
+}
 
 export function MessageView({
   markdown,
   onCite,
   caseSlug,
-  citationMode = 'collapsed'
+  citationMode = 'collapsed',
+  repoNames = []
 }: {
   markdown: string
-  onCite: (relPath: string, line: number) => void
+  onCite: (cite: CiteTarget) => void
   /** When set, citations render as CitationCard chips; without it (e.g. the
    *  proposals tab, which has no case context) they stay plain links. */
   caseSlug?: string
   citationMode?: 'collapsed' | 'expanded'
+  /** Linked repo names for this case — enables the repo citation domain. */
+  repoNames?: readonly string[]
 }): React.JSX.Element {
+  const names = toRepoNameSet(repoNames)
   return (
     <div className="prose-sm max-w-none text-sm leading-relaxed text-ink [&_code]:font-mono [&_code]:text-signal">
       <ReactMarkdown
@@ -29,11 +53,11 @@ export function MessageView({
             if (cite && caseSlug) {
               return (
                 <CitationCard
-                  caseSlug={caseSlug}
-                  relPath={cite.relPath}
-                  line={cite.line}
+                  source={citeSource(caseSlug, cite, names)}
+                  start={cite.start}
+                  end={cite.end}
                   defaultExpanded={citationMode === 'expanded'}
-                  onOpenViewer={onCite}
+                  onOpenViewer={() => onCite(cite)}
                 />
               )
             }
@@ -44,7 +68,7 @@ export function MessageView({
                   className="font-mono text-xs text-defect underline decoration-dotted"
                   onClick={(e) => {
                     e.preventDefault()
-                    onCite(cite.relPath, cite.line)
+                    onCite(cite)
                   }}
                 >
                   {children}
@@ -59,7 +83,7 @@ export function MessageView({
           }
         }}
       >
-        {linkifyCitations(markdown)}
+        {linkifyCitations(markdown, repoNames)}
       </ReactMarkdown>
     </div>
   )
