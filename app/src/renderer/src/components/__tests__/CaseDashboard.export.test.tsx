@@ -14,6 +14,7 @@ const cases: CaseRecord[] = [
     title: 'Tile region fails',
     jiraKey: null,
     jiraSyncedAt: null,
+    jiraDeselected: [],
     status: 'open',
     resolution: null,
     tags: [],

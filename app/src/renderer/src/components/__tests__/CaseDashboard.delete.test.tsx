@@ -13,6 +13,7 @@ const cases: CaseRecord[] = [
     title: 'Bearing jumps',
     jiraKey: null,
     jiraSyncedAt: null,
+    jiraDeselected: [],
     status: 'open',
     resolution: null,
     tags: [],

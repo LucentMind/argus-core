@@ -125,6 +125,9 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'resolution')) {
     db.exec(`ALTER TABLE cases ADD COLUMN resolution TEXT`)
   }
+  if (!caseCols.some((c) => c.name === 'jira_deselected')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN jira_deselected TEXT NOT NULL DEFAULT '[]'`)
+  }
   // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
   // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
   const sessionIdx = db.prepare(`PRAGMA index_list(sessions)`).all() as {

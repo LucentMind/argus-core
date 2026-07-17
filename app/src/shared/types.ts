@@ -41,6 +41,8 @@ export interface CaseRecord {
   jiraKey: string | null
   /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */
   jiraSyncedAt: string | null
+  /** Jira attachment ids the user chose not to ingest; [] when none. */
+  jiraDeselected: string[]
   status: CaseStatus
   /** Why the case was closed; non-null iff status === 'closed'. */
   resolution: CaseResolution | null
