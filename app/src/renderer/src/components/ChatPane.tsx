@@ -206,7 +206,7 @@ export function ChatPane({
                 key={i}
                 data-turn-id={item.turnId ?? undefined}
                 data-item-index={i}
-                className={`ml-12 rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
+                className={`ml-12 min-w-0 break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
                   i === flashIndex ? 'bg-signal/20' : 'bg-hi'
                 } ${findRingClass(i)}`}
               >
@@ -219,7 +219,7 @@ export function ChatPane({
               <div
                 key={i}
                 data-item-index={i}
-                className={`mr-6 rounded-r3 transition-colors ${
+                className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
                   i === flashIndex ? 'bg-signal/20' : ''
                 } ${findRingClass(i)}`}
               >
