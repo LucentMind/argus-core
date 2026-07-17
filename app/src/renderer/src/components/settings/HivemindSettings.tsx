@@ -20,7 +20,8 @@ function BrowseRow({
   onOpenUpdate,
   onReinstall,
   onCancel,
-  onClaim
+  onClaim,
+  onUninstall
 }: {
   it: HivemindItem
   busy: boolean
@@ -30,6 +31,7 @@ function BrowseRow({
   onReinstall: () => void
   onCancel: () => void
   onClaim: () => void
+  onUninstall: () => void
 }): React.JSX.Element {
   const open = confirm !== null && confirm.kind === it.kind && confirm.name === it.name
   return (
@@ -58,6 +60,23 @@ function BrowseRow({
             onClick={onInstall}
           >
             Install
+          </Btn>
+        )}
+        {it.kind === 'skill' && it.installed && (
+          <Btn
+            variant="danger"
+            aria-label={`Uninstall ${it.name}`}
+            disabled={busy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Uninstall ${it.name}? Its skills-hivemind folder is removed; it stays installable from Browse.`
+                )
+              )
+                onUninstall()
+            }}
+          >
+            Uninstall
           </Btn>
         )}
         {it.kind === 'reference' && it.localTier === 'hivemind' && (
@@ -399,6 +418,9 @@ export function HivemindSettings({
                       }}
                       onCancel={() => setUpdateConfirm(null)}
                       onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
+                      onUninstall={() =>
+                        void run(() => window.argus.hivemind.uninstallSkill(it.name))
+                      }
                     />
                   ))}
                 </SettingsSection>
@@ -422,6 +444,9 @@ export function HivemindSettings({
                       }}
                       onCancel={() => setUpdateConfirm(null)}
                       onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
+                      onUninstall={() =>
+                        void run(() => window.argus.hivemind.uninstallSkill(it.name))
+                      }
                     />
                   ))}
                 </SettingsSection>

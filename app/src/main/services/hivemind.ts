@@ -254,6 +254,20 @@ export class HivemindService {
     return this.payload()
   }
 
+  /** Delete the installed copy and its pin; the item reverts to installable in Browse. */
+  async uninstallSkill(name: string): Promise<HivemindPayload> {
+    if (!name || /[/\\]/.test(name) || name.startsWith('.'))
+      throw new Error(`Invalid skill name: ${name}`)
+    const dest = path.join(hivemindSkillsDir(this.deps.argusHome), name)
+    if (!fs.existsSync(path.join(dest, 'SKILL.md')))
+      throw new Error(`Not an installed HiveMind skill: ${name}`)
+    fs.rmSync(dest, { recursive: true, force: true })
+    const state = this.state()
+    delete state.skills[name]
+    this.store.write(state)
+    return this.payload()
+  }
+
   /** Update preview: what changed upstream since the pinned install. */
   async diff(kind: 'skill' | 'reference', name: string): Promise<string> {
     const rel = kind === 'skill' ? `skills/${name}` : `references/${name}`

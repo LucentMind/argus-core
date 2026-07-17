@@ -141,6 +141,34 @@ describe('browse + install pinning', () => {
     expect(written).toContain('source_commit: refsha')
   })
 
+  it('uninstallSkill removes the installed copy and clears the pin', async () => {
+    seedClone()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'sha-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.install('skill', 'hive-probe')
+    expect(fs.existsSync(path.join(home, 'skills-hivemind', 'hive-probe'))).toBe(true)
+
+    const p = await svc.uninstallSkill('hive-probe')
+    expect(fs.existsSync(path.join(home, 'skills-hivemind', 'hive-probe'))).toBe(false)
+    const item = p.items.find((i) => i.name === 'hive-probe')!
+    expect(item.installed).toBe(false)
+    expect(item.installedCommit).toBeNull()
+    expect(item.updateAvailable).toBe(false)
+  })
+
+  it('uninstallSkill rejects traversal, hidden, and not-installed names', async () => {
+    seedClone()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'sha-1' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await expect(svc.uninstallSkill('../evil')).rejects.toThrow(/Invalid skill name/)
+    await expect(svc.uninstallSkill('a\\b')).rejects.toThrow(/Invalid skill name/)
+    await expect(svc.uninstallSkill('.hidden')).rejects.toThrow(/Invalid skill name/)
+    await expect(svc.uninstallSkill('')).rejects.toThrow(/Invalid skill name/)
+    await expect(svc.uninstallSkill('hive-probe')).rejects.toThrow(
+      /Not an installed HiveMind skill/
+    )
+  })
+
   it('diff asks git for pinned..HEAD on the item path', async () => {
     seedClone()
     const git = fakeGit({ 'rev-parse': 'headsha', log: 'sha-1', diff: 'THE DIFF' })
