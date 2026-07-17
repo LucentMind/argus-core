@@ -8,6 +8,7 @@ import {
   listCases,
   getCase,
   setCaseJira,
+  setCaseJiraDeselected,
   setCaseStatus,
   maybeAdvanceToAnalyzing
 } from '../caseService'
@@ -167,6 +168,26 @@ describe('setCaseStatus', () => {
     expect(rec.resolution).toBeNull()
     const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c4'), 'case.json'), 'utf8'))
     expect(onDisk.resolution).toBeNull()
+  })
+})
+
+describe('setCaseJiraDeselected', () => {
+  it('persists ids on the record and mirrors them into case.json', () => {
+    createCase(db, home, { slug: 'NAV-1', title: 'T' })
+    const rec = setCaseJiraDeselected(db, home, 'NAV-1', ['10001', '10002'])
+    expect(rec.jiraDeselected).toEqual(['10001', '10002'])
+    expect(getCase(db, 'NAV-1')!.jiraDeselected).toEqual(['10001', '10002'])
+    const cj = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'NAV-1'), 'case.json'), 'utf8'))
+    expect(cj.jira.deselectedAttachmentIds).toEqual(['10001', '10002'])
+  })
+
+  it('defaults to [] for cases that never set it (migration default)', () => {
+    createCase(db, home, { slug: 'NAV-2', title: 'T' })
+    expect(getCase(db, 'NAV-2')!.jiraDeselected).toEqual([])
+  })
+
+  it('throws on unknown case', () => {
+    expect(() => setCaseJiraDeselected(db, home, 'nope', [])).toThrow(/Unknown case/)
   })
 })
 
