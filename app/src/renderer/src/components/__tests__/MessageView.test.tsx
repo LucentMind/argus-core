@@ -90,3 +90,25 @@ describe('MessageView citations', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 })
+
+describe('MessageView markdown rendering', () => {
+  it('renders GFM pipe tables as real tables', () => {
+    const md = '| Sev | Count |\n| --- | --- |\n| P0 | 3 |'
+    const { container } = render(<MessageView markdown={md} onCite={vi.fn()} caseSlug="C-1" />)
+    expect(container.querySelector('table')).not.toBeNull()
+    expect(screen.getByRole('columnheader', { name: 'Sev' })).toBeTruthy()
+    expect(screen.getByRole('cell', { name: '3' })).toBeTruthy()
+  })
+
+  it('renders GFM strikethrough', () => {
+    const { container } = render(
+      <MessageView markdown="~~stale~~ fresh" onCite={vi.fn()} caseSlug="C-1" />
+    )
+    expect(container.querySelector('del')?.textContent).toBe('stale')
+  })
+
+  it('wraps output in the markdown-body styling hook', () => {
+    const { container } = render(<MessageView markdown="hi" onCite={vi.fn()} caseSlug="C-1" />)
+    expect((container.firstChild as HTMLElement).classList.contains('markdown-body')).toBe(true)
+  })
+})

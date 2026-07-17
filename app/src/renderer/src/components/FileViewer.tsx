@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Btn } from './ui'
 import type { FileReadResult } from '../../../shared/types'
 
@@ -64,8 +65,12 @@ export function FileViewer({
             <Btn onClick={() => void window.argus.files.open(slug, relPath)}>Open externally</Btn>
           </div>
         ) : isMd && !raw ? (
-          <div className="prose-sm flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink [&_code]:font-mono [&_code]:text-signal">
-            {doc && 'content' in doc ? <Markdown>{doc.content}</Markdown> : 'Loading…'}
+          <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
+            {doc && 'content' in doc ? (
+              <Markdown remarkPlugins={[remarkGfm]}>{doc.content}</Markdown>
+            ) : (
+              'Loading…'
+            )}
           </div>
         ) : (
           <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">

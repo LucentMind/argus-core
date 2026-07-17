@@ -1,4 +1,5 @@
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   classifyCitePath,
   linkifyCitations,
@@ -40,8 +41,9 @@ export function MessageView({
 }): React.JSX.Element {
   const names = toRepoNameSet(repoNames)
   return (
-    <div className="prose-sm max-w-none text-sm leading-relaxed text-ink [&_code]:font-mono [&_code]:text-signal">
+    <div className="markdown-body max-w-none text-sm leading-relaxed text-ink">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         // the default transform strips unknown protocols like cite://
         urlTransform={(url) => (url.startsWith('cite://') ? url : defaultUrlTransform(url))}
         components={{

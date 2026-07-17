@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Btn } from '../ui'
 
 /** Modal markdown viewer for a reference file (FileViewer idiom, refsync-served). */
@@ -50,8 +51,12 @@ export function RefViewer({
             File could not be read.
           </div>
         ) : !raw ? (
-          <div className="prose-sm flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink [&_code]:font-mono [&_code]:text-signal">
-            {content != null ? <Markdown>{content}</Markdown> : 'Loading…'}
+          <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
+            {content != null ? (
+              <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+            ) : (
+              'Loading…'
+            )}
           </div>
         ) : (
           <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
