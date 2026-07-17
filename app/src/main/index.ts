@@ -56,7 +56,7 @@ import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding
 import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
-import { searchEvidence, readEvidenceText } from './services/search'
+import { searchEvidence, readEvidenceText, readEvidenceSnippet } from './services/search'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
 import { flattenPanelCommands } from './services/agent/panelCommands'
@@ -465,6 +465,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => listEvidence(db, caseSlug))
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
+  )
+  ipcMain.handle(IPC.evidenceReadSnippet, (_e, caseSlug: string, relPath: string, line: number) =>
+    readEvidenceSnippet(db, argusHome, caseSlug, relPath, line)
   )
   ipcMain.handle(IPC.evidenceDelete, (_e, caseSlug: string, evidenceId: number) => {
     assertSlug(caseSlug)

@@ -64,6 +64,7 @@ import type {
   ExternalAppInfo
 } from '../shared/panels'
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
+import type { SnippetResult } from '../shared/snippets'
 
 // Custom API for renderer
 const argus = {
@@ -82,6 +83,8 @@ const argus = {
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
     read: (evidenceId: number, focusLine?: number) =>
       ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
+    readSnippet: (caseSlug: string, relPath: string, line: number): Promise<SnippetResult> =>
+      ipcRenderer.invoke(IPC.evidenceReadSnippet, caseSlug, relPath, line),
     delete: (
       caseSlug: string,
       evidenceId: number
