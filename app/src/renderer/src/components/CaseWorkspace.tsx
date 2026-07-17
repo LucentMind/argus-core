@@ -202,6 +202,14 @@ export function CaseWorkspace({
           triggerClassName="font-mono text-sm! text-defect!"
           align="left"
           items={[
+            ...(jiraKey
+              ? [
+                  {
+                    label: 'Open in Jira',
+                    onSelect: () => void window.argus.jira.openIssue(slug)
+                  }
+                ]
+              : []),
             { label: closeAsLabel, children: statusItems },
             {
               label: 'Export',

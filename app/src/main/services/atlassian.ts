@@ -278,3 +278,8 @@ function confluenceNode(c: RawConfluenceContent): ConfluencePageNode {
     hasChildren: (c.children?.page?.size ?? 0) > 0
   }
 }
+
+/** Browse URL for a Jira issue. siteUrl comes from AtlassianCreds (already trailing-slash-trimmed). */
+export function jiraBrowseUrl(siteUrl: string, key: string): string {
+  return `${siteUrl}/browse/${encodeURIComponent(key)}`
+}
