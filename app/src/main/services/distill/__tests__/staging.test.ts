@@ -115,6 +115,28 @@ describe('stageDistillOutput', () => {
     expect(ps[0].jobId).toBe('3')
   })
 
+  it('rejects a memory topic that is a valid proposal target but not a valid memory topic (uppercase/underscore), before the destructive supersede step', () => {
+    // job-stamped pending proposal that must survive the throw below
+    writeProposal(
+      home,
+      'case-a',
+      { type: 'memory-append', target: 'old-topic', title: 'old', content: 'x' },
+      { job: '3' }
+    )
+    // 'DLT_Timing' passes isValidProposalTarget (allows uppercase/underscores) but must
+    // fail memory's stricter TOPIC_RE — otherwise it stages fine and hard-fails later at
+    // accept time in applyMemoryWrite, with no user recourse except reject.
+    expect(() =>
+      stageDistillOutput(db, home, 'case-a', 9, {
+        memoryAppends: [{ topic: 'DLT_Timing', content: 'fact' }]
+      })
+    ).toThrow(/invalid target/)
+    const ps = listProposals(home)
+    expect(ps).toHaveLength(1)
+    expect(ps[0].target).toBe('old-topic')
+    expect(ps[0].jobId).toBe('3')
+  })
+
   it('dedupes intra-batch duplicates (same topic twice in one memoryAppends batch)', () => {
     const res = stageDistillOutput(db, home, 'case-a', 10, {
       memoryAppends: [

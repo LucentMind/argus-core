@@ -7,6 +7,7 @@ import {
   removePendingProposal,
   isValidProposalTarget
 } from '../proposals'
+import { isValidMemoryTopic } from '../memory'
 import { renderSummaryMarkdown } from './summaries'
 import { getCase } from '../caseService'
 
@@ -56,10 +57,16 @@ export function stageDistillOutput(
   // below, it would fire after the case's old job-stamped pending proposals were already
   // deleted, losing staged knowledge with nothing written to replace it. Failing here,
   // before anything is touched, keeps the old staged items intact when the job errors.
+  //
+  // Memory topics are validated against memory.ts's stricter isValidMemoryTopic, NOT
+  // isValidProposalTarget — the accept path for a memory-append routes to
+  // applyMemoryWrite, which enforces the lowercase-and-hyphens TOPIC_RE. Validating
+  // against the looser proposal-target rule here would let e.g. "DLT_Timing" stage
+  // fine and then hard-fail at accept time with no user recourse except reject.
   const invalidTargets = [
-    ...memoryAppends.map((m) => m.topic),
-    ...(output.proposals ?? []).map((p) => p.target)
-  ].filter((t) => !isValidProposalTarget(t))
+    ...memoryAppends.map((m) => m.topic).filter((t) => !isValidMemoryTopic(t)),
+    ...(output.proposals ?? []).map((p) => p.target).filter((t) => !isValidProposalTarget(t))
+  ]
   if (invalidTargets.length > 0) {
     throw new Error(
       `stageDistillOutput: invalid target(s): ${invalidTargets.map((t) => JSON.stringify(t)).join(', ')}`

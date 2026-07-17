@@ -14,7 +14,7 @@ Rules — follow every one:
 5. TARGET REAL NAMES: skill-edit / reference-edit targets and memory topics must come from the provided indexes; invent names only for skill-new / recipe.
 6. AN EMPTY RESULT IS A VALID RESULT: for duplicate / rejected / not-reproducible closes with nothing generalizable, return {}.
 7. NO DUPLICATE LEARNINGS: the "Knowledge already captured from this case" section lists what was already proposed or recorded during the case. Never re-propose or re-record anything listed there. If everything was already captured, return {}.
-8. OUTPUT: exactly one fenced \`\`\`json block containing one JSON object with optional keys "summary" ({signature, symptoms, rootCause, fix, keywords[]}, all required inside), "memoryAppends" ([{topic, content, indexEntry?}]), "proposals" ([{type: skill-new|skill-edit|reference-edit|recipe, target, title, content}]). No other keys. "signature" is ONE line. No commentary inside the block.`
+8. OUTPUT: exactly one fenced \`\`\`json block containing one JSON object with optional keys "summary" ({signature, symptoms, rootCause, fix, keywords[]}, all required inside), "memoryAppends" ([{"topic" (lowercase letters, digits, hyphens), content, indexEntry?}]), "proposals" ([{type: skill-new|skill-edit|reference-edit|recipe, target, title, content}]). No other keys. "signature" is ONE line. No commentary inside the block.`
 
 export function buildCaseDistillPrompt(input: CaseDistillInput): string {
   const m = input.caseMeta
