@@ -466,10 +466,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
   )
-  ipcMain.handle(IPC.evidenceReadSnippet, (_e, caseSlug: string, relPath: string, line: number) => {
-    assertSlug(caseSlug)
-    return readEvidenceSnippet(db, argusHome, caseSlug, relPath, line)
-  })
+  ipcMain.handle(
+    IPC.evidenceReadSnippet,
+    (_e, caseSlug: string, relPath: string, line: number, end?: number) => {
+      assertSlug(caseSlug)
+      return readEvidenceSnippet(db, argusHome, caseSlug, relPath, line, end ?? line)
+    }
+  )
   ipcMain.handle(IPC.evidenceDelete, (_e, caseSlug: string, evidenceId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`)

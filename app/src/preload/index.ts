@@ -83,8 +83,13 @@ const argus = {
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
     read: (evidenceId: number, focusLine?: number) =>
       ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
-    readSnippet: (caseSlug: string, relPath: string, line: number): Promise<SnippetResult> =>
-      ipcRenderer.invoke(IPC.evidenceReadSnippet, caseSlug, relPath, line),
+    readSnippet: (
+      caseSlug: string,
+      relPath: string,
+      line: number,
+      end?: number
+    ): Promise<SnippetResult> =>
+      ipcRenderer.invoke(IPC.evidenceReadSnippet, caseSlug, relPath, line, end),
     delete: (
       caseSlug: string,
       evidenceId: number
