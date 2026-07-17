@@ -26,6 +26,8 @@ const KEYS = {
 } as const
 
 export const FINDINGS_MIN_WIDTH = 240
+/** Center chat column never shrinks below this; the findings drag clamps against it. */
+export const CHAT_MIN_WIDTH = 360
 export const FINDINGS_MAX_WIDTH = 640
 const FINDINGS_DEFAULT_WIDTH = 384
 
