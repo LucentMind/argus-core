@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Btn, Chip } from './ui'
+import { HighlightedLines } from './HighlightedLines'
+import { langForPath } from '../../../shared/snippets'
 
 interface Props {
   evidenceId: number
@@ -66,23 +68,18 @@ export function TextViewer({ evidenceId, focusLine, onClose }: Props): React.JSX
             Close
           </Btn>
         </div>
-        <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim">
-          {doc?.content.split('\n').map((line, i) => {
-            const lineNo = doc.startLine + i
-            return (
-              <div
-                key={lineNo}
-                id={`line-${lineNo}`}
-                className={lineNo === focusLine ? 'bg-defect/20 text-ink' : undefined}
-              >
-                <span className="mr-3 inline-block w-10 select-none text-right text-mute">
-                  {lineNo}
-                </span>
-                {line}
-              </div>
-            )
-          })}
-        </pre>
+        {doc ? (
+          <HighlightedLines
+            className="flex-1 p-3"
+            lines={doc.content.split('\n')}
+            startLine={doc.startLine}
+            focusLine={focusLine}
+            lang={langForPath(doc.relPath).lang}
+            lineIdPrefix="line-"
+          />
+        ) : (
+          <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim" />
+        )}
       </div>
     </div>
   )
