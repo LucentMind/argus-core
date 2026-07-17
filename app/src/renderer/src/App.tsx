@@ -25,6 +25,14 @@ type View =
 type Viewer =
   | { kind: 'evidence'; evidenceId: number; focusStart: number; focusEnd: number }
   | { kind: 'file'; slug: string; relPath: string }
+  | {
+      kind: 'repoFile'
+      slug: string
+      repoName: string
+      relPath: string
+      focusStart: number
+      focusEnd: number
+    }
   | null
 
 function App(): React.JSX.Element {
@@ -168,12 +176,35 @@ function App(): React.JSX.Element {
               setViewer({ kind: 'file', slug: view.slug, relPath: node.relPath })
             }
             onOpenCase={openCase}
+            onOpenRepoFile={(repoName, relPath, start, end) =>
+              setViewer({
+                kind: 'repoFile',
+                slug: view.slug,
+                repoName,
+                relPath,
+                focusStart: start,
+                focusEnd: end
+              })
+            }
           />
         )}
       </div>
       {viewer?.kind === 'evidence' && (
         <TextViewer
-          evidenceId={viewer.evidenceId}
+          source={{ kind: 'evidence', evidenceId: viewer.evidenceId }}
+          focusStart={viewer.focusStart}
+          focusEnd={viewer.focusEnd}
+          onClose={() => setViewer(null)}
+        />
+      )}
+      {viewer?.kind === 'repoFile' && (
+        <TextViewer
+          source={{
+            kind: 'repo',
+            caseSlug: viewer.slug,
+            repoName: viewer.repoName,
+            relPath: viewer.relPath
+          }}
           focusStart={viewer.focusStart}
           focusEnd={viewer.focusEnd}
           onClose={() => setViewer(null)}
