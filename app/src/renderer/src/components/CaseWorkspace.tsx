@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { PanelRight } from 'lucide-react'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
@@ -9,7 +9,7 @@ import { ReposSection } from './ReposSection'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
-import { MenuButton } from './ui'
+import { MenuButton, SectionLabel } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
@@ -235,20 +235,45 @@ export function CaseWorkspace({
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
-          <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
-          <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-          <ReposSection slug={slug} />
-          {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
-          <CaseFiles
-            key={slug}
-            caseSlug={slug}
-            onSuggest={setPrefill}
-            onOpenFile={onOpenFile}
-            panelDecls={panels.decls}
-            onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
-          />
-        </aside>
+        {ui.evidenceCollapsed ? (
+          <button
+            aria-label="Expand evidence"
+            title="Expand evidence"
+            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-hair bg-deep text-mute transition-colors hover:bg-hi hover:text-ink"
+            onClick={() => uiStore.setEvidenceCollapsed(false)}
+          >
+            <PanelLeft size={14} strokeWidth={1.5} />
+            <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">
+              Evidence
+            </span>
+          </button>
+        ) : (
+          <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Evidence</SectionLabel>
+              <button
+                aria-label="Collapse evidence"
+                title="Collapse evidence"
+                className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
+                onClick={() => uiStore.setEvidenceCollapsed(true)}
+              >
+                <PanelLeft size={14} strokeWidth={1.5} />
+              </button>
+            </div>
+            <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
+            <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+            <ReposSection slug={slug} />
+            {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
+            <CaseFiles
+              key={slug}
+              caseSlug={slug}
+              onSuggest={setPrefill}
+              onOpenFile={onOpenFile}
+              panelDecls={panels.decls}
+              onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
+            />
+          </aside>
+        )}
         <main
           ref={mainEl}
           className="flex flex-1 flex-col overflow-hidden"
