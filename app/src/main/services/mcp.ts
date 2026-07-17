@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
@@ -30,6 +31,36 @@ function toStringRecord(v: unknown): Record<string, string> {
   return Object.fromEntries(
     Object.entries((v ?? {}) as Record<string, unknown>).map(([k, val]) => [k, String(val)])
   )
+}
+
+/** Deterministic JSON: object keys sorted at every depth, so an identical config always
+ *  hashes identically regardless of insertion order. */
+function canonicalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonicalize)
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([k, val]) => [k, canonicalize(val)])
+    )
+  }
+  return v
+}
+
+/**
+ * Stable hash of a composed mcpServers map. A change means a live session's frozen
+ * map is stale and the session must be rebuilt (spec §2).
+ *
+ * The bearer token is hashed deliberately (spec §3.1). Redacting it would avoid a
+ * rebuild per token rotation, but MCP's SSE transport re-sends headers on every POST,
+ * so a frozen session would keep POSTing a dead token and 401 mid-conversation —
+ * reintroducing the exact stale-credential class this spec removes. Lives in main,
+ * not shared/: node:crypto must never reach the renderer's typecheck:web.
+ */
+export function fingerprintServers(servers: Record<string, unknown>): string {
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalize(servers)))
+    .digest('hex')
 }
 
 /** Filled by McpOAuth (Task 7); optional so Tasks 5–6 test without OAuth. */
@@ -74,20 +105,25 @@ export class McpService {
 
   /**
    * Drop a connector's runtime state (back to never-connected). Called after a
-   * successful authorize so a compose-set needs-auth latch can't outlive the
-   * condition that set it.
+   * successful authorize so the connector card stops showing a stale needs-auth
+   * badge. Display-only: compose does not consult runtime state.
    */
   clearRuntime(instanceId: string): void {
     this.runtime.delete(instanceId)
   }
 
   /**
-   * Build the Agent SDK mcpServers additions for a NEW session (spec §2.3).
-   * Sync on purpose — called inside AgentService.getOrCreate. Enabled,
-   * non-error connectors only; $secret refs resolved now; every non-silent
-   * skip is returned so the session can log it to its event stream.
+   * Build the Agent SDK mcpServers additions for a session (spec §1).
+   *
+   * NOT side-effect-free: composeHeaders(..., { refreshOnExpiry: true }) can perform a
+   * network OAuth token refresh and persist the rotated tokens to disk. The property
+   * that actually matters here is narrower: this method must never read or write
+   * `this.runtime` — that Map is display-only, owned by probe()/markError. A verdict
+   * cached there would outlive the condition that set it, which is exactly the bug this
+   * shape exists to prevent. Async so it can reuse composeHeaders' OAuth refresh: an
+   * expired token heals here instead of latching.
    */
-  composeForSession(): ComposedMcp {
+  async composeForSession(): Promise<ComposedMcp> {
     const servers: Record<string, unknown> = {}
     const skipped: ComposedMcp['skipped'] = []
     for (const [id, inst] of Object.entries(this.deps.registry.get())) {
@@ -96,18 +132,6 @@ export class McpService {
         continue
       }
       if (!inst.enabled) continue // disabled by the user: silent
-      const rt = this.runtime.get(id)
-      if (rt?.state === 'error') {
-        skipped.push({ instanceId: id, reason: rt.reason })
-        continue
-      }
-      if (rt?.state === 'needs-auth') {
-        skipped.push({
-          instanceId: id,
-          reason: 'needs authorization — use Authorize on the connector card'
-        })
-        continue
-      }
       try {
         if (inst.kind === 'stdio') {
           const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
@@ -121,21 +145,7 @@ export class McpService {
           }
         } else if (inst.kind === 'http') {
           const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-          const { value, missing } = resolveSecretRefs(cfg.headers, (n) =>
-            this.deps.secrets.resolve(n)
-          )
-          if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
-          const headers = toStringRecord(value)
-          if (cfg.oauth) {
-            const token = this.deps.oauth?.accessToken(id) ?? null
-            if (token == null) {
-              this.runtime.set(id, { state: 'needs-auth' })
-              throw new Error(
-                'OAuth token missing or expired — run Test connection or Re-authorize'
-              )
-            }
-            headers.Authorization = `Bearer ${token}`
-          }
+          const headers = await this.composeHeaders(id, cfg, { refreshOnExpiry: true })
           servers[id] =
             cfg.transport === 'sse'
               ? { type: 'sse', url: cfg.url, headers }
@@ -147,7 +157,7 @@ export class McpService {
         skipped.push({ instanceId: id, reason: (err as Error).message })
       }
     }
-    return { servers, skipped }
+    return { servers, skipped, fingerprint: fingerprintServers(servers) }
   }
 
   /** Test connection: connect → listTools → classify → cache → tear down. */
@@ -244,7 +254,11 @@ export class McpService {
     const { value, missing } = resolveSecretRefs(cfg.headers, (n) => this.deps.secrets.resolve(n))
     if (missing.length) throw new Error(`missing secrets: ${missing.join(', ')}`)
     const headers = toStringRecord(value)
-    if (cfg.oauth && this.deps.oauth) {
+    if (cfg.oauth) {
+      // Guard, not a silent skip: the pre-refactor inline compose threw when the oauth
+      // dep was absent. Without this, an oauth connector would compose with NO
+      // Authorization header and fail opaquely at the transport instead.
+      if (!this.deps.oauth) throw new Error('oauth connector but no oauth provider configured')
       let token = this.deps.oauth.accessToken(instanceId)
       if (token == null && opts.refreshOnExpiry) {
         await this.deps.oauth.refresh(instanceId, cfg.url)

@@ -14,13 +14,28 @@ import { caseDir } from '../../paths'
 import type { CreateQueryFn } from '../session'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
+import { fingerprintServers, McpService } from '../../mcp'
+import { ConnectorRegistry } from '../../connectors'
+import { SecretStore, type SecretCrypto } from '../../secrets'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
 
-function fakeCreateQuery(): { createQuery: CreateQueryFn; queues: AsyncQueue<unknown>[] } {
+const fakeCrypto = (): SecretCrypto => ({
+  isEncryptionAvailable: () => true,
+  encryptString: (s) => Buffer.from(`enc:${s}`, 'utf8'),
+  decryptString: (b) => b.toString('utf8').slice(4)
+})
+
+function fakeCreateQuery(): {
+  createQuery: CreateQueryFn
+  queues: AsyncQueue<unknown>[]
+  optionsLog: Record<string, unknown>[]
+} {
   const queues: AsyncQueue<unknown>[] = []
-  const createQuery: CreateQueryFn = () => {
+  const optionsLog: Record<string, unknown>[] = []
+  const createQuery: CreateQueryFn = (args) => {
+    optionsLog.push(args.options as Record<string, unknown>)
     const q = new AsyncQueue<unknown>()
     queues.push(q)
     return Object.assign(
@@ -28,7 +43,7 @@ function fakeCreateQuery(): { createQuery: CreateQueryFn; queues: AsyncQueue<unk
       { interrupt: async () => q.end() }
     )
   }
-  return { createQuery, queues }
+  return { createQuery, queues, optionsLog }
 }
 
 beforeEach(() => {
@@ -102,6 +117,84 @@ describe('AgentService', () => {
     expect(states.every((s) => s.state === 'running')).toBe(true)
     expect(new Set(states.map((s) => s.sessionId))).toEqual(new Set([s1.id, s2.id]))
     expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
+  it('rebuilds a live session when the composed connector fingerprint changes', async () => {
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    let servers: Record<string, unknown> = {}
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
+    })
+    const s = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s.id, 'first') // built with NO connectors
+    queues[0].push({ type: 'result', is_error: false }) // finish the turn → idle
+    await new Promise((r) => setTimeout(r, 10))
+    expect(optionsLog).toHaveLength(1)
+    expect(optionsLog[0].mcpServers).not.toHaveProperty('rovo')
+
+    // the user authorizes the connector
+    servers = { rovo: { type: 'sse', url: 'https://x/y', headers: { Authorization: 'Bearer t' } } }
+    await svc.send('NAV-1', s.id, 'second')
+
+    expect(
+      events.some((e) => e.type === 'session.exited' && e.payload.reason === 'reconfigured')
+    ).toBe(true)
+    expect(optionsLog).toHaveLength(2)
+    expect(optionsLog[1].mcpServers).toHaveProperty('rovo')
+    expect(svc.states()).toHaveLength(1) // rebuilt, not leaked
+    await svc.stopAll()
+  })
+
+  it('reuses a live session when the fingerprint is unchanged', async () => {
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const servers = { rovo: { type: 'sse', url: 'https://x/y' } }
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
+    })
+    const s = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s.id, 'first')
+    queues[0].push({ type: 'result', is_error: false })
+    await new Promise((r) => setTimeout(r, 10))
+    await svc.send('NAV-1', s.id, 'second')
+    expect(optionsLog).toHaveLength(1) // one construction only
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
+  it('never tears down a session mid-turn, even when the fingerprint changed', async () => {
+    const { createQuery, optionsLog } = fakeCreateQuery()
+    let servers: Record<string, unknown> = {}
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
+    })
+    const s = createSession(db, 'NAV-1')
+    await svc.send('NAV-1', s.id, 'first') // no result pushed → activeTurn stays true
+    servers = { rovo: { type: 'sse', url: 'https://x/y' } }
+    await svc.send('NAV-1', s.id, 'second')
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    expect(optionsLog).toHaveLength(1)
     await svc.stopAll()
   })
 
@@ -439,5 +532,62 @@ describe('AgentService', () => {
     expect(appendOf(3)).not.toContain('mcp__argus__write_proposal')
 
     await svc.stopAll()
+  })
+
+  it('regression (2026-07-16): a session built before authorize self-heals on the next send', async () => {
+    const connectors = new ConnectorRegistry(argusHome)
+    const secrets = new SecretStore(argusHome, fakeCrypto())
+    try {
+      connectors.patch({
+        rovo: {
+          kind: 'http',
+          config: { url: 'https://mcp.atlassian.com/v1/sse', transport: 'sse', oauth: true }
+        }
+      })
+      let token: string | null = null // not yet authorized
+      const mcp = new McpService({
+        registry: connectors,
+        secrets,
+        toolRisk: () => ({}),
+        oauth: {
+          accessToken: () => token,
+          refresh: async () => token != null,
+          status: () => (token != null ? 'authorized' : 'not-authorized')
+        }
+      })
+      const { createQuery, queues, optionsLog } = fakeCreateQuery()
+      const svc = new AgentService({
+        db,
+        argusHome,
+        detection,
+        skillsRoots: [],
+        agentAccess: () => defaultAgentAccess(),
+        onEvent: (e) => events.push(e),
+        createQuery,
+        composeMcp: () => mcp.composeForSession()
+      })
+      const s = createSession(db, 'NAV-1')
+
+      // 1. no token: the connector is absent and the skip is logged
+      await svc.send('NAV-1', s.id, 'comment on the jira ticket')
+      queues[0].push({ type: 'result', is_error: false }) // finish the turn → idle
+      await new Promise((r) => setTimeout(r, 10))
+      expect(optionsLog[0].mcpServers).not.toHaveProperty('rovo')
+      expect(events.some((e) => e.type === 'session.mcp.skipped')).toBe(true)
+
+      // 2. the user authorizes. NOTE: no clearRuntime, no restart, no case switch.
+      token = 'live-token'
+
+      // 3. the next send self-heals
+      await svc.send('NAV-1', s.id, 'try again')
+      expect(optionsLog[1].mcpServers).toHaveProperty('rovo')
+      expect(
+        events.some((e) => e.type === 'session.exited' && e.payload.reason === 'reconfigured')
+      ).toBe(true)
+      await svc.stopAll()
+    } finally {
+      connectors.close()
+      secrets.close()
+    }
   })
 })

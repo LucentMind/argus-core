@@ -18,16 +18,48 @@ export function HeaderChips({
   )
 
   useEffect(() => {
-    void window.argus.agent.authStatus().then(setAuth)
+    // authStatus() can be in flight when agent:auth-changed fires (e.g. a turn 401s
+    // right after mount). Without a sequence guard, the stale mount-time probe can
+    // resolve AFTER the refresh triggered by the broadcast and overwrite the correct
+    // (red) state back to green — a last-write-wins hazard, not just an unmount race.
+    let seq = 0
+    const refresh = (): void => {
+      const mySeq = ++seq
+      void window.argus.agent.authStatus().then((status) => {
+        if (mySeq === seq) setAuth(status)
+      })
+    }
+    refresh()
     void window.argus.agent.preflight().then(setPreflight)
+    // The verdict changes from turn evidence (spec §5), not just at mount — a chip that
+    // only ever probed once was the whole reason a logged-out app kept showing ✓.
+    const unsubscribe = window.argus.agent.onAuthChanged(refresh)
+    return () => {
+      // Invalidate any still-in-flight probe so a response arriving after unmount
+      // (or during teardown) can never call setState.
+      seq = -1
+      unsubscribe()
+    }
   }, [])
+
+  const authLabel = !auth
+    ? 'claude …'
+    : !auth.ok
+      ? 'claude ✗'
+      : auth.verified
+        ? 'claude ✓'
+        : 'claude ~'
+  const authTone = !auth ? 'neutral' : !auth.ok ? 'danger' : auth.verified ? 'review' : 'neutral'
+  const authTitle = !auth
+    ? 'probing claude CLI…'
+    : auth.ok && !auth.verified
+      ? `${auth.detail} — sign-in confirmed on your first message`
+      : auth.detail
 
   return (
     <div className="flex items-center gap-2">
-      <span title={auth?.detail ?? 'probing claude CLI…'}>
-        <Chip tone={auth?.ok ? 'review' : 'danger'}>
-          {auth ? (auth.ok ? 'claude ✓' : 'claude ✗') : 'claude …'}
-        </Chip>
+      <span title={authTitle}>
+        <Chip tone={authTone}>{authLabel}</Chip>
       </span>
       <span
         title={

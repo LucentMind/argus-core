@@ -48,9 +48,10 @@ function AuthLine({ auth }: { auth: AuthStatus | null }): React.JSX.Element | nu
   if (auth.ok && auth.email) {
     return (
       <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-mute">
-        <span>Authenticated as</span>
+        <span>{auth.verified ? 'Authenticated as' : 'Account on file:'}</span>
         <RedactedText value={auth.email} aria-label="Toggle account email visibility" />
         {auth.subscription && <span>· {auth.subscription}</span>}
+        {!auth.verified && <span>· sign-in confirmed on first message</span>}
       </span>
     )
   }

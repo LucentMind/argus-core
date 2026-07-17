@@ -34,8 +34,12 @@ export interface AgentServiceDeps {
   agentSettings?: () => AgentSettings
   /** Live tool-risk overrides threaded into every session (consulted per call). */
   toolRisk?: () => Record<string, RiskLevel>
-  /** Composed per session construction (new sessions only), like agentSettings. */
-  composeMcp?: () => ComposedMcp
+  /** Composed fresh on every getOrCreate (spec §1) — never latched, never memoized. */
+  composeMcp?: () => Promise<ComposedMcp>
+  /** Fired when a turn fails auth-shaped; index.ts calls authCache.onAuthFailure() to clear and broadcast. */
+  onAuthFailure?: () => void
+  /** Fired when a turn completes normally — proof the credentials work. */
+  onAuthVerified?: () => void
   /** Open a panel in a given case/session (3b-2); AgentService binds case+session per session. */
   openPanel?: (
     caseSlug: string,
@@ -87,9 +91,6 @@ export class AgentService {
 
   private async getOrCreate(caseSlug: string, sessionId: number): Promise<CaseSession> {
     const key = this.keyOf(caseSlug, sessionId)
-    const existing = this.sessions.get(key)
-    if (existing && existing.state === 'running') return existing
-    if (existing) this.sessions.delete(key)
 
     // Validate before any side effects: sessionId is caller-provided (Task 5 threads it
     // from the renderer), so verify the row exists and actually belongs to this case —
@@ -104,7 +105,25 @@ export class AgentService {
     }
 
     const as = this.deps.agentSettings?.()
-    const mcp = this.deps.composeMcp?.()
+    // Composed on EVERY call (spec §1/§2): connector config and credentials are re-derived
+    // at the point of use, never latched. compose is NOT side-effect-free — it can perform
+    // a network OAuth refresh and persist rotated tokens — but it never touches
+    // this.sessions, so it cannot evict a live session. That's what makes it safe to run
+    // here, between the validation guard above and the reap below.
+    const mcp = await this.deps.composeMcp?.()
+    const fingerprint = mcp?.fingerprint ?? ''
+
+    const existing = this.sessions.get(key)
+    if (existing && existing.state === 'running') {
+      // Never tear down a turn in flight; the rebuild happens on the next idle send.
+      if (existing.activeTurn || existing.mcpFingerprint === fingerprint) return existing
+      // Connectors changed under a live session whose mcpServers map is frozen at
+      // query() construction — rebuild it. The resume cursor below preserves history.
+      await existing.stop('reconfigured')
+      this.sessions.delete(key)
+    } else if (existing) {
+      this.sessions.delete(key)
+    }
 
     // reap LRU idle session if at capacity
     const max = as?.maxSessions ?? this.deps.maxSessions ?? 3
@@ -147,6 +166,9 @@ export class AgentService {
       agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,
       mcpSkipped: mcp?.skipped,
+      mcpFingerprint: fingerprint,
+      onAuthFailure: this.deps.onAuthFailure,
+      onAuthVerified: this.deps.onAuthVerified,
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)
