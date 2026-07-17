@@ -45,7 +45,7 @@ export function CaseWorkspace({
   resolution: CaseResolution | null
   onStatusChanged: () => void
   onOpenHit: (hit: UnifiedHit) => void
-  onOpenCitation: (evidenceId: number, line: number) => void
+  onOpenCitation: (evidenceId: number, start: number, end: number) => void
   onOpenFile: (node: FileNode) => void
   onOpenCase?: (slug: string) => void
 }): React.JSX.Element {
@@ -145,7 +145,7 @@ export function CaseWorkspace({
   async function handleCite(relPath: string, line: number): Promise<void> {
     const list = await window.argus.evidence.list(slug)
     const rec = list.find((e) => e.relPath === relPath)
-    if (rec) onOpenCitation(rec.id, line)
+    if (rec) onOpenCitation(rec.id, line, line)
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {

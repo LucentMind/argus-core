@@ -22,14 +22,18 @@ beforeEach(() => {
 
 describe('TextViewer', () => {
   it('renders numbered lines with line-N ids and highlights the focus line', async () => {
-    const { container } = render(<TextViewer evidenceId={7} focusLine={2} onClose={vi.fn()} />)
+    const { container } = render(
+      <TextViewer evidenceId={7} focusStart={2} focusEnd={2} onClose={vi.fn()} />
+    )
     await screen.findByText(/util\.ts/)
     await waitFor(() => expect(container.querySelector('#line-2')).not.toBeNull())
     expect(container.querySelector('#line-2')!.className).toContain('bg-defect/20')
   })
 
   it('syntax-highlights code files by extension', async () => {
-    const { container } = render(<TextViewer evidenceId={7} focusLine={1} onClose={vi.fn()} />)
+    const { container } = render(
+      <TextViewer evidenceId={7} focusStart={1} focusEnd={1} onClose={vi.fn()} />
+    )
     await waitFor(() => expect(container.querySelector('.hljs-keyword')).not.toBeNull())
   })
 })
