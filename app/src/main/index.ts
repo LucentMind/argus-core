@@ -42,6 +42,7 @@ import {
   AtlassianClient,
   AtlassianError,
   atlassianRestConfigured,
+  jiraBrowseUrl,
   resolveAtlassianCreds
 } from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
@@ -1266,6 +1267,22 @@ function registerIpc(): void {
   ipcMain.handle(IPC.jiraSetAttachmentSelection, (_e, caseSlug: string, deselected: string[]) =>
     jiraResult(async () => setCaseJiraDeselected(db, argusHome, caseSlug, deselected.map(String)))
   )
+
+  // Open the case's Jira issue in the system browser. URL construction stays in
+  // main: siteUrl never crosses to the renderer and the http(s) guard applies.
+  ipcMain.handle(IPC.jiraOpenIssue, (_e, caseSlug: string) => {
+    const kase = getCase(db, caseSlug)
+    if (!kase?.jiraKey) return
+    let siteUrl: string
+    try {
+      siteUrl = atlassianCreds().siteUrl
+    } catch {
+      return // no Atlassian connector configured — menu item is a no-op
+    }
+    const url = jiraBrowseUrl(siteUrl, kase.jiraKey)
+    if (!isOpenableUrl(url)) return
+    void shell.openExternal(url)
+  })
 
   // — reference sync handlers —
   ipcMain.handle(IPC.refsyncGet, () => refSync.payload())

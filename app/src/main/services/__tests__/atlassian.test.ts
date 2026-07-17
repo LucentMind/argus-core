@@ -7,6 +7,7 @@ import {
   AtlassianClient,
   AtlassianError,
   atlassianRestConfigured,
+  jiraBrowseUrl,
   resolveAtlassianCreds
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
@@ -275,5 +276,19 @@ describe('getComments', () => {
       fakeFetch
     )
     expect(await client.getComments('NAV-7')).toEqual([])
+  })
+})
+
+describe('jiraBrowseUrl', () => {
+  it('joins site url and issue key', () => {
+    expect(jiraBrowseUrl('https://acme.atlassian.net', 'NAV-7')).toBe(
+      'https://acme.atlassian.net/browse/NAV-7'
+    )
+  })
+
+  it('encodes the key so it cannot break out of the path', () => {
+    expect(jiraBrowseUrl('https://acme.atlassian.net', 'NAV 7/../x')).toBe(
+      'https://acme.atlassian.net/browse/NAV%207%2F..%2Fx'
+    )
   })
 })

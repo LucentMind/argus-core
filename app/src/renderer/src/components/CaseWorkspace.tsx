@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { PanelRight } from 'lucide-react'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
@@ -9,11 +9,11 @@ import { ReposSection } from './ReposSection'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
-import { MenuButton } from './ui'
+import { MenuButton, SectionLabel } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
-import { uiStore } from '../lib/uiStore'
+import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
@@ -62,7 +62,8 @@ export function CaseWorkspace({
     () => panelsStore.get()
   )
   const dockHost = useRef<HTMLDivElement | null>(null)
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null)
+  const mainEl = useRef<HTMLElement | null>(null)
+  const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
@@ -202,6 +203,14 @@ export function CaseWorkspace({
           triggerClassName="font-mono text-sm! text-defect!"
           align="left"
           items={[
+            ...(jiraKey
+              ? [
+                  {
+                    label: 'Open in Jira',
+                    onSelect: () => void window.argus.jira.openIssue(slug)
+                  }
+                ]
+              : []),
             { label: closeAsLabel, children: statusItems },
             {
               label: 'Export',
@@ -226,21 +235,50 @@ export function CaseWorkspace({
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
-          <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
-          <SearchBar caseSlug={slug} onOpen={onOpenHit} />
-          <ReposSection slug={slug} />
-          {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
-          <CaseFiles
-            key={slug}
-            caseSlug={slug}
-            onSuggest={setPrefill}
-            onOpenFile={onOpenFile}
-            panelDecls={panels.decls}
-            onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
-          />
-        </aside>
-        <main className="flex min-w-0 flex-1 flex-col">
+        {ui.evidenceCollapsed ? (
+          <button
+            aria-label="Expand evidence"
+            title="Expand evidence"
+            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-hair bg-deep text-mute transition-colors hover:bg-hi hover:text-ink"
+            onClick={() => uiStore.setEvidenceCollapsed(false)}
+          >
+            <PanelLeft size={14} strokeWidth={1.5} />
+            <span className="rotate-180 font-mono text-[10.5px] uppercase tracking-[0.1em] [writing-mode:vertical-rl]">
+              Evidence
+            </span>
+          </button>
+        ) : (
+          <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Evidence</SectionLabel>
+              <button
+                aria-label="Collapse evidence"
+                title="Collapse evidence"
+                className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
+                onClick={() => uiStore.setEvidenceCollapsed(true)}
+              >
+                <PanelLeft size={14} strokeWidth={1.5} />
+              </button>
+            </div>
+            <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
+            <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+            <ReposSection slug={slug} />
+            {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
+            <CaseFiles
+              key={slug}
+              caseSlug={slug}
+              onSuggest={setPrefill}
+              onOpenFile={onOpenFile}
+              panelDecls={panels.decls}
+              onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
+            />
+          </aside>
+        )}
+        <main
+          ref={mainEl}
+          className="flex flex-1 flex-col overflow-hidden"
+          style={{ minWidth: CHAT_MIN_WIDTH }}
+        >
           <PanelTabStrip
             slug={slug}
             sessionId={sessionId}
@@ -293,13 +331,24 @@ export function CaseWorkspace({
               aria-label="Resize findings pane"
               className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-signal/40"
               onPointerDown={(e) => {
-                drag.current = { startX: e.clientX, startWidth: ui.findingsWidth }
+                drag.current = {
+                  startX: e.clientX,
+                  startWidth: ui.findingsWidth,
+                  maxWidth:
+                    ui.findingsWidth +
+                    // `?? Infinity` is defensive only: <main> is unconditionally rendered
+                    // whenever this separator exists, so mainEl.current is never null here.
+                    Math.max(0, (mainEl.current?.clientWidth ?? Infinity) - CHAT_MIN_WIDTH)
+                }
                 e.currentTarget.setPointerCapture?.(e.pointerId)
               }}
               onPointerMove={(e) => {
                 if (!drag.current) return
                 uiStore.setFindingsWidth(
-                  drag.current.startWidth + (drag.current.startX - e.clientX)
+                  Math.min(
+                    drag.current.maxWidth,
+                    drag.current.startWidth + (drag.current.startX - e.clientX)
+                  )
                 )
               }}
               onPointerUp={() => {
@@ -307,8 +356,8 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className="shrink-0 overflow-y-auto border-l border-hair bg-deep p-3"
-              style={{ width: ui.findingsWidth }}
+              className="overflow-y-auto border-l border-hair bg-deep p-3"
+              style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               <FindingsPane slug={slug} sessionId={sessionId} onCite={(c) => void handleCite(c)} />
             </aside>
