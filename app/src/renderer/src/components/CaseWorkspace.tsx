@@ -51,7 +51,7 @@ export function CaseWorkspace({
   onOpenCitation: (evidenceId: number, start: number, end: number) => void
   onOpenFile: (node: FileNode) => void
   onOpenCase?: (slug: string) => void
-  onOpenRepoFile?: (repoName: string, relPath: string, start: number, end: number) => void
+  onOpenRepoFile: (repoName: string, relPath: string, start: number, end: number) => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -154,7 +154,7 @@ export function CaseWorkspace({
     const names = toRepoNameSet(reposStore.get(slug).names)
     if (classifyCitePath(cite.relPath, names) === 'repo') {
       const slash = cite.relPath.indexOf('/')
-      onOpenRepoFile?.(
+      onOpenRepoFile(
         cite.relPath.slice(0, slash),
         cite.relPath.slice(slash + 1),
         cite.start,
