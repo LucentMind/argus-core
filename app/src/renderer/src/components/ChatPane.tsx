@@ -3,6 +3,7 @@ import type { ChatJumpTarget } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
+import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
@@ -59,7 +60,7 @@ export function ChatPane({
   slug: string
   sessionId: number
   onSwitchSession: (id: number) => void
-  onCite: (relPath: string, line: number) => void
+  onCite: (cite: CiteTarget) => void
   onJumpToTurn?: (sessionId: number, target: ChatJumpTarget) => void
   focusTarget?: ChatJumpTarget | null
   onFocusConsumed?: () => void

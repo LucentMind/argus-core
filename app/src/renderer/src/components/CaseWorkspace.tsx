@@ -25,6 +25,7 @@ import type {
   FileNode,
   UnifiedHit
 } from '../../../shared/types'
+import type { CiteTarget } from '../lib/citations'
 
 export function CaseWorkspace({
   slug,
@@ -142,10 +143,10 @@ export function CaseWorkspace({
       .then((events) => agentStore.hydrate(slug, sessionId, events))
   }, [slug, sessionId])
 
-  async function handleCite(relPath: string, line: number): Promise<void> {
+  async function handleCite(cite: CiteTarget): Promise<void> {
     const list = await window.argus.evidence.list(slug)
-    const rec = list.find((e) => e.relPath === relPath)
-    if (rec) onOpenCitation(rec.id, line, line)
+    const rec = list.find((e) => e.relPath === cite.relPath)
+    if (rec) onOpenCitation(rec.id, cite.start, cite.end)
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
@@ -238,7 +239,7 @@ export function CaseWorkspace({
                   slug={slug}
                   sessionId={sessionId}
                   onSwitchSession={handleSwitchSession}
-                  onCite={(p, l) => void handleCite(p, l)}
+                  onCite={(c) => void handleCite(c)}
                   onJumpToTurn={handleJumpToTurn}
                   focusTarget={focusTurn?.target ?? null}
                   onFocusConsumed={() => setFocusTurn(null)}
@@ -291,11 +292,7 @@ export function CaseWorkspace({
               className="shrink-0 overflow-y-auto border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth }}
             >
-              <FindingsPane
-                slug={slug}
-                sessionId={sessionId}
-                onCite={(p, l) => void handleCite(p, l)}
-              />
+              <FindingsPane slug={slug} sessionId={sessionId} onCite={(c) => void handleCite(c)} />
             </aside>
           </>
         )}

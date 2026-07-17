@@ -62,7 +62,7 @@ describe('MessageView citations', () => {
     render(<MessageView markdown="see [evidence/app.log:2]" onCite={onCite} />)
     const link = screen.getByRole('link', { name: 'evidence/app.log:2' })
     link.click()
-    expect(onCite).toHaveBeenCalledWith('evidence/app.log', 2)
+    expect(onCite).toHaveBeenCalledWith({ relPath: 'evidence/app.log', start: 2, end: 2 })
     expect(screen.queryByRole('button')).toBeNull()
   })
 
@@ -71,5 +71,22 @@ describe('MessageView citations', () => {
     const a = screen.getByRole('link', { name: 'docs' })
     expect(a.getAttribute('href')).toBe('https://example.com')
     expect(a.getAttribute('target')).toBe('_blank')
+  })
+
+  it('renders repo citations as chips when repoNames include the repo', () => {
+    render(
+      <MessageView
+        markdown="see [myrepo/src/a.ts:5-7]"
+        onCite={vi.fn()}
+        caseSlug="C-1"
+        repoNames={['myrepo']}
+      />
+    )
+    expect(screen.getByRole('button', { name: /myrepo\/a\.ts:5-7/ })).toBeTruthy()
+  })
+
+  it('leaves repo-looking citations as text without repoNames', () => {
+    render(<MessageView markdown="see [myrepo/src/a.ts:5]" onCite={vi.fn()} caseSlug="C-1" />)
+    expect(screen.queryByRole('button')).toBeNull()
   })
 })
