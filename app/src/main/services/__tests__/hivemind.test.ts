@@ -169,6 +169,57 @@ describe('browse + install pinning', () => {
     )
   })
 
+  it('uninstallReference removes the installed local copy and clears the pin', async () => {
+    seedClone()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.install('reference', 'hive-note.md')
+    expect(fs.existsSync(path.join(home, 'references', 'hive-note.md'))).toBe(true)
+
+    const p = await svc.uninstallReference('hive-note.md')
+    expect(fs.existsSync(path.join(home, 'references', 'hive-note.md'))).toBe(false)
+    const item = p.items.find((i) => i.name === 'hive-note.md')!
+    expect(item.installed).toBe(false)
+    expect(item.installedCommit).toBeNull()
+    expect(item.localTier).toBeNull()
+  })
+
+  it('uninstallReference handles flattened confluence names', async () => {
+    seedClone()
+    const dir = path.join(home, 'hivemind', 'references', 'confluence')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'adasis.md'), '# adasis distilled\n')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.install('reference', 'confluence/adasis.md')
+    expect(fs.existsSync(path.join(home, 'references', 'adasis.md'))).toBe(true)
+
+    const p = await svc.uninstallReference('confluence/adasis.md')
+    expect(fs.existsSync(path.join(home, 'references', 'adasis.md'))).toBe(false)
+    expect(p.items.find((i) => i.name === 'confluence/adasis.md')!.installed).toBe(false)
+  })
+
+  it('uninstallReference rejects invalid, not-installed, and user-authored names', async () => {
+    seedClone()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'mine.md'),
+      '---\ntrust_tier: user\n---\nmy draft\n'
+    )
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await expect(svc.uninstallReference('../evil.md')).rejects.toThrow(/Invalid reference name/)
+    await expect(svc.uninstallReference('drafts/x.md')).rejects.toThrow(/Invalid reference name/)
+    await expect(svc.uninstallReference('ghost.md')).rejects.toThrow(
+      /Not an installed HiveMind reference/
+    )
+    // user-tier local copies are the user's own content — never hive-deletable
+    await expect(svc.uninstallReference('mine.md')).rejects.toThrow(
+      /Not an installed HiveMind reference/
+    )
+    expect(fs.existsSync(path.join(home, 'references', 'mine.md'))).toBe(true)
+  })
+
   it('diff asks git for pinned..HEAD on the item path', async () => {
     seedClone()
     const git = fakeGit({ 'rev-parse': 'headsha', log: 'sha-1', diff: 'THE DIFF' })

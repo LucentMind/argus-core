@@ -77,6 +77,7 @@ export const IPC = {
   hivemindSync: 'hivemind:sync',
   hivemindInstall: 'hivemind:install',
   hivemindUninstallSkill: 'hivemind:uninstall-skill',
+  hivemindUninstallReference: 'hivemind:uninstall-reference',
   hivemindClaimReference: 'hivemind:claim-reference',
   hivemindDiff: 'hivemind:diff',
   hivemindPushPreview: 'hivemind:push-preview',

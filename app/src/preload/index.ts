@@ -338,6 +338,8 @@ const argus = {
       ipcRenderer.invoke(IPC.hivemindInstall, kind, name),
     uninstallSkill: (name: string): Promise<HivemindPayload> =>
       ipcRenderer.invoke(IPC.hivemindUninstallSkill, name),
+    uninstallReference: (name: string): Promise<HivemindPayload> =>
+      ipcRenderer.invoke(IPC.hivemindUninstallReference, name),
     claimReference: (name: string): Promise<HivemindPayload> =>
       ipcRenderer.invoke(IPC.hivemindClaimReference, name),
     diff: (kind: 'skill' | 'reference', name: string): Promise<string> =>
