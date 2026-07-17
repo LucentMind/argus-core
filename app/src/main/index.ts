@@ -480,6 +480,8 @@ function registerIpc(): void {
           broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: false })
         )
     }
+    // re-arm after the sync copies: a multi-GB drop can outlive the first window
+    caseWatch.suppress(caseSlug)
     return records
   })
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => {
