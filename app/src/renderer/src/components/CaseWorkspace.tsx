@@ -5,7 +5,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { FindingsPane } from './FindingsPane'
-import { HeaderRepos } from './HeaderRepos'
+import { ReposSection } from './ReposSection'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
@@ -221,7 +221,6 @@ export function CaseWorkspace({
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
-        <HeaderRepos slug={slug} />
         <div className="ml-auto">
           <HeaderChips slug={slug} sessionId={sessionId} />
         </div>
@@ -230,6 +229,7 @@ export function CaseWorkspace({
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
           <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
           <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+          <ReposSection slug={slug} />
           {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
           <CaseFiles
             key={slug}
