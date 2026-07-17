@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { LineSplitter } from './lineScan'
+import { LineSplitter, decodeLine } from './lineScan'
 
 export const CHECKPOINT_LINES = 1000
 export const CHECKPOINT_BYTES = 4 * 1024 * 1024
@@ -122,4 +122,45 @@ export async function ensureIndex(
     if (oldest !== undefined) memCache.delete(oldest)
   }
   return index
+}
+
+export const MAX_LINES_PER_READ = 2000
+const READ_CHUNK_BYTES = 1024 * 1024
+
+/** Read a clamped [from, to] line range via checkpoint seek. Synchronous —
+ *  bounded work: one seek plus at most (checkpoint gap + range) lines. */
+export function getLines(
+  index: LineIndex,
+  absPath: string,
+  from: number,
+  to: number
+): { from: number; lines: string[] } {
+  const start = Math.max(1, from)
+  const end = Math.min(Math.max(to, start), start + MAX_LINES_PER_READ - 1, index.totalLines)
+  if (start > index.totalLines) return { from: start, lines: [] }
+
+  const [cpLine, cpByte] = checkpointAtOrBelow(index, start)
+  const lines: string[] = []
+  const splitter = new LineSplitter(cpLine, cpByte)
+  const onLine = (line: Buffer, n: number): boolean => {
+    if (n >= start && n <= end) lines.push(decodeLine(line))
+    return n < end
+  }
+  const fd = fs.openSync(absPath, 'r')
+  try {
+    const buf = Buffer.alloc(READ_CHUNK_BYTES)
+    let offset = cpByte
+    while (true) {
+      const n = fs.readSync(fd, buf, 0, READ_CHUNK_BYTES, offset)
+      if (n === 0) break
+      offset += n
+      if (!splitter.push(buf.subarray(0, n), onLine)) return { from: start, lines }
+    }
+    splitter.flush((line, n) => {
+      if (n >= start && n <= end) lines.push(decodeLine(line))
+    })
+  } finally {
+    fs.closeSync(fd)
+  }
+  return { from: start, lines }
 }
