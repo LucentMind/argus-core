@@ -16,7 +16,7 @@ import { MAX_READ_BYTES, WINDOW_LINES_AFTER, WINDOW_LINES_BEFORE, readLineWindow
 
 const execFileAsync = promisify(execFile)
 
-async function currentRef(tree: string): Promise<string | null> {
+export async function currentRef(tree: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: tree
@@ -52,7 +52,7 @@ export function resolveRepoTree(
  *  Same discipline as resolveCasePath: containment on the resolved path BEFORE
  *  any filesystem access (path.resolve collapses '..' in both separator
  *  styles), then a realpath check so symlinks can't escape the tree. */
-function resolveRepoFile(root: string, relPath: string): string | null {
+export function resolveRepoAbs(root: string, relPath: string): string | null {
   if (path.isAbsolute(relPath)) return null
   const rootResolved = path.resolve(root)
   const target = path.resolve(rootResolved, relPath)
@@ -63,6 +63,8 @@ function resolveRepoFile(root: string, relPath: string): string | null {
   if (real !== realRoot && !real.startsWith(realRoot + path.sep)) return null
   return real
 }
+
+const resolveRepoFile = resolveRepoAbs
 
 export async function readRepoSnippet(
   db: DatabaseSync,
