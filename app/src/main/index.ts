@@ -84,6 +84,7 @@ import {
   listWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
+import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, effectiveDefaultModel } from '../shared/drivers'
 import { settingsSchema } from '../shared/settings'
@@ -492,10 +493,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
   )
-  ipcMain.handle(IPC.evidenceReadSnippet, (_e, caseSlug: string, relPath: string, line: number) => {
-    assertSlug(caseSlug)
-    return readEvidenceSnippet(db, argusHome, caseSlug, relPath, line)
-  })
+  ipcMain.handle(
+    IPC.evidenceReadSnippet,
+    (_e, caseSlug: string, relPath: string, line: number, end?: number) => {
+      assertSlug(caseSlug)
+      return readEvidenceSnippet(db, argusHome, caseSlug, relPath, line, end ?? line)
+    }
+  )
   ipcMain.handle(IPC.evidenceDelete, (_e, caseSlug: string, evidenceId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`)
@@ -887,6 +891,20 @@ function registerIpc(): void {
       return []
     }
   })
+  ipcMain.handle(
+    IPC.workspacesReadSnippet,
+    (_e, caseSlug: string, repoName: string, relPath: string, start: number, end?: number) => {
+      assertSlug(caseSlug)
+      return readRepoSnippet(db, argusHome, caseSlug, repoName, relPath, start, end ?? start)
+    }
+  )
+  ipcMain.handle(
+    IPC.workspacesReadText,
+    (_e, caseSlug: string, repoName: string, relPath: string, focusStart: number) => {
+      assertSlug(caseSlug)
+      return readRepoText(db, argusHome, caseSlug, repoName, relPath, focusStart)
+    }
+  )
   ipcMain.handle(IPC.graphBuild, (_e, repoPath: string, scope: string | null) =>
     codeGraph.build(repoPath, scope)
   )

@@ -1,8 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ChevronRight, PanelRight, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
+import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
+import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
 
@@ -24,7 +26,7 @@ export function FindingsPane({
 }: {
   slug: string
   sessionId: number | null
-  onCite: (relPath: string, line: number) => void
+  onCite: (cite: CiteTarget) => void
 }): React.JSX.Element {
   const [md, setMd] = useState('')
   const [findings, setFindings] = useState<FindingRow[]>([])
@@ -35,6 +37,10 @@ export function FindingsPane({
     () =>
       (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId)).findingsBump
   )
+  const repoNames = useSyncExternalStore(
+    (cb) => reposStore.subscribe(cb),
+    () => reposStore.get(slug)
+  ).names
   useEffect(() => {
     // readFindings is kept only to gate the Clear button (stray findings.md
     // content with no rows should still be clearable); per-finding bodies come
@@ -138,6 +144,7 @@ export function FindingsPane({
                       onCite={onCite}
                       caseSlug={slug}
                       citationMode="expanded"
+                      repoNames={repoNames}
                     />
                   </div>
                 )}

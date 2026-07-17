@@ -23,8 +23,16 @@ type View =
   | { kind: 'observability' }
 
 type Viewer =
-  | { kind: 'evidence'; evidenceId: number; focusLine: number }
+  | { kind: 'evidence'; evidenceId: number; focusStart: number; focusEnd: number }
   | { kind: 'file'; slug: string; relPath: string }
+  | {
+      kind: 'repoFile'
+      slug: string
+      repoName: string
+      relPath: string
+      focusStart: number
+      focusEnd: number
+    }
   | null
 
 function App(): React.JSX.Element {
@@ -82,7 +90,12 @@ function App(): React.JSX.Element {
       // closed-case summary hits have no session context — just navigate to the case
       openCase(hit.caseSlug)
     } else {
-      setViewer({ kind: 'evidence', evidenceId: hit.evidenceId, focusLine: hit.matchLine })
+      setViewer({
+        kind: 'evidence',
+        evidenceId: hit.evidenceId,
+        focusStart: hit.matchLine,
+        focusEnd: hit.matchLine
+      })
     }
   }
 
@@ -156,20 +169,44 @@ function App(): React.JSX.Element {
             resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
             onStatusChanged={() => void reload()}
             onOpenHit={handleOpenHit}
-            onOpenCitation={(id, line) =>
-              setViewer({ kind: 'evidence', evidenceId: id, focusLine: line })
+            onOpenCitation={(id, start, end) =>
+              setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
             }
             onOpenFile={(node) =>
               setViewer({ kind: 'file', slug: view.slug, relPath: node.relPath })
             }
             onOpenCase={openCase}
+            onOpenRepoFile={(repoName, relPath, start, end) =>
+              setViewer({
+                kind: 'repoFile',
+                slug: view.slug,
+                repoName,
+                relPath,
+                focusStart: start,
+                focusEnd: end
+              })
+            }
           />
         )}
       </div>
       {viewer?.kind === 'evidence' && (
         <TextViewer
-          evidenceId={viewer.evidenceId}
-          focusLine={viewer.focusLine}
+          source={{ kind: 'evidence', evidenceId: viewer.evidenceId }}
+          focusStart={viewer.focusStart}
+          focusEnd={viewer.focusEnd}
+          onClose={() => setViewer(null)}
+        />
+      )}
+      {viewer?.kind === 'repoFile' && (
+        <TextViewer
+          source={{
+            kind: 'repo',
+            caseSlug: viewer.slug,
+            repoName: viewer.repoName,
+            relPath: viewer.relPath
+          }}
+          focusStart={viewer.focusStart}
+          focusEnd={viewer.focusEnd}
           onClose={() => setViewer(null)}
         />
       )}

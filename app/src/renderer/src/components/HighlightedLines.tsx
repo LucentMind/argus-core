@@ -7,14 +7,16 @@ import { ensureLanguage, highlightLine, isRegistered } from '../lib/highlight'
 export function HighlightedLines({
   lines,
   startLine,
-  focusLine,
+  focusStart,
+  focusEnd,
   lang,
   lineIdPrefix,
   className = ''
 }: {
   lines: string[]
   startLine: number
-  focusLine: number | null
+  focusStart: number | null
+  focusEnd: number | null
   lang: string | null
   lineIdPrefix?: string
   className?: string
@@ -39,7 +41,11 @@ export function HighlightedLines({
           <div
             key={n}
             id={lineIdPrefix ? `${lineIdPrefix}${n}` : undefined}
-            className={n === focusLine ? 'bg-defect/20 text-ink' : undefined}
+            className={
+              focusStart !== null && n >= focusStart && n <= (focusEnd ?? focusStart)
+                ? 'bg-defect/20 text-ink'
+                : undefined
+            }
           >
             <span className="mr-3 inline-block w-10 select-none text-right text-mute">{n}</span>
             {canHighlight && lang ? (
