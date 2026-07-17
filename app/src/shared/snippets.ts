@@ -4,6 +4,7 @@
 
 export const SNIPPET_BEFORE = 4
 export const SNIPPET_AFTER = 6
+export const MAX_SNIPPET_LINES = 40
 
 export type EvidenceKind = 'code' | 'text'
 
@@ -18,9 +19,42 @@ export interface SnippetOk {
   lang: string | null
   /** True when the window reached the end of the file. */
   eof: boolean
+  /** True when the range window was capped at MAX_SNIPPET_LINES. */
+  truncated?: boolean
 }
 
 export type SnippetResult = SnippetOk | { ok: false; reason: 'not-found' }
+
+/** Snippet read from a linked workspace repo (worktree if present, else the
+ *  primary checkout). ref = live current ref of that tree, for drift honesty. */
+export interface RepoSnippetOk {
+  ok: true
+  repoName: string
+  relPath: string
+  startLine: number
+  lines: string[]
+  lang: string | null
+  eof: boolean
+  truncated: boolean
+  ref: string | null
+}
+
+export type RepoSnippetResult =
+  RepoSnippetOk | { ok: false; reason: 'repo-not-linked' | 'not-found' }
+
+/** Viewer-window read from a linked workspace repo (TextViewer repo mode). */
+export interface RepoTextOk {
+  ok: true
+  repoName: string
+  relPath: string
+  content: string
+  startLine: number
+  truncated: boolean
+  ref: string | null
+  lang: string | null
+}
+
+export type RepoTextResult = RepoTextOk | { ok: false; reason: 'repo-not-linked' | 'not-found' }
 
 /** Extension → highlight.js language id. Anything absent renders plain. */
 const EXT_LANG: Record<string, string> = {
