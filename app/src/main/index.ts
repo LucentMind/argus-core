@@ -51,7 +51,13 @@ import {
   type ConnectorsPayload,
   type HttpConnectorConfig
 } from '../shared/connectors'
-import { createCase, listCases, deleteCase, setCaseStatus } from './services/caseService'
+import {
+  createCase,
+  listCases,
+  deleteCase,
+  setCaseStatus,
+  setCaseJiraDeselected
+} from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
 import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
@@ -1223,6 +1229,9 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.jiraRefreshCase, (_e, caseSlug: string) =>
     jiraResult(() => jiraCases.refresh(caseSlug))
+  )
+  ipcMain.handle(IPC.jiraSetAttachmentSelection, (_e, caseSlug: string, deselected: string[]) =>
+    jiraResult(async () => setCaseJiraDeselected(db, argusHome, caseSlug, deselected.map(String)))
   )
 
   // — reference sync handlers —

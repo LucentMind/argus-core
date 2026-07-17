@@ -40,6 +40,7 @@ describe('JiraRefreshButton', () => {
           { id: '1', filename: 'a', size: 1, mimeType: '', createdAt: '' },
           { id: '2', filename: 'b', size: 1, mimeType: '', createdAt: '' }
         ],
+        deselectedAttachments: [],
         deletedOnJira: [{ attachmentId: '3', filename: 'gone.txt' }],
         newComments: 2,
         syncedAt: '2026-07-11T12:30:00.000Z'
@@ -71,6 +72,7 @@ describe('JiraRefreshButton', () => {
         key: 'NAV-7',
         statusChange: null,
         newAttachments: [],
+        deselectedAttachments: [],
         deletedOnJira: [],
         newComments: 0,
         syncedAt: '2026-07-11T12:30:00.000Z'
