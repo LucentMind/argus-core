@@ -62,7 +62,9 @@ function BrowseRow({
             Install
           </Btn>
         )}
-        {it.kind === 'skill' && it.installed && (
+        {(it.kind === 'skill'
+          ? it.installed
+          : it.localTier === 'hivemind' || it.localTier === 'confluence') && (
           <Btn
             variant="danger"
             aria-label={`Uninstall ${it.name}`}
@@ -70,7 +72,9 @@ function BrowseRow({
             onClick={() => {
               if (
                 window.confirm(
-                  `Uninstall ${it.name}? Its skills-hivemind folder is removed; it stays installable from Browse.`
+                  it.kind === 'skill'
+                    ? `Uninstall ${it.name}? Its skills-hivemind folder is removed; it stays installable from Browse.`
+                    : `Uninstall ${it.name}? Its local references copy is removed; it stays installable from Browse.`
                 )
               )
                 onUninstall()
@@ -445,7 +449,7 @@ export function HivemindSettings({
                       onCancel={() => setUpdateConfirm(null)}
                       onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
                       onUninstall={() =>
-                        void run(() => window.argus.hivemind.uninstallSkill(it.name))
+                        void run(() => window.argus.hivemind.uninstallReference(it.name))
                       }
                     />
                   ))}

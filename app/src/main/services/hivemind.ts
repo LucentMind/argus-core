@@ -268,6 +268,24 @@ export class HivemindService {
     return this.payload()
   }
 
+  /**
+   * Delete the installed local copy and its pin. Only hive-managed tiers
+   * (hivemind/confluence) qualify — user/team-knowledge copies are the user's
+   * own content and stay untouched (mirror of the claimReference guard).
+   */
+  async uninstallReference(name: string): Promise<HivemindPayload> {
+    if (!validReferenceName(name)) throw new Error(`Invalid reference name: ${name}`)
+    const file = path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
+    const tier = referenceTier(file)
+    if (tier !== 'hivemind' && tier !== 'confluence')
+      throw new Error(`Not an installed HiveMind reference: ${name}`)
+    fs.rmSync(file, { force: true })
+    const state = this.state()
+    delete state.references[name]
+    this.store.write(state)
+    return this.payload()
+  }
+
   /** Update preview: what changed upstream since the pinned install. */
   async diff(kind: 'skill' | 'reference', name: string): Promise<string> {
     const rel = kind === 'skill' ? `skills/${name}` : `references/${name}`
