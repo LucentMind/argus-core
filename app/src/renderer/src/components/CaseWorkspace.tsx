@@ -13,7 +13,7 @@ import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
-import { uiStore } from '../lib/uiStore'
+import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
@@ -62,7 +62,8 @@ export function CaseWorkspace({
     () => panelsStore.get()
   )
   const dockHost = useRef<HTMLDivElement | null>(null)
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null)
+  const mainEl = useRef<HTMLElement | null>(null)
+  const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
@@ -248,7 +249,11 @@ export function CaseWorkspace({
             onOpenInPanel={(id, packId, windowId) => void openInPanel(id, packId, windowId)}
           />
         </aside>
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main
+          ref={mainEl}
+          className="flex flex-1 flex-col overflow-hidden"
+          style={{ minWidth: CHAT_MIN_WIDTH }}
+        >
           <PanelTabStrip
             slug={slug}
             sessionId={sessionId}
@@ -301,13 +306,22 @@ export function CaseWorkspace({
               aria-label="Resize findings pane"
               className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-signal/40"
               onPointerDown={(e) => {
-                drag.current = { startX: e.clientX, startWidth: ui.findingsWidth }
+                drag.current = {
+                  startX: e.clientX,
+                  startWidth: ui.findingsWidth,
+                  maxWidth:
+                    ui.findingsWidth +
+                    Math.max(0, (mainEl.current?.clientWidth ?? Infinity) - CHAT_MIN_WIDTH)
+                }
                 e.currentTarget.setPointerCapture?.(e.pointerId)
               }}
               onPointerMove={(e) => {
                 if (!drag.current) return
                 uiStore.setFindingsWidth(
-                  drag.current.startWidth + (drag.current.startX - e.clientX)
+                  Math.min(
+                    drag.current.maxWidth,
+                    drag.current.startWidth + (drag.current.startX - e.clientX)
+                  )
                 )
               }}
               onPointerUp={() => {
@@ -315,8 +329,8 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className="shrink-0 overflow-y-auto border-l border-hair bg-deep p-3"
-              style={{ width: ui.findingsWidth }}
+              className="overflow-y-auto border-l border-hair bg-deep p-3"
+              style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               <FindingsPane slug={slug} sessionId={sessionId} onCite={(c) => void handleCite(c)} />
             </aside>

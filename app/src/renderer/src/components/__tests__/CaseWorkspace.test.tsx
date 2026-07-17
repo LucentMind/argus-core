@@ -238,7 +238,14 @@ describe('CaseWorkspace session bootstrap', () => {
 
 describe('CaseWorkspace findings pane', () => {
   it('drag on the separator resizes the pane (leftwards widens)', () => {
-    renderWorkspace()
+    const { container } = renderWorkspace()
+    // jsdom never lays out the page, so <main> reports clientWidth 0; the drag handle
+    // clamps against it (Task 5 pane-overlap guard). Stub a roomy viewport so this test
+    // still exercises plain resize math — the clamp itself is covered separately below.
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 2000
+    })
     const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
     fireEvent.pointerMove(sep, { pointerId: 1, clientX: 900 })
@@ -247,6 +254,21 @@ describe('CaseWorkspace findings pane', () => {
     // after release, further moves change nothing
     fireEvent.pointerMove(sep, { pointerId: 1, clientX: 500 })
     expect(uiStore.get().findingsWidth).toBe(484)
+  })
+
+  it('drag cannot widen the findings pane past what leaves chat its minimum width', () => {
+    const { container } = renderWorkspace()
+    // Narrow main column (500px): chat can give up at most 500 - CHAT_MIN_WIDTH (360) = 140px,
+    // so findings should clamp at 384 + 140 = 524 even though the pointer travels further.
+    Object.defineProperty(container.querySelector('main')!, 'clientWidth', {
+      configurable: true,
+      value: 500
+    })
+    const sep = screen.getByRole('separator', { name: 'Resize findings pane' })
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 1000 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 700 })
+    expect(uiStore.get().findingsWidth).toBe(524)
+    fireEvent.pointerUp(sep, { pointerId: 1 })
   })
 
   it('collapse hides the pane and the edge button expands it back', async () => {
