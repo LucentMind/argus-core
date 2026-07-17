@@ -201,6 +201,8 @@ export function updateEvidenceContent(
   const size = fs.statSync(absPath).size
   const indexable = detection.isText(artifactType)
   const meta: Record<string, unknown> = { ...rec.meta, ...extraMeta, indexed: indexable }
+  // the file was just rewritten on disk — a stale scan-set missing flag would lie
+  delete meta.missing
   db.prepare(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), evidenceId)

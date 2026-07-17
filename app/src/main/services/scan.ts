@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceRecord, ScanSummary } from '../../shared/types'
 import { caseDir } from './paths'
-import { getCase } from './caseService'
+import { getCase, maybeAdvanceToAnalyzing } from './caseService'
 import { listEvidence, sha256File, deleteEvidence } from './ingest'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 import { extractDerivedText } from './extraction'
@@ -181,6 +181,10 @@ export function scanEvidence(
     if (!rec.meta.missing) setMissing(db, rec, true)
     summary.missing.push(relPath)
   }
+
+  // scan is an ingest path like any other: newly registered evidence can move an
+  // open case (with a started chat) to analyzing — modified/missing files cannot
+  if (summary.added.length > 0) maybeAdvanceToAnalyzing(db, argusHome, kase.id)
 
   deps.evidenceChanged(caseSlug)
   return summary
