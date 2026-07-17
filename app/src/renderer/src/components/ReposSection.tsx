@@ -10,7 +10,14 @@ import { invalidateRepoSnippets } from '../lib/snippetCache'
 /** Linked repos as evidence: the repo chips (moved here from the header), with
  *  link/unlink and the graph control. Individual files are not listed — code is
  *  cited per line via [repo/path:line] citations. */
-export function ReposSection({ slug }: { slug: string }): React.JSX.Element {
+export function ReposSection({
+  slug,
+  headerExtra
+}: {
+  slug: string
+  /** rendered at the right edge of the Repos header (e.g. the pane-collapse button) */
+  headerExtra?: React.ReactNode
+}): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [refs, setRefs] = useState<BundleWorkspaceRef[]>([])
 
@@ -48,14 +55,17 @@ export function ReposSection({ slug }: { slug: string }): React.JSX.Element {
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <SectionLabel>Repos</SectionLabel>
-        <IconBtn
-          aria-label="Link repo"
-          title="Link a local repo"
-          className="h-5 w-5"
-          onClick={() => void link()}
-        >
-          <FolderGit2 size={13} />
-        </IconBtn>
+        <div className="flex items-center gap-1">
+          <IconBtn
+            aria-label="Link repo"
+            title="Link a local repo"
+            className="h-5 w-5"
+            onClick={() => void link()}
+          >
+            <FolderGit2 size={13} />
+          </IconBtn>
+          {headerExtra}
+        </div>
       </div>
       {workspaces.map((w) => (
         <div key={w.path} className="flex items-center gap-1">

@@ -70,15 +70,15 @@ export function JiraRefreshButton({
   return (
     <>
       <div className="flex min-w-0 items-center gap-2">
+        <Btn variant="outline" className="shrink-0" disabled={busy} onClick={() => void refresh()}>
+          <RefreshIcon spinning={busy} />
+          {busy ? 'Refreshing…' : 'Refresh'}
+        </Btn>
         {lastSynced && (
           <span className="shrink-0 text-xs text-mute">
             last refreshed {shortStamp(lastSynced)}
           </span>
         )}
-        <Btn variant="outline" className="shrink-0" disabled={busy} onClick={() => void refresh()}>
-          <RefreshIcon spinning={busy} />
-          {busy ? 'Refreshing…' : 'Refresh'}
-        </Btn>
         {note && <span className="min-w-0 truncate text-xs text-dim">{note}</span>}
         {error && (
           <span role="alert" className="min-w-0 truncate text-xs text-danger">
