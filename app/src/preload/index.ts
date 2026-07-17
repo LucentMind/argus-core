@@ -458,6 +458,7 @@ const argus = {
       deselectedIds: string[]
     ): Promise<JiraResult<CaseRecord>> =>
       ipcRenderer.invoke(IPC.jiraSetAttachmentSelection, caseSlug, deselectedIds),
+    openIssue: (caseSlug: string): Promise<void> => ipcRenderer.invoke(IPC.jiraOpenIssue, caseSlug),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)
