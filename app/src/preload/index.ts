@@ -281,7 +281,12 @@ const argus = {
       relPath: string,
       focusStart: number
     ): Promise<RepoTextResult> =>
-      ipcRenderer.invoke(IPC.workspacesReadText, caseSlug, repoName, relPath, focusStart)
+      ipcRenderer.invoke(IPC.workspacesReadText, caseSlug, repoName, relPath, focusStart),
+    onChanged: (cb: (caseSlug: string) => void): (() => void) => {
+      const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
+      ipcRenderer.on(IPC.workspacesChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.workspacesChanged, listener)
+    }
   },
   graph: {
     build: (

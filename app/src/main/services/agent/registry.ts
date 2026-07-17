@@ -58,6 +58,8 @@ export interface AgentServiceDeps {
   panelCommandDecls?: () => PanelCommandDecl[]
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
   onCaseClosed?: (rec: CaseRecord) => void
+  /** Fired after workspace_checkout materializes/switches a case worktree. */
+  onWorktreeChanged?: (caseSlug: string) => void
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
   dispatchPanelCommand?: (
     caseSlug: string,
@@ -177,6 +179,7 @@ export class AgentService {
         ? (packId, windowId) => this.deps.capturePanel!(caseSlug, packId, windowId)
         : undefined,
       onCaseClosed: this.deps.onCaseClosed,
+      onWorktreeChanged: this.deps.onWorktreeChanged,
       panelCommandDecls: this.deps.panelCommandDecls?.(),
       dispatchPanelCommand: this.deps.dispatchPanelCommand
         ? (packId, windowId, cmd, args) =>

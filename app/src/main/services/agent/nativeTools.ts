@@ -43,6 +43,9 @@ export interface NativeToolDeps {
   capturePanel?: (packId: string, windowId: string) => Promise<CapturePanelEvidence>
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
   onCaseClosed?: (rec: CaseRecord) => void
+  /** Fired after workspace_checkout materializes/switches a case worktree, so the
+   *  renderer can refresh repo chips + repo snippet caches without a case switch. */
+  onWorktreeChanged?: (caseSlug: string) => void
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -203,6 +206,7 @@ export function argusToolHandlers(
         String(args.repo_path ?? ''),
         String(args.ref ?? '')
       )
+      deps.onWorktreeChanged?.(caseSlug)
       return `Checked out ${args.ref} in case worktree: ${wt}\nWork with the code there; the primary checkout is untouched.`
     },
 
