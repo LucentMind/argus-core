@@ -43,7 +43,7 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
   const fail = useCallback(
     (e: unknown) => {
       if (!alive.current) return
-      setStatus({ ok: false, detail: e instanceof Error ? e.message : String(e) })
+      setStatus({ ok: false, verified: false, detail: e instanceof Error ? e.message : String(e) })
       setGate(false)
       setChecking(false)
     },
@@ -79,10 +79,17 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
     <div className="space-y-3">
       <h2 className="text-lg text-ink">Connect Claude</h2>
       {checking && <p className="text-sm text-dim">Checking Claude login…</p>}
-      {status?.ok && (
+      {status?.ok && status.verified && (
         <p className="text-sm text-signal">
           Logged in as {status.email ?? 'your account'}
           {status.subscription ? ` (${status.subscription})` : ''}.
+        </p>
+      )}
+      {status?.ok && !status.verified && (
+        <p className="text-sm text-signal">
+          Claude is ready
+          {status.email ? `, with ${status.email} on file` : ''}. Sign-in is confirmed on your first
+          message.
         </p>
       )}
       {status && !status.ok && (

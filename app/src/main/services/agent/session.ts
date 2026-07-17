@@ -69,6 +69,13 @@ export interface SessionDeps {
   extraMcpServers?: Record<string, unknown>
   /** Connectors that could not be composed; logged to the event stream at start. */
   mcpSkipped?: Array<{ instanceId: string; reason: string }>
+  /** Fingerprint of `extraMcpServers` at construction; AgentService compares it per send
+   *  to decide whether this session's frozen mcpServers map is still correct. */
+  mcpFingerprint?: string
+  /** Fired when a turn fails auth-shaped (spec §5); index.ts calls authCache.onAuthFailure(). */
+  onAuthFailure?: () => void
+  /** Fired when a turn completes normally — the only real proof the credentials work. */
+  onAuthVerified?: () => void
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
@@ -88,6 +95,28 @@ export interface SessionDeps {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/**
+ * Auth-shaped failure detection (spec §5), calibrated against the real CLI (verified
+ * 2026-07-16 — see .superpowers/sdd/auth-shape-evidence.md). Both real auth failures come
+ * back as `subtype: 'success'` with `is_error: true` — the SDK does not use an error
+ * subtype for them, so `is_error` is the ONLY reliable discriminator:
+ *   - not logged in:      result: "Not logged in · Please run /login", api_error_status: null
+ *   - invalid/expired key: result: "Invalid API key · Fix external API key", api_error_status: 401
+ * `api_error_status` is a structured 401 signal, but it's populated ONLY for the bad-key
+ * mode — the not-logged-in mode has to be caught by text. This regex is that fallback, and
+ * (like the structured check) it is matched ONLY against error-flagged results and thrown
+ * transport errors — never assistant text — so a user prompt or model reply that merely
+ * mentions logging in can never trip it. Deliberately excludes bare "401"/"unauthorized":
+ * neither appears in a real auth message, and unqualified they'd let an unrelated
+ * connector's 401 (e.g. an Atlassian call surfacing as a thrown transport error) wrongly
+ * mark the user's Claude session logged out.
+ */
+const AUTH_FAILURE_RE = /not logged in|please run \/login|invalid api key|authentication_error/i
+
+export function isAuthFailure(text: string): boolean {
+  return AUTH_FAILURE_RE.test(text)
+}
+
 /** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
  *  agent's own mcp__argus__append_finding, which stays auto-approved. */
 export const PANEL_FINDING_TOOL = 'mcp__argus__panel_emit_finding'
@@ -97,6 +126,7 @@ export const PANEL_INGEST_TOOL = 'mcp__argus__panel_ingest_evidence'
 
 export class CaseSession {
   readonly sessionId: number
+  readonly mcpFingerprint: string
   state: 'running' | 'dead' = 'running'
   activeTurn = false
   lastActivity = Date.now()
@@ -115,6 +145,7 @@ export class CaseSession {
   constructor(deps: SessionDeps) {
     this.deps = deps
     this.sessionId = deps.sessionId
+    this.mcpFingerprint = deps.mcpFingerprint ?? ''
     touchSession(deps.db, deps.sessionId)
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
@@ -372,7 +403,7 @@ export class CaseSession {
     await this.query.interrupt().catch(() => undefined)
   }
 
-  async stop(reason: 'stopped' | 'reaped'): Promise<void> {
+  async stop(reason: 'stopped' | 'reaped' | 'reconfigured'): Promise<void> {
     if (this.state === 'dead') return
     this.state = 'dead'
     for (const id of this.approvals.drain()) {
@@ -543,6 +574,18 @@ export class CaseSession {
     this.deps.db
       .prepare(`UPDATE sessions SET turn_count = turn_count + 1, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), this.sessionId)
+    // The turn is the ONLY thing that actually authenticates against the API — the
+    // maxTurns:0 probe never does. Treat its outcome as the source of truth.
+    // Both real auth failures are subtype:'success' with is_error:true and the text in
+    // `result` (verified against the live CLI: "Not logged in · Please run /login" and
+    // "Invalid API key · Fix external API key"). is_error is the ONLY discriminator —
+    // subtype is 'success' in both cases, so it must not be used here. api_error_status
+    // is 401 for a bad key but null when simply not logged in, so text is still needed.
+    if (msg.is_error && (msg.api_error_status === 401 || isAuthFailure(String(msg.result ?? '')))) {
+      this.deps.onAuthFailure?.()
+    } else if (!msg.is_error) {
+      this.deps.onAuthVerified?.()
+    }
     this.activeTurn = false
   }
 
@@ -572,6 +615,7 @@ export class CaseSession {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const interrupted = /abort|interrupt/i.test(message)
+      if (!interrupted && isAuthFailure(message)) this.deps.onAuthFailure?.()
       if (this.state !== 'dead') {
         this.state = 'dead'
         if (!interrupted) {

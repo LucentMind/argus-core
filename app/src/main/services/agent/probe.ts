@@ -71,7 +71,11 @@ export async function probeAuth(
       new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), timeoutMs))
     ])
     if (first === 'timeout') {
-      return { ok: false, detail: 'probe timed out — is the claude CLI installed and logged in?' }
+      return {
+        ok: false,
+        verified: false,
+        detail: 'probe timed out — is the claude CLI installed and logged in?'
+      }
     }
     if (first && typeof first === 'object') {
       const m = first as {
@@ -96,15 +100,16 @@ export async function probeAuth(
       const version = m.claude_code_version ?? m.version
       return {
         ok: true,
+        verified: false,
         detail: `claude ready (${m.model ?? 'unknown model'})`,
         ...(account?.email ? { email: account.email } : {}),
         ...(subscription ? { subscription } : {}),
         ...(version ? { version } : {})
       }
     }
-    return { ok: false, detail: 'claude CLI exited before initializing' }
+    return { ok: false, verified: false, detail: 'claude CLI exited before initializing' }
   } catch (err) {
-    return { ok: false, detail: (err as Error).message }
+    return { ok: false, verified: false, detail: (err as Error).message }
   } finally {
     await q?.interrupt().catch(() => undefined)
   }
