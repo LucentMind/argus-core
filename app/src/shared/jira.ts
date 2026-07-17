@@ -44,6 +44,8 @@ export interface JiraRefreshSummary {
   newAttachments: JiraAttachmentInfo[]
   /** Previously deselected ids still live on the ticket (offered unchecked in the dialog). */
   deselectedAttachments: JiraAttachmentInfo[]
+  /** Live on the ticket AND already ingested — shown as synced, not re-selectable (spec §4). */
+  ingestedAttachments: JiraAttachmentInfo[]
   /** Noted only — evidence is append-only, nothing is removed locally. */
   deletedOnJira: Array<{ attachmentId: string; filename: string }>
   /** Count of comments added since the last sync (0 when the fetch failed). */

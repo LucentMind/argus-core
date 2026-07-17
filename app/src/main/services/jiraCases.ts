@@ -294,6 +294,7 @@ export class JiraCases {
     const deselected = new Set(kase.jiraDeselected)
     const fresh = preview.attachments.filter((a) => !known.has(a.id) && !deselected.has(a.id))
     const deselectedAttachments = preview.attachments.filter((a) => deselected.has(a.id))
+    const ingestedAttachments = preview.attachments.filter((a) => known.has(a.id))
     const liveIds = new Set(preview.attachments.map((a) => a.id))
     const deletedOnJira = [...known.entries()]
       .filter(([id]) => !liveIds.has(id))
@@ -310,6 +311,7 @@ export class JiraCases {
         oldStatus && oldStatus !== preview.status ? { from: oldStatus, to: preview.status } : null,
       newAttachments: fresh,
       deselectedAttachments,
+      ingestedAttachments,
       deletedOnJira,
       newComments,
       ...(commentsError ? { commentsError } : {}),

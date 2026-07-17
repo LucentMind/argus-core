@@ -8,16 +8,20 @@ const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `$
  * Selection dialog shown after a refresh finds new attachments. Confirm
  * downloads the checked set and persists the unchecked set as deselected;
  * Cancel changes nothing (the same decision is re-offered next refresh).
+ * Already-ingested attachments render as synced context rows — checked,
+ * disabled, and excluded from the confirm math entirely (spec §4).
  */
 export function JiraAttachmentsDialog({
   slug,
   newAttachments,
   deselectedAttachments,
+  ingestedAttachments,
   onClose
 }: {
   slug: string
   newAttachments: JiraAttachmentInfo[]
   deselectedAttachments: JiraAttachmentInfo[]
+  ingestedAttachments: JiraAttachmentInfo[]
   onClose: () => void
 }): React.JSX.Element {
   const [checked, setChecked] = useState<Set<string>>(
@@ -43,7 +47,8 @@ export function JiraAttachmentsDialog({
     onClose()
   }
 
-  function row(a: JiraAttachmentInfo, tag: 'new' | 'skipped'): React.JSX.Element {
+  function row(a: JiraAttachmentInfo, tag: 'new' | 'skipped' | 'synced'): React.JSX.Element {
+    const synced = tag === 'synced'
     return (
       <label
         key={a.id}
@@ -52,8 +57,10 @@ export function JiraAttachmentsDialog({
         <input
           type="checkbox"
           aria-label={a.filename}
-          checked={checked.has(a.id)}
+          checked={synced || checked.has(a.id)}
+          disabled={synced}
           onChange={(e) => {
+            if (synced) return
             const next = new Set(checked)
             if (e.target.checked) next.add(a.id)
             else next.delete(a.id)
@@ -61,11 +68,9 @@ export function JiraAttachmentsDialog({
           }}
         />
         <span className="min-w-0 flex-1 truncate font-mono text-ink">{a.filename}</span>
-        {tag === 'new' ? (
-          <Chip tone="signal">new</Chip>
-        ) : (
-          <Chip tone="neutral">previously skipped</Chip>
-        )}
+        {tag === 'new' && <Chip tone="signal">new</Chip>}
+        {tag === 'skipped' && <Chip tone="neutral">previously skipped</Chip>}
+        {tag === 'synced' && <Chip tone="neutral">synced</Chip>}
         <span className="shrink-0 text-mute">{kb(a.size)}</span>
       </label>
     )
@@ -94,12 +99,13 @@ export function JiraAttachmentsDialog({
         <div className="flex flex-col gap-1">
           {newAttachments.map((a) => row(a, 'new'))}
           {deselectedAttachments.map((a) => row(a, 'skipped'))}
+          {ingestedAttachments.map((a) => row(a, 'synced'))}
         </div>
         <div className="flex items-center gap-2">
           <Btn variant="primary" disabled={busy} onClick={() => void confirm()}>
             Download selected
           </Btn>
-          <Btn variant="ghost" onClick={onClose}>
+          <Btn variant="ghost" disabled={busy} onClick={onClose}>
             Cancel
           </Btn>
         </div>
