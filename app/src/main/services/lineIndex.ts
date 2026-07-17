@@ -195,21 +195,24 @@ export async function* searchLines(
   const fromLine = Math.max(1, opts.fromLine ?? 1)
   const toLine = Math.min(opts.toLine ?? index.totalLines, index.totalLines)
   const maxResults = opts.maxResults ?? DEFAULT_MAX_RESULTS
+
+  // Built before any early return so an invalid regex always throws on the
+  // first .next(), even for an empty range.
+  let matcher: (s: string) => boolean
+  if (opts.regex) {
+    const re = new RegExp(query, opts.caseSensitive ? '' : 'i')
+    matcher = (s) => re.test(s)
+  } else if (opts.caseSensitive) {
+    matcher = (s) => s.includes(query)
+  } else {
+    const q = query.toLowerCase()
+    matcher = (s) => s.toLowerCase().includes(q)
+  }
+
   if (fromLine > toLine) {
     yield { hits: [], scannedTo: toLine, done: true, capped: false }
     return
   }
-  const matcher: (s: string) => boolean = opts.regex
-    ? (
-        (re) => (s: string) =>
-          re.test(s)
-      )(new RegExp(query, opts.caseSensitive ? '' : 'i'))
-    : ((q) =>
-        opts.caseSensitive
-          ? (s: string) => s.includes(q)
-          : (s: string) => s.toLowerCase().includes(q))(
-        opts.caseSensitive ? query : query.toLowerCase()
-      )
 
   const [cpLine, cpByte] = checkpointAtOrBelow(index, fromLine)
   const splitter = new LineSplitter(cpLine, cpByte)
@@ -224,7 +227,10 @@ export async function* searchLines(
     if (n > toLine) return false
     scannedTo = n
     sinceYield++
-    if (matcher(line.toString('utf8'))) {
+    // Strip one trailing \r so matchers see the same text decodeLine yields
+    // (anchored regexes like /foo$/ must match on CRLF files).
+    const body = line.length > 0 && line[line.length - 1] === 0x0d ? line.subarray(0, -1) : line
+    if (matcher(body.toString('utf8'))) {
       hits.push(n)
       if (++found >= maxResults) {
         capped = true
@@ -248,11 +254,13 @@ export async function* searchLines(
       if (bytesRead === 0) break
       offset += bytesRead
       running = splitter.push(buf.subarray(0, bytesRead), onLine)
-      if (sinceYield >= SEARCH_BATCH_LINES && hits.length > 0) {
+      if (sinceYield >= SEARCH_BATCH_LINES) {
         sinceYield = 0
-        const batch = hits
-        hits = []
-        yield { hits: batch, scannedTo, done: false, capped: false }
+        if (hits.length > 0) {
+          const batch = hits
+          hits = []
+          yield { hits: batch, scannedTo, done: false, capped: false }
+        }
       }
     }
     if (running && !capped) {

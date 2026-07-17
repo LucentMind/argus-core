@@ -237,4 +237,52 @@ describe('searchLines', () => {
     expect(r.hits).toEqual([])
     expect(r.done).toBe(false)
   })
+
+  it('streams multiple batches with no loss or duplication', async () => {
+    // 500k lines: with SEARCH_BATCH_LINES = 100_000 each streamed batch needs
+    // ≥100k scanned lines, so ≥3 streamed batches require >300k lines.
+    const p = writeLines('stream.txt', 500_000)
+    const idx = await ensureIndex(argusHome, p)
+    const batches: Array<{ hits: number[]; scannedTo: number; done: boolean; capped: boolean }> = []
+    for await (const b of searchLines(idx, p, '0', { maxResults: 600_000 })) batches.push(b)
+    expect(batches.length).toBeGreaterThanOrEqual(4) // ≥3 streamed batches before the final one
+    const final = batches[batches.length - 1]
+    expect(final.done).toBe(true)
+    expect(final.capped).toBe(false)
+    const all = batches.flatMap((b) => b.hits)
+    expect(all).toHaveLength(500_000)
+    expect(all[0]).toBe(1)
+    expect(all[all.length - 1]).toBe(500_000)
+    expect(all.every((v, i) => v === i + 1)).toBe(true) // no loss, no dup
+  })
+
+  it('aborts mid-stream after partial batches were delivered', async () => {
+    const p = writeLines('abmid.txt', 250_000)
+    const idx = await ensureIndex(argusHome, p)
+    const ac = new AbortController()
+    const received: Array<{ hits: number[]; done: boolean }> = []
+    for await (const b of searchLines(idx, p, '0', { maxResults: 300_000, signal: ac.signal })) {
+      received.push(b)
+      if (received.length === 1) {
+        expect(b.hits.length).toBeGreaterThan(0) // hits already collected pre-abort
+        ac.abort()
+      }
+    }
+    expect(received[received.length - 1].done).toBe(false)
+    const total = received.reduce((n, b) => n + b.hits.length, 0)
+    expect(total).toBeLessThan(250_000)
+  })
+
+  it('matches anchored regexes on CRLF files (matcher strips \\r)', async () => {
+    const p = path.join(tmp, 'crlf.txt')
+    fs.writeFileSync(p, 'alpha\r\nbeta\r\n')
+    const idx = await ensureIndex(argusHome, p)
+    expect((await drain(searchLines(idx, p, 'alpha$', { regex: true }))).hits).toEqual([1])
+  })
+
+  it('throws on invalid regex at first .next()', async () => {
+    const p = writeLines('bad.txt', 5)
+    const idx = await ensureIndex(argusHome, p)
+    await expect(drain(searchLines(idx, p, '[', { regex: true }))).rejects.toThrow()
+  })
 })
