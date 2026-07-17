@@ -7,6 +7,16 @@ export const MEMORY_INDEX_MAX_LINES = 200
 
 const TOPIC_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 
+/**
+ * Single source of truth for what a memory topic name may look like — backs both
+ * topicPath's validation here and staging.ts's pre-validation pass, so a distiller
+ * output that would later hard-fail in applyMemoryWrite is instead caught (and
+ * reported) before anything is staged.
+ */
+export function isValidMemoryTopic(topic: string): boolean {
+  return TOPIC_RE.test(topic)
+}
+
 export interface MemoryTopic {
   name: string
   sizeBytes: number

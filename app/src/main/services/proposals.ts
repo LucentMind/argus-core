@@ -137,10 +137,10 @@ export function listArchivedProposals(argusHome: string): {
   const dir = proposalsArchiveDir(argusHome)
   if (!fs.existsSync(dir)) return []
   return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.md'))
-    .flatMap((f) => {
-      const block = fmBlock(fs.readFileSync(path.join(dir, f), 'utf8'))
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((ent) => ent.isFile() && ent.name.endsWith('.md'))
+    .flatMap((ent) => {
+      const block = fmBlock(fs.readFileSync(path.join(dir, ent.name), 'utf8'))
       if (!block) return []
       const status = fmField(block.fm, 'status')
       if (status !== 'accepted' && status !== 'rejected') return []
