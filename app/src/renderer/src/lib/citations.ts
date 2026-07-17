@@ -49,19 +49,18 @@ export function linkifyCitations(markdown: string, repoNames: readonly string[] 
   })
 }
 
-export function parseCiteHref(href: string): (CiteTarget & { line: number }) | null {
+export function parseCiteHref(href: string): CiteTarget | null {
   if (!href.startsWith('cite://')) return null
   const [p, q] = href.slice('cite://'.length).split('?')
   const params = new URLSearchParams(q ?? '')
   const start = Number(params.get('line') ?? 1)
   const rawEnd = Number(params.get('end') ?? start)
   const end = rawEnd >= start ? rawEnd : start
-  return { relPath: p, start, end, line: start }
+  return { relPath: p, start, end }
 }
 
 export type CiteSegment =
-  | { type: 'text'; text: string }
-  | { type: 'cite'; relPath: string; line: number; start: number; end: number }
+  { type: 'text'; text: string } | { type: 'cite'; relPath: string; start: number; end: number }
 
 /**
  * Split plain text into alternating text / citation segments. Used to make
@@ -78,7 +77,7 @@ export function splitCitations(text: string, repoNames: readonly string[] = []):
     const range = classifyCitePath(m[1], names) !== null ? parseRange(m[2], m[3]) : null
     if (!range) continue // not a citation — the bracket stays part of the surrounding text
     if (m.index > last) out.push({ type: 'text', text: text.slice(last, m.index) })
-    out.push({ type: 'cite', relPath: m[1], line: range.start, start: range.start, end: range.end })
+    out.push({ type: 'cite', relPath: m[1], start: range.start, end: range.end })
     last = m.index + m[0].length
   }
   if (last < text.length) out.push({ type: 'text', text: text.slice(last) })

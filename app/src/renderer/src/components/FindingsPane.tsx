@@ -3,6 +3,7 @@ import { ChevronRight, PanelRight, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-r
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
+import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
 
@@ -24,7 +25,7 @@ export function FindingsPane({
 }: {
   slug: string
   sessionId: number | null
-  onCite: (relPath: string, line: number) => void
+  onCite: (cite: CiteTarget) => void
 }): React.JSX.Element {
   const [md, setMd] = useState('')
   const [findings, setFindings] = useState<FindingRow[]>([])

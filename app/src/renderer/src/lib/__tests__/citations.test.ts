@@ -12,14 +12,14 @@ describe('citation grammar', () => {
     const segs = splitCitations('HI [evidence/app.log:412] bye')
     expect(segs).toEqual([
       { type: 'text', text: 'HI ' },
-      { type: 'cite', relPath: 'evidence/app.log', line: 412, start: 412, end: 412 },
+      { type: 'cite', relPath: 'evidence/app.log', start: 412, end: 412 },
       { type: 'text', text: ' bye' }
     ])
   })
 
   it('parses evidence ranges', () => {
     const [seg] = splitCitations('[evidence/app.log:10-25]')
-    expect(seg).toEqual({ type: 'cite', relPath: 'evidence/app.log', line: 10, start: 10, end: 25 })
+    expect(seg).toEqual({ type: 'cite', relPath: 'evidence/app.log', start: 10, end: 25 })
   })
 
   it('recognizes repo citations only when the repo name is supplied', () => {
@@ -29,7 +29,6 @@ describe('citation grammar', () => {
     expect(segs[1]).toEqual({
       type: 'cite',
       relPath: 'hivemindtest/src/ui/camera.ts',
-      line: 1547,
       start: 1547,
       end: 1552
     })
@@ -65,13 +64,11 @@ describe('citation grammar', () => {
   it('parseCiteHref round-trips start/end and defaults end to start', () => {
     expect(parseCiteHref('cite://evidence/app.log?line=10&end=25')).toEqual({
       relPath: 'evidence/app.log',
-      line: 10,
       start: 10,
       end: 25
     })
     expect(parseCiteHref('cite://repo1/a.ts?line=3')).toEqual({
       relPath: 'repo1/a.ts',
-      line: 3,
       start: 3,
       end: 3
     })
