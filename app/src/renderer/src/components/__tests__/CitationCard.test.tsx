@@ -84,10 +84,13 @@ describe('CitationCard', () => {
         onOpenViewer={onOpenViewer}
       />
     )
-    fireEvent.click(await screen.findByRole('button', { name: 'Open in viewer' }))
+    await screen.findByText('crash here')
+    fireEvent.click(screen.getByLabelText('Open in viewer'))
     fireEvent.click(screen.getByText('crash here'))
     expect(onOpenViewer).toHaveBeenCalledTimes(2)
     expect(onOpenViewer).toHaveBeenCalledWith('evidence/app.log', 412)
+    fireEvent.keyDown(screen.getByText('crash here').closest('[role="button"]')!, { key: 'Enter' })
+    expect(onOpenViewer).toHaveBeenCalledTimes(3)
   })
 
   it('renders the unavailable note on not-found without breaking the chip', async () => {

@@ -99,9 +99,17 @@ export function CitationCard({
             </div>
           ) : (
             <div
+              role="button"
+              tabIndex={0}
               className="cursor-pointer transition-colors hover:bg-hi"
               title="Open in viewer"
               onClick={openViewer}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openViewer()
+                }
+              }}
             >
               <HighlightedLines
                 lines={snippet.lines}
