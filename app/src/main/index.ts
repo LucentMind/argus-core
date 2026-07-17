@@ -68,6 +68,9 @@ import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './serv
 import { createCaseWatchHub } from './services/caseWatch'
 import { scanEvidence } from './services/scan'
 import { searchEvidence, readEvidenceText, readEvidenceSnippet } from './services/search'
+import { openTextDoc, readTextDocLines } from './services/textdoc'
+import { TextDocSearchHub, type TextDocSearchOpts } from './services/textdocSearch'
+import type { TextDocSource } from '../shared/textdoc'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
 import { flattenPanelCommands } from './services/agent/panelCommands'
@@ -502,6 +505,23 @@ function registerIpc(): void {
       return readEvidenceSnippet(db, argusHome, caseSlug, relPath, line, end ?? line)
     }
   )
+  const textdocHub = new TextDocSearchHub(db, argusHome, (payload) =>
+    broadcast(IPC.textdocSearchHits, payload)
+  )
+  ipcMain.handle(IPC.textdocOpen, (_e, source: TextDocSource) =>
+    openTextDoc(db, argusHome, source, (key, fraction) =>
+      broadcast(IPC.textdocIndexProgress, { key, fraction })
+    )
+  )
+  ipcMain.handle(IPC.textdocLines, (_e, source: TextDocSource, from: number, to: number) =>
+    readTextDocLines(db, argusHome, source, from, to)
+  )
+  ipcMain.handle(
+    IPC.textdocSearch,
+    (_e, searchId: string, source: TextDocSource, query: string, opts: TextDocSearchOpts) =>
+      void textdocHub.start(searchId, source, query, opts)
+  )
+  ipcMain.handle(IPC.textdocCancelSearch, (_e, searchId: string) => textdocHub.cancel(searchId))
   ipcMain.handle(IPC.evidenceDelete, (_e, caseSlug: string, evidenceId: number) => {
     assertSlug(caseSlug)
     if (!Number.isInteger(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`)
