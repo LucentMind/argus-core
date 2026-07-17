@@ -75,6 +75,7 @@ import {
   listWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
+import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, effectiveDefaultModel } from '../shared/drivers'
 import { settingsSchema } from '../shared/settings'
@@ -846,6 +847,20 @@ function registerIpc(): void {
       return []
     }
   })
+  ipcMain.handle(
+    IPC.workspacesReadSnippet,
+    (_e, caseSlug: string, repoName: string, relPath: string, start: number, end?: number) => {
+      assertSlug(caseSlug)
+      return readRepoSnippet(db, argusHome, caseSlug, repoName, relPath, start, end ?? start)
+    }
+  )
+  ipcMain.handle(
+    IPC.workspacesReadText,
+    (_e, caseSlug: string, repoName: string, relPath: string, focusStart: number) => {
+      assertSlug(caseSlug)
+      return readRepoText(db, argusHome, caseSlug, repoName, relPath, focusStart)
+    }
+  )
   ipcMain.handle(IPC.graphBuild, (_e, repoPath: string, scope: string | null) =>
     codeGraph.build(repoPath, scope)
   )

@@ -64,7 +64,7 @@ import type {
   ExternalAppInfo
 } from '../shared/panels'
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
-import type { SnippetResult } from '../shared/snippets'
+import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
 
 // Custom API for renderer
 const argus = {
@@ -263,7 +263,22 @@ const argus = {
       ipcRenderer.invoke(IPC.workspacesUnlink, caseSlug, repoPath),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug),
     refs: (caseSlug: string): Promise<BundleWorkspaceRef[]> =>
-      ipcRenderer.invoke(IPC.workspacesRefs, caseSlug)
+      ipcRenderer.invoke(IPC.workspacesRefs, caseSlug),
+    readSnippet: (
+      caseSlug: string,
+      repoName: string,
+      relPath: string,
+      start: number,
+      end?: number
+    ): Promise<RepoSnippetResult> =>
+      ipcRenderer.invoke(IPC.workspacesReadSnippet, caseSlug, repoName, relPath, start, end),
+    readText: (
+      caseSlug: string,
+      repoName: string,
+      relPath: string,
+      focusStart: number
+    ): Promise<RepoTextResult> =>
+      ipcRenderer.invoke(IPC.workspacesReadText, caseSlug, repoName, relPath, focusStart)
   },
   graph: {
     build: (
