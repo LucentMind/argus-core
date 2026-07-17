@@ -14,7 +14,8 @@ import type {
   UnifiedHit,
   ArtifactTypeMeta,
   GraphStatusRow,
-  GraphProgress
+  GraphProgress,
+  ScanSummary
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload } from '../shared/settings'
@@ -90,6 +91,8 @@ const argus = {
       evidenceId: number
     ): Promise<{ deleted: Array<{ id: number; relPath: string; sha256: string }> }> =>
       ipcRenderer.invoke(IPC.evidenceDelete, caseSlug, evidenceId),
+    scan: (caseSlug: string): Promise<ScanSummary> =>
+      ipcRenderer.invoke(IPC.evidenceScan, caseSlug),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.evidenceChanged, listener)
@@ -423,6 +426,11 @@ const argus = {
       ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
     refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
       ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+    setAttachmentSelection: (
+      caseSlug: string,
+      deselectedIds: string[]
+    ): Promise<JiraResult<CaseRecord>> =>
+      ipcRenderer.invoke(IPC.jiraSetAttachmentSelection, caseSlug, deselectedIds),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)

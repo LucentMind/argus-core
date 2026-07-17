@@ -38,6 +38,7 @@ interface CaseRow {
   title: string
   jira_key: string | null
   jira_synced_at: string | null
+  jira_deselected: string | null
   status: string
   resolution: string | null
   tags: string
@@ -52,6 +53,7 @@ function rowToCase(r: CaseRow): CaseRecord {
     title: r.title,
     jiraKey: r.jira_key,
     jiraSyncedAt: r.jira_synced_at ?? null,
+    jiraDeselected: JSON.parse(r.jira_deselected ?? '[]') as string[],
     status: r.status as CaseStatus,
     resolution: (r.resolution ?? null) as CaseResolution | null,
     tags: JSON.parse(r.tags) as string[],
@@ -105,6 +107,7 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       title: input.title,
       jiraKey: input.jiraKey ?? null,
       jiraSyncedAt: null,
+      jiraDeselected: [],
       status: 'open',
       resolution: null,
       tags: [],
@@ -168,10 +171,50 @@ export function setCaseJira(
     // tags survive instead of being dropped by an empty-object fallback.
     onDisk = { ...existing, id: undefined }
   }
+  const jiraWithDeselected =
+    existing.jiraDeselected.length > 0
+      ? { ...jira, deselectedAttachmentIds: existing.jiraDeselected }
+      : jira
   fs.writeFileSync(
     file,
-    JSON.stringify({ ...onDisk, jiraKey: jira.key, updatedAt: now, jira }, null, 2)
+    JSON.stringify(
+      {
+        ...onDisk,
+        jiraKey: jira.key,
+        updatedAt: now,
+        jira: jiraWithDeselected
+      },
+      null,
+      2
+    )
   )
+  return getCase(db, slug)!
+}
+
+/** Persist which Jira attachments the user declined; mirrored into case.json's jira block. */
+export function setCaseJiraDeselected(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  deselected: string[]
+): CaseRecord {
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+  const now = new Date().toISOString()
+  db.prepare(`UPDATE cases SET jira_deselected = ?, updated_at = ? WHERE slug = ?`).run(
+    JSON.stringify(deselected),
+    now,
+    slug
+  )
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    onDisk = { ...existing, id: undefined }
+  }
+  const jira = { ...((onDisk.jira as object) ?? {}), deselectedAttachmentIds: deselected }
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, updatedAt: now, jira }, null, 2))
   return getCase(db, slug)!
 }
 

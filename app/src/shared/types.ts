@@ -26,7 +26,7 @@ export interface ArtifactTypeMeta {
   isText: boolean
 }
 
-export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent' | 'panel'
+export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent' | 'panel' | 'scan'
 
 export interface NewCaseInput {
   slug: string
@@ -41,6 +41,8 @@ export interface CaseRecord {
   jiraKey: string | null
   /** Last successful Jira sync (create-from-ticket or refresh); null when never synced. */
   jiraSyncedAt: string | null
+  /** Jira attachment ids the user chose not to ingest; [] when none. */
+  jiraDeselected: string[]
   status: CaseStatus
   /** Why the case was closed; non-null iff status === 'closed'. */
   resolution: CaseResolution | null
@@ -54,6 +56,14 @@ export interface SessionSummary {
   title: string
   turnCount: number
   updatedAt: string
+}
+
+/** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */
+export interface ScanSummary {
+  added: string[]
+  modified: string[]
+  missing: string[]
+  errors: Array<{ relPath: string; error: string }>
 }
 
 export interface EvidenceRecord {

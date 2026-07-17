@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FolderOpen, Trash2 } from 'lucide-react'
+import { FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
 import { Chip, MenuButton, SectionLabel } from './ui'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
@@ -59,6 +59,9 @@ export function CaseFiles({
   const [dragOver, setDragOver] = useState(false)
   const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanNote, setScanNote] = useState<string | null>(null)
+  const [stale, setStale] = useState(false)
 
   useEffect(() => {
     void window.argus.packs.artifactMeta().then(setArtifactMeta, (err) => {
@@ -90,11 +93,35 @@ export function CaseFiles({
         return next
       })
     })
+    const offFiles = window.argus.files.onChanged((slug) => {
+      if (slug === caseSlug) setStale(true)
+    })
     return () => {
       offEvidence?.()
       offParsing?.()
+      offFiles()
     }
   }, [reload, caseSlug])
+
+  async function scan(): Promise<void> {
+    setScanning(true)
+    setScanNote(null)
+    try {
+      const s = await window.argus.evidence.scan(caseSlug)
+      const parts: string[] = []
+      if (s.added.length) parts.push(`${s.added.length} added`)
+      if (s.modified.length) parts.push(`${s.modified.length} updated`)
+      if (s.missing.length) parts.push(`${s.missing.length} missing`)
+      if (s.errors.length) parts.push(`${s.errors.length} failed`)
+      setScanNote(parts.join(' · ') || 'no changes')
+      setStale(false)
+      await reload()
+    } catch (err) {
+      setScanNote(`scan failed: ${(err as Error).message}`)
+    } finally {
+      setScanning(false)
+    }
+  }
 
   async function handleDrop(e: React.DragEvent): Promise<void> {
     e.preventDefault()
@@ -164,6 +191,7 @@ export function CaseFiles({
             {name}
           </button>
           {r.derived && <Chip tone="neutral">derived</Chip>}
+          {r.meta.missing === true && <Chip tone="danger">missing</Chip>}
           <span className="ml-auto line-clamp-2 max-w-[70px] shrink-0 whitespace-normal rounded-r1 bg-overlay px-1.5 py-0.5 text-center font-mono text-[10px] leading-tight text-dim">
             {r.artifactType}
           </span>
@@ -256,6 +284,26 @@ export function CaseFiles({
             ))}
           </select>
           <button
+            aria-label="Rescan evidence folder"
+            title="Rescan evidence folder"
+            disabled={scanning}
+            className="relative inline-flex h-6 w-6 items-center justify-center rounded-r1 border border-hair text-dim transition-colors hover:bg-overlay hover:text-ink"
+            onClick={() => void scan()}
+          >
+            <RefreshCw
+              size={14}
+              strokeWidth={1.5}
+              className={scanning ? 'animate-spin' : undefined}
+            />
+            {stale && (
+              <span
+                data-testid="files-stale-dot"
+                title="Folder changed on disk — rescan to update"
+                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-signal"
+              />
+            )}
+          </button>
+          <button
             aria-label="Open in file explorer"
             title="Open in file explorer"
             className="inline-flex h-6 w-6 items-center justify-center rounded-r1 border border-hair text-dim transition-colors hover:bg-overlay hover:text-ink"
@@ -266,6 +314,7 @@ export function CaseFiles({
         </div>
       </div>
       {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
+      {scanNote && <p className="text-xs text-dim">{scanNote}</p>}
       <ul className="text-xs">
         {visible.map(renderRow)}
         {visible.length === 0 && (

@@ -225,3 +225,55 @@ describe('AtlassianClient', () => {
     expect(e.instanceId).toBe('rovo')
   })
 })
+
+describe('getComments', () => {
+  const adf = (text: string): Record<string, unknown> => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }]
+  })
+  const comment = (id: string, text: string): Record<string, unknown> => ({
+    id,
+    author: { displayName: 'Ada' },
+    created: '2026-07-01T00:00:00Z',
+    updated: '2026-07-02T00:00:00Z',
+    body: adf(text)
+  })
+
+  it('pages through all comments and converts ADF bodies', async () => {
+    const calls: string[] = []
+    const fakeFetch = (async (url: string) => {
+      calls.push(String(url))
+      const startAt = Number(new URL(String(url)).searchParams.get('startAt'))
+      const body =
+        startAt === 0
+          ? { comments: [comment('1', 'first'), comment('2', 'second')], total: 3 }
+          : { comments: [comment('3', 'third')], total: 3 }
+      return new Response(JSON.stringify(body), { status: 200 })
+    }) as unknown as typeof fetch
+    const client = new AtlassianClient(
+      () => ({ instanceId: 'i', siteUrl: 'https://x.atlassian.net', token: 't', email: 'e@x' }),
+      fakeFetch
+    )
+    const out = await client.getComments('NAV-7')
+    expect(calls).toHaveLength(2)
+    expect(out.map((c) => c.id)).toEqual(['1', '2', '3'])
+    expect(out[0]).toMatchObject({
+      author: 'Ada',
+      created: '2026-07-01T00:00:00Z',
+      updated: '2026-07-02T00:00:00Z',
+      bodyMarkdown: 'first'
+    })
+  })
+
+  it('returns [] for a ticket with no comments', async () => {
+    const fakeFetch = (async () =>
+      new Response(JSON.stringify({ comments: [], total: 0 }), {
+        status: 200
+      })) as unknown as typeof fetch
+    const client = new AtlassianClient(
+      () => ({ instanceId: 'i', siteUrl: 'https://x.atlassian.net', token: 't', email: 'e@x' }),
+      fakeFetch
+    )
+    expect(await client.getComments('NAV-7')).toEqual([])
+  })
+})
