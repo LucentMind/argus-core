@@ -41,6 +41,7 @@ describe('JiraRefreshButton', () => {
           { id: '2', filename: 'b', size: 1, mimeType: '', createdAt: '' }
         ],
         deletedOnJira: [{ attachmentId: '3', filename: 'gone.txt' }],
+        newComments: 2,
         syncedAt: '2026-07-11T12:30:00.000Z'
       }
     })
@@ -49,6 +50,7 @@ describe('JiraRefreshButton', () => {
     const note = await screen.findByText(/2 new attachments/i)
     expect(note).toHaveTextContent('status Open → Resolved')
     expect(note).toHaveTextContent('1 attachment deleted on Jira (kept locally)')
+    expect(note).toHaveTextContent('2 new comments')
     expect(refreshCase).toHaveBeenCalledWith('NAV-7')
     expect(screen.getByText(/last refreshed/i)).toHaveTextContent(
       shortStamp('2026-07-11T12:30:00.000Z')
@@ -70,6 +72,7 @@ describe('JiraRefreshButton', () => {
         statusChange: null,
         newAttachments: [],
         deletedOnJira: [],
+        newComments: 0,
         syncedAt: '2026-07-11T12:30:00.000Z'
       }
     })

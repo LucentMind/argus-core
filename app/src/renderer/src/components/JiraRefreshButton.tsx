@@ -15,6 +15,8 @@ function summarize(s: JiraRefreshSummary): string {
     parts.push(
       `${s.deletedOnJira.length} attachment${s.deletedOnJira.length === 1 ? '' : 's'} deleted on Jira (kept locally)`
     )
+  if (s.newComments) parts.push(`${s.newComments} new comment${s.newComments === 1 ? '' : 's'}`)
+  if (s.commentsError) parts.push(`comments fetch failed`)
   return parts.length ? parts.join(' · ') : 'no changes'
 }
 

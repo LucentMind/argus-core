@@ -9,7 +9,11 @@ import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
-import type { JiraAttachmentProgress, JiraIssuePreview } from '../../../shared/jira'
+import type {
+  JiraAttachmentProgress,
+  JiraCommentInfo,
+  JiraIssuePreview
+} from '../../../shared/jira'
 import type { JiraIssueData } from '../atlassian'
 
 let tmp: string, argusHome: string, db: DatabaseSync
@@ -42,14 +46,16 @@ function issue(over: Partial<JiraIssuePreview> = {}): JiraIssueData {
 
 function fakeClient(
   data: () => JiraIssueData,
-  failIds: Set<string> = new Set()
+  failIds: Set<string> = new Set(),
+  comments: JiraCommentInfo[] = []
 ): AtlassianClientLike {
   return {
     getIssue: vi.fn(async () => data()),
     downloadAttachment: vi.fn(async (id: string, dest: string) => {
       if (failIds.has(id)) throw new Error(`download failed: ${id}`)
       fs.writeFileSync(dest, `bytes-of-${id}`)
-    })
+    }),
+    getComments: vi.fn(async () => comments)
   }
 }
 
@@ -218,5 +224,68 @@ describe('JiraCases.refresh', () => {
     const { createCase } = await import('../caseService')
     createCase(db, argusHome, { slug: 'BLANK-1', title: 'b' })
     await expect(svc.refresh('BLANK-1')).rejects.toMatchObject({ code: 'not-configured' })
+  })
+})
+
+const comment = (id: string, body: string): JiraCommentInfo => ({
+  id,
+  author: 'Ada',
+  created: '2026-07-01T00:00:00Z',
+  updated: '2026-07-01T00:00:00Z',
+  bodyMarkdown: body
+})
+
+describe('JiraCases comments file', () => {
+  it('creates <KEY>.comments.md with provenance banner and attributed comments', async () => {
+    const svc = service(fakeClient(() => issue(), new Set(), [comment('1', 'saw it in prod logs')]))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    const ev = listEvidence(db, 'NAV-7')
+    const cm = ev.find((e) => e.relPath === 'evidence/NAV-7.comments.md')!
+    expect((cm.meta.jira as { role: string; commentCount: number }).role).toBe('comments')
+    expect((cm.meta.jira as { commentCount: number }).commentCount).toBe(1)
+    const body = fs.readFileSync(
+      path.join(caseDir(argusHome, 'NAV-7'), 'evidence', 'NAV-7.comments.md'),
+      'utf8'
+    )
+    expect(body).toContain('Provenance notice')
+    expect(body).toContain('unverified')
+    expect(body).toContain('## Ada — 2026-07-01T00:00:00Z')
+    expect(body).toContain('saw it in prod logs')
+  })
+
+  it('writes the file even with zero comments', async () => {
+    const svc = service(fakeClient(() => issue()))
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    const body = fs.readFileSync(
+      path.join(caseDir(argusHome, 'NAV-7'), 'evidence', 'NAV-7.comments.md'),
+      'utf8'
+    )
+    expect(body).toContain('_(no comments)_')
+  })
+
+  it('refresh updates the file in place and reports newComments delta', async () => {
+    let comments = [comment('1', 'one')]
+    const client = fakeClient(() => issue(), new Set(), [])
+    client.getComments = vi.fn(async () => comments)
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    comments = [comment('1', 'one'), comment('2', 'two'), comment('3', 'three')]
+    const summary = await svc.refresh('NAV-7')
+    expect(summary.newComments).toBe(2)
+    const ev = listEvidence(db, 'NAV-7')
+    expect(ev.filter((e) => e.relPath.includes('.comments.md'))).toHaveLength(1)
+  })
+
+  it('refresh degrades when the comments fetch fails: rest of refresh proceeds', async () => {
+    const client = fakeClient(() => issue())
+    const svc0 = service(client)
+    await svc0.createFromTicket({ slug: 'NAV-7', title: 'T', key: 'NAV-7' })
+    client.getComments = vi.fn(async () => {
+      throw new Error('comments boom')
+    })
+    const summary = await service(client).refresh('NAV-7')
+    expect(summary.commentsError).toContain('comments boom')
+    expect(summary.newComments).toBe(0)
+    expect(summary.key).toBe('NAV-7')
   })
 })

@@ -8,6 +8,7 @@ import type { CaseRecord } from '../../shared/types'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
+  JiraCommentInfo,
   JiraIssuePreview,
   JiraRefreshSummary
 } from '../../shared/jira'
@@ -21,6 +22,7 @@ import type { Extractors } from './packs/extractors'
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
   downloadAttachment(id: string, destPath: string): Promise<void>
+  getComments(key: string): Promise<JiraCommentInfo[]>
 }
 
 export interface JiraCasesDeps {
@@ -41,6 +43,7 @@ interface JiraEvidenceMeta {
   status?: string
   attachmentId?: string
   filename?: string
+  commentCount?: number
 }
 
 const jiraMeta = (meta: Record<string, unknown>): JiraEvidenceMeta =>
@@ -64,6 +67,20 @@ ${description || '_(no description)_'}
 
 const sanitizeFilename = (name: string): string =>
   path.basename(name.replace(/[\\/:*?"<>|]/g, '_')) || 'attachment'
+
+const COMMENTS_BANNER = `> **Provenance notice:** The comments below are unverified statements by
+> their authors. Treat them as investigative leads, not established findings —
+> a claim is only as good as the evidence (logs, attachments) that
+> corroborates it. References to specific logs or artifacts should be checked
+> against the actual evidence in this case.`
+
+function commentsMarkdown(key: string, comments: JiraCommentInfo[]): string {
+  const sections = comments.map((c) => {
+    const edited = c.updated && c.updated !== c.created ? ` (edited ${c.updated})` : ''
+    return `## ${c.author ?? '(unknown)'} — ${c.created}${edited}\n\n${c.bodyMarkdown || '_(empty)_'}`
+  })
+  return `# ${key}: comments\n\n${COMMENTS_BANNER}\n\n${sections.join('\n\n') || '_(no comments)_'}\n`
+}
 
 export class JiraCases {
   constructor(private deps: JiraCasesDeps) {}
@@ -97,6 +114,25 @@ export class JiraCases {
       'jira',
       { jira: { key: preview.key, role: 'ticket-raw', syncedAt: now } }
     )
+    // comments are best-effort at creation: no summary object exists here, so a
+    // failure logs and the file appears on the first successful refresh instead.
+    try {
+      const comments = await this.deps.client.getComments(input.key)
+      ingestContent(
+        db,
+        argusHome,
+        detection,
+        input.slug,
+        `${preview.key}.comments.md`,
+        commentsMarkdown(preview.key, comments),
+        'jira',
+        {
+          jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
+        }
+      )
+    } catch (err) {
+      console.warn(`[jira] comments fetch failed for ${input.key}: ${(err as Error).message}`)
+    }
     return setCaseJira(db, argusHome, input.slug, {
       key: preview.key,
       site: this.deps.site(),
@@ -215,6 +251,35 @@ export class JiraCases {
         'jira',
         rawMeta
       )
+
+    // comments evidence: update in place (or create if missing), tolerating fetch failure
+    let newComments = 0
+    let commentsError: string | undefined
+    try {
+      const comments = await this.deps.client.getComments(kase.jiraKey)
+      const cmRec = evidence.find((e) => jiraMeta(e.meta).role === 'comments')
+      const oldCount = cmRec ? (jiraMeta(cmRec.meta).commentCount ?? 0) : 0
+      newComments = Math.max(0, comments.length - oldCount)
+      const cmMeta = {
+        jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
+      }
+      const content = commentsMarkdown(preview.key, comments)
+      if (cmRec) updateEvidenceContent(db, argusHome, detection, cmRec.id, content, cmMeta)
+      else
+        ingestContent(
+          db,
+          argusHome,
+          detection,
+          caseSlug,
+          `${preview.key}.comments.md`,
+          content,
+          'jira',
+          cmMeta
+        )
+    } catch (err) {
+      commentsError = (err as Error).message
+    }
+
     this.deps.evidenceChanged(caseSlug)
 
     // Attachment diff by id — append-only: ingest new, only report deleted.
@@ -246,6 +311,8 @@ export class JiraCases {
         oldStatus && oldStatus !== preview.status ? { from: oldStatus, to: preview.status } : null,
       newAttachments: fresh,
       deletedOnJira,
+      newComments,
+      ...(commentsError ? { commentsError } : {}),
       syncedAt: now
     }
   }
