@@ -36,7 +36,8 @@ beforeEach(() => {
     bundle: {
       export: vi.fn().mockResolvedValue({ ok: true, path: 'C:/x.arguscase', fileCount: 12 })
     },
-    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) }
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
   }
   settingsStore.reset()
 })

@@ -3,8 +3,14 @@ import path from 'node:path'
 import { z } from 'zod'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { DatabaseSync } from 'node:sqlite'
-import { CASE_RESOLUTIONS, type CaseResolution, type CaseStatus } from '../../../shared/types'
+import {
+  CASE_RESOLUTIONS,
+  type CaseRecord,
+  type CaseResolution,
+  type CaseStatus
+} from '../../../shared/types'
 import { searchEvidence } from '../search'
+import { searchCaseSummaries } from '../distill/summaries'
 import { ingestArtifact, listEvidence } from '../ingest'
 import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
@@ -35,6 +41,8 @@ export interface NativeToolDeps {
   ) => { ok: boolean; reason?: string; panel?: unknown }
   /** Capture an open panel to evidence (session-bound by AgentService). Absent in sessions without panels. */
   capturePanel?: (packId: string, windowId: string) => Promise<CapturePanelEvidence>
+  /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
+  onCaseClosed?: (rec: CaseRecord) => void
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -90,6 +98,15 @@ export function argusToolHandlers(
       return JSON.stringify(listEvidence(db, caseSlug), null, 2)
     },
 
+    async search_case_history(args) {
+      const limit = args.limit == null ? 5 : Number(args.limit)
+      const hits = searchCaseSummaries(db, String(args.query ?? ''), { limit })
+      if (hits.length === 0) return 'No similar past cases found.'
+      return hits
+        .map((h) => `«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}`)
+        .join('\n')
+    },
+
     async get_artifact_meta(args) {
       const rec = listEvidence(db, caseSlug).find((e) => e.id === Number(args.evidence_id))
       if (!rec) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
@@ -134,7 +151,7 @@ export function argusToolHandlers(
         }
         resolution = r as CaseResolution
       }
-      setCaseStatus(db, argusHome, caseSlug, status as CaseStatus, resolution)
+      setCaseStatus(db, argusHome, caseSlug, status as CaseStatus, resolution, deps.onCaseClosed)
       return resolution ? `status → ${status} (${resolution})` : `status → ${status}`
     },
 
@@ -245,6 +262,12 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'List all evidence artifacts of this case with types and metadata.',
         {},
         async (a) => asText(await h.list_evidence(a))
+      ),
+      tool(
+        'search_case_history',
+        'Search summaries of closed past cases by symptom/root-cause text. Read-only.',
+        { query: z.string(), limit: z.number().optional() },
+        async (a) => asText(await h.search_case_history(a))
       ),
       tool(
         'get_artifact_meta',

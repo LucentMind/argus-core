@@ -73,6 +73,8 @@ export interface SessionDeps {
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
   capturePanel?: NativeToolDeps['capturePanel']
+  /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
+  onCaseClosed?: NativeToolDeps['onCaseClosed']
   /** Pack-declared panel commands (3b-2), registered as mcp__<pack>__<window>_<cmd> tools. */
   panelCommandDecls?: PanelCommandDecl[]
   /** Dispatch a panel command to the open panel (3b-2); session-bound by AgentService. */
@@ -161,7 +163,8 @@ export class CaseSession {
               this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
             agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess(),
             openPanel: deps.openPanel,
-            capturePanel: deps.capturePanel
+            capturePanel: deps.capturePanel,
+            onCaseClosed: deps.onCaseClosed
           })
         },
         canUseTool: this.canUseTool.bind(this),

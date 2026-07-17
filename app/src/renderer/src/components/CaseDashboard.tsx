@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
 import { Card, Chip, IconBtn, SectionLabel } from './ui'
 import { Download, FolderInput, Plus, Trash2 } from 'lucide-react'
@@ -28,7 +28,21 @@ export function CaseDashboard({
   const [exportNote, setExportNote] = useState<{ slug: string; text: string } | null>(null)
   const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [pendingKnowledge, setPendingKnowledge] = useState(0)
   const settings = useSettingsPayload()
+
+  useEffect(() => {
+    let mounted = true
+    window.argus.proposals
+      .list()
+      .then((p) => {
+        if (mounted) setPendingKnowledge(p.proposals.length)
+      })
+      .catch(() => undefined)
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   async function exportCase(slug: string): Promise<void> {
     setExportNote(null)
@@ -61,6 +75,9 @@ export function CaseDashboard({
         <SectionLabel>Cases · {cases.length} total</SectionLabel>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
         <p className="text-sm text-dim">Defect analysis workbench</p>
+        {pendingKnowledge > 0 && (
+          <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
+        )}
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cases.map((c) => (

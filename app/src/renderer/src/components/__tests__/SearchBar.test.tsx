@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SearchBar } from '../SearchBar'
-import type { EvidenceHit, ChatHit } from '../../../../shared/types'
+import type { EvidenceHit, ChatHit, SummaryHit } from '../../../../shared/types'
 
 const hit: EvidenceHit = {
   kind: 'evidence',
@@ -102,13 +102,38 @@ describe('SearchBar', () => {
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() =>
       expect(window.argus.search.query).toHaveBeenCalledWith('braking', {
-        sources: ['evidence', 'chat']
+        sources: ['evidence', 'chat', 'summaries']
       })
     )
     // grouped by case: both case slugs appear as section labels
     expect(await screen.findByText('NAV-2')).toBeTruthy()
     fireEvent.click(screen.getByText(/triage/))
     expect(onOpen).toHaveBeenCalledWith(chatHit)
+  })
+
+  it('dashboard search surfaces closed-case summary hits and opens them like chat hits', async () => {
+    const summaryHit: SummaryHit = {
+      kind: 'summary',
+      caseSlug: 'NAV-9',
+      signature: 'braking sensor dropout under load',
+      resolution: 'solved',
+      snippet: '«braking» sensor intermittent'
+    }
+    window.argus.search.query = vi.fn(async () => [summaryHit]) as never
+    const onOpen = vi.fn()
+    render(<SearchBar caseSlug={null} onOpen={onOpen} />)
+    fireEvent.change(screen.getByPlaceholderText('Search evidence & chats…'), {
+      target: { value: 'braking' }
+    })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() =>
+      expect(window.argus.search.query).toHaveBeenCalledWith('braking', {
+        sources: ['evidence', 'chat', 'summaries']
+      })
+    )
+    expect(await screen.findByText(/closed case/)).toBeTruthy()
+    fireEvent.click(screen.getByText(/braking sensor dropout under load/))
+    expect(onOpen).toHaveBeenCalledWith(summaryHit)
   })
 
   it('chat hits without a title fall back to the session id', async () => {

@@ -46,6 +46,13 @@ beforeEach(() => {
       list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
     },
     cases: { readFindings: vi.fn(async () => ''), setStatus: vi.fn(async () => undefined) },
+    distill: {
+      status: vi.fn(async () => null),
+      retry: vi.fn(),
+      redistill: vi.fn(),
+      similar: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => undefined)
+    },
     findings: {
       list: vi.fn(async () => []),
       review: vi.fn()

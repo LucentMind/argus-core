@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, MessageSquare } from 'lucide-react'
+import { FileText, MessageSquare, BookMarked } from 'lucide-react'
 import type { SearchFilters, UnifiedHit } from '../../../shared/types'
 import { SectionLabel } from './ui'
 
@@ -30,7 +30,9 @@ function markSnippet(snippet: string): string {
 }
 
 function hitKey(h: UnifiedHit, i: number): string {
-  return h.kind === 'chat' ? `c-${h.sessionId}-${i}` : `e-${h.evidenceId}-${i}`
+  if (h.kind === 'chat') return `c-${h.sessionId}-${i}`
+  if (h.kind === 'summary') return `s-${h.caseSlug}-${i}`
+  return `e-${h.evidenceId}-${i}`
 }
 
 function HitItem({
@@ -51,6 +53,13 @@ function HitItem({
           <span>
             {h.caseSlug} / {h.sessionTitle || `session ${h.sessionId}`}{' '}
             <span className="text-mute">({h.role})</span>
+          </span>
+        </div>
+      ) : h.kind === 'summary' ? (
+        <div className="flex items-center gap-1.5 font-mono font-medium text-ink">
+          <BookMarked size={12} className="shrink-0 text-mute" aria-hidden="true" />
+          <span>
+            {h.caseSlug} / {h.signature} <span className="text-mute">(closed case)</span>
           </span>
         </div>
       ) : (
@@ -84,7 +93,7 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
       ? scope === 'case'
         ? { caseSlug }
         : {}
-      : { sources: ['evidence', 'chat'] }
+      : { sources: ['evidence', 'chat', 'summaries'] }
     setHits(await window.argus.search.query(q, filters))
     setSearched(true)
   }
