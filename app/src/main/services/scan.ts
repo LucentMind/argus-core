@@ -60,7 +60,6 @@ function registerScanned(
     )
     .run(caseId, relPath, sha256, artifactType, size, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  if (indexable) indexEvidenceFile(db, id, absPath)
   const record: EvidenceRecord = {
     id,
     caseId,
@@ -72,7 +71,15 @@ function registerScanned(
     meta,
     createdAt: now
   }
-  writeSidecar(evidenceDir, rel, record)
+  try {
+    if (indexable) indexEvidenceFile(db, id, absPath)
+    writeSidecar(evidenceDir, rel, record)
+  } catch (err) {
+    // error isolation contract: a failed registration must not leave a ghost row
+    deleteEvidenceIndex(db, id)
+    db.prepare(`DELETE FROM evidence WHERE id = ?`).run(id)
+    throw err
+  }
   return record
 }
 
@@ -94,13 +101,15 @@ function rescanModified(
     priorSha256: rec.sha256
   }
   delete meta.missing
+  const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
+  // sidecar first: if this throws, nothing has been committed; if the UPDATE below
+  // fails instead, the next scan still sees the old sha and retries cleanly
+  writeSidecar(evidenceDir, rec.relPath.slice('evidence/'.length), updated)
   db.prepare(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), rec.id)
   deleteEvidenceIndex(db, rec.id)
   if (indexable) indexEvidenceFile(db, rec.id, absPath)
-  const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
-  writeSidecar(evidenceDir, rec.relPath.slice('evidence/'.length), updated)
   return updated
 }
 
