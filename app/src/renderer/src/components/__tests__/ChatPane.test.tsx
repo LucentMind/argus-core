@@ -50,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('ChatPane', () => {
-  it('renders transcript with citation link and tool card', () => {
+  it('renders transcript with citation chip and tool card', () => {
     agentStore.apply(ev('turn.started', { userText: 'why crash?' }))
     agentStore.apply(ev('assistant.message', { text: 'Crash at [evidence/log.txt:3]' }))
     agentStore.apply(
@@ -59,8 +59,11 @@ describe('ChatPane', () => {
     const onCite = vi.fn()
     render(<ChatPane slug="NAV-1" sessionId={1} onSwitchSession={vi.fn()} onCite={onCite} />)
     expect(screen.getByText('why crash?')).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'evidence/log.txt:3' }))
-    expect(onCite).toHaveBeenCalledWith('evidence/log.txt', 3)
+    // collapsed citation chip — clicking it only toggles expansion (which would
+    // fetch a snippet via window.argus.evidence, unstubbed here); the
+    // open-in-viewer -> onCite wiring is covered by CitationCard.test.tsx.
+    const chip = screen.getByRole('button', { name: /log\.txt:3/ })
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
     expect(screen.getByText(/search_evidence/)).toBeTruthy()
   })
 

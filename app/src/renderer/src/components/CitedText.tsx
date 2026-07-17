@@ -1,21 +1,38 @@
 import { splitCitations } from '../lib/citations'
+import { CitationCard } from './CitationCard'
 
 /**
- * Render plain text with any `[relPath:line]` citations turned into clickable
- * links — for USER messages, which are otherwise shown as raw text (not through
- * the markdown renderer). Non-citation text is left exactly as typed.
+ * Render plain text with any `[relPath:line]` citations made interactive — for
+ * USER messages, which are otherwise shown as raw text (not through the markdown
+ * renderer). With a caseSlug the citation is an expandable CitationCard chip;
+ * without one it falls back to a plain link. Non-citation text is left as typed.
  */
 export function CitedText({
   text,
-  onCite
+  onCite,
+  caseSlug
 }: {
   text: string
   onCite: (relPath: string, line: number) => void
+  caseSlug?: string
 }): React.JSX.Element {
   return (
     <>
-      {splitCitations(text).map((seg, i) =>
-        seg.type === 'cite' ? (
+      {splitCitations(text).map((seg, i) => {
+        if (seg.type !== 'cite') return <span key={i}>{seg.text}</span>
+        if (caseSlug) {
+          return (
+            <CitationCard
+              key={i}
+              caseSlug={caseSlug}
+              relPath={seg.relPath}
+              line={seg.line}
+              defaultExpanded={false}
+              onOpenViewer={onCite}
+            />
+          )
+        }
+        return (
           <a
             key={i}
             href={`cite://${seg.relPath}?line=${seg.line}`}
@@ -27,10 +44,8 @@ export function CitedText({
           >
             {seg.relPath}:{seg.line}
           </a>
-        ) : (
-          <span key={i}>{seg.text}</span>
         )
-      )}
+      })}
     </>
   )
 }

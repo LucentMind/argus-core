@@ -204,7 +204,7 @@ export function ChatPane({
                   i === flashIndex ? 'bg-signal/20' : 'bg-hi'
                 } ${findRingClass(i)}`}
               >
-                <CitedText text={item.text} onCite={onCite} />
+                <CitedText text={item.text} onCite={onCite} caseSlug={slug} />
               </div>
             )
           }
@@ -217,7 +217,7 @@ export function ChatPane({
                   i === flashIndex ? 'bg-signal/20' : ''
                 } ${findRingClass(i)}`}
               >
-                <MessageView markdown={item.text} onCite={onCite} />
+                <MessageView markdown={item.text} onCite={onCite} caseSlug={slug} />
                 {item.streaming && <span className="text-xs text-mute">…</span>}
               </div>
             )
