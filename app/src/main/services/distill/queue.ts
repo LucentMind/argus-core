@@ -65,13 +65,19 @@ export class DistillQueue {
 
   constructor(private deps: DistillQueueDeps) {}
 
-  /** running → failed('app quit mid-distill'); returns count of rows flipped. */
+  /**
+   * running → failed('app quit mid-distill'); returns count of rows flipped.
+   * A prior process can also quit between a job's INSERT (state='queued') and its
+   * kick() loop ever running — that job survives the UPDATE above untouched, so
+   * once recovery is done, resume the loop if anything is still queued.
+   */
   recoverOnBoot(): number {
     const res = this.deps.db
       .prepare(
         `UPDATE distill_jobs SET state='failed', error='app quit mid-distill', finished_at=? WHERE state='running'`
       )
       .run(new Date().toISOString())
+    if (this.nextQueued()) this.kick()
     return Number(res.changes)
   }
 
