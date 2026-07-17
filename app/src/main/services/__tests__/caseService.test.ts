@@ -189,6 +189,19 @@ describe('setCaseJiraDeselected', () => {
   it('throws on unknown case', () => {
     expect(() => setCaseJiraDeselected(db, home, 'nope', [])).toThrow(/Unknown case/)
   })
+
+  it('setCaseJira preserves deselectedAttachmentIds in case.json', () => {
+    createCase(db, home, { slug: 'NAV-3', title: 'T' })
+    setCaseJiraDeselected(db, home, 'NAV-3', ['1'])
+    setCaseJira(db, home, 'NAV-3', {
+      key: 'NAV-3',
+      site: 'https://acme.atlassian.net',
+      lastSyncedAt: '2026-07-17T00:00:00Z'
+    })
+    const cj = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'NAV-3'), 'case.json'), 'utf8'))
+    expect(cj.jira.deselectedAttachmentIds).toEqual(['1'])
+    expect(cj.jira.key).toBe('NAV-3')
+  })
 })
 
 describe('maybeAdvanceToAnalyzing', () => {

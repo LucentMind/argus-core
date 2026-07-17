@@ -171,9 +171,22 @@ export function setCaseJira(
     // tags survive instead of being dropped by an empty-object fallback.
     onDisk = { ...existing, id: undefined }
   }
+  const jiraWithDeselected =
+    existing.jiraDeselected.length > 0
+      ? { ...jira, deselectedAttachmentIds: existing.jiraDeselected }
+      : jira
   fs.writeFileSync(
     file,
-    JSON.stringify({ ...onDisk, jiraKey: jira.key, updatedAt: now, jira }, null, 2)
+    JSON.stringify(
+      {
+        ...onDisk,
+        jiraKey: jira.key,
+        updatedAt: now,
+        jira: jiraWithDeselected
+      },
+      null,
+      2
+    )
   )
   return getCase(db, slug)!
 }
