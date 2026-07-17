@@ -281,6 +281,17 @@ describe('CaseWorkspace findings pane', () => {
   })
 })
 
+describe('CaseWorkspace evidence pane', () => {
+  it('collapse hides the pane and the edge button expands it back', async () => {
+    renderWorkspace()
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse evidence' }))
+    expect(screen.queryByRole('button', { name: 'Collapse evidence' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand evidence' }))
+    expect(uiStore.get().evidenceCollapsed).toBe(false)
+    expect(screen.getByRole('button', { name: 'Collapse evidence' })).toBeTruthy()
+  })
+})
+
 describe('CaseWorkspace panel tab host', () => {
   it('shows a Chat tab and lists available panels in the launcher', async () => {
     renderWorkspace()
