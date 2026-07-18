@@ -11,6 +11,7 @@ import { settingsStore } from '../../lib/settingsStore'
 
 const row: ResolvedToolRow = {
   id: 'sample-parse',
+  packId: 'sample-pack',
   displayName: 'sample-parse binary',
   description: 'Binary log decoder',
   kind: 'exe',
