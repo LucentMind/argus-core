@@ -48,7 +48,7 @@ function makeSession(
   // Reuse the case row if a prior call in this test already created it — lets tests
   // create extra session rows for 'NAV-1' via sessionStore before calling makeSession.
   const rec = getCase(db, 'NAV-1') ?? createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
-  const sessionId = createSession(db, 'NAV-1').id
+  const sessionId = createSession(db, 'NAV-1', 'claude-agent-sdk').id
   return new CaseSession({
     db,
     argusHome,
@@ -451,7 +451,7 @@ describe('CaseSession', () => {
       detection: createDetection(),
       caseId: rec.id,
       caseSlug: 'NAV-OPT',
-      sessionId: createSession(db, 'NAV-OPT').id,
+      sessionId: createSession(db, 'NAV-OPT', 'claude-agent-sdk').id,
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
@@ -491,7 +491,7 @@ describe('CaseSession', () => {
       detection: createDetection(),
       caseId: rec2.id,
       caseSlug: 'NAV-DEF',
-      sessionId: createSession(db, 'NAV-DEF').id,
+      sessionId: createSession(db, 'NAV-DEF', 'claude-agent-sdk').id,
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
@@ -851,7 +851,7 @@ describe('CaseSession', () => {
     const sdk = fakeSdk()
     // create the case (via createCase) plus an extra row for it, then construct on the SECOND
     createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
-    const s2 = createSession(db, 'NAV-1')
+    const s2 = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const session = makeSession(sdk, { sessionId: s2.id })
     session.send('investigate braking failure on route 66')
     const title = (

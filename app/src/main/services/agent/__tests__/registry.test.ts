@@ -17,6 +17,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import { fingerprintServers, McpService } from '../../mcp'
 import { ConnectorRegistry } from '../../connectors'
 import { SecretStore, type SecretCrypto } from '../../secrets'
+import type { AgentDriver, DriverKind, DriverSession } from '../driver'
+import { CLAUDE_TOOL_TAXONOMY } from '../risk'
+import { PERMISSION_MODES } from '../../../../shared/settings'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
@@ -73,8 +76,8 @@ describe('AgentService', () => {
       onEvent: (e) => events.push(e),
       createQuery
     })
-    const a = createSession(db, 'NAV-1')
-    const b = createSession(db, 'NAV-1')
+    const a = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const b = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', a.id, 'hello a')
     await svc.send('NAV-1', b.id, 'hello b')
     const states = svc.states()
@@ -95,8 +98,8 @@ describe('AgentService', () => {
       createQuery,
       maxSessions: 2
     })
-    const s1 = createSession(db, 'NAV-1')
-    const s2 = createSession(db, 'NAV-2')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const s2 = createSession(db, 'NAV-2', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'a')
     await svc.send('NAV-2', s2.id, 'b')
     // finish both turns so the sessions are idle — eligible for LRU reaping
@@ -133,7 +136,7 @@ describe('AgentService', () => {
       createQuery,
       composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
     })
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s.id, 'first') // built with NO connectors
     queues[0].push({ type: 'result', is_error: false }) // finish the turn → idle
     await new Promise((r) => setTimeout(r, 10))
@@ -166,7 +169,7 @@ describe('AgentService', () => {
       createQuery,
       composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
     })
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s.id, 'first')
     queues[0].push({ type: 'result', is_error: false })
     await new Promise((r) => setTimeout(r, 10))
@@ -189,7 +192,7 @@ describe('AgentService', () => {
       createQuery,
       composeMcp: async () => ({ servers, skipped: [], fingerprint: fingerprintServers(servers) })
     })
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s.id, 'first') // no result pushed → activeTurn stays true
     servers = { rovo: { type: 'sse', url: 'https://x/y' } }
     await svc.send('NAV-1', s.id, 'second')
@@ -209,8 +212,8 @@ describe('AgentService', () => {
       onEvent: (e) => events.push(e),
       createQuery
     })
-    const s1 = createSession(db, 'NAV-1')
-    const s2 = createSession(db, 'NAV-2')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const s2 = createSession(db, 'NAV-2', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'hello 1')
     await svc.send('NAV-2', s2.id, 'hello 2')
     expect(svc.states()).toHaveLength(2)
@@ -231,9 +234,9 @@ describe('AgentService', () => {
       createQuery,
       maxSessions: 2
     })
-    const s1 = createSession(db, 'NAV-1')
-    const s2 = createSession(db, 'NAV-2')
-    const s3 = createSession(db, 'NAV-3')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const s2 = createSession(db, 'NAV-2', 'claude-agent-sdk')
+    const s3 = createSession(db, 'NAV-3', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'a')
     // complete NAV-1's turn so it is idle
     queues[0].push({
@@ -267,7 +270,7 @@ describe('AgentService', () => {
       createQuery,
       maxSessions: 1
     })
-    const s1 = createSession(db, 'NAV-1')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'a')
     queues[0].push({
       type: 'system',
@@ -341,8 +344,8 @@ describe('AgentService', () => {
     })
     createCase(db, argusHome, { slug: 'C-1', title: 'a' })
     createCase(db, argusHome, { slug: 'C-2', title: 'b' })
-    const c1 = createSession(db, 'C-1')
-    const c2 = createSession(db, 'C-2')
+    const c1 = createSession(db, 'C-1', 'claude-agent-sdk')
+    const c2 = createSession(db, 'C-2', 'claude-agent-sdk')
     await svc.send('C-1', c1.id, 'hi')
     expect((captured[0].systemPrompt as { append: string }).append).toContain('brief.')
     expect(captured[0].model).toBe('claude-opus-4-8')
@@ -399,7 +402,7 @@ describe('AgentService', () => {
       })
     })
     createCase(db, argusHome, { slug: 'C-1', title: 'a' })
-    const c1 = createSession(db, 'C-1')
+    const c1 = createSession(db, 'C-1', 'claude-agent-sdk')
     await svc.send('C-1', c1.id, 'hi')
     // favorites group first regardless of modelOrder rank → claude-opus-4-8 is the top model
     expect(captured[0].model).toBe('claude-opus-4-8')
@@ -418,9 +421,9 @@ describe('AgentService', () => {
       createQuery,
       maxSessions: 10
     })
-    const a = createSession(db, 'NAV-1')
-    const b = createSession(db, 'NAV-1')
-    const c = createSession(db, 'NAV-2')
+    const a = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const b = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const c = createSession(db, 'NAV-2', 'claude-agent-sdk')
     await svc.send('NAV-1', a.id, 'a')
     await svc.send('NAV-1', b.id, 'b')
     await svc.send('NAV-2', c.id, 'c')
@@ -459,7 +462,7 @@ describe('AgentService', () => {
           }
         )
     })
-    const s1 = createSession(db, 'NAV-1')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'hello')
     const file = path.join(caseDir(argusHome, 'NAV-1'), 'sessions', `${s1.id}.jsonl`)
 
@@ -503,13 +506,13 @@ describe('AgentService', () => {
     const appendOf = (i: number): string => (captured[i].systemPrompt as { append: string }).append
 
     // enabled (default) → nudge present
-    const s1 = createSession(db, 'NAV-1')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'hi')
     expect(appendOf(0)).toContain('mcp__argus__write_proposal')
 
     // disabled via agent access → a fresh session gets no nudge
     access = agentAccessSchema.parse({ skills: { 'bundled/contribute-back': false } })
-    const s2 = createSession(db, 'NAV-2')
+    const s2 = createSession(db, 'NAV-2', 'claude-agent-sdk')
     await svc.send('NAV-2', s2.id, 'hi')
     expect(appendOf(1)).not.toContain('mcp__argus__write_proposal')
 
@@ -520,14 +523,14 @@ describe('AgentService', () => {
       path.join(userDir, 'SKILL.md'),
       '---\nname: contribute-back\ndescription: user override\n---\n'
     )
-    const s3 = createSession(db, 'NAV-3')
+    const s3 = createSession(db, 'NAV-3', 'claude-agent-sdk')
     await svc.send('NAV-3', s3.id, 'hi')
     expect(appendOf(2)).toContain('mcp__argus__write_proposal')
 
     // converse: the user-tier shadow (still on disk from NAV-3) disabled at its own key
     // suppresses the nudge too — resolution follows the shadow's key, not the bundled one
     access = agentAccessSchema.parse({ skills: { 'user/contribute-back': false } })
-    const s4 = createSession(db, 'NAV-4')
+    const s4 = createSession(db, 'NAV-4', 'claude-agent-sdk')
     await svc.send('NAV-4', s4.id, 'hi')
     expect(appendOf(3)).not.toContain('mcp__argus__write_proposal')
 
@@ -566,7 +569,7 @@ describe('AgentService', () => {
         createQuery,
         composeMcp: () => mcp.composeForSession()
       })
-      const s = createSession(db, 'NAV-1')
+      const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
 
       // 1. no token: the connector is absent and the skip is logged
       await svc.send('NAV-1', s.id, 'comment on the jira ticket')
@@ -589,5 +592,96 @@ describe('AgentService', () => {
       connectors.close()
       secrets.close()
     }
+  })
+})
+
+/** A minimal AgentDriver stub that just records which `kind` it was constructed under
+ *  every time `createSession` is invoked — enough to observe which driver instance
+ *  AgentService actually used for a given session, without a real SDK/CLI transport. */
+function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
+  return {
+    kind,
+    toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+    capabilities: {
+      permissionModes: PERMISSION_MODES,
+      editableApprovals: true,
+      costReporting: true
+    },
+    createSession(): DriverSession {
+      calls.push(kind)
+      const queue = new AsyncQueue<AgentEvent>()
+      return {
+        events: () => queue,
+        send: () => {},
+        interrupt: async () => {
+          queue.end()
+        },
+        end: () => queue.end()
+      }
+    },
+    probeAuth: async () => ({ ok: true, detail: '' })
+  }
+}
+
+describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
+  it('a thunk `deps.driver` is re-invoked at each getOrCreate, so the NEXT session picks up a provider switch', async () => {
+    const calls: DriverKind[] = []
+    let active: AgentDriver = stubDriver('claude-agent-sdk', calls)
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      driver: () => active
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'hello under claude')
+
+    // Simulate a settings change flipping the active provider mid-app-lifetime.
+    active = stubDriver('github-copilot', calls)
+    const s2 = createSession(db, 'NAV-2', 'github-copilot')
+    await svc.send('NAV-2', s2.id, 'hello under copilot')
+
+    expect(calls).toEqual(['claude-agent-sdk', 'github-copilot'])
+    await svc.stopAll()
+  })
+
+  it('a plain-value `deps.driver` is used as-is for every session (back-compat, no thunk)', async () => {
+    const calls: DriverKind[] = []
+    const fixed = stubDriver('claude-agent-sdk', calls)
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      driver: fixed
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const s2 = createSession(db, 'NAV-2', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'a')
+    await svc.send('NAV-2', s2.id, 'b')
+    expect(calls).toEqual(['claude-agent-sdk', 'claude-agent-sdk'])
+    await svc.stopAll()
+  })
+
+  it('a plain-value `deps.createQuery` (no `driver`) still resolves to the Claude driver, once, as before', async () => {
+    const { createQuery } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery
+    })
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    await svc.send('NAV-1', s1.id, 'hi')
+    expect(svc.states().some((s) => s.sessionId === s1.id)).toBe(true)
+    await svc.stopAll()
   })
 })

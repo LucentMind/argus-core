@@ -28,8 +28,11 @@ export interface AgentServiceDeps {
   onEvent: (e: AgentEvent) => void
   /** Live agent-access overrides (skills/memory); consulted at each session construction. */
   agentAccess: () => AgentAccess
-  /** The agent driver every session runs on; defaults to the Claude driver. */
-  driver?: AgentDriver
+  /** The agent driver every session runs on; defaults to the Claude driver. A thunk is
+   *  re-invoked at every `getOrCreate` (session construction) so switching the active
+   *  provider in settings takes effect on the NEXT session, without an app restart. A
+   *  plain value is treated as a fixed driver, resolved once (back-compat). */
+  driver?: AgentDriver | (() => AgentDriver)
   /** Back-compat test seam: when only `createQuery` is given, it is wrapped in the Claude
    *  driver (`createClaudeDriver(createQuery)`). Ignored when `driver` is supplied. */
   createQuery?: CreateQueryFn
@@ -83,15 +86,25 @@ export class AgentService {
     >
   > &
     AgentServiceDeps
-  private driver: AgentDriver
+  /** Back-compat fallback when `deps.driver` is absent: the (optional) createQuery seam
+   *  wrapped in the Claude driver, resolved once — createClaudeDriver falls back to the
+   *  real SDK query() when createQuery is undefined (production). Only used when
+   *  `deps.driver` is not given at all; a plain-value or thunk `deps.driver` always wins. */
+  private fallbackDriver: AgentDriver
   private sessions = new Map<string, CaseSession>()
 
   constructor(deps: AgentServiceDeps) {
     this.deps = { maxSessions: 3, ...deps }
-    // Resolve the driver once: an explicit driver wins; otherwise wrap the (optional)
-    // createQuery seam in the Claude driver — createClaudeDriver falls back to the real
-    // SDK query() when createQuery is undefined (production).
-    this.driver = deps.driver ?? createClaudeDriver(deps.createQuery)
+    this.fallbackDriver = createClaudeDriver(deps.createQuery)
+  }
+
+  /** Re-resolved on every call (not cached): a thunk `deps.driver` picks up the live
+   *  active provider on each new session; a plain-value `deps.driver` or the constructor's
+   *  memoized fallback behave exactly as the old once-resolved `this.driver` did. */
+  private resolveDriver(): AgentDriver {
+    const d = this.deps.driver
+    if (typeof d === 'function') return d()
+    return d ?? this.fallbackDriver
   }
 
   private keyOf(caseSlug: string, sessionId: number): string {
@@ -146,7 +159,11 @@ export class AgentService {
       }
     }
 
-    const cursor = sessionCursor(this.deps.db, sessionId, this.driver.kind)
+    // Re-resolved here (not once in the constructor): a thunk `deps.driver` picks up the
+    // live active provider, so switching providers in settings takes effect starting with
+    // the NEXT session this getOrCreate constructs — no app restart needed.
+    const driver = this.resolveDriver()
+    const cursor = sessionCursor(this.deps.db, sessionId, driver.kind)
 
     const access = this.deps.agentAccess()
     const resolvedSkills = materializeSessionSkills(this.deps.argusHome, caseSlug, access)
@@ -169,7 +186,7 @@ export class AgentService {
       ],
       packCliNames: this.deps.packCliNames?.() ?? [],
       emit: this.deps.onEvent,
-      driver: this.driver,
+      driver,
       resumeCursor: cursor,
       toolRisk: this.deps.toolRisk,
       agentAccess: this.deps.agentAccess,

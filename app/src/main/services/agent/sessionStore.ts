@@ -23,26 +23,40 @@ function rowToSummary(r: {
   return { id: r.id, title: r.title, turnCount: r.turn_count, updatedAt: r.updated_at }
 }
 
-export function createSession(db: DatabaseSync, caseSlug: string): SessionSummary {
+/** `driverKind` is stamped at creation (Task 7 evidence: `driver_kind` gates cursor
+ *  reuse — see `sessionCursor` below) so a session's cursor is never handed to the wrong
+ *  driver even if the active provider changes later. */
+export function createSession(
+  db: DatabaseSync,
+  caseSlug: string,
+  driverKind: string
+): SessionSummary {
   const caseId = caseIdOf(db, caseSlug)
   const now = new Date().toISOString()
   const res = db
     .prepare(
-      `INSERT INTO sessions (case_id, turn_count, created_at, updated_at) VALUES (?, 0, ?, ?)`
+      `INSERT INTO sessions (case_id, turn_count, created_at, updated_at, driver_kind) VALUES (?, 0, ?, ?, ?)`
     )
-    .run(caseId, now, now)
+    .run(caseId, now, now, driverKind)
   return { id: Number(res.lastInsertRowid), title: '', turnCount: 0, updatedAt: now }
 }
 
-/** Newest-first summaries; guarantees every case has at least one session. */
-export function listSessions(db: DatabaseSync, caseSlug: string): SessionSummary[] {
+/** Newest-first summaries; guarantees every case has at least one session. `driverKind`
+ *  only matters for the (rare) auto-create path — a case with zero sessions — so it
+ *  defaults to the Claude driver (matching the sessions.driver_kind column default);
+ *  callers with live driver context (e.g. AgentService) may still pass the active kind. */
+export function listSessions(
+  db: DatabaseSync,
+  caseSlug: string,
+  driverKind = 'claude-agent-sdk'
+): SessionSummary[] {
   const caseId = caseIdOf(db, caseSlug)
   const rows = db
     .prepare(
       `SELECT id, title, turn_count, updated_at FROM sessions WHERE case_id = ? ORDER BY updated_at DESC, id DESC`
     )
     .all(caseId) as never[]
-  if (rows.length === 0) return [createSession(db, caseSlug)]
+  if (rows.length === 0) return [createSession(db, caseSlug, driverKind)]
   return (rows as { id: number; title: string; turn_count: number; updated_at: string }[]).map(
     rowToSummary
   )

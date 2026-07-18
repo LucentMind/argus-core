@@ -31,14 +31,14 @@ describe('sessionStore', () => {
   it('listSessions creates a first session when none exist, then lists newest-first', () => {
     const first = listSessions(db, 'NAV-1')
     expect(first).toHaveLength(1)
-    const second = createSession(db, 'NAV-1')
+    const second = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const list = listSessions(db, 'NAV-1')
     expect(list).toHaveLength(2)
     expect(list[0].id).toBe(second.id) // newest first
   })
 
   it('setTitleIfEmpty sets once, truncated to 40 chars; rename overwrites; empty rename clears', () => {
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     setTitleIfEmpty(db, s.id, 'x'.repeat(60))
     expect(listSessions(db, 'NAV-1').find((r) => r.id === s.id)!.title).toBe('x'.repeat(40))
     setTitleIfEmpty(db, s.id, 'ignored — already titled')
@@ -49,15 +49,44 @@ describe('sessionStore', () => {
     expect(listSessions(db, 'NAV-1').find((r) => r.id === s.id)!.title).toBe('')
   })
 
+  it('createSession stamps driver_kind at creation, per the driverKind argument', () => {
+    const claudeS = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const row1 = db.prepare(`SELECT driver_kind FROM sessions WHERE id = ?`).get(claudeS.id) as {
+      driver_kind: string
+    }
+    expect(row1.driver_kind).toBe('claude-agent-sdk')
+
+    const copilotS = createSession(db, 'NAV-1', 'github-copilot')
+    const row2 = db.prepare(`SELECT driver_kind FROM sessions WHERE id = ?`).get(copilotS.id) as {
+      driver_kind: string
+    }
+    expect(row2.driver_kind).toBe('github-copilot')
+  })
+
+  it('listSessions auto-create defaults driver_kind to claude-agent-sdk, but honors an explicit driverKind', () => {
+    const s1 = listSessions(db, 'NAV-1')[0]
+    const row1 = db.prepare(`SELECT driver_kind FROM sessions WHERE id = ?`).get(s1.id) as {
+      driver_kind: string
+    }
+    expect(row1.driver_kind).toBe('claude-agent-sdk')
+
+    createCase(db, path.join(tmp, 'home'), { slug: 'NAV-3', title: 't3' })
+    const s2 = listSessions(db, 'NAV-3', 'github-copilot')[0]
+    const row2 = db.prepare(`SELECT driver_kind FROM sessions WHERE id = ?`).get(s2.id) as {
+      driver_kind: string
+    }
+    expect(row2.driver_kind).toBe('github-copilot')
+  })
+
   it('sessionCursor returns the per-session cursor when the driver kind matches', () => {
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     db.prepare(`UPDATE sessions SET driver_cursor = 'uuid-x' WHERE id = ?`).run(s.id)
     expect(sessionCursor(db, s.id, 'claude-agent-sdk')).toBe('uuid-x')
     expect(sessionCursor(db, 999999, 'claude-agent-sdk')).toBeNull()
   })
 
   it('sessionCursor returns null on driver-kind mismatch', () => {
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     db.prepare(`UPDATE sessions SET driver_cursor = 'uuid-x' WHERE id = ?`).run(s.id)
     expect(sessionCursor(db, s.id, 'claude-agent-sdk')).toBe('uuid-x')
     expect(sessionCursor(db, s.id, 'github-copilot')).toBeNull()
@@ -69,8 +98,8 @@ describe('sessionStore', () => {
 
   it('deleteSession removes turns/tool_calls/messages_fts rows, the sessions row, and the jsonl mirror; audits', () => {
     const argusHome = path.join(tmp, 'home')
-    const s = createSession(db, 'NAV-1')
-    const keep = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const keep = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const now = new Date().toISOString()
     const caseId = 1
     db.prepare(
@@ -125,7 +154,7 @@ describe('sessionStore', () => {
   it('deleteSession rejects a session belonging to another case and non-integer ids', () => {
     const argusHome = path.join(tmp, 'home')
     createCase(db, argusHome, { slug: 'NAV-2', title: 't2' })
-    const foreign = createSession(db, 'NAV-2')
+    const foreign = createSession(db, 'NAV-2', 'claude-agent-sdk')
     expect(() => deleteSession(db, argusHome, 'NAV-1', foreign.id)).toThrow(/unknown session/i)
     expect(() => deleteSession(db, argusHome, 'NAV-1', 1.5)).toThrow(/invalid session id/i)
     expect(listSessions(db, 'NAV-2')[0].id).toBe(foreign.id) // untouched

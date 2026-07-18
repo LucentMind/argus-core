@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import type { AppSettings, ModelPreferences } from './settings'
+import {
+  PERMISSION_MODES,
+  type AppSettings,
+  type ModelPreferences,
+  type PermissionMode
+} from './settings'
 
 export interface FieldAnnotation {
   control: 'text' | 'password' | 'textarea' | 'select' | 'switch' | 'number'
@@ -21,6 +26,20 @@ export interface CatalogModel {
   isCustom?: boolean
 }
 
+/**
+ * Renderer-visible driver capabilities — a shared-layer mirror of the main-process
+ * `AgentDriver.capabilities` (`main/services/agent/driver.ts`). Kept as an independent
+ * copy deliberately: this file must never import from `main` (shared-layer rule), and the
+ * two are allowed to (temporarily) diverge — Task 9A will make the copilot AgentDriver's
+ * own capabilities consistent with what's declared here.
+ */
+export interface DriverCapabilities {
+  permissionModes: readonly PermissionMode[]
+  editableApprovals: boolean
+  costReporting: boolean
+  planMode?: boolean
+}
+
 export interface DriverDefinition {
   kind: string
   label: string
@@ -29,14 +48,18 @@ export interface DriverDefinition {
   configSchema: z.ZodType
   formAnnotations: Record<string, FieldAnnotation>
   models: readonly CatalogModel[]
+  capabilities: DriverCapabilities
 }
 
-const claudeConfigSchema = z.looseObject({
+/** Shared instance-config shape: every driver's config is `{ model?, cliPath?, customModels? }`. */
+const agentConfigSchema = z.looseObject({
   model: z.string().optional(), // back-compat: hand-edited config.model still wins (see effectiveDefaultModel)
   cliPath: z.string().optional(),
   customModels: z.array(z.string()).optional()
 })
-export type ClaudeDriverConfig = z.infer<typeof claudeConfigSchema>
+export type AgentDriverConfig = z.infer<typeof agentConfigSchema>
+/** @deprecated use `AgentDriverConfig` — kept so pre-Task-8 call sites still compile. */
+export type ClaudeDriverConfig = AgentDriverConfig
 
 /** Static built-in catalog (t3code BUILT_IN_MODELS) — unconditional, not user-editable. */
 const CLAUDE_MODELS: readonly CatalogModel[] = [
@@ -48,17 +71,53 @@ const CLAUDE_MODELS: readonly CatalogModel[] = [
   { slug: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
 ]
 
+/**
+ * Copilot Free tier exposes only the router (Task 7 evidence, `09-models.jsonl`):
+ * `listModels()` returns exactly `[{id:"auto", name:"Auto"}]`; the real underlying models
+ * (`gpt-5-mini`, `claude-haiku-4.5`) are chosen per-turn and only discoverable from turn
+ * events, not the catalog. `customModels` remains the paid-tier escape hatch for accounts
+ * where `listModels()`/`session.setModel()` widen (unverified — Task 9+).
+ */
+export const COPILOT_MODELS: readonly CatalogModel[] = [{ slug: 'auto', name: 'Auto' }]
+
 export const DRIVERS: Record<string, DriverDefinition> = {
   'claude-agent-sdk': {
     kind: 'claude-agent-sdk',
     label: 'Claude Agent SDK',
     shortLabel: 'Claude',
-    configSchema: claudeConfigSchema,
+    configSchema: agentConfigSchema,
     // model is rendered by the dedicated Models section (ProviderModels), not the generic form
     formAnnotations: {
       cliPath: { control: 'text', label: 'Claude CLI path', placeholder: 'auto-detect', order: 2 }
     },
-    models: CLAUDE_MODELS
+    models: CLAUDE_MODELS,
+    capabilities: {
+      permissionModes: PERMISSION_MODES,
+      editableApprovals: true,
+      costReporting: true
+    }
+  },
+  'github-copilot': {
+    kind: 'github-copilot',
+    label: 'GitHub Copilot',
+    shortLabel: 'Copilot',
+    configSchema: agentConfigSchema,
+    formAnnotations: {
+      cliPath: {
+        control: 'text',
+        label: 'Copilot CLI path',
+        placeholder: 'auto-detect',
+        order: 2,
+        help: 'Path to the copilot binary; leave empty to use the SDK default / PATH.'
+      }
+    },
+    models: COPILOT_MODELS,
+    capabilities: {
+      permissionModes: PERMISSION_MODES,
+      editableApprovals: false,
+      costReporting: false,
+      planMode: true
+    }
   }
 }
 
@@ -75,11 +134,11 @@ export function driverConfig<T>(slug: string, raw: unknown): T {
 }
 
 /** Config of the active, enabled provider instance ({} if missing/disabled/unknown driver). */
-export function activeInstanceConfig(s: AppSettings): ClaudeDriverConfig {
+export function activeInstanceConfig(s: AppSettings): AgentDriverConfig {
   const a = s.agent
   const inst = a.providerInstances[a.activeInstanceId]
   if (!inst || !inst.enabled) return {}
-  return driverConfig<ClaudeDriverConfig>(inst.driver, inst.config)
+  return driverConfig<AgentDriverConfig>(inst.driver, inst.config)
 }
 
 const EMPTY_PREFS: ModelPreferences = {
