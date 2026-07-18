@@ -44,7 +44,8 @@ import {
   atlassianRestConfigured,
   atlassianSiteUrl,
   jiraBrowseUrl,
-  resolveAtlassianCreds
+  resolveAtlassianCreds,
+  type AtlassianAuth
 } from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
 import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
@@ -348,8 +349,8 @@ function registerIpc(): void {
   })
 
   // — Atlassian REST (UI-native; the agent uses Rovo MCP) —
-  const atlassianCreds = (): ReturnType<typeof resolveAtlassianCreds> =>
-    resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n))
+  const atlassianCreds = (): AtlassianAuth =>
+    resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n), mcpOauth)
   const atlassian = new AtlassianClient(atlassianCreds)
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
 
@@ -1110,6 +1111,7 @@ function registerIpc(): void {
     for (const id of before) {
       if (!after.has(id)) {
         mcpOauth.clear(id)
+        atlassian.invalidateCloud(id)
         secretStore.deletePrefix(`connector/${id}/`)
       }
     }
@@ -1124,6 +1126,7 @@ function registerIpc(): void {
     const inst = connectorRegistry.get()[id]
     if (!inst) return { ok: false, error: `unknown connector: ${id}` }
     const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+    atlassian.invalidateCloud(id)
     const r = await mcpOauth.authorize(id, cfg.url)
     // Reset the connector card's display badge (e.g. a stale needs-auth mark) after a
     // successful authorize. Display-only: compose() never consults runtime state, so
@@ -1167,11 +1170,11 @@ function registerIpc(): void {
     probeConnector: (id) => mcpService.probe(id),
     // REST is optional for MCP-only Rovo usage — the row appears only once REST
     // configuration has begun (siteUrl or token set), never as a failure before that.
-    atlassianConfigured: () => atlassianRestConfigured(connectorRegistry.get()),
+    atlassianConfigured: () => atlassianRestConfigured(connectorRegistry.get(), mcpOauth),
     atlassianCheck: async () => {
       try {
-        const me = await atlassian.myself()
-        return { ok: true, detail: `authenticated as ${me.displayName}` }
+        await atlassian.probeJira()
+        return { ok: true, detail: 'Jira REST reachable' }
       } catch (err) {
         return { ok: false, detail: (err as Error).message }
       }
@@ -1217,7 +1220,7 @@ function registerIpc(): void {
     argusHome,
     detection,
     client: atlassian,
-    site: () => atlassianCreds().siteUrl,
+    site: () => atlassianCreds().siteUrl ?? '',
     extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,

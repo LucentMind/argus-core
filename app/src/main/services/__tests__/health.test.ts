@@ -181,7 +181,7 @@ describe('HealthService', () => {
     )
     await bad.run(['atlassian-rest'], (r) => results.push(r))
     expect(results[0]).toMatchObject({ ok: false, detail: 'HTTP 401' })
-    expect(results[0].fixHint).toMatch(/Site URL, email, and API token/)
+    expect(results[0].fixHint).toMatch(/Re-authorize the Atlassian connector/)
   })
 
   it('confluence-rest row appears when a space is configured and maps check results', async () => {
