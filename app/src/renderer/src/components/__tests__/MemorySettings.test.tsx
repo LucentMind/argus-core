@@ -89,3 +89,61 @@ describe('MemorySettings', () => {
     await waitFor(() => expect(window.argus.memory.remove).toHaveBeenCalledWith('tile-blocks'))
   })
 })
+
+describe('MemorySettings editing', () => {
+  it('the pencil becomes a save button while editing, and saving closes the editor', async () => {
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tile-blocks' }))
+    const box = await screen.findByLabelText('edit · tile-blocks')
+    expect((box as HTMLTextAreaElement).value).toBe('topic body')
+    // the same row affordance now offers Save, not another Edit
+    expect(screen.queryByRole('button', { name: 'Edit tile-blocks' })).toBeNull()
+
+    fireEvent.change(box, { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save tile-blocks' }))
+    await waitFor(() => expect(screen.queryByLabelText('edit · tile-blocks')).toBeNull())
+    expect(window.argus.memory.write).toHaveBeenCalledWith('tile-blocks', 'edited body')
+    expect(screen.getByRole('button', { name: 'Edit tile-blocks' })).toBeTruthy()
+  })
+
+  it('Cancel closes without writing — an editor you can only leave by saving is a trap', async () => {
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tile-blocks' }))
+    fireEvent.change(await screen.findByLabelText('edit · tile-blocks'), {
+      target: { value: 'discard me' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByLabelText('edit · tile-blocks')).toBeNull()
+    expect(window.argus.memory.write).not.toHaveBeenCalled()
+  })
+
+  it('Escape cancels', async () => {
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tile-blocks' }))
+    fireEvent.keyDown(await screen.findByLabelText('edit · tile-blocks'), { key: 'Escape' })
+    expect(screen.queryByLabelText('edit · tile-blocks')).toBeNull()
+    expect(window.argus.memory.write).not.toHaveBeenCalled()
+  })
+
+  it('typing does not write — only Save does (no commit-on-blur)', async () => {
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tile-blocks' }))
+    const box = await screen.findByLabelText('edit · tile-blocks')
+    fireEvent.change(box, { target: { value: 'half typed' } })
+    fireEvent.blur(box)
+    expect(window.argus.memory.write).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('edit · tile-blocks')).toBeTruthy() // still open
+  })
+
+  it('the index editor uses the same toggle', async () => {
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit _index' }))
+    fireEvent.change(await screen.findByLabelText('edit · _index'), {
+      target: { value: '- [a](a.md) — x' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save _index' }))
+    await waitFor(() =>
+      expect(window.argus.memory.write).toHaveBeenCalledWith('_index', '- [a](a.md) — x')
+    )
+  })
+})

@@ -1,93 +1,106 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProviderStep } from '../steps'
-import { settingsStore } from '../../../lib/settingsStore'
-import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
-import type { AuthStatus } from '../../../../../shared/types'
+import type { ProviderStatus } from '../../../../../shared/types'
 
-// The step names the ACTIVE provider, so it reads settings as well as auth status.
-function settingsPayload(): SettingsPayload {
+function status(over?: Partial<ProviderStatus>): ProviderStatus {
   return {
-    settings: defaultSettings(),
-    resolvedTools: [],
-    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
-    loadError: null
+    instanceId: 'claude-default',
+    driverKind: 'claude-agent-sdk',
+    displayName: 'Claude',
+    state: 'ready',
+    detail: 'claude ready',
+    checkedAt: '2026-07-19T10:00:00.000Z',
+    ...over
   }
 }
 
-function mockSettings(): Record<string, unknown> {
-  return {
-    get: vi.fn(async () => settingsPayload()),
-    patch: vi.fn(async () => settingsPayload()),
-    onChanged: vi.fn(() => () => {})
-  }
-}
-
-// Typed so a future omission (e.g. dropping `verified`) is a compile error, not silent
-// drift papered over by the `as never` cast below on window.argus.
-function mockAuth(overrides?: Partial<AuthStatus>): AuthStatus {
-  return {
-    ok: true,
-    verified: true,
-    detail: 'ok',
-    email: 'x@y.z',
-    subscription: 'Max',
-    ...overrides
-  }
-}
-
+let statuses: ProviderStatus[]
 beforeEach(() => {
-  settingsStore.reset()
+  statuses = [status()]
   window.argus = {
-    settings: mockSettings(),
-    agent: {
-      authStatus: vi.fn(async (): Promise<AuthStatus> => mockAuth())
+    providers: {
+      statuses: vi.fn(async () => statuses),
+      refresh: vi.fn(async () => statuses),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })
 
 describe('ProviderStep', () => {
-  it('shows logged-in identity and opens the gate', async () => {
-    const setGate = vi.fn()
-    render(<ProviderStep setGate={setGate} />)
-    await waitFor(() => expect(screen.getByText(/logged in as x@y\.z/i)).toBeTruthy())
-    expect(screen.queryByText(/claude is ready/i)).toBeNull()
-    expect(setGate).toHaveBeenCalledWith(true)
-  })
-
-  it('shows guidance and keeps the gate closed when not logged in', async () => {
-    window.argus = {
-      settings: mockSettings(),
-      agent: {
-        authStatus: vi.fn(async (): Promise<AuthStatus> => ({
-          ok: false,
-          verified: false,
-          detail: 'not logged in'
-        }))
-      }
-    } as never
-    const setGate = vi.fn()
-    render(<ProviderStep setGate={setGate} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /re-check/i })).toBeTruthy())
-    expect(setGate).toHaveBeenCalledWith(false)
-  })
-
-  it('renders the probe’s own fix hint rather than Claude-specific advice', async () => {
-    settingsStore.reset()
-    window.argus = {
-      settings: mockSettings(),
-      agent: {
-        authStatus: vi.fn(async (): Promise<AuthStatus> => ({
-          ok: false,
-          verified: false,
-          detail: 'copilot not authenticated',
-          fixHint: 'Sign in to GitHub with `gh auth login`.'
-        }))
-      }
-    } as never
+  it('lists every configured provider, not just the default one', async () => {
+    statuses = [
+      status({ email: 'x@y.z' }),
+      status({
+        instanceId: 'copilot-1',
+        driverKind: 'github-copilot',
+        displayName: 'Copilot',
+        state: 'error',
+        detail: 'not authenticated',
+        fixHint: 'Sign in to GitHub with `gh auth login`.'
+      })
+    ]
     render(<ProviderStep setGate={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText(/gh auth login/i)).toBeTruthy())
+    expect(await screen.findByText('Claude')).toBeTruthy()
+    expect(screen.getByText('Copilot')).toBeTruthy()
+  })
+
+  it('opens the gate when at least one provider is ready, even if another failed', async () => {
+    const setGate = vi.fn()
+    statuses = [
+      status(),
+      status({ instanceId: 'copilot-1', displayName: 'Copilot', state: 'error', detail: 'nope' })
+    ]
+    render(<ProviderStep setGate={setGate} />)
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith(true))
+    // a half-configured setup must not block finishing setup
+    expect(await screen.findByText(/finish setup now/i)).toBeTruthy()
+  })
+
+  it('keeps the gate closed when no provider is ready', async () => {
+    const setGate = vi.fn()
+    statuses = [status({ state: 'error', detail: 'not logged in' })]
+    render(<ProviderStep setGate={setGate} />)
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith(false))
+  })
+
+  it('shows each provider’s own remediation, never another vendor’s', async () => {
+    statuses = [
+      status({
+        instanceId: 'copilot-1',
+        displayName: 'Copilot',
+        state: 'error',
+        detail: 'not authenticated',
+        fixHint: 'Sign in to GitHub with `gh auth login`.'
+      })
+    ]
+    render(<ProviderStep setGate={vi.fn()} />)
+    expect(await screen.findByText(/gh auth login/)).toBeTruthy()
     expect(screen.queryByText(/claude login/i)).toBeNull()
+  })
+
+  it('re-check re-probes every provider', async () => {
+    render(<ProviderStep setGate={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /re-check/i }))
+    expect(window.argus.providers.refresh).toHaveBeenCalled()
+  })
+
+  it('says so when nothing is enabled, and keeps the gate closed', async () => {
+    const setGate = vi.fn()
+    statuses = []
+    render(<ProviderStep setGate={setGate} />)
+    expect(await screen.findByText(/No providers are enabled/i)).toBeTruthy()
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith(false))
+  })
+
+  it('a rejected probe closes the gate rather than hanging on "checking"', async () => {
+    const setGate = vi.fn()
+    window.argus.providers.statuses = vi.fn(async () => {
+      throw new Error('ipc down')
+    }) as never
+    render(<ProviderStep setGate={setGate} />)
+    await waitFor(() => expect(setGate).toHaveBeenCalledWith(false))
+    expect(screen.queryByText(/Checking your providers/)).toBeNull()
   })
 })

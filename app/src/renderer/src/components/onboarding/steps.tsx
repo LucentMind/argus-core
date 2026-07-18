@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AuthStatus } from '../../../../shared/types'
+import type { ProviderStatus } from '../../../../shared/types'
 import type { PacksListPayload } from '../../../../shared/packs'
 import { markIntegration, markPhase1Done } from '../../lib/onboardingStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
 import { DraftInput, FIELD } from '../settings/settingsLayout'
-import { activeDriver } from '../../../../shared/drivers'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
@@ -20,50 +19,51 @@ export function WelcomeStep(): React.JSX.Element {
 }
 
 /**
- * Provider connection step. Driver-agnostic: the copy names whichever provider is active
- * (Claude Agent SDK, GitHub Copilot, …) and the remediation comes from the probe's own
- * `fixHint`, so a Copilot user is never told to run `claude login`.
+ * Provider connection step.
+ *
+ * Lists EVERY configured provider with its own state rather than naming one, because several
+ * can be enabled at once and the chat's model picker draws from all of them. Naming a single
+ * provider here was actively misleading: a user with both Claude and Copilot configured saw
+ * only whichever happened to be the default.
+ *
+ * The gate opens as soon as ONE provider is ready — that is enough to run the agent. The
+ * others are shown with their own remediation so a half-configured setup is visible rather
+ * than silently ignored, but they never block finishing setup.
  */
 export function ProviderStep({ setGate }: { setGate: (ok: boolean) => void }): React.JSX.Element {
-  const [status, setStatus] = useState<AuthStatus | null>(null)
+  const [statuses, setStatuses] = useState<ProviderStatus[] | null>(null)
   const [checking, setChecking] = useState(true)
   const alive = useRef(true)
-  const payload = useSettingsPayload()
-  // Falls back to a generic noun before settings resolve, so the heading never flashes a
-  // provider name that turns out to be the wrong one.
-  const driver = payload ? activeDriver(payload.settings) : null
-  const name = driver?.shortLabel ?? driver?.label ?? 'your provider'
 
-  // Apply a resolved auth status. Guarded so a probe that settles after the step
-  // unmounts (the wizard may advance while a re-check is in flight) is a no-op.
+  // Guarded so a probe settling after the step unmounts (the wizard may advance while a
+  // re-check is in flight) is a no-op.
   const settle = useCallback(
-    (s: AuthStatus) => {
+    (list: ProviderStatus[]) => {
       if (!alive.current) return
-      setStatus(s)
-      setGate(s.ok)
+      setStatuses(list)
+      setGate(list.some((s) => s.state === 'ready'))
       setChecking(false)
     },
     [setGate]
   )
 
-  // Apply a probe rejection: surface it as a failed status so `checking` doesn't
-  // get stuck true and the gate stays closed.
   const fail = useCallback(
     (e: unknown) => {
       if (!alive.current) return
-      setStatus({ ok: false, verified: false, detail: e instanceof Error ? e.message : String(e) })
+      setStatuses([])
       setGate(false)
       setChecking(false)
+      console.error('provider status failed', e)
     },
     [setGate]
   )
 
   useEffect(() => {
     alive.current = true
-    // setState happens only inside the async .then callbacks, never synchronously
-    // in the effect body — mirrors AgentSettings.tsx to avoid set-state-in-effect.
-    void window.argus.agent.authStatus(false).then(
-      (s) => settle(s),
+    // setState happens only inside the async .then callbacks, never synchronously in the
+    // effect body — mirrors AgentSettings.tsx to avoid set-state-in-effect.
+    void window.argus.providers.statuses().then(
+      (l) => settle(l),
       (e) => fail(e)
     )
     return () => {
@@ -71,51 +71,73 @@ export function ProviderStep({ setGate }: { setGate: (ok: boolean) => void }): R
     }
   }, [settle, fail])
 
-  // Re-check: clear the stale result first so the "Checking…" line replaces the
-  // prior guidance rather than rendering alongside it. Runs in an event handler,
-  // so the synchronous setState here is fine.
   function recheck(): void {
-    setStatus(null)
+    setStatuses(null)
     setChecking(true)
-    void window.argus.agent.authStatus(true).then(
-      (s) => settle(s),
+    void window.argus.providers.refresh().then(
+      (l) => settle(l),
       (e) => fail(e)
     )
   }
 
+  const ready = statuses?.filter((s) => s.state === 'ready') ?? []
+  const notReady = statuses?.filter((s) => s.state !== 'ready') ?? []
+
   return (
     <div className="space-y-3">
-      <h2 className="text-lg text-ink">Connect {name}</h2>
-      {checking && <p className="text-sm text-dim">Checking {name} sign-in…</p>}
-      {status?.ok && status.verified && (
-        <p className="text-sm text-signal">
-          Logged in as {status.email ?? 'your account'}
-          {status.subscription ? ` (${status.subscription})` : ''}.
+      <h2 className="text-lg text-ink">Connect a provider</h2>
+      {checking && <p className="text-sm text-dim">Checking your providers…</p>}
+      {statuses && statuses.length === 0 && !checking && (
+        <p className="text-sm text-danger">
+          No providers are enabled — add one in Settings → Agent before continuing.
         </p>
       )}
-      {status?.ok && !status.verified && (
+      {ready.length > 0 && (
         <p className="text-sm text-signal">
-          {name} is ready
-          {status.email ? `, with ${status.email} on file` : ''}. Sign-in is confirmed on your first
-          message.
+          {ready.map((s) => s.displayName).join(' and ')} {ready.length === 1 ? 'is' : 'are'} ready.
+          Sign-in is confirmed on your first message.
         </p>
       )}
-      {status && !status.ok && (
-        <div className="space-y-2">
-          <p className="text-sm text-danger">{name} isn’t signed in — the agent can’t run yet.</p>
-          {/* Driver-supplied remediation (AgentDriver.authFixHint) — the fallback covers a
-              probe that predates the field or an unresolvable driver slug. */}
-          <p className="text-xs text-dim">
-            {status.fixHint ?? `Sign in to ${name}, then re-check.`}
-          </p>
-          {status.detail && <p className="text-xs text-mute">{status.detail}</p>}
-          <button
-            className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink"
-            onClick={recheck}
-          >
-            Re-check
-          </button>
-        </div>
+      {statuses && statuses.length > 0 && (
+        <ul className="space-y-1">
+          {statuses.map((s) => (
+            <li
+              key={s.instanceId}
+              className="flex items-start gap-2 rounded-r2 border border-hair px-3 py-2"
+            >
+              <span
+                aria-hidden
+                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                  s.state === 'ready' ? 'bg-review' : s.state === 'error' ? 'bg-danger' : 'bg-faint'
+                }`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="text-sm text-ink">{s.displayName}</span>
+                <span className="block text-xs text-mute">
+                  {s.state === 'ready' && s.email ? `Authenticated as ${s.email}` : s.detail}
+                </span>
+                {/* Driver-supplied remediation (AgentDriver.authFixHint) — never another
+                    vendor's advice. */}
+                {s.state === 'error' && s.fixHint && (
+                  <span className="block text-xs text-dim">{s.fixHint}</span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {notReady.length > 0 && ready.length > 0 && (
+        <p className="text-xs text-mute">
+          You can finish setup now — the others can be connected later from Settings → Agent.
+        </p>
+      )}
+      {!checking && (
+        <button
+          className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink"
+          onClick={recheck}
+        >
+          Re-check
+        </button>
       )}
     </div>
   )
