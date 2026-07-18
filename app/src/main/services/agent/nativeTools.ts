@@ -20,6 +20,8 @@ import { setCaseStatus } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
+import { ensureIndex, getLines, searchLines } from '../lineIndex'
+import { resolveTextDocAbs } from '../textdoc'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -87,6 +89,27 @@ export function argusToolHandlers(
   const { db, argusHome, detection, caseSlug, sessionId } = deps
   const dir = caseDir(argusHome, caseSlug)
 
+  const num = (v: unknown, name: string, fallback?: number): number => {
+    if (v == null && fallback !== undefined) return fallback
+    const n = Number(v)
+    if (!Number.isFinite(n)) throw new Error(`${name} must be a number`)
+    return n
+  }
+
+  const resolveIndexedEvidence = async (
+    evidenceId: number
+  ): Promise<{ abs: string; index: Awaited<ReturnType<typeof ensureIndex>> }> => {
+    const res = resolveTextDocAbs(db, argusHome, { kind: 'evidence', evidenceId })
+    // Scope to this session's case — resolveTextDocAbs resolves across ALL cases, so without
+    // this check an agent could read another case's evidence by guessing/iterating ids.
+    // Same error as not-found: don't leak that the id exists in another case.
+    if ('error' in res || res.caseSlug !== caseSlug) {
+      throw new Error(`Unknown evidence_id: ${evidenceId}`)
+    }
+    const index = await ensureIndex(argusHome, res.abs)
+    return { abs: res.abs, index }
+  }
+
   return {
     async search_evidence(args) {
       const scope = args.scope === 'all' ? undefined : caseSlug
@@ -114,6 +137,50 @@ export function argusToolHandlers(
       const rec = listEvidence(db, caseSlug).find((e) => e.id === Number(args.evidence_id))
       if (!rec) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
       return JSON.stringify(rec, null, 2)
+    },
+
+    async read_lines(args) {
+      const { abs, index } = await resolveIndexedEvidence(num(args.evidence_id, 'evidence_id'))
+      const from = Math.max(1, num(args.from, 'from', 1))
+      const to = Math.min(num(args.to, 'to', from), from + 499)
+      if (from > index.totalLines) {
+        return `line ${from} does not exist — the file ends at line ${index.totalLines}`
+      }
+      const r = getLines(index, abs, from, to)
+      const body = r.lines.map((l, i) => `${r.from + i}\t${l}`).join('\n')
+      return `lines ${r.from}-${r.from + r.lines.length - 1} of ${index.totalLines}\n${body}`
+    },
+
+    async grep_lines(args) {
+      const { abs, index } = await resolveIndexedEvidence(num(args.evidence_id, 'evidence_id'))
+      const maxResults = Math.min(num(args.max_results, 'max_results', 200), 1000)
+      const fromLine = Math.max(1, num(args.from_line, 'from_line', 1))
+      const toLine = args.to_line == null ? undefined : num(args.to_line, 'to_line')
+      const filterQuery = args.filter_query == null ? undefined : String(args.filter_query)
+      const hits: number[] = []
+      let scannedTo = fromLine - 1
+      let capped = false
+      for await (const b of searchLines(index, abs, String(args.query ?? ''), {
+        regex: args.regex === true,
+        fromLine,
+        toLine,
+        maxResults,
+        filter:
+          filterQuery === undefined
+            ? undefined
+            : { query: filterQuery, regex: args.filter_regex === true }
+      })) {
+        hits.push(...b.hits)
+        scannedTo = b.scannedTo
+        capped = b.capped
+      }
+      const shown = hits.map((n) => {
+        const line = getLines(index, abs, n, n).lines[0] ?? ''
+        return `${n}\t${line}`
+      })
+      const header = `${hits.length} matches (lines ${fromLine}-${scannedTo} of ${index.totalLines})`
+      const tail = capped ? `\n[capped — continue with from_line: ${scannedTo + 1}]` : ''
+      return `${header}\n${shown.join('\n')}${tail}`
     },
 
     async ingest_artifact(args) {
@@ -276,6 +343,27 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     name: 'get_artifact_meta',
     description: 'Full metadata for one evidence artifact.',
     schema: { evidence_id: z.number() }
+  },
+  {
+    name: 'read_lines',
+    description:
+      'Read a numbered line range from an evidence file of ANY size (fast seek, no offset guessing). Max 500 lines per call. Use the returned line numbers in [relPath:line] citations.',
+    schema: { evidence_id: z.number(), from: z.number(), to: z.number() }
+  },
+  {
+    name: 'grep_lines',
+    description:
+      'Exhaustive line-number search inside ONE evidence file of any size. Pipeline mirrors the viewer: from_line/to_line = cut, filter_query (+filter_regex) = filter, query = search — a line must match filter AND query. Case-insensitive by default. Scope with from_line/to_line (e.g. second half of the file); when capped, continue from the reported from_line. Complements search_evidence (cross-evidence FTS, top hits only).',
+    schema: {
+      evidence_id: z.number(),
+      query: z.string(),
+      regex: z.boolean().optional(),
+      from_line: z.number().optional(),
+      to_line: z.number().optional(),
+      max_results: z.number().optional(),
+      filter_query: z.string().optional(),
+      filter_regex: z.boolean().optional()
+    }
   },
   {
     name: 'ingest_artifact',

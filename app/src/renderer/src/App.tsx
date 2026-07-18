@@ -11,6 +11,7 @@ import { SettingsView, type PageId } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
 import { citationsTray } from './lib/citationsTray'
+import { viewerForFileNode } from './lib/fileRouting'
 import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
@@ -171,9 +172,7 @@ function App(): React.JSX.Element {
             onOpenCitation={(id, start, end) =>
               setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
             }
-            onOpenFile={(node) =>
-              setViewer({ kind: 'file', slug: view.slug, relPath: node.relPath })
-            }
+            onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
             onOpenCase={openCase}
             onOpenRepoFile={(repoName, relPath, start, end) =>
               setViewer({

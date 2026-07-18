@@ -1,5 +1,9 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
+import { LineSplitter } from './lineScan'
+import { sidecarPath, CHECKPOINT_LINES, CHECKPOINT_BYTES } from './lineIndex'
+import { MAX_READ_BYTES } from './search'
 
 const READ_CHUNK_BYTES = 1024 * 1024
 
@@ -8,25 +12,38 @@ const READ_CHUNK_BYTES = 1024 * 1024
 // boundary. Never materializes the whole file as one JS string — required
 // for files over V8's ~512MB string-length ceiling, and keeps memory bounded
 // for any file size.
+//
+// When argusHome is given and the file exceeds MAX_READ_BYTES, this also
+// records line-index checkpoints in the same pass and writes them as a
+// sidecar (see lineIndex.ts) — one scan of the file produces both the FTS
+// chunks and the piggybacked line index, so the large-file viewer never has
+// to re-scan a file it just ingested.
 export function indexEvidenceFile(
   db: DatabaseSync,
   evidenceId: number,
   absPath: string,
-  chunkLines = 400
+  chunkLines = 400,
+  argusHome?: string
 ): number {
   const ins = db.prepare(
     `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
      VALUES (?, ?, ?, ?, ?)`
   )
+  const stat = fs.statSync(absPath)
+  const wantSidecar = argusHome !== undefined && stat.size > MAX_READ_BYTES
+  const checkpoints: Array<[number, number]> = [[1, 0]]
+  let lastCpLine = 1
+  let lastCpByte = 0
+
   const fd = fs.openSync(absPath, 'r')
   try {
     const buf = Buffer.alloc(READ_CHUNK_BYTES)
-    let carry = Buffer.alloc(0)
     let lineNo = 0
     let chunkIndex = 0
     let chunkStart = 1
     let pending: string[] = []
     let offset = 0
+    const splitter = new LineSplitter()
 
     const flush = (): void => {
       if (pending.length === 0) return
@@ -41,28 +58,43 @@ export function indexEvidenceFile(
       chunkStart = lineNo + 1
       pending = []
     }
+    const onLine = (line: Buffer, n: number, byteStart: number): void => {
+      lineNo = n
+      pending.push(line.toString('utf8'))
+      if (pending.length >= chunkLines) flush()
+      if (
+        wantSidecar &&
+        (n - lastCpLine >= CHECKPOINT_LINES || byteStart - lastCpByte >= CHECKPOINT_BYTES)
+      ) {
+        checkpoints.push([n, byteStart])
+        lastCpLine = n
+        lastCpByte = byteStart
+      }
+    }
 
     while (true) {
       const n = fs.readSync(fd, buf, 0, READ_CHUNK_BYTES, offset)
       if (n === 0) break
       offset += n
-      const data = Buffer.concat([carry, buf.subarray(0, n)])
-      let start = 0
-      let nl = data.indexOf(0x0a, start)
-      while (nl !== -1) {
-        lineNo++
-        pending.push(data.subarray(start, nl).toString('utf8'))
-        if (pending.length >= chunkLines) flush()
-        start = nl + 1
-        nl = data.indexOf(0x0a, start)
-      }
-      carry = data.subarray(start)
+      splitter.push(buf.subarray(0, n), onLine)
     }
-    if (carry.length > 0) {
-      lineNo++
-      pending.push(carry.toString('utf8'))
-    }
+    splitter.flush(onLine)
     flush()
+
+    if (wantSidecar) {
+      const side = sidecarPath(argusHome as string, absPath)
+      fs.mkdirSync(path.dirname(side), { recursive: true })
+      fs.writeFileSync(
+        side,
+        JSON.stringify({
+          version: 1,
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          totalLines: lineNo,
+          checkpoints
+        })
+      )
+    }
     return chunkIndex
   } finally {
     fs.closeSync(fd)

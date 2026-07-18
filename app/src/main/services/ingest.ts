@@ -71,6 +71,7 @@ function rowToEvidence(r: EvidenceRow): EvidenceRecord {
 
 function registerEvidenceFile(
   db: DatabaseSync,
+  argusHome: string,
   detection: Detection,
   caseId: number,
   evidenceDir: string,
@@ -95,7 +96,7 @@ function registerEvidenceFile(
     )
     .run(caseId, relPath, sha256, artifactType, size, origin, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  if (indexable) indexEvidenceFile(db, id, destPath)
+  if (indexable) indexEvidenceFile(db, id, destPath, 400, argusHome)
 
   const record: EvidenceRecord = {
     id,
@@ -135,6 +136,7 @@ export function ingestArtifact(
   fs.copyFileSync(sourcePath, path.join(evidenceDir, destName))
   const rec = registerEvidenceFile(
     db,
+    argusHome,
     detection,
     kase.id,
     evidenceDir,
@@ -165,6 +167,7 @@ export function ingestContent(
   fs.writeFileSync(path.join(evidenceDir, destName), content)
   const rec = registerEvidenceFile(
     db,
+    argusHome,
     detection,
     kase.id,
     evidenceDir,
@@ -207,7 +210,7 @@ export function updateEvidenceContent(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), evidenceId)
   deleteEvidenceIndex(db, evidenceId)
-  if (indexable) indexEvidenceFile(db, evidenceId, absPath)
+  if (indexable) indexEvidenceFile(db, evidenceId, absPath, 400, argusHome)
 
   const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
   const destName = rec.relPath.slice('evidence/'.length)
@@ -248,7 +251,7 @@ export function ingestDerived(
     )
     .run(kase.id, relPath, sha256, size, JSON.stringify(meta), now)
   const id = Number(res.lastInsertRowid)
-  indexEvidenceFile(db, id, absPath)
+  indexEvidenceFile(db, id, absPath, 400, argusHome)
 
   const record: EvidenceRecord = {
     id,
