@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Btn, Chip } from './ui'
 import { HighlightedLines } from './HighlightedLines'
 import { VirtualLines } from './VirtualLines'
@@ -22,7 +22,7 @@ function virtualLinesCommonProps(
   focusStart: number,
   focusEnd: number,
   scrollTarget: { row: number; nonce: number } | null,
-  cache: LinePageCache
+  getLine: (n: number) => string | undefined
 ): {
   className: string
   getLine: (n: number) => string | undefined
@@ -33,7 +33,7 @@ function virtualLinesCommonProps(
 } {
   return {
     className: 'flex-1 p-3',
-    getLine: (n: number) => cache.getLine(n),
+    getLine,
     focusStart,
     focusEnd,
     lang: doc.lang,
@@ -220,18 +220,28 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
     setIndexing(null)
   }
 
-  const cache = useMemo(
-    () => new LinePageCache((from, to) => window.argus.textdoc.lines(source, from, to)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docKey]
-  )
+  // The page cache is a disposable resource, so the effect that disposes it must
+  // also OWN it. Creating it in useMemo breaks under StrictMode's dev-only
+  // setup→cleanup→setup mount cycle: cleanup would dispose the memoized instance,
+  // and the second setup would reuse it dead — every page fetch silently dropped.
+  const cacheRef = useRef<LinePageCache | null>(null)
   useEffect(() => {
-    const un = cache.subscribe(() => bump((n) => n + 1))
+    const c = new LinePageCache((from, to) => window.argus.textdoc.lines(source, from, to))
+    cacheRef.current = c
+    const un = c.subscribe(() => bump((n) => n + 1))
+    // rows already rendered (as skeletons) before this effect ran — nudge one
+    // re-render from a microtask so they re-query the now-live cache
+    // (promise-callback shape keeps react-hooks/set-state-in-effect happy)
+    void Promise.resolve().then(() => bump((n) => n + 1))
     return () => {
       un()
-      cache.dispose()
+      c.dispose()
+      if (cacheRef.current === c) cacheRef.current = null
     }
-  }, [cache])
+    // source identity is docKey (fresh object literal per parent render)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docKey])
+  const getCachedLine = (n: number): string | undefined => cacheRef.current?.getLine(n)
 
   useEffect(() => {
     // a source switch tears this effect down; drop any open() response that
@@ -386,7 +396,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
           />
         ) : doc && search.state.filterMode ? (
           <VirtualLines
-            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, cache)}
+            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
             totalRows={search.state.hits.length}
             rowToLine={(r) => search.state.hits[r]}
             onVisibleRows={(first, last) => {
@@ -394,7 +404,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
               // hits naturally coalesce onto the same page via LinePageCache
               for (let r = first; r <= last; r++) {
                 const n = search.state.hits[r]
-                if (n !== undefined) cache.prefetch(n, n)
+                if (n !== undefined) cacheRef.current?.prefetch(n, n)
               }
               const mid = search.state.hits[Math.floor((first + last) / 2)]
               if (mid !== undefined) currentLine.current = mid
@@ -406,11 +416,11 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
           />
         ) : doc ? (
           <VirtualLines
-            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, cache)}
+            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
             totalRows={doc.totalLines}
             rowToLine={(r) => r + 1}
             onVisibleRows={(first, last) => {
-              cache.prefetch(first - 500, last + 502)
+              cacheRef.current?.prefetch(first - 500, last + 502)
               currentLine.current = Math.floor((first + last) / 2) + 1
             }}
           />

@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Mock } from 'vitest'
+import { StrictMode } from 'react'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TextViewer } from '../TextViewer'
@@ -104,6 +105,23 @@ describe('TextViewer', () => {
     await screen.findByText(/util\.ts/)
     await waitFor(() => expect(container.querySelector('#line-2')).not.toBeNull())
     expect(container.querySelector('#line-2')!.className).toContain('bg-defect/20')
+  })
+
+  it('loads line content under React StrictMode (page cache survives double-mounted effects)', async () => {
+    // the app mounts under StrictMode (main.tsx); dev double-invokes effect
+    // setup/cleanup on mount, so a cache disposed in cleanup but owned by
+    // useMemo would be reused dead — rows would skeleton forever
+    render(
+      <StrictMode>
+        <TextViewer
+          source={{ kind: 'evidence', evidenceId: 2 }}
+          focusStart={1}
+          focusEnd={1}
+          onClose={vi.fn()}
+        />
+      </StrictMode>
+    )
+    expect(await screen.findByText('big line 1')).toBeInTheDocument()
   })
 
   it('syntax-highlights code files by extension', async () => {
