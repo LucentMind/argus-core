@@ -156,6 +156,7 @@ export function argusToolHandlers(
       const maxResults = Math.min(num(args.max_results, 'max_results', 200), 1000)
       const fromLine = Math.max(1, num(args.from_line, 'from_line', 1))
       const toLine = args.to_line == null ? undefined : num(args.to_line, 'to_line')
+      const filterQuery = args.filter_query == null ? undefined : String(args.filter_query)
       const hits: number[] = []
       let scannedTo = fromLine - 1
       let capped = false
@@ -163,7 +164,11 @@ export function argusToolHandlers(
         regex: args.regex === true,
         fromLine,
         toLine,
-        maxResults
+        maxResults,
+        filter:
+          filterQuery === undefined
+            ? undefined
+            : { query: filterQuery, regex: args.filter_regex === true }
       })) {
         hits.push(...b.hits)
         scannedTo = b.scannedTo
@@ -349,14 +354,16 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
       ),
       tool(
         'grep_lines',
-        'Exhaustive line-number search inside ONE evidence file of any size. Scope with from_line/to_line (e.g. second half of the file); when capped, continue from the reported from_line. Complements search_evidence (cross-evidence FTS, top hits only).',
+        'Exhaustive line-number search inside ONE evidence file of any size. Pipeline mirrors the viewer: from_line/to_line = cut, filter_query (+filter_regex) = filter, query = search — a line must match filter AND query. Case-insensitive by default. Scope with from_line/to_line (e.g. second half of the file); when capped, continue from the reported from_line. Complements search_evidence (cross-evidence FTS, top hits only).',
         {
           evidence_id: z.number(),
           query: z.string(),
           regex: z.boolean().optional(),
           from_line: z.number().optional(),
           to_line: z.number().optional(),
-          max_results: z.number().optional()
+          max_results: z.number().optional(),
+          filter_query: z.string().optional(),
+          filter_regex: z.boolean().optional()
         },
         async (a) => asText(await h.grep_lines(a))
       ),

@@ -120,4 +120,32 @@ describe('grep_lines', () => {
       handlers.grep_lines({ evidence_id: otherCaseEvidenceId, query: 'secret' })
     ).rejects.toThrow(/Unknown evidence_id/)
   })
+
+  it('grep_lines pipes cut → filter → search', async () => {
+    // fixture: ERROR on lines 501, 1501, …; 'a' matches 'trace' and 'at step'
+    // With filter_query='ERROR', only ERROR lines pass the filter, so AND yields just 1501, 2501, 3501
+    const out = await handlers.grep_lines({
+      evidence_id: evidenceId,
+      query: 'a',
+      filter_query: 'ERROR',
+      from_line: 1000,
+      to_line: 4000
+    })
+    expect(out).toContain('3 matches')
+    expect(out).toContain('1501\t')
+    expect(out).toContain('2501\t')
+    expect(out).toContain('3501\t')
+  })
+
+  it('grep_lines filter_regex works and garbage filter args stay strings', async () => {
+    const out = await handlers.grep_lines({
+      evidence_id: evidenceId,
+      query: 'at step',
+      filter_query: 'ERROR at step \\d?50\\d',
+      filter_regex: true,
+      to_line: 2000
+    })
+    expect(out).toContain('501\t')
+    expect(out).toContain('1501\t')
+  })
 })
