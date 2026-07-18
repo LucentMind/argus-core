@@ -541,22 +541,55 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
   // Entering/leaving the filtered view reuses the same VirtualLines instance,
   // so the previous branch's scrollTop would otherwise leak across the switch
   // (a deep-file offset clamps to the bottom of a short filtered list, and
-  // vice versa). Re-seed on each transition: the filtered view opens at its
-  // top; the full view returns to the line the user was last looking at.
-  const prevFilterActive = useRef(filterActive)
+  // vice versa). Re-seed on each transition — adjust-state-during-render, like
+  // the docKey reset above, so it lands in the same render that switches the
+  // view and can never clobber a later user-initiated scroll. The filtered
+  // view opens at the row nearest the user's current line (placed once the
+  // first hit batch arrives — the flip itself happens on the first keystroke,
+  // before any hits exist); leaving returns to that line in the full view.
+  // These programmatic scrolls must NOT move the next/prev cursor: the
+  // scroll's own onVisibleRows measures would re-seed currentLine to the new
+  // window top, so the transition records the cursor and a parent effect
+  // restores it after the commit settles (React runs child effects — the
+  // VirtualLines measures — before the parent's, so the restore always wins).
+  const filterHasHits = search.state.filter.hits.length > 0
+  const pendingCursorRestore = useRef<number | null>(null)
+  const [prevView, setPrevView] = useState({ filterActive, filterHasHits })
+  if (prevView.filterActive !== filterActive || prevView.filterHasHits !== filterHasHits) {
+    const entering = prevView.filterActive !== filterActive
+    const firstHits = filterActive && filterHasHits && !prevView.filterHasHits
+    setPrevView({ filterActive, filterHasHits })
+    if ((entering || firstHits) && doc && doc.whole === undefined) {
+      // deliberate ref access in render: idempotent (transition-only branch),
+      // mirrors the docKey reset idiom above
+      // eslint-disable-next-line react-hooks/refs
+      nonce.current++
+      // eslint-disable-next-line react-hooks/refs
+      pendingCursorRestore.current = currentLine.current
+      setScrollTarget(
+        filterActive
+          ? {
+              // eslint-disable-next-line react-hooks/refs
+              row: nearestAtOrBelow(search.state.filter.hits, currentLine.current),
+              // eslint-disable-next-line react-hooks/refs
+              nonce: nonce.current
+            }
+          : {
+              // eslint-disable-next-line react-hooks/refs
+              row: Math.max(0, currentLine.current - cut.from),
+              // eslint-disable-next-line react-hooks/refs
+              nonce: nonce.current
+            }
+      )
+    }
+  }
   useEffect(() => {
-    if (prevFilterActive.current === filterActive) return
-    prevFilterActive.current = filterActive
-    if (!doc || doc.whole !== undefined) return
-    nonce.current++
-    const target = filterActive
-      ? { row: 0, nonce: nonce.current }
-      : { row: Math.max(0, currentLine.current - cut.from), nonce: nonce.current }
-    // promise-callback shape per the set-state-in-effect lint convention
-    void Promise.resolve().then(() => setScrollTarget(target))
-    // transition detection only — doc/cut are read, not watched
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterActive])
+    // runs after the VirtualLines measure effects of the same commit
+    if (pendingCursorRestore.current !== null) {
+      currentLine.current = pendingCursorRestore.current
+      pendingCursorRestore.current = null
+    }
+  })
 
   const activeLine =
     search.state.activeIdx !== null
@@ -688,7 +721,9 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
               }
               // seed next/prev from the top of the window, not its midpoint —
               // the midpoint (overscan-included) pins to the list centre on
-              // short filtered lists and trapped the cursor (see useViewerStreams)
+              // short filtered lists and trapped the cursor (see useViewerStreams).
+              // (Programmatic transition scrolls are undone by the
+              // pendingCursorRestore effect above.)
               const top = search.state.filter.hits[first]
               if (top !== undefined) currentLine.current = top
             }}
@@ -713,6 +748,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
               const hiLine = cut.to !== null ? Math.min(hiLineRaw, cut.to) : hiLineRaw
               cache?.prefetch(loLine, hiLine)
               // top-of-window seed; only the first next/prev press reads this
+              // (programmatic transition scrolls are undone by pendingCursorRestore)
               currentLine.current = first + cut.from
             }}
           />
