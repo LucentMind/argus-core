@@ -20,6 +20,8 @@ import { setCaseStatus } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
+import { ensureIndex, getLines, searchLines } from '../lineIndex'
+import { resolveTextDocAbs } from '../textdoc'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -114,6 +116,55 @@ export function argusToolHandlers(
       const rec = listEvidence(db, caseSlug).find((e) => e.id === Number(args.evidence_id))
       if (!rec) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
       return JSON.stringify(rec, null, 2)
+    },
+
+    async read_lines(args) {
+      const res = resolveTextDocAbs(db, argusHome, {
+        kind: 'evidence',
+        evidenceId: Number(args.evidence_id)
+      })
+      if ('error' in res) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
+      const index = await ensureIndex(argusHome, res.abs)
+      const from = Math.max(1, Number(args.from ?? 1))
+      const to = Math.min(Number(args.to ?? from), from + 499)
+      if (from > index.totalLines) {
+        return `line ${from} does not exist — the file ends at line ${index.totalLines}`
+      }
+      const r = getLines(index, res.abs, from, to)
+      const body = r.lines.map((l, i) => `${r.from + i}\t${l}`).join('\n')
+      return `lines ${r.from}-${r.from + r.lines.length - 1} of ${index.totalLines}\n${body}`
+    },
+
+    async grep_lines(args) {
+      const res = resolveTextDocAbs(db, argusHome, {
+        kind: 'evidence',
+        evidenceId: Number(args.evidence_id)
+      })
+      if ('error' in res) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
+      const index = await ensureIndex(argusHome, res.abs)
+      const maxResults = Math.min(Number(args.max_results ?? 200), 1000)
+      const fromLine = Math.max(1, Number(args.from_line ?? 1))
+      const toLine = args.to_line == null ? undefined : Number(args.to_line)
+      const hits: number[] = []
+      let scannedTo = fromLine - 1
+      let capped = false
+      for await (const b of searchLines(index, res.abs, String(args.query ?? ''), {
+        regex: args.regex === true,
+        fromLine,
+        toLine,
+        maxResults
+      })) {
+        hits.push(...b.hits)
+        scannedTo = b.scannedTo
+        capped = b.capped
+      }
+      const shown = hits.map((n) => {
+        const line = getLines(index, res.abs, n, n).lines[0] ?? ''
+        return `${n}\t${line}`
+      })
+      const header = `${hits.length} matches (lines ${fromLine}-${scannedTo} of ${index.totalLines})`
+      const tail = capped ? `\n[capped — continue with from_line: ${scannedTo + 1}]` : ''
+      return `${header}\n${shown.join('\n')}${tail}`
     },
 
     async ingest_artifact(args) {
@@ -278,6 +329,25 @@ export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof cr
         'Full metadata for one evidence artifact.',
         { evidence_id: z.number() },
         async (a) => asText(await h.get_artifact_meta(a))
+      ),
+      tool(
+        'read_lines',
+        'Read a numbered line range from an evidence file of ANY size (fast seek, no offset guessing). Max 500 lines per call. Use the returned line numbers in [relPath:line] citations.',
+        { evidence_id: z.number(), from: z.number(), to: z.number() },
+        async (a) => asText(await h.read_lines(a))
+      ),
+      tool(
+        'grep_lines',
+        'Exhaustive line-number search inside ONE evidence file of any size. Scope with from_line/to_line (e.g. second half of the file); when capped, continue from the reported from_line. Complements search_evidence (cross-evidence FTS, top hits only).',
+        {
+          evidence_id: z.number(),
+          query: z.string(),
+          regex: z.boolean().optional(),
+          from_line: z.number().optional(),
+          to_line: z.number().optional(),
+          max_results: z.number().optional()
+        },
+        async (a) => asText(await h.grep_lines(a))
       ),
       tool(
         'ingest_artifact',
