@@ -61,6 +61,12 @@ describe('read_lines', () => {
       /Unknown|not-found/i
     )
   })
+
+  it('rejects non-numeric args', async () => {
+    await expect(
+      handlers.read_lines({ evidence_id: evidenceId, from: 'abc', to: 5 })
+    ).rejects.toThrow(/must be a number/)
+  })
 })
 
 describe('grep_lines', () => {
@@ -83,6 +89,13 @@ describe('grep_lines', () => {
       query: 'trace',
       max_results: 100
     })
-    expect(paged).toContain('[capped — continue with from_line:')
+    // lines 1-100 all match 'trace', so the cap lands exactly at line 100 → resume at 101
+    expect(paged).toContain('[capped — continue with from_line: 101]')
+  })
+
+  it('rejects non-numeric args', async () => {
+    await expect(
+      handlers.grep_lines({ evidence_id: evidenceId, query: 'trace', max_results: 'lots' })
+    ).rejects.toThrow(/must be a number/)
   })
 })
