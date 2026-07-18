@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { NewCaseDialog } from '../NewCaseDialog'
 import type { JiraAttachmentProgress } from '../../../../shared/jira'
@@ -101,19 +101,27 @@ describe('NewCaseDialog', () => {
     await waitFor(() =>
       expect(jira.ingestAttachments).toHaveBeenCalledWith('PROJ-7', [PREVIEW.attachments[0]])
     )
-    progressCb!({
-      caseSlug: 'PROJ-7',
-      attachmentId: '10001',
-      filename: 'trace.binlog',
-      status: 'downloading'
-    })
-    progressCb!({
-      caseSlug: 'PROJ-7',
-      attachmentId: '10001',
-      filename: 'trace.binlog',
-      status: 'done',
-      evidenceId: 1
-    })
+    // The subscription happens in a passive effect after the ingest step commits,
+    // which can land later than the ingestAttachments call under load — wait for
+    // it explicitly before emitting progress events.
+    await waitFor(() => expect(progressCb).not.toBeNull())
+    act(() =>
+      progressCb!({
+        caseSlug: 'PROJ-7',
+        attachmentId: '10001',
+        filename: 'trace.binlog',
+        status: 'downloading'
+      })
+    )
+    act(() =>
+      progressCb!({
+        caseSlug: 'PROJ-7',
+        attachmentId: '10001',
+        filename: 'trace.binlog',
+        status: 'done',
+        evidenceId: 1
+      })
+    )
     expect(await screen.findByText(/done/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /start triage/i }))
     expect(noop.onOpenCase).toHaveBeenCalledWith('PROJ-7')
@@ -138,13 +146,16 @@ describe('NewCaseDialog', () => {
     await screen.findByDisplayValue('Route flickers')
     fireEvent.click(screen.getByRole('button', { name: /^create case$/i }))
     await waitFor(() => expect(jira.ingestAttachments).toHaveBeenCalled())
-    progressCb!({
-      caseSlug: 'PROJ-7',
-      attachmentId: '10001',
-      filename: 'trace.binlog',
-      status: 'error',
-      error: 'boom'
-    })
+    await waitFor(() => expect(progressCb).not.toBeNull())
+    act(() =>
+      progressCb!({
+        caseSlug: 'PROJ-7',
+        attachmentId: '10001',
+        filename: 'trace.binlog',
+        status: 'error',
+        error: 'boom'
+      })
+    )
     const retry = await screen.findByRole('button', { name: /retry/i })
     fireEvent.click(retry)
     await waitFor(() =>

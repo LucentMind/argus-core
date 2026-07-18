@@ -155,206 +155,243 @@ describe('CodeGraphService', () => {
     expect(broadcast).not.toHaveBeenCalled()
   })
 
-  it('build runs graphify extract into the cache dir, writes ok meta, broadcasts lifecycle', async () => {
-    const repo = await makeRepo()
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
-    const broadcast = vi.fn()
-    const exec = vi.fn(async (_bin: string, args: string[]) => {
-      if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' } // --version probe
-      // graphify writes graphify-out/ under --out; simulate that
-      const outIdx = args.indexOf('--out')
-      const outDir = path.join(args[outIdx + 1], 'graphify-out')
-      fs.mkdirSync(outDir, { recursive: true })
-      fs.writeFileSync(path.join(outDir, 'graph.json'), '{}')
-      return {
-        stdout: `[graphify extract] wrote ${path.join(outDir, 'graph.json')}: 42 nodes, 99 edges, 3 communities`,
-        stderr: ''
-      }
-    })
-    const svc = new CodeGraphService({
-      argusHome: home,
-      pathOf: () => 'C:\\tools\\graphify.exe',
-      recompute: vi.fn(),
-      broadcast,
-      exec
-    })
-    expect(svc.build(repo, null)).toEqual({ started: true })
-    // build is fire-and-forget — poll status until it settles
-    await vi.waitFor(async () => {
-      const rows = await svc.status(repo)
-      expect(rows[0]?.status).toBe('ok')
-    })
-    const [row] = await svc.status(repo)
-    expect(row.nodeCount).toBe(42)
-    expect(row.behind).toBe(0)
-    expect(exec).toHaveBeenCalledWith(
-      'C:\\tools\\graphify.exe',
-      expect.arrayContaining(['extract', repo, '--code-only', '--out']),
-      expect.objectContaining({ timeout: 30 * 60 * 1000 }),
-      expect.any(Function)
-    )
-    expect(broadcast).toHaveBeenCalledWith('graph:building', {
-      repoPath: repo,
-      scope: null,
-      active: true
-    })
-    expect(broadcast).toHaveBeenCalledWith('graph:building', {
-      repoPath: repo,
-      scope: null,
-      active: false
-    })
-    expect(broadcast).toHaveBeenCalledWith('graph:changed', { repoPath: repo })
-  })
+  // These tests spawn real git processes (fixture repo + 2-3 spawns per status() poll).
+  // Under full-suite worker contention a spawn can take hundreds of ms, so the default
+  // 1s vi.waitFor / 5s test budgets flake — every poll below gets an explicit bound.
+  const POLL = { timeout: 15_000 }
 
-  it('build streams progress lines from the extract call as graph:progress broadcasts', async () => {
-    const repo = await makeRepo()
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
-    const broadcast = vi.fn()
-    const exec = vi.fn(
-      async (_bin: string, args: string[], _opts: unknown, onOutput?: (chunk: string) => void) => {
+  it(
+    'build runs graphify extract into the cache dir, writes ok meta, broadcasts lifecycle',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      const broadcast = vi.fn()
+      const exec = vi.fn(async (_bin: string, args: string[]) => {
+        if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' } // --version probe
+        // graphify writes graphify-out/ under --out; simulate that
+        const outIdx = args.indexOf('--out')
+        const outDir = path.join(args[outIdx + 1], 'graphify-out')
+        fs.mkdirSync(outDir, { recursive: true })
+        fs.writeFileSync(path.join(outDir, 'graph.json'), '{}')
+        return {
+          stdout: `[graphify extract] wrote ${path.join(outDir, 'graph.json')}: 42 nodes, 99 edges, 3 communities`,
+          stderr: ''
+        }
+      })
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => 'C:\\tools\\graphify.exe',
+        recompute: vi.fn(),
+        broadcast,
+        exec
+      })
+      expect(svc.build(repo, null)).toEqual({ started: true })
+      // build is fire-and-forget — poll status until it settles
+      await vi.waitFor(async () => {
+        const rows = await svc.status(repo)
+        expect(rows[0]?.status).toBe('ok')
+      }, POLL)
+      const [row] = await svc.status(repo)
+      expect(row.nodeCount).toBe(42)
+      expect(row.behind).toBe(0)
+      expect(exec).toHaveBeenCalledWith(
+        'C:\\tools\\graphify.exe',
+        expect.arrayContaining(['extract', repo, '--code-only', '--out']),
+        expect.objectContaining({ timeout: 30 * 60 * 1000 }),
+        expect.any(Function)
+      )
+      expect(broadcast).toHaveBeenCalledWith('graph:building', {
+        repoPath: repo,
+        scope: null,
+        active: true
+      })
+      expect(broadcast).toHaveBeenCalledWith('graph:building', {
+        repoPath: repo,
+        scope: null,
+        active: false
+      })
+      expect(broadcast).toHaveBeenCalledWith('graph:changed', { repoPath: repo })
+    }
+  )
+
+  it(
+    'build streams progress lines from the extract call as graph:progress broadcasts',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      const broadcast = vi.fn()
+      const exec = vi.fn(
+        async (
+          _bin: string,
+          args: string[],
+          _opts: unknown,
+          onOutput?: (chunk: string) => void
+        ) => {
+          if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' }
+          const outDir = path.join(args[args.indexOf('--out') + 1], 'graphify-out')
+          fs.mkdirSync(outDir, { recursive: true })
+          onOutput?.('[graphify extract] scanning C:\\repo\n  AST extraction: 50/100 files (50%)\n')
+          return {
+            stdout: 'wrote graph.json: 1 nodes, 0 edges',
+            stderr: ''
+          }
+        }
+      )
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => 'g',
+        recompute: vi.fn(),
+        broadcast,
+        exec
+      })
+      svc.build(repo, null)
+      await vi.waitFor(async () => {
+        const rows = await svc.status(repo)
+        expect(rows[0]?.status).toBe('ok')
+      }, POLL)
+      expect(broadcast).toHaveBeenCalledWith('graph:progress', {
+        repoPath: repo,
+        scope: null,
+        message: 'scanning C:\\repo',
+        percent: null
+      })
+      expect(broadcast).toHaveBeenCalledWith('graph:progress', {
+        repoPath: repo,
+        scope: null,
+        message: 'AST extraction: 50/100 files (50%)',
+        percent: 50
+      })
+    }
+  )
+
+  it(
+    'scoped build extracts the subdir and shows a distinct status row',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      fs.mkdirSync(path.join(repo, 'src'), { recursive: true })
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      const exec = vi.fn(async (_b: string, args: string[]) => {
         if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' }
         const outDir = path.join(args[args.indexOf('--out') + 1], 'graphify-out')
         fs.mkdirSync(outDir, { recursive: true })
-        onOutput?.('[graphify extract] scanning C:\\repo\n  AST extraction: 50/100 files (50%)\n')
-        return {
-          stdout: 'wrote graph.json: 1 nodes, 0 edges',
-          stderr: ''
-        }
-      }
-    )
-    const svc = new CodeGraphService({
-      argusHome: home,
-      pathOf: () => 'g',
-      recompute: vi.fn(),
-      broadcast,
-      exec
-    })
-    svc.build(repo, null)
-    await vi.waitFor(async () => {
-      const rows = await svc.status(repo)
-      expect(rows[0]?.status).toBe('ok')
-    })
-    expect(broadcast).toHaveBeenCalledWith('graph:progress', {
-      repoPath: repo,
-      scope: null,
-      message: 'scanning C:\\repo',
-      percent: null
-    })
-    expect(broadcast).toHaveBeenCalledWith('graph:progress', {
-      repoPath: repo,
-      scope: null,
-      message: 'AST extraction: 50/100 files (50%)',
-      percent: 50
-    })
-  })
+        return { stdout: 'wrote graph.json: 1 nodes, 0 edges', stderr: '' }
+      })
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => 'g',
+        recompute: vi.fn(),
+        broadcast: vi.fn(),
+        exec
+      })
+      svc.build(repo, 'src')
+      await vi.waitFor(async () => {
+        const rows = await svc.status(repo)
+        expect(rows.find((r) => r.scopeKey === 'src')?.status).toBe('ok')
+      }, POLL)
+      // exec receives a --version probe AND the extract; assert on the extract call
+      const extract = exec.mock.calls.find((c) => c[1][0] === 'extract')
+      expect(extract![1]).toContain(path.join(repo, 'src'))
+    }
+  )
 
-  it('scoped build extracts the subdir and shows a distinct status row', async () => {
-    const repo = await makeRepo()
-    fs.mkdirSync(path.join(repo, 'src'), { recursive: true })
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
-    const exec = vi.fn(async (_b: string, args: string[]) => {
-      if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' }
-      const outDir = path.join(args[args.indexOf('--out') + 1], 'graphify-out')
-      fs.mkdirSync(outDir, { recursive: true })
-      return { stdout: 'wrote graph.json: 1 nodes, 0 edges', stderr: '' }
-    })
-    const svc = new CodeGraphService({
-      argusHome: home,
-      pathOf: () => 'g',
-      recompute: vi.fn(),
-      broadcast: vi.fn(),
-      exec
-    })
-    svc.build(repo, 'src')
-    await vi.waitFor(async () => {
-      const rows = await svc.status(repo)
-      expect(rows.find((r) => r.scopeKey === 'src')?.status).toBe('ok')
-    })
-    // exec receives a --version probe AND the extract; assert on the extract call
-    const extract = exec.mock.calls.find((c) => c[1][0] === 'extract')
-    expect(extract![1]).toContain(path.join(repo, 'src'))
-  })
+  it(
+    'failed build writes failed meta with the error and build.log survives',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      const exec = vi.fn(async () => {
+        throw new Error('boom: tree-sitter exploded')
+      })
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => 'g',
+        recompute: vi.fn(),
+        broadcast: vi.fn(),
+        exec
+      })
+      svc.build(repo, null)
+      await vi.waitFor(async () => {
+        const rows = await svc.status(repo)
+        expect(rows[0]?.status).toBe('failed')
+      }, POLL)
+      const [row] = await svc.status(repo)
+      expect(row.error).toContain('boom')
+    }
+  )
 
-  it('failed build writes failed meta with the error and build.log survives', async () => {
-    const repo = await makeRepo()
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
-    const exec = vi.fn(async () => {
-      throw new Error('boom: tree-sitter exploded')
-    })
-    const svc = new CodeGraphService({
-      argusHome: home,
-      pathOf: () => 'g',
-      recompute: vi.fn(),
-      broadcast: vi.fn(),
-      exec
-    })
-    svc.build(repo, null)
-    await vi.waitFor(async () => {
-      const rows = await svc.status(repo)
-      expect(rows[0]?.status).toBe('failed')
-    })
-    const [row] = await svc.status(repo)
-    expect(row.error).toContain('boom')
-  })
+  it(
+    'concurrent builds of the same repo+scope coalesce to one extraction',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      let resolveExec!: () => void
+      const gate = new Promise<void>((r) => {
+        resolveExec = r
+      })
+      const exec = vi.fn(async (_b: string, args: string[]) => {
+        if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' }
+        await gate
+        const outDir = path.join(args[args.indexOf('--out') + 1], 'graphify-out')
+        fs.mkdirSync(outDir, { recursive: true })
+        return { stdout: '', stderr: '' }
+      })
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => 'g',
+        recompute: vi.fn(),
+        broadcast: vi.fn(),
+        exec
+      })
+      expect(svc.build(repo, null)).toEqual({ started: true })
+      expect(svc.build(repo, null)).toEqual({ started: true }) // second call joins, doesn't respawn
+      const [row] = await svc.status(repo)
+      expect(row.status).toBe('building')
+      resolveExec()
+      await vi.waitFor(
+        async () => expect((await svc.status(repo))[0].status).not.toBe('building'),
+        POLL
+      )
+      // one --version probe + one extract — the point is a single extract despite two build() calls
+      expect(exec.mock.calls.filter((c) => c[1][0] === 'extract')).toHaveLength(1)
+    }
+  )
 
-  it('concurrent builds of the same repo+scope coalesce to one extraction', async () => {
-    const repo = await makeRepo()
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
-    let resolveExec!: () => void
-    const gate = new Promise<void>((r) => {
-      resolveExec = r
-    })
-    const exec = vi.fn(async (_b: string, args: string[]) => {
-      if (args[0] !== 'extract') return { stdout: 'graphify 0.9.12', stderr: '' }
-      await gate
-      const outDir = path.join(args[args.indexOf('--out') + 1], 'graphify-out')
-      fs.mkdirSync(outDir, { recursive: true })
-      return { stdout: '', stderr: '' }
-    })
-    const svc = new CodeGraphService({
-      argusHome: home,
-      pathOf: () => 'g',
-      recompute: vi.fn(),
-      broadcast: vi.fn(),
-      exec
-    })
-    expect(svc.build(repo, null)).toEqual({ started: true })
-    expect(svc.build(repo, null)).toEqual({ started: true }) // second call joins, doesn't respawn
-    const [row] = await svc.status(repo)
-    expect(row.status).toBe('building')
-    resolveExec()
-    await vi.waitFor(async () => expect((await svc.status(repo))[0].status).not.toBe('building'))
-    // one --version probe + one extract — the point is a single extract despite two build() calls
-    expect(exec.mock.calls.filter((c) => c[1][0] === 'extract')).toHaveLength(1)
-  })
-
-  it('status reports behind-count when the repo advanced past the built commit', async () => {
-    const repo = await makeRepo()
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
-    const g = (...a: string[]): Promise<{ stdout: string; stderr: string }> =>
-      execFileAsync('git', a, { cwd: repo })
-    const firstCommit = (await g('rev-parse', 'HEAD~1')).stdout.trim()
-    // hand-write a meta as if built at the first commit
-    const dir = graphCacheDir(home, repoIdFor(repo, null), '_root')
-    writeMeta(dir, {
-      commit: firstCommit,
-      branch: 'main',
-      scope: null,
-      builtAt: new Date().toISOString(),
-      graphifyVersion: null,
-      nodeCount: 1,
-      edgeCount: 1,
-      status: 'ok'
-    })
-    const svc = new CodeGraphService({
-      argusHome: home,
-      pathOf: () => 'g',
-      recompute: vi.fn(),
-      broadcast: vi.fn()
-    })
-    const [row] = await svc.status(repo)
-    expect(row.behind).toBe(1)
-  })
+  it(
+    'status reports behind-count when the repo advanced past the built commit',
+    { timeout: 30_000 },
+    async () => {
+      const repo = await makeRepo()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
+      const g = (...a: string[]): Promise<{ stdout: string; stderr: string }> =>
+        execFileAsync('git', a, { cwd: repo })
+      const firstCommit = (await g('rev-parse', 'HEAD~1')).stdout.trim()
+      // hand-write a meta as if built at the first commit
+      const dir = graphCacheDir(home, repoIdFor(repo, null), '_root')
+      writeMeta(dir, {
+        commit: firstCommit,
+        branch: 'main',
+        scope: null,
+        builtAt: new Date().toISOString(),
+        graphifyVersion: null,
+        nodeCount: 1,
+        edgeCount: 1,
+        status: 'ok'
+      })
+      const svc = new CodeGraphService({
+        argusHome: home,
+        pathOf: () => 'g',
+        recompute: vi.fn(),
+        broadcast: vi.fn()
+      })
+      const [row] = await svc.status(repo)
+      expect(row.behind).toBe(1)
+    }
+  )
 
   it('installTool prefers uv, falls back to pipx, reports absence of both', async () => {
     const calls: string[][] = []
