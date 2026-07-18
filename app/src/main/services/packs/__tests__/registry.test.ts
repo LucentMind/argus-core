@@ -110,6 +110,34 @@ describe('PackRegistry', () => {
     const reg = new PackRegistry([lp('alpha', null), lp('beta', null)])
     expect(reg.referenceRouting()).toEqual([])
   })
+
+  it('attributes each binary decl to its declaring pack', () => {
+    const a = lp('alpha', null)
+    a.manifest = packManifestSchema.parse({
+      id: 'alpha',
+      displayName: 'alpha',
+      version: '1',
+      argusApi: '^1',
+      binaries: [
+        { id: 'tool-a', kind: 'exe', displayName: 'Tool A', names: ['tool-a'], devPaths: [] }
+      ]
+    })
+    const b = lp('beta', null)
+    b.manifest = packManifestSchema.parse({
+      id: 'beta',
+      displayName: 'beta',
+      version: '1',
+      argusApi: '^1',
+      binaries: [
+        { id: 'tool-b', kind: 'exe', displayName: 'Tool B', names: ['tool-b'], devPaths: [] }
+      ]
+    })
+    const reg = new PackRegistry([a, b])
+    expect(reg.binaryDecls().map((d) => ({ packId: d.packId, id: d.decl.id }))).toEqual([
+      { packId: 'alpha', id: 'tool-a' },
+      { packId: 'beta', id: 'tool-b' }
+    ])
+  })
 })
 
 describe('PackRegistry.load (multi-dir)', () => {

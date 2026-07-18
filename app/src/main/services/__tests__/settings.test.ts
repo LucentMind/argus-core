@@ -107,6 +107,7 @@ describe('SettingsService', () => {
     const rows: ResolvedToolRow[] = [
       {
         id: 'fake-parse',
+        packId: 'sample-pack',
         displayName: 'Fake parse',
         description: 'desc',
         kind: 'exe',

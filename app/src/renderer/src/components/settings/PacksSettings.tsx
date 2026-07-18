@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import semver from 'semver'
 import { SettingsSection, SettingRow } from './settingsLayout'
 import { Btn, Chip } from '../ui'
+import { ToolRow, useToolProbes } from './ToolRow'
 import type { PacksListPayload, InstalledPackRow } from '../../../../shared/packs'
+import type { SettingsPayload } from '../../../../shared/settings'
 
 function installErrorMessage(code: string, error: string): string {
   switch (code) {
@@ -18,7 +20,8 @@ function installErrorMessage(code: string, error: string): string {
   }
 }
 
-export function PacksSettings(): React.JSX.Element {
+export function PacksSettings({ settings }: { settings: SettingsPayload }): React.JSX.Element {
+  const { report, running, runChecks } = useToolProbes()
   const [payload, setPayload] = useState<PacksListPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -146,37 +149,48 @@ export function PacksSettings(): React.JSX.Element {
         {payload.packs.length === 0 && (
           <div className="px-3 py-2 text-xs text-dim">No packs installed.</div>
         )}
-        {payload.packs.map((p) => (
-          <SettingRow
-            key={p.id}
-            label={p.displayName}
-            description={`${p.id}${p.platform ? ` · ${p.platform}` : ''}`}
-            badge={
-              <span className="flex items-center gap-1">
-                <Chip tone="neutral">{p.installedVersion ?? p.loadedVersion ?? '—'}</Chip>
-                {p.pendingRelaunch && <Chip tone="review">pending relaunch</Chip>}
-                {p.binaries.map((b) => (
-                  <Chip key={b.id} tone={b.ok ? 'signal' : 'danger'} title={b.detail}>
-                    {b.id}
-                  </Chip>
-                ))}
-              </span>
-            }
-          >
-            {p.installedVersion != null && (
-              <Btn
-                variant="danger"
-                aria-label={`Uninstall · ${p.id}`}
-                disabled={busy}
-                onClick={() => void uninstall(p)}
+        {payload.packs.map((p) => {
+          const tools = settings.resolvedTools.filter((t) => t.packId === p.id)
+          return (
+            <div key={p.id}>
+              <SettingRow
+                label={p.displayName}
+                description={`${p.id}${p.platform ? ` · ${p.platform}` : ''}`}
+                badge={
+                  <span className="flex items-center gap-1">
+                    <Chip tone="neutral">{p.installedVersion ?? p.loadedVersion ?? '—'}</Chip>
+                    {p.pendingRelaunch && <Chip tone="review">pending relaunch</Chip>}
+                    {p.binaries.map((b) => (
+                      <Chip key={b.id} tone={b.ok ? 'signal' : 'danger'} title={b.detail}>
+                        {b.id}
+                      </Chip>
+                    ))}
+                  </span>
+                }
               >
-                Uninstall
-              </Btn>
-            )}
-          </SettingRow>
-        ))}
+                {p.installedVersion != null && (
+                  <Btn
+                    variant="danger"
+                    aria-label={`Uninstall · ${p.id}`}
+                    disabled={busy}
+                    onClick={() => void uninstall(p)}
+                  >
+                    Uninstall
+                  </Btn>
+                )}
+              </SettingRow>
+              {tools.length > 0 && (
+                <div data-pack-tools={p.id} className="border-l border-hair pl-4">
+                  {tools.map((t) => (
+                    <ToolRow key={t.id} row={t} report={report} onInstalled={runChecks} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </SettingsSection>
-      <div>
+      <div className="flex items-center gap-2">
         <Btn
           variant="primary"
           aria-label="Install from file"
@@ -184,6 +198,9 @@ export function PacksSettings(): React.JSX.Element {
           onClick={() => void install()}
         >
           Install from file…
+        </Btn>
+        <Btn disabled={running} onClick={runChecks}>
+          {running ? 'Checking…' : 'Re-run checks'}
         </Btn>
       </div>
     </div>

@@ -206,6 +206,8 @@ export function stripDefaults(
 
 export interface ResolvedToolRow {
   id: string
+  /** id of the pack whose manifest declared this binary. */
+  packId: string
   displayName: string
   description: string
   kind: 'exe' | 'pathDir'
