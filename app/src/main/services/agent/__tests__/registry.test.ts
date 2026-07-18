@@ -11,7 +11,7 @@ import { defaultAgentAccess, agentAccessSchema } from '../../../../shared/agentA
 import { createDetection } from '../../packs/detection'
 import { SessionMirror } from '../mirror'
 import { caseDir } from '../../paths'
-import type { CreateQueryFn } from '../session'
+import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 import { fingerprintServers, McpService } from '../../mcp'

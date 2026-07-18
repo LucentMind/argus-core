@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { probeAuth } from '../probe'
 import { AsyncQueue } from '../asyncQueue'
-import type { CreateQueryFn } from '../session'
+import type { CreateQueryFn } from '../drivers/claude'
 
 function fake(
   messages: unknown[] | 'hang' | 'throw',

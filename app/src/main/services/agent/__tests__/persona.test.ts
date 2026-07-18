@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { BASE_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
-import { CaseSession, type CreateQueryFn } from '../session'
+import { CaseSession } from '../session'
+import { createClaudeDriver, type CreateQueryFn } from '../drivers/claude'
 import { createDetection } from '../../packs/detection'
 
 describe('BASE_PERSONA', () => {
@@ -65,8 +66,8 @@ describe('CaseSession persona wiring', () => {
       workspaceRoots: [],
       skillsRoots: [],
       emit: () => undefined,
-      createQuery: fakeQuery,
-      resumeSdkSessionId: null,
+      driver: createClaudeDriver(fakeQuery),
+      resumeCursor: null,
       personaFragments: ['NAV TRACE RULES']
     })
     const append = (captured!.options.systemPrompt as { append: string }).append

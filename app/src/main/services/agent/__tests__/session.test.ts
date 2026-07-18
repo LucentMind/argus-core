@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
-import { CaseSession, isAuthFailure, type CreateQueryFn } from '../session'
+import { CaseSession } from '../session'
+import { createClaudeDriver, isAuthFailure, type CreateQueryFn } from '../drivers/claude'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
@@ -56,8 +57,8 @@ function makeSession(
     workspaceRoots: [],
     skillsRoots: [],
     emit: (e) => events.push(e),
-    createQuery: sdk.createQuery,
-    resumeSdkSessionId: null,
+    driver: createClaudeDriver(sdk.createQuery),
+    resumeCursor: null,
     ...overrides
   })
 }
@@ -426,8 +427,8 @@ describe('CaseSession', () => {
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
-      createQuery: sdk.createQuery,
-      resumeSdkSessionId: null,
+      driver: createClaudeDriver(sdk.createQuery),
+      resumeCursor: null,
       agentOptions: {
         model: 'claude-sonnet-5',
         cliPath: 'C:\\tools\\claude.exe',
@@ -466,8 +467,8 @@ describe('CaseSession', () => {
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
-      createQuery: sdk2.createQuery,
-      resumeSdkSessionId: null,
+      driver: createClaudeDriver(sdk2.createQuery),
+      resumeCursor: null,
       agentOptions: { permissionMode: 'default' }
     })
     expect(sdk2.captured.options!.permissionMode).toBeUndefined()
