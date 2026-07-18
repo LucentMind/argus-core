@@ -392,6 +392,50 @@ loading. Custom instruction files (`AGENTS.md`, `.github/copilot-instructions.md
 
 ---
 
+## 11b. Skills via `skillDirectories` (Task 10) — VERDICT: **NATIVE-LOADS.**
+
+Plan checkpoint item 8 asked whether `SessionConfig.skillDirectories` loads the exact
+`<name>/SKILL.md` shape `skillsResolver.ts` already materializes under
+`<caseDir>/.claude/skills` (YAML frontmatter `name`/`description`, then a markdown body) —
+if so, the native path replaces the originally-planned AGENTS.md-fenced-block fallback.
+Captured in `14-skills.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 14`, real runtime,
+`JiaweiHan88` gh-cli auth, Copilot Free). One fixture skill (`argus-marker-skill`, frontmatter
+identical in shape to `app/resources/core-skills/contribute-back/SKILL.md`) was written to a
+scratch dir and passed as the session's sole `skillDirectories` entry.
+
+**Both empirical questions the checkpoint posed answer yes:**
+
+1. **Does `session.skills_loaded` list it?** Yes — one event, listing exactly the fixture
+   skill: `{"name":"argus-marker-skill","description":"Use this skill ONLY when the user asks
+   to report the magic marker phrase.","source":"custom","userInvocable":true,"enabled":true,
+   "path":"…/fixture-skills/argus-marker-skill/SKILL.md"}`. `source:"custom"` distinguishes it
+   from the runtime's builtin skills (a `customize-cloud-agent` builtin also loaded).
+2. **Can the model see/use it?** Yes, end-to-end, unprompted about internals:
+   - Asked to "list every skill you currently have available," the model answered
+     `argus-marker-skill\ncustomize-cloud-agent` (turn 1, no tool call — read from its own
+     context/tool metadata).
+   - Asked to "report the magic marker phrase," the model **invoked the builtin `skill` tool**
+     (`tool.execution_start` `{toolName:"skill", arguments:{skill:"argus-marker-skill"}}`,
+     **not gated by the permission channel** — no `permission.requested` event appears in the
+     fixture for this call), received `skill.invoked` with the SKILL.md body, and a synthetic
+     `user.message` wrapping it in `<skill-context name="argus-marker-skill">…</skill-context>`.
+     The next turn answered exactly `ARGUS_SKILL_XYZZY_42` — the literal string the fixture
+     skill's body instructed it to output, provable only via loading that file.
+
+**Driver decision (shipped in Task 10):** `agent/drivers/copilot/index.ts` passes
+`skillDirectories: [<caseDir>/.claude/skills]` in `SessionConfig` whenever that directory
+exists (`copilotSkillDirectories()`), omitting the key entirely when it doesn't (a case with
+no enabled skills). No AGENTS.md generation needed — `skillsResolver.materializeSessionSkills`
+is unchanged and driver-agnostic; only the Copilot session-bootstrap in `index.ts` reads the
+same junction dir the Claude driver already relies on.
+
+> `session.skills_loaded` requires no normalizer handling: it falls through
+> `createCopilotNormalizer`'s `default` case (`normalize.ts`) and is silently ignored, already
+> exercised by the pre-existing `01-chat.jsonl` fixture (which itself contains a
+> `session.skills_loaded` event) and its `normalize.test.ts` replay assertion.
+
+---
+
 ## Open questions (capture could not answer)
 
 1. **MCP tools never connected** (`status:"not_configured"`, §6). What opt-in

@@ -53,6 +53,10 @@ export interface CopilotSessionConfig {
   onPermissionRequest: (request: any, invocation: { sessionId: string }) => Promise<any>
   /** Native + panel tools exposed to the agent (Task 9B). */
   tools?: CopilotToolDef[]
+  /** Directories to load skills from — the materialized `<caseDir>/.claude/skills` junctions
+   *  (Task 10; EVIDENCE §11/§11b). Loads the same `<name>/SKILL.md` shape skillsResolver.ts
+   *  already produces; omitted entirely when the case has no skills dir. */
+  skillDirectories?: string[]
   /** Approve/deny the agent's request to leave plan mode (Task 9B; EVIDENCE §9). */
   onExitPlanModeRequest?: (
     request: {
