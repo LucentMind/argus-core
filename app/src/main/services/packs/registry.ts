@@ -55,8 +55,10 @@ export class PackRegistry {
   }
 
   /** All packs' binary declarations, flattened in pack (id-sorted) order. */
-  binaryDecls(): Array<{ packDir: string; decl: PackBinary }> {
-    return this._packs.flatMap((p) => p.manifest.binaries.map((decl) => ({ packDir: p.dir, decl })))
+  binaryDecls(): Array<{ packId: string; packDir: string; decl: PackBinary }> {
+    return this._packs.flatMap((p) =>
+      p.manifest.binaries.map((decl) => ({ packId: p.id, packDir: p.dir, decl }))
+    )
   }
 
   /** All packs' window declarations (webPanel + externalApp), flattened in pack (id-sorted) order.
