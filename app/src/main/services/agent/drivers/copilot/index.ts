@@ -144,16 +144,47 @@ export function mapToolDecision(
     : { kind: 'reject', feedback: decision.message }
 }
 
-/** v1 exit-plan handshake: approve, selecting the runtime's recommended action (EVIDENCE §9;
- *  no fixture — the model never completed a plan in the capped spike turn, so this is
- *  implemented from the `ExitPlanModeRequest`/`Result` types and unit-tested directly). */
-export function exitPlanModeDecision(request: {
-  recommendedAction?: string
-}): CopilotExitPlanModeResult {
-  return {
-    approved: true,
-    ...(request?.recommendedAction ? { selectedAction: request.recommendedAction } : {})
+/**
+ * Exit-plan handshake, routed through the Argus approval pipeline. The live fixture
+ * (15-exit-plan.jsonl) proved a bare `{approved:true}` flips the session plan→autopilot with
+ * ZERO human gates — so the plan must be reviewed first. We synthesize it as the tool
+ * `copilot:exit-plan` (no taxonomy entry → fail-closed HIGH ask), which raises an Argus
+ * approval card carrying the plan content for the user to review.
+ *
+ * Decision mapping:
+ *   allow / allow-session → `{approved:true, selectedAction: recommendedAction}`. The model
+ *     leaves plan mode into autopilot, but every subsequent tool call still re-enters the
+ *     Argus classifier per-call — in-sandbox writes auto-allow (LOW) on both this path and
+ *     Claude's post-plan execution, so this is parity, not a weaker gate.
+ *   deny → `{approved:false, feedback}` — the model stays in plan mode and keeps planning.
+ */
+export async function exitPlanModeDecision(
+  request: {
+    summary?: string
+    planContent?: string
+    actions?: string[]
+    recommendedAction?: string
+  },
+  onToolRequest: DriverSessionContext['onToolRequest'],
+  signal: AbortSignal
+): Promise<CopilotExitPlanModeResult> {
+  const decision = await onToolRequest(
+    'copilot:exit-plan',
+    {
+      summary: request?.summary,
+      planContent: request?.planContent,
+      actions: request?.actions,
+      recommendedAction: request?.recommendedAction
+    },
+    { signal }
+  )
+  if (decision.behavior === 'allow') {
+    return {
+      approved: true,
+      ...(request?.recommendedAction ? { selectedAction: request.recommendedAction } : {})
+    }
   }
+  return { approved: false, feedback: decision.message }
 }
 
 /**
@@ -301,11 +332,22 @@ export function createCopilotDriver(
       const permissionHandler: CopilotSessionConfig['onPermissionRequest'] = async (request) => {
         const kind = String(request?.kind ?? 'unknown')
         // Permission-mode short-circuits mirror the Claude SDK (canUseTool is NOT called for
-        // auto-approved requests): approve WITHOUT consulting onToolRequest so behavior parity
-        // holds. bypassPermissions → approve everything; acceptEdits → approve `write` kind.
+        // auto-approved requests): approve WITHOUT opening an Argus card so behavior parity holds.
+        // bypassPermissions → approve everything, genuinely: Claude's bypassPermissions bypasses
+        // at the SDK level (no classification at all), so for parity we do NOT run classifyOnly.
         if (ctx.permissionMode === 'bypassPermissions') return { kind: 'approve-once' }
-        if (ctx.permissionMode === 'acceptEdits' && kind === 'write')
+        // acceptEdits suppresses the *ask* for writes (parity with Claude's acceptEdits) but must
+        // still honor a *deny*: a write to an out-of-sandbox or read-only-root path is rejected
+        // even here (Claude enforces those denies too). classifyOnly runs the SAME risk classifier
+        // the ask path uses, WITHOUT a card. Absent (other drivers / older tests) → approve, which
+        // preserves the prior unconditional short-circuit.
+        if (ctx.permissionMode === 'acceptEdits' && kind === 'write') {
+          const synth = synthesizePermissionRequest(request as Record<string, unknown>, toolNameMap)
+          const verdict = ctx.classifyOnly?.(synth.name, synth.input)
+          if (verdict?.action === 'deny')
+            return { kind: 'reject', feedback: verdict.reason ?? 'Denied by sandbox policy' }
           return { kind: 'approve-once' }
+        }
 
         const { name, input } = synthesizePermissionRequest(
           request as Record<string, unknown>,
@@ -334,7 +376,8 @@ export function createCopilotDriver(
           systemMessage: { mode: 'append', content: ctx.systemAppend },
           onPermissionRequest: permissionHandler,
           tools: nativeTools,
-          onExitPlanModeRequest: (request) => exitPlanModeDecision(request),
+          onExitPlanModeRequest: (request) =>
+            exitPlanModeDecision(request, ctx.onToolRequest, abort.signal),
           ...(skillDirectories ? { skillDirectories } : {})
         }
         session = ctx.resumeCursor

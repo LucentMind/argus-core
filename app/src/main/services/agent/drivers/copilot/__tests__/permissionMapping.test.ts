@@ -23,6 +23,8 @@ import type { DriverSessionContext, ToolDecision } from '../../../driver'
 import type { NativeToolDeps } from '../../../nativeTools'
 import type { AgentEvent } from '../../../../../../shared/agent-events'
 import type { PanelCommandDecl } from '../../../panelCommands'
+import { classifyToolCall } from '../../../risk'
+import { COPILOT_TOOL_TAXONOMY } from '../taxonomy'
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__')
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
@@ -125,13 +127,44 @@ describe('mapToolDecision', () => {
   })
 })
 
-describe('exitPlanModeDecision', () => {
-  it('approves and selects the runtime recommendedAction', () => {
-    expect(exitPlanModeDecision({ recommendedAction: 'proceed' })).toEqual({
-      approved: true,
-      selectedAction: 'proceed'
+describe('exitPlanModeDecision — routes the plan through the approval pipeline', () => {
+  const signal = new AbortController().signal
+  const req = {
+    summary: 'plan summary',
+    planContent: '# Plan\n1. do it',
+    actions: ['autopilot', 'exit_only'],
+    recommendedAction: 'autopilot'
+  }
+
+  it('synthesizes copilot:exit-plan with the plan content and asks onToolRequest', async () => {
+    const onToolRequest = vi.fn(async () => ({ behavior: 'allow' as const, updatedInput: {} }))
+    const res = await exitPlanModeDecision(req, onToolRequest, signal)
+    expect(onToolRequest).toHaveBeenCalledTimes(1)
+    expect(onToolRequest.mock.calls[0][0]).toBe('copilot:exit-plan')
+    expect(onToolRequest.mock.calls[0][1]).toEqual({
+      summary: 'plan summary',
+      planContent: '# Plan\n1. do it',
+      actions: ['autopilot', 'exit_only'],
+      recommendedAction: 'autopilot'
     })
-    expect(exitPlanModeDecision({})).toEqual({ approved: true })
+    // allow → leave plan mode into the runtime's recommended action.
+    expect(res).toEqual({ approved: true, selectedAction: 'autopilot' })
+  })
+
+  it('deny → approved:false with the deny feedback (model keeps planning)', async () => {
+    const onToolRequest = vi.fn(async () => ({
+      behavior: 'deny' as const,
+      message: 'revise the plan first'
+    }))
+    expect(await exitPlanModeDecision(req, onToolRequest, signal)).toEqual({
+      approved: false,
+      feedback: 'revise the plan first'
+    })
+  })
+
+  it('allow with no recommendedAction → approved without selectedAction', async () => {
+    const onToolRequest = vi.fn(async () => ({ behavior: 'allow' as const, updatedInput: {} }))
+    expect(await exitPlanModeDecision({}, onToolRequest, signal)).toEqual({ approved: true })
   })
 })
 
@@ -384,6 +417,71 @@ describe('permission handler — decision round-trips via captured config', () =
     const cfg = getConfig()!
     expect(cfg.tools?.some((t) => t.name === 'argus_append_finding')).toBe(true)
     expect(typeof cfg.onExitPlanModeRequest).toBe('function')
+  })
+})
+
+describe('acceptEdits honors deny verdicts via classifyOnly (never approves an unsafe write)', () => {
+  // A realistic classifyOnly: the harness runs the SAME risk classifier the ask path uses,
+  // with no approval card. Wires the Copilot taxonomy + a caseDir/readonlyRoots sandbox.
+  const classifyOnlyFor =
+    (caseDir: string, readonlyRoots: string[] = []) =>
+    (toolName: string, input: Record<string, unknown>) => {
+      const v = classifyToolCall(toolName, input, {
+        caseDir,
+        workspaceRoots: [],
+        readonlyRoots,
+        taxonomy: COPILOT_TOOL_TAXONOMY
+      })
+      return { action: v.action, ...('reason' in v ? { reason: v.reason } : {}) }
+    }
+
+  const writeReq = (fileName: string): Record<string, unknown> => ({
+    kind: 'write',
+    fileName,
+    diff: '@@ -0,0 +1 @@\n+hi'
+  })
+
+  async function handlerWith(
+    over: Partial<DriverSessionContext>
+  ): Promise<{ handler: Perm; onToolRequest: ReturnType<typeof vi.fn> }> {
+    const { factory, getConfig } = captureFactory()
+    const onToolRequest = vi.fn(async () => ({ behavior: 'allow' as const, updatedInput: {} }))
+    createCopilotDriver({}, { clientFactory: factory }).createSession(
+      baseCtx({ permissionMode: 'acceptEdits', onToolRequest, ...over })
+    )
+    await tick()
+    return { handler: getConfig()!.onPermissionRequest as Perm, onToolRequest }
+  }
+
+  it('rejects a write to an out-of-sandbox absolute path', async () => {
+    const { handler, onToolRequest } = await handlerWith({
+      caseDir: '/tmp/case',
+      classifyOnly: classifyOnlyFor('/tmp/case')
+    })
+    const decision = await handler(writeReq('/etc/passwd'), { sessionId: 's' })
+    expect(decision.kind).toBe('reject')
+    expect((decision as { feedback: string }).feedback.toLowerCase()).toContain('outside sandbox')
+    expect(onToolRequest).not.toHaveBeenCalled() // classifyOnly does not open a card
+  })
+
+  it('rejects a write into a read-only root', async () => {
+    const { handler } = await handlerWith({
+      caseDir: '/tmp/case',
+      classifyOnly: classifyOnlyFor('/tmp/case', ['/tmp/case/skills'])
+    })
+    const decision = await handler(writeReq('/tmp/case/skills/evil.md'), { sessionId: 's' })
+    expect(decision.kind).toBe('reject')
+    expect((decision as { feedback: string }).feedback.toLowerCase()).toContain('read-only')
+  })
+
+  it('approves an in-sandbox write WITHOUT opening an approval card', async () => {
+    const { handler, onToolRequest } = await handlerWith({
+      caseDir: '/tmp/case',
+      classifyOnly: classifyOnlyFor('/tmp/case')
+    })
+    const decision = await handler(writeReq('/tmp/case/notes.txt'), { sessionId: 's' })
+    expect(decision).toEqual({ kind: 'approve-once' })
+    expect(onToolRequest).not.toHaveBeenCalled() // ask suppressed by acceptEdits
   })
 })
 

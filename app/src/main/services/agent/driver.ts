@@ -58,6 +58,17 @@ export interface DriverSessionContext {
   onCursor: (cursor: string) => void
   /** Per-turn accounting + auth verdict, extracted by the driver. */
   onTurnResult: (r: TurnResult) => void
+  /**
+   * Classification-only seam: run the harness risk classifier for a tool WITHOUT opening an
+   * approval card, returning just the verdict action. Used by permission-mode short-circuits
+   * that suppress the *ask* but must still honor a *deny* (Copilot `acceptEdits`: a write to
+   * an out-of-sandbox / read-only-root path is still rejected). Claude ignores it (its SDK
+   * enforces acceptEdits internally). Optional so drivers/tests without it are unaffected.
+   */
+  classifyOnly?: (
+    toolName: string,
+    input: Record<string, unknown>
+  ) => { action: 'allow' | 'ask' | 'deny'; reason?: string }
 }
 
 export interface DriverSession {
