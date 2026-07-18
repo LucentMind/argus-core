@@ -272,6 +272,45 @@ describe('TextViewer', () => {
     expect(screen.queryByText('NAV-1 / evidence/big.log')).not.toBeInTheDocument()
   })
 
+  it('next/prev step through every match sequentially, not from the viewport midpoint', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'frame')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    // 111 hits spread across the file (mirrors the real bug report)
+    const hits = Array.from({ length: 111 }, (_, i) => (i + 1) * 10)
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits, scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('111 matches')).toBeInTheDocument()
+    const down = screen.getByRole('button', { name: '↓' })
+    // every press must advance exactly one match — the regression pinned the
+    // cursor to the (overscan-inflated) viewport midpoint and skipped/looped
+    for (let k = 1; k <= 5; k++) {
+      await userEvent.click(down)
+      expect(await screen.findByText(`${k} / 111 matches`)).toBeInTheDocument()
+    }
+    // same in filter mode, where the short list made the midpoint pin dead-center
+    await userEvent.click(screen.getByTitle('filter to matches'))
+    for (let k = 6; k <= 10; k++) {
+      await userEvent.click(down)
+      expect(await screen.findByText(`${k} / 111 matches`)).toBeInTheDocument()
+    }
+    // and prev walks straight back down
+    await userEvent.click(screen.getByRole('button', { name: '↑' }))
+    expect(await screen.findByText('9 / 111 matches')).toBeInTheDocument()
+  })
+
   it('search streams hits; filter mode shows only matching lines; row click exits to context', async () => {
     render(
       <TextViewer
