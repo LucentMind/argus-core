@@ -67,6 +67,49 @@ describe('ensureIndex', () => {
     expect(idx3.totalLines).toBe(1501)
   })
 
+  it('cadence reset survives zero-hit windows (no starved-then-tiny first batch)', async () => {
+    // Regression guard for the sinceYield reset bug: a scan window with zero
+    // hits must still reset the batch-cadence counter. Without the reset, the
+    // first hit-bearing chunk fires an early, undersized batch. Fixture: hits
+    // begin only at line 200,000 of 500,000 (every line is 12 bytes, so the
+    // 1MB scan chunks hold ~87,381 lines — the assertion below tolerates that
+    // quantization but discriminates old (~62k first batch) from fixed (~150k)).
+    const p = path.join(tmp, 'sparse.txt')
+    const fd = fs.openSync(p, 'w')
+    const buf: string[] = []
+    for (let i = 1; i <= 500_000; i++) {
+      buf.push(`${i < 200_000 ? 'A' : 'B'}${String(i).padStart(10, '0')}`)
+      if (buf.length === 50_000) {
+        fs.writeSync(fd, buf.join('\n') + '\n')
+        buf.length = 0
+      }
+    }
+    fs.closeSync(fd)
+    const idx = await ensureIndex(argusHome, p)
+    const batches: number[][] = []
+    let sawFinal = false
+    for await (const b of searchLines(idx, p, 'B', { maxResults: 400_000 })) {
+      if (b.done) sawFinal = true
+      else if (b.hits.length > 0) batches.push(b.hits)
+    }
+    expect(sawFinal).toBe(true)
+    expect(batches.length).toBeGreaterThan(0)
+    expect(batches[0].length).toBeGreaterThan(100_000)
+    const all = batches.flat()
+    expect(all[0]).toBe(200_000)
+  })
+
+  it('invalid regex throws on first next() even for an empty range', async () => {
+    const p = writeLines('emptyrange.txt', 100)
+    const idx = await ensureIndex(argusHome, p)
+    await expect(
+      drain(searchLines(idx, p, '[', { regex: true, fromLine: 10, toLine: 5 }))
+    ).rejects.toThrow()
+    await expect(
+      drain(searchLines(idx, p, 'x', { regex: true, filter: { query: '[', regex: true }, fromLine: 10, toLine: 5 }))
+    ).rejects.toThrow()
+  })
+
   it('rebuilds when a sidecar has valid metadata but malformed checkpoints', async () => {
     const p = writeLines('mal.txt', 1500)
     const idx1 = await ensureIndex(argusHome, p)
