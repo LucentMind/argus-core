@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   Settings2,
   BrainCog,
-  Logs,
   HeartPulse,
   Cable,
   Workflow,
@@ -16,7 +15,6 @@ import {
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
-import { ToolsSettings } from './ToolsSettings'
 import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
 import { MemorySettings } from './MemorySettings'
@@ -29,14 +27,13 @@ import { PacksSettings } from './PacksSettings'
 const PAGES = [
   { id: 'general', label: 'General', enabled: true, Icon: Settings2 },
   { id: 'agent', label: 'Agent', enabled: true, Icon: BrainCog },
-  { id: 'tools', label: 'Analysis Tools', enabled: true, Icon: Logs },
-  { id: 'health', label: 'Health', enabled: true, Icon: HeartPulse },
   { id: 'connectors', label: 'Connectors', enabled: true, Icon: Cable },
-  { id: 'skills', label: 'Skills', enabled: true, Icon: Workflow },
   { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
-  { id: 'packs', label: 'Packs', enabled: true, Icon: Package },
+  { id: 'skills', label: 'Skills', enabled: true, Icon: Workflow },
   { id: 'memory', label: 'Memory', enabled: true, Icon: HardDrive },
   { id: 'references', label: 'References', enabled: true, Icon: BookMarked },
+  { id: 'packs', label: 'Packs', enabled: true, Icon: Package },
+  { id: 'health', label: 'Health', enabled: true, Icon: HeartPulse },
   { id: 'observability', label: 'Observability', enabled: true, Icon: Gauge }
 ] as const satisfies ReadonlyArray<{
   id: string
@@ -60,7 +57,9 @@ export function SettingsView({
   onClose: () => void
   initialPage?: PageId
 }): React.JSX.Element {
-  const [page, setPage] = useState<PageId>(initialPage ?? 'general')
+  const [page, setPage] = useState<PageId>(
+    initialPage && PAGES.some((p) => p.id === initialPage) ? initialPage : 'general'
+  )
   const payload = useSettingsPayload()
 
   useEffect(() => {
@@ -124,12 +123,11 @@ export function SettingsView({
           )}
           {payload && page === 'general' && <GeneralSettings payload={payload} />}
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
-          {payload && page === 'tools' && <ToolsSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'skills' && <SkillsSettings />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
-          {page === 'packs' && <PacksSettings />}
+          {payload && page === 'packs' && <PacksSettings settings={payload} />}
           {page === 'memory' && <MemorySettings />}
           {page === 'references' && <ReferencesSettings />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}

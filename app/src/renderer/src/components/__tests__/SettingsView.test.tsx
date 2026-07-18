@@ -93,13 +93,12 @@ beforeEach(() => {
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 9 active pages, 0 coming-soon entries', async () => {
+  it('renders the rail: 8 active pages, 0 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
       'General',
       'Agent',
-      'Analysis Tools',
       'Health',
       'Connectors',
       'Skills',
@@ -110,6 +109,35 @@ describe('SettingsView', () => {
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(false)
+  })
+
+  it('lists sections in the intended order and drops Analysis Tools', () => {
+    render(<SettingsView onClose={() => {}} />)
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    const labels = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim())
+    expect(labels).toEqual([
+      'General',
+      'Agent',
+      'Connectors',
+      'HiveMind',
+      'Skills',
+      'Memory',
+      'References',
+      'Packs',
+      'Health',
+      'Observability'
+    ])
+    expect(screen.queryByText('Analysis Tools')).toBeNull()
+  })
+
+  it('falls back to General for an unrecognised initialPage', () => {
+    // OnboardingProvider deep-links via `target as PageId`, so a stale 'tools'
+    // target is a runtime value the type system never sees.
+    render(<SettingsView onClose={() => {}} initialPage={'tools' as never} />)
+    const general = screen
+      .getByRole('navigation', { name: 'Settings sections' })
+      .querySelector('button')
+    expect(general?.className).toContain('bg-hi')
   })
 
   it('clicking Health renders the health page', async () => {
@@ -124,13 +152,6 @@ describe('SettingsView', () => {
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /Connectors/ }))
     expect(await screen.findByRole('button', { name: /add connector/i })).toBeTruthy()
-  })
-
-  it('switches pages via the rail', async () => {
-    render(<SettingsView onClose={vi.fn()} />)
-    await screen.findByRole('button', { name: /Analysis Tools/ })
-    fireEvent.click(screen.getByRole('button', { name: /Analysis Tools/ }))
-    expect(await screen.findByText(/sample-parse/i)).toBeTruthy()
   })
 
   it('Escape calls onClose', async () => {
