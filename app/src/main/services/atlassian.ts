@@ -166,21 +166,34 @@ const REST_TIMEOUT_MS = 15000
 const ISSUE_FIELDS = 'summary,description,status,labels,reporter,created,updated,attachment'
 
 export class AtlassianClient {
+  private cloudId = new Map<string, JiraCloud>()
+
   constructor(
     private creds: () => AtlassianAuth,
     private fetchImpl: typeof fetch = fetch,
     private timeoutMs = REST_TIMEOUT_MS
   ) {}
 
-  private async request(pathAndQuery: string): Promise<Response> {
-    const { instanceId, siteUrl, token, email } = this.creds()
-    // Jira Cloud accepts API tokens only via Basic (email:token); Bearer serves Server/DC PATs.
-    const authorization = email
-      ? `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`
-      : `Bearer ${token}`
-    let res: Response
+  /** Shared status→error mapping so both the OAuth-gateway and legacy paths agree. */
+  private mapStatus(res: Response, instanceId: string, authDescription: string): void {
+    if (res.status === 401 || res.status === 403)
+      throw new AtlassianError(
+        'auth',
+        `Atlassian rejected ${authDescription} (HTTP ${res.status}).`,
+        instanceId
+      )
+    if (res.status === 404) throw new AtlassianError('not-found', 'Not found on Jira', instanceId)
+    if (!res.ok)
+      throw new AtlassianError('http', `Atlassian returned HTTP ${res.status}`, instanceId)
+  }
+
+  private async fetchWith(
+    url: string,
+    authorization: string,
+    instanceId: string
+  ): Promise<Response> {
     try {
-      res = await this.fetchImpl(`${siteUrl}${pathAndQuery}`, {
+      return await this.fetchImpl(url, {
         headers: { Authorization: authorization, Accept: 'application/json' },
         redirect: 'follow', // undici drops Authorization on cross-origin redirects (attachment CDN)
         signal: AbortSignal.timeout(this.timeoutMs)
@@ -192,16 +205,79 @@ export class AtlassianClient {
         instanceId
       )
     }
-    if (res.status === 401 || res.status === 403)
+  }
+
+  /** Legacy REST path: {siteUrl}{pathAndQuery} with Basic (email:token) or Bearer (token only). */
+  private async legacyRequest(pathAndQuery: string): Promise<Response> {
+    const { instanceId, siteUrl, token, email } = this.creds()
+    if (!siteUrl || !token)
       throw new AtlassianError(
-        'auth',
-        `Atlassian rejected the API token (HTTP ${res.status}) — check the token, email, and Site URL on the connector (Jira Cloud requires the email).`,
+        'no-token',
+        'Authorize the Atlassian connector (or set an API token) in Settings → Connectors.',
         instanceId
       )
-    if (res.status === 404) throw new AtlassianError('not-found', 'Not found on Jira', instanceId)
-    if (!res.ok)
-      throw new AtlassianError('http', `Atlassian returned HTTP ${res.status}`, instanceId)
+    // Jira Cloud accepts API tokens only via Basic (email:token); Bearer serves Server/DC PATs.
+    const authorization = email
+      ? `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`
+      : `Bearer ${token}`
+    const res = await this.fetchWith(`${siteUrl}${pathAndQuery}`, authorization, instanceId)
+    this.mapStatus(
+      res,
+      instanceId,
+      'the API token — check the token, email, and Site URL on the connector (Jira Cloud requires the email)'
+    )
     return res
+  }
+
+  private async request(pathAndQuery: string): Promise<Response> {
+    const auth = this.creds()
+    // Confluence is always token-only — the gateway's OAuth surface is Jira-only.
+    if (pathAndQuery.startsWith('/wiki/')) return this.legacyRequest(pathAndQuery)
+
+    if (auth.oauth) {
+      let token = auth.oauth.accessToken()
+      if (!token) {
+        await auth.oauth.refresh()
+        token = auth.oauth.accessToken()
+      }
+      if (token) {
+        let cloud: JiraCloud
+        try {
+          cloud = await this.resolveCloud(auth.instanceId, token)
+        } catch (err) {
+          // Cloud discovery failed (bad/expired token, no Jira access, network) —
+          // fall back to the legacy token path if one is configured, else rethrow.
+          if (auth.token) return this.legacyRequest(pathAndQuery)
+          throw err
+        }
+        const gatewayUrl = `${GATEWAY}/ex/jira/${cloud.cloudId}${pathAndQuery}`
+        let res = await this.fetchWith(gatewayUrl, `Bearer ${token}`, auth.instanceId)
+        if (res.status === 401 || res.status === 403) {
+          await auth.oauth.refresh()
+          token = auth.oauth.accessToken()
+          if (token) res = await this.fetchWith(gatewayUrl, `Bearer ${token}`, auth.instanceId)
+          if (!token || res.status === 401 || res.status === 403) {
+            if (auth.token) return this.legacyRequest(pathAndQuery)
+            throw new AtlassianError(
+              'auth',
+              `Atlassian rejected the Rovo connector's authorization (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`,
+              auth.instanceId
+            )
+          }
+        }
+        this.mapStatus(res, auth.instanceId, "the Rovo connector's authorization")
+        return res
+      }
+    }
+    return this.legacyRequest(pathAndQuery)
+  }
+
+  private async resolveCloud(instanceId: string, token: string): Promise<JiraCloud> {
+    const cached = this.cloudId.get(instanceId)
+    if (cached) return cached
+    const cloud = await discoverJiraCloud(token, this.fetchImpl, this.timeoutMs)
+    this.cloudId.set(instanceId, cloud)
+    return cloud
   }
 
   private async parseJson<T>(res: Response): Promise<T> {
