@@ -6,7 +6,10 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  // Plain Node .mjs spike scripts (Phase-2 Copilot SDK capture harness) live
+  // outside the TS project and are not built; exclude them from the
+  // TypeScript-oriented lint rules (e.g. explicit-function-return-type).
+  { ignores: ['**/node_modules', '**/dist', '**/out', 'scripts/spike-copilot/**'] },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
