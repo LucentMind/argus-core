@@ -3,7 +3,8 @@ import {
   PERMISSION_MODES,
   type AppSettings,
   type ModelPreferences,
-  type PermissionMode
+  type PermissionMode,
+  type ProviderInstance
 } from './settings'
 
 export interface FieldAnnotation {
@@ -128,6 +129,17 @@ export const DRIVERS: Record<string, DriverDefinition> = {
 
 export function getDriver(slug: string): DriverDefinition | null {
   return DRIVERS[slug] ?? null
+}
+
+/** `<driverKind>-<n>`, lowest `n` not already used by another instance — used by the
+ *  Agent settings "Add provider" affordance to mint a fresh instance id. */
+export function nextInstanceId(
+  instances: Record<string, ProviderInstance>,
+  driverKind: string
+): string {
+  let n = 1
+  while (`${driverKind}-${n}` in instances) n++
+  return `${driverKind}-${n}`
 }
 
 /**
