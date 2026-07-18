@@ -12,9 +12,10 @@ import {
 } from './settingsLayout'
 import { AnnotatedForm } from './AnnotatedForm'
 import { ProviderModels } from './ProviderModels'
+import { ProviderInstances } from './ProviderInstances'
 import { RedactedText } from './RedactedText'
 import { ClaudeIcon } from './ClaudeIcon'
-import { getDriver } from '../../../../shared/drivers'
+import { getDriver, nextInstanceId } from '../../../../shared/drivers'
 import {
   PERMISSION_MODES,
   PERMISSION_MODE_LABELS,
@@ -88,6 +89,21 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
     patchAgent({ providerInstances: { [instId]: p } })
   }
 
+  function selectInstance(id: string): void {
+    if (id === instId) return
+    const target = a.providerInstances[id]
+    if (!target?.enabled) return // belt-and-suspenders: the picker already disables this button
+    patchAgent({ activeInstanceId: id })
+  }
+
+  function addInstance(driverKind: string): void {
+    const id = nextInstanceId(a.providerInstances, driverKind)
+    patchAgent({
+      providerInstances: { [id]: { driver: driverKind, enabled: true, config: {} } },
+      activeInstanceId: id
+    })
+  }
+
   async function testConnection(): Promise<void> {
     setProbing(true)
     try {
@@ -99,6 +115,15 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
 
   return (
     <>
+      <SettingsSection title="Providers">
+        <ProviderInstances
+          providerInstances={a.providerInstances}
+          activeInstanceId={instId}
+          onSelect={selectInstance}
+          onAdd={addInstance}
+        />
+      </SettingsSection>
+
       <SettingsSection title="Provider">
         <div className="flex flex-col gap-1 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -109,7 +134,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
             {driver ? (
               <span className="flex min-w-0 items-center gap-1.5">
                 <ClaudeIcon className="text-ink" />
-                <span className="truncate text-sm text-ink">
+                <span data-testid="active-driver-label" className="truncate text-sm text-ink">
                   {inst?.displayName?.trim() || (driver.shortLabel ?? driver.label)}
                 </span>
               </span>
