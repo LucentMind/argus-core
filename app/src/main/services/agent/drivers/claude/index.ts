@@ -5,7 +5,7 @@ import { AsyncQueue } from '../../asyncQueue'
 import { CLAUDE_TOOL_TAXONOMY } from '../../risk'
 import { createArgusMcpServer } from '../../nativeTools'
 import { buildPanelCommandServers } from '../../panelCommands'
-import { probeAuth } from '../../probe'
+import { probeAuth } from './probe'
 import type {
   AgentDriver,
   DriverSession,
@@ -215,13 +215,21 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       }
     },
 
-    // Delegates to the existing probe.ts (unchanged); Task 6 rewires index.ts call sites.
-    // AuthStatus carries more fields (email/subscription/version) than ProbeAuthResult —
-    // fold the human-readable ones into detail so nothing user-facing is lost.
+    // Delegates to probe.ts (colocated Task 6). AuthStatus carries a few more optional
+    // fields (email/subscription/version) than the driver-agnostic core of
+    // ProbeAuthResult — passed through as-is (not folded into detail) so index.ts call
+    // sites see exactly what the pre-driver probe gave them: HealthService's `detail`
+    // text is unchanged, and AuthCache/the renderer still get email/subscription/version
+    // as distinct fields.
     async probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult> {
       const st = await probeAuth(createQuery, config)
-      const detail = [st.detail, st.subscription, st.email].filter(Boolean).join(' · ')
-      return { ok: st.ok, detail }
+      return {
+        ok: st.ok,
+        detail: st.detail,
+        ...(st.email ? { email: st.email } : {}),
+        ...(st.subscription ? { subscription: st.subscription } : {}),
+        ...(st.version ? { version: st.version } : {})
+      }
     }
   }
 }
