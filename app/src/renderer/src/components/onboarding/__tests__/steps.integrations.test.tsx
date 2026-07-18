@@ -149,8 +149,8 @@ describe('IntegrationsStep (inline config)', () => {
         expect.objectContaining({ rovo: expect.objectContaining({ preset: 'rovo' }) })
       )
     )
-    expect(screen.getByLabelText('Site URL (REST)')).toBeTruthy()
-    expect(screen.getByLabelText('Atlassian API token (PAT)')).toBeTruthy()
+    expect(screen.getByLabelText('Site URL (REST, optional)')).toBeTruthy()
+    expect(screen.getByLabelText('Atlassian API token (optional)')).toBeTruthy()
   })
 
   it('REST: commits the site URL to config and the API token as a secret', async () => {
@@ -158,7 +158,7 @@ describe('IntegrationsStep (inline config)', () => {
     render(<IntegrationsStep />)
     fireEvent.click(await screen.findByRole('button', { name: /REST API/i }))
 
-    const site = await screen.findByLabelText('Site URL (REST)')
+    const site = await screen.findByLabelText('Site URL (REST, optional)')
     fireEvent.focus(site)
     fireEvent.change(site, { target: { value: 'https://acme.atlassian.net' } })
     fireEvent.blur(site)
@@ -168,7 +168,7 @@ describe('IntegrationsStep (inline config)', () => {
       })
     )
 
-    const token = screen.getByLabelText('Atlassian API token (PAT)')
+    const token = screen.getByLabelText('Atlassian API token (optional)')
     fireEvent.change(token, { target: { value: 'tok_abc' } })
     fireEvent.blur(token)
     await waitFor(() =>

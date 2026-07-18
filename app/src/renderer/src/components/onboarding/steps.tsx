@@ -237,7 +237,8 @@ export function IntegrationsStep(): React.JSX.Element {
   const hive = Boolean(settings?.settings?.hivemind?.repo?.trim())
   const oauthOk = Object.values(connectors?.oauth ?? {}).some((v) => v === 'authorized')
   const rovoConfig = (connectors?.connectors?.rovo?.config ?? {}) as Record<string, unknown>
-  // REST (Jira attachments + Confluence sync) needs a site URL and an API token.
+  // REST fallback (Confluence reference-sync, or Jira access if the OAuth grant lacks it)
+  // needs a site URL and an API token.
   const restOk = Boolean(rovoConfig.siteUrl) && Boolean(rovoConfig.apiToken)
   const atlassian = oauthOk || restOk
   const createTokenLink = connectors?.presets?.rovo?.links?.createApiToken
@@ -294,7 +295,7 @@ export function IntegrationsStep(): React.JSX.Element {
                 className="ml-auto text-xs text-dim underline hover:text-ink"
                 onClick={toggleRest}
               >
-                {restOpen ? 'Hide REST API' : 'REST API (Jira attachments)…'}
+                {restOpen ? 'Hide REST API' : 'REST API (optional, Confluence sync)…'}
               </button>
             </div>
             {restOpen && (
