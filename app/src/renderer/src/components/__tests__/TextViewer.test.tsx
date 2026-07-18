@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Mock } from 'vitest'
 import { StrictMode } from 'react'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TextViewer } from '../TextViewer'
 import {
@@ -213,6 +213,37 @@ describe('TextViewer', () => {
     expect(await screen.findByText('3,000,000 lines')).toBeInTheDocument()
     // no fixed-window chip anymore
     expect(screen.queryByText(/showing lines near/)).not.toBeInTheDocument()
+  })
+
+  it('flags a stale citation pointing beyond EOF and clamps the scroll', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={3_500_000}
+        focusEnd={3_500_002}
+        onClose={vi.fn()}
+      />
+    )
+    expect(
+      await screen.findByText('line 3500000 does not exist — the file ends at line 3000000')
+    ).toBeInTheDocument()
+    // scroll target clamps to the last line instead of overshooting
+    await waitFor(() => expect(document.querySelector('#line-3000000')).toBeInTheDocument())
+  })
+
+  it('Ctrl-F focuses the find input even with Shift/CapsLock (key "F")', async () => {
+    const { container } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByPlaceholderText('find in file')
+    const root = container.firstElementChild as HTMLElement
+    fireEvent.keyDown(root, { key: 'F', ctrlKey: true, shiftKey: true })
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('find in file'))
   })
 
   it('jump-to-line input scrolls the list', async () => {
