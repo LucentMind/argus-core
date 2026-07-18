@@ -52,11 +52,11 @@ const connectorsPayload: ConnectorsPayload = {
       displayName: 'Atlassian Rovo',
       preset: 'rovo',
       enabled: true,
-      config: { siteUrl: 'https://example.atlassian.net', apiToken: { $secret: 'rovo/apiToken' } }
+      config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true }
     }
   },
   runtime: {},
-  oauth: {},
+  oauth: { rovo: 'authorized' },
   rest: {},
   loadError: null,
   secretsAvailable: true,
@@ -100,6 +100,46 @@ it('Sync now surfaces a REST auth failure inline', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'sync · NAVNATIVE' }))
   await waitFor(() => expect(window.argus.refsync.sync).toHaveBeenCalledWith('NAVNATIVE'))
   expect(await screen.findByText(/PAT rejected/)).toBeTruthy()
+})
+
+it('an OAuth-only rovo connector that is not yet authorized disables Sync with an Authorize-connector warning', async () => {
+  ;(window.argus.connectors.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ...connectorsPayload,
+    oauth: {}
+  })
+  render(<ReferencesSettings />)
+  expect(
+    await screen.findByText(
+      'Authorize the Atlassian connector (Settings → Connectors) before syncing.'
+    )
+  ).toBeTruthy()
+  const syncBtn = (await screen.findByRole('button', {
+    name: 'sync · NAVNATIVE'
+  })) as HTMLButtonElement
+  expect(syncBtn.disabled).toBe(true)
+})
+
+it('no rovo connector configured shows a distinct warning and disables Sync', async () => {
+  ;(window.argus.connectors.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ...connectorsPayload,
+    connectors: {},
+    oauth: {}
+  })
+  render(<ReferencesSettings />)
+  expect(await screen.findByText(/No Atlassian connector configured/)).toBeTruthy()
+  const syncBtn = (await screen.findByRole('button', {
+    name: 'sync · NAVNATIVE'
+  })) as HTMLButtonElement
+  expect(syncBtn.disabled).toBe(true)
+})
+
+it('a REST auth error on the connector reports an authorization problem, not a stale API token', async () => {
+  ;(window.argus.connectors.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ...connectorsPayload,
+    rest: { rovo: 'token expired' }
+  })
+  render(<ReferencesSettings />)
+  expect(await screen.findByText('Atlassian authorization problem: token expired')).toBeTruthy()
 })
 
 it('shows the broken-config banner from loadError', async () => {

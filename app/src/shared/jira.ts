@@ -58,8 +58,6 @@ export interface JiraRefreshSummary {
 
 export const ATLASSIAN_ERROR_CODES = [
   'not-configured', // no rovo-preset connector in the registry
-  'no-site-url', // connector has no siteUrl config
-  'no-token', // apiToken secret missing/unresolvable
   'auth', // HTTP 401/403 — surfaced on the card + Health row
   'not-found', // HTTP 404 — "ticket not found" inline in dialogs
   'network', // fetch rejected / timeout

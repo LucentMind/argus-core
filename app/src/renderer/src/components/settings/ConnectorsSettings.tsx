@@ -6,7 +6,6 @@ import {
   RESERVED_INSTANCE_IDS,
   collectSecretRefs,
   type ConnectorInstance,
-  type ConnectorPresets,
   type ConnectorRuntimeState,
   type HttpConnectorConfig,
   type OAuthStatus
@@ -59,7 +58,6 @@ function ConnectorCard({
   oauthStatus,
   restError,
   secretsAvailable,
-  presets,
   editing,
   onToggleEdit
 }: {
@@ -69,7 +67,6 @@ function ConnectorCard({
   oauthStatus: OAuthStatus | undefined
   restError: string | undefined
   secretsAvailable: boolean
-  presets: ConnectorPresets
   editing: boolean
   onToggleEdit: () => void
 }): React.JSX.Element {
@@ -200,23 +197,6 @@ function ConnectorCard({
             value={formValue(inst.kind, cfg)}
             onChange={(k, v) => commitField(id, inst.kind, k, v)}
             onSecret={(k, v) => commitSecret(id, k, v)}
-            badges={
-              inst.preset && presets[inst.preset]?.links?.createApiToken
-                ? {
-                    apiToken: (
-                      <button
-                        className="text-xs text-defect underline"
-                        aria-label={`create api token · ${id}`}
-                        onClick={() =>
-                          void window.argus.openExternal(presets[inst.preset!].links.createApiToken)
-                        }
-                      >
-                        Create API token ↗
-                      </button>
-                    )
-                  }
-                : undefined
-            }
           />
         </div>
       )}
@@ -286,7 +266,6 @@ export function ConnectorsSettings(): React.JSX.Element {
             oauthStatus={payload.oauth[id]}
             restError={payload.rest[id]}
             secretsAvailable={payload.secretsAvailable}
-            presets={payload.presets}
             editing={editing === id}
             onToggleEdit={() => setEditing((e) => (e === id ? null : id))}
           />

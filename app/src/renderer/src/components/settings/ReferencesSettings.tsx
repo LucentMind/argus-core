@@ -7,25 +7,19 @@ import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import { useConnectorsPayload } from '../../lib/connectorsStore'
-import {
-  connectorConfig,
-  isSecretRef,
-  type HttpConnectorConfig
-} from '../../../../shared/connectors'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
 
-/** Atlassian (Rovo preset) token state, checked client-side before the user hits Sync. */
+/** Atlassian (Rovo preset) OAuth state, checked client-side before the user hits Sync. */
 function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayload>): string | null {
   if (!connectors) return null
   const entry = Object.entries(connectors.connectors).find(([, inst]) => inst.preset === 'rovo')
   if (!entry)
     return 'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
-  const [instanceId, inst] = entry
+  const [instanceId] = entry
   const restError = connectors.rest[instanceId]
-  if (restError) return `Atlassian API token looks outdated: ${restError}`
-  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-  if (!(cfg.siteUrl ?? '').trim() || !isSecretRef(cfg.apiToken)) {
-    return 'Atlassian API token is not set — configure it on the Atlassian connector (Settings → Connectors) before syncing.'
+  if (restError) return `Atlassian authorization problem: ${restError}`
+  if (connectors.oauth[instanceId] !== 'authorized') {
+    return 'Authorize the Atlassian connector (Settings → Connectors) before syncing.'
   }
   return null
 }
