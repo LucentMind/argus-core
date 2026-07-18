@@ -1111,6 +1111,7 @@ function registerIpc(): void {
     for (const id of before) {
       if (!after.has(id)) {
         mcpOauth.clear(id)
+        atlassian.invalidateCloud(id)
         secretStore.deletePrefix(`connector/${id}/`)
       }
     }
@@ -1125,6 +1126,7 @@ function registerIpc(): void {
     const inst = connectorRegistry.get()[id]
     if (!inst) return { ok: false, error: `unknown connector: ${id}` }
     const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
+    atlassian.invalidateCloud(id)
     const r = await mcpOauth.authorize(id, cfg.url)
     // Reset the connector card's display badge (e.g. a stale needs-auth mark) after a
     // successful authorize. Display-only: compose() never consults runtime state, so
