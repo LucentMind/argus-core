@@ -57,7 +57,12 @@ export async function discoverJiraCloud(
       'auth',
       `Atlassian authorization couldn't reach Jira (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`
     )
-  const resources = (await res.json()) as Array<{ id: string; url: string; scopes?: string[] }>
+  let resources: Array<{ id: string; url: string; scopes?: string[] }>
+  try {
+    resources = (await res.json()) as Array<{ id: string; url: string; scopes?: string[] }>
+  } catch {
+    throw new AtlassianError('http', 'Atlassian returned invalid JSON', undefined)
+  }
   const jira = resources.find((r) => (r.scopes ?? []).some((s) => s.includes('jira-work')))
   if (!jira)
     throw new AtlassianError(
