@@ -109,6 +109,12 @@ export interface AgentDriver {
    *  Driver-owned because the fix is vendor-specific — telling a Copilot user to run
    *  `claude login` is worse than saying nothing. */
   readonly authFixHint: string
+  /** Shell command that installs/updates this driver's CLI, shown in the update advisory.
+   *  Driver-owned because the package differs per vendor. */
+  readonly updateCommand?: string
+  /** npm package whose `latest` dist-tag is this CLI's published version. Absent = no
+   *  update check for this driver (the advisory simply never appears). */
+  readonly npmPackage?: string
   createSession(ctx: DriverSessionContext): DriverSession
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
   /**

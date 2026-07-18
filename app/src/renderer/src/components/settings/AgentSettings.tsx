@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { settingsStore } from '../../lib/settingsStore'
-import { Btn, Chip, IconBtn } from '../ui'
+import { Chip, IconBtn } from '../ui'
 import {
   SettingsSection,
   SettingRow,
@@ -12,9 +12,8 @@ import {
 } from './settingsLayout'
 import { AnnotatedForm } from './AnnotatedForm'
 import { ProviderModels } from './ProviderModels'
-import { ProviderInstances } from './ProviderInstances'
-import { RedactedText } from './RedactedText'
-import { ProviderIcon } from './ProviderIcon'
+import { ProviderRow } from './ProviderRow'
+import { AddProviderMenu, LastChecked } from './providerHeader'
 import { getDriver, nextInstanceId } from '../../../../shared/drivers'
 import {
   PERMISSION_MODES,
@@ -22,165 +21,141 @@ import {
   type PermissionMode,
   type SettingsPayload
 } from '../../../../shared/settings'
-import type { AuthStatus } from '../../../../shared/types'
+import type { ProviderStatus } from '../../../../shared/types'
 
 const MODE_BY_LABEL = Object.fromEntries(
   PERMISSION_MODES.map((m) => [PERMISSION_MODE_LABELS[m], m])
 ) as Record<string, PermissionMode>
 
-function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
-  return (
-    <ChevronDown
-      size={14}
-      strokeWidth={1.5}
-      className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
-    />
-  )
-}
-
-/** `bg-review` when auth is confirmed ok, `bg-danger` when it's confirmed failed, `bg-faint` while probing/unknown. */
-function statusDotClass(auth: AuthStatus | null, probing: boolean): string {
-  if (probing || !auth) return 'bg-faint'
-  return auth.ok ? 'bg-review' : 'bg-danger'
-}
-
-function AuthLine({ auth }: { auth: AuthStatus | null }): React.JSX.Element | null {
-  if (!auth) return null
-  if (auth.ok && auth.email) {
-    return (
-      <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-mute">
-        <span>{auth.verified ? 'Authenticated as' : 'Account on file:'}</span>
-        <RedactedText value={auth.email} aria-label="Toggle account email visibility" />
-        {auth.subscription && <span>· {auth.subscription}</span>}
-        {!auth.verified && <span>· sign-in confirmed on first message</span>}
-      </span>
-    )
-  }
-  if (!auth.ok) {
-    return <span className="text-xs text-danger">{auth.detail}</span>
-  }
-  return <span className="text-xs text-mute">{auth.detail}</span>
-}
-
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
-  const instId = a.activeInstanceId
-  const inst = a.providerInstances[instId]
-  const driver = inst ? getDriver(inst.driver) : null
-  const cfg = (inst?.config ?? {}) as Record<string, unknown>
-  const [auth, setAuth] = useState<AuthStatus | null>(null)
-  const [probing, setProbing] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [statuses, setStatuses] = useState<ProviderStatus[]>([])
+  const [refreshing, setRefreshing] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  // Statuses are pushed from the main process (periodic re-probe, settings change), so the
+  // page never has to poll — it just re-reads whenever it's told something moved.
   useEffect(() => {
     let alive = true
-    void window.argus.agent.authStatus().then((status) => {
-      if (alive) setAuth(status)
-    })
+    const load = (): void => {
+      void window.argus.providers.statuses().then((s) => {
+        if (alive) setStatuses(s)
+      })
+    }
+    load()
+    const off = window.argus.providers.onChanged(load)
     return () => {
       alive = false
+      off()
     }
-  }, [instId])
+  }, [])
 
   function patchAgent(p: Record<string, unknown>): void {
     void settingsStore.patch({ agent: p })
   }
-  function patchInstance(p: Record<string, unknown>): void {
-    patchAgent({ providerInstances: { [instId]: p } })
+  function patchInstance(id: string, p: Record<string, unknown>): void {
+    patchAgent({ providerInstances: { [id]: p } })
   }
 
-  function selectInstance(id: string): void {
-    if (id === instId) return
-    const target = a.providerInstances[id]
-    if (!target?.enabled) return // belt-and-suspenders: the picker already disables this button
-    patchAgent({ activeInstanceId: id })
+  /**
+   * Several providers may be enabled at once — the chat's model picker aggregates across
+   * them. Disabling the one currently designated the default hands that role to another
+   * enabled instance, so background work (distillation, reference sync, probes) never
+   * points at a switched-off provider.
+   */
+  function setEnabled(id: string, enabled: boolean): void {
+    const next: Record<string, unknown> = { providerInstances: { [id]: { enabled } } }
+    if (!enabled && a.activeInstanceId === id) {
+      const fallback = Object.entries(a.providerInstances).find(
+        ([otherId, i]) => otherId !== id && i.enabled
+      )?.[0]
+      if (fallback) next.activeInstanceId = fallback
+    }
+    patchAgent(next)
   }
 
   function addInstance(driverKind: string): void {
     const id = nextInstanceId(a.providerInstances, driverKind)
-    patchAgent({
-      providerInstances: { [id]: { driver: driverKind, enabled: true, config: {} } },
-      activeInstanceId: id
-    })
+    patchAgent({ providerInstances: { [id]: { driver: driverKind, enabled: true, config: {} } } })
+    setExpandedId(id)
   }
 
-  async function testConnection(): Promise<void> {
-    setProbing(true)
+  async function refresh(): Promise<void> {
+    setRefreshing(true)
     try {
-      setAuth(await window.argus.agent.authStatus(true))
+      setStatuses(await window.argus.providers.refresh())
     } finally {
-      setProbing(false)
+      setRefreshing(false)
     }
   }
 
+  const entries = Object.entries(a.providerInstances)
   return (
     <>
-      <SettingsSection title="Providers">
-        <ProviderInstances
-          providerInstances={a.providerInstances}
-          activeInstanceId={instId}
-          onSelect={selectInstance}
-          onAdd={addInstance}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Provider">
-        <div className="flex flex-col gap-1 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(auth, probing)}`}
-            />
-            {driver ? (
-              <span className="flex min-w-0 items-center gap-1.5">
-                <ProviderIcon kind={driver.kind} className="text-ink" />
-                <span data-testid="active-driver-label" className="truncate text-sm text-ink">
-                  {inst?.displayName?.trim() || (driver.shortLabel ?? driver.label)}
-                </span>
-              </span>
-            ) : (
-              <Chip tone="danger">unavailable driver: {inst?.driver ?? 'none'}</Chip>
-            )}
-            {auth?.version && <span className="font-mono text-xs text-mute">v{auth.version}</span>}
-            <span className="ml-auto flex shrink-0 items-center gap-2">
-              <Btn disabled={probing} onClick={() => void testConnection()}>
-                {probing ? 'Testing…' : 'Test connection'}
-              </Btn>
-              <IconBtn
-                aria-label={expanded ? 'Collapse provider details' : 'Expand provider details'}
-                title={expanded ? 'Collapse' : 'Expand'}
-                onClick={() => setExpanded((e) => !e)}
-              >
-                <ChevronIcon expanded={expanded} />
-              </IconBtn>
-            </span>
-          </div>
-          <AuthLine auth={auth} />
-        </div>
-        {expanded && (
-          <>
-            <SettingRow
-              label="Display name"
-              isDefault={!inst?.displayName}
-              onReset={() => patchInstance({ displayName: null })}
+      <SettingsSection
+        title="Providers"
+        action={
+          <span className="flex items-center gap-2">
+            <LastChecked statuses={statuses} />
+            <IconBtn
+              aria-label="Refresh provider status"
+              title="Refresh provider status"
+              disabled={refreshing}
+              onClick={() => void refresh()}
             >
-              <DraftInput
-                aria-label="Display name"
-                className={`${FIELD} w-56`}
-                value={inst?.displayName ?? ''}
-                onCommit={(v) => patchInstance({ displayName: v || null })}
+              <RefreshCw
+                size={13}
+                strokeWidth={1.5}
+                className={refreshing ? 'animate-spin' : undefined}
               />
-            </SettingRow>
-            {driver && (
+            </IconBtn>
+            <AddProviderMenu providerInstances={a.providerInstances} onAdd={addInstance} />
+          </span>
+        }
+      >
+        {entries.map(([id, instance]) => {
+          const d = getDriver(instance.driver)
+          const label = instance.displayName?.trim() || d?.shortLabel || d?.label || instance.driver
+          if (!d) {
+            return (
+              <div key={id} className="px-4 py-3">
+                <Chip tone="danger">unavailable driver: {instance.driver}</Chip>
+              </div>
+            )
+          }
+          return (
+            <ProviderRow
+              key={id}
+              instanceId={id}
+              driverKind={d.kind}
+              label={label}
+              status={statuses.find((s) => s.instanceId === id) ?? null}
+              enabled={instance.enabled}
+              expanded={expandedId === id}
+              onToggleEnabled={(v) => setEnabled(id, v)}
+              onToggleExpanded={() => setExpandedId(expandedId === id ? null : id)}
+            >
+              <SettingRow
+                label="Display name"
+                isDefault={!instance.displayName}
+                onReset={() => patchInstance(id, { displayName: null })}
+              >
+                <DraftInput
+                  aria-label={`Display name · ${id}`}
+                  className={`${FIELD} w-56`}
+                  value={instance.displayName ?? ''}
+                  onCommit={(v) => patchInstance(id, { displayName: v || null })}
+                />
+              </SettingRow>
               <AnnotatedForm
-                annotations={driver.formAnnotations}
-                value={cfg}
-                onChange={(k, v) => patchInstance({ config: { [k]: v } })}
+                annotations={d.formAnnotations}
+                value={(instance.config ?? {}) as Record<string, unknown>}
+                onChange={(k, v) => patchInstance(id, { config: { [k]: v } })}
               />
-            )}
-            <ProviderModels settings={payload.settings} instanceId={instId} />
-          </>
-        )}
+              <ProviderModels settings={payload.settings} instanceId={id} />
+            </ProviderRow>
+          )
+        })}
       </SettingsSection>
 
       <SettingsSection title="Session defaults">

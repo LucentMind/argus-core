@@ -85,9 +85,12 @@ import {
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import {
   getActiveDriver,
+  getDriverByKind,
   resolveDriver,
   resolveInstanceDriver
 } from './services/agent/driverRegistry'
+import { ProviderStatusService } from './services/agent/providerStatus'
+import { createNpmVersionLookup } from './services/agent/npmVersion'
 import { AuthCache } from './services/agent/authCache'
 import {
   linkWorkspace,
@@ -145,6 +148,7 @@ import { stageDistillOutput } from './services/distill/staging'
 import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 
 let agentService: AgentService | null = null
+let providerStatusService: ProviderStatusService | null = null
 let langfuseExporter: LangfuseExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let panelHost: PanelHost | null = null
@@ -453,9 +457,27 @@ function registerIpc(): void {
     },
     () => broadcast(IPC.agentAuthChanged, undefined)
   )
+
+  // Per-instance provider status for the settings page (every enabled provider at once),
+  // as opposed to authCache's single default-provider verdict.
+  const latestNpmVersion = createNpmVersionLookup()
+  providerStatusService = new ProviderStatusService({
+    settings: () => settingsService.get().agent,
+    driverFor: (instanceId) =>
+      resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
+    notify: () => broadcast(IPC.providersChanged, undefined),
+    latestVersion: async (driverKind) => {
+      const pkg = getDriverByKind(driverKind).npmPackage
+      return pkg ? latestNpmVersion(pkg) : null
+    }
+  })
+  providerStatusService.start()
+
   settingsService.subscribe(() => {
     binariesService.recompute()
     authCache.invalidate()
+    // Editing a provider's config (CLI path, credentials) invalidates its probe too.
+    providerStatusService?.onSettingsChanged()
     const old = langfuseExporter
     void old?.shutdown()
     buildExporter()
@@ -863,6 +885,11 @@ function registerIpc(): void {
     }
   )
   ipcMain.handle(IPC.agentAuthStatus, (_e, force?: boolean) => authCache.get(force ?? false))
+  ipcMain.handle(IPC.providerStatuses, () => providerStatusService?.list() ?? [])
+  ipcMain.handle(IPC.providerRefresh, async () => {
+    await providerStatusService?.refreshAll()
+    return providerStatusService?.list() ?? []
+  })
   ipcMain.handle(IPC.agentPreflight, () => binariesService.preflight())
   ipcMain.handle(IPC.agentHistory, (_e, caseSlug: string, sessionId: number) => {
     assertSlug(caseSlug)

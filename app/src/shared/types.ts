@@ -222,6 +222,29 @@ export interface AuthStatus {
   fixHint?: string
 }
 
+/** One provider instance's state on the settings page. Separate from `AuthStatus`, which
+ *  answers "can the default provider run a turn"; this is per-instance and never folds in
+ *  turn evidence (a turn on one provider says nothing about another). */
+export interface ProviderStatus {
+  instanceId: string
+  driverKind: string
+  displayName: string
+  /** `checking` = never probed yet (or a probe is in flight for the first time). */
+  state: 'checking' | 'ready' | 'error'
+  detail: string
+  email?: string
+  subscription?: string
+  version?: string
+  /** Set only when a newer CLI version is published — drives the update advisory. */
+  latestVersion?: string
+  /** Shell command that installs the latest CLI; shown alongside `latestVersion`. */
+  updateCommand?: string
+  /** Driver-owned remediation, present only when `state` is `error`. */
+  fixHint?: string
+  /** ISO timestamp of the last completed probe; null while never probed. */
+  checkedAt: string | null
+}
+
 export interface PreflightCheck {
   name: string
   ok: boolean
