@@ -4,17 +4,25 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import { ViewerFindBar } from '../ViewerFindBar'
+import type { FindBarState, StreamState } from '../ViewerFindBar'
 
-const base = {
-  query: 'ERROR',
+const stream = (over: Partial<StreamState> = {}): StreamState => ({
+  query: '',
   regex: false,
   caseSensitive: false,
-  filterMode: false,
-  hits: [10, 20, 30],
+  hits: [],
   done: true,
   capped: false,
-  scannedTo: 100,
-  activeIdx: 1 as number | null
+  scannedTo: 0,
+  ...over
+})
+
+const base: FindBarState = {
+  filter: stream(),
+  find: stream({ query: 'ERROR', hits: [10, 20, 30] }),
+  activeIdx: 1,
+  cutFrom: '',
+  cutTo: ''
 }
 
 describe('ViewerFindBar', () => {
@@ -24,6 +32,7 @@ describe('ViewerFindBar', () => {
         state={base}
         onQueryChange={vi.fn()}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={vi.fn()}
         onPrev={vi.fn()}
       />
@@ -37,6 +46,7 @@ describe('ViewerFindBar', () => {
         state={{ ...base, activeIdx: null }}
         onQueryChange={vi.fn()}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={vi.fn()}
         onPrev={vi.fn()}
       />
@@ -47,9 +57,14 @@ describe('ViewerFindBar', () => {
   it('shows a searching label while not done', () => {
     render(
       <ViewerFindBar
-        state={{ ...base, done: false, activeIdx: null }}
+        state={{
+          ...base,
+          find: stream({ query: 'ERROR', hits: [10, 20, 30], done: false }),
+          activeIdx: null
+        }}
         onQueryChange={vi.fn()}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={vi.fn()}
         onPrev={vi.fn()}
       />
@@ -60,9 +75,13 @@ describe('ViewerFindBar', () => {
   it('flags capped searches as resumable', () => {
     render(
       <ViewerFindBar
-        state={{ ...base, capped: true, done: false }}
+        state={{
+          ...base,
+          find: stream({ query: 'ERROR', hits: [10, 20, 30], capped: true, done: false })
+        }}
         onQueryChange={vi.fn()}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={vi.fn()}
         onPrev={vi.fn()}
       />
@@ -73,9 +92,14 @@ describe('ViewerFindBar', () => {
   it('formats large match counts with thousands separators', () => {
     render(
       <ViewerFindBar
-        state={{ ...base, hits: Array.from({ length: 12345 }, (_, i) => i), activeIdx: null }}
+        state={{
+          ...base,
+          find: stream({ query: 'ERROR', hits: Array.from({ length: 12345 }, (_, i) => i) }),
+          activeIdx: null
+        }}
         onQueryChange={vi.fn()}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={vi.fn()}
         onPrev={vi.fn()}
       />
@@ -83,15 +107,85 @@ describe('ViewerFindBar', () => {
     expect(screen.getByText('12,345 matches')).toBeInTheDocument()
   })
 
-  it('Enter/Shift-Enter step next/prev; toggles fire', async () => {
-    const onNext = vi.fn()
-    const onPrev = vi.fn()
+  it('renders separate filter and find inputs with their own toggles', async () => {
     const onToggle = vi.fn()
     render(
       <ViewerFindBar
         state={base}
         onQueryChange={vi.fn()}
         onToggle={onToggle}
+        onCutChange={vi.fn()}
+        onNext={vi.fn()}
+        onPrev={vi.fn()}
+      />
+    )
+    expect(screen.getByPlaceholderText('filter lines')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('find in file')).toBeInTheDocument()
+    await userEvent.click(screen.getByTitle('filter regex'))
+    expect(onToggle).toHaveBeenCalledWith('filter', 'regex')
+    await userEvent.click(screen.getByTitle('match case'))
+    expect(onToggle).toHaveBeenCalledWith('find', 'caseSensitive')
+    expect(screen.queryByTitle('filter to matches')).toBeNull() // ☰ removed
+  })
+
+  it('shows the filtered-line count when a filter is active', () => {
+    render(
+      <ViewerFindBar
+        state={{
+          ...base,
+          filter: stream({ query: 'CTX1', hits: Array.from({ length: 1234 }, (_, i) => i + 1) })
+        }}
+        onQueryChange={vi.fn()}
+        onToggle={vi.fn()}
+        onCutChange={vi.fn()}
+        onNext={vi.fn()}
+        onPrev={vi.fn()}
+      />
+    )
+    expect(screen.getByText('1,234 filtered')).toBeInTheDocument()
+  })
+
+  it('cut inputs report raw values', async () => {
+    const onCutChange = vi.fn()
+    render(
+      <ViewerFindBar
+        state={base}
+        onQueryChange={vi.fn()}
+        onToggle={vi.fn()}
+        onCutChange={onCutChange}
+        onNext={vi.fn()}
+        onPrev={vi.fn()}
+      />
+    )
+    await userEvent.type(screen.getByPlaceholderText('from'), '5')
+    expect(onCutChange).toHaveBeenCalledWith('from', '5')
+  })
+
+  it('toggle buttons are square', () => {
+    render(
+      <ViewerFindBar
+        state={base}
+        onQueryChange={vi.fn()}
+        onToggle={vi.fn()}
+        onCutChange={vi.fn()}
+        onNext={vi.fn()}
+        onPrev={vi.fn()}
+      />
+    )
+    for (const t of ['filter regex', 'filter match case', 'regex', 'match case']) {
+      expect(screen.getByTitle(t).className).toContain('h-6 w-6')
+    }
+  })
+
+  it('Enter/Shift-Enter on the find input step next/prev', async () => {
+    const onNext = vi.fn()
+    const onPrev = vi.fn()
+    render(
+      <ViewerFindBar
+        state={base}
+        onQueryChange={vi.fn()}
+        onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={onNext}
         onPrev={onPrev}
       />
@@ -101,25 +195,6 @@ describe('ViewerFindBar', () => {
     expect(onNext).toHaveBeenCalledOnce()
     await userEvent.type(input, '{Shift>}{Enter}{/Shift}')
     expect(onPrev).toHaveBeenCalledOnce()
-    await userEvent.click(screen.getByTitle('filter to matches'))
-    expect(onToggle).toHaveBeenCalledWith('filterMode')
-  })
-
-  it('toggles regex and match-case', async () => {
-    const onToggle = vi.fn()
-    render(
-      <ViewerFindBar
-        state={base}
-        onQueryChange={vi.fn()}
-        onToggle={onToggle}
-        onNext={vi.fn()}
-        onPrev={vi.fn()}
-      />
-    )
-    await userEvent.click(screen.getByTitle('regex'))
-    expect(onToggle).toHaveBeenCalledWith('regex')
-    await userEvent.click(screen.getByTitle('match case'))
-    expect(onToggle).toHaveBeenCalledWith('caseSensitive')
   })
 
   it('the ↑/↓ buttons call prev/next', async () => {
@@ -130,6 +205,7 @@ describe('ViewerFindBar', () => {
         state={base}
         onQueryChange={vi.fn()}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={onNext}
         onPrev={onPrev}
       />
@@ -140,39 +216,21 @@ describe('ViewerFindBar', () => {
     expect(onNext).toHaveBeenCalledOnce()
   })
 
-  it('Escape clears the query without bubbling', async () => {
-    const onQueryChange = vi.fn()
-    const parentKeyDown = vi.fn()
-    render(
-      <div onKeyDown={parentKeyDown}>
-        <ViewerFindBar
-          state={base}
-          onQueryChange={onQueryChange}
-          onToggle={vi.fn()}
-          onNext={vi.fn()}
-          onPrev={vi.fn()}
-        />
-      </div>
-    )
-    const input = screen.getByPlaceholderText('find in file')
-    await userEvent.type(input, '{Escape}')
-    expect(onQueryChange).toHaveBeenCalledWith('')
-    expect(parentKeyDown).not.toHaveBeenCalled()
-  })
-
-  it('types into the query input', async () => {
+  it('types into the filter and find query inputs', async () => {
     const onQueryChange = vi.fn()
     render(
       <ViewerFindBar
-        state={{ ...base, query: '' }}
+        state={base}
         onQueryChange={onQueryChange}
         onToggle={vi.fn()}
+        onCutChange={vi.fn()}
         onNext={vi.fn()}
         onPrev={vi.fn()}
       />
     )
-    const input = screen.getByPlaceholderText('find in file')
-    await userEvent.type(input, 'X')
-    expect(onQueryChange).toHaveBeenCalledWith('X')
+    await userEvent.type(screen.getByPlaceholderText('filter lines'), 'X')
+    expect(onQueryChange).toHaveBeenCalledWith('filter', 'X')
+    await userEvent.type(screen.getByPlaceholderText('find in file'), 'Y')
+    expect(onQueryChange).toHaveBeenCalledWith('find', 'ERRORY')
   })
 })
