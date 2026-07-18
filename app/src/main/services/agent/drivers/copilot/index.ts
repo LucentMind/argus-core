@@ -37,6 +37,32 @@ export function isCopilotAuthErrorMessage(message: string): boolean {
   return message.includes(COPILOT_AUTH_ERROR_SUBSTRING)
 }
 
+// The SDK leaks an unhandled promise rejection on an unauthenticated turn that would
+// crash the process if untrapped (EVIDENCE §7). Merely being attached, a listener
+// suppresses Node's default handling for ALL rejections process-wide — so the trap must
+// (a) swallow ONLY auth-shaped rejections (the same failure also arrives as a typed
+// `session.error` that drives the auth verdict) and rethrow everything else on a fresh
+// tick, where it becomes an uncaughtException and Node's default handling applies again;
+// (b) be a single ref-counted process listener, so concurrent Copilot sessions never
+// stack duplicate handlers that would each rethrow the same unrelated rejection.
+const authRejectionTrap = (reason: unknown): void => {
+  const msg = reason instanceof Error ? reason.message : String(reason)
+  if (isCopilotAuthErrorMessage(msg)) return // swallowed: prevents the process crash
+  setImmediate(() => {
+    throw reason instanceof Error ? reason : new Error(msg)
+  })
+}
+let authTrapRefs = 0
+function acquireAuthRejectionTrap(): () => void {
+  if (authTrapRefs++ === 0) process.on('unhandledRejection', authRejectionTrap)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    if (--authTrapRefs === 0) process.off('unhandledRejection', authRejectionTrap)
+  }
+}
+
 export interface CopilotDriverDeps {
   /** Injected at the client.ts seam; tests pass a scripted fake to avoid the real runtime. */
   clientFactory?: CopilotClientFactory
@@ -72,21 +98,9 @@ export function createCopilotDriver(
       let ended = false
       let stopped = false
 
-      // The SDK leaks an unhandled promise rejection on an unauthenticated turn that would
-      // crash the process if untrapped (EVIDENCE §7). Trap ONLY the specific auth message
-      // for this session's lifetime; everything else is left for the normal handlers.
-      const onUnhandledRejection = (reason: unknown): void => {
-        const msg = reason instanceof Error ? reason.message : String(reason)
-        if (isCopilotAuthErrorMessage(msg)) {
-          // The same failure also arrives as a typed `session.error` event, which drives
-          // the auth verdict; swallowing here just prevents the process crash.
-        }
-      }
-      process.on('unhandledRejection', onUnhandledRejection)
-
-      const cleanup = (): void => {
-        process.off('unhandledRejection', onUnhandledRejection)
-      }
+      // See authRejectionTrap above: swallow the SDK's leaked auth rejection for this
+      // session's lifetime without hijacking unrelated rejections process-wide.
+      const cleanup = acquireAuthRejectionTrap()
 
       const stopClient = (): void => {
         if (stopped) return
@@ -179,6 +193,11 @@ export function createCopilotDriver(
             for (const ev of norm.normalize(raw, ctx.eventCtx())) yield ev
           }
         } finally {
+          // ANY stream termination — normal end, a thrown fatal (init failure / non-auth
+          // session.error), or the consumer breaking out — tears down the runtime. The
+          // harness's consume-catch marks the session dead WITHOUT calling end() on the
+          // crash path, so relying on end() alone would leak the spawned child process.
+          stopClient() // idempotent; also invoked from end()
           cleanup()
         }
       }

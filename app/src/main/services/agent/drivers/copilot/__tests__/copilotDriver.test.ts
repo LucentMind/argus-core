@@ -18,9 +18,16 @@ interface FakeOpts {
 
 function makeFake(opts: FakeOpts = {}): {
   factory: CopilotClientFactory
+  start: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>
   forceStop: ReturnType<typeof vi.fn>
+  /** Ordered client-method call log (start/createSession/getAuthStatus/…). */
+  calls: string[]
 } {
+  const calls: string[] = []
+  const start = vi.fn(async () => {
+    calls.push('start')
+  })
   const stop = vi.fn(async () => [] as Error[])
   const forceStop = vi.fn(async () => undefined)
   const factory: CopilotClientFactory = () => {
@@ -46,16 +53,17 @@ function makeFake(opts: FakeOpts = {}): {
       return 'ok'
     }
     const client: CopilotClientLike = {
-      async start() {
-        /* no-op transport */
-      },
+      start,
       async createSession() {
+        calls.push('createSession')
         return session
       },
       async resumeSession() {
+        calls.push('resumeSession')
         return session
       },
       async getAuthStatus() {
+        calls.push('getAuthStatus')
         return opts.authenticated === false
           ? { isAuthenticated: false, statusMessage: 'Not authenticated' }
           : { isAuthenticated: true, authType: 'gh-cli', login: 'JiaweiHan88' }
@@ -68,7 +76,7 @@ function makeFake(opts: FakeOpts = {}): {
     }
     return client
   }
-  return { factory, stop, forceStop }
+  return { factory, start, stop, forceStop, calls }
 }
 
 function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionContext {
@@ -146,6 +154,82 @@ describe('createCopilotDriver — session lifecycle', () => {
     expect(onTurnResult).toHaveBeenCalledTimes(1)
     expect(onTurnResult.mock.calls[0][0].authFailure).toBe(true)
     expect(seen.some((e) => e.type === 'session.error')).toBe(true)
+  })
+
+  it('stops the client when events() terminates via the crash path (no end() call)', async () => {
+    // Mirrors CaseSession.consume(): the harness catches the thrown stream error, marks
+    // the session dead, and never calls end() — the driver alone must reap the runtime.
+    const { factory, stop, forceStop } = makeFake({
+      onEmit: (emit) => {
+        emit('session.error', { errorType: 'runtime', message: 'scripted fatal failure' })
+      }
+    })
+    const driver = createCopilotDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx())
+    await tick()
+    session.send('go')
+
+    await expect(
+      (async () => {
+        for await (const e of session.events()) void e
+      })()
+    ).rejects.toThrow('scripted fatal failure')
+
+    await tick() // stopClient chains on the (already-resolved) init promise
+    expect(stop.mock.calls.length + forceStop.mock.calls.length).toBeGreaterThan(0)
+    expect(stop).toHaveBeenCalledTimes(1) // graceful stop, no double teardown
+  })
+
+  it('awaits client.start() before createSession (session) and getAuthStatus (probe)', async () => {
+    const sessionFake = makeFake()
+    const driver = createCopilotDriver({}, { clientFactory: sessionFake.factory })
+    const s = driver.createSession(makeCtx())
+    await tick()
+    expect(sessionFake.calls).toEqual(['start', 'createSession'])
+    s.end()
+
+    const probeFake = makeFake()
+    await createCopilotDriver({}, { clientFactory: probeFake.factory }).probeAuth({})
+    expect(probeFake.calls).toEqual(['start', 'getAuthStatus'])
+  })
+
+  it('unhandledRejection trap swallows only auth-shaped rejections and rethrows the rest', async () => {
+    const { factory } = makeFake()
+    const driver = createCopilotDriver({}, { clientFactory: factory })
+
+    const before = process.listeners('unhandledRejection')
+    const session = driver.createSession(makeCtx())
+    const after = process.listeners('unhandledRejection')
+    const trap = after.find((l) => !before.includes(l))!
+    expect(trap).toBeDefined()
+
+    // A second session must NOT stack a duplicate listener (ref-counted single trap):
+    // duplicates would each rethrow the same unrelated rejection.
+    const session2 = driver.createSession(makeCtx())
+    expect(process.listeners('unhandledRejection').length).toBe(after.length)
+
+    // Capture the deferred rethrow instead of letting it become a real uncaughtException.
+    const deferred: Array<() => void> = []
+    const spy = vi
+      .spyOn(globalThis, 'setImmediate')
+      .mockImplementation(((cb: () => void) => deferred.push(cb)) as never)
+    try {
+      trap(new Error(AUTH_MSG), Promise.resolve())
+      expect(deferred).toHaveLength(0) // auth-shaped: swallowed
+
+      const unrelated = new Error('connector 401, nothing to do with copilot auth')
+      trap(unrelated, Promise.resolve())
+      expect(deferred).toHaveLength(1) // everything else: rethrown on a fresh tick
+      expect(() => deferred[0]()).toThrow(unrelated)
+    } finally {
+      spy.mockRestore()
+    }
+
+    // Ending both sessions releases the single listener.
+    session.end()
+    session2.end()
+    await tick()
+    expect(process.listeners('unhandledRejection').includes(trap)).toBe(false)
   })
 })
 
