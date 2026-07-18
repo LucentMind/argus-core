@@ -67,6 +67,36 @@ describe('ensureIndex', () => {
     expect(idx3.totalLines).toBe(1501)
   })
 
+  it('rebuilds when a sidecar has valid metadata but malformed checkpoints', async () => {
+    const p = writeLines('mal.txt', 1500)
+    const idx1 = await ensureIndex(argusHome, p)
+    const side = sidecarPath(argusHome, p)
+    for (const badCheckpoints of [
+      'nope', // not an array
+      [], // missing the mandatory [1, 0] seed
+      [[2, 5]], // wrong seed
+      [
+        [1, 0],
+        ['x', 3]
+      ] // non-numeric entry
+    ]) {
+      fs.writeFileSync(
+        side,
+        JSON.stringify({
+          version: 1,
+          mtimeMs: idx1.mtimeMs,
+          size: idx1.size,
+          totalLines: idx1.totalLines,
+          checkpoints: badCheckpoints
+        })
+      )
+      __clearIndexCacheForTests()
+      const rebuilt = await ensureIndex(argusHome, p)
+      expect(rebuilt.checkpoints).toEqual(idx1.checkpoints)
+      expect(rebuilt.totalLines).toBe(1500)
+    }
+  })
+
   it('handles empty file and file with no trailing newline', async () => {
     const empty = path.join(tmp, 'empty.txt')
     fs.writeFileSync(empty, '')

@@ -46,6 +46,15 @@ function loadSidecar(file: string, mtimeMs: number, size: number): LineIndex | n
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as LineIndex & { version: number }
     if (parsed.version !== 1 || parsed.mtimeMs !== mtimeMs || parsed.size !== size) return null
     const { totalLines, checkpoints } = parsed
+    // the sidecar is plain user-filesystem JSON — shape-check the checkpoint
+    // table so a truncated/hand-edited file rebuilds instead of failing later
+    // in checkpointAtOrBelow (invariant: ascending [line, byte] pairs seeded [1, 0])
+    if (!Number.isFinite(totalLines) || totalLines < 0) return null
+    if (!Array.isArray(checkpoints) || checkpoints.length === 0) return null
+    if (checkpoints[0][0] !== 1 || checkpoints[0][1] !== 0) return null
+    for (const cp of checkpoints) {
+      if (!Array.isArray(cp) || !Number.isFinite(cp[0]) || !Number.isFinite(cp[1])) return null
+    }
     return { mtimeMs, size, totalLines, checkpoints }
   } catch {
     return null
@@ -117,6 +126,8 @@ export async function ensureIndex(
   }
   memCache.delete(resolved)
   memCache.set(resolved, index)
+  // single-entry eviction is sufficient (`if`, not `while`): the cache only ever
+  // grows by one per call, so size can exceed the cap by at most one here
   if (memCache.size > MEM_CACHE_MAX) {
     const oldest = memCache.keys().next().value
     if (oldest !== undefined) memCache.delete(oldest)

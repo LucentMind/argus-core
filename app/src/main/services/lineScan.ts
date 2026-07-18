@@ -15,7 +15,11 @@ export class LineSplitter {
   }
 
   /** Feed one chunk; cb per complete line. cb returning false stops the scan
-   *  (push returns false and drops the carry — the consumer is done). */
+   *  (push returns false and drops the carry — the consumer is done).
+   *  CONTRACT: the Buffer handed to cb is a subarray VIEW into the pushed
+   *  chunk (only the carry remainder is copied) — consume it synchronously
+   *  inside the callback; never stash it across an await or reuse it after
+   *  the caller's read buffer is overwritten. */
   push(
     chunk: Buffer,
     cb: (line: Buffer, lineNo: number, byteStart: number) => boolean | void
