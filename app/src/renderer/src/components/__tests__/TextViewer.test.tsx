@@ -256,6 +256,20 @@ describe('TextViewer', () => {
     await waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(1_000_000))
   })
 
+  it('flags a stale citation beyond EOF on the small-file path too', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 1 }}
+        focusStart={99}
+        focusEnd={99}
+        onClose={vi.fn()}
+      />
+    )
+    expect(
+      await screen.findByText('line 99 does not exist — the file ends at line 3')
+    ).toBeInTheDocument()
+  })
+
   it('flags a stale citation pointing beyond EOF and clamps the scroll', async () => {
     render(
       <TextViewer

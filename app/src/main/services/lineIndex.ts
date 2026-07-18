@@ -48,12 +48,18 @@ function loadSidecar(file: string, mtimeMs: number, size: number): LineIndex | n
     const { totalLines, checkpoints } = parsed
     // the sidecar is plain user-filesystem JSON — shape-check the checkpoint
     // table so a truncated/hand-edited file rebuilds instead of failing later
-    // in checkpointAtOrBelow (invariant: ascending [line, byte] pairs seeded [1, 0])
+    // in checkpointAtOrBelow (invariant: strictly ascending [line, byte] pairs
+    // seeded [1, 0] — binary search depends on the ordering)
     if (!Number.isFinite(totalLines) || totalLines < 0) return null
     if (!Array.isArray(checkpoints) || checkpoints.length === 0) return null
     if (checkpoints[0][0] !== 1 || checkpoints[0][1] !== 0) return null
+    let prevLine = 0
+    let prevByte = -1
     for (const cp of checkpoints) {
       if (!Array.isArray(cp) || !Number.isFinite(cp[0]) || !Number.isFinite(cp[1])) return null
+      if (cp[0] <= prevLine || cp[1] <= prevByte) return null
+      prevLine = cp[0]
+      prevByte = cp[1]
     }
     return { mtimeMs, size, totalLines, checkpoints }
   } catch {
@@ -99,6 +105,11 @@ async function buildIndex(
   return { mtimeMs, size, totalLines, checkpoints }
 }
 
+// concurrent ensureIndex calls for the same file (e.g. the filter and find
+// streams starting together on an unindexed doc) share one build instead of
+// scanning the file twice and interleaving their progress events
+const inFlight = new Map<string, Promise<LineIndex>>()
+
 /** Load-or-build the line index for absPath, keyed by live mtime+size.
  *  Persists a sidecar under <argusHome>/cache/lineidx/ — never next to the
  *  source file (repo worktrees must stay untouched). */
@@ -117,22 +128,33 @@ export async function ensureIndex(
     return cached
   }
 
-  const side = sidecarPath(argusHome, resolved)
-  let index = loadSidecar(side, stat.mtimeMs, stat.size)
-  if (!index) {
-    index = await buildIndex(resolved, stat.mtimeMs, stat.size, onProgress)
-    fs.mkdirSync(path.dirname(side), { recursive: true })
-    fs.writeFileSync(side, JSON.stringify({ version: 1, ...index }))
+  const pending = inFlight.get(resolved)
+  if (pending) return pending
+
+  const work = (async (): Promise<LineIndex> => {
+    const side = sidecarPath(argusHome, resolved)
+    let index = loadSidecar(side, stat.mtimeMs, stat.size)
+    if (!index) {
+      index = await buildIndex(resolved, stat.mtimeMs, stat.size, onProgress)
+      fs.mkdirSync(path.dirname(side), { recursive: true })
+      fs.writeFileSync(side, JSON.stringify({ version: 1, ...index }))
+    }
+    memCache.delete(resolved)
+    memCache.set(resolved, index)
+    // single-entry eviction is sufficient (`if`, not `while`): the cache only ever
+    // grows by one per call, so size can exceed the cap by at most one here
+    if (memCache.size > MEM_CACHE_MAX) {
+      const oldest = memCache.keys().next().value
+      if (oldest !== undefined) memCache.delete(oldest)
+    }
+    return index
+  })()
+  inFlight.set(resolved, work)
+  try {
+    return await work
+  } finally {
+    inFlight.delete(resolved)
   }
-  memCache.delete(resolved)
-  memCache.set(resolved, index)
-  // single-entry eviction is sufficient (`if`, not `while`): the cache only ever
-  // grows by one per call, so size can exceed the cap by at most one here
-  if (memCache.size > MEM_CACHE_MAX) {
-    const oldest = memCache.keys().next().value
-    if (oldest !== undefined) memCache.delete(oldest)
-  }
-  return index
 }
 
 export const MAX_LINES_PER_READ = 2000

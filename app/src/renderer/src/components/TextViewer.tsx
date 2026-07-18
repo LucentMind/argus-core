@@ -640,7 +640,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             {doc?.ref && <Chip tone="neutral">@ {doc.ref}</Chip>}
             {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
             {doc && <Chip tone="neutral">{doc.totalLines.toLocaleString('en-US')} lines</Chip>}
-            {doc && doc.whole === undefined && focusStart > doc.totalLines && (
+            {doc && focusStart > doc.totalLines && (
               <Chip tone="danger">
                 line {focusStart} does not exist — the file ends at line {doc.totalLines}
               </Chip>
