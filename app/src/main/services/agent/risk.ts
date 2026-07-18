@@ -2,6 +2,17 @@ import path from 'node:path'
 import type { Risk } from '../../../shared/agent-events'
 import { classifyToolName, type RiskLevel } from '../../../shared/connectors'
 
+export type ToolTaxonomyEntry =
+  | { kind: 'fs-read' | 'fs-write'; pathFields?: readonly string[] }
+  | { kind: 'shell'; commandField: string }
+
+export interface ToolTaxonomy {
+  entries: Readonly<Record<string, ToolTaxonomyEntry>>
+  /** Driver-declared fallback for its own long tail of non-MCP tools.
+   *  Absent → unmapped names fail closed (HIGH ask). */
+  fallback?: (toolName: string) => RiskVerdict
+}
+
 export interface RiskContext {
   caseDir: string
   workspaceRoots: string[]
@@ -12,6 +23,8 @@ export interface RiskContext {
   packCliNames?: string[]
   /** Per-command risk for pack panel commands, keyed by full tool name (3b-2). */
   panelCommandRisk?: Record<string, 'low' | 'medium' | 'high'>
+  /** Driver-declared mapping from its native tool names to risk-relevant shape. */
+  taxonomy: ToolTaxonomy
 }
 
 export type RiskVerdict =
@@ -51,8 +64,40 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
   }
 }
 
-const FS_READ_TOOLS = ['Read', 'Glob', 'Grep', 'NotebookRead']
-const FS_WRITE_TOOLS = ['Write', 'Edit', 'NotebookEdit']
+const FS_PATH_FIELDS = ['file_path', 'path', 'notebook_path'] as const
+
+export const CLAUDE_TOOL_TAXONOMY: ToolTaxonomy = {
+  entries: {
+    Read: { kind: 'fs-read', pathFields: FS_PATH_FIELDS },
+    Glob: { kind: 'fs-read', pathFields: FS_PATH_FIELDS },
+    Grep: { kind: 'fs-read', pathFields: FS_PATH_FIELDS },
+    NotebookRead: { kind: 'fs-read', pathFields: FS_PATH_FIELDS },
+    Write: { kind: 'fs-write', pathFields: FS_PATH_FIELDS },
+    Edit: { kind: 'fs-write', pathFields: FS_PATH_FIELDS },
+    NotebookEdit: { kind: 'fs-write', pathFields: FS_PATH_FIELDS },
+    Bash: { kind: 'shell', commandField: 'command' }
+  },
+  // The pre-taxonomy heuristic, verbatim (risk.ts:260-271) — Claude's built-in long
+  // tail (TodoWrite, WebFetch, Task, …) keeps today's classification exactly.
+  fallback: (toolName) => {
+    const last = toolName.split('__').pop() ?? toolName
+    if (/(delete|remove|transition|merge)/.test(last))
+      return {
+        action: 'ask',
+        risk: 'HIGH',
+        grantKey: null,
+        reason: `Destructive tool: ${toolName}`
+      }
+    if (/^(get|list|read|search|view|find|check)(_|$)/.test(last))
+      return { action: 'allow', risk: 'LOW' }
+    return {
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: `medium:${toolName}`,
+      reason: `Write-capable tool: ${toolName}`
+    }
+  }
+}
 
 const GIT_READ = new Set([
   'log',
@@ -210,20 +255,22 @@ export function classifyToolCall(
     }
   }
 
-  if (FS_READ_TOOLS.includes(toolName) || FS_WRITE_TOOLS.includes(toolName)) {
-    const p = (input.file_path ?? input.path ?? input.notebook_path) as string | undefined
+  const tax = ctx.taxonomy.entries[toolName]
+  if (tax && (tax.kind === 'fs-read' || tax.kind === 'fs-write')) {
+    const fields = tax.pathFields ?? FS_PATH_FIELDS
+    const p = fields.map((f) => input[f]).find((v) => typeof v === 'string') as string | undefined
     // The agent session's cwd is always ctx.caseDir, so a missing or relative path
     // resolves against it. A missing path means "cwd" -> caseDir -> allowed.
     const abs = p ? path.resolve(ctx.caseDir, p) : ctx.caseDir
     if (!inSandbox(abs, ctx))
       return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${p ?? abs}` }
-    if (FS_WRITE_TOOLS.includes(toolName) && withinAny(abs, ctx.readonlyRoots))
+    if (tax.kind === 'fs-write' && withinAny(abs, ctx.readonlyRoots))
       return { action: 'deny', risk: 'HIGH', reason: `Read-only root: ${p ?? abs}` }
     return { action: 'allow', risk: 'LOW' }
   }
 
-  if (toolName === 'Bash') {
-    const command = String(input.command ?? '')
+  if (tax && tax.kind === 'shell') {
+    const command = String(input[tax.commandField] ?? '')
     const segments = command.split(/&&|\|\||;|\|/)
     let worst: RiskVerdict = { action: 'allow', risk: 'LOW' }
     for (const seg of segments) {
@@ -257,16 +304,12 @@ export function classifyToolCall(
     }
   }
 
-  // Non-MCP unknown tools: legacy heuristic, unchanged.
-  const last = toolName.split('__').pop() ?? toolName
-  if (/(delete|remove|transition|merge)/.test(last))
-    return { action: 'ask', risk: 'HIGH', grantKey: null, reason: `Destructive tool: ${toolName}` }
-  if (/^(get|list|read|search|view|find|check)(_|$)/.test(last))
-    return { action: 'allow', risk: 'LOW' }
+  // Non-MCP unknown tools: driver-declared fallback, else fail closed.
+  if (ctx.taxonomy.fallback) return ctx.taxonomy.fallback(toolName)
   return {
     action: 'ask',
-    risk: 'MEDIUM',
-    grantKey: `medium:${toolName}`,
-    reason: `Write-capable tool: ${toolName}`
+    risk: 'HIGH',
+    grantKey: null,
+    reason: `Unrecognized tool (fail-closed): ${toolName}`
   }
 }
