@@ -435,6 +435,15 @@ const argus = {
       targets: string[]
     ): Promise<{ written: string[]; skipped: Array<{ target: string; reason: string }> }> =>
       ipcRenderer.invoke(IPC.refsyncApplyDrafts, syncId, targets),
+    /** Remove references to pages that vanished upstream, for the approved targets. */
+    prune: (
+      syncId: string,
+      targets: string[]
+    ): Promise<{
+      removed: string[]
+      trimmed: string[]
+      skipped: Array<{ target: string; reason: string }>
+    }> => ipcRenderer.invoke(IPC.refsyncPrune, syncId, targets),
     readRef: (file: string): Promise<{ file: string; content: string }> =>
       ipcRenderer.invoke(IPC.refsyncReadRef, file),
     searchRefs: (query: string): Promise<string[]> =>

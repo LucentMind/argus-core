@@ -30,7 +30,8 @@ const report: SyncReport = {
   ],
   unrouted: [{ id: '102', title: 'Meeting notes' }],
   conflicts: [],
-  failures: []
+  failures: [],
+  vanished: []
 }
 
 beforeEach(() => {

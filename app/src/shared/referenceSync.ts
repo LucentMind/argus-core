@@ -123,8 +123,11 @@ export function missingMustKeep(body: string, patterns: string[]): string[] {
 
 export interface SpaceSyncState {
   lastSyncedAt: string | null
-  /** Page-id → snapshot at the last sync; powers NEW badges. */
-  seenPages: Record<string, { version: number; lastModified: string | null }>
+  /** Page-id → snapshot at the last sync; powers NEW badges and, by diffing against the
+   *  next run's selection, detects pages that vanished upstream. `title` is carried so a
+   *  vanished page can still be named in the report — by then it is gone from Confluence
+   *  and cannot be looked up. */
+  seenPages: Record<string, { version: number; lastModified: string | null; title?: string }>
   /** Targets known changed but not yet applied (failed or unapproved drafts). */
   driftTargets: string[]
 }
@@ -184,6 +187,20 @@ export interface SyncReport {
   unrouted: Array<{ id: string; title: string }>
   conflicts: Array<{ target: string; tier: string }>
   failures: Array<{ target: string; error: string }>
+  /** Pages present at the previous sync that are no longer in the space's selection —
+   *  deleted, moved out of scope, or unpublished upstream. Reported, never auto-pruned:
+   *  a distilled reference may still hold hand-reviewed value after its source is gone. */
+  vanished: VanishedRef[]
+}
+
+/** A reference file citing one or more pages that vanished upstream. */
+export interface VanishedRef {
+  target: string
+  /** The vanished pages this file cites. */
+  pages: Array<{ pageId: string; title: string }>
+  /** True when EVERY source of this file vanished — pruning it means deleting the file,
+   *  not just trimming its frontmatter. */
+  orphaned: boolean
 }
 
 export interface SyncProgress {

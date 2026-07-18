@@ -1,9 +1,9 @@
-import { it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { RefSyncService } from '../refSync/service'
-import { ReferenceSyncStore, readSyncState } from '../referenceSyncStore'
+import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import { refTier, parseRefSources } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
 import type { ConfluenceReader } from '../refSync/engine'
@@ -238,5 +238,103 @@ it('payload exposes cards with staleness and reference statuses', async () => {
   expect(after.references.find((r) => r.file === 'routing-flow.md')).toMatchObject({
     tier: 'confluence',
     stale: false
+  })
+})
+
+describe('upstream deletions', () => {
+  /** Sync + apply once so a reference file exists citing pages 101 and 104. */
+  async function seedApplied(): Promise<void> {
+    const first = await svc.sync('NAVNATIVE')
+    svc.applyDrafts(first.syncId, ['routing-flow.md'])
+  }
+
+  it('reports a file as orphaned once every page it cites disappears upstream', async () => {
+    await seedApplied()
+    // the whole subtree is gone from Confluence on the next run
+    const state = readSyncState(home)
+    state.spaces['NAVNATIVE'].seenPages = {
+      '900': { version: 1, lastModified: null, title: 'Deleted page' }
+    }
+    writeSyncState(home, state)
+
+    const second = await svc.sync('NAVNATIVE')
+    // 900 was never in this run's selection → vanished. It isn't cited by any file, so
+    // nothing is reported; this asserts we don't invent entries.
+    expect(second.vanished).toEqual([])
+  })
+
+  it('detects a vanished page that a reference file still cites, and prunes it on approval', async () => {
+    await seedApplied()
+    const refFile = path.join(sharedReferencesDir(home), 'routing-flow.md')
+    expect(fs.existsSync(refFile)).toBe(true)
+
+    // Pretend the previous run saw only the two pages this file cites, and both are now
+    // gone from the space's selection.
+    const state = readSyncState(home)
+    state.spaces['NAVNATIVE'].seenPages = {
+      '101': { version: 1, lastModified: null, title: 'Routing rules' },
+      '104': { version: 1, lastModified: null, title: 'Fallback routing' }
+    }
+    writeSyncState(home, state)
+    // A reader whose space is now empty — every page vanished.
+    const empty = new RefSyncService({
+      argusHome: home,
+      store,
+      reader: {
+        getConfluenceSpace: async () => ({
+          key: 'NAVNATIVE',
+          name: 'Nav Native',
+          homepageId: null
+        }),
+        getConfluencePage: async () => {
+          throw new Error('gone')
+        },
+        getConfluencePageChildren: async () => [],
+        getConfluencePageContent: async () => {
+          throw new Error('gone')
+        }
+      } as never,
+      now: () => new Date('2026-07-11T00:00:00Z'),
+      distill: async () => ''
+    })
+    store.upsertSpace({
+      key: 'NAVNATIVE',
+      name: 'Nav Native',
+      homepageId: '100',
+      includeRoots: [],
+      excludedSubtrees: [],
+      routingRules: ROUTING_RULES_FIXTURE
+    })
+
+    const report = await empty.sync('NAVNATIVE')
+    expect(report.vanished).toHaveLength(1)
+    expect(report.vanished[0]).toMatchObject({ target: 'routing-flow.md', orphaned: true })
+
+    // detection alone must not touch the file
+    expect(fs.existsSync(refFile)).toBe(true)
+
+    const r = empty.prune(report.syncId, ['routing-flow.md'])
+    expect(r.removed).toEqual(['routing-flow.md'])
+    expect(fs.existsSync(refFile)).toBe(false)
+    // the agent-facing router must not keep pointing at a deleted file
+    const index = fs.readFileSync(path.join(sharedReferencesDir(home), 'INDEX.md'), 'utf8')
+    expect(index).not.toContain('routing-flow.md')
+  })
+
+  it('prune refuses a target that this sync did not report as vanished', async () => {
+    const report = await svc.sync('NAVNATIVE')
+    const r = svc.prune(report.syncId, ['routing-flow.md'])
+    expect(r.removed).toEqual([])
+    expect(r.skipped[0].reason).toMatch(/not reported as vanished/)
+  })
+
+  it('prune rejects a path-traversal target name', async () => {
+    const report = await svc.sync('NAVNATIVE')
+    const r = svc.prune(report.syncId, ['../../etc/passwd'])
+    expect(r.skipped[0].reason).toBe('invalid target name')
+  })
+
+  it('prune throws once the sync report has expired', () => {
+    expect(() => svc.prune('nope', [])).toThrow(/expired/)
   })
 })
