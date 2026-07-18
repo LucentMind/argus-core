@@ -1,6 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Chip } from './ui'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
+import { useSettingsPayload } from '../lib/settingsStore'
+import { activeCapabilities } from '../../../shared/drivers'
 import type { AuthStatus, PreflightReport } from '../../../shared/types'
 
 export function HeaderChips({
@@ -16,6 +18,8 @@ export function HeaderChips({
     (cb) => agentStore.subscribe(cb),
     () => (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
   )
+  const settingsPayload = useSettingsPayload()
+  const costReporting = activeCapabilities(settingsPayload?.settings).costReporting
 
   useEffect(() => {
     // authStatus() can be in flight when agent:auth-changed fires (e.g. a turn 401s
@@ -74,7 +78,14 @@ export function HeaderChips({
       </span>
       <Chip tone="neutral">
         {(state.cost.inputTokens + state.cost.outputTokens).toLocaleString()} tok
-        {state.cost.costUsd > 0 ? ` · $${state.cost.costUsd.toFixed(2)}` : ''}
+        {/* costReporting=false (e.g. Copilot v1) never accumulates a real cost —
+            say so honestly instead of rendering the accumulator's initial 0 as
+            if it were a measured $0.00 turn. */}
+        {!costReporting
+          ? ' · n/a'
+          : state.cost.costUsd > 0
+            ? ` · $${state.cost.costUsd.toFixed(2)}`
+            : ''}
       </Chip>
     </div>
   )

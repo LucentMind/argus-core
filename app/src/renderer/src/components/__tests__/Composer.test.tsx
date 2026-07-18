@@ -5,6 +5,7 @@ import { Composer } from '../Composer'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings } from '../../../../shared/settings'
+import { DRIVERS } from '../../../../shared/drivers'
 
 beforeEach(() => {
   localStorage.clear()
@@ -112,6 +113,41 @@ describe('Composer', () => {
       'claude-sonnet-4-6'
     ])
     expect(items).not.toContain('claude-haiku-4-5')
+  })
+
+  it('derives permission-mode options from the active driver capabilities, not a hardcoded literal', async () => {
+    // Both real drivers currently support all four modes — mutate github-copilot's
+    // static capabilities to simulate a hypothetical driver that only supports a
+    // subset, proving the Composer's picker reads (and filters by) that list
+    // rather than always offering Object.values(PERMISSION_MODE_LABELS).
+    const original = DRIVERS['github-copilot'].capabilities
+    DRIVERS['github-copilot'] = {
+      ...DRIVERS['github-copilot'],
+      capabilities: { ...original, permissionModes: ['default', 'plan'] as const }
+    }
+    try {
+      window.argus.settings.get = vi.fn(async () => ({
+        settings: (() => {
+          const s = defaultSettings()
+          s.agent.providerInstances['claude-default'].driver = 'github-copilot'
+          return s
+        })(),
+        resolvedTools: [],
+        dataRoot: { path: 'C:\\x', fromEnv: false },
+        loadError: null
+      }))
+      render(<Composer disabled={false} onSend={vi.fn()} />)
+      fireEvent.click(await screen.findByText('Ask approvals'))
+      const menu = screen.getByRole('menu', { name: 'Permission mode' })
+      const items = within(menu)
+        .getAllByRole('menuitem')
+        .map((el) => el.textContent)
+      expect(items).toEqual(['Ask approvals', 'Plan mode'])
+      expect(items).not.toContain('Auto-approve edits')
+      expect(items).not.toContain('Bypass approvals')
+    } finally {
+      DRIVERS['github-copilot'] = { ...DRIVERS['github-copilot'], capabilities: original }
+    }
   })
 
   it('skill picker offers only enabled skills when typing /', async () => {

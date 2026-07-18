@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Chip, Btn, SectionLabel } from './ui'
 import { isEditableTool } from '../../../shared/editableTools'
+import { activeCapabilities } from '../../../shared/drivers'
+import { useSettingsPayload } from '../lib/settingsStore'
 
 export function ApprovalCard({
   slug,
@@ -20,13 +22,20 @@ export function ApprovalCard({
 }): React.JSX.Element {
   const [comment, setComment] = useState('')
   const [draft, setDraft] = useState<Record<string, string>>({})
+  const settingsPayload = useSettingsPayload()
   // Editable per-field preview for connector (MCP) asks at MEDIUM risk — the RCA
   // comment path (spec §3.4). Excludes Argus's own native tools (also `mcp__*`,
   // e.g. `mcp__argus__update_case_status`) and HIGH-risk asks, which stay read-only,
   // except the narrow allowlist in shared/editableTools (e.g. write_memory), where
   // the args are pure reviewed content and editing is the review mechanism.
+  // Additionally gated on the active driver's capabilities.editableApprovals
+  // (Task 11) — a driver that can't honor updatedInput (e.g. Copilot v1) must
+  // never be offered an edit affordance it can't actually apply.
   const editable =
-    request.input != null && request.risk === 'MEDIUM' && isEditableTool(request.tool)
+    request.input != null &&
+    request.risk === 'MEDIUM' &&
+    isEditableTool(request.tool) &&
+    activeCapabilities(settingsPayload?.settings).editableApprovals
   const edited = Object.entries(draft).some(([k, v]) => v !== request.input?.[k])
 
   const respond = (kind: 'allow' | 'allow-session' | 'deny'): void => {

@@ -1,17 +1,31 @@
 // @vitest-environment jsdom
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { HeaderChips } from '../HeaderChips'
+import { agentStore } from '../../lib/agentStore'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 import type { AuthStatus } from '../../../../shared/types'
+import type { AgentEvent } from '../../../../shared/agent-events'
 
 function auth(overrides?: Partial<AuthStatus>): AuthStatus {
   return { ok: true, verified: false, detail: 'claude ready', ...overrides }
+}
+
+function settingsGet(settings = defaultSettings()): () => Promise<unknown> {
+  return vi.fn(async () => ({
+    settings,
+    resolvedTools: [],
+    dataRoot: { path: 'C:\\x', fromEnv: false },
+    loadError: null
+  }))
 }
 
 let onAuthChangedCb: (() => void) | null = null
 
 beforeEach(() => {
   onAuthChangedCb = null
+  settingsStore.reset()
   window.argus = {
     agent: {
       authStatus: vi.fn(async () => auth()),
@@ -22,6 +36,11 @@ beforeEach(() => {
           onAuthChangedCb = null
         }
       })
+    },
+    settings: {
+      get: settingsGet(),
+      patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })
@@ -89,5 +108,46 @@ describe('HeaderChips auth reactivity', () => {
     const { unmount } = render(<HeaderChips slug="case-a" sessionId={null} />)
     unmount()
     expect(unsubscribe).toHaveBeenCalled()
+  })
+})
+
+describe('HeaderChips cost display', () => {
+  const base = {
+    eventId: 'e',
+    caseId: 1,
+    caseSlug: 'NAV-COST',
+    sessionId: 1,
+    turnId: 1,
+    ts: '2026-07-09T00:00:00Z'
+  }
+  const turnCompleted = (caseSlug: string, costUsd: number): AgentEvent =>
+    ({
+      ...base,
+      caseSlug,
+      type: 'turn.completed',
+      payload: { status: 'success', inputTokens: 10, outputTokens: 5, costUsd, durationMs: 5 }
+    }) as AgentEvent
+
+  it('renders the $ amount when the active driver reports cost', async () => {
+    agentStore.apply(turnCompleted('NAV-COST-A', 0.05))
+    render(<HeaderChips slug="NAV-COST-A" sessionId={1} />)
+    expect(await screen.findByText(/\$0\.05/)).toBeTruthy()
+  })
+
+  it('renders no cost suffix (not "n/a") when a reporting driver truly has zero accumulated cost', () => {
+    render(<HeaderChips slug="NAV-COST-ZERO" sessionId={1} />)
+    expect(screen.queryByText(/n\/a/)).toBeNull()
+    expect(screen.queryByText(/\$/)).toBeNull()
+  })
+
+  it('renders "n/a" instead of $0.00/blank when the active driver has costReporting: false', async () => {
+    const s = defaultSettings()
+    s.agent.providerInstances['claude-default'].driver = 'github-copilot'
+    window.argus.settings.get = settingsGet(s)
+    // even with a nonzero accumulator, copilot never reports real cost — n/a wins
+    agentStore.apply(turnCompleted('NAV-COST-B', 0.05))
+    render(<HeaderChips slug="NAV-COST-B" sessionId={1} />)
+    await waitFor(() => expect(screen.getByText(/n\/a/)).toBeTruthy())
+    expect(screen.queryByText(/\$0\.05/)).toBeNull()
   })
 })

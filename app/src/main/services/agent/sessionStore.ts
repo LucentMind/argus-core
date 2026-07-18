@@ -19,8 +19,15 @@ function rowToSummary(r: {
   title: string
   turn_count: number
   updated_at: string
+  driver_kind: string
 }): SessionSummary {
-  return { id: r.id, title: r.title, turnCount: r.turn_count, updatedAt: r.updated_at }
+  return {
+    id: r.id,
+    title: r.title,
+    turnCount: r.turn_count,
+    updatedAt: r.updated_at,
+    driverKind: r.driver_kind
+  }
 }
 
 /** `driverKind` is stamped at creation (Task 7 evidence: `driver_kind` gates cursor
@@ -38,7 +45,7 @@ export function createSession(
       `INSERT INTO sessions (case_id, turn_count, created_at, updated_at, driver_kind) VALUES (?, 0, ?, ?, ?)`
     )
     .run(caseId, now, now, driverKind)
-  return { id: Number(res.lastInsertRowid), title: '', turnCount: 0, updatedAt: now }
+  return { id: Number(res.lastInsertRowid), title: '', turnCount: 0, updatedAt: now, driverKind }
 }
 
 /** Newest-first summaries; guarantees every case has at least one session. `driverKind`
@@ -53,13 +60,19 @@ export function listSessions(
   const caseId = caseIdOf(db, caseSlug)
   const rows = db
     .prepare(
-      `SELECT id, title, turn_count, updated_at FROM sessions WHERE case_id = ? ORDER BY updated_at DESC, id DESC`
+      `SELECT id, title, turn_count, updated_at, driver_kind FROM sessions WHERE case_id = ? ORDER BY updated_at DESC, id DESC`
     )
     .all(caseId) as never[]
   if (rows.length === 0) return [createSession(db, caseSlug, driverKind)]
-  return (rows as { id: number; title: string; turn_count: number; updated_at: string }[]).map(
-    rowToSummary
-  )
+  return (
+    rows as {
+      id: number
+      title: string
+      turn_count: number
+      updated_at: string
+      driver_kind: string
+    }[]
+  ).map(rowToSummary)
 }
 
 export function renameSession(db: DatabaseSync, sessionId: number, title: string): void {
