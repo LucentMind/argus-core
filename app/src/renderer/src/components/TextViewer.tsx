@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Btn, Chip } from './ui'
 import { HighlightedLines } from './HighlightedLines'
 import { VirtualLines } from './VirtualLines'
-import { ViewerFindBar, type FindState } from './ViewerFindBar'
+import { ViewerFindBar, type FindBarState, type StreamState } from './ViewerFindBar'
 import { LinePageCache } from '../lib/linePages'
 import { textDocKey, type TextDocOpenOk, type TextDocSource } from '../../../shared/textdoc'
 
@@ -13,6 +13,11 @@ interface Props {
   focusStart: number
   focusEnd: number
   onClose: () => void
+}
+
+interface Cut {
+  from: number
+  to: number | null
 }
 
 /** Props shared by the normal and filter-mode VirtualLines branches below —
@@ -41,139 +46,277 @@ function virtualLinesCommonProps(
   }
 }
 
-const EMPTY_FIND_STATE: FindState = {
+/** Greatest index in a sorted-ascending hits array whose value is ≤ `line`, or
+ *  0 if none qualifies. Used both to locate a find-hit's row within the
+ *  filter-hit list (exact match, guaranteed present by the subset invariant —
+ *  this also tolerates the rare race where it isn't yet) and to locate the
+ *  nearest filter row for an arbitrary jump-to-line target. */
+function nearestAtOrBelow(hits: number[], line: number): number {
+  let lo = 0
+  let hi = hits.length
+  while (lo < hi) {
+    const m = (lo + hi) >> 1
+    hits[m] <= line ? (lo = m + 1) : (hi = m)
+  }
+  return Math.max(0, lo - 1)
+}
+
+const EMPTY_STREAM: StreamState = {
   query: '',
   regex: false,
   caseSensitive: false,
-  filterMode: false,
   hits: [],
   done: true,
   capped: false,
-  scannedTo: 0,
+  scannedTo: 0
+}
+
+type StreamsState = Omit<FindBarState, 'cutFrom' | 'cutTo'>
+
+const EMPTY_STREAMS_STATE: StreamsState = {
+  filter: EMPTY_STREAM,
+  find: EMPTY_STREAM,
   activeIdx: null
 }
 
-/** Streaming find/filter state for the large-file viewer. Debounces the query,
- *  tracks one live searchId per docKey (hub cancels the previous id on each new
- *  start), resets on source switch, and cancels the outstanding search on
- *  unmount. Next/prev binary-search the sorted hits and pull more on demand
- *  when the collected hits are capped. */
-function useViewerSearch(
+/** Streaming filter/find state for the large-file viewer, split across two hub
+ *  channels (`flt`/`fnd`) so a filter query and a find query run — and are
+ *  cancelled — independently (the hub only supersedes the previous id on the
+ *  SAME channel). Debounces each query, tracks one live searchId per channel,
+ *  resets on source switch, and cancels outstanding searches on unmount.
+ *  Next/prev binary-search the sorted find hits and pull more on demand when
+ *  the collected hits are capped — as does the filter stream, via requestMore. */
+function useViewerStreams(
   source: TextDocSource,
-  enabled: boolean
+  enabled: boolean,
+  cut: Cut
 ): {
-  state: FindState
-  setQuery: (q: string) => void
-  toggle: (f: 'regex' | 'caseSensitive' | 'filterMode') => void
+  state: StreamsState
+  setQuery: (stream: 'filter' | 'find', q: string) => void
+  toggle: (stream: 'filter' | 'find', flag: 'regex' | 'caseSensitive') => void
+  setActive: (idx: number | null) => void
   next: (fromLine: number) => { line: number; idx: number } | null
   prev: (fromLine: number) => { line: number; idx: number } | null
 } {
   const docKey = textDocKey(source)
-  const [state, setState] = useState<FindState>(EMPTY_FIND_STATE)
+  const [state, setState] = useState<StreamsState>(EMPTY_STREAMS_STATE)
   const [lastDocKey, setLastDocKey] = useState(docKey)
   const seq = useRef(0)
-  const currentId = useRef('')
+  // two plain string refs (not one object ref) — mirrors the pre-split hook's
+  // proven `currentId` shape exactly, one per channel
+  const fltId = useRef('')
+  const fndId = useRef('')
 
   // source switch: reset synchronously during render so no stale hits from the
-  // previous doc ever paint against the new one (mirrors the doc/error reset above).
-  // The active searchId must be nulled here too — the [docKey] effect cleanup below
-  // runs post-paint, and a straggler onSearchHits batch from the OLD file arriving
-  // in that window would pass the stale-id check and land in the NEW file's empty
-  // hits. Safe in render because the branch only runs on a key change (idempotent
-  // across re-renders with the same docKey).
+  // previous doc ever paint against the new one (mirrors the doc/error reset in
+  // TextViewer). Both channel ids must be nulled here too — the [docKey] effect
+  // cleanup below runs post-paint, and a straggler onSearchHits batch from the
+  // OLD file arriving in that window would pass the stale-id check and land in
+  // the NEW file's empty hits. Safe in render because the branch only runs on a
+  // key change (idempotent across re-renders with the same docKey).
   if (docKey !== lastDocKey) {
     setLastDocKey(docKey)
-    // deliberate ref access in render: the id must be invalidated before this very
-    // render's output can paint, and the branch is idempotent (key-change only)
+    // deliberate ref access in render: both ids must be invalidated before this
+    // very render's output can paint, and the branch is idempotent (key-change only)
     // eslint-disable-next-line react-hooks/refs
-    const old = currentId.current
+    const oldFlt = fltId.current
     // eslint-disable-next-line react-hooks/refs
-    currentId.current = ''
-    if (old) void window.argus.textdoc.cancelSearch(old)
-    setState(EMPTY_FIND_STATE)
+    const oldFnd = fndId.current
+    // eslint-disable-next-line react-hooks/refs
+    fltId.current = ''
+    // eslint-disable-next-line react-hooks/refs
+    fndId.current = ''
+    if (oldFlt) void window.argus.textdoc.cancelSearch(oldFlt)
+    if (oldFnd) void window.argus.textdoc.cancelSearch(oldFnd)
+    setState(EMPTY_STREAMS_STATE)
   }
 
   // subscribed for the component's whole lifetime (not gated on `enabled`): a brief
   // doc reload (e.g. re-focusing the same file at a different line) flips `enabled`
   // off and back on without touching the search itself, and unsubscribing during
   // that window would silently drop any in-flight hit batch. Staleness is instead
-  // handled by the currentId check below, which is correct regardless of `enabled`.
+  // handled by the id-ref checks below, which are correct regardless of `enabled`.
   useEffect(() => {
     return window.argus.textdoc.onSearchHits((e) => {
-      if (e.searchId !== currentId.current) return
-      setState((s) => ({
-        ...s,
-        hits: [...s.hits, ...e.hits],
-        done: e.done,
-        capped: e.capped,
-        scannedTo: e.scannedTo
-      }))
+      if (e.searchId === fltId.current) {
+        setState((s) => ({
+          ...s,
+          filter: {
+            ...s.filter,
+            hits: [...s.filter.hits, ...e.hits],
+            done: e.done,
+            capped: e.capped,
+            scannedTo: e.scannedTo
+          }
+        }))
+      } else if (e.searchId === fndId.current) {
+        setState((s) => ({
+          ...s,
+          find: {
+            ...s.find,
+            hits: [...s.find.hits, ...e.hits],
+            done: e.done,
+            capped: e.capped,
+            scannedTo: e.scannedTo
+          }
+        }))
+      }
     })
   }, [])
 
   // belt-and-braces: the render-phase reset above already nulls + cancels on a
-  // docKey change (so this cleanup usually finds currentId === '' and does nothing);
-  // its real job is the unmount path, where it cancels the still-active search
+  // docKey change (so this cleanup usually finds both ids === '' and does nothing);
+  // its real job is the unmount path, where it cancels any still-active searches
   useEffect(() => {
     return () => {
-      if (currentId.current) void window.argus.textdoc.cancelSearch(currentId.current)
-      currentId.current = ''
+      if (fltId.current) void window.argus.textdoc.cancelSearch(fltId.current)
+      if (fndId.current) void window.argus.textdoc.cancelSearch(fndId.current)
+      fltId.current = ''
+      fndId.current = ''
     }
   }, [docKey])
 
-  // debounce the query → (re)start search; clearing the query cancels in place.
-  // Deliberately NOT keyed on `enabled`: the find bar only exists (so `query` can only
-  // change) while enabled is true, so a bare enabled-flip (e.g. re-focusing the same
-  // doc at a different line, which briefly nulls `doc`) must not restart a running or
-  // completed search — the `enabled` check below just guards the IPC call itself.
+  const filterActive = state.filter.query.trim() !== ''
+
+  // debounce the filter query → (re)start the flt channel; clearing it cancels in place.
+  // Deliberately NOT keyed on `enabled` — see the fnd effect below for the rationale.
   useEffect(() => {
     if (!enabled) return
     const t = setTimeout(() => {
-      const old = currentId.current
+      const old = fltId.current
       if (old) void window.argus.textdoc.cancelSearch(old)
-      currentId.current = ''
+      fltId.current = ''
+      const q = state.filter.query.trim()
       setState((s) => ({
         ...s,
-        hits: [],
-        done: s.query === '',
-        capped: false,
-        scannedTo: 0,
+        filter: { ...s.filter, hits: [], done: q === '', capped: false, scannedTo: 0 },
         activeIdx: null
       }))
-      if (state.query === '') return
-      const id = `${docKey}:${++seq.current}`
-      currentId.current = id
-      void window.argus.textdoc.search(id, source, state.query, {
-        regex: state.regex,
-        caseSensitive: state.caseSensitive
+      if (q === '') return
+      const id = `${docKey}:flt:${++seq.current}`
+      fltId.current = id
+      void window.argus.textdoc.search(id, source, state.filter.query, {
+        regex: state.filter.regex,
+        caseSensitive: state.filter.caseSensitive,
+        fromLine: cut.from,
+        toLine: cut.to ?? undefined
       })
     }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.query, state.regex, state.caseSensitive, docKey])
+  }, [state.filter.query, state.filter.regex, state.filter.caseSensitive, cut.from, cut.to, docKey])
 
-  const setQuery = (q: string): void => setState((s) => ({ ...s, query: q }))
-  const toggle = (f: 'regex' | 'caseSensitive' | 'filterMode'): void =>
-    setState((s) => ({ ...s, [f]: !s[f] }))
+  // debounce the find query → (re)start the fnd channel. Also restarts when the
+  // FILTER changes (a filter change narrows/widens what `find` can match).
+  // Deliberately NOT keyed on `enabled`: the find bar only exists (so these
+  // queries can only change) while enabled is true, so a bare enabled-flip
+  // (e.g. re-focusing the same doc at a different line, which briefly nulls
+  // `doc`) must not restart a running or completed search — the `enabled`
+  // check below just guards the IPC call itself.
+  useEffect(() => {
+    if (!enabled) return
+    const t = setTimeout(() => {
+      const old = fndId.current
+      if (old) void window.argus.textdoc.cancelSearch(old)
+      fndId.current = ''
+      const q = state.find.query.trim()
+      setState((s) => ({
+        ...s,
+        find: { ...s.find, hits: [], done: q === '', capped: false, scannedTo: 0 },
+        activeIdx: null
+      }))
+      if (q === '') return
+      const id = `${docKey}:fnd:${++seq.current}`
+      fndId.current = id
+      // while the filter is still capped, don't let `find` scan past what the
+      // filter has established as valid — this keeps the filtered view (row
+      // space = filter.hits) and find's hits in sync
+      const rawToLine =
+        filterActive && state.filter.capped
+          ? Math.min(cut.to ?? Infinity, state.filter.scannedTo)
+          : (cut.to ?? undefined)
+      void window.argus.textdoc.search(id, source, state.find.query, {
+        regex: state.find.regex,
+        caseSensitive: state.find.caseSensitive,
+        fromLine: cut.from,
+        toLine: rawToLine !== undefined && Number.isFinite(rawToLine) ? rawToLine : undefined,
+        filter: filterActive
+          ? {
+              query: state.filter.query,
+              regex: state.filter.regex,
+              caseSensitive: state.filter.caseSensitive
+            }
+          : undefined
+      })
+    }, 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    state.find.query,
+    state.find.regex,
+    state.find.caseSensitive,
+    state.filter.query,
+    state.filter.regex,
+    state.filter.caseSensitive,
+    cut.from,
+    cut.to,
+    docKey
+  ])
+
+  const setQuery = (stream: 'filter' | 'find', q: string): void =>
+    setState((s) => ({ ...s, [stream]: { ...s[stream], query: q } }))
+  const toggle = (stream: 'filter' | 'find', flag: 'regex' | 'caseSensitive'): void =>
+    setState((s) => ({ ...s, [stream]: { ...s[stream], [flag]: !s[stream][flag] } }))
+  const setActive = (idx: number | null): void => setState((s) => ({ ...s, activeIdx: idx }))
+
+  // Called by next() when the collected find hits are exhausted. Re-issues the
+  // CURRENT fnd id from where it left off (same searchId — the hub treats this
+  // as a continuation, not a new search) and, when the filter stream is ALSO
+  // capped, separately re-issues the current flt id so the filtered view can
+  // keep growing too (spec's both-streams rule).
   const requestMore = (): void => {
-    if (!state.capped || !currentId.current) return
-    void window.argus.textdoc.search(currentId.current, source, state.query, {
-      regex: state.regex,
-      caseSensitive: state.caseSensitive,
-      fromLine: state.scannedTo + 1
-    })
-    setState((s) => ({ ...s, capped: false }))
+    if (state.find.capped && fndId.current) {
+      const rawToLine =
+        filterActive && state.filter.capped
+          ? Math.min(cut.to ?? Infinity, state.filter.scannedTo)
+          : (cut.to ?? undefined)
+      void window.argus.textdoc.search(fndId.current, source, state.find.query, {
+        regex: state.find.regex,
+        caseSensitive: state.find.caseSensitive,
+        fromLine: state.find.scannedTo + 1,
+        toLine: rawToLine !== undefined && Number.isFinite(rawToLine) ? rawToLine : undefined,
+        filter: filterActive
+          ? {
+              query: state.filter.query,
+              regex: state.filter.regex,
+              caseSensitive: state.filter.caseSensitive
+            }
+          : undefined
+      })
+      setState((s) => ({ ...s, find: { ...s.find, capped: false } }))
+    }
+    if (state.filter.capped && fltId.current) {
+      void window.argus.textdoc.search(fltId.current, source, state.filter.query, {
+        regex: state.filter.regex,
+        caseSensitive: state.filter.caseSensitive,
+        fromLine: state.filter.scannedTo + 1,
+        toLine: cut.to ?? undefined
+      })
+      setState((s) => ({ ...s, filter: { ...s.filter, capped: false } }))
+    }
   }
+
   // Next/prev cursor: the ACTIVE MATCH is the cursor once one exists — each
   // press advances exactly one hit. The caller-supplied viewport line only
   // seeds the first jump (binary search over the sorted hits). Never derive
   // the cursor from the viewport midpoint on subsequent presses: it includes
-  // overscan rows, and in filter mode a short list pins it to the list centre,
-  // which trapped next/prev in a handful of entries.
-  // Return both the file line AND its index into `hits` — filter mode's
-  // VirtualLines is indexed by hit-index, so callers need the index to scroll.
+  // overscan rows, and in the filtered view a short list pins it to the list
+  // centre, which trapped next/prev in a handful of entries.
+  // Return both the file line AND its index into `find.hits` — the filtered
+  // view's VirtualLines is indexed by filter-hit-index, not find-hit-index, so
+  // callers translate via nearestAtOrBelow(filter.hits, line).
   const next = (fromLine: number): { line: number; idx: number } | null => {
-    const h = state.hits
+    const h = state.find.hits
     let idx: number
     if (state.activeIdx !== null) {
       idx = state.activeIdx + 1
@@ -194,7 +337,7 @@ function useViewerSearch(
     return { line: h[idx], idx }
   }
   const prev = (fromLine: number): { line: number; idx: number } | null => {
-    const h = state.hits
+    const h = state.find.hits
     let idx: number
     if (state.activeIdx !== null) {
       idx = state.activeIdx - 1
@@ -211,7 +354,7 @@ function useViewerSearch(
     setState((s) => ({ ...s, activeIdx: idx }))
     return { line: h[idx], idx }
   }
-  return { state, setQuery, toggle, next, prev }
+  return { state, setQuery, toggle, setActive, next, prev }
 }
 
 export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): React.JSX.Element {
@@ -235,6 +378,34 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
     setDerivedFrom(null)
     setScrollTarget(null)
     setIndexing(null)
+  }
+
+  // cut range: raw strings so the inputs can hold transient non-numeric text;
+  // parsed+clamped into `cut` below. Reset on a docKey change only (not on a
+  // bare focusStart change) — same rationale as the search streams' own reset:
+  // re-focusing the same file at a different line must not disturb an active
+  // cut/filter/find session.
+  const [cutFrom, setCutFrom] = useState('')
+  const [cutTo, setCutTo] = useState('')
+  const [lastSearchDocKey, setLastSearchDocKey] = useState(docKey)
+  if (docKey !== lastSearchDocKey) {
+    setLastSearchDocKey(docKey)
+    setCutFrom('')
+    setCutTo('')
+  }
+
+  const cutFromN = (() => {
+    const n = parseInt(cutFrom, 10)
+    return Number.isFinite(n) && n >= 1 ? n : 1
+  })()
+  const cutToRaw = (() => {
+    const n = parseInt(cutTo, 10)
+    return Number.isFinite(n) ? n : null
+  })()
+  // reversed range (to < from) collapses to empty, not clamped-to-from
+  const cut: Cut = {
+    from: cutFromN,
+    to: cutToRaw !== null && cutToRaw < cutFromN ? cutFromN - 1 : cutToRaw
   }
 
   // The page cache is a disposable resource, so the effect that disposes it must
@@ -307,26 +478,41 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
     })
   }, [doc])
 
-  const goToLine = (n: number): void => {
-    if (!doc) return
-    const clamped = Math.min(Math.max(1, n), doc.totalLines)
-    currentLine.current = clamped
-    nonce.current++
-    setScrollTarget({ row: clamped - 1, nonce: nonce.current })
+  const clampToCut = (n: number): number => {
+    const lo = cut.from
+    const hi = cut.to ?? (doc ? doc.totalLines : lo)
+    return Math.min(Math.max(lo, n), Math.max(lo, hi))
   }
 
-  const search = useViewerSearch(source, doc !== null && doc.whole === undefined)
+  const goToLine = (n: number): void => {
+    if (!doc) return
+    const clamped = clampToCut(n)
+    currentLine.current = clamped
+    nonce.current++
+    setScrollTarget({ row: clamped - cut.from, nonce: nonce.current })
+  }
 
-  // Find next/prev jumps to a hit. In filter mode, VirtualLines' row space is
-  // hit-INDEX space (rowToLine = hits[r]), not file-line space — so scroll to
-  // the hit's index, not `line - 1`. Out of filter mode, goToLine (file-line
-  // space) is correct as-is.
+  const search = useViewerStreams(source, doc !== null && doc.whole === undefined, cut)
+  const filterActive = search.state.filter.query.trim() !== ''
+  const activeLine =
+    search.state.activeIdx !== null
+      ? (search.state.find.hits[search.state.activeIdx] ?? null)
+      : null
+
+  // Find next/prev jumps to a hit. In the filtered view, VirtualLines' row
+  // space is filter-hit-INDEX space (rowToLine = filter.hits[r]), not
+  // file-line space — so scroll to the hit's index within filter.hits (the
+  // subset invariant guarantees the find hit is also a filter hit). Out of the
+  // filtered view, goToLine (file-line space, cut-relative) is correct as-is.
   const jumpToHit = (hit: { line: number; idx: number } | null): void => {
     if (hit === null) return
-    if (search.state.filterMode) {
+    if (filterActive) {
       currentLine.current = hit.line
       nonce.current++
-      setScrollTarget({ row: hit.idx, nonce: nonce.current })
+      setScrollTarget({
+        row: nearestAtOrBelow(search.state.filter.hits, hit.line),
+        nonce: nonce.current
+      })
     } else {
       goToLine(hit.line)
     }
@@ -372,11 +558,20 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
                   if (e.key === 'Enter') {
                     const n = parseInt(jump, 10)
                     if (Number.isFinite(n)) {
-                      // jump-to-line is always file-line space; exit filter mode first
-                      // (matches row-click) so goToLine's row target isn't reinterpreted
-                      // as hit-index space by the filter-mode VirtualLines branch.
-                      if (search.state.filterMode) search.toggle('filterMode')
-                      goToLine(n)
+                      if (filterActive) {
+                        // jump-to-line stays filtered — scroll to the nearest
+                        // filter row at-or-below the (cut-clamped) target line,
+                        // without touching the filter itself
+                        const clamped = clampToCut(n)
+                        currentLine.current = clamped
+                        nonce.current++
+                        setScrollTarget({
+                          row: nearestAtOrBelow(search.state.filter.hits, clamped),
+                          nonce: nonce.current
+                        })
+                      } else {
+                        goToLine(n)
+                      }
                     }
                   }
                 }}
@@ -389,9 +584,10 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
         </div>
         {doc && doc.whole === undefined && (
           <ViewerFindBar
-            state={search.state}
+            state={{ ...search.state, cutFrom, cutTo }}
             onQueryChange={search.setQuery}
             onToggle={search.toggle}
+            onCutChange={(which, value) => (which === 'from' ? setCutFrom(value) : setCutTo(value))}
             onNext={() => jumpToHit(search.next(currentLine.current))}
             onPrev={() => jumpToHit(search.prev(currentLine.current))}
           />
@@ -408,38 +604,47 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             lang={doc.lang}
             lineIdPrefix="line-"
           />
-        ) : doc && search.state.filterMode ? (
+        ) : doc && filterActive ? (
           <VirtualLines
             {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
-            totalRows={search.state.hits.length}
-            rowToLine={(r) => search.state.hits[r]}
+            activeLine={activeLine}
+            totalRows={search.state.filter.hits.length}
+            rowToLine={(r) => search.state.filter.hits[r]}
             onVisibleRows={(first, last) => {
               // v1: prefetch each visible hit's own page individually — adjacent
               // hits naturally coalesce onto the same page via LinePageCache
               for (let r = first; r <= last; r++) {
-                const n = search.state.hits[r]
+                const n = search.state.filter.hits[r]
                 if (n !== undefined) cache?.prefetch(n, n)
               }
               // seed next/prev from the top of the window, not its midpoint —
               // the midpoint (overscan-included) pins to the list centre on
-              // short filtered lists and trapped the cursor (see useViewerSearch)
-              const top = search.state.hits[first]
+              // short filtered lists and trapped the cursor (see useViewerStreams)
+              const top = search.state.filter.hits[first]
               if (top !== undefined) currentLine.current = top
             }}
             onRowClick={(n) => {
-              search.toggle('filterMode')
-              goToLine(n)
+              // the filtered view is input-driven — a row click no longer exits
+              // it. It just moves the active line, marking the row as the
+              // active find match when it happens to be one.
+              currentLine.current = n
+              const idx = search.state.find.hits.indexOf(n)
+              search.setActive(idx >= 0 ? idx : null)
             }}
           />
         ) : doc ? (
           <VirtualLines
             {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
-            totalRows={doc.totalLines}
-            rowToLine={(r) => r + 1}
+            activeLine={activeLine}
+            totalRows={Math.max(0, (cut.to ?? doc.totalLines) - cut.from + 1)}
+            rowToLine={(r) => r + cut.from}
             onVisibleRows={(first, last) => {
-              cache?.prefetch(first - 500, last + 502)
+              const loLine = Math.max(cut.from, first + cut.from - 500)
+              const hiLineRaw = last + cut.from + 502
+              const hiLine = cut.to !== null ? Math.min(hiLineRaw, cut.to) : hiLineRaw
+              cache?.prefetch(loLine, hiLine)
               // top-of-window seed; only the first next/prev press reads this
-              currentLine.current = first + 1
+              currentLine.current = first + cut.from
             }}
           />
         ) : (

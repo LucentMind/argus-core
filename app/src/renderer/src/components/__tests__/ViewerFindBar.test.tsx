@@ -216,6 +216,44 @@ describe('ViewerFindBar', () => {
     expect(onNext).toHaveBeenCalledOnce()
   })
 
+  it('exposes the cut-range inputs by title', () => {
+    render(
+      <ViewerFindBar
+        state={base}
+        onQueryChange={vi.fn()}
+        onToggle={vi.fn()}
+        onCutChange={vi.fn()}
+        onNext={vi.fn()}
+        onPrev={vi.fn()}
+      />
+    )
+    expect(screen.getByTitle('cut start line')).toBeInTheDocument()
+    expect(screen.getByTitle('cut end line')).toBeInTheDocument()
+    expect(screen.getByTitle('cut start line')).toBe(screen.getByPlaceholderText('from'))
+    expect(screen.getByTitle('cut end line')).toBe(screen.getByPlaceholderText('to'))
+  })
+
+  it('Escape on the find input clears it and does not propagate', async () => {
+    const onQueryChange = vi.fn()
+    const outer = vi.fn()
+    render(
+      <div onKeyDown={outer}>
+        <ViewerFindBar
+          state={base}
+          onQueryChange={onQueryChange}
+          onToggle={vi.fn()}
+          onCutChange={vi.fn()}
+          onNext={vi.fn()}
+          onPrev={vi.fn()}
+        />
+      </div>
+    )
+    const input = screen.getByPlaceholderText('find in file')
+    await userEvent.type(input, '{Escape}')
+    expect(onQueryChange).toHaveBeenCalledWith('find', '')
+    expect(outer).not.toHaveBeenCalled()
+  })
+
   it('types into the filter and find query inputs', async () => {
     const onQueryChange = vi.fn()
     render(

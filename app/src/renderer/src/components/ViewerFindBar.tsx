@@ -91,6 +91,10 @@ export function ViewerFindBar({
         onChange={(e) => onQueryChange('find', e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.shiftKey ? onPrev : onNext)()
+          else if (e.key === 'Escape') {
+            e.stopPropagation()
+            onQueryChange('find', '')
+          }
         }}
       />
       <button title="regex" onClick={() => onToggle('find', 'regex')} className={tog(find.regex)}>
