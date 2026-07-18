@@ -33,6 +33,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
     setError(null)
     setDerivedFrom(null)
     setScrollTarget(null)
+    setIndexing(null)
   }
 
   const cache = useMemo(
@@ -49,10 +50,14 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
   }, [cache])
 
   useEffect(() => {
+    // a source switch tears this effect down; drop any open() response that
+    // resolves afterwards so the previous doc can't clobber the new one
+    let stale = false
     const unProgress = window.argus.textdoc.onIndexProgress((p) => {
       if (p.key === docKey) setIndexing(p.fraction >= 1 ? null : p.fraction)
     })
     void window.argus.textdoc.open(source, focusStart).then((r) => {
+      if (stale) return
       if (!r.ok) {
         setError(
           r.reason === 'repo-not-linked'
@@ -68,7 +73,10 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
         setScrollTarget({ row: Math.max(0, focusStart - 1), nonce: nonce.current })
       }
     })
-    return unProgress
+    return () => {
+      stale = true
+      unProgress()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
