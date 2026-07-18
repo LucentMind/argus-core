@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { TextDocSearchEvent, TextDocSource } from '../../shared/textdoc'
+import { textDocKey, type TextDocSearchEvent, type TextDocSource } from '../../shared/textdoc'
 import { ensureIndex, searchLines } from './lineIndex'
 import { resolveTextDocAbs } from './textdoc'
 
@@ -19,7 +19,11 @@ export class TextDocSearchHub {
   constructor(
     private db: DatabaseSync,
     private argusHome: string,
-    private send: (payload: TextDocSearchEvent) => void
+    private send: (payload: TextDocSearchEvent) => void,
+    /** Optional index-build progress sink (same payload shape as textdoc:index-progress):
+     *  a search on a stale/unindexed file triggers a lazy rebuild, and without this the
+     *  renderer would see a silent multi-second stall instead of the indexing chip. */
+    private sendProgress?: (p: { key: string; fraction: number }) => void
   ) {}
 
   async start(
@@ -45,7 +49,9 @@ export class TextDocSearchHub {
         this.send({ searchId, hits: [], scannedTo: 0, done: true, capped: false })
         return
       }
-      const index = await ensureIndex(this.argusHome, res.abs)
+      const index = await ensureIndex(this.argusHome, res.abs, (fraction) =>
+        this.sendProgress?.({ key: textDocKey(source), fraction })
+      )
       for await (const batch of searchLines(index, res.abs, query, {
         ...opts,
         signal: ac.signal

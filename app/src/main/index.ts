@@ -507,8 +507,11 @@ function registerIpc(): void {
       return readEvidenceSnippet(db, argusHome, caseSlug, relPath, line, end ?? line)
     }
   )
-  const textdocHub = new TextDocSearchHub(db, argusHome, (payload) =>
-    broadcast(IPC.textdocSearchHits, payload)
+  const textdocHub = new TextDocSearchHub(
+    db,
+    argusHome,
+    (payload) => broadcast(IPC.textdocSearchHits, payload),
+    (p) => broadcast(IPC.textdocIndexProgress, p)
   )
   ipcMain.handle(IPC.textdocOpen, (_e, source: TextDocSource) =>
     openTextDoc(db, argusHome, source, (key, fraction) =>
