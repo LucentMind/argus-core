@@ -20,7 +20,12 @@ beforeEach(() => {
   db = openDb(path.join(argusHome, 'argus.db'))
   createCase(db, argusHome, { slug: 'NAV-2', title: 't' })
   const src = path.join(tmp, 'log.txt')
-  fs.writeFileSync(src, Array.from({ length: 5000 }, (_, i) => (i % 100 === 0 ? `ERROR ${i}` : `info ${i}`)).join('\n') + '\n')
+  fs.writeFileSync(
+    src,
+    Array.from({ length: 5000 }, (_, i) => (i % 100 === 0 ? `ERROR ${i}` : `info ${i}`)).join(
+      '\n'
+    ) + '\n'
+  )
   evidenceId = ingestArtifact(db, argusHome, detection, 'NAV-2', src).id
   __clearIndexCacheForTests()
 })
