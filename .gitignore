@@ -5,6 +5,7 @@ app/dist/
 .DS_Store
 .superpowers/
 .claude/
+.worktrees/
 .venv/
 __pycache__/
 *.egg-info/
