@@ -652,6 +652,140 @@ describe('TextViewer', () => {
     expect(fndCall[3]).toEqual(expect.objectContaining({ fromLine: 100, toLine: 200 }))
   })
 
+  it('cut from beyond EOF clamps to the last line; a reversed to still empties the view', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByText('3,000,000 lines')
+    const from = screen.getByPlaceholderText('from')
+    await userEvent.type(from, '4000000')
+    // from > totalLines clamps to totalLines — the full view collapses to the
+    // single last line rather than an out-of-range window
+    await waitFor(() => expect(document.querySelector('#line-3000000')).toBeInTheDocument())
+    expect(document.querySelectorAll('[data-vrow]')).toHaveLength(1)
+    // a to below the (clamped) from is a reversed range — empty view, 0 rows
+    await userEvent.type(screen.getByPlaceholderText('to'), '200')
+    await waitFor(() => expect(document.querySelectorAll('[data-vrow]')).toHaveLength(0))
+  })
+
+  it('find follows the filter frontier when the filter stream is capped', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const filterInput = await screen.findByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX')
+    await waitFor(() => expect(searchCalls('flt').length).toBeGreaterThan(0))
+    const [fltId] = firstSearchCall('flt')
+    // capped filter batch: only the first 1,000,000 lines have been validated
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fltId,
+          hits: [10, 500_000],
+          scannedTo: 1_000_000,
+          done: false,
+          capped: true
+        })
+      )
+    )
+    expect(await screen.findByText('2 filtered')).toBeInTheDocument()
+
+    const find = screen.getByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(searchCalls('fnd').length).toBeGreaterThan(0))
+    const fndCall = firstSearchCall('fnd')
+    // fnd is scoped to the filter frontier, not EOF
+    expect(fndCall[3]).toEqual(expect.objectContaining({ toLine: 1_000_000 }))
+    const [fndId] = fndCall
+
+    // the engine legitimately reports done at the artificial boundary — the
+    // hook must rewrite that terminal state as capped (resumable), or the tail
+    // of the file becomes silently unsearchable
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fndId, hits: [10], scannedTo: 1_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText(/1 matches — more on demand/)).toBeInTheDocument()
+
+    // ↓ lands on the one collected hit; the next ↓ exhausts the hits and must
+    // resume BOTH streams past the shared frontier
+    const down = screen.getByRole('button', { name: '↓' })
+    await userEvent.click(down)
+    await userEvent.click(down)
+    await waitFor(() => {
+      expect(window.argus.textdoc.search).toHaveBeenCalledWith(
+        fltId,
+        { kind: 'evidence', evidenceId: 2 },
+        'CTX',
+        expect.objectContaining({ fromLine: 1_000_001 })
+      )
+      expect(window.argus.textdoc.search).toHaveBeenCalledWith(
+        fndId,
+        { kind: 'evidence', evidenceId: 2 },
+        'ERROR',
+        expect.objectContaining({ fromLine: 1_000_001 })
+      )
+    })
+
+    // the filter's extended batch arrives and completes the filter stream
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fltId,
+          hits: [1_500_000],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
+      )
+    )
+    expect(await screen.findByText('3 filtered')).toBeInTheDocument()
+    // the fnd resume was still frontier-scoped and comes back empty at the old
+    // ceiling — it must STAY resumable (capped), not settle as done
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fndId, hits: [], scannedTo: 1_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText(/1 matches — more on demand/)).toBeInTheDocument()
+
+    // next ↓ resumes fnd again — the filter is no longer capped, so this
+    // resume runs unbounded to EOF
+    await userEvent.click(down)
+    await waitFor(() =>
+      expect(lastSearchCall('fnd')[3]).toEqual(
+        expect.objectContaining({ fromLine: 1_000_001, toLine: undefined })
+      )
+    )
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fndId,
+          hits: [1_500_000],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
+      )
+    )
+    // now genuinely done: plain count, and the new hit is navigable
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+    await userEvent.click(down)
+    expect(await screen.findByText('2 / 2 matches')).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('#line-1500000')).toBeInTheDocument())
+  })
+
   it('does not render the find bar for small (whole-content) files', async () => {
     render(
       <TextViewer

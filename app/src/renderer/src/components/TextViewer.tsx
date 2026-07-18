@@ -61,6 +61,12 @@ function nearestAtOrBelow(hits: number[], line: number): number {
   return Math.max(0, lo - 1)
 }
 
+/** Exact-match index of `line` in sorted-ascending `hits`, or -1 when absent. */
+function indexOfLine(hits: number[], line: number): number {
+  const i = nearestAtOrBelow(hits, line)
+  return hits[i] === line ? i : -1
+}
+
 const EMPTY_STREAM: StreamState = {
   query: '',
   regex: false,
@@ -106,6 +112,17 @@ function useViewerStreams(
   // proven `currentId` shape exactly, one per channel
   const fltId = useRef('')
   const fndId = useRef('')
+  // the toLine ceiling the CURRENT fnd issue was scoped to (null = unbounded/
+  // cut-EOF). When the filter stream is capped, fnd is deliberately truncated
+  // at the filter frontier — the engine then legitimately reports done at that
+  // artificial boundary, and the hits handler must rewrite it as capped so the
+  // tail stays reachable via requestMore.
+  const fndCeil = useRef<number | null>(null)
+  // current cut, mirrored into a ref for the lifetime-scoped hits subscription
+  const cutRef = useRef(cut)
+  useEffect(() => {
+    cutRef.current = cut
+  })
 
   // source switch: reset synchronously during render so no stale hits from the
   // previous doc ever paint against the new one (mirrors the doc/error reset in
@@ -126,6 +143,8 @@ function useViewerStreams(
     fltId.current = ''
     // eslint-disable-next-line react-hooks/refs
     fndId.current = ''
+    // eslint-disable-next-line react-hooks/refs
+    fndCeil.current = null
     if (oldFlt) void window.argus.textdoc.cancelSearch(oldFlt)
     if (oldFnd) void window.argus.textdoc.cancelSearch(oldFnd)
     setState(EMPTY_STREAMS_STATE)
@@ -150,14 +169,19 @@ function useViewerStreams(
           }
         }))
       } else if (e.searchId === fndId.current) {
+        // "done" from a truncation-scoped fnd issue only means "done up to the
+        // filter frontier", not done with the file — rewrite it as capped so
+        // the label offers more-on-demand and requestMore can resume past it.
+        const ceil = fndCeil.current
+        const truncated = e.done && ceil !== null && ceil < (cutRef.current.to ?? Infinity)
         setState((s) => ({
           ...s,
           find: {
             ...s.find,
             hits: [...s.find.hits, ...e.hits],
-            done: e.done,
-            capped: e.capped,
-            scannedTo: e.scannedTo
+            done: truncated ? false : e.done,
+            capped: truncated ? true : e.capped,
+            scannedTo: truncated && ceil !== null ? ceil : e.scannedTo
           }
         }))
       }
@@ -225,21 +249,28 @@ function useViewerStreams(
         find: { ...s.find, hits: [], done: q === '', capped: false, scannedTo: 0 },
         activeIdx: null
       }))
-      if (q === '') return
+      if (q === '') {
+        fndCeil.current = null
+        return
+      }
       const id = `${docKey}:fnd:${++seq.current}`
       fndId.current = id
       // while the filter is still capped, don't let `find` scan past what the
       // filter has established as valid — this keeps the filtered view (row
-      // space = filter.hits) and find's hits in sync
-      const rawToLine =
+      // space = filter.hits) and find's hits in sync. Record the ceiling this
+      // issue is scoped to so the hits handler can tell truncation-done apart
+      // from genuinely done (null = unbounded/cut-EOF; always finite otherwise).
+      const rawCeil =
         filterActive && state.filter.capped
           ? Math.min(cut.to ?? Infinity, state.filter.scannedTo)
-          : (cut.to ?? undefined)
+          : (cut.to ?? null)
+      const ceil = rawCeil !== null && Number.isFinite(rawCeil) ? rawCeil : null
+      fndCeil.current = ceil
       void window.argus.textdoc.search(id, source, state.find.query, {
         regex: state.find.regex,
         caseSensitive: state.find.caseSensitive,
         fromLine: cut.from,
-        toLine: rawToLine !== undefined && Number.isFinite(rawToLine) ? rawToLine : undefined,
+        toLine: ceil ?? undefined,
         filter: filterActive
           ? {
               query: state.filter.query,
@@ -273,18 +304,24 @@ function useViewerStreams(
   // CURRENT fnd id from where it left off (same searchId — the hub treats this
   // as a continuation, not a new search) and, when the filter stream is ALSO
   // capped, separately re-issues the current flt id so the filtered view can
-  // keep growing too (spec's both-streams rule).
+  // keep growing too (spec's both-streams rule). fnd's `capped` may be either
+  // the engine's own cap or the truncation rewrite from the hits handler —
+  // both resume the same way, with the ceiling recomputed from the CURRENT
+  // filter state, so repeated next-past-end presses converge: each press
+  // extends the filter frontier and lets find follow it.
   const requestMore = (): void => {
     if (state.find.capped && fndId.current) {
-      const rawToLine =
+      const rawCeil =
         filterActive && state.filter.capped
           ? Math.min(cut.to ?? Infinity, state.filter.scannedTo)
-          : (cut.to ?? undefined)
+          : (cut.to ?? null)
+      const ceil = rawCeil !== null && Number.isFinite(rawCeil) ? rawCeil : null
+      fndCeil.current = ceil
       void window.argus.textdoc.search(fndId.current, source, state.find.query, {
         regex: state.find.regex,
         caseSensitive: state.find.caseSensitive,
         fromLine: state.find.scannedTo + 1,
-        toLine: rawToLine !== undefined && Number.isFinite(rawToLine) ? rawToLine : undefined,
+        toLine: ceil ?? undefined,
         filter: filterActive
           ? {
               query: state.filter.query,
@@ -396,7 +433,8 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
 
   const cutFromN = (() => {
     const n = parseInt(cutFrom, 10)
-    return Number.isFinite(n) && n >= 1 ? n : 1
+    // constraint is 1..totalLines — clamp both ends (upper only once doc is known)
+    return Number.isFinite(n) && n >= 1 ? Math.min(n, doc?.totalLines ?? n) : 1
   })()
   const cutToRaw = (() => {
     const n = parseInt(cutTo, 10)
@@ -628,7 +666,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
               // it. It just moves the active line, marking the row as the
               // active find match when it happens to be one.
               currentLine.current = n
-              const idx = search.state.find.hits.indexOf(n)
+              const idx = indexOfLine(search.state.find.hits, n)
               search.setActive(idx >= 0 ? idx : null)
             }}
           />
