@@ -1,6 +1,11 @@
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { classifyToolCall, CLAUDE_TOOL_TAXONOMY, type RiskContext } from '../risk'
+import {
+  classifyToolCall,
+  CLAUDE_TOOL_TAXONOMY,
+  type RiskContext,
+  type ToolTaxonomy
+} from '../risk'
 
 function ctx(overrides: Partial<RiskContext> = {}): RiskContext {
   return {
@@ -378,6 +383,32 @@ describe('tool taxonomy', () => {
     })
     // mcp__ tools still route through the connector branch, not the fail-closed default
     expect(classifyToolCall('mcp__argus__append_finding', {}, noFallback)).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+  })
+
+  it('defaults to FS_PATH_FIELDS when a taxonomy entry omits pathFields', () => {
+    // Inline taxonomy entry with no pathFields — exercises `pathFields ?? FS_PATH_FIELDS`.
+    const noPathFields: ToolTaxonomy = { entries: { CustomRead: { kind: 'fs-read' } } }
+    const c = ctx({ taxonomy: noPathFields })
+    // 'path' is one of the built-in default fields; an outside-sandbox value must deny,
+    // proving the default field list (not an empty one) governs the lookup.
+    expect(classifyToolCall('CustomRead', { path: '/home/u/.ssh/id_rsa' }, c).action).toBe('deny')
+    expect(classifyToolCall('CustomRead', { path: `${c.caseDir}/notes.md` }, c).action).toBe(
+      'allow'
+    )
+  })
+
+  it('treats an FS entry whose candidate path fields are all non-strings as caseDir (allow LOW)', () => {
+    // Inline taxonomy entry with declared pathFields, but every candidate value below is
+    // non-string — `.find(v => typeof v === 'string')` yields undefined, so the lookup
+    // falls back to caseDir, which is always in-sandbox.
+    const nonStringFields: ToolTaxonomy = {
+      entries: { WeirdRead: { kind: 'fs-read', pathFields: ['numField', 'objField'] } }
+    }
+    const c = ctx({ taxonomy: nonStringFields })
+    expect(classifyToolCall('WeirdRead', { numField: 42, objField: { x: 1 } }, c)).toEqual({
       action: 'allow',
       risk: 'LOW'
     })

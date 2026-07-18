@@ -1,11 +1,6 @@
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { makeEvent, type NormalizeCtx } from '../../events'
 
-// makeEvent + NormalizeCtx now live in the harness-owned agent/events.ts; re-exported
-// here so existing importers (session.ts, tests) that reach them via ./normalize keep
-// working until Task 4 repoints them.
-export { makeEvent, type NormalizeCtx }
-
 const PREVIEW_MAX = 2000
 
 function previewOf(content: unknown): string {

@@ -15,15 +15,15 @@ import type {
 } from '../../driver'
 import { normalizeSdkMessage } from './normalize'
 
-// Relocated from session.ts (Task 4 removes the copies there); registry.ts + existing
-// tests import these from the driver module starting Task 4.
+// Relocated from session.ts (Task 4 removed the copies there); registry.ts and existing
+// tests import these from the driver module.
 export type QueryHandle = AsyncIterable<unknown> & { interrupt(): Promise<void> }
 export type CreateQueryFn = (args: {
   prompt: AsyncIterable<unknown>
   options: Record<string, unknown>
 }) => QueryHandle
 
-// Duplicated from registry.ts:73-74 (registry.ts keeps its copy until Task 4).
+// This module owns defaultCreateQuery; registry.ts consumes it via createClaudeDriver().
 const defaultCreateQuery: CreateQueryFn = (args) =>
   query({ prompt: args.prompt as never, options: args.options as never }) as never
 
@@ -157,7 +157,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       }
 
       // Relocated from session.ts:562-595 (handleResult). Extraction only — the SQL
-      // writes + onAuthFailure/onAuthVerified dispatch move to the harness (Task 4),
+      // writes + onAuthFailure/onAuthVerified dispatch moved to the harness (Task 4),
       // which acts on the returned TurnResult. The auth predicate is preserved verbatim:
       // is_error is the ONLY discriminator (subtype is 'success' in both failure modes);
       // api_error_status is 401 for a bad key but null when simply not logged in, so text
