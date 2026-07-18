@@ -1,3 +1,8 @@
+/** Whole-file read cap shared by the textdoc small-file path (main: MAX_READ_BYTES),
+ *  FileViewer's files:read (main: FILE_READ_CAP), and the renderer's file-click
+ *  routing — files above it must go through the line-indexed viewer. */
+export const MAX_WHOLE_FILE_BYTES = 2 * 1024 * 1024
+
 export type TextDocSource =
   | { kind: 'evidence'; evidenceId: number }
   | { kind: 'repo'; caseSlug: string; repoName: string; relPath: string }

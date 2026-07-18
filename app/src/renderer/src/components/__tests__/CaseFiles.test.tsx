@@ -133,7 +133,12 @@ describe('CaseFiles', () => {
     render(<CaseFiles caseSlug="NAV-1" onOpenFile={onOpenFile} />)
     fireEvent.click(await screen.findByText('notes.md'))
     expect(onOpenFile).toHaveBeenCalledWith(
-      expect.objectContaining({ relPath: 'evidence/notes.md' })
+      expect.objectContaining({
+        relPath: 'evidence/notes.md',
+        // evidence identity must travel with the node so App can route large
+        // text evidence to the indexed TextViewer instead of FileViewer
+        evidence: expect.objectContaining({ id: 2 })
+      })
     )
     fireEvent.click(screen.getByText('trace.binlog'))
     await waitFor(() =>

@@ -9,9 +9,10 @@ import {
   langForPath
 } from '../../shared/snippets'
 import type { SnippetResult } from '../../shared/snippets'
+import { MAX_WHOLE_FILE_BYTES } from '../../shared/textdoc'
 import { caseDir } from './paths'
 
-export const MAX_READ_BYTES = 2 * 1024 * 1024
+export const MAX_READ_BYTES = MAX_WHOLE_FILE_BYTES
 // window around a citation's target line, for files too big to load whole
 export const WINDOW_LINES_BEFORE = 500
 export const WINDOW_LINES_AFTER = 2000
