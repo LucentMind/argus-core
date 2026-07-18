@@ -320,4 +320,51 @@ describe('createCopilotDriver — probeAuth', () => {
     expect(res.ok).toBe(false)
     expect(res.detail).toContain('Not authenticated')
   })
+
+  it('bounds a wedged start(): times out after timeoutMs and still reaps the client', async () => {
+    const stop = vi.fn(async () => [] as Error[])
+    const forceStop = vi.fn(async () => undefined)
+    const factory: CopilotClientFactory = () =>
+      ({
+        start: () => new Promise<void>(() => {}), // never resolves
+        async getAuthStatus() {
+          return { isAuthenticated: true }
+        },
+        async getStatus() {
+          return { version: '1' }
+        },
+        createSession: async () => ({}) as unknown as CopilotSessionLike,
+        resumeSession: async () => ({}) as unknown as CopilotSessionLike,
+        stop,
+        forceStop
+      }) as CopilotClientLike
+    const res = await createCopilotDriver({}, { clientFactory: factory }).probeAuth({
+      timeoutMs: 30
+    })
+    expect(res.ok).toBe(false)
+    expect(res.detail).toBe('Copilot probe timed out after 30ms')
+    expect(stop).toHaveBeenCalled() // client reaped despite the wedged start()
+  })
+
+  it('maps an ENOENT/spawn-shaped failure to an actionable detail', async () => {
+    const factory: CopilotClientFactory = () =>
+      ({
+        start: async () => {
+          throw Object.assign(new Error('spawn copilot ENOENT'), { code: 'ENOENT' })
+        },
+        async getAuthStatus() {
+          return { isAuthenticated: true }
+        },
+        async getStatus() {
+          return { version: '1' }
+        },
+        createSession: async () => ({}) as unknown as CopilotSessionLike,
+        resumeSession: async () => ({}) as unknown as CopilotSessionLike,
+        stop: vi.fn(async () => [] as Error[]),
+        forceStop: vi.fn(async () => undefined)
+      }) as CopilotClientLike
+    const res = await createCopilotDriver({}, { clientFactory: factory }).probeAuth({})
+    expect(res.ok).toBe(false)
+    expect(res.detail).toContain('Copilot runtime not found')
+  })
 })
