@@ -24,6 +24,7 @@ import type {
   CaseStatus,
   ChatJumpTarget,
   FileNode,
+  SessionSummary,
   UnifiedHit
 } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
@@ -67,6 +68,10 @@ export function CaseWorkspace({
   const [prefill, setPrefill] = useState('')
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
+  // The summaries were previously fetched and thrown away. They are kept now because the
+  // composer needs the current chat's pinned provider+model, and the approval card needs
+  // that provider's capabilities — both are per-session once several providers are enabled.
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
@@ -83,6 +88,7 @@ export function CaseWorkspace({
     setLastSlug(slug)
     setPrefill('')
     setSessionId(null)
+    setSessions([])
     setSessionsError(null)
   }
 
@@ -95,6 +101,7 @@ export function CaseWorkspace({
       .list(slug)
       .then((list) => {
         if (stale) return
+        setSessions(list)
         setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
       })
       .catch(() => {
@@ -134,6 +141,17 @@ export function CaseWorkspace({
   function handleSwitchSession(id: number): void {
     uiStore.setActiveSession(slug, id)
     setSessionId(id)
+  }
+
+  /** Re-pin the current chat to a provider instance + model. Applied optimistically so the
+   *  picker doesn't lag a round-trip; the main process rebuilds the live session on the
+   *  next send (AgentService compares the session's modelKey). */
+  function handleModelChange(instanceId: string, model: string): void {
+    if (sessionId === null) return
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, instanceId, model } : s)))
+    void window.argus.sessions.setModel(sessionId, instanceId, model).catch(() => {
+      setSessionsError('Could not switch model for this chat.')
+    })
   }
 
   // a search hit's jump target: switch to its session via the same path as a
@@ -231,7 +249,11 @@ export function CaseWorkspace({
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
         <div className="ml-auto">
-          <HeaderChips slug={slug} sessionId={sessionId} />
+          <HeaderChips
+            slug={slug}
+            sessionId={sessionId}
+            instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
+          />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -296,6 +318,8 @@ export function CaseWorkspace({
                 <ChatPane
                   slug={slug}
                   sessionId={sessionId}
+                  session={sessions.find((s) => s.id === sessionId) ?? null}
+                  onModelChange={handleModelChange}
                   onSwitchSession={handleSwitchSession}
                   onCite={(c) => void handleCite(c)}
                   onJumpToTurn={handleJumpToTurn}

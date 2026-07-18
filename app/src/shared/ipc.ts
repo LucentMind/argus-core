@@ -30,6 +30,7 @@ export const IPC = {
   sessionsList: 'sessions:list',
   sessionsCreate: 'sessions:create',
   sessionsRename: 'sessions:rename',
+  sessionsSetModel: 'sessions:set-model',
   workspacesPick: 'workspaces:pick',
   workspacesLink: 'workspaces:link',
   workspacesUnlink: 'workspaces:unlink',

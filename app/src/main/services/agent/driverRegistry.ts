@@ -1,4 +1,5 @@
-import type { AgentSettings } from '../../../shared/settings'
+import type { AgentSettings, AppSettings } from '../../../shared/settings'
+import { defaultInstanceId } from '../../../shared/drivers'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver } from './drivers/claude'
 import { createCopilotDriver } from './drivers/copilot'
@@ -37,7 +38,24 @@ export interface ResolvedDriver {
  * slug that simply isn't registered yet.
  */
 export function resolveDriver(agent: AgentSettings): ResolvedDriver {
-  const inst = agent.providerInstances[agent.activeInstanceId]
+  return resolveInstanceDriver(agent, defaultInstanceId({ agent } as AppSettings))
+}
+
+/**
+ * Same resolution for an EXPLICIT instance — what a chat session pinned to a provider uses.
+ * A session outlives any settings change, so it names its instance rather than inheriting
+ * whatever happens to be default at send time.
+ *
+ * An unknown instance id (deleted from settings since the session was created) falls back
+ * silently, matching the missing/disabled case: the session keeps working on the default
+ * provider rather than becoming unusable. `sessionCursor`'s driver-kind guard is what stops
+ * that fallback from resuming someone else's history.
+ */
+export function resolveInstanceDriver(
+  agent: AgentSettings,
+  instanceId: string | null | undefined
+): ResolvedDriver {
+  const inst = instanceId ? agent.providerInstances[instanceId] : undefined
   if (!inst || !inst.enabled) return { driver: fallbackDriver }
   const known = DRIVERS[inst.driver]
   if (known) return { driver: known }

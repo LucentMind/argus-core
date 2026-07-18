@@ -291,6 +291,9 @@ const argus = {
       ipcRenderer.invoke(IPC.sessionsCreate, caseSlug),
     rename: (sessionId: number, title: string): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsRename, sessionId, title),
+    /** Re-pin a chat to a provider instance + model. Resolves true when it actually changed. */
+    setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
   },

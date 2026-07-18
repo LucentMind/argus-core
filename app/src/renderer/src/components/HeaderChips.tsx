@@ -2,15 +2,19 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Chip } from './ui'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { useSettingsPayload } from '../lib/settingsStore'
-import { activeCapabilities } from '../../../shared/drivers'
+import { capabilitiesFor, defaultInstanceId } from '../../../shared/drivers'
 import type { AuthStatus, PreflightReport } from '../../../shared/types'
 
 export function HeaderChips({
   slug,
-  sessionId
+  sessionId,
+  instanceId = null
 }: {
   slug: string
   sessionId: number | null
+  /** Provider instance running this chat — cost reporting is a per-provider capability
+   *  (Copilot reports none), so it must not be read off the global default. */
+  instanceId?: string | null
 }): React.JSX.Element {
   const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [preflight, setPreflight] = useState<PreflightReport | null>(null)
@@ -19,7 +23,10 @@ export function HeaderChips({
     () => (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
   )
   const settingsPayload = useSettingsPayload()
-  const costReporting = activeCapabilities(settingsPayload?.settings).costReporting
+  const costReporting = capabilitiesFor(
+    settingsPayload?.settings,
+    instanceId ?? (settingsPayload ? defaultInstanceId(settingsPayload.settings) : null)
+  ).costReporting
 
   useEffect(() => {
     // authStatus() can be in flight when agent:auth-changed fires (e.g. a turn 401s

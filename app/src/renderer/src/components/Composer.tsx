@@ -3,37 +3,42 @@ import { ChevronDown, Sparkles, Lock, Gauge, SquareTerminal, ArrowUp } from 'luc
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import {
-  orderedVisibleModels,
-  effectiveDefaultModel,
-  activeCapabilities
+  allVisibleModels,
+  capabilitiesFor,
+  defaultInstanceId,
+  defaultModelRef,
+  type AggregatedModel
 } from '../../../shared/drivers'
 import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
 import type { SkillListItem } from '../../../shared/memoryIpc'
+import type { SessionSummary } from '../../../shared/types'
 
 /**
- * Placeholder session-option pickers (model / reasoning / permission mode).
- * Purely cosmetic for now — the selection is local UI state and is not sent
- * to the agent session yet.
+ * Session-option picker. Reasoning is still cosmetic; model and permission mode are real —
+ * the model selection is persisted onto the session row and picks the provider that runs it.
  */
 function OptionChip({
   icon,
   options,
   value,
   onChange,
-  menuLabel
+  menuLabel,
+  cosmetic
 }: {
   icon: React.ReactNode
   options: string[]
   value: string
   onChange: (v: string) => void
   menuLabel: string
+  /** Marks a picker whose selection isn't wired to the session yet (reasoning). */
+  cosmetic?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
     <div className="relative">
       <button
         type="button"
-        title={`${menuLabel} (not wired yet)`}
+        title={cosmetic ? `${menuLabel} (not wired yet)` : menuLabel}
         className="flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
         onClick={() => setOpen(!open)}
       >
@@ -72,6 +77,12 @@ function OptionChip({
   )
 }
 
+/** Menu key for a cross-provider model. Two enabled instances can expose the same slug, so
+ *  the provider qualifies it — and the label doubles as what the user reads in the menu. */
+function modelOptionLabel(m: AggregatedModel, showProvider: boolean): string {
+  return showProvider ? `${m.name} · ${m.providerLabel}` : m.name
+}
+
 function Divider(): React.JSX.Element {
   return <span className="h-4 w-px shrink-0 bg-hair2" />
 }
@@ -82,7 +93,9 @@ export function Composer({
   prefill,
   citations = [],
   onRemoveCitation,
-  onCitationsConsumed
+  onCitationsConsumed,
+  session,
+  onModelChange
 }: {
   disabled: boolean
   onSend: (text: string) => void
@@ -90,10 +103,14 @@ export function Composer({
   citations?: { relPath: string; line: number }[]
   onRemoveCitation?: (index: number) => void
   onCitationsConsumed?: () => void
+  /** The chat this composer belongs to — supplies the pinned model and the provider whose
+   *  capabilities gate the permission picker. Absent while the session list is loading. */
+  session?: SessionSummary | null
+  /** Re-pin the session to another provider instance + model. */
+  onModelChange?: (instanceId: string, slug: string) => void
 }): React.JSX.Element {
   const [text, setText] = useState('')
   const [skills, setSkills] = useState<SkillListItem[]>([])
-  const [model, setModel] = useState('Claude Fable 5')
   const [reasoning, setReasoning] = useState('High · 200k')
   const [permission, setPermission] = useState('Ask approvals')
   const showToolCalls = useSyncExternalStore(
@@ -105,30 +122,44 @@ export function Composer({
     void window.argus.skills.list().then((p) => setSkills(p.skills))
   }, [])
 
-  // seed the pickers from settings once the payload first arrives — adjust-
-  // state-during-render, matching the `prefill` idiom below; user changes
-  // stay session-local after that (not wired to the SDK yet)
+  // seed the permission picker from settings once the payload first arrives — adjust-
+  // state-during-render, matching the `prefill` idiom below
   const settingsPayload = useSettingsPayload()
   const [seeded, setSeeded] = useState(false)
   if (!seeded && settingsPayload) {
     setSeeded(true)
-    setModel(effectiveDefaultModel(settingsPayload.settings) ?? 'Claude Fable 5')
     setPermission(PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode])
   }
 
-  // static display-name fallback until the settings payload first arrives;
-  // once loaded, the picker follows the driver's model catalog ordering
-  // (favorites first, hidden excluded) instead of this placeholder list
-  const modelOptions = settingsPayload
-    ? orderedVisibleModels(settingsPayload.settings).map((m) => m.slug)
-    : ['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']
+  // Every enabled provider's models in one list. Provider names are appended only when more
+  // than one is enabled, so the single-provider case stays uncluttered.
+  const models: AggregatedModel[] = settingsPayload
+    ? allVisibleModels(settingsPayload.settings)
+    : []
+  const showProvider = new Set(models.map((m) => m.instanceId)).size > 1
+  const modelOptions = models.length
+    ? models.map((m) => modelOptionLabel(m, showProvider))
+    : // static fallback until the settings payload first arrives
+      ['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']
 
-  // permission modes offered are derived from the active driver's capabilities
-  // (Task 11) — never a hardcoded literal — so a driver that only supports a
-  // subset (hypothetically) has that subset reflected here automatically.
-  const permissionOptions = activeCapabilities(settingsPayload?.settings).permissionModes.map(
-    (m) => PERMISSION_MODE_LABELS[m]
-  )
+  // What this chat is pinned to. A session created before multi-provider has a null model,
+  // so fall back to the settings default (which still honours a hand-set config.model) —
+  // the chip is never blank, and it shows what a send would actually use.
+  const fallback = settingsPayload ? defaultModelRef(settingsPayload.settings) : undefined
+  const current =
+    models.find((m) => m.instanceId === session?.instanceId && m.slug === session?.model) ??
+    models.find((m) => m.slug === session?.model) ??
+    models.find((m) => m.instanceId === fallback?.instanceId && m.slug === fallback?.slug) ??
+    models[0]
+  const model = current ? modelOptionLabel(current, showProvider) : modelOptions[0]
+
+  // Permission modes come from THIS session's provider, not the global default — with two
+  // providers enabled they can differ, and offering a mode the running driver drops would
+  // be a false signal.
+  const permissionOptions = capabilitiesFor(
+    settingsPayload?.settings,
+    session?.instanceId ?? (settingsPayload ? defaultInstanceId(settingsPayload.settings) : null)
+  ).permissionModes.map((m) => PERMISSION_MODE_LABELS[m])
 
   // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
   // draft — adjust-state-during-render pattern instead of a setState effect
@@ -242,7 +273,10 @@ export function Composer({
             icon={<Sparkles size={12} strokeWidth={1.5} />}
             menuLabel="Model"
             value={model}
-            onChange={setModel}
+            onChange={(label) => {
+              const picked = models.find((m) => modelOptionLabel(m, showProvider) === label)
+              if (picked) onModelChange?.(picked.instanceId, picked.slug)
+            }}
             options={modelOptions}
           />
           <Divider />
@@ -251,6 +285,7 @@ export function Composer({
             menuLabel="Reasoning"
             value={reasoning}
             onChange={setReasoning}
+            cosmetic
             options={['Max · 200k', 'High · 200k', 'Medium · 64k', 'Low · 16k']}
           />
           <Divider />

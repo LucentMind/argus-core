@@ -1,16 +1,20 @@
 import { useState } from 'react'
 import { Chip, Btn, SectionLabel } from './ui'
 import { isEditableTool } from '../../../shared/editableTools'
-import { activeCapabilities } from '../../../shared/drivers'
+import { capabilitiesFor } from '../../../shared/drivers'
 import { useSettingsPayload } from '../lib/settingsStore'
 
 export function ApprovalCard({
   slug,
   sessionId,
+  instanceId = null,
   request
 }: {
   slug: string
   sessionId: number
+  /** Provider instance running THIS chat. With several providers enabled, the global
+   *  default's capabilities are not necessarily this session's. */
+  instanceId?: string | null
   request: {
     requestId: string
     tool: string
@@ -28,14 +32,16 @@ export function ApprovalCard({
   // e.g. `mcp__argus__update_case_status`) and HIGH-risk asks, which stay read-only,
   // except the narrow allowlist in shared/editableTools (e.g. write_memory), where
   // the args are pure reviewed content and editing is the review mechanism.
-  // Additionally gated on the active driver's capabilities.editableApprovals
+  // Additionally gated on THIS SESSION's driver capabilities.editableApprovals
   // (Task 11) — a driver that can't honor updatedInput (e.g. Copilot v1) must
-  // never be offered an edit affordance it can't actually apply.
+  // never be offered an edit affordance it can't actually apply. Session-scoped
+  // rather than global: two chats in the same case can run different providers,
+  // and capabilitiesFor falls back conservatively when the instance is unknown.
   const editable =
     request.input != null &&
     request.risk === 'MEDIUM' &&
     isEditableTool(request.tool) &&
-    activeCapabilities(settingsPayload?.settings).editableApprovals
+    capabilitiesFor(settingsPayload?.settings, instanceId).editableApprovals
   const edited = Object.entries(draft).some(([k, v]) => v !== request.input?.[k])
 
   const respond = (kind: 'allow' | 'allow-session' | 'deny'): void => {
