@@ -6,7 +6,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
 import { createDetection } from '../../packs/detection'
-import { argusToolHandlers } from '../nativeTools'
+import { argusToolHandlers, NATIVE_TOOL_SPECS } from '../nativeTools'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -164,5 +164,11 @@ describe('argus native tools', () => {
     expect(idx).toContain('- [binder-crashes](binder-crashes.md) — VHAL/binder crash triage order')
     const topic = fs.readFileSync(path.join(argusHome, 'memory', 'binder-crashes.md'), 'utf8')
     expect(topic).toContain('binder thread pool')
+  })
+
+  it('every native tool spec has a matching handler and vice versa', () => {
+    const specNames = NATIVE_TOOL_SPECS.map((s) => s.name).sort()
+    const handlerNames = Object.keys(handlers).sort()
+    expect(specNames).toEqual(handlerNames)
   })
 })
