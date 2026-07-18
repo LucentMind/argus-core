@@ -49,23 +49,30 @@ export function TopBar({
         aria-label="Recent cases"
         className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
       >
-        {ui.recentTabs.map((slug) => {
+        {ui.recentTabs.map((slug, i) => {
           const active = slug === activeSlug
           return (
             <span
               key={slug}
-              className={`group flex shrink-0 items-center rounded-r2 border text-sm transition-colors ${
+              className={`group relative flex shrink-0 items-center rounded-r2 border text-sm transition-colors ${
                 active
                   ? 'border-hair bg-hi text-ink'
                   : 'border-transparent text-dim hover:bg-hair hover:text-ink'
               }`}
             >
+              {i > 0 && (
+                <span
+                  data-tab-separator
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -left-0.5 h-4 w-px bg-hair"
+                />
+              )}
               <button className="py-1.5 pl-3 font-mono" onClick={() => onSelect(slug)}>
                 {slug}
               </button>
               <button
                 aria-label={`Close ${slug}`}
-                className="px-2 py-1.5 text-base leading-none text-mute transition-colors hover:text-danger"
+                className="px-2 py-1.5 text-base leading-none text-mute opacity-0 transition-[color,opacity] hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
                 onClick={() => close(slug)}
               >
                 ×
