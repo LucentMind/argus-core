@@ -26,6 +26,9 @@ import type { NativeToolDeps } from '../../../nativeTools'
  *   c) native Argus tool (append_finding, LOW/skipPermission) invoked end-to-end
  *   d) resume: two-turn continuity across driverSession end + a new session with the cursor
  *   e) plan mode: engage 'plan', run a planning turn to completion against the real runtime
+ *   f) connector MCP: a composed stdio server (spike echo server) forwards through
+ *      toCopilotMcpServers, connects, and its tool round-trips via the kind:"mcp"
+ *      permission path (EVIDENCE §6c)
  */
 
 const SMOKE = Boolean(process.env.COPILOT_SMOKE)
@@ -103,6 +106,7 @@ function open(
     permissionMode?: PermissionMode
     resumeCursor?: string | null
     onToolRequest?: (name: string, input: Record<string, unknown>) => ToolDecision
+    extraMcpServers?: Record<string, unknown>
   } = {}
 ): Harness {
   const events: AgentEvent[] = []
@@ -115,7 +119,7 @@ function open(
     additionalDirectories: [],
     permissionMode: opts.permissionMode ?? 'default',
     systemAppend: '',
-    extraMcpServers: {},
+    extraMcpServers: opts.extraMcpServers ?? {},
     nativeToolDeps: scratch.deps,
     panelCommandDecls: [],
     resumeCursor: opts.resumeCursor ?? null,
@@ -374,4 +378,81 @@ describe.skipIf(!SMOKE)('copilot driver — real runtime smoke (e2e)', () => {
       scratch.cleanup()
     }
   }, 180000)
+
+  it('(f) connector MCP: composed stdio server connects and its tool round-trips via kind:"mcp"', async () => {
+    const scratch = makeScratch('SMOKE-F')
+    const driver = createCopilotDriver()
+    // The spike's stdio echo server (scripts/spike-copilot/) doubles as the connector under
+    // test; the composed shape below is exactly what mcp.ts composeForSession() produces —
+    // note NO `tools` field: the driver's toCopilotMcpServers must add the allowlist (§6c).
+    const echoServer = path.resolve(
+      __dirname,
+      '../../../../../../../scripts/spike-copilot/mcp-echo-server.mjs'
+    )
+    expect(fs.existsSync(echoServer), `spike echo server missing at ${echoServer}`).toBe(true)
+    const h = open(driver, scratch, {
+      extraMcpServers: {
+        argusEcho: { type: 'stdio', command: process.execPath, args: [echoServer], env: {} }
+      },
+      onToolRequest: (name) =>
+        name === 'mcp__argusEcho__mcp_echo'
+          ? { behavior: 'allow', updatedInput: {} }
+          : { behavior: 'deny', message: 'smoke: only the echo MCP tool is permitted' }
+    })
+    try {
+      h.session.send(
+        "Call the mcp_echo tool from the 'argusEcho' MCP server with message 'ping' and " +
+          'reply with exactly what it returned. If you have no such tool, reply NO_MCP_TOOL.'
+      )
+      // A tool turn spans several inference passes, each with its own turn.completed — so wait
+      // on the OUTCOME (the relayed echo, or an explicit no-tool answer), not a turn count.
+      {
+        const start = Date.now()
+        while (!/mcp-echo:ping|NO_MCP_TOOL/.test(h.text())) {
+          if (Date.now() - start > 120000)
+            throw new Error(
+              `timeout waiting for echo text; events=[${h.events.map((e) => e.type).join(',')}]`
+            )
+          await new Promise((r) => setTimeout(r, 100))
+        }
+      }
+      h.session.end()
+      await h.drained
+
+      console.log('[SMOKE f] toolRequests:', JSON.stringify(h.toolRequests.map((t) => t.name)))
+      console.log('[SMOKE f] text:', JSON.stringify(h.text().slice(0, 300)))
+      console.log('[SMOKE f] event types:', h.events.map((e) => e.type).join(','))
+      const toolEvents = h.events.filter((e) => e.type === 'tool.call.completed') as Extract<
+        AgentEvent,
+        { type: 'tool.call.completed' }
+      >[]
+      console.log(
+        '[SMOKE f] tool.call.completed:',
+        JSON.stringify(
+          toolEvents.map((e) => ({
+            name: e.payload.name,
+            isError: e.payload.isError,
+            out: e.payload.outputPreview?.slice(0, 120)
+          }))
+        )
+      )
+      // No degradation event: the connector was forwarded, not skipped.
+      expect(h.events.some((e) => e.type === 'session.mcp.skipped')).toBe(false)
+      // The MCP call was permission-gated through Argus under its canonical name (§2 mapping).
+      const gated = h.toolRequests.find((t) => t.name === 'mcp__argusEcho__mcp_echo')
+      expect(
+        gated,
+        `expected an mcp__argusEcho__mcp_echo request; saw ${JSON.stringify(
+          h.toolRequests.map((t) => t.name)
+        )}`
+      ).toBeDefined()
+      expect(gated!.input).toEqual({ message: 'ping' })
+      // The server's actual response reached the model and the model relayed it.
+      expect(h.text()).toContain('mcp-echo:ping')
+      expect(h.text()).not.toContain('NO_MCP_TOOL')
+    } finally {
+      h.session.end()
+      scratch.cleanup()
+    }
+  }, 150000)
 })

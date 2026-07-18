@@ -78,7 +78,7 @@ Request union `PermissionRequest` = 10 variants (`session-events.d.ts:332`):
 | `shell` | `fullCommandText`, `commands[]{identifier,readOnly}`, `possiblePaths[]`, `possibleUrls[]`, `hasWriteFileRedirection`, `canOfferSessionApproval`, `warning?`, `requestSandboxBypass?` (`:5585`) | `03-shell-permission.jsonl` |
 | `read` | `path`, `intention` (`:5701`) — **read is NOT auto-approved; it prompts** | `04-read-fetch.jsonl` |
 | `url` | `url`, `intention`, `requestSandboxBypass?` (`:5765`) | `04-read-fetch.jsonl` |
-| `mcp` | `serverName`, `toolName`, `toolTitle`, `readOnly`, `args` (`:5730`) | (type only; see §6) |
+| `mcp` | `serverName`, `toolName`, `toolTitle`, `readOnly`, `args` (`:5730`); **live: `toolName` arrives model-prefixed `<server>-<tool>`** (e.g. `argusEcho-mcp_echo`) — the driver strips the prefix for the canonical `mcp__<server>__<tool>` | smoke (f), §6c |
 | `custom-tool` | `toolName`, `toolDescription`, `args` (`:5825`) | `05-custom-tool.jsonl` |
 | `memory` | `fact`, `subject`, `action`, `direction` (`:5794`) | type only |
 | `hook` | `toolName`, `toolArgs`, `hookMessage?` (`:5852`) | type only |
@@ -199,7 +199,7 @@ line. The runtime emitted `session.mcp_servers_loaded` with
 > `availableTools`) to actually connect. **This must be resolved before Argus
 > relies on MCP tool injection through Copilot.** The config-shape capture (the
 > Task-7 goal) succeeded; the connection semantics did not, and are the top open
-> item for the driver.
+> item for the driver. *(Resolved in §6c: the missing `tools:["*"]` allowlist.)*
 
 ---
 
@@ -226,14 +226,72 @@ none of `enableConfigDiscovery`, a discovered `.mcp.json`, or `mode:"empty"` +
 `availableTools` changed that. The connection semantics for app-supplied stdio
 MCP remain unresolved and are beyond this task's bounded budget.
 
-> **Driver decision (shipped in Task 9B):** `capabilities.mcpConnectors = false`
-> on both the Copilot `AgentDriver` and the `shared/drivers.ts` `github-copilot`
-> entry. `createSession` does **not** forward `ctx.extraMcpServers`; instead the
-> driver emits one `session.mcp.skipped` AgentEvent per composed connector
-> (`reason:"copilot-driver-no-mcp"`) at session start, so the UI surfaces the
-> degradation honestly. A fast-follow can revisit stdio-MCP connection (candidate
-> next steps: an `http`/`sse` connector shape like the builtin that DID connect,
-> or a runtime trust/allow RPC not yet surfaced in the `.d.ts`).
+> **Driver decision (shipped in Task 9B, since superseded — see §6c):**
+> `capabilities.mcpConnectors = false` on both the Copilot `AgentDriver` and the
+> `shared/drivers.ts` `github-copilot` entry. `createSession` did **not** forward
+> `ctx.extraMcpServers`; instead the driver emitted one `session.mcp.skipped`
+> AgentEvent per composed connector (`reason:"copilot-driver-no-mcp"`) at session
+> start. §6c found the actual root cause and reversed this decision.
+
+---
+
+## 6c. MCP resolution (2026-07-18) — VERDICT: **SOLVED — `tools:["*"]` was the missing opt-in**
+
+Root cause of §6/§6b: `MCPServerConfigBase.tools` (`types.d.ts:1210`). Its doc
+comment claims *"`undefined` (the default) or `["*"]` means include all tools"* —
+**the first half is empirically false.** Without an explicit `tools` allowlist
+the runtime reports the server `status:"not_configured"` (literally: tools not
+configured) and exposes nothing; §6/§6b never set the field. GitHub's own MCP
+debugging guide (docs.github.com → copilot-sdk → mcp-debugging) lists a missing
+`tools` allowlist as the top cause, and the SDK docs example sets `tools:["*"]`.
+
+Captured in `16-mcp-transports.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 16`,
+same runtime/auth/tier as §6b; sandbox scrubbed of `.mcp.json` beforehand):
+
+| Variant | Config | `argusEcho` status | `mcp_echo` reachable? |
+| --- | --- | --- | --- |
+| A | stdio + `tools:["*"]` | **`connected`** | **yes** (`mcp-echo:ping` returned) |
+| B | `type:"http"` (Streamable HTTP, local server) + `tools:["*"]` | **`connected`** | **yes** |
+| C | `type:"sse"` (legacy HTTP+SSE) + `tools:["*"]` | **`connected`** | **yes** |
+| D | stdio, NO `tools` field (§6 control) | `not_configured` | no (`NO_MCP_TOOL`) |
+
+A/D differ ONLY in the `tools` field — causality is isolated. All three
+transports work; no HTTP-proxy workaround is needed. MCP tools surface to the
+model as `<server>-<tool>` (`argusEcho-mcp_echo`) and raise `kind:"mcp"`
+permission requests (`serverName`, `toolName`), which the driver already maps.
+The fixture's `http-request` lines capture the runtime's actual Streamable-HTTP
+handshake (11 requests: initialize → notifications/initialized → tools/list →
+tools/call) for future proxy work, should it ever be needed.
+
+**Resume also honors `mcpServers`** (`17-mcp-resume.jsonl`): the same stdio
+config connected and the tool round-tripped on BOTH `createSession` and a
+subsequent `resumeSession` of the same id — upstream
+[sdk#1113](https://github.com/github/copilot-sdk/issues/1113) (open, claims
+resume silently drops `mcpServers`) does **not** reproduce on SDK 1.0.7 /
+CLI 1.0.71. Upstream scan (2026-07-18): 1.0.7 is the newest SDK; no issue
+mentions `not_configured`; nothing newer to pin.
+
+> **Driver decision (supersedes §6b):** `createSession` forwards
+> `ctx.extraMcpServers` through `toCopilotMcpServers()` — a 1:1 field pass-through
+> (composed `{type:"stdio",command,args,env}` / `{type:"http"|"sse",url,headers}`
+> shapes are already valid `MCPServerConfig`) that defaults `tools:["*"]` per
+> entry (preserving an explicit allowlist) — on both create and resume.
+> `capabilities.mcpConnectors` is now omitted (= supported) in both
+> `drivers/copilot/index.ts` and `shared/drivers.ts`; the
+> `session.mcp.skipped`/`copilot-driver-no-mcp` degradation path is removed
+> (compose-failure skips in `session.ts` are unaffected). Permission parity:
+> `kind:"mcp"` requests synthesize to `mcp__<server>__<tool>` and re-enter the
+> Argus classifier per call (§2) — noting the live runtime reports `toolName`
+> pre-prefixed (`<server>-<tool>`), which the driver strips (smoke (f) capture;
+> the type-only §2 row had suggested a bare tool name).
+>
+> **E2E proof through the driver itself** (smoke (f), `COPILOT_SMOKE=1`): a
+> composed stdio connector (no `tools` field, exactly the composeForSession
+> shape) forwarded, connected, was permission-gated as `mcp__argusEcho__mcp_echo`
+> through the Argus pipeline, executed, and the model relayed `mcp-echo:ping`.
+> One behavioral note: a tool turn spans several inference passes, each emitting
+> its own `assistant.turn_end` → `turn.completed`, so consumers must not treat
+> the first `turn.completed` as end-of-response.
 
 ---
 
@@ -477,11 +535,10 @@ same junction dir the Claude driver already relies on.
 
 ## Open questions (capture could not answer)
 
-1. **MCP tools never connected** (`status:"not_configured"`, §6). What opt-in
-   makes an SDK-declared stdio MCP server actually expose its tools in
-   `mode:"copilot-cli"`? (Try `enableConfigDiscovery:true`, `mode:"empty"` +
-   explicit `availableTools`, or a `.mcp.json` in the working dir.) **Top driver
-   blocker.**
+1. ~~**MCP tools never connected** (`status:"not_configured"`, §6).~~ **RESOLVED
+   (§6c):** the missing opt-in was the `tools:["*"]` allowlist on each server
+   config — none of `enableConfigDiscovery`, `.mcp.json`, or `availableTools`
+   was relevant.
 2. **Paid-tier model catalog.** Does `listModels()` widen beyond `auto`, and does
    `SessionConfig.model` / `session.setModel()` pin a specific slug, on a Pro/
    Business account? (Free tier is `auto`-only + router.)

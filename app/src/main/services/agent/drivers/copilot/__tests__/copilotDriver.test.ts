@@ -113,12 +113,13 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
 }
 
 describe('createCopilotDriver — capabilities + auth predicate', () => {
-  it('declares the four permission modes, no editable approvals, no cost/mcp support', () => {
+  it('declares the four permission modes, no editable approvals, no cost; MCP supported', () => {
     const d = createCopilotDriver()
     expect(d.kind).toBe('github-copilot')
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.capabilities.costReporting).toBe(false)
-    expect(d.capabilities.mcpConnectors).toBe(false)
+    // Absent = supported (EVIDENCE §6c: connectors forward with a tools:["*"] allowlist).
+    expect(d.capabilities.mcpConnectors).toBeUndefined()
     expect(d.capabilities.permissionModes.length).toBe(4)
     // 9B taxonomy: write/read/shell/fetch entries, still fail-closed (no fallback).
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])

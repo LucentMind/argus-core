@@ -120,8 +120,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
-      planMode: true,
-      mcpConnectors: false // Task 9B: SDK stdio mcpServers never expose tools (EVIDENCE §6/§6b)
+      planMode: true
+      // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
     }
   }
 }
