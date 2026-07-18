@@ -34,7 +34,6 @@ describe('loadPresets', () => {
     )
     const p = loadPresets(argusHome)
     expect(p.rovo.config).toMatchObject({ url: 'https://corp-proxy.example.com/mcp', oauth: true })
-    expect(p.rovo.links.createApiToken).toContain('id.atlassian.com')
     expect(p.internal.displayName).toBe('Corp logs')
   })
 

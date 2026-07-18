@@ -11,7 +11,7 @@ const ROVO_PRESET = {
   kind: 'http',
   displayName: 'Atlassian Rovo',
   config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true },
-  links: { createApiToken: 'https://id.atlassian.com/manage-profile/security/api-tokens' }
+  links: {}
 }
 
 function settingsPayload(repo = ''): unknown {
@@ -140,20 +140,16 @@ describe('IntegrationsStep (inline config)', () => {
     await waitFor(() => expect(screen.getByText(/user cancelled/i)).toBeTruthy())
   })
 
-  it('REST: expanding ensures the rovo instance exists and shows no token fields (Authorize-only, Part 3a)', async () => {
+  it('the Atlassian card is Authorize-only — no REST toggle or token fields (Part 3a)', async () => {
     setup()
     render(<IntegrationsStep />)
-    fireEvent.click(await screen.findByRole('button', { name: /REST API/i }))
-    await waitFor(() =>
-      expect(connPatch).toHaveBeenCalledWith(
-        expect.objectContaining({ rovo: expect.objectContaining({ preset: 'rovo' }) })
-      )
-    )
+    await screen.findByRole('button', { name: /connect atlassian/i })
+    expect(screen.queryByRole('button', { name: /REST API/i })).toBeNull()
     expect(screen.queryByLabelText('Site URL (REST, optional)')).toBeNull()
     expect(screen.queryByLabelText('Atlassian API token (optional)')).toBeNull()
   })
 
-  it('shows Configured via REST (siteUrl + apiToken) even without OAuth', async () => {
+  it('does not show Configured from a stale siteUrl/apiToken config without OAuth authorized', async () => {
     setup({
       rovoConfig: {
         siteUrl: 'https://acme.atlassian.net',
@@ -162,8 +158,8 @@ describe('IntegrationsStep (inline config)', () => {
     })
     const spy = vi.spyOn(store, 'markIntegration').mockResolvedValue()
     render(<IntegrationsStep />)
-    await waitFor(() => expect(screen.getByText('Configured')).toBeTruthy())
-    expect(spy).toHaveBeenCalledWith('jira', true)
-    expect(spy).toHaveBeenCalledWith('confluence', true)
+    await screen.findByRole('button', { name: /connect atlassian/i })
+    expect(screen.queryByText('Configured')).toBeNull()
+    expect(spy).not.toHaveBeenCalledWith('jira', true)
   })
 })
