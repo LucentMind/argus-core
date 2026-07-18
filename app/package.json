@@ -7,7 +7,7 @@
   "author": "example.com",
   "homepage": "https://electron-vite.org",
   "engines": {
-    "node": ">=23.4"
+    "node": ">=22.13"
   },
   "scripts": {
     "format": "prettier --write .",
