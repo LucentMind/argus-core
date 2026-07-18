@@ -11,7 +11,8 @@ import {
   synthesizePermissionRequest,
   buildCopilotTools,
   exitPlanModeDecision,
-  mapToolDecision
+  mapToolDecision,
+  toCopilotMcpServers
 } from '../index'
 import type {
   CopilotClientFactory,
@@ -106,6 +107,26 @@ describe('synthesizePermissionRequest — per-kind name + input (fixtures 02/03/
     expect(s).toEqual({ name: 'mcp__atlassian__getJiraIssue', input: { key: 'X-1' } })
   })
 
+  it('mcp kind strips the live runtime\'s "<server>-" toolName prefix (smoke (f) capture)', () => {
+    // The real runtime reports toolName in its model-facing prefixed form.
+    const s = synthesizePermissionRequest({
+      kind: 'mcp',
+      serverName: 'argusEcho',
+      toolName: 'argusEcho-mcp_echo',
+      args: { message: 'ping' }
+    })
+    expect(s).toEqual({ name: 'mcp__argusEcho__mcp_echo', input: { message: 'ping' } })
+    // A server whose tool legitimately repeats the server name only loses ONE prefix.
+    expect(
+      synthesizePermissionRequest({
+        kind: 'mcp',
+        serverName: 'echo',
+        toolName: 'echo-echo-tool',
+        args: {}
+      }).name
+    ).toBe('mcp__echo__echo-tool')
+  })
+
   it.each(['memory', 'hook', 'extension-management', 'extension-permission-access', 'mystery'])(
     'unmapped kind %s → copilot:<kind> (fails closed HIGH)',
     (kind) => {
@@ -137,7 +158,9 @@ describe('exitPlanModeDecision — routes the plan through the approval pipeline
   }
 
   it('synthesizes copilot:exit-plan with the plan content and asks onToolRequest', async () => {
-    const onToolRequest = vi.fn(async () => ({ behavior: 'allow' as const, updatedInput: {} }))
+    const onToolRequest = vi.fn<(n: string, i: Record<string, unknown>) => Promise<ToolDecision>>(
+      async () => ({ behavior: 'allow', updatedInput: {} })
+    )
     const res = await exitPlanModeDecision(req, onToolRequest, signal)
     expect(onToolRequest).toHaveBeenCalledTimes(1)
     expect(onToolRequest.mock.calls[0][0]).toBe('copilot:exit-plan')
@@ -485,25 +508,56 @@ describe('acceptEdits honors deny verdicts via classifyOnly (never approves an u
   })
 })
 
-describe('mcpConnectors:false degradation — session.mcp.skipped', () => {
-  it('emits one session.mcp.skipped per composed connector at session start', async () => {
-    const { factory } = captureFactory()
+describe('connector MCP forwarding (EVIDENCE §6c: tools allowlist resolves not_configured)', () => {
+  it('toCopilotMcpServers defaults tools:["*"] per entry and preserves an explicit allowlist', () => {
+    expect(
+      toCopilotMcpServers({
+        atlassian: { type: 'sse', url: 'https://x', headers: {} },
+        local: { type: 'stdio', command: 'node', args: ['s.mjs'], tools: ['only_this'] }
+      })
+    ).toEqual({
+      atlassian: { type: 'sse', url: 'https://x', headers: {}, tools: ['*'] },
+      local: { type: 'stdio', command: 'node', args: ['s.mjs'], tools: ['only_this'] }
+    })
+    expect(toCopilotMcpServers({})).toBeUndefined()
+  })
+
+  it('forwards translated servers into createSession config, with no mcp.skipped events', async () => {
+    const { factory, getConfig } = captureFactory()
     const session = createCopilotDriver({}, { clientFactory: factory }).createSession(
-      baseCtx({ extraMcpServers: { atlassian: {}, github: {} } })
+      baseCtx({ extraMcpServers: { atlassian: { type: 'http', url: 'https://x' } } })
     )
     const seen: AgentEvent[] = []
     const drained = (async () => {
       for await (const e of session.events()) seen.push(e)
     })()
     await tick()
+    expect(getConfig()!.mcpServers).toEqual({
+      atlassian: { type: 'http', url: 'https://x', tools: ['*'] }
+    })
     session.end()
     await drained
-    const skips = seen.filter((e) => e.type === 'session.mcp.skipped')
-    expect(
-      skips.map((s) => s.type === 'session.mcp.skipped' && s.payload.instanceId).sort()
-    ).toEqual(['atlassian', 'github'])
-    for (const s of skips) {
-      if (s.type === 'session.mcp.skipped') expect(s.payload.reason).toBe('copilot-driver-no-mcp')
-    }
+    expect(seen.filter((e) => e.type === 'session.mcp.skipped')).toEqual([])
+  })
+
+  it('forwards servers on the resume path too (proven by 17-mcp-resume.jsonl)', async () => {
+    const { factory, getConfig } = captureFactory()
+    createCopilotDriver({}, { clientFactory: factory }).createSession(
+      baseCtx({
+        resumeCursor: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        extraMcpServers: { rovo: { type: 'sse', url: 'https://y' } }
+      })
+    )
+    await tick()
+    expect(getConfig()!.mcpServers).toEqual({
+      rovo: { type: 'sse', url: 'https://y', tools: ['*'] }
+    })
+  })
+
+  it('omits the mcpServers key entirely when no connectors are composed', async () => {
+    const { factory, getConfig } = captureFactory()
+    createCopilotDriver({}, { clientFactory: factory }).createSession(baseCtx())
+    await tick()
+    expect('mcpServers' in getConfig()!).toBe(false)
   })
 })

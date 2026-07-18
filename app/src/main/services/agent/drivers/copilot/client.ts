@@ -57,6 +57,9 @@ export interface CopilotSessionConfig {
    *  (Task 10; EVIDENCE §11/§11b). Loads the same `<name>/SKILL.md` shape skillsResolver.ts
    *  already produces; omitted entirely when the case has no skills dir. */
   skillDirectories?: string[]
+  /** Composed connector servers, translated by `toCopilotMcpServers` — each entry MUST
+   *  carry a `tools` allowlist or the runtime loads it `not_configured` (EVIDENCE §6c). */
+  mcpServers?: Record<string, unknown>
   /** Approve/deny the agent's request to leave plan mode (Task 9B; EVIDENCE §9). */
   onExitPlanModeRequest?: (
     request: {
