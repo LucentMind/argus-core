@@ -153,10 +153,17 @@ function recordingFetch(handlers: Array<(url: string) => Response>): {
   }) as unknown as typeof fetch
   return { impl, calls }
 }
+// Same site (cloud-1), both products' scopes present — a real accessible-resources
+// response lists one entry per granted scope-set, not one per product.
 const ARES = (): Response =>
   new Response(
     JSON.stringify([
-      { id: 'cloud-1', url: 'https://argus88.atlassian.net', scopes: ['read:jira-work'] }
+      { id: 'cloud-1', url: 'https://argus88.atlassian.net', scopes: ['read:jira-work'] },
+      {
+        id: 'cloud-1',
+        url: 'https://argus88.atlassian.net',
+        scopes: ['read:page:confluence', 'read:space:confluence']
+      }
     ]),
     { status: 200 }
   )
@@ -201,23 +208,29 @@ describe('AtlassianClient.request routing', () => {
     expect(calls.filter((x) => x.url.includes('accessible-resources'))).toHaveLength(2)
   })
 
-  it('Jira path without OAuth → legacy siteUrl + Basic', async () => {
+  it('Jira path without OAuth → auth error (no legacy fallback)', async () => {
     const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
     const c = new AtlassianClient(authFixture({ oauth: undefined }), impl)
-    await c.getIssue('KAN-2')
-    expect(calls[0].url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
-    expect(calls[0].auth!.startsWith('Basic ')).toBe(true)
+    const err = await c.getIssue('KAN-2').catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('auth')
+    expect(calls).toHaveLength(0) // never hits the network — legacy siteUrl/token are ignored
   })
 
-  it('Confluence path always uses legacy token even when OAuth present', async () => {
-    const { impl, calls } = recordingFetch([() => OK({ key: 'SP', name: 'Space' })])
+  it('Confluence routes to the /ex/confluence gateway with Bearer', async () => {
+    const { impl, calls } = recordingFetch([
+      ARES,
+      () => OK({ results: [{ key: 'SP', name: 'S', homepageId: '1' }] })
+    ])
     const c = new AtlassianClient(authFixture({}), impl)
     await c.getConfluenceSpace('SP')
-    expect(calls[0].url.startsWith('https://legacy.example/wiki/')).toBe(true)
-    expect(calls[0].auth!.startsWith('Basic ')).toBe(true)
+    const g = calls.find((x) => x.url.includes('/ex/confluence/'))
+    expect(g).toBeTruthy()
+    expect(g!.url).toContain('/wiki/api/v2/spaces?keys=SP')
+    expect(g!.auth).toBe('Bearer oauth-tok')
   })
 
-  it('401 on OAuth Jira → refresh once → retry; still 401 → falls back to legacy token', async () => {
+  it('401 on OAuth Jira → refresh once → retry; still 401 → auth error (no legacy fallback)', async () => {
     let refreshed = 0
     const auth = authFixture({
       oauth: {
@@ -229,34 +242,28 @@ describe('AtlassianClient.request routing', () => {
       }
     })
     const un = (): Response => new Response('{}', { status: 401 })
-    const { impl, calls } = recordingFetch([ARES, un, un, () => OK(ISSUE_BODY)]) // ares, try, retry(401), legacy ok
+    const { impl, calls } = recordingFetch([ARES, un, un]) // ares, try(401), retry(401) — no legacy call follows
     const c = new AtlassianClient(auth, impl)
-    await c.getIssue('KAN-2')
+    const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(refreshed).toBe(1)
-    expect(calls[calls.length - 1].url.startsWith('https://legacy.example/')).toBe(true)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('auth')
+    expect(calls.every((x) => !x.url.startsWith('https://legacy.example'))).toBe(true)
   })
 
-  it('no oauth and no token → no-token error', async () => {
-    const { impl } = recordingFetch([() => OK(ISSUE_BODY)])
+  it('no oauth and no legacy fields either → still auth error (not no-token)', async () => {
+    const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
     const c = new AtlassianClient(
       authFixture({ oauth: undefined, token: null, siteUrl: null }),
       impl
     )
-    await expect(c.getIssue('KAN-2')).rejects.toMatchObject({ code: 'no-token' })
-  })
-
-  it('Jira path with oauth undefined AND siteUrl null (token present) → no-token, not a network error', async () => {
-    const { impl } = recordingFetch([() => OK(ISSUE_BODY)])
-    const c = new AtlassianClient(
-      authFixture({ oauth: undefined, siteUrl: null, token: 'REST-TOKEN' }),
-      impl
-    )
     const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
-    expect(err.code).toBe('no-token')
+    expect(err.code).toBe('auth')
+    expect(calls).toHaveLength(0)
   })
 
-  it('accessToken() null → falls to legacy when token + siteUrl exist', async () => {
+  it('accessToken() null → refresh → still null → auth error (no legacy fallback)', async () => {
     const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
     const c = new AtlassianClient(
       authFixture({
@@ -270,30 +277,13 @@ describe('AtlassianClient.request routing', () => {
       }),
       impl
     )
-    await c.getIssue('KAN-2')
-    expect(calls[0].url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
-    expect(calls[0].auth!.startsWith('Basic ')).toBe(true)
-    expect(calls.some((x) => x.auth === 'Bearer null')).toBe(false)
+    const err = await c.getIssue('KAN-2').catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('auth')
+    expect(calls).toHaveLength(0) // never reaches discovery/fetch — no valid token, no legacy fallback
   })
 
-  it('accessToken() null, refresh still null, no legacy token → no-token error', async () => {
-    const { impl } = recordingFetch([() => OK(ISSUE_BODY)])
-    const c = new AtlassianClient(
-      authFixture({
-        oauth: {
-          serverUrl: 'https://mcp',
-          accessToken: () => null,
-          refresh: async () => undefined
-        },
-        token: null,
-        siteUrl: null
-      }),
-      impl
-    )
-    await expect(c.getIssue('KAN-2')).rejects.toMatchObject({ code: 'no-token' })
-  })
-
-  it('OAuth 401 twice + no legacy token → auth error', async () => {
+  it('OAuth 401 twice → auth error', async () => {
     const { impl } = recordingFetch([
       ARES,
       () => new Response('{}', { status: 401 }),
@@ -316,7 +306,7 @@ describe('AtlassianClient.request routing', () => {
     expect(err.code).toBe('auth')
   })
 
-  it('cloud discovery fails (accessible-resources 401) + no legacy token → auth error', async () => {
+  it('cloud discovery fails (accessible-resources 401) → auth error', async () => {
     const { impl } = recordingFetch([() => new Response('{}', { status: 401 })])
     const c = new AtlassianClient(
       authFixture({
@@ -335,11 +325,8 @@ describe('AtlassianClient.request routing', () => {
     expect(err.code).toBe('auth')
   })
 
-  it('cloud discovery fails + legacy token present → falls back to legacy', async () => {
-    const { impl, calls } = recordingFetch([
-      () => new Response('{}', { status: 401 }),
-      () => OK(ISSUE_BODY)
-    ])
+  it('cloud discovery fails even when legacy siteUrl/token fields are set → still throws (no fallback)', async () => {
+    const { impl, calls } = recordingFetch([() => new Response('{}', { status: 401 })])
     const c = new AtlassianClient(
       authFixture({
         oauth: {
@@ -352,10 +339,10 @@ describe('AtlassianClient.request routing', () => {
       }),
       impl
     )
-    await c.getIssue('KAN-2')
-    const lastCall = calls[calls.length - 1]
-    expect(lastCall.url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
-    expect(lastCall.auth!.startsWith('Basic ')).toBe(true)
+    const err = await c.getIssue('KAN-2').catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('auth')
+    expect(calls).toHaveLength(1) // only the failed accessible-resources call — no legacy fetch after it
   })
 })
 
