@@ -29,7 +29,7 @@ import type {
   ConfluencePageNode,
   ConfluencePageContent
 } from '../../../shared/confluence'
-import type { CreateQueryFn } from '../agent/session'
+import type { CreateQueryFn } from '../agent/drivers/claude'
 
 export interface RefSyncServiceDeps {
   argusHome: string

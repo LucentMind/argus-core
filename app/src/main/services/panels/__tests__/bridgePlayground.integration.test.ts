@@ -15,7 +15,7 @@ import { createSession } from '../../agent/sessionStore'
 import { AsyncQueue } from '../../agent/asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createPanelBridge, type PanelWriteSink } from '../bridge'
-import type { CreateQueryFn } from '../../agent/session'
+import type { CreateQueryFn } from '../../agent/drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 // panels/__tests__ → up 5 = app/ (seededPacksDir → <repo>/packs).

@@ -1,12 +1,18 @@
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { classifyToolCall, type RiskContext } from '../risk'
+import {
+  classifyToolCall,
+  CLAUDE_TOOL_TAXONOMY,
+  type RiskContext,
+  type ToolTaxonomy
+} from '../risk'
 
 function ctx(overrides: Partial<RiskContext> = {}): RiskContext {
   return {
     caseDir: '/home/u/Argus/cases/NAV-1',
     workspaceRoots: ['/home/u/code/navigator', '/home/u/Argus/worktrees'],
     readonlyRoots: ['/home/u/Argus/skills', '/home/u/Argus/references'],
+    taxonomy: CLAUDE_TOOL_TAXONOMY,
     ...overrides
   }
 }
@@ -254,7 +260,12 @@ describe('classifyToolCall — legacy non-MCP unknown-tool fallback', () => {
 })
 
 describe('MCP connector tools (spec 2.5)', () => {
-  const ctx = { caseDir: 'C:\\t\\case', workspaceRoots: [], readonlyRoots: [] }
+  const ctx = {
+    caseDir: 'C:\\t\\case',
+    workspaceRoots: [],
+    readonlyRoots: [],
+    taxonomy: CLAUDE_TOOL_TAXONOMY
+  }
 
   it('classifies mcp__<instance>__<tool> by name convention', () => {
     expect(classifyToolCall('mcp__rovo__getJiraIssue', {}, ctx)).toEqual({
@@ -337,5 +348,69 @@ describe('classifyToolCall · panel commands + open_panel', () => {
     expect(
       classifyToolCall('mcp__pk__win_danger', {}, ctx({ panelCommandRisk: pcr }))
     ).toMatchObject({ action: 'ask', risk: 'HIGH', grantKey: null })
+  })
+})
+
+describe('tool taxonomy', () => {
+  // Reuses the file's top-level ctx() helper, whose default `taxonomy` is already
+  // CLAUDE_TOOL_TAXONOMY (see above) — equivalent to the brief's standalone ctx().
+  it('classifies Claude FS tools through the taxonomy exactly as before', () => {
+    expect(classifyToolCall('Read', { file_path: 'notes.md' }, ctx())).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+    expect(classifyToolCall('Write', { file_path: 'C:\\outside\\x' }, ctx()).action).toBe('deny')
+  })
+
+  it('classifies shell via the taxonomy commandField', () => {
+    const v = classifyToolCall('Bash', { command: 'git push' }, ctx())
+    expect(v).toMatchObject({ action: 'ask', risk: 'HIGH' })
+  })
+
+  it('preserves the legacy heuristic via the Claude fallback', () => {
+    // Today: unknown non-MCP names hit the lenient heuristic → MEDIUM ask
+    expect(classifyToolCall('TodoWrite', {}, ctx())).toMatchObject({
+      action: 'ask',
+      risk: 'MEDIUM'
+    })
+  })
+
+  it('fails closed when the taxonomy has no entry and no fallback', () => {
+    const noFallback = ctx({ taxonomy: { entries: CLAUDE_TOOL_TAXONOMY.entries } })
+    expect(classifyToolCall('someNewTool', {}, noFallback)).toMatchObject({
+      action: 'ask',
+      risk: 'HIGH'
+    })
+    // mcp__ tools still route through the connector branch, not the fail-closed default
+    expect(classifyToolCall('mcp__argus__append_finding', {}, noFallback)).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
+  })
+
+  it('defaults to FS_PATH_FIELDS when a taxonomy entry omits pathFields', () => {
+    // Inline taxonomy entry with no pathFields — exercises `pathFields ?? FS_PATH_FIELDS`.
+    const noPathFields: ToolTaxonomy = { entries: { CustomRead: { kind: 'fs-read' } } }
+    const c = ctx({ taxonomy: noPathFields })
+    // 'path' is one of the built-in default fields; an outside-sandbox value must deny,
+    // proving the default field list (not an empty one) governs the lookup.
+    expect(classifyToolCall('CustomRead', { path: '/home/u/.ssh/id_rsa' }, c).action).toBe('deny')
+    expect(classifyToolCall('CustomRead', { path: `${c.caseDir}/notes.md` }, c).action).toBe(
+      'allow'
+    )
+  })
+
+  it('treats an FS entry whose candidate path fields are all non-strings as caseDir (allow LOW)', () => {
+    // Inline taxonomy entry with declared pathFields, but every candidate value below is
+    // non-string — `.find(v => typeof v === 'string')` yields undefined, so the lookup
+    // falls back to caseDir, which is always in-sandbox.
+    const nonStringFields: ToolTaxonomy = {
+      entries: { WeirdRead: { kind: 'fs-read', pathFields: ['numField', 'objField'] } }
+    }
+    const c = ctx({ taxonomy: nonStringFields })
+    expect(classifyToolCall('WeirdRead', { numField: 42, objField: { x: 1 } }, c)).toEqual({
+      action: 'allow',
+      risk: 'LOW'
+    })
   })
 })

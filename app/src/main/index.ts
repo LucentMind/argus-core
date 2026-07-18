@@ -79,7 +79,7 @@ import {
   deleteSession
 } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
-import { probeAuth } from './services/agent/probe'
+import { getActiveDriver } from './services/agent/driverRegistry'
 import { AuthCache } from './services/agent/authCache'
 import {
   linkWorkspace,
@@ -424,14 +424,15 @@ function registerIpc(): void {
   // invalidation contract)
   const authCache = new AuthCache(
     async () => {
-      const { query } = await import('@anthropic-ai/claude-agent-sdk')
-      return probeAuth(
-        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
-        {
-          timeoutMs: settingsService.get().agent.probeTimeoutMs,
-          cliPath: activeInstanceConfig(settingsService.get()).cliPath
-        }
-      )
+      const settings = settingsService.get()
+      const result = await getActiveDriver(settings.agent).probeAuth({
+        timeoutMs: settings.agent.probeTimeoutMs,
+        cliPath: activeInstanceConfig(settings).cliPath
+      })
+      // A probe alone never proves credentials work (see driver.ts's ProbeAuthResult
+      // docblock) — verified is always false here; AuthCache promotes it once a real
+      // turn succeeds.
+      return { ...result, verified: false }
     },
     () => broadcast(IPC.agentAuthChanged, undefined)
   )
@@ -1154,14 +1155,12 @@ function registerIpc(): void {
       binariesService.all().map((r) => ({ id: r.decl.id, label: r.decl.displayName })),
     checkBinary: (id) => binariesService.healthCheck(id),
     agentAuth: async () => {
-      const { query } = await import('@anthropic-ai/claude-agent-sdk')
-      return probeAuth(
-        (args) => query({ prompt: args.prompt as never, options: args.options as never }) as never,
-        {
-          timeoutMs: settingsService.get().agent.probeTimeoutMs,
-          cliPath: activeInstanceConfig(settingsService.get()).cliPath
-        }
-      )
+      const settings = settingsService.get()
+      const result = await getActiveDriver(settings.agent).probeAuth({
+        timeoutMs: settings.agent.probeTimeoutMs,
+        cliPath: activeInstanceConfig(settings).cliPath
+      })
+      return { ...result, verified: false }
     },
     enabledConnectors: () =>
       Object.entries(connectorRegistry.get())

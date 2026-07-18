@@ -245,99 +245,108 @@ function asText(text: string): { content: [{ type: 'text'; text: string }] } {
   return { content: [{ type: 'text', text }] }
 }
 
+export interface NativeToolSpec {
+  name: string
+  description: string
+  schema: z.ZodRawShape
+}
+
+export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
+  {
+    name: 'search_evidence',
+    description:
+      'FTS search over case evidence, findings and transcripts. Returns hits with relPath + matchLine — cite them as [relPath:line].',
+    schema: {
+      query: z.string(),
+      scope: z.enum(['case', 'all']).optional(),
+      artifact_type: z.string().optional()
+    }
+  },
+  {
+    name: 'list_evidence',
+    description: 'List all evidence artifacts of this case with types and metadata.',
+    schema: {}
+  },
+  {
+    name: 'search_case_history',
+    description: 'Search summaries of closed past cases by symptom/root-cause text. Read-only.',
+    schema: { query: z.string(), limit: z.number().optional() }
+  },
+  {
+    name: 'get_artifact_meta',
+    description: 'Full metadata for one evidence artifact.',
+    schema: { evidence_id: z.number() }
+  },
+  {
+    name: 'ingest_artifact',
+    description:
+      'Register a file you created/derived (inside the case dir) as evidence — it becomes searchable and citable.',
+    schema: { path: z.string() }
+  },
+  {
+    name: 'append_finding',
+    description:
+      'Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim.',
+    schema: { title: z.string(), markdown: z.string() }
+  },
+  {
+    name: 'update_case_status',
+    description:
+      'Move the case through its lifecycle (open|analyzing|rca-drafted|closed). When setting closed, you MUST pass resolution = solved|rejected|forwarded|wont-fix|duplicate|not-reproducible.',
+    schema: { status: z.string(), resolution: z.string().optional() }
+  },
+  {
+    name: 'read_memory',
+    description:
+      'Load a lesson from agent memory by topic name (the names appear in the Agent memory index lines in your context).',
+    schema: { topic: z.string() }
+  },
+  {
+    name: 'write_memory',
+    description:
+      'Record a durable cross-case lesson in agent memory (memory/<topic>.md). Provide index_entry when creating a topic so future sessions can discover it via _index.md.',
+    schema: { topic: z.string(), content: z.string(), index_entry: z.string().optional() }
+  },
+  {
+    name: 'write_proposal',
+    description:
+      'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Skills page. Provide the FULL proposed file content, not a diff.',
+    schema: {
+      type: z.enum(['skill-new', 'skill-edit', 'reference-edit', 'recipe']),
+      target: z.string(),
+      title: z.string(),
+      content: z.string()
+    }
+  },
+  {
+    name: 'workspace_checkout',
+    description:
+      'Check out a branch/PR ref of a linked repo in a case-scoped worktree. NEVER run git switch/checkout in the primary checkout.',
+    schema: { repo_path: z.string(), ref: z.string() }
+  },
+  {
+    name: 'open_panel',
+    description:
+      "Open or focus a pack's window (webPanel or externalApp) in this case, optionally on a specific evidence item (webPanel only). Returns {ok, panel|reason}. Call this before a panel/app command if it may be closed.",
+    schema: { pack_id: z.string(), window_id: z.string(), evidence_id: z.number().optional() }
+  },
+  {
+    name: 'capture_panel',
+    description:
+      'Screenshot an OPEN pack panel into case evidence, then use Read on the returned rel_path to view it. The panel must already be open — call open_panel first if it may be closed. Returns {ok, evidence_id, rel_path, artifact_type} — use the Read tool on rel_path to view the capture — or {ok:false, reason}.',
+    schema: { pack_id: z.string(), window_id: z.string() }
+  }
+]
+
 export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof createSdkMcpServer> {
   const h = argusToolHandlers(deps)
   return createSdkMcpServer({
     name: 'argus',
     version: '1.0.0',
-    tools: [
-      tool(
-        'search_evidence',
-        'FTS search over case evidence, findings and transcripts. Returns hits with relPath + matchLine — cite them as [relPath:line].',
-        {
-          query: z.string(),
-          scope: z.enum(['case', 'all']).optional(),
-          artifact_type: z.string().optional()
-        },
-        async (a) => asText(await h.search_evidence(a))
-      ),
-      tool(
-        'list_evidence',
-        'List all evidence artifacts of this case with types and metadata.',
-        {},
-        async (a) => asText(await h.list_evidence(a))
-      ),
-      tool(
-        'search_case_history',
-        'Search summaries of closed past cases by symptom/root-cause text. Read-only.',
-        { query: z.string(), limit: z.number().optional() },
-        async (a) => asText(await h.search_case_history(a))
-      ),
-      tool(
-        'get_artifact_meta',
-        'Full metadata for one evidence artifact.',
-        { evidence_id: z.number() },
-        async (a) => asText(await h.get_artifact_meta(a))
-      ),
-      tool(
-        'ingest_artifact',
-        'Register a file you created/derived (inside the case dir) as evidence — it becomes searchable and citable.',
-        { path: z.string() },
-        async (a) => asText(await h.ingest_artifact(a))
-      ),
-      tool(
-        'append_finding',
-        'Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim.',
-        { title: z.string(), markdown: z.string() },
-        async (a) => asText(await h.append_finding(a))
-      ),
-      tool(
-        'update_case_status',
-        'Move the case through its lifecycle (open|analyzing|rca-drafted|closed). When setting closed, you MUST pass resolution = solved|rejected|forwarded|wont-fix|duplicate|not-reproducible.',
-        { status: z.string(), resolution: z.string().optional() },
-        async (a) => asText(await h.update_case_status(a))
-      ),
-      tool(
-        'read_memory',
-        'Load a lesson from agent memory by topic name (the names appear in the Agent memory index lines in your context).',
-        { topic: z.string() },
-        async (a) => asText(await h.read_memory(a))
-      ),
-      tool(
-        'write_memory',
-        'Record a durable cross-case lesson in agent memory (memory/<topic>.md). Provide index_entry when creating a topic so future sessions can discover it via _index.md.',
-        { topic: z.string(), content: z.string(), index_entry: z.string().optional() },
-        async (a) => asText(await h.write_memory(a))
-      ),
-      tool(
-        'write_proposal',
-        'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Skills page. Provide the FULL proposed file content, not a diff.',
-        {
-          type: z.enum(['skill-new', 'skill-edit', 'reference-edit', 'recipe']),
-          target: z.string(),
-          title: z.string(),
-          content: z.string()
-        },
-        async (a) => asText(await h.write_proposal(a))
-      ),
-      tool(
-        'workspace_checkout',
-        'Check out a branch/PR ref of a linked repo in a case-scoped worktree. NEVER run git switch/checkout in the primary checkout.',
-        { repo_path: z.string(), ref: z.string() },
-        async (a) => asText(await h.workspace_checkout(a))
-      ),
-      tool(
-        'open_panel',
-        "Open or focus a pack's window (webPanel or externalApp) in this case, optionally on a specific evidence item (webPanel only). Returns {ok, panel|reason}. Call this before a panel/app command if it may be closed.",
-        { pack_id: z.string(), window_id: z.string(), evidence_id: z.number().optional() },
-        async (a) => asText(await h.open_panel(a))
-      ),
-      tool(
-        'capture_panel',
-        'Screenshot an OPEN pack panel into case evidence, then use Read on the returned rel_path to view it. The panel must already be open — call open_panel first if it may be closed. Returns {ok, evidence_id, rel_path, artifact_type} — use the Read tool on rel_path to view the capture — or {ok:false, reason}.',
-        { pack_id: z.string(), window_id: z.string() },
-        async (a) => asText(await h.capture_panel(a))
+    tools: NATIVE_TOOL_SPECS.map((s) =>
+      tool(s.name, s.description, s.schema, async (a) =>
+        asText(await h[s.name as keyof typeof h](a))
       )
-    ]
+    )
   })
 }
