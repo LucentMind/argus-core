@@ -281,6 +281,65 @@ describe('TextViewer', () => {
     await waitFor(() => expect(document.querySelector('#line-1234566')).toBeInTheDocument())
   })
 
+  it('Enter in find input scrolls filter-mode results in hit-index space, not file-line space', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1_000_000}
+        focusEnd={1_000_000}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [7, 1_234_567], scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+    await userEvent.click(screen.getByTitle('filter to matches'))
+    // currentLine starts at focusStart (1,000,000) — next() lands on the only
+    // hit past it: hits[1] = 1,234,567 at hit-index 1
+    await userEvent.type(find, '{Enter}')
+    await waitFor(() => expect(document.querySelector('#line-1234567')).toBeInTheDocument())
+    const scroller = document.querySelector('.overflow-auto') as HTMLElement
+    // row-index space (row 1), NOT file-line space (which would be ~24M px)
+    const expected = Math.max(0, 1 * 20 - scroller.clientHeight / 2 + 10)
+    expect(scroller.scrollTop).toBe(expected)
+  })
+
+  it('jump-to-line input exits filter mode and jumps in file-line space', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [7, 1_234_567], scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+    await userEvent.click(screen.getByTitle('filter to matches'))
+    expect(document.querySelector('#line-1234567')).toBeInTheDocument()
+
+    const jump = screen.getByPlaceholderText('go to line')
+    await userEvent.type(jump, '500000{Enter}')
+    // exits filter mode: full-file row ids around the target line materialize
+    await waitFor(() => expect(document.querySelector('#line-500000')).toBeInTheDocument())
+    expect(screen.getByTitle('filter to matches').className).not.toContain('bg-hair text-ink')
+  })
+
   it('does not render the find bar for small (whole-content) files', async () => {
     render(
       <TextViewer

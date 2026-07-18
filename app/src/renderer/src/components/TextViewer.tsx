@@ -65,8 +65,8 @@ function useViewerSearch(
   state: FindState
   setQuery: (q: string) => void
   toggle: (f: 'regex' | 'caseSensitive' | 'filterMode') => void
-  next: (fromLine: number) => number | null
-  prev: (fromLine: number) => number | null
+  next: (fromLine: number) => { line: number; idx: number } | null
+  prev: (fromLine: number) => { line: number; idx: number } | null
 } {
   const docKey = textDocKey(source)
   const [state, setState] = useState<FindState>(EMPTY_FIND_STATE)
@@ -164,8 +164,10 @@ function useViewerSearch(
     })
     setState((s) => ({ ...s, capped: false }))
   }
-  // binary search helpers over the sorted hits array
-  const next = (fromLine: number): number | null => {
+  // binary search helpers over the sorted hits array. Return both the file
+  // line AND its index into `hits` — filter mode's VirtualLines is indexed
+  // by hit-index, not file-line, so callers need the index to scroll there.
+  const next = (fromLine: number): { line: number; idx: number } | null => {
     const h = state.hits
     let lo = 0
     let hi = h.length
@@ -178,9 +180,9 @@ function useViewerSearch(
       return null
     }
     setState((s) => ({ ...s, activeIdx: lo }))
-    return h[lo]
+    return { line: h[lo], idx: lo }
   }
-  const prev = (fromLine: number): number | null => {
+  const prev = (fromLine: number): { line: number; idx: number } | null => {
     const h = state.hits
     let lo = 0
     let hi = h.length
@@ -190,7 +192,7 @@ function useViewerSearch(
     }
     if (lo === 0) return null
     setState((s) => ({ ...s, activeIdx: lo - 1 }))
-    return h[lo - 1]
+    return { line: h[lo - 1], idx: lo - 1 }
   }
   return { state, setQuery, toggle, next, prev }
 }
@@ -291,6 +293,21 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
 
   const search = useViewerSearch(source, doc !== null && doc.whole === undefined)
 
+  // Find next/prev jumps to a hit. In filter mode, VirtualLines' row space is
+  // hit-INDEX space (rowToLine = hits[r]), not file-line space — so scroll to
+  // the hit's index, not `line - 1`. Out of filter mode, goToLine (file-line
+  // space) is correct as-is.
+  const jumpToHit = (hit: { line: number; idx: number } | null): void => {
+    if (hit === null) return
+    if (search.state.filterMode) {
+      currentLine.current = hit.line
+      nonce.current++
+      setScrollTarget({ row: hit.idx, nonce: nonce.current })
+    } else {
+      goToLine(hit.line)
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
@@ -330,7 +347,13 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     const n = parseInt(jump, 10)
-                    if (Number.isFinite(n)) goToLine(n)
+                    if (Number.isFinite(n)) {
+                      // jump-to-line is always file-line space; exit filter mode first
+                      // (matches row-click) so goToLine's row target isn't reinterpreted
+                      // as hit-index space by the filter-mode VirtualLines branch.
+                      if (search.state.filterMode) search.toggle('filterMode')
+                      goToLine(n)
+                    }
                   }
                 }}
               />
@@ -345,14 +368,8 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             state={search.state}
             onQueryChange={search.setQuery}
             onToggle={search.toggle}
-            onNext={() => {
-              const n = search.next(currentLine.current)
-              if (n !== null) goToLine(n)
-            }}
-            onPrev={() => {
-              const n = search.prev(currentLine.current)
-              if (n !== null) goToLine(n)
-            }}
+            onNext={() => jumpToHit(search.next(currentLine.current))}
+            onPrev={() => jumpToHit(search.prev(currentLine.current))}
           />
         )}
         {error ? (
