@@ -31,6 +31,42 @@ export class AtlassianError extends Error {
   }
 }
 
+export interface JiraCloud {
+  cloudId: string
+  siteUrl: string
+}
+
+const GATEWAY = 'https://api.atlassian.com'
+
+export async function discoverJiraCloud(
+  bearer: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number
+): Promise<JiraCloud> {
+  let res: Response
+  try {
+    res = await fetchImpl(`${GATEWAY}/oauth/token/accessible-resources`, {
+      headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs)
+    })
+  } catch (err) {
+    throw new AtlassianError('network', `Atlassian request failed: ${(err as Error).message}`)
+  }
+  if (!res.ok)
+    throw new AtlassianError(
+      'auth',
+      `Atlassian authorization couldn't reach Jira (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`
+    )
+  const resources = (await res.json()) as Array<{ id: string; url: string; scopes?: string[] }>
+  const jira = resources.find((r) => (r.scopes ?? []).some((s) => s.includes('jira-work')))
+  if (!jira)
+    throw new AtlassianError(
+      'auth',
+      'Your Atlassian authorization does not grant Jira access — re-authorize, or set an API token.'
+    )
+  return { cloudId: jira.id, siteUrl: jira.url.replace(/\/+$/, '') }
+}
+
 export interface AtlassianCreds {
   instanceId: string
   siteUrl: string // no trailing slash
