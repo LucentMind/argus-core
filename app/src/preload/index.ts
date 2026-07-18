@@ -129,7 +129,13 @@ const argus = {
       searchId: string,
       source: TextDocSource,
       query: string,
-      opts: { regex?: boolean; caseSensitive?: boolean; fromLine?: number; toLine?: number }
+      opts: {
+        regex?: boolean
+        caseSensitive?: boolean
+        fromLine?: number
+        toLine?: number
+        filter?: { query: string; regex?: boolean; caseSensitive?: boolean }
+      }
     ): Promise<void> => ipcRenderer.invoke(IPC.textdocSearch, searchId, source, query, opts),
     cancelSearch: (searchId: string): Promise<void> =>
       ipcRenderer.invoke(IPC.textdocCancelSearch, searchId),

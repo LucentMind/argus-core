@@ -8,6 +8,7 @@ export interface TextDocSearchOpts {
   caseSensitive?: boolean
   fromLine?: number
   toLine?: number
+  filter?: { query: string; regex?: boolean; caseSensitive?: boolean }
 }
 
 /** One live search per hub start(); starting a new id aborts the old one.
@@ -27,7 +28,15 @@ export class TextDocSearchHub {
     query: string,
     opts: TextDocSearchOpts
   ): Promise<void> {
-    this.cancelAll()
+    // supersede only the previous search on the same channel — ids are
+    // `<docKey>:<channel>:<seq>`, so the prefix up to the last ':' names the channel
+    const prefix = searchId.slice(0, searchId.lastIndexOf(':') + 1)
+    for (const [id, prior] of this.active) {
+      if (id.startsWith(prefix)) {
+        prior.abort()
+        this.active.delete(id)
+      }
+    }
     const ac = new AbortController()
     this.active.set(searchId, ac)
     try {
