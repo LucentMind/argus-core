@@ -857,7 +857,9 @@ function registerIpc(): void {
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
   })
-  ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) => listSessions(db, caseSlug))
+  ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) =>
+    listSessions(db, caseSlug, getActiveDriver(settingsService.get().agent).kind)
+  )
   ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) =>
     createSession(db, caseSlug, getActiveDriver(settingsService.get().agent).kind)
   )

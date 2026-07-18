@@ -328,25 +328,30 @@ describe.skipIf(!SMOKE)('copilot driver — real runtime smoke (e2e)', () => {
   it('(e) plan mode: engages plan and runs a planning turn to completion against the real runtime', async () => {
     const scratch = makeScratch('SMOKE-E')
     const driver = createCopilotDriver()
-    // In plan mode the agent typically issues read requests while planning; approve reads,
-    // deny writes so the plan stays read-only.
+    // In plan mode the agent issues read requests while planning and — when it finishes — an
+    // exit-plan request that now routes through the Argus approval pipeline as the synthesized
+    // tool 'copilot:exit-plan' (the fix: the plan→autopilot handshake is no longer auto-approved
+    // with zero gates). Approve reads AND the exit-plan card; deny writes so the plan stays
+    // read-only even after autopilot is entered.
     const h = open(driver, scratch, {
       permissionMode: 'plan',
       onToolRequest: (name) =>
-        name === 'read'
+        name === 'read' || name === 'copilot:exit-plan'
           ? { behavior: 'allow', updatedInput: {} }
           : { behavior: 'deny', message: 'smoke: plan mode is read-only' }
     })
     try {
       h.session.send(
         'You are in plan mode. Produce a short numbered plan (3-4 steps) for adding a LICENSE ' +
-          'file to this repository. Present the plan; do not modify any files.'
+          'file to this repository, then request to exit plan mode so I can review it. Do not ' +
+          'modify any files.'
       )
       await h.waitForTurns(1, 150000)
       h.session.end()
       await h.drained
 
       console.log('[SMOKE e] event types:', h.events.map((e) => e.type).join(','))
+      console.log('[SMOKE e] toolRequests:', JSON.stringify(h.toolRequests.map((t) => t.name)))
       console.log('[SMOKE e] text:', JSON.stringify(h.text().slice(0, 500)))
       // The plan-mode RPC path (session.rpc.mode.set({mode:'plan'})) executed against the real
       // runtime and the turn completed cleanly (no fatal session.error). Note: in plan mode the
@@ -354,6 +359,14 @@ describe.skipIf(!SMOKE)('copilot driver — real runtime smoke (e2e)', () => {
       // block — so text presence is NOT asserted (real-runtime nondeterminism).
       expect(h.events.some((e) => e.type === 'turn.completed')).toBe(true)
       expect(h.events.some((e) => e.type === 'session.error')).toBe(false)
+      // The fix in action: whenever the model requested to exit plan mode, that handshake
+      // interposed an Argus approval card (routed as 'copilot:exit-plan') rather than
+      // auto-flipping to autopilot — proving the plan is now human-gated.
+      const exitPlan = h.toolRequests.filter((t) => t.name === 'copilot:exit-plan')
+      for (const ep of exitPlan) {
+        // The card carried the plan content for review (round-trip of the synthesized input).
+        expect(ep.input).toHaveProperty('recommendedAction')
+      }
       // No write escaped plan mode: the LICENSE file was never created (writes stayed denied).
       expect(fs.existsSync(path.join(scratch.caseDir, 'LICENSE'))).toBe(false)
     } finally {
