@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Btn, Chip } from './ui'
 import { HighlightedLines } from './HighlightedLines'
-import { langForPath } from '../../../shared/snippets'
+import { VirtualLines } from './VirtualLines'
+import { LinePageCache } from '../lib/linePages'
+import { textDocKey, type TextDocOpenOk, type TextDocSource } from '../../../shared/textdoc'
 
-export type ViewerSource =
-  | { kind: 'evidence'; evidenceId: number }
-  | { kind: 'repo'; caseSlug: string; repoName: string; relPath: string }
+export type ViewerSource = TextDocSource
 
 interface Props {
   source: ViewerSource
@@ -14,86 +14,71 @@ interface Props {
   onClose: () => void
 }
 
-interface Doc {
-  title: string
-  content: string
-  startLine: number
-  truncated: boolean
-  lang: string | null
-  ref: string | null
-  /** evidence-only: caseSlug + relPath for the derived-from lookup */
-  caseSlug?: string
-  relPath?: string
-  evidenceId?: number
-}
-
-function sourceKey(source: ViewerSource): string {
-  return source.kind === 'evidence'
-    ? `e:${source.evidenceId}`
-    : `r:${source.caseSlug}:${source.repoName}:${source.relPath}`
-}
-
 export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): React.JSX.Element {
-  const [doc, setDoc] = useState<Doc | null>(null)
+  const [doc, setDoc] = useState<TextDocOpenOk | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [derivedFrom, setDerivedFrom] = useState<string | null>(null)
+  const [indexing, setIndexing] = useState<number | null>(null)
+  const [scrollTarget, setScrollTarget] = useState<{ row: number; nonce: number } | null>(null)
+  const [jump, setJump] = useState('')
+  const nonce = useRef(0)
+  const [, bump] = useState(0)
 
-  // adjust-state-during-render pattern: reset doc when the source/range changes
-  const key = `${sourceKey(source)}:${focusStart}`
+  const docKey = textDocKey(source)
+  const key = `${docKey}:${focusStart}`
   const [lastKey, setLastKey] = useState(key)
   if (key !== lastKey) {
     setLastKey(key)
     setDoc(null)
     setError(null)
     setDerivedFrom(null)
+    setScrollTarget(null)
   }
 
-  useEffect(() => {
-    if (source.kind === 'evidence') {
-      void window.argus.evidence.read(source.evidenceId, focusStart).then((d) =>
-        setDoc({
-          title: `${d.caseSlug} / ${d.relPath}`,
-          content: d.content,
-          startLine: d.startLine,
-          truncated: d.truncated,
-          lang: langForPath(d.relPath).lang,
-          ref: null,
-          caseSlug: d.caseSlug,
-          relPath: d.relPath,
-          evidenceId: source.evidenceId
-        })
-      )
-      return
-    }
-    void window.argus.workspaces
-      .readText(source.caseSlug, source.repoName, source.relPath, focusStart)
-      .then((r) => {
-        if (!r.ok) {
-          setError(
-            r.reason === 'repo-not-linked'
-              ? `repo "${source.repoName}" is not linked — link a checkout to view this file`
-              : `file not found in ${source.repoName}`
-          )
-          return
-        }
-        setDoc({
-          title: `${r.repoName} / ${r.relPath}`,
-          content: r.content,
-          startLine: r.startLine,
-          truncated: r.truncated,
-          lang: r.lang,
-          ref: r.ref
-        })
-      })
-    // sourceKey captures every field of source used above
+  const cache = useMemo(
+    () => new LinePageCache((from, to) => window.argus.textdoc.lines(source, from, to)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, focusStart])
+    [docKey]
+  )
+  useEffect(() => {
+    const un = cache.subscribe(() => bump((n) => n + 1))
+    return () => {
+      un()
+      cache.dispose()
+    }
+  }, [cache])
 
   useEffect(() => {
-    if (doc) document.getElementById(`line-${focusStart}`)?.scrollIntoView({ block: 'center' })
+    const unProgress = window.argus.textdoc.onIndexProgress((p) => {
+      if (p.key === textDocKey(source)) setIndexing(p.fraction >= 1 ? null : p.fraction)
+    })
+    void window.argus.textdoc.open(source, focusStart).then((r) => {
+      if (!r.ok) {
+        setError(
+          r.reason === 'repo-not-linked'
+            ? 'repo is not linked — link a checkout to view this file'
+            : 'file not found'
+        )
+        return
+      }
+      setDoc(r)
+      setIndexing(null)
+      if (r.whole === undefined) {
+        nonce.current++
+        setScrollTarget({ row: Math.max(0, focusStart - 1), nonce: nonce.current })
+      }
+    })
+    return unProgress
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  // small-file path: scroll the focus line into view (legacy behavior)
+  useEffect(() => {
+    if (doc?.whole !== undefined)
+      document.getElementById(`line-${focusStart}`)?.scrollIntoView({ block: 'center' })
   }, [doc, focusStart])
 
-  // provenance: when this evidence was derived from a binary source, name it
+  // provenance chip: derived-from lookup (evidence only) — unchanged logic
   useEffect(() => {
     if (!doc || doc.caseSlug === undefined || doc.evidenceId === undefined) return
     const { caseSlug, evidenceId } = doc
@@ -105,6 +90,13 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
       setDerivedFrom(src?.relPath ?? `evidence #${sourceId}`)
     })
   }, [doc])
+
+  const goToLine = (n: number): void => {
+    if (!doc) return
+    const clamped = Math.min(Math.max(1, n), doc.totalLines)
+    nonce.current++
+    setScrollTarget({ row: clamped - 1, nonce: nonce.current })
+  }
 
   return (
     <div
@@ -120,23 +112,54 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             {doc ? doc.title : error ? 'Unavailable' : 'Loading…'}
             {doc?.ref && <Chip tone="neutral">@ {doc.ref}</Chip>}
             {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
-            {doc?.truncated && <Chip tone="neutral">showing lines near {focusStart} only</Chip>}
+            {doc && <Chip tone="neutral">{doc.totalLines.toLocaleString('en-US')} lines</Chip>}
+            {indexing !== null && (
+              <Chip tone="neutral">indexing… {Math.round(indexing * 100)}%</Chip>
+            )}
           </span>
-          <Btn variant="ghost" onClick={onClose}>
-            Close
-          </Btn>
+          <span className="flex items-center gap-2">
+            {doc && doc.whole === undefined && (
+              <input
+                className="w-28 rounded border border-hair bg-transparent px-2 py-0.5 font-mono text-xs text-ink"
+                placeholder="go to line"
+                value={jump}
+                onChange={(e) => setJump(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const n = parseInt(jump, 10)
+                    if (Number.isFinite(n)) goToLine(n)
+                  }
+                }}
+              />
+            )}
+            <Btn variant="ghost" onClick={onClose}>
+              Close
+            </Btn>
+          </span>
         </div>
         {error ? (
           <div className="flex-1 p-4 text-sm text-mute">{error}</div>
-        ) : doc ? (
+        ) : doc?.whole !== undefined ? (
           <HighlightedLines
             className="flex-1 p-3"
-            lines={doc.content.split('\n')}
-            startLine={doc.startLine}
+            lines={doc.whole.split('\n')}
+            startLine={1}
             focusStart={focusStart}
             focusEnd={focusEnd}
             lang={doc.lang}
             lineIdPrefix="line-"
+          />
+        ) : doc ? (
+          <VirtualLines
+            className="flex-1 p-3"
+            totalRows={doc.totalLines}
+            rowToLine={(r) => r + 1}
+            getLine={(n) => cache.getLine(n)}
+            focusStart={focusStart}
+            focusEnd={focusEnd}
+            lang={doc.lang}
+            scrollTarget={scrollTarget}
+            onVisibleRows={(first, last) => cache.prefetch(first - 500, last + 502)}
           />
         ) : (
           <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim" />
