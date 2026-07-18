@@ -49,7 +49,7 @@ const mkService = (): AgentService =>
 
 it('raises a MEDIUM editable card and, on approve, ingests the (edited) filename from bytes', async () => {
   const svc = mkService()
-  const s = createSession(db, 'NAV-1')
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   const p = svc.ingestPanelEvidence('NAV-1', s.id, {
     source: { bytes: Buffer.from('hello from panel') },
     filename: 'note.txt'
@@ -79,7 +79,7 @@ it('raises a MEDIUM editable card and, on approve, ingests the (edited) filename
 
 it('rejects an operator-edited filename containing a traversal, and writes nothing', async () => {
   const svc = mkService()
-  const s = createSession(db, 'NAV-1')
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   const p = svc.ingestPanelEvidence('NAV-1', s.id, {
     source: { bytes: Buffer.from('hello from panel') },
     filename: 'note.txt'
@@ -103,7 +103,7 @@ it('rejects an operator-edited filename containing a traversal, and writes nothi
 
 it('returns { ok:false, reason:"denied" } and writes nothing on deny', async () => {
   const svc = mkService()
-  const s = createSession(db, 'NAV-1')
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   const p = svc.ingestPanelEvidence('NAV-1', s.id, {
     source: { bytes: Buffer.from('x') },
     filename: 'note.txt'
@@ -130,7 +130,7 @@ describe('url source', () => {
       return { ok: false, status: 302 }
     }) as unknown as typeof fetch
     const svc = mkService()
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const p = svc.ingestPanelEvidence('NAV-1', s.id, {
       source: { url: 'https://example.com/file.bin' },
       filename: 'remote.bin'
@@ -147,7 +147,7 @@ describe('url source', () => {
   it('rejects a 3xx/non-ok response (redirect blocked) and writes nothing', async () => {
     globalThis.fetch = (async () => ({ ok: false, status: 302 })) as unknown as typeof fetch
     const svc = mkService()
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const p = svc.ingestPanelEvidence('NAV-1', s.id, {
       source: { url: 'https://example.com/file.bin' },
       filename: 'remote.bin'
@@ -167,7 +167,7 @@ describe('url source', () => {
       arrayBuffer: async () => new TextEncoder().encode('remote bytes').buffer
     })) as unknown as typeof fetch
     const svc = mkService()
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const p = svc.ingestPanelEvidence('NAV-1', s.id, {
       source: { url: 'https://example.com/file.bin' },
       filename: 'remote.bin'

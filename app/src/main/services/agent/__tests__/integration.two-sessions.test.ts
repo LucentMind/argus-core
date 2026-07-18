@@ -66,8 +66,8 @@ describe('two concurrent case sessions', () => {
       createQuery
     })
 
-    const s1 = createSession(db, 'NAV-1')
-    const s2 = createSession(db, 'NAV-2')
+    const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    const s2 = createSession(db, 'NAV-2', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, '/analyze-applog evidence/NAV-1.txt')
     await svc.send('NAV-2', s2.id, '/analyze-applog evidence/NAV-2.txt')
 

@@ -51,7 +51,7 @@ describe('deleteCase', () => {
       'hello\nworld\n',
       'upload'
     )
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const now = new Date().toISOString()
     db.prepare(
       `INSERT INTO turns (case_id, session_id, turn_index, status, created_at) VALUES (?, ?, 0, 'done', ?)`

@@ -82,7 +82,7 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
       agentSettings: () => svc.get().agent
     })
     createCase(db, argusHome, { slug: 'INT-1', title: 't' })
-    const s1 = createSession(db, 'INT-1')
+    const s1 = createSession(db, 'INT-1', 'claude-agent-sdk')
     await agents.send('INT-1', s1.id, 'hello')
     expect((captured[0].systemPrompt as { append: string }).append).toContain('Focus on ADAS.')
     expect(captured[0].model).toBe('claude-sonnet-5')
