@@ -37,6 +37,17 @@ describe('sessionStore', () => {
     expect(list[0].id).toBe(second.id) // newest first
   })
 
+  it('listSessions and createSession surface driverKind on the returned summary', () => {
+    const claudeS = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    expect(claudeS.driverKind).toBe('claude-agent-sdk')
+    const copilotS = createSession(db, 'NAV-1', 'github-copilot')
+    expect(copilotS.driverKind).toBe('github-copilot')
+
+    const list = listSessions(db, 'NAV-1')
+    expect(list.find((s) => s.id === claudeS.id)!.driverKind).toBe('claude-agent-sdk')
+    expect(list.find((s) => s.id === copilotS.id)!.driverKind).toBe('github-copilot')
+  })
+
   it('setTitleIfEmpty sets once, truncated to 40 chars; rename overwrites; empty rename clears', () => {
     const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     setTitleIfEmpty(db, s.id, 'x'.repeat(60))

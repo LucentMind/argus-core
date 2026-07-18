@@ -1,9 +1,23 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
+import { useSettingsPayload } from '../lib/settingsStore'
+import { DRIVERS } from '../../../shared/drivers'
+import { Chip } from './ui'
 
 function displayTitle(s: { id: number; title: string }): string {
   return s.title || `Chat ${s.id}`
+}
+
+/** Compact label for a session's driver badge; null when unknown or when it
+ *  matches the currently active driver (in which case no badge is shown —
+ *  the common case shouldn't be tagged, only the surprising one). */
+function driverBadgeLabel(
+  driverKind: string | undefined,
+  activeDriverKind: string | undefined
+): string | null {
+  if (!driverKind || driverKind === activeDriverKind) return null
+  return DRIVERS[driverKind]?.shortLabel ?? DRIVERS[driverKind]?.label ?? driverKind
 }
 
 // Same «»-marker convention as evidence search (SearchBar) — matched terms
@@ -59,6 +73,12 @@ export function SessionSwitcher({
   const [hits, setHits] = useState<ChatSearchHit[]>([])
   const [searchError, setSearchError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const settingsPayload = useSettingsPayload()
+  const activeDriverKind = settingsPayload
+    ? settingsPayload.settings.agent.providerInstances[
+        settingsPayload.settings.agent.activeInstanceId
+      ]?.driver
+    : undefined
 
   // the trigger needs the active title even before the popup is ever opened
   useEffect(() => {
@@ -192,6 +212,9 @@ export function SessionSwitcher({
           onClick={() => setOpen((v) => !v)}
         >
           <span className="max-w-48 truncate">{activeTitle}</span>
+          {driverBadgeLabel(active?.driverKind, activeDriverKind) && (
+            <Chip tone="neutral">{driverBadgeLabel(active?.driverKind, activeDriverKind)}</Chip>
+          )}
           <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
         </button>
         {open && (
@@ -273,7 +296,14 @@ export function SessionSwitcher({
                               onSwitch(s.id)
                             }}
                           >
-                            <span className="block truncate text-xs text-ink">{title}</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="block truncate text-xs text-ink">{title}</span>
+                              {driverBadgeLabel(s.driverKind, activeDriverKind) && (
+                                <Chip tone="neutral">
+                                  {driverBadgeLabel(s.driverKind, activeDriverKind)}
+                                </Chip>
+                              )}
+                            </span>
                             <span className="block truncate text-[10.5px] text-mute">
                               {relativeTime(s.updatedAt)} · {s.turnCount} turns
                             </span>

@@ -130,6 +130,33 @@ export function getDriver(slug: string): DriverDefinition | null {
   return DRIVERS[slug] ?? null
 }
 
+/** Permissive fallback used only before settings first load, or when the active
+ *  instance's driver is unknown — matches pre-Task-11 behavior (unrestricted). */
+const DEFAULT_CAPABILITIES: DriverCapabilities = {
+  permissionModes: PERMISSION_MODES,
+  editableApprovals: true,
+  costReporting: true
+}
+
+/** The active provider instance's driver definition (null if the instance or its
+ *  driver slug is unknown — e.g. a hand-edited config, or the settings payload
+ *  hasn't resolved that instance yet). */
+export function activeDriver(s: AppSettings): DriverDefinition | null {
+  const inst = s.agent.providerInstances[s.agent.activeInstanceId]
+  return inst ? getDriver(inst.driver) : null
+}
+
+/**
+ * Renderer-wide source of truth for "what can the active driver do" — Composer's
+ * permission picker, ApprovalCard's edit affordance, and the cost chip all read
+ * this instead of hardcoding capabilities. Falls back to the permissive default
+ * when `s` is null/undefined (settings not yet loaded) or the driver is unknown.
+ */
+export function activeCapabilities(s: AppSettings | null | undefined): DriverCapabilities {
+  if (!s) return DEFAULT_CAPABILITIES
+  return activeDriver(s)?.capabilities ?? DEFAULT_CAPABILITIES
+}
+
 /** Validate an opaque instance config against its driver's schema; {} on unknown driver or invalid config. */
 export function driverConfig<T>(slug: string, raw: unknown): T {
   const d = getDriver(slug)

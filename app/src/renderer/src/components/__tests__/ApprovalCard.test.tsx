@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ApprovalCard } from '../ApprovalCard'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 
 const request = {
   requestId: 'r1',
@@ -12,8 +14,25 @@ const request = {
   argsPreview: 'git fetch origin'
 }
 
+function settingsGet(settings = defaultSettings()): () => Promise<unknown> {
+  return vi.fn(async () => ({
+    settings,
+    resolvedTools: [],
+    dataRoot: { path: 'C:\\x', fromEnv: false },
+    loadError: null
+  }))
+}
+
 beforeEach(() => {
-  window.argus = { agent: { respond: vi.fn() } } as never
+  settingsStore.reset()
+  window.argus = {
+    agent: { respond: vi.fn() },
+    settings: {
+      get: settingsGet(),
+      patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
+  } as never
 })
 
 describe('ApprovalCard', () => {
@@ -117,6 +136,23 @@ describe('ApprovalCard editable MCP preview', () => {
     )
     expect(screen.getByText('git push')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'command' })).toBeNull()
+  })
+
+  it('gates the editable preview on the active driver capabilities.editableApprovals (copilot: false)', async () => {
+    const s = defaultSettings()
+    s.agent.providerInstances['claude-default'].driver = 'github-copilot'
+    window.argus.settings.get = settingsGet(s)
+    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    // once settings resolve, an otherwise-editable MEDIUM MCP ask stays read-only
+    await waitFor(() => expect(screen.queryByLabelText('body')).toBeNull())
+    expect(screen.getByText(mcpRequest.argsPreview)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
+      requestId: 'r1',
+      kind: 'allow',
+      comment: undefined,
+      updatedInput: undefined
+    })
   })
 
   it('write_memory (allowlisted native tool) renders editable field editors at MEDIUM', () => {

@@ -56,6 +56,9 @@ export interface SessionSummary {
   title: string
   turnCount: number
   updatedAt: string
+  /** The driver kind (e.g. `'claude-agent-sdk'`, `'github-copilot'`) this session was
+   *  created with — stamped once at creation (sessions.driver_kind), never changes. */
+  driverKind: string
 }
 
 /** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */
