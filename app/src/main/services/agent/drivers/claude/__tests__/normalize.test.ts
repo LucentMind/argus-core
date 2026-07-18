@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { normalizeSdkMessage } from '../normalize'
-import { AsyncQueue } from '../asyncQueue'
+import { AsyncQueue } from '../../../asyncQueue'
 
 const ctx = { caseId: 1, caseSlug: 'NAV-1', sessionId: 7, turnId: 3 }
 
