@@ -163,13 +163,13 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
 export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
   siteUrl: {
     control: 'text',
-    label: 'Site URL (optional, advanced)',
+    label: 'Site URL (REST, optional)',
     placeholder: 'https://your-site.atlassian.net',
     order: 9
   },
   email: {
     control: 'text',
-    label: 'Email (optional, advanced)',
+    label: 'Email (REST, optional)',
     placeholder: 'you@example.com',
     order: 9.5,
     help: 'Only used with an API token for Server/DC or fallback. Jira Cloud via your Atlassian authorization needs neither.'
