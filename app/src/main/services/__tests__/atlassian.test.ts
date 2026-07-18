@@ -12,7 +12,7 @@ import {
   resolveAtlassianCreds
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
-import type { OAuthLike } from '../atlassian'
+import type { OAuthLike, AtlassianAuth } from '../atlassian'
 
 // Legacy REST-token path: the connector's OAuth is not authorized, so
 // resolveAtlassianCreds never attaches an oauth block here.
@@ -55,6 +55,10 @@ let mediaBase: string
 let lastAuthHeader: string | undefined
 let mediaAuthHeader: string | null | undefined
 
+// cloudId this server's accessible-resources route advertises for the OAuth
+// gateway fixture below.
+const CLOUD_ID = 'cloud-x'
+
 beforeAll(async () => {
   mediaServer = http.createServer((req, res) => {
     mediaAuthHeader = req.headers.authorization ?? null
@@ -66,20 +70,25 @@ beforeAll(async () => {
 
   server = http.createServer((req, res) => {
     lastAuthHeader = req.headers.authorization
-    if (req.url?.startsWith('/rest/api/3/issue/NAV-7')) {
+    // request() builds `/ex/jira/{cloudId}{pathAndQuery}` — match by substring
+    // rather than prefix since the gateway prefix precedes the REST path.
+    if (req.url?.startsWith('/oauth/token/accessible-resources')) {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify([{ id: CLOUD_ID, url: base, scopes: ['read:jira-work'] }]))
+    } else if (req.url?.includes('/rest/api/3/issue/NAV-7')) {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify(ISSUE))
-    } else if (req.url?.startsWith('/rest/api/3/issue/GONE-1')) {
+    } else if (req.url?.includes('/rest/api/3/issue/GONE-1')) {
       res.writeHead(404, { 'content-type': 'application/json' })
       res.end('{}')
-    } else if (req.url?.startsWith('/rest/api/3/issue/SECRET-1')) {
+    } else if (req.url?.includes('/rest/api/3/issue/SECRET-1')) {
       res.writeHead(401, { 'content-type': 'application/json' })
       res.end('{}')
-    } else if (req.url?.startsWith('/rest/api/3/attachment/content/10001')) {
+    } else if (req.url?.includes('/rest/api/3/attachment/content/10001')) {
       // Jira answers the content endpoint with a redirect to the media host
       res.writeHead(303, { location: `${mediaBase}/blob/10001` })
       res.end()
-    } else if (req.url?.startsWith('/rest/api/3/project/search')) {
+    } else if (req.url?.includes('/rest/api/3/project/search')) {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ values: [] }))
     } else {
@@ -96,8 +105,25 @@ afterAll(async () => {
   await new Promise((r) => mediaServer.close(r))
 })
 
-const client = (): AtlassianClient =>
-  new AtlassianClient(() => ({ instanceId: 'rovo', siteUrl: base, token: 'PAT123' }))
+// OAuth-only client: request() no longer has a legacy siteUrl/token path, so
+// every AtlassianClient test now authorizes via oauth and reaches the test
+// server through the /ex/jira/{cloudId} gateway prefix (rewritten from the
+// fixed https://api.atlassian.com GATEWAY constant to `base`).
+const oauthFixture = (): AtlassianAuth => ({
+  instanceId: 'rovo',
+  siteUrl: null,
+  token: null,
+  oauth: {
+    serverUrl: 'https://mcp',
+    accessToken: () => 'oauth-tok',
+    refresh: async () => undefined
+  }
+})
+const gatewayFetch = (): typeof fetch =>
+  ((url: string, init: RequestInit) =>
+    fetch(url.replace('https://api.atlassian.com', base), init)) as unknown as typeof fetch
+
+const client = (): AtlassianClient => new AtlassianClient(oauthFixture, gatewayFetch())
 
 describe('resolveAtlassianCreds', () => {
   const reg = (cfg: Record<string, unknown>): ConnectorMap =>
@@ -213,9 +239,9 @@ describe('atlassianRestConfigured', () => {
 })
 
 describe('AtlassianClient', () => {
-  it('getIssue maps fields, converts the ADF description, sends Bearer auth', async () => {
+  it('getIssue maps fields, converts the ADF description, sends Bearer auth via the gateway', async () => {
     const { preview, descriptionMarkdown, raw } = await client().getIssue('NAV-7')
-    expect(lastAuthHeader).toBe('Bearer PAT123')
+    expect(lastAuthHeader).toBe('Bearer oauth-tok')
     expect(preview).toMatchObject({
       key: 'NAV-7',
       summary: 'Route flickers',
@@ -236,17 +262,6 @@ describe('AtlassianClient', () => {
     expect((raw as { key: string }).key).toBe('NAV-7')
   })
 
-  it('sends Basic auth (email:token) when the creds carry an email — the Jira Cloud path', async () => {
-    const basic = new AtlassianClient(() => ({
-      instanceId: 'rovo',
-      siteUrl: base,
-      token: 'PAT123',
-      email: 'ada@acme.test'
-    }))
-    await basic.probeJira()
-    expect(lastAuthHeader).toBe(`Basic ${Buffer.from('ada@acme.test:PAT123').toString('base64')}`)
-  })
-
   it('downloadAttachment follows the redirect and writes the bytes; auth is not forwarded cross-origin', async () => {
     const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-att-')), 'trace.binlog')
     await client().downloadAttachment('10001', dest)
@@ -263,11 +278,17 @@ describe('AtlassianClient', () => {
   })
 
   it('maps connection failure → network', async () => {
-    const dead = new AtlassianClient(
-      () => ({ instanceId: 'rovo', siteUrl: 'http://127.0.0.1:9', token: 'x' }),
-      fetch,
-      2000
-    )
+    // Discovery succeeds (an inline stub, not the real accessible-resources
+    // route) but the actual gateway fetch targets an unreachable port.
+    const deadFetch = (async (url: string, init: RequestInit) => {
+      if (String(url).includes('accessible-resources'))
+        return new Response(
+          JSON.stringify([{ id: 'dead-cloud', url: 'https://x', scopes: ['read:jira-work'] }]),
+          { status: 200 }
+        )
+      return fetch('http://127.0.0.1:9' + new URL(String(url)).pathname, init)
+    }) as unknown as typeof fetch
+    const dead = new AtlassianClient(oauthFixture, deadFetch, 2000)
     await expect(dead.getIssue('NAV-7')).rejects.toMatchObject({ code: 'network' })
   })
 
@@ -291,11 +312,17 @@ describe('getComments', () => {
     updated: '2026-07-02T00:00:00Z',
     body: adf(text)
   })
+  const ARES_JIRA = (): Response =>
+    new Response(
+      JSON.stringify([{ id: 'c1', url: 'https://x.atlassian.net', scopes: ['read:jira-work'] }]),
+      { status: 200 }
+    )
 
   it('pages through all comments and converts ADF bodies', async () => {
     const calls: string[] = []
     const fakeFetch = (async (url: string) => {
       calls.push(String(url))
+      if (String(url).includes('accessible-resources')) return ARES_JIRA()
       const startAt = Number(new URL(String(url)).searchParams.get('startAt'))
       const body =
         startAt === 0
@@ -303,12 +330,9 @@ describe('getComments', () => {
           : { comments: [comment('3', 'third')], total: 3 }
       return new Response(JSON.stringify(body), { status: 200 })
     }) as unknown as typeof fetch
-    const client = new AtlassianClient(
-      () => ({ instanceId: 'i', siteUrl: 'https://x.atlassian.net', token: 't', email: 'e@x' }),
-      fakeFetch
-    )
+    const client = new AtlassianClient(oauthFixture, fakeFetch)
     const out = await client.getComments('NAV-7')
-    expect(calls).toHaveLength(2)
+    expect(calls.filter((c) => c.includes('/comment'))).toHaveLength(2)
     expect(out.map((c) => c.id)).toEqual(['1', '2', '3'])
     expect(out[0]).toMatchObject({
       author: 'Ada',
@@ -319,14 +343,11 @@ describe('getComments', () => {
   })
 
   it('returns [] for a ticket with no comments', async () => {
-    const fakeFetch = (async () =>
-      new Response(JSON.stringify({ comments: [], total: 0 }), {
-        status: 200
-      })) as unknown as typeof fetch
-    const client = new AtlassianClient(
-      () => ({ instanceId: 'i', siteUrl: 'https://x.atlassian.net', token: 't', email: 'e@x' }),
-      fakeFetch
-    )
+    const fakeFetch = (async (url: string) => {
+      if (String(url).includes('accessible-resources')) return ARES_JIRA()
+      return new Response(JSON.stringify({ comments: [], total: 0 }), { status: 200 })
+    }) as unknown as typeof fetch
+    const client = new AtlassianClient(oauthFixture, fakeFetch)
     expect(await client.getComments('NAV-7')).toEqual([])
   })
 })

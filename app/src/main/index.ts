@@ -1132,7 +1132,10 @@ function registerIpc(): void {
     // Reset the connector card's display badge (e.g. a stale needs-auth mark) after a
     // successful authorize. Display-only: compose() never consults runtime state, so
     // this has no effect on what the next session actually includes.
-    if (r.ok) mcpService.clearRuntime(id)
+    if (r.ok) {
+      mcpService.clearRuntime(id)
+      void atlassian.resolveSiteUrl(id) // warm cloudId+siteUrl cache; ignore result/errors
+    }
     broadcast(IPC.connectorsChanged, connectorsPayload())
     return r
   })
