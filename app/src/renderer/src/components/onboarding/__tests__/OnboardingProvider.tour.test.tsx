@@ -80,7 +80,7 @@ describe('OnboardingProvider → tour handoff', () => {
     // Wizard order (WIZARD_STEPS): welcome -> claude -> integrations -> seed -> pack.
     // welcome -> claude (gate defaults true on welcome)
     await clickWhenEnabled(/continue/i)
-    await waitFor(() => expect(screen.getByTestId('wizard-step-claude')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('wizard-step-provider')).toBeTruthy())
 
     // claude -> integrations (gate opens once authStatus resolves ok)
     await clickWhenEnabled(/continue/i)

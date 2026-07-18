@@ -24,7 +24,7 @@ describe('SetupWizard shell', () => {
     render(<SetupWizard onComplete={vi.fn()} onDismiss={vi.fn()} />)
     expect(screen.getByTestId('wizard-step-welcome')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
-    expect(screen.getByTestId('wizard-step-claude')).toBeTruthy()
+    expect(screen.getByTestId('wizard-step-provider')).toBeTruthy()
   })
 
   it('Back returns to the previous step', () => {

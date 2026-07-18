@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { shouldOpenOnboarding, markCompleted, onboardingReplay } from '../../lib/onboardingStore'
 import { SetupWizard } from './SetupWizard'
-import { WelcomeStep, ClaudeStep, PackStep, IntegrationsStep, SeedStep } from './steps'
+import { WelcomeStep, ProviderStep, PackStep, IntegrationsStep, SeedStep } from './steps'
 import { SAMPLE_CASE_SLUG, type WizardStepId } from '../../../../shared/onboarding'
 import { tourStore, useTour } from '../../lib/tourStore'
 import { TourCompanion } from './TourCompanion'
@@ -68,8 +68,8 @@ export function OnboardingProvider({
       switch (id) {
         case 'welcome':
           return <WelcomeStep />
-        case 'claude':
-          return <ClaudeStep setGate={api.setGate} />
+        case 'provider':
+          return <ProviderStep setGate={api.setGate} />
         case 'pack':
           return <PackStep onOpenSettings={() => openSettingsFromWizard('packs')} />
         case 'integrations':

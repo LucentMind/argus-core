@@ -44,6 +44,26 @@ function indexLineFor(name: string): RegExp {
   return new RegExp(`^-\\s*\\[[^\\]]*\\]\\(${name}\\.md\\)`)
 }
 
+/**
+ * Strip a leading echo of the topic name from an index entry, so the rendered line reads
+ * `- [nav-fusion-drift](nav-fusion-drift.md) — bearing errors follow an IMU warning`
+ * rather than repeating the slug a third time. Models routinely open `indexEntry` with the
+ * topic (and the fallback in distill/staging.ts derives it from the content's first line,
+ * which often does the same), while the markdown link already shows it twice.
+ *
+ * Matches the slug either verbatim or space-separated (`nav fusion drift`), case-insensitively,
+ * followed by an em/en dash, hyphen, or colon separator. A leading capital on the remainder is
+ * lowered only when the entry looked like a sentence continuation, never mid-acronym.
+ */
+export function stripTopicEcho(topic: string, indexEntry: string): string {
+  const slug = topic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '[-\\s]')
+  const m = indexEntry.match(new RegExp(`^\\s*${slug}\\s*(?:[—–\\-:]+)\\s*(.+)$`, 'i'))
+  const rest = m?.[1]?.trim()
+  // Refuse to strip when nothing meaningful survives — a bare topic-name entry is still
+  // more useful than an empty one.
+  return rest ? rest : indexEntry.trim()
+}
+
 export function listTopics(argusHome: string): MemoryTopic[] {
   const dir = memoryDir(argusHome)
   if (!fs.existsSync(dir)) return []
@@ -119,7 +139,8 @@ export function applyMemoryWrite(
       fs.mkdirSync(memoryDir(argusHome), { recursive: true })
       fs.writeFileSync(
         memoryIndexPath(argusHome),
-        [...lines, `- [${topic}](${topic}.md) — ${indexEntry}`].join('\n') + '\n'
+        [...lines, `- [${topic}](${topic}.md) — ${stripTopicEcho(topic, indexEntry)}`].join('\n') +
+          '\n'
       )
     }
   }

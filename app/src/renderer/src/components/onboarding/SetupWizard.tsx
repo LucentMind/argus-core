@@ -3,7 +3,7 @@ import { SAMPLE_CASE_SLUG, WIZARD_STEPS, type WizardStepId } from '../../../../s
 
 const LABELS: Record<WizardStepId, string> = {
   welcome: 'Welcome',
-  claude: 'Connect Claude',
+  provider: 'Connect a provider',
   pack: 'Install a pack',
   integrations: 'Integrations',
   seed: 'Sample case'

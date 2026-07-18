@@ -1,9 +1,49 @@
 import { useState, type ReactNode } from 'react'
-import { Eraser } from 'lucide-react'
+import { ChevronDown, Eraser } from 'lucide-react'
 import { Card, IconBtn, SectionLabel } from '../ui'
 
 export const FIELD =
   'h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
+
+/** Multi-line counterpart of {@link FIELD}. `FIELD`'s `h-7` is single-line-only, so a
+ *  textarea that reused it would collapse; this keeps the same border/bg/focus tokens but
+ *  fills its row and grows vertically instead. {@link DraftTextarea} applies it by default —
+ *  the memory editors previously passed no class at all and fell back to the UA's ~20-column
+ *  unpadded box, which rendered as a cramped scrolling sliver. */
+export const TEXTAREA_FIELD =
+  'w-full min-h-32 resize-y rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs leading-relaxed text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
+
+/**
+ * The settings-wide disclosure affordance: a chevron icon button that rotates when open.
+ * Shared so the provider rows and the pack rows read as the same control — each previously
+ * grew its own variant (the packs one even spelled out "N tools", which the pack row's own
+ * badges already implied).
+ */
+export function DisclosureBtn({
+  expanded,
+  onToggle,
+  label
+}: {
+  expanded: boolean
+  onToggle: () => void
+  /** Noun phrase for the a11y name, e.g. "provider details" → "Expand provider details". */
+  label: string
+}): React.JSX.Element {
+  return (
+    <IconBtn
+      aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
+      aria-expanded={expanded}
+      title={expanded ? 'Collapse' : 'Expand'}
+      onClick={onToggle}
+    >
+      <ChevronDown
+        size={14}
+        strokeWidth={1.5}
+        className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+      />
+    </IconBtn>
+  )
+}
 
 export function SettingsSection({
   title,
@@ -189,7 +229,7 @@ export function DraftTextarea({
     <textarea
       rows={3}
       aria-label={ariaLabel}
-      className={className}
+      className={className ?? TEXTAREA_FIELD}
       placeholder={placeholder}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
