@@ -79,9 +79,9 @@ beforeAll(async () => {
       // Jira answers the content endpoint with a redirect to the media host
       res.writeHead(303, { location: `${mediaBase}/blob/10001` })
       res.end()
-    } else if (req.url?.startsWith('/rest/api/3/myself')) {
+    } else if (req.url?.startsWith('/rest/api/3/project/search')) {
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ displayName: 'Ada' }))
+      res.end(JSON.stringify({ values: [] }))
     } else {
       res.writeHead(500)
       res.end()
@@ -181,14 +181,32 @@ describe('atlassianRestConfigured', () => {
     ({ rovo: { kind: 'http', preset: 'rovo', enabled: true, config: cfg } }) as never
 
   it('is false with no rovo connector or an untouched REST config (MCP-only usage)', () => {
-    expect(atlassianRestConfigured({} as never)).toBe(false)
-    expect(atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }))).toBe(false)
-    expect(atlassianRestConfigured(reg({ siteUrl: '   ' }))).toBe(false)
+    expect(atlassianRestConfigured({} as never, notAuthorized)).toBe(false)
+    expect(
+      atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }), notAuthorized)
+    ).toBe(false)
+    expect(atlassianRestConfigured(reg({ siteUrl: '   ' }), notAuthorized)).toBe(false)
   })
 
   it('is true once REST configuration has begun (siteUrl or token set)', () => {
-    expect(atlassianRestConfigured(reg({ siteUrl: 'https://acme.atlassian.net' }))).toBe(true)
-    expect(atlassianRestConfigured(reg({ apiToken: { $secret: 'connector/rovo/apiToken' } }))).toBe(
+    expect(
+      atlassianRestConfigured(reg({ siteUrl: 'https://acme.atlassian.net' }), notAuthorized)
+    ).toBe(true)
+    expect(
+      atlassianRestConfigured(
+        reg({ apiToken: { $secret: 'connector/rovo/apiToken' } }),
+        notAuthorized
+      )
+    ).toBe(true)
+  })
+
+  it('is true for an OAuth-authorized rovo connector even with no siteUrl/token', () => {
+    const authorized: OAuthLike = {
+      status: () => 'authorized',
+      accessToken: () => 'tok',
+      refresh: async () => true
+    }
+    expect(atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }), authorized)).toBe(
       true
     )
   })
@@ -225,7 +243,7 @@ describe('AtlassianClient', () => {
       token: 'PAT123',
       email: 'ada@acme.test'
     }))
-    await basic.myself()
+    await basic.probeJira()
     expect(lastAuthHeader).toBe(`Basic ${Buffer.from('ada@acme.test:PAT123').toString('base64')}`)
   })
 
