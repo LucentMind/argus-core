@@ -8,7 +8,7 @@ import { createCase } from '../caseService'
 import { ingestArtifact } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { TextDocSearchHub } from '../textdocSearch'
-import { __clearIndexCacheForTests } from '../lineIndex'
+import { __clearIndexCacheForTests, sidecarPath } from '../lineIndex'
 import type { TextDocSearchEvent } from '../../../shared/textdoc'
 
 let tmp: string, argusHome: string, db: DatabaseSync, evidenceId: number
@@ -82,6 +82,38 @@ describe('TextDocSearchHub', () => {
     await hub.start('e:1:fnd:2', { kind: 'evidence', evidenceId }, 'ERROR', {})
     await flt2
     expect(events.some((e) => e.searchId === 'e:1:flt:2' && e.done)).toBe(true)
+  })
+
+  it('unresolvable source and invalid regex both settle with a terminal empty event', async () => {
+    const events: TextDocSearchEvent[] = []
+    const hub = new TextDocSearchHub(db, argusHome, (e) => events.push(e))
+    await hub.start('e:404:fnd:1', { kind: 'evidence', evidenceId: 424242 }, 'x', {})
+    expect(events).toEqual([
+      { searchId: 'e:404:fnd:1', hits: [], scannedTo: 0, done: true, capped: false }
+    ])
+    events.length = 0
+    await hub.start('e:1:fnd:9', { kind: 'evidence', evidenceId }, '[', { regex: true })
+    expect(events).toEqual([
+      { searchId: 'e:1:fnd:9', hits: [], scannedTo: 0, done: true, capped: false }
+    ])
+  })
+
+  it('forwards index-build progress for a lazy rebuild triggered by search', async () => {
+    // simulate a stale index: remove the sidecar and drop the memory cache so
+    // the hub's ensureIndex must rebuild from scratch
+    const abs = path.join(argusHome, 'cases', 'NAV-2', 'evidence', 'log.txt')
+    fs.rmSync(sidecarPath(argusHome, abs), { force: true })
+    __clearIndexCacheForTests()
+    const progress: Array<{ key: string; fraction: number }> = []
+    const hub = new TextDocSearchHub(
+      db,
+      argusHome,
+      () => undefined,
+      (p) => progress.push(p)
+    )
+    await hub.start('e:1:fnd:2', { kind: 'evidence', evidenceId }, 'ERROR', {})
+    expect(progress.length).toBeGreaterThan(0)
+    expect(progress[progress.length - 1]).toEqual({ key: `e:${evidenceId}`, fraction: 1 })
   })
 
   it('passes the filter option through to the engine', async () => {
