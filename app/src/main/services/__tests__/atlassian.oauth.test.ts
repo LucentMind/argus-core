@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { discoverJiraCloud, AtlassianError, resolveAtlassianCreds } from '../atlassian'
+import {
+  discoverJiraCloud,
+  AtlassianError,
+  resolveAtlassianCreds,
+  AtlassianClient
+} from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
-import type { OAuthLike } from '../atlassian'
+import type { OAuthLike, AtlassianAuth } from '../atlassian'
 
 function fetchReturning(status: number, body: unknown): typeof fetch {
   return (async () =>
@@ -92,5 +97,115 @@ describe('resolveAtlassianCreds (mode-aware)', () => {
     const a = resolveAtlassianCreds(ROVO, () => null, fakeOAuth(true))
     expect(a.token).toBeNull()
     expect(a.oauth).toBeTruthy()
+  })
+})
+
+// records the URLs + auth headers fetch was called with
+function recordingFetch(handlers: Array<(url: string) => Response>): {
+  impl: typeof fetch
+  calls: { url: string; auth: string | null }[]
+} {
+  const calls: { url: string; auth: string | null }[] = []
+  let i = 0
+  const impl = (async (url: string, init: RequestInit) => {
+    calls.push({ url, auth: (init.headers as Record<string, string>).Authorization ?? null })
+    const h = handlers[Math.min(i, handlers.length - 1)]
+    i++
+    return h(url)
+  }) as unknown as typeof fetch
+  return { impl, calls }
+}
+const ARES = (): Response =>
+  new Response(
+    JSON.stringify([
+      { id: 'cloud-1', url: 'https://argus88.atlassian.net', scopes: ['read:jira-work'] }
+    ]),
+    { status: 200 }
+  )
+const OK = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200 })
+const ISSUE_BODY = { key: 'KAN-2', fields: { summary: 's', attachment: [] } }
+
+function authFixture(over: Partial<AtlassianAuth>): () => AtlassianAuth {
+  return () => ({
+    instanceId: 'rovo',
+    siteUrl: 'https://legacy.example',
+    token: 'REST-TOKEN',
+    email: 'me@x.com',
+    oauth: {
+      serverUrl: 'https://mcp',
+      accessToken: () => 'oauth-tok',
+      refresh: async () => undefined
+    },
+    ...over
+  })
+}
+
+describe('AtlassianClient.request routing', () => {
+  it('Jira path with OAuth → gateway URL + Bearer, cloudId discovered once', async () => {
+    const { impl, calls } = recordingFetch([ARES, () => OK(ISSUE_BODY), () => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(authFixture({}), impl)
+    await c.getIssue('KAN-2')
+    await c.getIssue('KAN-2')
+    const jiraCalls = calls.filter((x) => x.url.includes('/ex/jira/'))
+    expect(jiraCalls[0].url).toBe(
+      'https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/KAN-2?fields=summary,description,status,labels,reporter,created,updated,attachment'
+    )
+    expect(jiraCalls[0].auth).toBe('Bearer oauth-tok')
+    expect(calls.filter((x) => x.url.includes('accessible-resources'))).toHaveLength(1) // cached
+  })
+
+  it('Jira path without OAuth → legacy siteUrl + Basic', async () => {
+    const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(authFixture({ oauth: undefined }), impl)
+    await c.getIssue('KAN-2')
+    expect(calls[0].url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
+    expect(calls[0].auth!.startsWith('Basic ')).toBe(true)
+  })
+
+  it('Confluence path always uses legacy token even when OAuth present', async () => {
+    const { impl, calls } = recordingFetch([() => OK({ key: 'SP', name: 'Space' })])
+    const c = new AtlassianClient(authFixture({}), impl)
+    await c.getConfluenceSpace('SP')
+    expect(calls[0].url.startsWith('https://legacy.example/wiki/')).toBe(true)
+    expect(calls[0].auth!.startsWith('Basic ')).toBe(true)
+  })
+
+  it('401 on OAuth Jira → refresh once → retry; still 401 → falls back to legacy token', async () => {
+    let refreshed = 0
+    const auth = authFixture({
+      oauth: {
+        serverUrl: 'https://mcp',
+        accessToken: () => 'oauth-tok',
+        refresh: async () => {
+          refreshed++
+        }
+      }
+    })
+    const un = (): Response => new Response('{}', { status: 401 })
+    const { impl, calls } = recordingFetch([ARES, un, un, () => OK(ISSUE_BODY)]) // ares, try, retry(401), legacy ok
+    const c = new AtlassianClient(auth, impl)
+    await c.getIssue('KAN-2')
+    expect(refreshed).toBe(1)
+    expect(calls[calls.length - 1].url.startsWith('https://legacy.example/')).toBe(true)
+  })
+
+  it('no oauth and no token → no-token error', async () => {
+    const { impl } = recordingFetch([() => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(
+      authFixture({ oauth: undefined, token: null, siteUrl: null }),
+      impl
+    )
+    await expect(c.getIssue('KAN-2')).rejects.toMatchObject({ code: 'no-token' })
+  })
+
+  it('Jira path with oauth undefined AND siteUrl null (token present) → no-token, not a network error', async () => {
+    const { impl } = recordingFetch([() => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(
+      authFixture({ oauth: undefined, siteUrl: null, token: 'REST-TOKEN' }),
+      impl
+    )
+    const err = await c.getIssue('KAN-2').catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('no-token')
   })
 })
