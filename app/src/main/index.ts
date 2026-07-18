@@ -130,6 +130,7 @@ import type {
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
 import { buildLangfuseClient } from './services/observability/langfuseClient'
+import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
 import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 import { DistillQueue } from './services/distill/queue'
@@ -1244,15 +1245,11 @@ function registerIpc(): void {
     },
     langfuseCheck: async () => {
       const s = settingsService.get().observability?.langfuse
-      if (!s?.host) return { ok: false, detail: 'no host configured' }
-      try {
-        const res = await fetch(`${s.host.replace(/\/$/, '')}/api/public/health`)
-        return res.ok
-          ? { ok: true, detail: `reachable (${res.status})` }
-          : { ok: false, detail: `HTTP ${res.status}` }
-      } catch (err) {
-        return { ok: false, detail: (err as Error).message }
-      }
+      return probeLangfuseCredentials({
+        host: s?.host ?? '',
+        publicKey: s?.publicKey ?? '',
+        secretKey: secretStore.resolve('observability/langfuse/secret-key') ?? ''
+      })
     }
   })
 
