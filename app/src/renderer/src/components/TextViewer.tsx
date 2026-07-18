@@ -50,7 +50,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
 
   useEffect(() => {
     const unProgress = window.argus.textdoc.onIndexProgress((p) => {
-      if (p.key === textDocKey(source)) setIndexing(p.fraction >= 1 ? null : p.fraction)
+      if (p.key === docKey) setIndexing(p.fraction >= 1 ? null : p.fraction)
     })
     void window.argus.textdoc.open(source, focusStart).then((r) => {
       if (!r.ok) {
