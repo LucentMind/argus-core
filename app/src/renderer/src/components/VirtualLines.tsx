@@ -10,6 +10,7 @@ interface VirtualLinesProps {
   getLine: (lineNo: number) => string | undefined
   focusStart: number | null
   focusEnd: number | null
+  activeLine?: number | null
   lang: string | null
   scrollTarget: { row: number; nonce: number } | null
   onVisibleRows?: (firstRow: number, lastRow: number) => void
@@ -26,6 +27,7 @@ export function VirtualLines({
   getLine,
   focusStart,
   focusEnd,
+  activeLine,
   lang,
   scrollTarget,
   onVisibleRows,
@@ -76,14 +78,16 @@ export function VirtualLines({
     const n = rowToLine(r)
     const line = getLine(n)
     const focused = focusStart !== null && n >= focusStart && n <= (focusEnd ?? focusStart)
+    const isActive = activeLine != null && n === activeLine
     rows.push(
       <div
         key={r}
         data-vrow={r}
+        {...(isActive ? { 'data-active-line': true } : {})}
         id={`line-${n}`}
         onClick={onRowClick ? () => onRowClick(n) : undefined}
         className={`absolute left-0 right-0 whitespace-pre ${
-          focused ? 'bg-defect/20 text-ink' : ''
+          isActive ? 'bg-hair text-ink' : focused ? 'bg-defect/20 text-ink' : ''
         }${onRowClick ? ' cursor-pointer hover:bg-hair/40' : ''}`}
         style={{ top: r * ROW_H, height: ROW_H }}
       >
