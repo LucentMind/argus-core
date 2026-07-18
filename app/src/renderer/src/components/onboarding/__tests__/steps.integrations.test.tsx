@@ -140,7 +140,7 @@ describe('IntegrationsStep (inline config)', () => {
     await waitFor(() => expect(screen.getByText(/user cancelled/i)).toBeTruthy())
   })
 
-  it('REST: expanding ensures the rovo instance and reveals the token fields', async () => {
+  it('REST: expanding ensures the rovo instance exists and shows no token fields (Authorize-only, Part 3a)', async () => {
     setup()
     render(<IntegrationsStep />)
     fireEvent.click(await screen.findByRole('button', { name: /REST API/i }))
@@ -149,31 +149,8 @@ describe('IntegrationsStep (inline config)', () => {
         expect.objectContaining({ rovo: expect.objectContaining({ preset: 'rovo' }) })
       )
     )
-    expect(screen.getByLabelText('Site URL (REST, optional)')).toBeTruthy()
-    expect(screen.getByLabelText('Atlassian API token (optional)')).toBeTruthy()
-  })
-
-  it('REST: commits the site URL to config and the API token as a secret', async () => {
-    setup({ hasRovo: true })
-    render(<IntegrationsStep />)
-    fireEvent.click(await screen.findByRole('button', { name: /REST API/i }))
-
-    const site = await screen.findByLabelText('Site URL (REST, optional)')
-    fireEvent.focus(site)
-    fireEvent.change(site, { target: { value: 'https://acme.atlassian.net' } })
-    fireEvent.blur(site)
-    await waitFor(() =>
-      expect(connPatch).toHaveBeenCalledWith({
-        rovo: { config: { siteUrl: 'https://acme.atlassian.net' } }
-      })
-    )
-
-    const token = screen.getByLabelText('Atlassian API token (optional)')
-    fireEvent.change(token, { target: { value: 'tok_abc' } })
-    fireEvent.blur(token)
-    await waitFor(() =>
-      expect(secretsSet).toHaveBeenCalledWith('connector/rovo/apiToken', 'tok_abc')
-    )
+    expect(screen.queryByLabelText('Site URL (REST, optional)')).toBeNull()
+    expect(screen.queryByLabelText('Atlassian API token (optional)')).toBeNull()
   })
 
   it('shows Configured via REST (siteUrl + apiToken) even without OAuth', async () => {

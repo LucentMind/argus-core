@@ -219,63 +219,13 @@ describe('ConnectorsSettings', () => {
     expect(screen.queryByRole('menuitem', { name: 'Argus (reserved)' })).toBeNull()
   })
 
-  it('edit form shows the PAT field and the create-token link beside its label', async () => {
+  it('edit form has no PAT/site-URL fields — the Rovo card is Authorize-only (Part 3a)', async () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    expect(screen.getByLabelText('Atlassian API token (optional)')).toBeTruthy()
-    const createTokenBtn = screen.getByRole('button', { name: 'create api token · rovo' })
-    // the link now sits beside the PAT label rather than below the whole form
-    expect(createTokenBtn.closest('span')?.textContent).toContain('Atlassian API token (optional)')
-    fireEvent.click(createTokenBtn)
-    expect(window.argus.openExternal).toHaveBeenCalledWith(
-      'https://id.atlassian.com/manage-profile/security/api-tokens'
-    )
-  })
-
-  it('PAT label carries a tooltip explaining REST vs OAuth usage', async () => {
-    render(<ConnectorsSettings />)
-    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    expect(
-      screen.getByTitle(
-        'Optional. Only needed for Confluence reference-sync, or as a fallback if your Atlassian authorization lacks Jira access. Jira ticket import and attachments now use your Atlassian authorization.'
-      )
-    ).toBeTruthy()
-  })
-
-  it('committing the token writes the secret then the ref', async () => {
-    render(<ConnectorsSettings />)
-    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    const token = screen.getByLabelText('Atlassian API token (optional)')
-    fireEvent.change(token, { target: { value: 'atl-tok' } })
-    fireEvent.blur(token)
-    await vi.waitFor(() =>
-      expect(window.argus.secrets.set).toHaveBeenCalledWith('connector/rovo/apiToken', 'atl-tok')
-    )
-    await vi.waitFor(() =>
-      expect(window.argus.connectors.patch).toHaveBeenCalledWith({
-        rovo: { config: { apiToken: { $secret: 'connector/rovo/apiToken' } } }
-      })
-    )
-  })
-
-  it('resetting a set secret deletes the stored secret and nulls the config ref', async () => {
-    currentPayload = basePayload()
-    currentPayload.connectors.rovo.config = {
-      ...(currentPayload.connectors.rovo.config as Record<string, unknown>),
-      apiToken: { $secret: 'connector/rovo/apiToken' }
-    } as never
-    render(<ConnectorsSettings />)
-    fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (optional)' }))
-    expect(window.argus.secrets.delete).toHaveBeenCalledWith('connector/rovo/apiToken')
-    expect(window.argus.connectors.patch).toHaveBeenCalledWith({
-      rovo: { config: { apiToken: null } }
-    })
-    expect(window.argus.secrets.set).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Atlassian API token (optional)')).toBeNull()
+    expect(screen.queryByLabelText(/Site URL/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'create api token · rovo' })).toBeNull()
   })
 
   it('invalid JSON in the env field commits nothing; valid JSON commits the parsed object', async () => {

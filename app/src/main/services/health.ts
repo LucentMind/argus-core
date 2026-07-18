@@ -115,8 +115,7 @@ export class HealthService {
           ...(r.ok
             ? {}
             : {
-                fixHint:
-                  'Re-authorize the Atlassian connector, or set the Site URL / email / API token fallback (Settings → Connectors).'
+                fixHint: 'Re-authorize the Atlassian connector (Settings → Connectors).'
               })
         }
       }
@@ -129,8 +128,7 @@ export class HealthService {
           ...(r.ok
             ? {}
             : {
-                fixHint:
-                  'Check siteUrl / API token (PAT) on the Atlassian connector (Connectors page).'
+                fixHint: 'Re-authorize the Atlassian connector (Settings → Connectors).'
               })
         }
       }

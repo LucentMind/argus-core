@@ -3,16 +3,7 @@ import { ATLASSIAN_ERROR_CODES, type JiraResult } from '../jira'
 
 describe('shared/jira', () => {
   it('error codes cover the spec §3.1 mapping', () => {
-    for (const c of [
-      'not-configured',
-      'no-site-url',
-      'no-token',
-      'auth',
-      'not-found',
-      'network',
-      'http',
-      'internal'
-    ])
+    for (const c of ['not-configured', 'auth', 'not-found', 'network', 'http', 'internal'])
       expect(ATLASSIAN_ERROR_CODES).toContain(c)
   })
   it('JiraResult discriminates on ok', () => {

@@ -102,26 +102,13 @@ describe('$secret references', () => {
 })
 
 describe('forms and preset', () => {
-  it('per-kind forms are ordered; only the Rovo extras use sensitive', () => {
+  it('per-kind forms are ordered; none are sensitive; the Rovo card is Authorize-only (Part 3a)', () => {
     for (const form of Object.values(CONNECTOR_FORMS)) {
       const orders = Object.values(form).map((a) => a.order)
       expect(orders).toEqual([...orders].sort((a, b) => a - b))
       for (const a of Object.values(form)) expect(a.sensitive).toBeFalsy()
     }
-    expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
-    expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
-  })
-
-  it('ROVO extras are the site URL, an optional email, and a sensitive PAT field', () => {
-    expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['siteUrl', 'email', 'apiToken'])
-    expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
-    expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
-    expect(ROVO_FORM_EXTRAS.apiToken.label).toContain('optional')
-    // email is an identifier, not a secret — plain text, ordered between siteUrl and the PAT
-    expect(ROVO_FORM_EXTRAS.email.control).toBe('text')
-    expect(ROVO_FORM_EXTRAS.email.sensitive).toBeFalsy()
-    expect(ROVO_FORM_EXTRAS.email.order).toBeGreaterThan(ROVO_FORM_EXTRAS.siteUrl.order)
-    expect(ROVO_FORM_EXTRAS.email.order).toBeLessThan(ROVO_FORM_EXTRAS.apiToken.order)
+    expect(ROVO_FORM_EXTRAS).toEqual({})
   })
 
   it('DEFAULT_PRESETS carries the preconfigurable rovo defaults', () => {
@@ -156,10 +143,5 @@ describe('forms and preset', () => {
     })
     expect(cfg.siteUrl).toBe('https://acme.atlassian.net')
     expect(cfg.email).toBe('ada@acme.test')
-  })
-
-  it('ROVO_FORM_EXTRAS renders siteUrl (plain text) before apiToken (sensitive)', () => {
-    expect(ROVO_FORM_EXTRAS.siteUrl).toMatchObject({ control: 'text', order: 9 })
-    expect(ROVO_FORM_EXTRAS.apiToken).toMatchObject({ sensitive: true, order: 10 })
   })
 })
