@@ -34,6 +34,11 @@ function compact<T extends Record<string, unknown>>(o: T): T {
   return o
 }
 
+/** Returns a fresh session state initialized with seed and model. */
+function freshSessionState(seed: string, model: string): SessionState {
+  return { seed, model, userText: '', assistantText: '', turnStartedAt: undefined }
+}
+
 /**
  * Deterministic, I/O-free transition. State maps are mutated in place and the
  * same state object is returned; the tuple shape keeps call sites uniform.
@@ -51,24 +56,11 @@ export function reduce(
       if (e.payload.resumed) {
         const existing = state.sessions.get(e.sessionId)
         if (existing) existing.model = e.payload.model
-        else
-          state.sessions.set(e.sessionId, {
-            seed,
-            model: e.payload.model,
-            userText: '',
-            assistantText: '',
-            turnStartedAt: undefined
-          })
+        else state.sessions.set(e.sessionId, freshSessionState(seed, e.payload.model))
         intents.push({ kind: 'event', seed, name: 'session resumed' })
         break
       }
-      state.sessions.set(e.sessionId, {
-        seed,
-        model: e.payload.model,
-        userText: '',
-        assistantText: '',
-        turnStartedAt: undefined
-      })
+      state.sessions.set(e.sessionId, freshSessionState(seed, e.payload.model))
       intents.push({
         kind: 'trace-root',
         seed,
