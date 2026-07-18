@@ -101,7 +101,10 @@ export function SettingsView({
           </button>
         ))}
       </nav>
-      <div className="min-w-0 flex-1 overflow-y-auto">
+      {/* scrollbar-gutter: content that grows past the fold (opening a memory editor, expanding
+          a provider) must not shove every control left by the scrollbar's width. Reserving the
+          gutter keeps the page width constant whether or not the bar is showing. */}
+      <div className="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-8">
           {payload?.loadError && (
             <div

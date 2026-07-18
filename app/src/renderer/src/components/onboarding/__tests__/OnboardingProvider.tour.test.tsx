@@ -27,6 +27,20 @@ beforeEach(() => {
       patch: vi.fn(async () => payload())
     },
     agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ok', email: 'x@y' })) },
+    providers: {
+      statuses: vi.fn(async () => [
+        {
+          instanceId: 'claude-default',
+          driverKind: 'claude-agent-sdk',
+          displayName: 'Claude',
+          state: 'ready',
+          detail: 'ready',
+          checkedAt: '2026-07-19T10:00:00.000Z'
+        }
+      ]),
+      refresh: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
+    },
     packs: {
       list: vi.fn(async () => ({
         packs: [
@@ -82,7 +96,7 @@ describe('OnboardingProvider → tour handoff', () => {
     await clickWhenEnabled(/continue/i)
     await waitFor(() => expect(screen.getByTestId('wizard-step-provider')).toBeTruthy())
 
-    // claude -> integrations (gate opens once authStatus resolves ok)
+    // provider -> integrations (gate opens once a provider reports ready)
     await clickWhenEnabled(/continue/i)
     await waitFor(() => expect(screen.getByTestId('wizard-step-integrations')).toBeTruthy())
 

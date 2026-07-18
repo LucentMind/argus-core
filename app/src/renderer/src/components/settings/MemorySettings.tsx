@@ -1,10 +1,83 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
-import { SettingsSection, SettingRow, Switch, DraftTextarea } from './settingsLayout'
-import { Chip, IconBtn } from '../ui'
+import { Check, Pencil, Trash2 } from 'lucide-react'
+import { SettingsSection, SettingRow, Switch, TEXTAREA_FIELD } from './settingsLayout'
+import { Btn, Chip, IconBtn } from '../ui'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
+
+/**
+ * Pencil while closed, check while open — one affordance that both opens and commits, which
+ * is what a single button on the row implies. Declared at module scope (not nested in
+ * MemorySettings) so it isn't recreated per render: `react-hooks/static-components`, and for
+ * {@link MemoryEditor} it would also remount the textarea and drop the caret on every
+ * keystroke.
+ */
+function EditToggle({
+  name,
+  open,
+  onOpen,
+  onSave
+}: {
+  name: string
+  open: boolean
+  onOpen: () => void
+  onSave: () => void
+}): React.JSX.Element {
+  return (
+    <IconBtn
+      aria-label={open ? `Save ${name}` : `Edit ${name}`}
+      title={open ? 'Save' : 'Edit'}
+      className={open ? 'text-signal' : undefined}
+      onClick={open ? onSave : onOpen}
+    >
+      {open ? <Check size={14} /> : <Pencil size={14} />}
+    </IconBtn>
+  )
+}
+
+/**
+ * Editor body: a plain textarea over the caller's draft, so Save is the only writer.
+ * Deliberately NOT DraftTextarea, which commits on blur — that would fire on the way to
+ * clicking Save and write twice, and would also persist a draft the user meant to abandon.
+ */
+function MemoryEditor({
+  name,
+  value,
+  onChange,
+  onSave,
+  onCancel
+}: {
+  name: string
+  value: string
+  onChange: (v: string) => void
+  onSave: () => void
+  onCancel: () => void
+}): React.JSX.Element {
+  return (
+    // A bare child of the section Card, outside any SettingRow, so it carries its own
+    // padding — without it the textarea sits flush against the edge.
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <textarea
+        autoFocus
+        aria-label={`edit · ${name}`}
+        className={TEXTAREA_FIELD}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onCancel()
+        }}
+      />
+      <div className="flex items-center gap-2">
+        <Btn variant="primary" onClick={onSave}>
+          Save
+        </Btn>
+        <Btn onClick={onCancel}>Cancel</Btn>
+        <span className="text-xs text-mute">Esc cancels</span>
+      </div>
+    </div>
+  )
+}
 
 export function MemorySettings(): React.JSX.Element {
   const access = useAccessPayload() // keeps enablement live via access:changed
@@ -38,10 +111,17 @@ export function MemorySettings(): React.JSX.Element {
     setEditing(name)
   }
 
-  async function commit(name: string, content: string): Promise<void> {
-    setPayload(await window.argus.memory.write(name, content))
+  async function save(name: string): Promise<void> {
+    setPayload(await window.argus.memory.write(name, draft))
     setEditing(null)
     void refresh()
+  }
+
+  /** Close without writing. Bound to Escape and to a second click on the toggle when
+   *  nothing was typed — an editor you can only leave by saving is a trap. */
+  function cancel(): void {
+    setEditing(null)
+    setDraft('')
   }
 
   async function remove(name: string): Promise<void> {
@@ -63,20 +143,21 @@ export function MemorySettings(): React.JSX.Element {
           <Chip tone={payload.indexLines >= payload.capLines ? 'danger' : 'neutral'}>
             {payload.indexLines} / {payload.capLines} lines
           </Chip>
-          <IconBtn aria-label="Edit _index" title="Edit" onClick={() => void openEditor('_index')}>
-            <Pencil size={14} />
-          </IconBtn>
+          <EditToggle
+            name="_index"
+            open={editing === '_index'}
+            onOpen={() => void openEditor('_index')}
+            onSave={() => void save('_index')}
+          />
         </SettingRow>
         {editing === '_index' && (
-          // The editor is a bare child of the section Card, outside any SettingRow, so it
-          // carries its own padding — without it the textarea sits flush against the edge.
-          <div className="px-4 py-3">
-            <DraftTextarea
-              value={draft}
-              onCommit={(v) => void commit('_index', v)}
-              aria-label="edit · _index"
-            />
-          </div>
+          <MemoryEditor
+            name="_index"
+            value={draft}
+            onChange={setDraft}
+            onSave={() => void save('_index')}
+            onCancel={cancel}
+          />
         )}
       </SettingsSection>
 
@@ -97,13 +178,12 @@ export function MemorySettings(): React.JSX.Element {
                 onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
                 aria-label={`enabled · ${t.name}`}
               />
-              <IconBtn
-                aria-label={`Edit ${t.name}`}
-                title="Edit"
-                onClick={() => void openEditor(t.name)}
-              >
-                <Pencil size={14} />
-              </IconBtn>
+              <EditToggle
+                name={t.name}
+                open={editing === t.name}
+                onOpen={() => void openEditor(t.name)}
+                onSave={() => void save(t.name)}
+              />
               <IconBtn
                 aria-label={`Delete ${t.name}`}
                 title="Delete"
@@ -114,13 +194,13 @@ export function MemorySettings(): React.JSX.Element {
               </IconBtn>
             </SettingRow>
             {editing === t.name && (
-              <div className="px-4 py-3">
-                <DraftTextarea
-                  value={draft}
-                  onCommit={(v) => void commit(t.name, v)}
-                  aria-label={`edit · ${t.name}`}
-                />
-              </div>
+              <MemoryEditor
+                name={t.name}
+                value={draft}
+                onChange={setDraft}
+                onSave={() => void save(t.name)}
+                onCancel={cancel}
+              />
             )}
           </div>
         ))}
