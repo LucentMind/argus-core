@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TextViewer } from '../TextViewer'
-import type { TextDocOpenOk, TextDocSource } from '../../../../shared/textdoc'
+import {
+  textDocKey,
+  type TextDocOpenOk,
+  type TextDocOpenResult,
+  type TextDocSource
+} from '../../../../shared/textdoc'
 
 const UTIL_TS_DOC: TextDocOpenOk = {
   ok: true,
@@ -35,7 +40,18 @@ const LARGE_DOC: TextDocOpenOk = {
   totalLines: 3_000_000
 }
 
+const LARGE_DOC_B: TextDocOpenOk = {
+  ok: true,
+  title: 'NAV-1 / evidence/big2.log',
+  lang: null,
+  ref: null,
+  totalLines: 2_000_000
+}
+
+let progressCbs: Array<(p: { key: string; fraction: number }) => void> = []
+
 beforeEach(() => {
+  progressCbs = []
   window.argus = {
     evidence: {
       list: vi.fn(async () => [])
@@ -44,6 +60,7 @@ beforeEach(() => {
       open: vi.fn(async (source: TextDocSource) => {
         if (source.kind === 'evidence' && source.evidenceId === 1) return SMALL_DOC
         if (source.kind === 'evidence' && source.evidenceId === 2) return LARGE_DOC
+        if (source.kind === 'evidence' && source.evidenceId === 3) return LARGE_DOC_B
         return UTIL_TS_DOC
       }),
       lines: vi.fn(async (_s: TextDocSource, from: number, to: number) => ({
@@ -53,7 +70,12 @@ beforeEach(() => {
       search: vi.fn(async () => undefined),
       cancelSearch: vi.fn(async () => undefined),
       onSearchHits: vi.fn(() => () => {}),
-      onIndexProgress: vi.fn(() => () => {})
+      onIndexProgress: vi.fn((cb: (p: { key: string; fraction: number }) => void) => {
+        progressCbs.push(cb)
+        return () => {
+          progressCbs = progressCbs.filter((c) => c !== cb)
+        }
+      })
     }
   } as never
   // jsdom has no scrollIntoView
@@ -163,5 +185,63 @@ describe('TextViewer', () => {
     await userEvent.type(jump, '2500000{Enter}')
     // the row for 2,500,000 becomes the scroll target — its id appears
     await waitFor(() => expect(document.querySelector('#line-2500000')).toBeInTheDocument())
+  })
+
+  it('clears the indexing chip when the source switches', async () => {
+    const { rerender } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByText('3,000,000 lines')
+    act(() => progressCbs.forEach((cb) => cb({ key: 'e:2', fraction: 0.42 })))
+    expect(screen.getByText('indexing… 42%')).toBeInTheDocument()
+    // switching to another source must drop A's stale chip immediately, before any B events
+    rerender(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 3 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    expect(screen.queryByText(/indexing…/)).not.toBeInTheDocument()
+    await screen.findByText('2,000,000 lines')
+    expect(screen.queryByText(/indexing…/)).not.toBeInTheDocument()
+  })
+
+  it('ignores a stale open response after the source switches', async () => {
+    const pending = new Map<string, (r: TextDocOpenResult) => void>()
+    window.argus.textdoc.open = vi.fn(
+      (source: TextDocSource) =>
+        new Promise<TextDocOpenResult>((resolve) => pending.set(textDocKey(source), resolve))
+    ) as never
+    const { rerender } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    rerender(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 3 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    // B resolves first — the viewer shows B
+    await act(async () => pending.get('e:3')!(LARGE_DOC_B))
+    expect(await screen.findByText('NAV-1 / evidence/big2.log')).toBeInTheDocument()
+    // A's late resolution must be dropped: no doc/title/scrollTarget from A
+    await act(async () => pending.get('e:2')!(LARGE_DOC))
+    expect(screen.getByText('NAV-1 / evidence/big2.log')).toBeInTheDocument()
+    expect(screen.queryByText('NAV-1 / evidence/big.log')).not.toBeInTheDocument()
   })
 })
