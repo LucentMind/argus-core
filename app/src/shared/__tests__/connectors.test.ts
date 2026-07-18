@@ -120,9 +120,6 @@ describe('forms and preset', () => {
       transport: 'http',
       oauth: true
     })
-    expect(rovo.links.createApiToken).toBe(
-      'https://id.atlassian.com/manage-profile/security/api-tokens'
-    )
     expect(presetsSchema.parse(DEFAULT_PRESETS)).toMatchObject(DEFAULT_PRESETS)
   })
 
@@ -133,15 +130,5 @@ describe('forms and preset', () => {
     expect(p.s3.kind).toBe('future-kind')
     expect((p.s3 as Record<string, unknown>).extra).toBe(1)
     expect(p.s3.links).toEqual({})
-  })
-
-  it('httpConfigSchema accepts and round-trips siteUrl + email (Rovo REST, Part 3)', () => {
-    const cfg = connectorConfig<HttpConnectorConfig>('http', {
-      url: 'https://mcp.atlassian.com/v1/mcp/authv2',
-      siteUrl: 'https://acme.atlassian.net',
-      email: 'ada@acme.test'
-    })
-    expect(cfg.siteUrl).toBe('https://acme.atlassian.net')
-    expect(cfg.email).toBe('ada@acme.test')
   })
 })

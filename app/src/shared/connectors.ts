@@ -41,13 +41,7 @@ export const httpConfigSchema = z.looseObject({
   url: z.string().default(''),
   transport: z.enum(['http', 'sse']).default('http'),
   oauth: z.boolean().default(false),
-  headers: z.record(z.string(), z.unknown()).default(() => ({})), // values may be $secret refs
-  // No longer editable via ROVO_FORM_EXTRAS (Part 3a, Authorize-only card), but kept here —
-  // ReferencesSettings.atlassianTokenWarning and onboarding IntegrationsStep.restOk still read
-  // these directly off the connector config as a legacy-config / fallback signal.
-  apiToken: z.unknown().optional(), // Rovo preset: Atlassian PAT ($secret ref)
-  siteUrl: z.string().optional(), // Rovo preset: Atlassian site base URL for REST (Part 3)
-  email: z.string().optional() // Rovo preset: Atlassian account email — REST uses Basic auth when set (Jira Cloud)
+  headers: z.record(z.string(), z.unknown()).default(() => ({})) // values may be $secret refs
 })
 export type HttpConnectorConfig = z.infer<typeof httpConfigSchema>
 
@@ -186,7 +180,7 @@ export const DEFAULT_PRESETS: ConnectorPresets = {
     displayName: 'Atlassian Rovo',
     kind: 'http',
     config: { url: 'https://mcp.atlassian.com/v1/mcp/authv2', transport: 'http', oauth: true },
-    links: { createApiToken: 'https://id.atlassian.com/manage-profile/security/api-tokens' }
+    links: {}
   }
 }
 
