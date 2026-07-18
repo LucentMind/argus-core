@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { NodeTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node'
+import {
+  NodeTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor
+} from '@opentelemetry/sdk-trace-node'
 import { setLangfuseTracerProvider, startObservation, createTraceId } from '@langfuse/tracing'
 import { LangfuseOtelSpanAttributes } from '@langfuse/core'
 import { synthSpanId } from '../langfuseSink'
@@ -36,7 +40,11 @@ describe('Langfuse v5 tracing contract', () => {
     const traceId = await createTraceId(seed)
     const parentSpanContext = { traceId, spanId: synthSpanId(seed), traceFlags: 1 }
 
-    const root = startObservation('auth-bug · session 7', { metadata: { caseId: 1 } }, { parentSpanContext })
+    const root = startObservation(
+      'auth-bug · session 7',
+      { metadata: { caseId: 1 } },
+      { parentSpanContext }
+    )
     root.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_NAME, 'auth-bug · session 7')
     root.end()
     const rootCtx = { traceId, spanId: root.otelSpan.spanContext().spanId, traceFlags: 1 }
@@ -71,9 +79,7 @@ describe('Langfuse v5 tracing contract', () => {
     // The root must carry the trace-level name attribute. Naming the observation
     // alone leaves the trace unnamed — proven in Task 1, see EVIDENCE.md Q4.
     const rootSpan = spans.find((s) => s.name === 'auth-bug · session 7')
-    expect(rootSpan!.attributes[LangfuseOtelSpanAttributes.TRACE_NAME]).toBe(
-      'auth-bug · session 7'
-    )
+    expect(rootSpan!.attributes[LangfuseOtelSpanAttributes.TRACE_NAME]).toBe('auth-bug · session 7')
 
     const generation = spans.find((s) => s.name === 'turn')
     expect(generation).toBeDefined()
@@ -83,8 +89,7 @@ describe('Langfuse v5 tracing contract', () => {
     expect(attrs).toContain('claude-opus-4-8')
 
     // Explicit start/end produce a real duration, not an instant.
-    const durationNs =
-      generation!.duration[0] * 1e9 + generation!.duration[1]
+    const durationNs = generation!.duration[0] * 1e9 + generation!.duration[1]
     expect(durationNs).toBeGreaterThan(0)
 
     expect(spans.find((s) => s.name === 'read_file')).toBeDefined()
