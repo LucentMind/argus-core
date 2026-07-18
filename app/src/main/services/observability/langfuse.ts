@@ -9,9 +9,12 @@ import type { ObservationSink } from './sink'
  * Holds reducer state and forwards the resulting intents to a sink.
  *
  * Error policy is deliberately split: a throw from `reduce` is a logic bug and
- * is logged loudly without touching `lastError()`, so it is never reported to
- * the user as a connector fault. A throw from the sink is a network or config
- * condition and *is* surfaced through `lastError()` to the health row.
+ * is logged loudly without touching `lastError()`, so it is never reported as
+ * a connector fault. A throw from the sink is a network or config condition
+ * and *is* recorded via `lastError()` — but nothing currently reads it. The
+ * health row is driven separately, by `langfuseCheck()` calling
+ * `probeLangfuseCredentials`, a live credential probe that does not consult
+ * this exporter.
  */
 export class LangfuseExporter {
   private state: ExporterState = initialState()
