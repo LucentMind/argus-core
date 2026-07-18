@@ -247,8 +247,11 @@ describe('TextViewer', () => {
     // offset from the full view. jsdom has no layout, so centering row 2 yields
     // 2*20 + 10 = 50.
     await waitFor(() => expect(scroller.scrollTop).toBe(50))
+    // simulate the browser's async echo of the programmatic scroll (jsdom
+    // doesn't fire it): it must NOT re-seed the cursor to the filtered top
+    fireEvent.scroll(scroller)
     // leaving restores the user's file position (cursor preserved across the
-    // programmatic transition scrolls via the one-shot seed skip)
+    // programmatic transition scrolls; the echo above was suppressed)
     await userEvent.clear(filterInput)
     await waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(1_000_000))
   })

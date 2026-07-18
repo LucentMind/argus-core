@@ -65,13 +65,33 @@ export function VirtualLines({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(measure, [totalRows])
 
+  // A programmatic scrollTop assignment fires an asynchronous `scroll` event in
+  // real browsers (jsdom doesn't) — an echo of the measure() we already ran
+  // synchronously below. Suppress exactly that echo, or it would re-fire
+  // onVisibleRows after the parent has finished reacting to the programmatic
+  // scroll (e.g. TextViewer's cursor restore) and clobber its state.
+  const suppressEchoTop = useRef<number | null>(null)
+
   useEffect(() => {
     if (!scrollTarget || !ref.current) return
     const el = ref.current
     el.scrollTop = Math.max(0, scrollTarget.row * ROW_H - el.clientHeight / 2 + ROW_H / 2)
     measure()
+    suppressEchoTop.current = el.scrollTop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTarget?.nonce])
+
+  const onScroll = (): void => {
+    const el = ref.current
+    if (el && suppressEchoTop.current !== null && el.scrollTop === suppressEchoTop.current) {
+      // the echo of our own assignment — range is already correct from the
+      // synchronous measure(); a real user scroll changes scrollTop and falls through
+      suppressEchoTop.current = null
+      return
+    }
+    suppressEchoTop.current = null
+    measure()
+  }
 
   const rows: React.JSX.Element[] = []
   for (let r = range.first; r <= Math.min(range.last, totalRows - 1); r++) {
@@ -106,7 +126,7 @@ export function VirtualLines({
   return (
     <div
       ref={ref}
-      onScroll={measure}
+      onScroll={onScroll}
       className={`relative overflow-auto font-mono text-xs leading-5 text-dim ${className}`}
     >
       <div style={{ height: totalRows * ROW_H, position: 'relative' }}>{rows}</div>
