@@ -349,6 +349,51 @@ describe('CaseFiles "Open in"', () => {
     await waitFor(() => expect(onOpenInPanel).toHaveBeenCalledWith(7, 'sample-pack', 'text-viewer'))
   })
 
+  it('routes oversized text evidence to the built-in viewer instead of a panel', async () => {
+    const onOpenInPanel = vi.fn()
+    const onOpenFile = vi.fn()
+    window.argus.evidence.list = vi.fn(async () => [
+      ...openInFixture,
+      {
+        id: 8,
+        caseId: 1,
+        relPath: 'evidence/huge.log',
+        sha256: 'v',
+        artifactType: 'logcat',
+        size: 5 * 1024 * 1024,
+        origin: 'upload',
+        meta: {},
+        createdAt: '2026-03-14T09:32:00.000Z'
+      }
+    ]) as never
+    render(
+      <CaseFiles
+        caseSlug="CASE-1"
+        onOpenFile={onOpenFile}
+        panelDecls={openInDecls}
+        onOpenInPanel={onOpenInPanel}
+      />
+    )
+    const label = await screen.findByText('huge.log')
+    const row = label.closest('li') as HTMLElement
+    // a panel would whole-read the file — the pack button is replaced by the
+    // size-routed built-in viewer button (same routing as the name click)
+    expect(within(row).queryByRole('button', { name: /Open in Text Viewer/i })).toBeNull()
+    fireEvent.click(within(row).getByRole('button', { name: 'Open in viewer' }))
+    expect(onOpenFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        relPath: 'evidence/huge.log',
+        evidence: expect.objectContaining({ id: 8 })
+      })
+    )
+    expect(onOpenInPanel).not.toHaveBeenCalled()
+    // the small row of the same type keeps its pack button
+    const smallRow = screen.getByText('app.log').closest('li') as HTMLElement
+    expect(
+      within(smallRow).getByRole('button', { name: /Open in Text Viewer/i })
+    ).toBeInTheDocument()
+  })
+
   it('shows no Open-in control for an unhandled type', async () => {
     render(
       <CaseFiles caseSlug="CASE-1" onOpenFile={vi.fn()} panelDecls={[]} onOpenInPanel={vi.fn()} />

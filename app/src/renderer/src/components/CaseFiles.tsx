@@ -10,6 +10,7 @@ import type {
   FileNode
 } from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
+import { MAX_WHOLE_FILE_BYTES } from '../../../shared/textdoc'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
@@ -228,6 +229,19 @@ export function CaseFiles({
           {onOpenInPanel &&
             (() => {
               if (targets.length === 0) return null
+              // oversized text evidence: a webPanel would whole-read the file, so
+              // offer the size-routed built-in viewer instead (same auto-routing
+              // as clicking the file name — >2MiB lands in the indexed viewer)
+              if (r.size > MAX_WHOLE_FILE_BYTES && TEXT_LIKE.test(name)) {
+                return (
+                  <button
+                    className="shrink-0 rounded-r1 border border-hair px-1.5 py-0.5 text-[11px] text-dim opacity-0 transition-all hover:bg-overlay hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+                    onClick={() => clickFile(r)}
+                  >
+                    Open in viewer
+                  </button>
+                )
+              }
               if (targets.length === 1) {
                 const t = targets[0]
                 return (
