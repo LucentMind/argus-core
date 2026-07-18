@@ -212,6 +212,9 @@ export interface AuthStatus {
   subscription?: string
   /** CLI version from the init message's `claude_code_version` field, e.g. "2.1.205". */
   version?: string
+  /** Driver-supplied remediation for a failed probe (`AgentDriver.authFixHint`). Only
+   *  meaningful when `ok` is false; the Health screen renders it as the row's fix hint. */
+  fixHint?: string
 }
 
 export interface PreflightCheck {

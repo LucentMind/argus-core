@@ -425,6 +425,7 @@ describe('CaseSession', () => {
     const rejectingDriver: AgentDriver = {
       kind: 'claude-agent-sdk',
       toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      authFixHint: 'stub hint',
       capabilities: { permissionModes: ['default'], editableApprovals: true, costReporting: true },
       createSession: () => ({
         events: () => eventQueue,

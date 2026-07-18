@@ -14,7 +14,7 @@ import { AnnotatedForm } from './AnnotatedForm'
 import { ProviderModels } from './ProviderModels'
 import { ProviderInstances } from './ProviderInstances'
 import { RedactedText } from './RedactedText'
-import { ClaudeIcon } from './ClaudeIcon'
+import { ProviderIcon } from './ProviderIcon'
 import { getDriver, nextInstanceId } from '../../../../shared/drivers'
 import {
   PERMISSION_MODES,
@@ -133,7 +133,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
             />
             {driver ? (
               <span className="flex min-w-0 items-center gap-1.5">
-                <ClaudeIcon className="text-ink" />
+                <ProviderIcon kind={driver.kind} className="text-ink" />
                 <span data-testid="active-driver-label" className="truncate text-sm text-ink">
                   {inst?.displayName?.trim() || (driver.shortLabel ?? driver.label)}
                 </span>
