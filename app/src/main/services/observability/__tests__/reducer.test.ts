@@ -169,4 +169,56 @@ describe('reduce', () => {
     expect(gen).not.toHaveProperty('startTime')
     expect(gen).not.toHaveProperty('endTime')
   })
+
+  it('emits a resume marker rather than a second trace-root', () => {
+    const s = initialState()
+    run([started()], { captureContent: false }, s)
+    const second = run([started({}, true)], { captureContent: false }, s)
+    expect(second).toEqual([
+      { kind: 'event', seed: 'argus-session-7', name: 'session resumed' }
+    ])
+  })
+
+  it('creates session state on a resume with no prior state (restarted app)', () => {
+    const s = initialState()
+    const intents = run([started({}, true), turnStarted('x'), turnCompleted()], { captureContent: false }, s)
+    expect(intents).toContainEqual(expect.objectContaining({ kind: 'event', name: 'session resumed' }))
+    expect(intents).toContainEqual(expect.objectContaining({ kind: 'generation', name: 'turn' }))
+  })
+
+  it('emits an ERROR-level event for session.error', () => {
+    const intents = run([
+      started(),
+      { ...base, type: 'session.error', payload: { message: 'backend died' } } as AgentEvent
+    ])
+    expect(intents).toContainEqual({
+      kind: 'event',
+      seed: 'argus-session-7',
+      name: 'session error',
+      level: 'ERROR',
+      metadata: { message: 'backend died' }
+    })
+  })
+
+  it('ignores session.error for an unknown session', () => {
+    const intents = run([
+      { ...base, type: 'session.error', payload: { message: 'orphan' } } as AgentEvent
+    ])
+    expect(intents).toEqual([])
+  })
+
+  it('omits tool duration when the start event was never seen', () => {
+    const intents = run([
+      started(),
+      {
+        ...base,
+        ts: T2,
+        type: 'tool.call.completed',
+        payload: { toolCallId: 'unknown', name: 'grep', outputPreview: 'x', isError: true }
+      } as AgentEvent
+    ])
+    const tool = intents.find((i) => i.kind === 'tool')
+    expect(tool).toMatchObject({ name: 'grep', isError: true, endTime: Date.parse(T2) })
+    expect(tool).not.toHaveProperty('startTime')
+  })
 })
