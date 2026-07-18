@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   discoverJiraCloud,
+  discoverCloud,
   AtlassianError,
   resolveAtlassianCreds,
   AtlassianClient,
@@ -54,6 +55,42 @@ describe('discoverJiraCloud', () => {
     const err = await discoverJiraCloud('tok', invalidJsonFetch, 15000).catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('http')
+  })
+})
+
+const RES = [
+  {
+    id: 'c1',
+    url: 'https://argus88.atlassian.net',
+    scopes: ['read:page:confluence', 'read:space:confluence']
+  },
+  {
+    id: 'c1',
+    url: 'https://argus88.atlassian.net',
+    scopes: ['read:jira-work']
+  }
+]
+const fetch200 = (b: unknown): typeof fetch =>
+  (async () => new Response(JSON.stringify(b), { status: 200 })) as unknown as typeof fetch
+
+describe('discoverCloud', () => {
+  it('selects the confluence resource for product=confluence', async () => {
+    expect(await discoverCloud('t', 'confluence', fetch200(RES), 15000)).toEqual({
+      cloudId: 'c1',
+      siteUrl: 'https://argus88.atlassian.net'
+    })
+  })
+  it('selects the jira resource for product=jira', async () => {
+    expect(await discoverCloud('t', 'jira', fetch200(RES), 15000)).toEqual({
+      cloudId: 'c1',
+      siteUrl: 'https://argus88.atlassian.net'
+    })
+  })
+  it('throws auth when the product scope is absent', async () => {
+    const only = [{ id: 'x', url: 'https://x', scopes: ['read:jira-work'] }]
+    await expect(discoverCloud('t', 'confluence', fetch200(only), 15000)).rejects.toMatchObject({
+      code: 'auth'
+    })
   })
 })
 
