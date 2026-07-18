@@ -4,6 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
 import type { PacksListPayload } from '../../../../../shared/packs'
+import {
+  defaultSettings,
+  type SettingsPayload,
+  type ResolvedToolRow
+} from '../../../../../shared/settings'
 
 const listed: PacksListPayload = {
   error: null,
@@ -29,6 +34,30 @@ const listed: PacksListPayload = {
       binaries: []
     }
   ]
+}
+
+const toolRows: ResolvedToolRow[] = [
+  {
+    id: 'argus-demo',
+    packId: 'navigation',
+    displayName: 'Demo tool',
+    description: 'demo',
+    kind: 'exe',
+    envVar: null,
+    settingsKey: 'demoBin',
+    settingsValue: '',
+    value: null,
+    source: 'default'
+  }
+]
+
+function settingsPayload(rows: ResolvedToolRow[] = toolRows): SettingsPayload {
+  return {
+    settings: defaultSettings(),
+    resolvedTools: rows,
+    dataRoot: { path: 'C:\\Users\\x\\Argus', fromEnv: false },
+    loadError: null
+  }
 }
 
 function mockPacks(
@@ -61,20 +90,32 @@ function mockPacks(
 let packs: Record<string, ReturnType<typeof vi.fn>>
 beforeEach(() => {
   packs = mockPacks()
-  ;(window as unknown as { argus: unknown }).argus = { packs }
+  ;(window as unknown as { argus: unknown }).argus = {
+    packs,
+    settings: {
+      get: vi.fn(async () => settingsPayload()),
+      patch: vi.fn(async () => settingsPayload()),
+      probeTools: vi.fn(async () => [
+        { id: 'argus-demo', ok: true, chip: 'found · v22', detail: 'C:/…/argus-demo · v22' }
+      ]),
+      pickPath: vi.fn(async () => 'C:\\new'),
+      onChanged: vi.fn(() => () => {})
+    },
+    graph: { install: vi.fn(async () => ({ ok: true, log: 'installed' })) }
+  }
   window.confirm = vi.fn(() => true)
 })
 
 describe('PacksSettings', () => {
   it('lists installed packs and shows Uninstall only for user-installed ones', async () => {
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     expect(await screen.findByText('Navigation')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Uninstall · navigation' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Uninstall · code-graph' })).not.toBeInTheDocument()
   })
 
   it('install flow: pick → inspect → install → relaunch prompt (upgrade never prompts)', async () => {
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
     await waitFor(() =>
       expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
@@ -94,7 +135,7 @@ describe('PacksSettings', () => {
       apiCompatible: true,
       platformCompatible: false
     })
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/mac-arm64|does not match/i)
     expect(packs.install).not.toHaveBeenCalled()
@@ -109,7 +150,7 @@ describe('PacksSettings', () => {
       platformCompatible: true
     })
     window.confirm = vi.fn(() => false)
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
     await waitFor(() => expect(window.confirm).toHaveBeenCalled())
     expect(packs.install).not.toHaveBeenCalled()
@@ -124,7 +165,7 @@ describe('PacksSettings', () => {
       platformCompatible: true
     })
     window.confirm = vi.fn(() => false)
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
     await waitFor(() => expect(window.confirm).toHaveBeenCalled())
     expect(packs.install).not.toHaveBeenCalled()
@@ -155,7 +196,7 @@ describe('PacksSettings', () => {
       platformCompatible: true
     })
     window.confirm = vi.fn(() => true)
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
     await waitFor(() => expect(window.confirm).toHaveBeenCalled())
     await waitFor(() =>
@@ -164,9 +205,46 @@ describe('PacksSettings', () => {
   })
 
   it('uninstall confirms then calls uninstall and prompts relaunch', async () => {
-    render(<PacksSettings />)
+    render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Uninstall · navigation' }))
     await waitFor(() => expect(packs.uninstall).toHaveBeenCalledWith('navigation'))
     expect(await screen.findByRole('button', { name: 'Relaunch now' })).toBeInTheDocument()
+  })
+
+  it('renders a pack’s analysis tools beneath it', async () => {
+    render(<PacksSettings settings={settingsPayload()} />)
+    expect(await screen.findByText('Demo tool')).toBeInTheDocument()
+    expect(await screen.findByText(/found · v22/)).toBeInTheDocument()
+  })
+
+  it('groups each tool under its declaring pack only', async () => {
+    const rows: ResolvedToolRow[] = [
+      ...toolRows,
+      { ...toolRows[0], id: 'graphify', packId: 'code-graph', displayName: 'Graphify' }
+    ]
+    const { container } = render(<PacksSettings settings={settingsPayload(rows)} />)
+    await screen.findByText('Demo tool')
+
+    const navGroup = container.querySelector('[data-pack-tools="navigation"]')
+    const cgGroup = container.querySelector('[data-pack-tools="code-graph"]')
+    expect(navGroup).toHaveTextContent('Demo tool')
+    expect(navGroup).not.toHaveTextContent('Graphify')
+    expect(cgGroup).toHaveTextContent('Graphify')
+    expect(cgGroup).not.toHaveTextContent('Demo tool')
+  })
+
+  it('renders no tool group for a pack that declares none', async () => {
+    const { container } = render(<PacksSettings settings={settingsPayload()} />)
+    await screen.findByText('CODE-GRAPH')
+    // only `navigation` owns a tool in the default fixture
+    expect(container.querySelectorAll('[data-pack-tools]')).toHaveLength(1)
+    expect(container.querySelector('[data-pack-tools="code-graph"]')).toBeNull()
+  })
+
+  it('Re-run checks re-probes every tool', async () => {
+    render(<PacksSettings settings={settingsPayload()} />)
+    await screen.findByText(/found · v22/)
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run checks' }))
+    await waitFor(() => expect(window.argus.settings.probeTools).toHaveBeenCalledTimes(2))
   })
 })
