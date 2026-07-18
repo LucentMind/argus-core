@@ -8,7 +8,7 @@ import { createCase } from '../../caseService'
 import { upsertCaseSummary } from '../../distill/summaries'
 import { createDetection } from '../../packs/detection'
 import { argusToolHandlers } from '../nativeTools'
-import { classifyToolCall, type RiskContext } from '../risk'
+import { classifyToolCall, CLAUDE_TOOL_TAXONOMY, type RiskContext } from '../risk'
 
 let tmp: string
 let argusHome: string
@@ -21,6 +21,7 @@ function ctx(overrides: Partial<RiskContext> = {}): RiskContext {
     caseDir: '/home/u/Argus/cases/old',
     workspaceRoots: [],
     readonlyRoots: [],
+    taxonomy: CLAUDE_TOOL_TAXONOMY,
     ...overrides
   }
 }

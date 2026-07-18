@@ -5,7 +5,7 @@ import type { ApprovalDecision } from '../../../shared/types'
 import type { PermissionMode } from '../../../shared/settings'
 import { AsyncQueue } from './asyncQueue'
 import { normalizeSdkMessage, makeEvent, type NormalizeCtx } from './normalize'
-import { classifyToolCall, type RiskContext } from './risk'
+import { classifyToolCall, CLAUDE_TOOL_TAXONOMY, type RiskContext } from './risk'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, SessionGrants } from './approvals'
 import { createArgusMcpServer, appendFinding, type NativeToolDeps } from './nativeTools'
@@ -160,7 +160,9 @@ export class CaseSession {
       workspaceRoots: deps.workspaceRoots,
       readonlyRoots: [...deps.skillsRoots],
       packCliNames: deps.packCliNames,
-      panelCommandRisk: panelCommandRiskMap(deps.panelCommandDecls ?? [])
+      panelCommandRisk: panelCommandRiskMap(deps.panelCommandDecls ?? []),
+      // Temporary: Task 4 replaces this with driver.toolTaxonomy.
+      taxonomy: CLAUDE_TOOL_TAXONOMY
     }
     const ao = deps.agentOptions ?? {}
     this.query = deps.createQuery({
