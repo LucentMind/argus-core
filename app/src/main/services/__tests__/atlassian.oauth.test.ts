@@ -36,4 +36,15 @@ describe('discoverJiraCloud', () => {
       AtlassianError
     )
   })
+
+  it('throws AtlassianError on invalid JSON response body', async () => {
+    const invalidJsonFetch = (async () =>
+      new Response('not json{', {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })) as unknown as typeof fetch
+    const err = await discoverJiraCloud('tok', invalidJsonFetch, 15000).catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('http')
+  })
 })
