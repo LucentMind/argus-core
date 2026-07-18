@@ -58,6 +58,17 @@ export interface DriverSessionContext {
   onCursor: (cursor: string) => void
   /** Per-turn accounting + auth verdict, extracted by the driver. */
   onTurnResult: (r: TurnResult) => void
+  /**
+   * Classification-only seam: run the harness risk classifier for a tool WITHOUT opening an
+   * approval card, returning just the verdict action. Used by permission-mode short-circuits
+   * that suppress the *ask* but must still honor a *deny* (Copilot `acceptEdits`: a write to
+   * an out-of-sandbox / read-only-root path is still rejected). Claude ignores it (its SDK
+   * enforces acceptEdits internally). Optional so drivers/tests without it are unaffected.
+   */
+  classifyOnly?: (
+    toolName: string,
+    input: Record<string, unknown>
+  ) => { action: 'allow' | 'ask' | 'deny'; reason?: string }
 }
 
 export interface DriverSession {
@@ -74,6 +85,10 @@ export interface DriverCapabilities {
   permissionModes: readonly PermissionMode[]
   editableApprovals: boolean
   costReporting: boolean
+  /** Whether the driver can expose Argus connector (external MCP) servers to the agent.
+   *  Absent = supported (Claude). `false` = declared degradation (Copilot v1): connector
+   *  tools are unavailable and each composed server is reported via `session.mcp.skipped`. */
+  mcpConnectors?: boolean
 }
 
 export interface ProbeAuthResult {
@@ -92,4 +107,11 @@ export interface AgentDriver {
   readonly capabilities: DriverCapabilities
   createSession(ctx: DriverSessionContext): DriverSession
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
+  /**
+   * Optional driver-specific classifier for whether a thrown/consumed error message is an
+   * auth failure. CaseSession's consume-catch prefers this when present (Copilot reports
+   * auth failure through a typed `session.error` channel AND a leaked message substring);
+   * absent, callers fall back to the Claude `isAuthFailure` heuristic.
+   */
+  isAuthErrorMessage?(message: string): boolean
 }

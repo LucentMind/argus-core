@@ -2,7 +2,11 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Sparkles, Lock, Gauge, SquareTerminal, ArrowUp } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
-import { orderedVisibleModels, effectiveDefaultModel } from '../../../shared/drivers'
+import {
+  orderedVisibleModels,
+  effectiveDefaultModel,
+  activeCapabilities
+} from '../../../shared/drivers'
 import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
 import type { SkillListItem } from '../../../shared/memoryIpc'
 
@@ -118,6 +122,13 @@ export function Composer({
   const modelOptions = settingsPayload
     ? orderedVisibleModels(settingsPayload.settings).map((m) => m.slug)
     : ['Claude Fable 5', 'Claude Opus 4.8', 'Claude Sonnet 5', 'Claude Haiku 4.5']
+
+  // permission modes offered are derived from the active driver's capabilities
+  // (Task 11) — never a hardcoded literal — so a driver that only supports a
+  // subset (hypothetically) has that subset reflected here automatically.
+  const permissionOptions = activeCapabilities(settingsPayload?.settings).permissionModes.map(
+    (m) => PERMISSION_MODE_LABELS[m]
+  )
 
   // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
   // draft — adjust-state-during-render pattern instead of a setState effect
@@ -248,7 +259,7 @@ export function Composer({
             menuLabel="Permission mode"
             value={permission}
             onChange={setPermission}
-            options={Object.values(PERMISSION_MODE_LABELS)}
+            options={permissionOptions}
           />
           <Divider />
           <button

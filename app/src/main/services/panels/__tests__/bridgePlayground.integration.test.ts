@@ -81,7 +81,7 @@ describe('bridge playground — upstream verbs end to end', () => {
       cite: (target, relPath, line) => cites.push({ ...target, relPath, line }),
       ingestEvidence: async () => ({ ok: false, reason: 'not-implemented-in-fixture' })
     }
-    const s = createSession(db, 'NAV-1')
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
     const bridge = createPanelBridge({
       db,
       argusHome: home,

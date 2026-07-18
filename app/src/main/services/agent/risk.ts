@@ -5,6 +5,7 @@ import { classifyToolName, type RiskLevel } from '../../../shared/connectors'
 export type ToolTaxonomyEntry =
   | { kind: 'fs-read' | 'fs-write'; pathFields?: readonly string[] }
   | { kind: 'shell'; commandField: string }
+  | { kind: 'network'; urlField: string }
 
 export interface ToolTaxonomy {
   entries: Readonly<Record<string, ToolTaxonomyEntry>>
@@ -32,7 +33,11 @@ export type RiskVerdict =
   | { action: 'ask'; risk: Risk; grantKey: string | null; reason: string }
   | { action: 'deny'; risk: Risk; reason: string }
 
-const NATIVE_RISK: Record<string, RiskVerdict> = {
+/** Canonical Argus native-tool risk verdicts (keyed by `mcp__argus__<name>`). Exported so
+ *  drivers can decide per-tool permission gating: a driver may bypass its SDK permission
+ *  channel (Copilot `skipPermission`) for tools whose action is 'allow' (LOW), exactly as
+ *  Claude auto-allows them. */
+export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__search_evidence: { action: 'allow', risk: 'LOW' },
   mcp__argus__search_case_history: { action: 'allow', risk: 'LOW' },
   mcp__argus__list_evidence: { action: 'allow', risk: 'LOW' },
@@ -284,6 +289,25 @@ export function classifyToolCall(
       if (worse) worst = v
     }
     return worst
+  }
+
+  // Network egress (Copilot `url`/fetch): session-scoped per-host grants. Argus has no
+  // network sandbox, so the risk is uniform MEDIUM ask; the grant key is the hostname so
+  // an allow-for-session covers repeat fetches to the same domain.
+  if (tax && tax.kind === 'network') {
+    const url = String(input[tax.urlField] ?? '')
+    let host = ''
+    try {
+      host = new URL(url).hostname
+    } catch {
+      host = ''
+    }
+    return {
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: `net:${host}`,
+      reason: `Network egress: ${url}`
+    }
   }
 
   // Connector (MCP) tools: tool-risk.json overrides, else spec §2.5 name convention.
