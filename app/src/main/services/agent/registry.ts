@@ -146,7 +146,7 @@ export class AgentService {
       }
     }
 
-    const cursor = sessionCursor(this.deps.db, sessionId)
+    const cursor = sessionCursor(this.deps.db, sessionId, this.driver.kind)
 
     const access = this.deps.agentAccess()
     const resolvedSkills = materializeSessionSkills(this.deps.argusHome, caseSlug, access)

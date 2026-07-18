@@ -161,13 +161,14 @@ export class CaseSession {
       resumeCursor: deps.resumeCursor,
       eventCtx: () => this.ctx(),
       onToolRequest: this.handleToolRequest.bind(this),
-      // Task 5 renames this column to driver_cursor; until then keep the sdk_session_id
-      // write identical to the old updateCursor SQL (the driver already gated durability
-      // + validity before calling us).
+      // Tag the cursor with the driver that produced it — sessionCursor gates resume on
+      // this match so a future Copilot driver can never resume a Claude session's cursor.
       onCursor: (cursor) => {
         this.deps.db
-          .prepare(`UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`)
-          .run(cursor, new Date().toISOString(), this.sessionId)
+          .prepare(
+            `UPDATE sessions SET driver_cursor = ?, driver_kind = ?, updated_at = ? WHERE id = ?`
+          )
+          .run(cursor, this.deps.driver.kind, new Date().toISOString(), this.sessionId)
       },
       onTurnResult: (r) => this.handleTurnResult(r)
     }
