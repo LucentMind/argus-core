@@ -473,7 +473,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
     const unProgress = window.argus.textdoc.onIndexProgress((p) => {
       if (p.key === docKey) setIndexing(p.fraction >= 1 ? null : p.fraction)
     })
-    void window.argus.textdoc.open(source, focusStart).then((r) => {
+    void window.argus.textdoc.open(source).then((r) => {
       if (stale) return
       if (!r.ok) {
         setError(

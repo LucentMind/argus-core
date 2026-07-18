@@ -121,8 +121,8 @@ const argus = {
     }
   },
   textdoc: {
-    open: (source: TextDocSource, focusStart: number): Promise<TextDocOpenResult> =>
-      ipcRenderer.invoke(IPC.textdocOpen, source, focusStart),
+    open: (source: TextDocSource): Promise<TextDocOpenResult> =>
+      ipcRenderer.invoke(IPC.textdocOpen, source),
     lines: (source: TextDocSource, from: number, to: number): Promise<TextDocLines> =>
       ipcRenderer.invoke(IPC.textdocLines, source, from, to),
     search: (
