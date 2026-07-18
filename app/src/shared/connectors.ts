@@ -42,6 +42,9 @@ export const httpConfigSchema = z.looseObject({
   transport: z.enum(['http', 'sse']).default('http'),
   oauth: z.boolean().default(false),
   headers: z.record(z.string(), z.unknown()).default(() => ({})), // values may be $secret refs
+  // No longer editable via ROVO_FORM_EXTRAS (Part 3a, Authorize-only card), but kept here —
+  // ReferencesSettings.atlassianTokenWarning and onboarding IntegrationsStep.restOk still read
+  // these directly off the connector config as a legacy-config / fallback signal.
   apiToken: z.unknown().optional(), // Rovo preset: Atlassian PAT ($secret ref)
   siteUrl: z.string().optional(), // Rovo preset: Atlassian site base URL for REST (Part 3)
   email: z.string().optional() // Rovo preset: Atlassian account email — REST uses Basic auth when set (Jira Cloud)
@@ -159,29 +162,11 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
   }
 }
 
-/** Extra fields shown only on preset cards (REST credentials, Part 3). */
-export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
-  siteUrl: {
-    control: 'text',
-    label: 'Site URL (REST, optional)',
-    placeholder: 'https://your-site.atlassian.net',
-    order: 9
-  },
-  email: {
-    control: 'text',
-    label: 'Email (REST, optional)',
-    placeholder: 'you@example.com',
-    order: 9.5,
-    help: 'Only used with an API token for Server/DC or fallback. Jira Cloud via your Atlassian authorization needs neither.'
-  },
-  apiToken: {
-    control: 'password',
-    label: 'Atlassian API token (optional)',
-    order: 10,
-    sensitive: true,
-    help: 'Optional. Only needed for Confluence reference-sync, or as a fallback if your Atlassian authorization lacks Jira access. Jira ticket import and attachments now use your Atlassian authorization.'
-  }
-}
+/**
+ * Extra fields shown only on preset cards. Empty as of Part 3a — Jira/Confluence REST run
+ * OAuth-only through the gateway, so the Rovo card is Authorize-only (no token form fields).
+ */
+export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {}
 
 // --- presets (config/connector-presets.json over these built-ins) ------------
 
