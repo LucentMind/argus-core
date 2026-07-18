@@ -11,6 +11,8 @@ import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
 import { createDetection } from '../../packs/detection'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
+import { CLAUDE_TOOL_TAXONOMY } from '../risk'
+import type { AgentDriver } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -411,6 +413,32 @@ describe('CaseSession', () => {
           (e.payload as { decision: string }).decision === 'cancelled'
       )
     ).toBe(true)
+    expect(events.some((e) => e.type === 'session.exited')).toBe(true)
+  })
+
+  // Regression (Task 4 review): the pre-driver harness swallowed interrupt rejections
+  // (`query.interrupt().catch(...)`), and stop() awaits interrupt() between draining
+  // approvals and emitting session.exited / closing the mirror. A driver whose interrupt
+  // rejects must therefore never abort the teardown or surface a rejection to IPC callers.
+  it('stop() completes even when the driver session interrupt() rejects', async () => {
+    const eventQueue = new AsyncQueue<AgentEvent>()
+    const rejectingDriver: AgentDriver = {
+      kind: 'claude-agent-sdk',
+      toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      capabilities: { permissionModes: ['default'], editableApprovals: true, costReporting: true },
+      createSession: () => ({
+        events: () => eventQueue,
+        send: () => undefined,
+        interrupt: async () => {
+          throw new Error('interrupt transport failed')
+        },
+        end: () => eventQueue.end()
+      }),
+      probeAuth: async () => ({ ok: true, detail: '' })
+    }
+    const s = makeSession(fakeSdk(), { driver: rejectingDriver })
+    await expect(s.stop('stopped')).resolves.toBeUndefined()
+    expect(s.state).toBe('dead')
     expect(events.some((e) => e.type === 'session.exited')).toBe(true)
   })
 
