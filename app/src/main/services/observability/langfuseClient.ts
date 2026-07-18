@@ -1,5 +1,16 @@
 import { Langfuse } from 'langfuse'
-import type { LangfuseClientLike } from './langfuse'
+
+export interface LangfuseTraceLike {
+  update(o: Record<string, unknown>): void
+}
+export interface LangfuseClientLike {
+  trace(o: { id: string; name?: string; metadata?: Record<string, unknown> }): LangfuseTraceLike
+  generation(o: Record<string, unknown>): void
+  span(o: Record<string, unknown>): void
+  score(o: { traceId: string; name: string; value: number; comment?: string }): void
+  flushAsync(): Promise<void>
+  shutdownAsync(): Promise<void>
+}
 
 /**
  * Adapts the real `langfuse` SDK client (v3, classic REST client — `new Langfuse(...)`

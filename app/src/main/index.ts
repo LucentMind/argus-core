@@ -130,6 +130,7 @@ import type {
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
 import { buildLangfuseClient } from './services/observability/langfuseClient'
+import { LegacySink } from './services/observability/legacySink'
 import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
 import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
@@ -333,7 +334,7 @@ function registerIpc(): void {
       return
     }
     langfuseExporter = new LangfuseExporter(
-      buildLangfuseClient({ host: s.host, publicKey: s.publicKey, secretKey }),
+      new LegacySink(buildLangfuseClient({ host: s.host, publicKey: s.publicKey, secretKey })),
       { captureContent: s.captureContent }
     )
   }
