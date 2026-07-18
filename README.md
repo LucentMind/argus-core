@@ -36,7 +36,7 @@ per-case workspaces where evidence, findings, chat sessions, and the report live
 | Pillar | Description |
 |---|---|
 | **Case-centric UI** | A case is the top-level object; evidence, findings, chat, and the report live under it. Cases are created blank, from a ticket, or by importing a portable case bundle. |
-| **Embedded agent** | A headless Claude Agent SDK session runs inside the app — the user chats, the agent runs skills and tools, output streams into the UI. |
+| **Embedded agent** | A headless agent session runs inside the app — the user chats, the agent runs skills and tools, output streams into the UI. Two interchangeable backends are supported: the **Claude Agent SDK** (default) and **GitHub Copilot** (see [Agent backends](#agent-backends)). |
 | **Evidence library** | Local artifacts per case, auto-typed by pack detectors, auto-extracted from binary formats into searchable text, indexed with SQLite FTS5 across evidence, findings, and transcripts. |
 | **Cited findings** | Agent claims require `[file:line]` citations; findings carry a pending → reviewed state and every citation opens the evidence at the exact line. |
 | **HITL risk gating** | Every tool call is classified LOW/MEDIUM/HIGH. Reads auto-run and are logged; write-backs show an editable preview card; destructive operations require explicit confirmation and are never batched. |
@@ -44,6 +44,34 @@ per-case workspaces where evidence, findings, chat sessions, and the report live
 | **Pack panels** | Packs ship sandboxed web UI (strict CSP, capability-scoped bridge) docked inside the case; the agent can open panels and capture what they show as evidence. |
 | **Code workspaces** | A case can link checked-out repositories; the agent gets sandboxed `git`/`gh` access with worktree isolation. |
 | **Observability** | Local SQLite metrics: cost, tokens, latency, approvals, cost-per-resolved-case — the instrument for proving (or disproving) the efficiency claim. Optional self-hosted exporter, off by default. |
+
+## Agent backends
+
+The embedded agent runs behind a **driver** abstraction, so the same case UI, risk gating,
+native tools, findings, memory, and skills work over either backend. The active backend is a
+per-provider-instance setting (Settings → Agent); switch it without touching a case.
+
+| Driver | Auth | Notes |
+|---|---|---|
+| **Claude Agent SDK** (default) | Claude CLI login | Full capability set: editable approval cards, per-turn USD cost, external MCP connectors, the full model catalog. |
+| **GitHub Copilot** | `gh` CLI login (`gh auth login`) or a `COPILOT_GITHUB_TOKEN` env var | Requires a GitHub Copilot subscription — the **free tier works**. The Copilot CLI runtime ships **inside the `@github/copilot-sdk` npm dependency** (Argus depends on the SDK; there is no separate `@github/copilot` install and Argus does not vendor the binary itself). Runs against an isolated `COPILOT_HOME` under the app's data dir — your terminal's `~/.copilot` is never touched. |
+
+**Declared limitations on GitHub Copilot sessions** (surfaced honestly in the UI, not hidden):
+
+- **No external MCP connectors** (`mcpConnectors = false`): the SDK does not expose app-declared
+  stdio MCP servers to the model, so Argus connector-panel tools are unavailable under Copilot;
+  each composed connector is reported as skipped at session start. Native Argus tools (evidence
+  search, findings, memory, panels, …) are unaffected — they bind through Copilot's native tool
+  channel and run end-to-end.
+- **Approval cards are not editable** (`editableApprovals = false`): the permission channel
+  cannot carry edited tool input, so Copilot approval cards are approve/deny only (no inline edit).
+- **Cost shows n/a** (`costReporting = false`): Copilot does not report a per-turn USD cost, so
+  the cost chip reads "n/a" rather than a fake `$0.00`. Tokens, model, and latency are still recorded.
+- **Model catalog is tier-dependent**: on the free tier the only selectable model is the **`auto`**
+  router (it picks a real underlying model per turn); paid tiers may widen the catalog.
+
+Plan mode, resume/continuity, streamed deltas, native skills (`skillDirectories`), and the full
+LOW/MEDIUM/HIGH risk gating all work under Copilot.
 
 ## Packs: Core is domain-free
 
