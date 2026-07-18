@@ -12,6 +12,15 @@ import {
   resolveAtlassianCreds
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
+import type { OAuthLike } from '../atlassian'
+
+// Legacy REST-token path: the connector's OAuth is not authorized, so
+// resolveAtlassianCreds never attaches an oauth block here.
+const notAuthorized: OAuthLike = {
+  status: () => 'not-authorized',
+  accessToken: () => null,
+  refresh: async () => false
+}
 
 const ISSUE = {
   key: 'NAV-7',
@@ -101,7 +110,8 @@ describe('resolveAtlassianCreds', () => {
         siteUrl: 'https://acme.atlassian.net/',
         apiToken: { $secret: 'connector/rovo/apiToken' }
       }),
-      (n) => (n === 'connector/rovo/apiToken' ? 'PAT123' : null)
+      (n) => (n === 'connector/rovo/apiToken' ? 'PAT123' : null),
+      notAuthorized
     )
     expect(c).toEqual({
       instanceId: 'rovo',
@@ -116,7 +126,8 @@ describe('resolveAtlassianCreds', () => {
         email: 'ada@acme.test',
         apiToken: { $secret: 'connector/rovo/apiToken' }
       }),
-      () => 'PAT123'
+      () => 'PAT123',
+      notAuthorized
     )
     expect(withEmail.email).toBe('ada@acme.test')
     const blank = resolveAtlassianCreds(
@@ -125,21 +136,26 @@ describe('resolveAtlassianCreds', () => {
         email: '   ',
         apiToken: { $secret: 'connector/rovo/apiToken' }
       }),
-      () => 'PAT123'
+      () => 'PAT123',
+      notAuthorized
     )
     expect(blank.email).toBeUndefined()
   })
 
-  it('throws typed errors: not-configured / no-site-url / no-token', () => {
-    expect(() => resolveAtlassianCreds({} as never, () => null)).toThrowError(
+  it('throws not-configured when no rovo connector exists; missing site/token no longer throw', () => {
+    expect(() => resolveAtlassianCreds({} as never, () => null, notAuthorized)).toThrowError(
       expect.objectContaining({ code: 'not-configured' })
     )
-    expect(() => resolveAtlassianCreds(reg({}), () => 'x')).toThrowError(
-      expect.objectContaining({ code: 'no-site-url' })
+    const noSite = resolveAtlassianCreds(reg({}), () => 'x', notAuthorized)
+    expect(noSite.siteUrl).toBeNull()
+    expect(noSite.token).toBeNull() // no apiToken secret-ref configured, so resolveSecret is never consulted
+    const noToken = resolveAtlassianCreds(
+      reg({ siteUrl: 'https://a.atlassian.net' }),
+      () => null,
+      notAuthorized
     )
-    expect(() =>
-      resolveAtlassianCreds(reg({ siteUrl: 'https://a.atlassian.net' }), () => null)
-    ).toThrowError(expect.objectContaining({ code: 'no-token', instanceId: 'rovo' }))
+    expect(noToken.siteUrl).toBe('https://a.atlassian.net')
+    expect(noToken.token).toBeNull()
   })
 })
 

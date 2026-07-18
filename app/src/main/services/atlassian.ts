@@ -72,19 +72,35 @@ export async function discoverJiraCloud(
   return { cloudId: jira.id, siteUrl: jira.url.replace(/\/+$/, '') }
 }
 
-export interface AtlassianCreds {
-  instanceId: string
-  siteUrl: string // no trailing slash
-  token: string
-  /** When set, REST auth is Basic (email:token) — required by Jira Cloud API tokens. */
-  email?: string
+/** Minimal OAuth surface resolveAtlassianCreds needs (McpOAuth satisfies it). */
+export interface OAuthLike {
+  status(instanceId: string): 'authorized' | 'not-authorized' | 'error'
+  accessToken(instanceId: string): string | null
+  refresh(instanceId: string, serverUrl: string): Promise<boolean>
 }
 
-/** Find the rovo-preset connector and resolve its REST credentials. */
+export interface AtlassianAuth {
+  instanceId: string
+  siteUrl: string | null // legacy base + browse-URL source; null if unset
+  token: string | null // legacy REST token; null if unset
+  email?: string
+  /** Present iff the rovo connector's OAuth is authorized. */
+  oauth?: {
+    serverUrl: string // config.url, for refresh
+    accessToken: () => string | null
+    refresh: () => Promise<void>
+  }
+}
+
+/** @deprecated use AtlassianAuth — kept so existing callers still compile. */
+export type AtlassianCreds = AtlassianAuth
+
+/** Find the rovo-preset connector and resolve its mode-aware credentials. */
 export function resolveAtlassianCreds(
   connectors: ConnectorMap,
-  resolveSecret: (name: string) => string | null
-): AtlassianCreds {
+  resolveSecret: (name: string) => string | null,
+  oauth: OAuthLike
+): AtlassianAuth {
   // `inst.enabled` is deliberately ignored here: this REST path is UI-native (New
   // Case / Refresh) and independent of the agent's MCP session — `enabled` only
   // governs whether the connector is composed into that MCP session.
@@ -96,22 +112,21 @@ export function resolveAtlassianCreds(
     )
   const [instanceId, inst] = entry
   const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '')
-  if (!/^https?:\/\//.test(siteUrl))
-    throw new AtlassianError(
-      'no-site-url',
-      `Connector "${instanceId}" has no Site URL — set it in Settings → Connectors.`,
-      instanceId
-    )
+  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '') || null
   const token = isSecretRef(cfg.apiToken) ? resolveSecret(cfg.apiToken.$secret) : null
-  if (!token)
-    throw new AtlassianError(
-      'no-token',
-      `Connector "${instanceId}" has no Atlassian API token — set it in Settings → Connectors.`,
-      instanceId
-    )
   const email = (cfg.email ?? '').trim()
-  return { instanceId, siteUrl, token, ...(email ? { email } : {}) }
+  const auth: AtlassianAuth = { instanceId, siteUrl, token, ...(email ? { email } : {}) }
+  if (oauth.status(instanceId) === 'authorized') {
+    const serverUrl = cfg.url
+    auth.oauth = {
+      serverUrl,
+      accessToken: () => oauth.accessToken(instanceId),
+      refresh: async () => {
+        await oauth.refresh(instanceId, serverUrl)
+      }
+    }
+  }
+  return auth
 }
 
 /**
@@ -152,7 +167,7 @@ const ISSUE_FIELDS = 'summary,description,status,labels,reporter,created,updated
 
 export class AtlassianClient {
   constructor(
-    private creds: () => AtlassianCreds,
+    private creds: () => AtlassianAuth,
     private fetchImpl: typeof fetch = fetch,
     private timeoutMs = REST_TIMEOUT_MS
   ) {}

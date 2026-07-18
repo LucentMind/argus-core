@@ -44,7 +44,8 @@ import {
   atlassianRestConfigured,
   atlassianSiteUrl,
   jiraBrowseUrl,
-  resolveAtlassianCreds
+  resolveAtlassianCreds,
+  type AtlassianAuth
 } from './services/atlassian'
 import { JiraCases } from './services/jiraCases'
 import type { JiraAttachmentInfo, JiraResult } from '../shared/jira'
@@ -348,8 +349,8 @@ function registerIpc(): void {
   })
 
   // — Atlassian REST (UI-native; the agent uses Rovo MCP) —
-  const atlassianCreds = (): ReturnType<typeof resolveAtlassianCreds> =>
-    resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n))
+  const atlassianCreds = (): AtlassianAuth =>
+    resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n), mcpOauth)
   const atlassian = new AtlassianClient(atlassianCreds)
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
 
@@ -1217,7 +1218,7 @@ function registerIpc(): void {
     argusHome,
     detection,
     client: atlassian,
-    site: () => atlassianCreds().siteUrl,
+    site: () => atlassianCreds().siteUrl ?? '',
     extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
