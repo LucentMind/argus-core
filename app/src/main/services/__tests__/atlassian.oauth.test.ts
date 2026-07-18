@@ -208,4 +208,106 @@ describe('AtlassianClient.request routing', () => {
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('no-token')
   })
+
+  it('accessToken() null → falls to legacy when token + siteUrl exist', async () => {
+    const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(
+      authFixture({
+        oauth: {
+          serverUrl: 'https://mcp',
+          accessToken: () => null,
+          refresh: async () => undefined
+        },
+        token: 'LEGACY-TOKEN',
+        siteUrl: 'https://legacy.example'
+      }),
+      impl
+    )
+    await c.getIssue('KAN-2')
+    expect(calls[0].url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
+    expect(calls[0].auth!.startsWith('Basic ')).toBe(true)
+    expect(calls.some((x) => x.auth === 'Bearer null')).toBe(false)
+  })
+
+  it('accessToken() null, refresh still null, no legacy token → no-token error', async () => {
+    const { impl } = recordingFetch([() => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(
+      authFixture({
+        oauth: {
+          serverUrl: 'https://mcp',
+          accessToken: () => null,
+          refresh: async () => undefined
+        },
+        token: null,
+        siteUrl: null
+      }),
+      impl
+    )
+    await expect(c.getIssue('KAN-2')).rejects.toMatchObject({ code: 'no-token' })
+  })
+
+  it('OAuth 401 twice + no legacy token → auth error', async () => {
+    const { impl } = recordingFetch([
+      ARES,
+      () => new Response('{}', { status: 401 }),
+      () => new Response('{}', { status: 401 })
+    ])
+    const c = new AtlassianClient(
+      authFixture({
+        oauth: {
+          serverUrl: 'https://mcp',
+          accessToken: () => 'oauth-tok',
+          refresh: async () => undefined
+        },
+        token: null,
+        siteUrl: null
+      }),
+      impl
+    )
+    const err = await c.getIssue('KAN-2').catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('auth')
+  })
+
+  it('cloud discovery fails (accessible-resources 401) + no legacy token → auth error', async () => {
+    const { impl } = recordingFetch([() => new Response('{}', { status: 401 })])
+    const c = new AtlassianClient(
+      authFixture({
+        oauth: {
+          serverUrl: 'https://mcp',
+          accessToken: () => 'oauth-tok',
+          refresh: async () => undefined
+        },
+        token: null,
+        siteUrl: null
+      }),
+      impl
+    )
+    const err = await c.getIssue('KAN-2').catch((e) => e)
+    expect(err).toBeInstanceOf(AtlassianError)
+    expect(err.code).toBe('auth')
+  })
+
+  it('cloud discovery fails + legacy token present → falls back to legacy', async () => {
+    const { impl, calls } = recordingFetch([
+      () => new Response('{}', { status: 401 }),
+      () => OK(ISSUE_BODY)
+    ])
+    const c = new AtlassianClient(
+      authFixture({
+        oauth: {
+          serverUrl: 'https://mcp',
+          accessToken: () => 'oauth-tok',
+          refresh: async () => undefined
+        },
+        token: 'LEGACY-TOKEN',
+        siteUrl: 'https://legacy.example'
+      }),
+      impl
+    )
+    await c.getIssue('KAN-2')
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall.url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
+    expect(lastCall.auth!.startsWith('Basic ')).toBe(true)
+  })
 })
