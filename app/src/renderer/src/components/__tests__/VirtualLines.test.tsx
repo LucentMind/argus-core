@@ -83,7 +83,13 @@ describe('VirtualLines', () => {
     // programmatic scroll once — see TextViewer's cursor restore)
     const onVisibleRows = vi.fn()
     const { scroller, rerender, props } = setup({ onVisibleRows })
-    rerender(<VirtualLines {...props} onVisibleRows={onVisibleRows} scrollTarget={{ row: 5000, nonce: 1 }} />)
+    rerender(
+      <VirtualLines
+        {...props}
+        onVisibleRows={onVisibleRows}
+        scrollTarget={{ row: 5000, nonce: 1 }}
+      />
+    )
     const callsAfterProgrammatic = onVisibleRows.mock.calls.length
     // the echo: a scroll event with the scrollTop the component itself set
     fireEvent.scroll(scroller)
