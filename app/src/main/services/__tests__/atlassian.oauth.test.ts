@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { discoverJiraCloud, AtlassianError } from '../atlassian'
+import { discoverJiraCloud, AtlassianError, resolveAtlassianCreds } from '../atlassian'
+import type { ConnectorMap } from '../../../shared/connectors'
+import type { OAuthLike } from '../atlassian'
 
 function fetchReturning(status: number, body: unknown): typeof fetch {
   return (async () =>
@@ -46,5 +48,49 @@ describe('discoverJiraCloud', () => {
     const err = await discoverJiraCloud('tok', invalidJsonFetch, 15000).catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('http')
+  })
+})
+
+const ROVO: ConnectorMap = {
+  rovo: {
+    preset: 'rovo',
+    enabled: true,
+    displayName: 'Rovo',
+    config: {
+      url: 'https://mcp.atlassian.com/v1/mcp/authv2',
+      transport: 'http',
+      oauth: true,
+      siteUrl: 'https://argus88.atlassian.net',
+      email: 'me@x.com',
+      apiToken: { $secret: 'connector/rovo/apiToken' }
+    }
+  }
+} as unknown as ConnectorMap
+
+const fakeOAuth = (authorized: boolean): OAuthLike => ({
+  status: () => (authorized ? 'authorized' : 'not-authorized'),
+  accessToken: () => (authorized ? 'oauth-tok' : null),
+  refresh: async () => authorized
+})
+
+describe('resolveAtlassianCreds (mode-aware)', () => {
+  it('exposes oauth block when authorized', () => {
+    const a = resolveAtlassianCreds(ROVO, () => 'REST-TOKEN', fakeOAuth(true))
+    expect(a.oauth).toBeTruthy()
+    expect(a.oauth!.accessToken()).toBe('oauth-tok')
+    expect(a.oauth!.serverUrl).toBe('https://mcp.atlassian.com/v1/mcp/authv2')
+    expect(a.token).toBe('REST-TOKEN')
+  })
+
+  it('no oauth block when not authorized; token still present', () => {
+    const a = resolveAtlassianCreds(ROVO, () => 'REST-TOKEN', fakeOAuth(false))
+    expect(a.oauth).toBeUndefined()
+    expect(a.token).toBe('REST-TOKEN')
+  })
+
+  it('does not throw when token is missing (oauth-only)', () => {
+    const a = resolveAtlassianCreds(ROVO, () => null, fakeOAuth(true))
+    expect(a.token).toBeNull()
+    expect(a.oauth).toBeTruthy()
   })
 })
