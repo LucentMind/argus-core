@@ -83,7 +83,7 @@ export async function discoverCloud(
   if (!cloud)
     throw new AtlassianError(
       'auth',
-      `Your Atlassian authorization does not grant ${PRODUCT_DISPLAY[product]} access — re-authorize, or set an API token.`
+      `Your Atlassian authorization does not grant ${PRODUCT_DISPLAY[product]} access — re-authorize the connector in Settings → Connectors.`
     )
   return { cloudId: cloud.id, siteUrl: cloud.url.replace(/\/+$/, '') }
 }
@@ -283,11 +283,11 @@ export class AtlassianClient {
   async resolveSiteUrl(instanceId: string): Promise<string | null> {
     const cached = this.cloudId.get(instanceId)
     if (cached) return cached.siteUrl
-    const auth = this.creds()
-    if (!auth.oauth) return null
-    const token = auth.oauth.accessToken()
-    if (!token) return null
     try {
+      const auth = this.creds()
+      if (!auth.oauth) return null
+      const token = auth.oauth.accessToken()
+      if (!token) return null
       return (await this.resolveCloud(instanceId, token, 'jira')).siteUrl
     } catch {
       return null
