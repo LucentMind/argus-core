@@ -242,15 +242,15 @@ describe('TextViewer', () => {
         cb({ searchId: fltId, hits: [10, 20, 30], scannedTo: 3_000_000, done: true, capped: false })
       )
     )
-    // entering the filtered view scrolls to the top of the (3-row) list
-    await waitFor(() => expect(scroller.scrollTop).toBe(0))
-    // leaving it returns to where the user was looking (the filtered top row's
-    // line, tracked by currentLine), not the stale 1.5M-line offset
+    // entering the filtered view places the scroll at the filtered row nearest
+    // the user's current line (1.5M → row 2, line 30) — never the stale ~30M px
+    // offset from the full view. jsdom has no layout, so centering row 2 yields
+    // 2*20 + 10 = 50.
+    await waitFor(() => expect(scroller.scrollTop).toBe(50))
+    // leaving restores the user's file position (cursor preserved across the
+    // programmatic transition scrolls via the one-shot seed skip)
     await userEvent.clear(filterInput)
-    await waitFor(() => {
-      expect(scroller.scrollTop).toBeGreaterThan(0)
-      expect(scroller.scrollTop).toBeLessThan(10_000)
-    })
+    await waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(1_000_000))
   })
 
   it('flags a stale citation pointing beyond EOF and clamps the scroll', async () => {
@@ -848,8 +848,10 @@ describe('TextViewer', () => {
         })
       )
     )
-    // now genuinely done: plain count, and the new hit is navigable
-    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+    // now genuinely done — the cursor is still on the first hit (it was
+    // selected by the first ↓; cursor preservation keeps it), and the freshly
+    // discovered second hit is navigable
+    expect(await screen.findByText('1 / 2 matches')).toBeInTheDocument()
     await userEvent.click(down)
     expect(await screen.findByText('2 / 2 matches')).toBeInTheDocument()
     await waitFor(() => expect(document.querySelector('#line-1500000')).toBeInTheDocument())
