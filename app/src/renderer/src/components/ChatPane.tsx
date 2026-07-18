@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { ChatJumpTarget } from '../../../shared/types'
+import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
@@ -51,6 +51,8 @@ function resolveFocusIndex(items: TranscriptItem[], target: ChatJumpTarget | nul
 export function ChatPane({
   slug,
   sessionId,
+  session = null,
+  onModelChange,
   onSwitchSession,
   onCite,
   onJumpToTurn,
@@ -60,6 +62,9 @@ export function ChatPane({
 }: {
   slug: string
   sessionId: number
+  /** Summary of the chat being shown — carries its pinned provider instance + model. */
+  session?: SessionSummary | null
+  onModelChange?: (instanceId: string, model: string) => void
   onSwitchSession: (id: number) => void
   onCite: (cite: CiteTarget) => void
   onJumpToTurn?: (sessionId: number, target: ChatJumpTarget) => void
@@ -237,7 +242,13 @@ export function ChatPane({
           return <ToolCallCard key={item.toolCallId} item={item} />
         })}
         {state.pending.map((p) => (
-          <ApprovalCard key={p.requestId} slug={slug} sessionId={sessionId} request={p} />
+          <ApprovalCard
+            key={p.requestId}
+            slug={slug}
+            sessionId={sessionId}
+            instanceId={session?.instanceId ?? null}
+            request={p}
+          />
         ))}
         {state.sessionNote && <div className="text-xs text-danger">{state.sessionNote}</div>}
         <div ref={bottom} />
@@ -261,6 +272,8 @@ export function ChatPane({
           void window.argus.agent.send(slug, sessionId, t)
           composerDraft.clear(slug, sessionId)
         }}
+        session={session}
+        onModelChange={onModelChange}
         citations={citations}
         onRemoveCitation={(i) => citationsTray.remove(slug, sessionId, i)}
         onCitationsConsumed={() => citationsTray.clear(slug, sessionId)}

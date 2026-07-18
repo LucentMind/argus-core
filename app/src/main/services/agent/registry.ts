@@ -2,14 +2,20 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision, CaseRecord } from '../../../shared/types'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
-import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/drivers'
+import {
+  activeInstanceConfig,
+  driverConfig,
+  effectiveDefaultModel,
+  orderedVisibleModels,
+  type AgentDriverConfig
+} from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
 import { CaseSession, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver, type CreateQueryFn } from './drivers/claude'
 import type { PanelCommandDecl } from './panelCommands'
-import { sessionCursor } from './sessionStore'
+import { sessionCursor, sessionProvider } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
@@ -33,6 +39,11 @@ export interface AgentServiceDeps {
    *  provider in settings takes effect on the NEXT session, without an app restart. A
    *  plain value is treated as a fixed driver, resolved once (back-compat). */
   driver?: AgentDriver | (() => AgentDriver)
+  /** Resolves the driver for a session pinned to a specific provider instance. Kept as a
+   *  dep (not a direct driverRegistry call) so it stays on the same injection seam as
+   *  `driver` — reaching into the global registry here would bypass `createQuery` and boot
+   *  a real SDK transport under tests. Absent ⇒ fall back to `driver`. */
+  driverForInstance?: (instanceId: string) => AgentDriver
   /** Back-compat test seam: when only `createQuery` is given, it is wrapped in the Claude
    *  driver (`createClaudeDriver(createQuery)`). Ignored when `driver` is supplied. */
   createQuery?: CreateQueryFn
@@ -135,12 +146,19 @@ export class AgentService {
     const mcp = await this.deps.composeMcp?.()
     const fingerprint = mcp?.fingerprint ?? ''
 
+    // The provider/model this session is pinned to (nulls for pre-multi-provider rows,
+    // which keep resolving from settings exactly as before).
+    const pinned = sessionProvider(this.deps.db, sessionId)
+    const modelKey = `${pinned?.instanceId ?? ''}::${pinned?.model ?? ''}`
+
     const existing = this.sessions.get(key)
     if (existing && existing.state === 'running') {
       // Never tear down a turn in flight; the rebuild happens on the next idle send.
-      if (existing.activeTurn || existing.mcpFingerprint === fingerprint) return existing
-      // Connectors changed under a live session whose mcpServers map is frozen at
-      // query() construction — rebuild it. The resume cursor below preserves history.
+      if (existing.activeTurn) return existing
+      // A live session's mcpServers map AND its model are frozen at query() construction,
+      // so either changing under it requires a rebuild. The resume cursor below preserves
+      // history (and is invalidated by sessionCursor's guard if the driver kind changed).
+      if (existing.mcpFingerprint === fingerprint && existing.modelKey === modelKey) return existing
       await existing.stop('reconfigured')
       this.sessions.delete(key)
     } else if (existing) {
@@ -159,11 +177,14 @@ export class AgentService {
       }
     }
 
-    // Re-resolved here (not once in the constructor): a thunk `deps.driver` picks up the
-    // live active provider, so switching providers in settings takes effect starting with
-    // the NEXT session this getOrCreate constructs — no app restart needed.
-    const driver = this.resolveDriver()
-    const cursor = sessionCursor(this.deps.db, sessionId, driver.kind)
+    // A session pinned to an instance resolves ITS driver; an unpinned (pre-multi-provider)
+    // session falls back to the thunk, which picks up the live default provider — so
+    // switching the default in settings still takes effect for those on the next construct.
+    const driver =
+      pinned?.instanceId && this.deps.driverForInstance
+        ? this.deps.driverForInstance(pinned.instanceId)
+        : this.resolveDriver()
+    const cursor = sessionCursor(this.deps.db, sessionId, driver.kind, pinned?.instanceId)
 
     const access = this.deps.agentAccess()
     const resolvedSkills = materializeSessionSkills(this.deps.argusHome, caseSlug, access)
@@ -209,13 +230,27 @@ export class AgentService {
         ? (packId, windowId, cmd, args) =>
             this.deps.dispatchPanelCommand!(caseSlug, packId, windowId, cmd, args)
         : undefined,
+      modelKey,
       agentOptions: as
         ? (() => {
             const parsed = settingsSchema.parse({ agent: as })
-            const cfg = activeInstanceConfig(parsed)
+            // A pinned session reads ITS instance's config; an unpinned one keeps the old
+            // default-instance behaviour.
+            const cfg = pinned?.instanceId
+              ? driverConfig<AgentDriverConfig>(
+                  parsed.agent.providerInstances[pinned.instanceId]?.driver ?? '',
+                  parsed.agent.providerInstances[pinned.instanceId]?.config
+                )
+              : activeInstanceConfig(parsed)
             return {
-              // explicit config.model wins (back-compat); else the top ordered visible model
-              model: cfg.model ?? effectiveDefaultModel(parsed),
+              // The session's own model wins; then explicit config.model (back-compat);
+              // else the top ordered visible model of whichever instance applies.
+              model:
+                pinned?.model ??
+                cfg.model ??
+                (pinned?.instanceId
+                  ? orderedVisibleModels(parsed, pinned.instanceId)[0]?.slug
+                  : effectiveDefaultModel(parsed)),
               cliPath: cfg.cliPath,
               permissionMode: as.defaultPermissionMode,
               personaAppend: as.personaAppend || undefined

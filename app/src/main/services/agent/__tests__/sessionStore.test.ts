@@ -11,6 +11,8 @@ import {
   renameSession,
   setTitleIfEmpty,
   sessionCursor,
+  sessionProvider,
+  setSessionModel,
   deleteSession
 } from '../sessionStore'
 import { readDeletionAudit } from '../../deletionAudit'
@@ -169,5 +171,104 @@ describe('sessionStore', () => {
     expect(() => deleteSession(db, argusHome, 'NAV-1', foreign.id)).toThrow(/unknown session/i)
     expect(() => deleteSession(db, argusHome, 'NAV-1', 1.5)).toThrow(/invalid session id/i)
     expect(listSessions(db, 'NAV-2')[0].id).toBe(foreign.id) // untouched
+  })
+})
+
+describe('sessionStore — per-session provider instance and model', () => {
+  it('pins instance + model at creation and surfaces them on the summary', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'github-copilot',
+      instanceId: 'copilot-1',
+      model: 'auto'
+    })
+    expect(s).toMatchObject({
+      driverKind: 'github-copilot',
+      instanceId: 'copilot-1',
+      model: 'auto'
+    })
+    expect(listSessions(db, 'NAV-1')[0]).toMatchObject({ instanceId: 'copilot-1', model: 'auto' })
+  })
+
+  it('leaves instance and model null for the legacy string form', () => {
+    // A row with nulls means "resolve from settings at send time" — the pre-multi-provider
+    // behaviour, which must survive untouched for existing sessions.
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    expect(s.instanceId).toBeNull()
+    expect(s.model).toBeNull()
+  })
+
+  it('setSessionModel re-pins and reports whether anything changed', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    expect(
+      setSessionModel(db, s.id, {
+        driverKind: 'claude-agent-sdk',
+        instanceId: 'claude-default',
+        model: 'claude-opus-4-8'
+      })
+    ).toBe(false)
+    expect(
+      setSessionModel(db, s.id, {
+        driverKind: 'claude-agent-sdk',
+        instanceId: 'claude-default',
+        model: 'claude-sonnet-5'
+      })
+    ).toBe(true)
+    expect(sessionProvider(db, s.id)).toMatchObject({ model: 'claude-sonnet-5' })
+  })
+
+  it('drops the resume cursor when re-pinning across driver kinds, but not within one', () => {
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    db.prepare(`UPDATE sessions SET driver_cursor = 'cur-1' WHERE id = ?`).run(s.id)
+
+    // same kind, different model — history is still resumable
+    setSessionModel(db, s.id, {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-sonnet-5'
+    })
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-default')).toBe('cur-1')
+
+    // switching driver kind invalidates it — a Copilot driver must never see it, and it
+    // must not reappear if the user switches back
+    setSessionModel(db, s.id, {
+      driverKind: 'github-copilot',
+      instanceId: 'copilot-1',
+      model: 'auto'
+    })
+    expect(sessionCursor(db, s.id, 'github-copilot', 'copilot-1')).toBeNull()
+  })
+
+  it('sessionCursor refuses a cursor across two instances of the SAME driver kind', () => {
+    // Two Claude accounts are two histories; the driver-kind guard alone would let one
+    // resume the other's cursor.
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-work',
+      model: 'claude-opus-4-8'
+    })
+    db.prepare(`UPDATE sessions SET driver_cursor = 'cur-work' WHERE id = ?`).run(s.id)
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-work')).toBe('cur-work')
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-personal')).toBeNull()
+  })
+
+  it('still resumes a legacy row (null instance_id) on driver kind alone', () => {
+    // Tightening the guard must not strand every pre-existing session's history.
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    db.prepare(`UPDATE sessions SET driver_cursor = 'legacy' WHERE id = ?`).run(s.id)
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk', 'claude-default')).toBe('legacy')
+  })
+
+  it('setSessionModel is a no-op for an unknown session', () => {
+    expect(
+      setSessionModel(db, 9999, { driverKind: 'claude-agent-sdk', instanceId: 'x', model: 'y' })
+    ).toBe(false)
   })
 })

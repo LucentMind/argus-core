@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
-import { defaultSettings } from '../../../../shared/settings'
+import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
 
 beforeEach(() => {
@@ -32,14 +32,18 @@ describe('Composer', () => {
     expect(container.querySelector('[data-onboarding-anchor="composer"]')).toBeTruthy()
   })
 
-  it('renders session-option placeholders and lets a value be picked (local only)', () => {
+  it('renders the option chips, falling back to static labels before settings load', () => {
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
     expect(screen.getByText('High · 200k')).toBeTruthy()
     expect(screen.getByText('Ask approvals')).toBeTruthy()
-    fireEvent.click(screen.getByText('Claude Fable 5'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Sonnet 5' }))
-    expect(screen.getByText('Claude Sonnet 5')).toBeTruthy()
+  })
+
+  it('reasoning stays a local, still-unwired picker', () => {
+    render(<Composer disabled={false} onSend={vi.fn()} />)
+    fireEvent.click(screen.getByText('High · 200k'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Low · 16k' }))
+    expect(screen.getByText('Low · 16k')).toBeTruthy()
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
@@ -65,7 +69,7 @@ describe('Composer', () => {
     expect(onSend).toHaveBeenCalledWith('hello')
   })
 
-  it('seeds model and permission pickers from settings once loaded', async () => {
+  it('seeds the permission picker from settings, and the model chip from the settings default', async () => {
     window.argus.settings.get = vi.fn(async () => ({
       settings: (() => {
         const s = defaultSettings()
@@ -78,8 +82,65 @@ describe('Composer', () => {
       loadError: null
     }))
     render(<Composer disabled={false} onSend={vi.fn()} />)
-    expect(await screen.findByText('claude-opus-4-8')).toBeTruthy()
+    // hand-set config.model still wins for an unpinned chat (back-compat)
+    expect(await screen.findByText('Claude Opus 4.8')).toBeTruthy()
     expect(screen.getByText('Plan mode')).toBeTruthy()
+  })
+
+  it('shows the model the SESSION is pinned to, over the settings default', async () => {
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'claude-haiku-4-5'
+        }}
+      />
+    )
+    expect(await screen.findByText('Claude Haiku 4.5')).toBeTruthy()
+  })
+
+  it('picking a model re-pins the session rather than only changing local state', async () => {
+    const onModelChange = vi.fn()
+    render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
+    fireEvent.click(await screen.findByText('Claude Fable 5'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Sonnet 5' }))
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'claude-sonnet-5')
+  })
+
+  it('aggregates models across every enabled provider, qualified by provider name', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: settingsSchema.parse({
+        agent: {
+          activeInstanceId: 'claude-default',
+          providerInstances: {
+            'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+            'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+          }
+        }
+      }),
+      resolvedTools: [],
+      dataRoot: { path: 'C:/x', fromEnv: false },
+      loadError: null
+    }))
+    const onModelChange = vi.fn()
+    render(<Composer disabled={false} onSend={vi.fn()} onModelChange={onModelChange} />)
+    fireEvent.click(await screen.findByText('Claude Fable 5 · Claude'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toContain('Auto · Copilot')
+    expect(items).toContain('Claude Opus 4.8 · Claude')
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Auto · Copilot' }))
+    expect(onModelChange).toHaveBeenCalledWith('copilot-1', 'auto')
   })
 
   it('model picker follows ordering + visibility: favorites/order first, hidden excluded, seed = top model', async () => {
@@ -98,21 +159,21 @@ describe('Composer', () => {
       loadError: null
     }))
     render(<Composer disabled={false} onSend={vi.fn()} />)
-    // seeded chip shows the top ordered visible model (favorite pinned first)
-    expect(await screen.findByText('claude-sonnet-5')).toBeTruthy()
-    fireEvent.click(screen.getByText('claude-sonnet-5'))
+    // chip shows the top ordered visible model (favorite pinned first)
+    expect(await screen.findByText('Claude Sonnet 5')).toBeTruthy()
+    fireEvent.click(screen.getByText('Claude Sonnet 5'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     expect(items).toEqual([
-      'claude-sonnet-5',
-      'claude-fable-5',
-      'claude-opus-4-8',
-      'claude-opus-4-7',
-      'claude-sonnet-4-6'
+      'Claude Sonnet 5',
+      'Claude Fable 5',
+      'Claude Opus 4.8',
+      'Claude Opus 4.7',
+      'Claude Sonnet 4.6'
     ])
-    expect(items).not.toContain('claude-haiku-4-5')
+    expect(items).not.toContain('Claude Haiku 4.5')
   })
 
   it('derives permission-mode options from the active driver capabilities, not a hardcoded literal', async () => {

@@ -10,6 +10,11 @@ import {
   effectiveDefaultModel,
   activeDriver,
   activeCapabilities,
+  enabledInstances,
+  defaultInstanceId,
+  allVisibleModels,
+  defaultModelRef,
+  capabilitiesFor,
   type ClaudeDriverConfig
 } from '../drivers'
 import { settingsSchema, type AppSettings } from '../settings'
@@ -286,5 +291,178 @@ describe('model ordering helpers', () => {
       }
     })
     expect(effectiveDefaultModel(s)).toBeUndefined()
+  })
+})
+
+// ── multi-provider aggregation ────────────────────────────────────────────────
+
+/** Two enabled providers, Claude first in key order. */
+function multi(over?: {
+  claudeEnabled?: boolean
+  copilotEnabled?: boolean
+  activeInstanceId?: string
+}): AppSettings {
+  return settingsSchema.parse({
+    agent: {
+      activeInstanceId: over?.activeInstanceId ?? 'claude-default',
+      providerInstances: {
+        'claude-default': {
+          driver: 'claude-agent-sdk',
+          enabled: over?.claudeEnabled ?? true,
+          config: {}
+        },
+        'copilot-1': {
+          driver: 'github-copilot',
+          enabled: over?.copilotEnabled ?? true,
+          config: {}
+        }
+      }
+    }
+  })
+}
+
+describe('enabledInstances', () => {
+  it('returns every switched-on instance, not just the default one', () => {
+    expect(enabledInstances(multi()).map((e) => e.id)).toEqual(['claude-default', 'copilot-1'])
+  })
+
+  it('omits disabled instances and instances naming an unknown driver', () => {
+    expect(enabledInstances(multi({ copilotEnabled: false })).map((e) => e.id)).toEqual([
+      'claude-default'
+    ])
+    const unknown = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'x',
+        providerInstances: { x: { driver: 'not-a-driver', enabled: true, config: {} } }
+      }
+    })
+    expect(enabledInstances(unknown)).toEqual([])
+  })
+})
+
+describe('defaultInstanceId', () => {
+  it('uses activeInstanceId when it is enabled and known', () => {
+    expect(defaultInstanceId(multi({ activeInstanceId: 'copilot-1' }))).toBe('copilot-1')
+  })
+
+  it('falls back to the first enabled instance when the named one is switched off', () => {
+    // Background work (distill, refsync, probes) has no picker to fall back to, so
+    // disabling the default provider must not strand it.
+    expect(defaultInstanceId(multi({ claudeEnabled: false }))).toBe('copilot-1')
+  })
+
+  it('falls back when the named instance names an unknown driver', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'ghost',
+        providerInstances: {
+          ghost: { driver: 'not-a-driver', enabled: true, config: {} },
+          'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+        }
+      }
+    })
+    expect(defaultInstanceId(s)).toBe('copilot-1')
+  })
+
+  it('keeps the named id when nothing at all is enabled, rather than inventing one', () => {
+    const s = multi({ claudeEnabled: false, copilotEnabled: false })
+    expect(defaultInstanceId(s)).toBe('claude-default')
+  })
+})
+
+describe('allVisibleModels', () => {
+  it('aggregates across every enabled provider, each tagged with its instance', () => {
+    const models = allVisibleModels(multi())
+    expect(models.filter((m) => m.instanceId === 'claude-default').map((m) => m.slug)).toEqual(
+      CATALOG_ORDER
+    )
+    const copilot = models.filter((m) => m.instanceId === 'copilot-1')
+    expect(copilot.map((m) => m.slug)).toEqual(['auto'])
+    expect(copilot[0].providerLabel).toBe('Copilot')
+    expect(copilot[0].driverKind).toBe('github-copilot')
+  })
+
+  it('does not dedupe identical slugs across instances — they are distinct choices', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+          'claude-work': {
+            driver: 'claude-agent-sdk',
+            displayName: 'Work account',
+            enabled: true,
+            config: {}
+          }
+        }
+      }
+    })
+    const opus = allVisibleModels(s).filter((m) => m.slug === 'claude-opus-4-8')
+    expect(opus).toHaveLength(2)
+    expect(opus.map((m) => m.instanceId)).toEqual(['claude-default', 'claude-work'])
+    expect(opus[1].providerLabel).toBe('Work account')
+  })
+
+  it('excludes a disabled provider’s models', () => {
+    expect(allVisibleModels(multi({ copilotEnabled: false })).some((m) => m.slug === 'auto')).toBe(
+      false
+    )
+  })
+})
+
+describe('defaultModelRef', () => {
+  it('is the default instance’s top model, instance-qualified', () => {
+    expect(defaultModelRef(multi())).toEqual({
+      instanceId: 'claude-default',
+      slug: 'claude-fable-5'
+    })
+  })
+
+  it('follows the default instance when it changes', () => {
+    expect(defaultModelRef(multi({ activeInstanceId: 'copilot-1' }))).toEqual({
+      instanceId: 'copilot-1',
+      slug: 'auto'
+    })
+  })
+
+  it('is undefined when no provider is enabled', () => {
+    expect(defaultModelRef(multi({ claudeEnabled: false, copilotEnabled: false }))).toBeUndefined()
+  })
+})
+
+describe('capabilitiesFor', () => {
+  it('reports the named instance’s capabilities, not the default instance’s', () => {
+    const s = multi()
+    expect(capabilitiesFor(s, 'claude-default').editableApprovals).toBe(true)
+    expect(capabilitiesFor(s, 'copilot-1').editableApprovals).toBe(false)
+    expect(capabilitiesFor(s, 'copilot-1').costReporting).toBe(false)
+  })
+
+  it('falls back conservatively on an unknown instance or a null payload', () => {
+    // Withholding an edit affordance costs a convenience; offering one the driver drops
+    // is a false "your edit applied" signal.
+    expect(capabilitiesFor(multi(), 'nope').editableApprovals).toBe(false)
+    expect(capabilitiesFor(null, 'claude-default').editableApprovals).toBe(false)
+    expect(capabilitiesFor(multi(), null).editableApprovals).toBe(false)
+  })
+})
+
+describe('activeInstanceConfig with multiple providers', () => {
+  it('follows the fallback when the named default is disabled', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: false, config: {} },
+          'copilot-1': {
+            driver: 'github-copilot',
+            enabled: true,
+            config: { cliPath: 'C:/copilot.exe' }
+          }
+        }
+      }
+    })
+    expect(activeInstanceConfig(s).cliPath).toBe('C:/copilot.exe')
+    expect(activeDriver(s)?.kind).toBe('github-copilot')
   })
 })

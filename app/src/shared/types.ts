@@ -59,6 +59,11 @@ export interface SessionSummary {
   /** The driver kind (e.g. `'claude-agent-sdk'`, `'github-copilot'`) this session was
    *  created with — stamped once at creation (sessions.driver_kind), never changes. */
   driverKind: string
+  /** Provider instance this chat is pinned to. Null for sessions created before
+   *  multi-provider — those resolve their provider from settings at send time. */
+  instanceId: string | null
+  /** Model chosen for this chat. Null means "the instance's default at send time". */
+  model: string | null
 }
 
 /** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */

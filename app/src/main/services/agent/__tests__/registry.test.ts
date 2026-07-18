@@ -5,7 +5,7 @@ import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { AgentService } from '../registry'
-import { createSession, deleteSession } from '../sessionStore'
+import { createSession, deleteSession, setSessionModel } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess, agentAccessSchema } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
@@ -683,6 +683,154 @@ describe('AgentService driver resolution (Phase 3 checkpoint item 5)', () => {
     const s1 = createSession(db, 'NAV-1', 'claude-agent-sdk')
     await svc.send('NAV-1', s1.id, 'hi')
     expect(svc.states().some((s) => s.sessionId === s1.id)).toBe(true)
+    await svc.stopAll()
+  })
+})
+
+describe('AgentService — per-session provider and model', () => {
+  const AGENT_SETTINGS = {
+    activeInstanceId: 'claude-default',
+    maxSessions: 3,
+    probeTimeoutMs: 10000,
+    defaultPermissionMode: 'default' as const,
+    personaAppend: '',
+    providerInstances: {
+      'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+      'claude-work': { driver: 'claude-agent-sdk', enabled: true, config: {} }
+    },
+    modelPreferences: {}
+  }
+
+  it('uses the model pinned on the session, not the global default', async () => {
+    const { createQuery, optionsLog } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      agentSettings: () => AGENT_SETTINGS
+    })
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-haiku-4-5'
+    })
+    await svc.send('NAV-1', s.id, 'hi')
+    expect(optionsLog[0].model).toBe('claude-haiku-4-5')
+    await svc.stopAll()
+  })
+
+  it('rebuilds a live idle session when its model is re-pinned', async () => {
+    // The model is frozen at query() construction, exactly like mcpServers — re-pinning
+    // must tear down and rebuild or the chat keeps answering on the old model.
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      agentSettings: () => AGENT_SETTINGS
+    })
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    await svc.send('NAV-1', s.id, 'first')
+    queues[0].push({ type: 'result', is_error: false })
+    await new Promise((r) => setTimeout(r, 10))
+
+    setSessionModel(db, s.id, {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-sonnet-5'
+    })
+    await svc.send('NAV-1', s.id, 'second')
+
+    expect(
+      events.some((e) => e.type === 'session.exited' && e.payload.reason === 'reconfigured')
+    ).toBe(true)
+    expect(optionsLog).toHaveLength(2)
+    expect(optionsLog[1].model).toBe('claude-sonnet-5')
+    expect(svc.states()).toHaveLength(1)
+    await svc.stopAll()
+  })
+
+  it('does not rebuild when the pinned model is unchanged', async () => {
+    const { createQuery, queues, optionsLog } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      agentSettings: () => AGENT_SETTINGS
+    })
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    await svc.send('NAV-1', s.id, 'first')
+    queues[0].push({ type: 'result', is_error: false })
+    await new Promise((r) => setTimeout(r, 10))
+    await svc.send('NAV-1', s.id, 'second')
+    expect(optionsLog).toHaveLength(1)
+    await svc.stopAll()
+  })
+
+  it('never tears down a mid-turn session even when the model was re-pinned', async () => {
+    const { createQuery, optionsLog } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      agentSettings: () => AGENT_SETTINGS
+    })
+    const s = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-opus-4-8'
+    })
+    await svc.send('NAV-1', s.id, 'first') // turn still in flight
+    setSessionModel(db, s.id, {
+      driverKind: 'claude-agent-sdk',
+      instanceId: 'claude-default',
+      model: 'claude-sonnet-5'
+    })
+    await svc.send('NAV-1', s.id, 'second')
+    expect(optionsLog).toHaveLength(1) // rebuild deferred to the next idle send
+    expect(events.some((e) => e.type === 'session.exited')).toBe(false)
+    await svc.stopAll()
+  })
+
+  it('falls back to settings for an unpinned (legacy) session', async () => {
+    const { createQuery, optionsLog } = fakeCreateQuery()
+    const svc = new AgentService({
+      db,
+      argusHome,
+      detection,
+      skillsRoots: [],
+      agentAccess: () => defaultAgentAccess(),
+      onEvent: (e) => events.push(e),
+      createQuery,
+      agentSettings: () => AGENT_SETTINGS
+    })
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk') // nulls
+    await svc.send('NAV-1', s.id, 'hi')
+    expect(optionsLog[0].model).toBe('claude-fable-5') // top of the default instance's catalog
     await svc.stopAll()
   })
 })

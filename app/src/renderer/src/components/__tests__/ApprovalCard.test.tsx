@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ApprovalCard } from '../ApprovalCard'
 import { settingsStore } from '../../lib/settingsStore'
-import { defaultSettings } from '../../../../shared/settings'
+import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 
 const request = {
   requestId: 'r1',
@@ -89,7 +89,9 @@ describe('ApprovalCard editable MCP preview', () => {
   // pre-load fallback is deliberately conservative: editableApprovals false),
   // so editor lookups must be findBy*, not getBy*
   it('renders string fields as editors and sends edits as updatedInput on approve', async () => {
-    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    render(
+      <ApprovalCard slug="NAV-7" sessionId={2} instanceId="claude-default" request={mcpRequest} />
+    )
     const body = await screen.findByLabelText('body')
     fireEvent.change(body, { target: { value: 'edited RCA' } })
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
@@ -102,7 +104,9 @@ describe('ApprovalCard editable MCP preview', () => {
   })
 
   it('sends no updatedInput when nothing was edited', async () => {
-    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    render(
+      <ApprovalCard slug="NAV-7" sessionId={2} instanceId="claude-default" request={mcpRequest} />
+    )
     await screen.findByLabelText('body') // settings settled, editors up
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
@@ -114,7 +118,9 @@ describe('ApprovalCard editable MCP preview', () => {
   })
 
   it('deny never sends updatedInput even after edits', async () => {
-    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    render(
+      <ApprovalCard slug="NAV-7" sessionId={2} instanceId="claude-default" request={mcpRequest} />
+    )
     fireEvent.change(await screen.findByLabelText('body'), { target: { value: 'x' } })
     fireEvent.click(screen.getByRole('button', { name: /deny/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith(
@@ -146,7 +152,9 @@ describe('ApprovalCard editable MCP preview', () => {
     const s = defaultSettings()
     s.agent.providerInstances['claude-default'].driver = 'github-copilot'
     window.argus.settings.get = settingsGet(s)
-    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    render(
+      <ApprovalCard slug="NAV-7" sessionId={2} instanceId="claude-default" request={mcpRequest} />
+    )
     // wait until the payload has actually settled, so the assertion covers the
     // settled copilot state, not merely the (also read-only) pre-load fallback
     await waitFor(() => expect(settingsStore.get()).not.toBeNull())
@@ -168,7 +176,9 @@ describe('ApprovalCard editable MCP preview', () => {
     window.argus.settings.get = vi.fn(async () => {
       throw new Error('ipc down')
     }) as never
-    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    render(
+      <ApprovalCard slug="NAV-7" sessionId={2} instanceId="claude-default" request={mcpRequest} />
+    )
     // let the rejected fetch flush; the payload must still be null afterwards
     await new Promise((r) => setTimeout(r, 0))
     expect(settingsStore.get()).toBeNull()
@@ -188,6 +198,7 @@ describe('ApprovalCard editable MCP preview', () => {
       <ApprovalCard
         slug="NAV-7"
         sessionId={2}
+        instanceId="claude-default"
         request={{
           requestId: 'r3',
           tool: 'mcp__argus__write_memory',
@@ -218,5 +229,37 @@ describe('ApprovalCard editable MCP preview', () => {
     )
     expect(screen.queryByLabelText('status')).toBeNull()
     expect(screen.getByText('{"status":"closed"}')).toBeInTheDocument()
+  })
+})
+
+describe('ApprovalCard capabilities are session-scoped', () => {
+  it('offers the edit affordance for a Claude-backed chat but not a Copilot-backed one', async () => {
+    // Two chats in the same case can run on different providers once both are enabled.
+    // Reading the GLOBAL default's capabilities would offer an edit that Copilot silently
+    // drops — a false "your edit applied" signal.
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: settingsSchema.parse({
+        agent: {
+          activeInstanceId: 'claude-default',
+          providerInstances: {
+            'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+            'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+          }
+        }
+      }),
+      resolvedTools: [],
+      dataRoot: { path: 'C:/x', fromEnv: false },
+      loadError: null
+    })) as never
+
+    const { unmount } = render(
+      <ApprovalCard slug="NAV-7" sessionId={2} instanceId="claude-default" request={mcpRequest} />
+    )
+    expect(await screen.findByLabelText('body')).toBeInTheDocument()
+    unmount()
+
+    render(<ApprovalCard slug="NAV-7" sessionId={3} instanceId="copilot-1" request={mcpRequest} />)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByLabelText('body')).toBeNull()
   })
 })

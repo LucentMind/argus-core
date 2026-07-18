@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
   driver_cursor TEXT,
   driver_kind TEXT NOT NULL DEFAULT 'claude-agent-sdk',
+  -- Which provider INSTANCE (not just driver kind) this chat runs on, and the model chosen
+  -- for it. Both nullable: pre-multi-provider rows have neither, and a null model means
+  -- "whatever the instance's default is at send time".
+  instance_id TEXT,
+  model TEXT,
   title TEXT NOT NULL DEFAULT '',
   turn_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
@@ -169,6 +174,17 @@ export function openDb(file: string): DatabaseSync {
   }
   if (!hasSessionCol('driver_kind')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN driver_kind TEXT NOT NULL DEFAULT 'claude-agent-sdk'`)
+  }
+  // Per-session provider instance + model (multi-provider). Nullable with no default: an
+  // existing row predates the concept, and null means "resolve from settings at send time",
+  // which is exactly the old behaviour — so no backfill is needed or wanted.
+  // NB: `cursorCols` was snapshotted above, so these checks must not depend on columns
+  // added earlier in this same block. They don't — both names are new.
+  if (!hasSessionCol('instance_id')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN instance_id TEXT`)
+  }
+  if (!hasSessionCol('model')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`)
   }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {

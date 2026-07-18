@@ -158,12 +158,114 @@ const DEFAULT_CAPABILITIES: DriverCapabilities = {
   costReporting: true
 }
 
-/** The active provider instance's driver definition (null if the instance or its
+/** An enabled provider instance paired with its resolved driver, in settings key order. */
+export interface EnabledInstance {
+  id: string
+  instance: ProviderInstance
+  driver: DriverDefinition
+}
+
+/**
+ * Every instance the user has switched on whose driver slug we recognise. More than one may
+ * be enabled at a time — the chat model picker aggregates across all of them, and the chosen
+ * model is what selects the provider for a session (see {@link allVisibleModels}).
+ * Instances naming an unknown driver are skipped rather than surfaced: they have no model
+ * catalog to contribute, and settings already flags them separately.
+ */
+export function enabledInstances(s: AppSettings): EnabledInstance[] {
+  const out: EnabledInstance[] = []
+  for (const [id, instance] of Object.entries(s.agent.providerInstances)) {
+    if (!instance.enabled) continue
+    const driver = getDriver(instance.driver)
+    if (driver) out.push({ id, instance, driver })
+  }
+  return out
+}
+
+/**
+ * The instance used where there is no session to scope to — case distillation, reference
+ * sync, the auth probe, the health row — and the seed for a brand-new chat.
+ *
+ * `activeInstanceId` survives multi-provider precisely because of these callers: background
+ * work has no model picker to read from. It is a *default*, not an exclusive selection. When
+ * it names a disabled or unknown instance we fall back to the first enabled one instead of
+ * failing, so switching a provider off can never strand background work.
+ */
+export function defaultInstanceId(s: AppSettings): string {
+  const named = s.agent.activeInstanceId
+  const inst = s.agent.providerInstances[named]
+  if (inst?.enabled && getDriver(inst.driver)) return named
+  return enabledInstances(s)[0]?.id ?? named
+}
+
+/** The default provider instance's driver definition (null if the instance or its
  *  driver slug is unknown — e.g. a hand-edited config, or the settings payload
  *  hasn't resolved that instance yet). */
 export function activeDriver(s: AppSettings): DriverDefinition | null {
-  const inst = s.agent.providerInstances[s.agent.activeInstanceId]
+  const inst = s.agent.providerInstances[defaultInstanceId(s)]
   return inst ? getDriver(inst.driver) : null
+}
+
+/** Identifies a model across providers. A bare slug is ambiguous once two instances are
+ *  enabled — two Claude accounts both offer `claude-opus-4-8` — so every model reference
+ *  that crosses a boundary (IPC, the sessions table, the picker) carries its instance. */
+export interface ModelRef {
+  instanceId: string
+  slug: string
+}
+
+export interface AggregatedModel extends CatalogModel {
+  instanceId: string
+  driverKind: string
+  /** Provider display name, for disambiguating the picker when >1 instance is enabled. */
+  providerLabel: string
+}
+
+/**
+ * Visible models across every enabled instance, each instance's own ordering preserved and
+ * the instances themselves in settings order. Deliberately NOT deduped by slug: the same
+ * slug on two instances is two distinct choices (different account, different config), and
+ * collapsing them would silently drop one provider's entry.
+ */
+export function allVisibleModels(s: AppSettings): AggregatedModel[] {
+  return enabledInstances(s).flatMap(({ id, instance, driver }) =>
+    orderedVisibleModels(s, id).map((m) => ({
+      ...m,
+      instanceId: id,
+      driverKind: driver.kind,
+      providerLabel: instance.displayName?.trim() || (driver.shortLabel ?? driver.label)
+    }))
+  )
+}
+
+/** Seed selection for a new chat: the default instance's default model, else the first
+ *  visible model of any enabled provider. Undefined only when nothing is enabled. */
+export function defaultModelRef(s: AppSettings): ModelRef | undefined {
+  const instanceId = defaultInstanceId(s)
+  const cfg = driverConfig<AgentDriverConfig>(
+    s.agent.providerInstances[instanceId]?.driver ?? '',
+    s.agent.providerInstances[instanceId]?.config
+  )
+  // explicit config.model still wins (back-compat, same rule as effectiveDefaultModel)
+  const slug = cfg.model ?? orderedVisibleModels(s, instanceId)[0]?.slug
+  if (slug) return { instanceId, slug }
+  const first = allVisibleModels(s)[0]
+  return first ? { instanceId: first.instanceId, slug: first.slug } : undefined
+}
+
+/**
+ * Capabilities of a SPECIFIC instance — what a given session can do, as opposed to
+ * {@link activeCapabilities}'s global default. Falls back to the same conservative
+ * DEFAULT_CAPABILITIES when the instance or its driver is unknown; see that constant's
+ * docblock for why `editableApprovals` must stay false in the unknown case.
+ */
+export function capabilitiesFor(
+  s: AppSettings | null | undefined,
+  instanceId: string | null | undefined
+): DriverCapabilities {
+  if (!s || !instanceId) return DEFAULT_CAPABILITIES
+  const inst = s.agent.providerInstances[instanceId]
+  return (inst ? getDriver(inst.driver)?.capabilities : undefined) ?? DEFAULT_CAPABILITIES
 }
 
 /**
@@ -187,10 +289,11 @@ export function driverConfig<T>(slug: string, raw: unknown): T {
   return (r.success ? r.data : {}) as T
 }
 
-/** Config of the active, enabled provider instance ({} if missing/disabled/unknown driver). */
+/** Config of the default provider instance ({} if missing/disabled/unknown driver).
+ *  Routed through {@link defaultInstanceId}, so disabling the named instance falls back to
+ *  another enabled one rather than silently emptying every background caller's config. */
 export function activeInstanceConfig(s: AppSettings): AgentDriverConfig {
-  const a = s.agent
-  const inst = a.providerInstances[a.activeInstanceId]
+  const inst = s.agent.providerInstances[defaultInstanceId(s)]
   if (!inst || !inst.enabled) return {}
   return driverConfig<AgentDriverConfig>(inst.driver, inst.config)
 }
@@ -203,7 +306,7 @@ const EMPTY_PREFS: ModelPreferences = {
 
 /** The driver's static catalog plus that instance's hand-added custom models (deduped, flagged). */
 export function instanceModels(s: AppSettings, instanceId?: string): CatalogModel[] {
-  const id = instanceId ?? s.agent.activeInstanceId
+  const id = instanceId ?? defaultInstanceId(s)
   const inst = s.agent.providerInstances[id]
   if (!inst || !inst.enabled) return [] // same gate as activeInstanceConfig
   const driver = getDriver(inst.driver)
@@ -244,7 +347,7 @@ function sortModels(models: readonly CatalogModel[], prefs: ModelPreferences): C
 
 /** Ordered models with hidden ones filtered out — what session/Composer pickers should offer. */
 export function orderedVisibleModels(s: AppSettings, instanceId?: string): CatalogModel[] {
-  const id = instanceId ?? s.agent.activeInstanceId
+  const id = instanceId ?? defaultInstanceId(s)
   const prefs = s.agent.modelPreferences[id] ?? EMPTY_PREFS
   const visible = instanceModels(s, id).filter((m) => !prefs.hiddenModels.includes(m.slug))
   return sortModels(visible, prefs)
@@ -252,7 +355,7 @@ export function orderedVisibleModels(s: AppSettings, instanceId?: string): Catal
 
 /** Same ordering, but hidden models stay in the list (struck-through) — for the settings list view. */
 export function orderedModels(s: AppSettings, instanceId?: string): CatalogModel[] {
-  const id = instanceId ?? s.agent.activeInstanceId
+  const id = instanceId ?? defaultInstanceId(s)
   const prefs = s.agent.modelPreferences[id] ?? EMPTY_PREFS
   return sortModels(instanceModels(s, id), prefs)
 }

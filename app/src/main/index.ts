@@ -78,11 +78,16 @@ import { flattenPanelCommands } from './services/agent/panelCommands'
 import {
   listSessions,
   createSession,
+  setSessionModel,
   renameSession,
   deleteSession
 } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
-import { getActiveDriver, resolveDriver } from './services/agent/driverRegistry'
+import {
+  getActiveDriver,
+  resolveDriver,
+  resolveInstanceDriver
+} from './services/agent/driverRegistry'
 import { AuthCache } from './services/agent/authCache'
 import {
   linkWorkspace,
@@ -92,7 +97,7 @@ import {
 } from './services/workspaces'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
-import { activeInstanceConfig, effectiveDefaultModel } from '../shared/drivers'
+import { activeInstanceConfig, defaultModelRef, effectiveDefaultModel } from '../shared/drivers'
 import { settingsSchema } from '../shared/settings'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
@@ -818,6 +823,8 @@ function registerIpc(): void {
     // switching the active provider in settings takes effect on the NEXT session without
     // an app restart (Phase 3 checkpoint item 5).
     driver: () => getActiveDriver(settingsService.get().agent),
+    driverForInstance: (instanceId) =>
+      resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
     composeMcp: () => mcpService.composeForSession(),
     onAuthFailure: () => authCache.onAuthFailure(),
     onAuthVerified: () => authCache.onAuthVerified(),
@@ -862,11 +869,46 @@ function registerIpc(): void {
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
   })
+  // A new chat is seeded with the DEFAULT provider instance and its default model, pinned
+  // at creation. The user can re-pin it from the composer's model picker afterwards.
+  const newSessionProvider = (): {
+    driverKind: string
+    instanceId: string | null
+    model: string | null
+  } => {
+    const settings = settingsService.get()
+    const ref = defaultModelRef(settings)
+    return {
+      driverKind: getActiveDriver(settings.agent).kind,
+      instanceId: ref?.instanceId ?? null,
+      model: ref?.slug ?? null
+    }
+  }
   ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) =>
-    listSessions(db, caseSlug, getActiveDriver(settingsService.get().agent).kind)
+    listSessions(db, caseSlug, newSessionProvider())
   )
   ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) =>
-    createSession(db, caseSlug, getActiveDriver(settingsService.get().agent).kind)
+    createSession(db, caseSlug, newSessionProvider())
+  )
+  ipcMain.handle(
+    IPC.sessionsSetModel,
+    (_e, sessionId: number, instanceId: string, model: string) => {
+      if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+      const settings = settingsService.get()
+      const inst = settings.agent.providerInstances[instanceId]
+      // Reject an unknown/disabled instance rather than silently pinning to it: the picker
+      // only ever offers enabled instances, so this is a malformed request, and pinning a
+      // session to a provider that cannot run would strand the chat.
+      if (!inst?.enabled) throw new Error(`Unknown or disabled provider instance: ${instanceId}`)
+      const changed = setSessionModel(db, sessionId, {
+        driverKind: resolveInstanceDriver(settings.agent, instanceId).driver.kind,
+        instanceId,
+        model
+      })
+      // The live CaseSession has the old model frozen at query() construction; AgentService
+      // compares modelKey on the next send and rebuilds. Nothing to do here.
+      return changed
+    }
   )
   ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
     renameSession(db, sessionId, title)

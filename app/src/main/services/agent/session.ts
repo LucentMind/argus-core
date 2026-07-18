@@ -63,6 +63,10 @@ export interface SessionDeps {
   /** Fingerprint of `extraMcpServers` at construction; AgentService compares it per send
    *  to decide whether this session's frozen mcpServers map is still correct. */
   mcpFingerprint?: string
+  /** `<instanceId>::<model>` this session was constructed for; AgentService compares it per
+   *  send exactly like `mcpFingerprint`, because the model is likewise frozen at query()
+   *  construction — re-pinning a chat to another provider/model must rebuild it. */
+  modelKey?: string
   /** Fired when a turn fails auth-shaped (spec §5); index.ts calls authCache.onAuthFailure(). */
   onAuthFailure?: () => void
   /** Fired when a turn completes normally — the only real proof the credentials work. */
@@ -96,6 +100,7 @@ export const PANEL_INGEST_TOOL = 'mcp__argus__panel_ingest_evidence'
 export class CaseSession {
   readonly sessionId: number
   readonly mcpFingerprint: string
+  readonly modelKey: string
   state: 'running' | 'dead' = 'running'
   activeTurn = false
   lastActivity = Date.now()
@@ -112,6 +117,7 @@ export class CaseSession {
     this.deps = deps
     this.sessionId = deps.sessionId
     this.mcpFingerprint = deps.mcpFingerprint ?? ''
+    this.modelKey = deps.modelKey ?? ''
     touchSession(deps.db, deps.sessionId)
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
