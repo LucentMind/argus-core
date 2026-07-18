@@ -403,4 +403,74 @@ describe('TextViewer', () => {
       )
     )
   })
+
+  it('preserves an active search when re-focusing the same file at a different line', async () => {
+    const { rerender } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalledTimes(1))
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [7, 8], scannedTo: 100, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+
+    // same source, different focusStart: the viewer reloads the doc (doc goes
+    // null then non-null again) but the file itself hasn't changed
+    rerender(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={2}
+        focusEnd={2}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByText('3,000,000 lines')
+    // give the 300ms debounce window a chance to fire if it (incorrectly) restarted
+    await new Promise((r) => setTimeout(r, 350))
+    expect(window.argus.textdoc.search).toHaveBeenCalledTimes(1)
+    expect(window.argus.textdoc.cancelSearch).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('find in file')).toHaveValue('ERROR')
+    expect(screen.getByText('2 matches')).toBeInTheDocument()
+  })
+
+  it('Ctrl-F does not leak to a window-level Ctrl-F listener mounted underneath the modal', async () => {
+    // simulates ChatPane's own window-level Ctrl/Cmd+F listener, which stays mounted
+    // underneath the TextViewer modal (App.tsx renders TextViewer as a sibling overlay).
+    // Only the 'f' keydown (not the preceding bare 'Control' keydown, which never
+    // matches TextViewer's ctrl+f branch and is expected to bubble normally) matters.
+    const outerFKeydowns: KeyboardEvent[] = []
+    const outerHandler = (e: KeyboardEvent): void => {
+      if (e.key === 'f') outerFKeydowns.push(e)
+    }
+    window.addEventListener('keydown', outerHandler)
+    try {
+      render(
+        <TextViewer
+          source={{ kind: 'evidence', evidenceId: 2 }}
+          focusStart={1}
+          focusEnd={1}
+          onClose={vi.fn()}
+        />
+      )
+      const find = await screen.findByPlaceholderText('find in file')
+      // focus must originate from inside the modal for this to exercise bubbling —
+      // clicking the find input is the realistic case (it's also where Ctrl-F ends
+      // up moving focus to)
+      await userEvent.click(find)
+      await userEvent.keyboard('{Control>}f{/Control}')
+      expect(outerFKeydowns).toHaveLength(0)
+    } finally {
+      window.removeEventListener('keydown', outerHandler)
+    }
+  })
 })

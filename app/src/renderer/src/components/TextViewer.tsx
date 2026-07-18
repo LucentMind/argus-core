@@ -15,6 +15,32 @@ interface Props {
   onClose: () => void
 }
 
+/** Props shared by the normal and filter-mode VirtualLines branches below —
+ *  they differ only in totalRows/rowToLine/onVisibleRows/onRowClick. */
+function virtualLinesCommonProps(
+  doc: TextDocOpenOk,
+  focusStart: number,
+  focusEnd: number,
+  scrollTarget: { row: number; nonce: number } | null,
+  cache: LinePageCache
+): {
+  className: string
+  getLine: (n: number) => string | undefined
+  focusStart: number
+  focusEnd: number
+  lang: string | null
+  scrollTarget: { row: number; nonce: number } | null
+} {
+  return {
+    className: 'flex-1 p-3',
+    getLine: (n: number) => cache.getLine(n),
+    focusStart,
+    focusEnd,
+    lang: doc.lang,
+    scrollTarget
+  }
+}
+
 const EMPTY_FIND_STATE: FindState = {
   query: '',
   regex: false,
@@ -55,8 +81,12 @@ function useViewerSearch(
     setState(EMPTY_FIND_STATE)
   }
 
+  // subscribed for the component's whole lifetime (not gated on `enabled`): a brief
+  // doc reload (e.g. re-focusing the same file at a different line) flips `enabled`
+  // off and back on without touching the search itself, and unsubscribing during
+  // that window would silently drop any in-flight hit batch. Staleness is instead
+  // handled by the currentId check below, which is correct regardless of `enabled`.
   useEffect(() => {
-    if (!enabled) return
     return window.argus.textdoc.onSearchHits((e) => {
       if (e.searchId !== currentId.current) return
       setState((s) => ({
@@ -67,7 +97,7 @@ function useViewerSearch(
         scannedTo: e.scannedTo
       }))
     })
-  }, [enabled])
+  }, [])
 
   // invalidate the id ref as soon as the doc changes (before the debounced restart
   // below fires) so any straggler event from the old search's in-flight IPC is
@@ -79,7 +109,11 @@ function useViewerSearch(
     }
   }, [docKey])
 
-  // debounce the query → (re)start search; clearing the query cancels in place
+  // debounce the query → (re)start search; clearing the query cancels in place.
+  // Deliberately NOT keyed on `enabled`: the find bar only exists (so `query` can only
+  // change) while enabled is true, so a bare enabled-flip (e.g. re-focusing the same
+  // doc at a different line, which briefly nulls `doc`) must not restart a running or
+  // completed search — the `enabled` check below just guards the IPC call itself.
   useEffect(() => {
     if (!enabled) return
     const t = setTimeout(() => {
@@ -104,7 +138,7 @@ function useViewerSearch(
     }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.query, state.regex, state.caseSensitive, docKey, enabled])
+  }, [state.query, state.regex, state.caseSensitive, docKey])
 
   const setQuery = (q: string): void => setState((s) => ({ ...s, query: q }))
   const toggle = (f: 'regex' | 'caseSensitive' | 'filterMode'): void =>
@@ -252,6 +286,9 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
           e.preventDefault()
+          // stop the native event from reaching ChatPane's window-level Ctrl/Cmd+F
+          // listener underneath this modal (it stays mounted while the viewer is open)
+          e.stopPropagation()
           ;(document.querySelector('[data-viewer-find]') as HTMLInputElement | null)?.focus()
         }
       }}
@@ -320,14 +357,9 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
           />
         ) : doc && search.state.filterMode ? (
           <VirtualLines
-            className="flex-1 p-3"
+            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, cache)}
             totalRows={search.state.hits.length}
             rowToLine={(r) => search.state.hits[r]}
-            getLine={(n) => cache.getLine(n)}
-            focusStart={focusStart}
-            focusEnd={focusEnd}
-            lang={doc.lang}
-            scrollTarget={scrollTarget}
             onVisibleRows={(first, last) => {
               // v1: prefetch each visible hit's own page individually — adjacent
               // hits naturally coalesce onto the same page via LinePageCache
@@ -345,14 +377,9 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
           />
         ) : doc ? (
           <VirtualLines
-            className="flex-1 p-3"
+            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, cache)}
             totalRows={doc.totalLines}
             rowToLine={(r) => r + 1}
-            getLine={(n) => cache.getLine(n)}
-            focusStart={focusStart}
-            focusEnd={focusEnd}
-            lang={doc.lang}
-            scrollTarget={scrollTarget}
             onVisibleRows={(first, last) => {
               cache.prefetch(first - 500, last + 502)
               currentLine.current = Math.floor((first + last) / 2) + 1
