@@ -11,6 +11,7 @@ import {
   readAudit,
   readIndex,
   readTopic,
+  stripTopicEcho,
   writeTopicFile
 } from '../memory'
 import { memoryIndexPath } from '../paths'
@@ -27,7 +28,52 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
+describe('stripTopicEcho', () => {
+  it('drops a leading topic-name echo so the slug is not repeated a third time', () => {
+    expect(stripTopicEcho('nav-fusion-drift', 'nav-fusion-drift — bearing errors follow IMU')).toBe(
+      'bearing errors follow IMU'
+    )
+  })
+
+  it('matches the slug space-separated and case-insensitively, and accepts : or - separators', () => {
+    expect(stripTopicEcho('nav-fusion-drift', 'Nav Fusion Drift: bearing errors')).toBe(
+      'bearing errors'
+    )
+    expect(stripTopicEcho('tile-blocks', 'TILE-BLOCKS - version rejections')).toBe(
+      'version rejections'
+    )
+  })
+
+  it('leaves an entry that merely starts with a similar word untouched', () => {
+    expect(stripTopicEcho('nav', 'navigation drift is the usual cause')).toBe(
+      'navigation drift is the usual cause'
+    )
+  })
+
+  it('leaves an entry with no echo untouched', () => {
+    expect(stripTopicEcho('tile-blocks', 'version rejections (BLOCKED_VERSION)')).toBe(
+      'version rejections (BLOCKED_VERSION)'
+    )
+  })
+
+  it('keeps a bare topic-name entry rather than emptying it', () => {
+    expect(stripTopicEcho('tile-blocks', 'tile-blocks')).toBe('tile-blocks')
+    expect(stripTopicEcho('tile-blocks', 'tile-blocks —   ')).toBe('tile-blocks —')
+  })
+})
+
 describe('memory service', () => {
+  it('index line carries the description only, not a repeated topic name', () => {
+    applyMemoryWrite(argusHome, 'NAV-1', {
+      topic: 'nav-fusion-drift',
+      content: 'x',
+      indexEntry: 'nav-fusion-drift — bearing errors follow an IMU warning'
+    })
+    expect(readIndex(argusHome)).toContain(
+      '- [nav-fusion-drift](nav-fusion-drift.md) — bearing errors follow an IMU warning'
+    )
+  })
+
   it('applyMemoryWrite creates topic + index entry + audit line', () => {
     const summary = applyMemoryWrite(argusHome, 'NAV-1', {
       topic: 'tile-blocks',

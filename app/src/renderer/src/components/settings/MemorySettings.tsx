@@ -68,11 +68,15 @@ export function MemorySettings(): React.JSX.Element {
           </IconBtn>
         </SettingRow>
         {editing === '_index' && (
-          <DraftTextarea
-            value={draft}
-            onCommit={(v) => void commit('_index', v)}
-            aria-label="edit · _index"
-          />
+          // The editor is a bare child of the section Card, outside any SettingRow, so it
+          // carries its own padding — without it the textarea sits flush against the edge.
+          <div className="px-4 py-3">
+            <DraftTextarea
+              value={draft}
+              onCommit={(v) => void commit('_index', v)}
+              aria-label="edit · _index"
+            />
+          </div>
         )}
       </SettingsSection>
 
@@ -110,11 +114,13 @@ export function MemorySettings(): React.JSX.Element {
               </IconBtn>
             </SettingRow>
             {editing === t.name && (
-              <DraftTextarea
-                value={draft}
-                onCommit={(v) => void commit(t.name, v)}
-                aria-label={`edit · ${t.name}`}
-              />
+              <div className="px-4 py-3">
+                <DraftTextarea
+                  value={draft}
+                  onCommit={(v) => void commit(t.name, v)}
+                  aria-label={`edit · ${t.name}`}
+                />
+              </div>
             )}
           </div>
         ))}

@@ -441,8 +441,9 @@ function registerIpc(): void {
       })
       // A probe alone never proves credentials work (see driver.ts's ProbeAuthResult
       // docblock) — verified is always false here; AuthCache promotes it once a real
-      // turn succeeds.
-      return { ...result, verified: false }
+      // turn succeeds. `fixHint` rides along so every consumer (settings card, onboarding
+      // step, health row) renders the ACTIVE driver's remediation rather than Claude's.
+      return { ...result, verified: false, fixHint: driver.authFixHint }
     },
     () => broadcast(IPC.agentAuthChanged, undefined)
   )

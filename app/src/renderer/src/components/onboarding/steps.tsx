@@ -5,23 +5,34 @@ import { markIntegration, markPhase1Done } from '../../lib/onboardingStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
 import { DraftInput, FIELD } from '../settings/settingsLayout'
+import { activeDriver } from '../../../../shared/drivers'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
     <div className="space-y-3">
       <h2 className="text-lg text-ink">Welcome to Argus</h2>
       <p className="text-sm text-dim">
-        Argus analyzes defect evidence with an embedded Claude agent. The next minute gets you set
-        up: connect Claude, install a pack, optionally link your tools, and open a sample case.
+        Argus analyzes defect evidence with an embedded coding agent. The next minute gets you set
+        up: connect a provider, install a pack, optionally link your tools, and open a sample case.
       </p>
     </div>
   )
 }
 
-export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): React.JSX.Element {
+/**
+ * Provider connection step. Driver-agnostic: the copy names whichever provider is active
+ * (Claude Agent SDK, GitHub Copilot, …) and the remediation comes from the probe's own
+ * `fixHint`, so a Copilot user is never told to run `claude login`.
+ */
+export function ProviderStep({ setGate }: { setGate: (ok: boolean) => void }): React.JSX.Element {
   const [status, setStatus] = useState<AuthStatus | null>(null)
   const [checking, setChecking] = useState(true)
   const alive = useRef(true)
+  const payload = useSettingsPayload()
+  // Falls back to a generic noun before settings resolve, so the heading never flashes a
+  // provider name that turns out to be the wrong one.
+  const driver = payload ? activeDriver(payload.settings) : null
+  const name = driver?.shortLabel ?? driver?.label ?? 'your provider'
 
   // Apply a resolved auth status. Guarded so a probe that settles after the step
   // unmounts (the wizard may advance while a re-check is in flight) is a no-op.
@@ -74,8 +85,8 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg text-ink">Connect Claude</h2>
-      {checking && <p className="text-sm text-dim">Checking Claude login…</p>}
+      <h2 className="text-lg text-ink">Connect {name}</h2>
+      {checking && <p className="text-sm text-dim">Checking {name} sign-in…</p>}
       {status?.ok && status.verified && (
         <p className="text-sm text-signal">
           Logged in as {status.email ?? 'your account'}
@@ -84,18 +95,20 @@ export function ClaudeStep({ setGate }: { setGate: (ok: boolean) => void }): Rea
       )}
       {status?.ok && !status.verified && (
         <p className="text-sm text-signal">
-          Claude is ready
+          {name} is ready
           {status.email ? `, with ${status.email} on file` : ''}. Sign-in is confirmed on your first
           message.
         </p>
       )}
       {status && !status.ok && (
         <div className="space-y-2">
-          <p className="text-sm text-danger">Claude isn’t logged in — the agent can’t run yet.</p>
+          <p className="text-sm text-danger">{name} isn’t signed in — the agent can’t run yet.</p>
+          {/* Driver-supplied remediation (AgentDriver.authFixHint) — the fallback covers a
+              probe that predates the field or an unresolvable driver slug. */}
           <p className="text-xs text-dim">
-            Install the Claude Code CLI and run <code className="text-ink">claude login</code> in a
-            terminal, then re-check.
+            {status.fixHint ?? `Sign in to ${name}, then re-check.`}
           </p>
+          {status.detail && <p className="text-xs text-mute">{status.detail}</p>}
           <button
             className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink"
             onClick={recheck}
@@ -118,7 +131,7 @@ export function PackStep({
 }): React.JSX.Element {
   const [payload, setPayload] = useState<PacksListPayload | null>(null)
   // Resolve via .then so setState happens only inside the async callback, never
-  // synchronously in the effect body — mirrors ClaudeStep to avoid set-state-in-effect.
+  // synchronously in the effect body — mirrors ProviderStep to avoid set-state-in-effect.
   const load = useCallback(() => {
     void window.argus.packs.list().then((p) => setPayload(p))
   }, [])

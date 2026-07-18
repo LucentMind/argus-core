@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
 import semver from 'semver'
-import { SettingsSection, SettingRow } from './settingsLayout'
+import { SettingsSection, SettingRow, DisclosureBtn } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { ToolRow, useToolProbes } from './ToolRow'
 import type { PacksListPayload, InstalledPackRow } from '../../../../shared/packs'
@@ -22,44 +21,66 @@ function installErrorMessage(code: string, error: string): string {
 }
 
 /**
- * Collapsed-by-default disclosure for a pack's tools. Packs each contribute their own
- * tool rows (path input + probe + Browse), so with several packs installed the always-open
- * list buried the pack names it belonged to; the pack list is the index, the tools are the
- * detail. Local state per pack — expansion is a transient view concern, not a setting.
+ * One installed pack: its header row, plus its tools behind a collapsed-by-default
+ * disclosure. Packs each contribute their own tool rows (path input + probe + Browse), so
+ * with several installed the always-open list buried the pack names it belonged to — the
+ * pack list is the index, the tools are the detail. The chevron lives on the pack row
+ * itself (same idiom as a provider row) rather than on a separate summary line.
+ * Local state per pack — expansion is a transient view concern, not a setting.
  */
-function PackTools({
-  packId,
+function PackCard({
+  pack,
   tools,
   report,
+  busy,
+  onUninstall,
   onInstalled
 }: {
-  packId: string
+  pack: InstalledPackRow
   tools: SettingsPayload['resolvedTools']
   report: ReturnType<typeof useToolProbes>['report']
+  busy: boolean
+  onUninstall: () => void
   onInstalled: () => void
-}): React.JSX.Element | null {
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  if (tools.length === 0) return null
   return (
-    <div className="border-l border-hair pl-4">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`${open ? 'Hide' : 'Show'} tools · ${packId}`}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 py-1.5 text-xs text-dim transition-colors hover:text-ink"
+    <div>
+      <SettingRow
+        label={pack.displayName}
+        description={`${pack.id}${pack.platform ? ` · ${pack.platform}` : ''}`}
+        badge={
+          <span className="flex items-center gap-1">
+            <Chip tone="neutral">{pack.installedVersion ?? pack.loadedVersion ?? '—'}</Chip>
+            {pack.pendingRelaunch && <Chip tone="review">pending relaunch</Chip>}
+            {pack.binaries.map((b) => (
+              <Chip key={b.id} tone={b.ok ? 'signal' : 'danger'} title={b.detail}>
+                {b.id}
+              </Chip>
+            ))}
+          </span>
+        }
       >
-        <ChevronRight
-          size={13}
-          strokeWidth={1.5}
-          className={`transition-transform ${open ? 'rotate-90' : ''}`}
-        />
-        <span>
-          {tools.length} {tools.length === 1 ? 'tool' : 'tools'}
-        </span>
-      </button>
-      {open && (
-        <div data-pack-tools={packId}>
+        {pack.installedVersion != null && (
+          <Btn
+            variant="danger"
+            aria-label={`Uninstall · ${pack.id}`}
+            disabled={busy}
+            onClick={onUninstall}
+          >
+            Uninstall
+          </Btn>
+        )}
+        {tools.length > 0 && (
+          <DisclosureBtn
+            expanded={open}
+            onToggle={() => setOpen((o) => !o)}
+            label={`tools · ${pack.id}`}
+          />
+        )}
+      </SettingRow>
+      {open && tools.length > 0 && (
+        <div data-pack-tools={pack.id} className="border-l border-hair pl-4">
           {tools.map((t) => (
             <ToolRow key={t.id} row={t} report={report} onInstalled={onInstalled} />
           ))}
@@ -198,40 +219,17 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         {payload.packs.length === 0 && (
           <div className="px-3 py-2 text-xs text-dim">No packs installed.</div>
         )}
-        {payload.packs.map((p) => {
-          const tools = settings.resolvedTools.filter((t) => t.packId === p.id)
-          return (
-            <div key={p.id}>
-              <SettingRow
-                label={p.displayName}
-                description={`${p.id}${p.platform ? ` · ${p.platform}` : ''}`}
-                badge={
-                  <span className="flex items-center gap-1">
-                    <Chip tone="neutral">{p.installedVersion ?? p.loadedVersion ?? '—'}</Chip>
-                    {p.pendingRelaunch && <Chip tone="review">pending relaunch</Chip>}
-                    {p.binaries.map((b) => (
-                      <Chip key={b.id} tone={b.ok ? 'signal' : 'danger'} title={b.detail}>
-                        {b.id}
-                      </Chip>
-                    ))}
-                  </span>
-                }
-              >
-                {p.installedVersion != null && (
-                  <Btn
-                    variant="danger"
-                    aria-label={`Uninstall · ${p.id}`}
-                    disabled={busy}
-                    onClick={() => void uninstall(p)}
-                  >
-                    Uninstall
-                  </Btn>
-                )}
-              </SettingRow>
-              <PackTools packId={p.id} tools={tools} report={report} onInstalled={runChecks} />
-            </div>
-          )
-        })}
+        {payload.packs.map((p) => (
+          <PackCard
+            key={p.id}
+            pack={p}
+            tools={settings.resolvedTools.filter((t) => t.packId === p.id)}
+            report={report}
+            busy={busy}
+            onUninstall={() => void uninstall(p)}
+            onInstalled={runChecks}
+          />
+        ))}
       </SettingsSection>
       <div className="flex items-center gap-2">
         <Btn

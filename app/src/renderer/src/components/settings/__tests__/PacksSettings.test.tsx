@@ -213,22 +213,23 @@ describe('PacksSettings', () => {
 
   it('keeps a pack’s analysis tools collapsed until the disclosure is opened', async () => {
     render(<PacksSettings settings={settingsPayload()} />)
-    const toggle = await screen.findByRole('button', { name: 'Show tools · navigation' })
+    const toggle = await screen.findByRole('button', { name: 'Expand tools · navigation' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('Demo tool')).toBeNull()
 
     fireEvent.click(toggle)
     expect(await screen.findByText('Demo tool')).toBeInTheDocument()
     expect(await screen.findByText(/found · v22/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Hide tools · navigation' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Collapse tools · navigation' })).toHaveAttribute(
       'aria-expanded',
       'true'
     )
   })
 
-  it('summarises the tool count on the collapsed disclosure', async () => {
+  it('shows a bare chevron, not a tool-count summary line', async () => {
     render(<PacksSettings settings={settingsPayload()} />)
-    expect(await screen.findByText('1 tool')).toBeInTheDocument()
+    await screen.findByRole('button', { name: 'Expand tools · navigation' })
+    expect(screen.queryByText('1 tool')).toBeNull()
   })
 
   it('groups each tool under its declaring pack only', async () => {
@@ -237,8 +238,8 @@ describe('PacksSettings', () => {
       { ...toolRows[0], id: 'graphify', packId: 'code-graph', displayName: 'Graphify' }
     ]
     const { container } = render(<PacksSettings settings={settingsPayload(rows)} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Show tools · navigation' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Show tools · code-graph' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand tools · navigation' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand tools · code-graph' }))
     await screen.findByText('Demo tool')
 
     const navGroup = container.querySelector('[data-pack-tools="navigation"]')
@@ -253,13 +254,13 @@ describe('PacksSettings', () => {
     render(<PacksSettings settings={settingsPayload()} />)
     await screen.findByText('CODE-GRAPH')
     // only `navigation` owns a tool in the default fixture
-    expect(screen.getAllByRole('button', { name: /^Show tools · / })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: 'Show tools · code-graph' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: /^Expand tools · / })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Expand tools · code-graph' })).toBeNull()
   })
 
   it('Re-run checks re-probes every tool, including collapsed ones', async () => {
     render(<PacksSettings settings={settingsPayload()} />)
-    await screen.findByRole('button', { name: 'Show tools · navigation' })
+    await screen.findByRole('button', { name: 'Expand tools · navigation' })
     fireEvent.click(screen.getByRole('button', { name: 'Re-run checks' }))
     await waitFor(() => expect(window.argus.settings.probeTools).toHaveBeenCalledTimes(2))
   })
