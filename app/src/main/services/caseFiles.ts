@@ -2,10 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, FileNode, FileReadResult } from '../../shared/types'
+import { MAX_WHOLE_FILE_BYTES } from '../../shared/textdoc'
 import { getCase, SLUG_RE } from './caseService'
 import { caseDir } from './paths'
 
-export const FILE_READ_CAP = 2 * 1024 * 1024
+export const FILE_READ_CAP = MAX_WHOLE_FILE_BYTES
 
 /** Entries never shown or walked: junction farm + evidence sidecar metadata. */
 const HIDDEN = new Set(['.claude', '.meta'])

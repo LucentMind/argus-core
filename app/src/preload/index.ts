@@ -66,6 +66,12 @@ import type {
 } from '../shared/panels'
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
+import type {
+  TextDocSource,
+  TextDocOpenResult,
+  TextDocLines,
+  TextDocSearchEvent
+} from '../shared/textdoc'
 
 // Custom API for renderer
 const argus = {
@@ -112,6 +118,36 @@ const argus = {
       ): void => cb(p)
       ipcRenderer.on(IPC.evidenceParsing, listener)
       return () => ipcRenderer.removeListener(IPC.evidenceParsing, listener)
+    }
+  },
+  textdoc: {
+    open: (source: TextDocSource, focusStart: number): Promise<TextDocOpenResult> =>
+      ipcRenderer.invoke(IPC.textdocOpen, source, focusStart),
+    lines: (source: TextDocSource, from: number, to: number): Promise<TextDocLines> =>
+      ipcRenderer.invoke(IPC.textdocLines, source, from, to),
+    search: (
+      searchId: string,
+      source: TextDocSource,
+      query: string,
+      opts: {
+        regex?: boolean
+        caseSensitive?: boolean
+        fromLine?: number
+        toLine?: number
+        filter?: { query: string; regex?: boolean; caseSensitive?: boolean }
+      }
+    ): Promise<void> => ipcRenderer.invoke(IPC.textdocSearch, searchId, source, query, opts),
+    cancelSearch: (searchId: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.textdocCancelSearch, searchId),
+    onSearchHits: (cb: (e: TextDocSearchEvent) => void): (() => void) => {
+      const listener = (_e: unknown, ev: TextDocSearchEvent): void => cb(ev)
+      ipcRenderer.on(IPC.textdocSearchHits, listener)
+      return () => ipcRenderer.removeListener(IPC.textdocSearchHits, listener)
+    },
+    onIndexProgress: (cb: (p: { key: string; fraction: number }) => void): (() => void) => {
+      const listener = (_e: unknown, p: { key: string; fraction: number }): void => cb(p)
+      ipcRenderer.on(IPC.textdocIndexProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.textdocIndexProgress, listener)
     }
   },
   files: {

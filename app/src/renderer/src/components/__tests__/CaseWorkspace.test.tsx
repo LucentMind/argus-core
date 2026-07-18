@@ -64,6 +64,14 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => {}),
       onParsing: vi.fn(() => () => {})
     },
+    textdoc: {
+      open: vi.fn(async () => ({ ok: true, title: '', lang: null, ref: null, totalLines: 0 })),
+      lines: vi.fn(async (_s, from) => ({ from, lines: [] })),
+      search: vi.fn(async () => undefined),
+      cancelSearch: vi.fn(async () => undefined),
+      onSearchHits: vi.fn(() => () => {}),
+      onIndexProgress: vi.fn(() => () => {})
+    },
     files: {
       list: vi.fn(async () => []),
       read: vi.fn(),

@@ -37,6 +37,8 @@ const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__search_case_history: { action: 'allow', risk: 'LOW' },
   mcp__argus__list_evidence: { action: 'allow', risk: 'LOW' },
   mcp__argus__get_artifact_meta: { action: 'allow', risk: 'LOW' },
+  mcp__argus__read_lines: { action: 'allow', risk: 'LOW' },
+  mcp__argus__grep_lines: { action: 'allow', risk: 'LOW' },
   mcp__argus__ingest_artifact: { action: 'allow', risk: 'LOW' },
   mcp__argus__append_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
