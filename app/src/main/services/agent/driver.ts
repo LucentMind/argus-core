@@ -92,4 +92,11 @@ export interface AgentDriver {
   readonly capabilities: DriverCapabilities
   createSession(ctx: DriverSessionContext): DriverSession
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
+  /**
+   * Optional driver-specific classifier for whether a thrown/consumed error message is an
+   * auth failure. CaseSession's consume-catch prefers this when present (Copilot reports
+   * auth failure through a typed `session.error` channel AND a leaked message substring);
+   * absent, callers fall back to the Claude `isAuthFailure` heuristic.
+   */
+  isAuthErrorMessage?(message: string): boolean
 }

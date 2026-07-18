@@ -7,13 +7,14 @@ function agentSettings(overrides: Partial<AgentSettings> = {}): AgentSettings {
 }
 
 describe('driverRegistry', () => {
-  it('DRIVERS stays Claude-only until Task 9A registers github-copilot', () => {
-    expect(Object.keys(DRIVERS)).toEqual(['claude-agent-sdk'])
+  it('registers both the Claude and Copilot drivers (Task 9A)', () => {
+    expect(Object.keys(DRIVERS).sort()).toEqual(['claude-agent-sdk', 'github-copilot'])
   })
 
-  it('getDriverByKind falls back to Claude for an unregistered kind', () => {
-    expect(getDriverByKind('github-copilot').kind).toBe('claude-agent-sdk')
+  it('getDriverByKind resolves registered kinds and falls back to Claude for the rest', () => {
+    expect(getDriverByKind('github-copilot').kind).toBe('github-copilot')
     expect(getDriverByKind('claude-agent-sdk').kind).toBe('claude-agent-sdk')
+    expect(getDriverByKind('zzz-future-driver').kind).toBe('claude-agent-sdk')
   })
 
   describe('resolveDriver', () => {
@@ -48,7 +49,7 @@ describe('driverRegistry', () => {
       expect(r.unknownSlug).toBeUndefined()
     })
 
-    it('an unknown driver slug (e.g. github-copilot, before Task 9A registers it) falls back to Claude but flags unknownSlug', () => {
+    it('the now-registered github-copilot slug resolves to the Copilot driver, no unknownSlug', () => {
       const s = agentSettings({
         activeInstanceId: 'copilot-default',
         providerInstances: {
@@ -56,8 +57,20 @@ describe('driverRegistry', () => {
         }
       })
       const r = resolveDriver(s)
+      expect(r.driver.kind).toBe('github-copilot')
+      expect(r.unknownSlug).toBeUndefined()
+    })
+
+    it('a genuinely unregistered driver slug falls back to Claude but flags unknownSlug', () => {
+      const s = agentSettings({
+        activeInstanceId: 'future-default',
+        providerInstances: {
+          'future-default': { driver: 'zzz-future-driver', enabled: true, config: {} }
+        }
+      })
+      const r = resolveDriver(s)
       expect(r.driver.kind).toBe('claude-agent-sdk')
-      expect(r.unknownSlug).toBe('github-copilot')
+      expect(r.unknownSlug).toBe('zzz-future-driver')
     })
   })
 
@@ -72,11 +85,11 @@ describe('driverRegistry', () => {
       expect(getActiveDriver(s).kind).toBe('claude-agent-sdk')
     })
 
-    it('falls back to Claude for an unknown slug too (collapses the unknownSlug distinction)', () => {
+    it('falls back to Claude for an unregistered slug (collapses the unknownSlug distinction)', () => {
       const s = agentSettings({
-        activeInstanceId: 'copilot-default',
+        activeInstanceId: 'future-default',
         providerInstances: {
-          'copilot-default': { driver: 'github-copilot', enabled: true, config: {} }
+          'future-default': { driver: 'zzz-future-driver', enabled: true, config: {} }
         }
       })
       expect(getActiveDriver(s).kind).toBe('claude-agent-sdk')

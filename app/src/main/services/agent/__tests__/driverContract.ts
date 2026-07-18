@@ -202,5 +202,25 @@ export function runDriverContractSuite(
       const session = makeDriver().createSession(makeCtx())
       await expect(session.interrupt()).resolves.toBeUndefined()
     })
+
+    // 7. onTurnResult MUST be called before the turn.completed AgentEvent is yielded, so the
+    //    harness has recorded per-turn accounting + the auth verdict by the time downstream
+    //    observers see the turn end. Asserted via ordering into a shared log.
+    it('calls onTurnResult before yielding turn.completed', async () => {
+      const log: string[] = []
+      const onTurnResult = vi.fn(() => log.push('onTurnResult'))
+      setScript({ content: ['hi'], completeTurn: true })
+      const session = makeDriver().createSession(makeCtx({ onTurnResult }))
+      session.send('go')
+      for await (const e of session.events()) {
+        if (e.type === 'turn.completed') log.push('turn.completed')
+      }
+      expect(onTurnResult).toHaveBeenCalled()
+      const resultAt = log.indexOf('onTurnResult')
+      const completedAt = log.indexOf('turn.completed')
+      expect(resultAt).toBeGreaterThanOrEqual(0)
+      expect(completedAt).toBeGreaterThanOrEqual(0)
+      expect(resultAt).toBeLessThan(completedAt)
+    })
   })
 }
