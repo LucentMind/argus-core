@@ -64,10 +64,18 @@ export function setTitleIfEmpty(db: DatabaseSync, sessionId: number, firstMessag
   )
 }
 
-export function sessionCursor(db: DatabaseSync, sessionId: number): string | null {
-  const row = db.prepare(`SELECT sdk_session_id FROM sessions WHERE id = ?`).get(sessionId) as
-    { sdk_session_id: string | null } | undefined
-  return row?.sdk_session_id ?? null
+/** Returns the resume cursor only when it was produced by the same driver kind —
+ *  a Claude session's cursor must never be handed to a Copilot driver and vice versa. */
+export function sessionCursor(
+  db: DatabaseSync,
+  sessionId: number,
+  driverKind: string
+): string | null {
+  const row = db
+    .prepare(`SELECT driver_cursor, driver_kind FROM sessions WHERE id = ?`)
+    .get(sessionId) as { driver_cursor: string | null; driver_kind: string } | undefined
+  if (!row || row.driver_kind !== driverKind) return null
+  return row.driver_cursor
 }
 
 export function touchSession(db: DatabaseSync, sessionId: number): void {

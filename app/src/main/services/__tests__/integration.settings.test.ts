@@ -13,7 +13,7 @@ import { createSession } from '../agent/sessionStore'
 import { AsyncQueue } from '../agent/asyncQueue'
 import { createDetection } from '../packs/detection'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
-import type { CreateQueryFn } from '../agent/session'
+import type { CreateQueryFn } from '../agent/drivers/claude'
 import type { LoadedPack } from '../packs/loader'
 import type { DatabaseSync } from 'node:sqlite'
 

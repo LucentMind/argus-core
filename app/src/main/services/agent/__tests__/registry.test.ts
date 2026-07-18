@@ -11,7 +11,7 @@ import { defaultAgentAccess, agentAccessSchema } from '../../../../shared/agentA
 import { createDetection } from '../../packs/detection'
 import { SessionMirror } from '../mirror'
 import { caseDir } from '../../paths'
-import type { CreateQueryFn } from '../session'
+import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 import { fingerprintServers, McpService } from '../../mcp'
@@ -288,10 +288,10 @@ describe('AgentService', () => {
       createQuery
     })
     await svc2.send('NAV-1', s1.id, 'b')
-    const sess = db.prepare(`SELECT sdk_session_id FROM sessions`).get() as {
-      sdk_session_id: string
+    const sess = db.prepare(`SELECT driver_cursor FROM sessions`).get() as {
+      driver_cursor: string
     }
-    expect(sess.sdk_session_id).toBe('22222222-2222-4222-8222-222222222222')
+    expect(sess.driver_cursor).toBe('22222222-2222-4222-8222-222222222222')
     await svc2.stopAll()
   })
 

@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { searchEvidence } from '../../search'
 import { applyMemoryWrite, filteredIndex, readAudit } from '../../memory'
-import { classifyToolCall } from '../risk'
+import { classifyToolCall, CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { materializeSessionSkills } from '../skillsResolver'
 import { seedMemoryPair } from '../../__tests__/helpers/seedMemoryPair'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
@@ -40,7 +40,12 @@ describe('memory compounding mechanics (spec §1.6)', () => {
     const verdict = classifyToolCall(
       'mcp__argus__write_memory',
       { topic: 'data-version-blocks', content: 'x' },
-      { caseDir: caseDir(argusHome, 'NAV-100'), workspaceRoots: [], readonlyRoots: [] }
+      {
+        caseDir: caseDir(argusHome, 'NAV-100'),
+        workspaceRoots: [],
+        readonlyRoots: [],
+        taxonomy: CLAUDE_TOOL_TAXONOMY
+      }
     )
     expect(verdict).toMatchObject({ action: 'ask', risk: 'MEDIUM' })
 

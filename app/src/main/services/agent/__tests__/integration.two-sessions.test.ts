@@ -10,7 +10,7 @@ import { AgentService } from '../registry'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
-import type { CreateQueryFn } from '../session'
+import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 

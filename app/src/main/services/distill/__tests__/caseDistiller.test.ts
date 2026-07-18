@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { runCaseDistill } from '../caseDistiller'
 import { DistillParseError } from '../contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
-import type { CreateQueryFn } from '../../agent/session'
+import type { CreateQueryFn } from '../../agent/drivers/claude'
 
 const INPUT: CaseDistillInput = {
   caseMeta: {

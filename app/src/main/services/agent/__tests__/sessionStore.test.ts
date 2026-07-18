@@ -49,11 +49,18 @@ describe('sessionStore', () => {
     expect(listSessions(db, 'NAV-1').find((r) => r.id === s.id)!.title).toBe('')
   })
 
-  it('sessionCursor returns the per-session sdk id', () => {
+  it('sessionCursor returns the per-session cursor when the driver kind matches', () => {
     const s = createSession(db, 'NAV-1')
-    db.prepare(`UPDATE sessions SET sdk_session_id = 'uuid-x' WHERE id = ?`).run(s.id)
-    expect(sessionCursor(db, s.id)).toBe('uuid-x')
-    expect(sessionCursor(db, 999999)).toBeNull()
+    db.prepare(`UPDATE sessions SET driver_cursor = 'uuid-x' WHERE id = ?`).run(s.id)
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk')).toBe('uuid-x')
+    expect(sessionCursor(db, 999999, 'claude-agent-sdk')).toBeNull()
+  })
+
+  it('sessionCursor returns null on driver-kind mismatch', () => {
+    const s = createSession(db, 'NAV-1')
+    db.prepare(`UPDATE sessions SET driver_cursor = 'uuid-x' WHERE id = ?`).run(s.id)
+    expect(sessionCursor(db, s.id, 'claude-agent-sdk')).toBe('uuid-x')
+    expect(sessionCursor(db, s.id, 'github-copilot')).toBeNull()
   })
 
   it('listSessions throws for an unknown case', () => {

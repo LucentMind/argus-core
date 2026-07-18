@@ -11,7 +11,7 @@ import { assembleDistillInput } from '../input'
 import { runCaseDistill } from '../caseDistiller'
 import { stageDistillOutput } from '../staging'
 import { DistillQueue } from '../queue'
-import type { CreateQueryFn } from '../../agent/session'
+import type { CreateQueryFn } from '../../agent/drivers/claude'
 
 const RESPONSE =
   '```json\n' +

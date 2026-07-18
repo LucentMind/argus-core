@@ -4,12 +4,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
-import { CaseSession, isAuthFailure, type CreateQueryFn } from '../session'
+import { CaseSession } from '../session'
+import { createClaudeDriver, isAuthFailure, type CreateQueryFn } from '../drivers/claude'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
 import { createDetection } from '../../packs/detection'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
+import { CLAUDE_TOOL_TAXONOMY } from '../risk'
+import type { AgentDriver } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -56,8 +59,8 @@ function makeSession(
     workspaceRoots: [],
     skillsRoots: [],
     emit: (e) => events.push(e),
-    createQuery: sdk.createQuery,
-    resumeSdkSessionId: null,
+    driver: createClaudeDriver(sdk.createQuery),
+    resumeCursor: null,
     ...overrides
   })
 }
@@ -160,11 +163,11 @@ describe('CaseSession', () => {
     expect(events.map((e) => e.type)).toEqual(
       expect.arrayContaining(['session.started', 'content.delta', 'turn.completed'])
     )
-    const sess = db.prepare(`SELECT sdk_session_id, turn_count FROM sessions`).get() as {
-      sdk_session_id: string
+    const sess = db.prepare(`SELECT driver_cursor, turn_count FROM sessions`).get() as {
+      driver_cursor: string
       turn_count: number
     }
-    expect(sess.sdk_session_id).toBe('11111111-1111-4111-8111-111111111111')
+    expect(sess.driver_cursor).toBe('11111111-1111-4111-8111-111111111111')
     expect(sess.turn_count).toBe(1)
     const turn = db.prepare(`SELECT status, input_tokens FROM turns`).get() as {
       status: string
@@ -292,10 +295,10 @@ describe('CaseSession', () => {
     })
     sdk.messages.push({ type: 'system', subtype: 'hook_event', session_id: 'transient-not-a-uuid' })
     await flush()
-    const sess = db.prepare(`SELECT sdk_session_id FROM sessions`).get() as {
-      sdk_session_id: string
+    const sess = db.prepare(`SELECT driver_cursor FROM sessions`).get() as {
+      driver_cursor: string
     }
-    expect(sess.sdk_session_id).toBe('11111111-1111-4111-8111-111111111111')
+    expect(sess.driver_cursor).toBe('11111111-1111-4111-8111-111111111111')
     await s.stop('stopped')
   })
 
@@ -413,6 +416,32 @@ describe('CaseSession', () => {
     expect(events.some((e) => e.type === 'session.exited')).toBe(true)
   })
 
+  // Regression (Task 4 review): the pre-driver harness swallowed interrupt rejections
+  // (`query.interrupt().catch(...)`), and stop() awaits interrupt() between draining
+  // approvals and emitting session.exited / closing the mirror. A driver whose interrupt
+  // rejects must therefore never abort the teardown or surface a rejection to IPC callers.
+  it('stop() completes even when the driver session interrupt() rejects', async () => {
+    const eventQueue = new AsyncQueue<AgentEvent>()
+    const rejectingDriver: AgentDriver = {
+      kind: 'claude-agent-sdk',
+      toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      capabilities: { permissionModes: ['default'], editableApprovals: true, costReporting: true },
+      createSession: () => ({
+        events: () => eventQueue,
+        send: () => undefined,
+        interrupt: async () => {
+          throw new Error('interrupt transport failed')
+        },
+        end: () => eventQueue.end()
+      }),
+      probeAuth: async () => ({ ok: true, detail: '' })
+    }
+    const s = makeSession(fakeSdk(), { driver: rejectingDriver })
+    await expect(s.stop('stopped')).resolves.toBeUndefined()
+    expect(s.state).toBe('dead')
+    expect(events.some((e) => e.type === 'session.exited')).toBe(true)
+  })
+
   it('applies agentOptions: model, cliPath, permissionMode, personaAppend', async () => {
     const sdk = fakeSdk()
     const rec = createCase(db, argusHome, { slug: 'NAV-OPT', title: 't' })
@@ -426,8 +455,8 @@ describe('CaseSession', () => {
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
-      createQuery: sdk.createQuery,
-      resumeSdkSessionId: null,
+      driver: createClaudeDriver(sdk.createQuery),
+      resumeCursor: null,
       agentOptions: {
         model: 'claude-sonnet-5',
         cliPath: 'C:\\tools\\claude.exe',
@@ -466,8 +495,8 @@ describe('CaseSession', () => {
       workspaceRoots: [],
       skillsRoots: [],
       emit: (e) => events.push(e),
-      createQuery: sdk2.createQuery,
-      resumeSdkSessionId: null,
+      driver: createClaudeDriver(sdk2.createQuery),
+      resumeCursor: null,
       agentOptions: { permissionMode: 'default' }
     })
     expect(sdk2.captured.options!.permissionMode).toBeUndefined()

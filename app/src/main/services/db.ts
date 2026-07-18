@@ -36,7 +36,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-  sdk_session_id TEXT,
+  driver_cursor TEXT,
+  driver_kind TEXT NOT NULL DEFAULT 'claude-agent-sdk',
   title TEXT NOT NULL DEFAULT '',
   turn_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
@@ -154,6 +155,20 @@ export function openDb(file: string): DatabaseSync {
   const sessCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
   if (!sessCols.some((c) => c.name === 'title')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
+  }
+  // Driver-typed resume cursor: rename the Claude-specific sdk_session_id column to
+  // driver_cursor and tag every row with the driver that produced it (defaulting existing
+  // rows to 'claude-agent-sdk', the only driver that existed before this migration) so a
+  // future Copilot driver can never resume a Claude session's cursor and vice versa.
+  const cursorCols = db.prepare(`SELECT name FROM pragma_table_info('sessions')`).all() as {
+    name: string
+  }[]
+  const hasSessionCol = (n: string): boolean => cursorCols.some((c) => c.name === n)
+  if (hasSessionCol('sdk_session_id') && !hasSessionCol('driver_cursor')) {
+    db.exec(`ALTER TABLE sessions RENAME COLUMN sdk_session_id TO driver_cursor`)
+  }
+  if (!hasSessionCol('driver_kind')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN driver_kind TEXT NOT NULL DEFAULT 'claude-agent-sdk'`)
   }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
