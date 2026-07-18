@@ -199,7 +199,12 @@ function safeRelPath(rel: string, requiredPrefix?: string): boolean {
 }
 
 /** Rebuild evidence rows + FTS from the bundled .meta sidecars (old ids remapped). */
-function reindexImportedEvidence(db: DatabaseSync, caseId: number, dir: string): void {
+function reindexImportedEvidence(
+  db: DatabaseSync,
+  argusHome: string,
+  caseId: number,
+  dir: string
+): void {
   const metaRoot = path.join(dir, 'evidence', '.meta')
   const sidecars: string[] = []
   const walk = (rel: string): void => {
@@ -252,7 +257,7 @@ function reindexImportedEvidence(db: DatabaseSync, caseId: number, dir: string):
       const newId = Number(res.lastInsertRowid)
       idMap.set(rec.id, newId)
       const abs = path.join(dir, ...rec.relPath.split('/'))
-      if (meta.indexed && fs.existsSync(abs)) indexEvidenceFile(db, newId, abs)
+      if (meta.indexed && fs.existsSync(abs)) indexEvidenceFile(db, newId, abs, 400, argusHome)
       fs.writeFileSync(
         path.join(metaRoot, ...rel.split('/')),
         JSON.stringify({ ...rec, id: newId, caseId, meta }, null, 2)
@@ -417,7 +422,7 @@ export async function importCase(
           2
         )
       )
-      reindexImportedEvidence(db, caseId, dir)
+      reindexImportedEvidence(db, argusHome, caseId, dir)
       registerImportedSessions(db, caseId, slug, dir)
       return getCase(db, slug)!
     } catch (err) {

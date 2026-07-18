@@ -10,6 +10,8 @@ import { ingestContent, listEvidence, updateEvidenceContent } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { scanEvidence, type ScanDeps } from '../scan'
+import { sidecarPath } from '../lineIndex'
+import { MAX_READ_BYTES } from '../search'
 
 let tmp: string, argusHome: string, db: DatabaseSync, changed: string[]
 const detection = createDetection(samplePackRegistry())
@@ -36,6 +38,17 @@ afterEach(() => {
 })
 
 describe('scanEvidence', () => {
+  it('writes a line-index sidecar for large scanned text files (ingest parity)', () => {
+    const big = path.join(evDir('C1'), 'big.log')
+    const line = 'x'.repeat(1024) + '\n'
+    const count = Math.ceil(MAX_READ_BYTES / line.length) + 10
+    const fd = fs.openSync(big, 'w')
+    for (let i = 0; i < count; i++) fs.writeSync(fd, line)
+    fs.closeSync(fd)
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    expect(fs.existsSync(sidecarPath(argusHome, big))).toBe(true)
+  })
+
   it('registers untracked files in place, including nested subfolders', () => {
     fs.writeFileSync(path.join(evDir('C1'), 'dropped.txt'), 'external file one')
     fs.mkdirSync(path.join(evDir('C1'), 'sub', 'deep'), { recursive: true })
