@@ -163,23 +163,23 @@ export const CONNECTOR_FORMS: Record<string, Record<string, FieldAnnotation>> = 
 export const ROVO_FORM_EXTRAS: Record<string, FieldAnnotation> = {
   siteUrl: {
     control: 'text',
-    label: 'Site URL (REST)',
+    label: 'Site URL (optional, advanced)',
     placeholder: 'https://your-site.atlassian.net',
     order: 9
   },
   email: {
     control: 'text',
-    label: 'Email (REST)',
+    label: 'Email (optional, advanced)',
     placeholder: 'you@example.com',
     order: 9.5,
-    help: 'Jira Cloud (*.atlassian.net) authenticates API tokens with Basic auth (email + token) — set your Atlassian account email here. Leave empty only for Server/DC personal access tokens (Bearer).'
+    help: 'Only used with an API token for Server/DC or fallback. Jira Cloud via your Atlassian authorization needs neither.'
   },
   apiToken: {
     control: 'password',
-    label: 'Atlassian API token (PAT)',
+    label: 'Atlassian API token (optional)',
     order: 10,
     sensitive: true,
-    help: 'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
+    help: 'Optional. Only needed for Confluence reference-sync, or as a fallback if your Atlassian authorization lacks Jira access. Jira ticket import and attachments now use your Atlassian authorization.'
   }
 }
 
