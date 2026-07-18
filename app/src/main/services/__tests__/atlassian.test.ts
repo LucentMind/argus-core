@@ -7,7 +7,7 @@ import {
   AtlassianClient,
   AtlassianError,
   atlassianRestConfigured,
-  atlassianSiteUrl,
+  rovoInstanceId,
   jiraBrowseUrl,
   resolveAtlassianCreds
 } from '../atlassian'
@@ -149,20 +149,17 @@ describe('resolveAtlassianCreds', () => {
   })
 })
 
-describe('atlassianSiteUrl', () => {
-  const reg = (cfg: Record<string, unknown>): ConnectorMap =>
-    ({ rovo: { kind: 'http', preset: 'rovo', enabled: true, config: cfg } }) as never
+describe('rovoInstanceId', () => {
+  const reg = (id: string, preset: string): ConnectorMap =>
+    ({ [id]: { kind: 'http', preset, enabled: true, config: {} } }) as never
 
-  it('returns the trimmed siteUrl without requiring an API token (Open in Jira)', () => {
-    expect(atlassianSiteUrl(reg({ siteUrl: 'https://acme.atlassian.net/' }))).toBe(
-      'https://acme.atlassian.net'
-    )
+  it('returns the rovo-preset connector instance id', () => {
+    expect(rovoInstanceId(reg('rovo', 'rovo'))).toBe('rovo')
   })
 
-  it('returns null with no rovo connector or no usable siteUrl', () => {
-    expect(atlassianSiteUrl({} as never)).toBeNull()
-    expect(atlassianSiteUrl(reg({}))).toBeNull()
-    expect(atlassianSiteUrl(reg({ siteUrl: 'acme.atlassian.net' }))).toBeNull()
+  it('returns null with no rovo connector configured', () => {
+    expect(rovoInstanceId({} as never)).toBeNull()
+    expect(rovoInstanceId(reg('other', 'github'))).toBeNull()
   })
 })
 
@@ -257,6 +254,30 @@ describe('AtlassianClient', () => {
     expect(e).toBeInstanceOf(Error)
     expect(e.code).toBe('http')
     expect(e.instanceId).toBe('rovo')
+  })
+})
+
+describe('AtlassianClient siteUrl accessors', () => {
+  it('cachedSiteUrl is null before any request warms the cache', () => {
+    expect(client().cachedSiteUrl('rovo')).toBeNull()
+  })
+
+  it('resolveSiteUrl discovers and caches; cachedSiteUrl then reads it back sync', async () => {
+    const c = client()
+    expect(await c.resolveSiteUrl('rovo')).toBe(base)
+    expect(c.cachedSiteUrl('rovo')).toBe(base)
+  })
+
+  it('resolveSiteUrl returns the cached siteUrl once a request has warmed it', async () => {
+    const c = client()
+    await c.getIssue('NAV-7') // warms cloudId+siteUrl cache for 'rovo'
+    expect(await c.resolveSiteUrl('rovo')).toBe(base)
+  })
+
+  it('resolveSiteUrl returns null when unauthenticated (no oauth block at all)', async () => {
+    const noOauth = (): AtlassianAuth => ({ instanceId: 'rovo' })
+    const c = new AtlassianClient(noOauth, gatewayFetch())
+    expect(await c.resolveSiteUrl('rovo')).toBeNull()
   })
 })
 
