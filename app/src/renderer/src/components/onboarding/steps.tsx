@@ -4,10 +4,7 @@ import type { PacksListPayload } from '../../../../shared/packs'
 import { markIntegration, markPhase1Done } from '../../lib/onboardingStore'
 import { settingsStore, useSettingsPayload } from '../../lib/settingsStore'
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
-import { formValue, commitField, commitSecret } from '../../lib/connectorForm'
 import { DraftInput, FIELD } from '../settings/settingsLayout'
-import { AnnotatedForm } from '../settings/AnnotatedForm'
-import { ROVO_FORM_EXTRAS } from '../../../../shared/connectors'
 
 export function WelcomeStep(): React.JSX.Element {
   return (
@@ -232,16 +229,9 @@ export function IntegrationsStep(): React.JSX.Element {
   const connectors = useConnectorsPayload()
   const [connecting, setConnecting] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
-  const [restOpen, setRestOpen] = useState(false)
 
   const hive = Boolean(settings?.settings?.hivemind?.repo?.trim())
-  const oauthOk = Object.values(connectors?.oauth ?? {}).some((v) => v === 'authorized')
-  const rovoConfig = (connectors?.connectors?.rovo?.config ?? {}) as Record<string, unknown>
-  // REST fallback (Confluence reference-sync, or Jira access if the OAuth grant lacks it)
-  // needs a site URL and an API token.
-  const restOk = Boolean(rovoConfig.siteUrl) && Boolean(rovoConfig.apiToken)
-  const atlassian = oauthOk || restOk
-  const createTokenLink = connectors?.presets?.rovo?.links?.createApiToken
+  const atlassian = Object.values(connectors?.oauth ?? {}).some((v) => v === 'authorized')
 
   // Record the onboarding flags reactively as each integration becomes configured.
   // These call settingsStore.patch (an async store update, not a local setState), so
@@ -262,12 +252,6 @@ export function IntegrationsStep(): React.JSX.Element {
     connectAtlassian(connectors, setAuthError, () => setConnecting(false))
   }
 
-  // The REST form edits the rovo connector's config, so the instance must exist first.
-  function toggleRest(): void {
-    if (!restOpen) void ensureRovo(connectors)
-    setRestOpen((o) => !o)
-  }
-
   return (
     <div className="space-y-3">
       <h2 className="text-lg text-ink">Connect your tools (optional)</h2>
@@ -280,48 +264,16 @@ export function IntegrationsStep(): React.JSX.Element {
         hint="Create cases from Jira tickets and sync Confluence reference docs the agent can cite."
         ok={atlassian}
         action={
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink hover:bg-hair disabled:opacity-40"
-                disabled={connecting}
-                onClick={connect}
-              >
-                {connecting ? 'Connecting…' : 'Connect Atlassian'}
-              </button>
-              <span className="text-xs text-faint">(agent · MCP)</span>
-              {authError && <span className="text-xs text-danger">{authError}</span>}
-              <button
-                className="ml-auto text-xs text-dim underline hover:text-ink"
-                onClick={toggleRest}
-              >
-                {restOpen ? 'Hide REST API' : 'REST API (optional, Confluence sync)…'}
-              </button>
-            </div>
-            {restOpen && (
-              <div className="rounded-r2 border border-hair p-2">
-                <AnnotatedForm
-                  annotations={ROVO_FORM_EXTRAS}
-                  value={formValue('http', rovoConfig)}
-                  onChange={(k, v) => commitField('rovo', 'http', k, v)}
-                  onSecret={(k, v) => commitSecret('rovo', k, v)}
-                  badges={
-                    createTokenLink
-                      ? {
-                          apiToken: (
-                            <button
-                              className="text-xs text-defect underline"
-                              onClick={() => void window.argus.openExternal(createTokenLink)}
-                            >
-                              Create API token ↗
-                            </button>
-                          )
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="rounded-r2 border border-hair px-3 py-1.5 text-xs text-ink hover:bg-hair disabled:opacity-40"
+              disabled={connecting}
+              onClick={connect}
+            >
+              {connecting ? 'Connecting…' : 'Connect Atlassian'}
+            </button>
+            <span className="text-xs text-faint">(agent · MCP)</span>
+            {authError && <span className="text-xs text-danger">{authError}</span>}
           </div>
         }
       />

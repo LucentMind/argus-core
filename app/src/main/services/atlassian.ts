@@ -3,7 +3,6 @@
 import fs from 'node:fs'
 import {
   connectorConfig,
-  isSecretRef,
   type ConnectorMap,
   type HttpConnectorConfig
 } from '../../shared/connectors'
@@ -31,18 +30,31 @@ export class AtlassianError extends Error {
   }
 }
 
-export interface JiraCloud {
+export type AtlassianProduct = 'jira' | 'confluence'
+
+export interface AtlassianCloud {
   cloudId: string
   siteUrl: string
 }
 
 const GATEWAY = 'https://api.atlassian.com'
 
-export async function discoverJiraCloud(
+const SCOPE_MAP: Record<AtlassianProduct, string> = {
+  jira: 'jira-work',
+  confluence: 'confluence'
+}
+
+const PRODUCT_DISPLAY: Record<AtlassianProduct, string> = {
+  jira: 'Jira',
+  confluence: 'Confluence'
+}
+
+export async function discoverCloud(
   bearer: string,
+  product: AtlassianProduct,
   fetchImpl: typeof fetch,
   timeoutMs: number
-): Promise<JiraCloud> {
+): Promise<AtlassianCloud> {
   let res: Response
   try {
     res = await fetchImpl(`${GATEWAY}/oauth/token/accessible-resources`, {
@@ -55,7 +67,7 @@ export async function discoverJiraCloud(
   if (!res.ok)
     throw new AtlassianError(
       'auth',
-      `Atlassian authorization couldn't reach Jira (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`
+      `Atlassian authorization couldn't reach ${PRODUCT_DISPLAY[product]} (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`
     )
   let resources: Array<{ id: string; url: string; scopes?: string[] }>
   try {
@@ -63,13 +75,14 @@ export async function discoverJiraCloud(
   } catch {
     throw new AtlassianError('http', 'Atlassian returned invalid JSON', undefined)
   }
-  const jira = resources.find((r) => (r.scopes ?? []).some((s) => s.includes('jira-work')))
-  if (!jira)
+  const scope = SCOPE_MAP[product]
+  const cloud = resources.find((r) => (r.scopes ?? []).some((s) => s.includes(scope)))
+  if (!cloud)
     throw new AtlassianError(
       'auth',
-      'Your Atlassian authorization does not grant Jira access — re-authorize, or set an API token.'
+      `Your Atlassian authorization does not grant ${PRODUCT_DISPLAY[product]} access — re-authorize the connector in Settings → Connectors.`
     )
-  return { cloudId: jira.id, siteUrl: jira.url.replace(/\/+$/, '') }
+  return { cloudId: cloud.id, siteUrl: cloud.url.replace(/\/+$/, '') }
 }
 
 /** Minimal OAuth surface resolveAtlassianCreds needs (McpOAuth satisfies it). */
@@ -81,9 +94,6 @@ export interface OAuthLike {
 
 export interface AtlassianAuth {
   instanceId: string
-  siteUrl: string | null // legacy base + browse-URL source; null if unset
-  token: string | null // legacy REST token; null if unset
-  email?: string
   /** Present iff the rovo connector's OAuth is authorized. */
   oauth?: {
     serverUrl: string // config.url, for refresh
@@ -92,15 +102,8 @@ export interface AtlassianAuth {
   }
 }
 
-/** @deprecated use AtlassianAuth — kept so existing callers still compile. */
-export type AtlassianCreds = AtlassianAuth
-
-/** Find the rovo-preset connector and resolve its mode-aware credentials. */
-export function resolveAtlassianCreds(
-  connectors: ConnectorMap,
-  resolveSecret: (name: string) => string | null,
-  oauth: OAuthLike
-): AtlassianAuth {
+/** Find the rovo-preset connector and resolve its OAuth-only credentials. */
+export function resolveAtlassianCreds(connectors: ConnectorMap, oauth: OAuthLike): AtlassianAuth {
   // `inst.enabled` is deliberately ignored here: this REST path is UI-native (New
   // Case / Refresh) and independent of the agent's MCP session — `enabled` only
   // governs whether the connector is composed into that MCP session.
@@ -111,12 +114,9 @@ export function resolveAtlassianCreds(
       'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
     )
   const [instanceId, inst] = entry
-  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '') || null
-  const token = isSecretRef(cfg.apiToken) ? resolveSecret(cfg.apiToken.$secret) : null
-  const email = (cfg.email ?? '').trim()
-  const auth: AtlassianAuth = { instanceId, siteUrl, token, ...(email ? { email } : {}) }
+  const auth: AtlassianAuth = { instanceId }
   if (oauth.status(instanceId) === 'authorized') {
+    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
     const serverUrl = cfg.url
     auth.oauth = {
       serverUrl,
@@ -130,35 +130,28 @@ export function resolveAtlassianCreds(
 }
 
 /**
- * Site URL of the rovo-preset connector, or null if none is set. Unlike
- * resolveAtlassianCreds this never requires the API token — browser deep-links
- * (Open in Jira) need no REST auth, the user's browser session covers it.
+ * Instance id of the rovo-preset connector, or null if none is configured.
+ * Mirrors the same find as resolveAtlassianCreds — callers use it to look up
+ * siteUrl via AtlassianClient.resolveSiteUrl/cachedSiteUrl instead of reading
+ * a config field directly.
  */
-export function atlassianSiteUrl(connectors: ConnectorMap): string | null {
-  const inst = Object.values(connectors).find((i) => i.preset === 'rovo')
-  if (!inst) return null
-  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '')
-  return /^https?:\/\//.test(siteUrl) ? siteUrl : null
+export function rovoInstanceId(connectors: ConnectorMap): string | null {
+  const entry = Object.entries(connectors).find(([, inst]) => inst.preset === 'rovo')
+  return entry ? entry[0] : null
 }
 
 /**
  * True once Jira REST is usable on a rovo-preset connector: its OAuth is
- * authorized, or legacy REST configuration has begun (siteUrl or token set).
- * Gates the Health page's Atlassian REST row: a Rovo connector used MCP-only
- * with neither is fully healthy without REST, so that state is not a failure
- * — it simply has no row.
+ * authorized (or 'error', e.g. a failed refresh — still counts as configured so
+ * the Health row turns red instead of vanishing). Gates the Health page's
+ * Atlassian REST row: a Rovo connector with OAuth never begun is fully healthy
+ * without REST, so that state is not a failure — it simply has no row.
  */
 export function atlassianRestConfigured(connectors: ConnectorMap, oauth: OAuthLike): boolean {
   return Object.entries(connectors).some(([id, inst]) => {
     if (inst.preset !== 'rovo') return false
-    // 'error' (e.g. a failed refresh) still counts as configured — otherwise an
-    // OAuth-only user with no siteUrl/token fallback loses the Health row entirely
-    // instead of seeing it turn red.
     const s = oauth.status(id)
-    if (s === 'authorized' || s === 'error') return true
-    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-    return Boolean((cfg.siteUrl ?? '').trim()) || isSecretRef(cfg.apiToken)
+    return s === 'authorized' || s === 'error'
   })
 }
 
@@ -172,7 +165,7 @@ const REST_TIMEOUT_MS = 15000
 const ISSUE_FIELDS = 'summary,description,status,labels,reporter,created,updated,attachment'
 
 export class AtlassianClient {
-  private cloudId = new Map<string, JiraCloud>()
+  private cloudId = new Map<string, AtlassianCloud>()
 
   constructor(
     private creds: () => AtlassianAuth,
@@ -180,7 +173,7 @@ export class AtlassianClient {
     private timeoutMs = REST_TIMEOUT_MS
   ) {}
 
-  /** Shared status→error mapping so both the OAuth-gateway and legacy paths agree. */
+  /** Maps a non-OK gateway response to the right AtlassianError code. */
   private mapStatus(res: Response, instanceId: string, authDescription: string): void {
     if (res.status === 401 || res.status === 403)
       throw new AtlassianError(
@@ -213,77 +206,91 @@ export class AtlassianClient {
     }
   }
 
-  /** Legacy REST path: {siteUrl}{pathAndQuery} with Basic (email:token) or Bearer (token only). */
-  private async legacyRequest(pathAndQuery: string): Promise<Response> {
-    const { instanceId, siteUrl, token, email } = this.creds()
-    if (!siteUrl || !token)
+  /**
+   * OAuth-only for both products: path prefix decides the product (`/wiki/` →
+   * Confluence, else Jira), which decides the gateway prefix
+   * (`/ex/{product}/{cloudId}`) and the discovery scope. No legacy siteUrl/token
+   * fallback — Task 4 removes those fields from AtlassianAuth entirely.
+   */
+  private async request(pathAndQuery: string): Promise<Response> {
+    const auth = this.creds()
+    const product: AtlassianProduct = pathAndQuery.startsWith('/wiki/') ? 'confluence' : 'jira'
+    if (!auth.oauth)
       throw new AtlassianError(
-        'no-token',
-        'Authorize the Atlassian connector (or set an API token) in Settings → Connectors.',
-        instanceId
+        'auth',
+        'Authorize the Atlassian connector in Settings → Connectors.',
+        auth.instanceId
       )
-    // Jira Cloud accepts API tokens only via Basic (email:token); Bearer serves Server/DC PATs.
-    const authorization = email
-      ? `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`
-      : `Bearer ${token}`
-    const res = await this.fetchWith(`${siteUrl}${pathAndQuery}`, authorization, instanceId)
-    this.mapStatus(
-      res,
-      instanceId,
-      'the API token — check the token, email, and Site URL on the connector (Jira Cloud requires the email)'
-    )
+    let token = auth.oauth.accessToken()
+    if (!token) {
+      await auth.oauth.refresh()
+      token = auth.oauth.accessToken()
+    }
+    if (!token)
+      throw new AtlassianError(
+        'auth',
+        'Authorize the Atlassian connector in Settings → Connectors.',
+        auth.instanceId
+      )
+    const cloud = await this.resolveCloud(auth.instanceId, token, product)
+    const url = `${GATEWAY}/ex/${product}/${cloud.cloudId}${pathAndQuery}`
+    let res = await this.fetchWith(url, `Bearer ${token}`, auth.instanceId)
+    if (res.status === 401 || res.status === 403) {
+      await auth.oauth.refresh()
+      token = auth.oauth.accessToken()
+      if (token) res = await this.fetchWith(url, `Bearer ${token}`, auth.instanceId)
+      if (!token || res.status === 401 || res.status === 403)
+        throw new AtlassianError(
+          'auth',
+          `Atlassian rejected the connector's authorization (HTTP ${res.status}) — re-authorize in Settings → Connectors.`,
+          auth.instanceId
+        )
+    }
+    this.mapStatus(res, auth.instanceId, "the connector's authorization")
     return res
   }
 
-  private async request(pathAndQuery: string): Promise<Response> {
-    const auth = this.creds()
-    // Confluence is always token-only — the gateway's OAuth surface is Jira-only.
-    if (pathAndQuery.startsWith('/wiki/')) return this.legacyRequest(pathAndQuery)
-
-    if (auth.oauth) {
-      let token = auth.oauth.accessToken()
-      if (!token) {
-        await auth.oauth.refresh()
-        token = auth.oauth.accessToken()
-      }
-      if (token) {
-        let cloud: JiraCloud
-        try {
-          cloud = await this.resolveCloud(auth.instanceId, token)
-        } catch (err) {
-          // Cloud discovery failed (bad/expired token, no Jira access, network) —
-          // fall back to the legacy token path if one is configured, else rethrow.
-          if (auth.token) return this.legacyRequest(pathAndQuery)
-          throw err
-        }
-        const gatewayUrl = `${GATEWAY}/ex/jira/${cloud.cloudId}${pathAndQuery}`
-        let res = await this.fetchWith(gatewayUrl, `Bearer ${token}`, auth.instanceId)
-        if (res.status === 401 || res.status === 403) {
-          await auth.oauth.refresh()
-          token = auth.oauth.accessToken()
-          if (token) res = await this.fetchWith(gatewayUrl, `Bearer ${token}`, auth.instanceId)
-          if (!token || res.status === 401 || res.status === 403) {
-            if (auth.token) return this.legacyRequest(pathAndQuery)
-            throw new AtlassianError(
-              'auth',
-              `Atlassian rejected the Rovo connector's authorization (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`,
-              auth.instanceId
-            )
-          }
-        }
-        this.mapStatus(res, auth.instanceId, "the Rovo connector's authorization")
-        return res
-      }
-    }
-    return this.legacyRequest(pathAndQuery)
-  }
-
-  private async resolveCloud(instanceId: string, token: string): Promise<JiraCloud> {
+  private async resolveCloud(
+    instanceId: string,
+    token: string,
+    product: AtlassianProduct
+  ): Promise<AtlassianCloud> {
     const cached = this.cloudId.get(instanceId)
     if (cached) return cached
-    const cloud = await discoverJiraCloud(token, this.fetchImpl, this.timeoutMs)
+    const cloud = await discoverCloud(token, product, this.fetchImpl, this.timeoutMs)
     this.cloudId.set(instanceId, cloud)
     return cloud
+  }
+
+  /**
+   * Cached siteUrl for an instance, discovering (and caching cloudId+siteUrl)
+   * if not already cached. Never throws — returns null when not
+   * OAuth-authorized or when discovery fails, since browse-link callers (Task 5)
+   * degrade gracefully without a site URL. Discovers with product 'jira' since
+   * the cache is shared across products (one cloudId/siteUrl per instance).
+   */
+  async resolveSiteUrl(instanceId: string): Promise<string | null> {
+    const cached = this.cloudId.get(instanceId)
+    if (cached) return cached.siteUrl
+    try {
+      const auth = this.creds()
+      if (!auth.oauth) return null
+      const token = auth.oauth.accessToken()
+      if (!token) return null
+      return (await this.resolveCloud(instanceId, token, 'jira')).siteUrl
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Sync read of the cached siteUrl — null if discovery hasn't warmed the
+   * cache for this instance yet. Never discovers. For callers that need a
+   * synchronous siteUrl after a prior request already warmed the cache (e.g.
+   * jiraCases's `site` dependency, read only after getIssue succeeds).
+   */
+  cachedSiteUrl(instanceId: string): string | null {
+    return this.cloudId.get(instanceId)?.siteUrl ?? null
   }
 
   /**
@@ -369,37 +376,61 @@ export class AtlassianClient {
     return { reachable: true }
   }
 
-  // — Confluence (Wave 3 Part 3; same request()/auth/error mapping as Jira) —
+  // — Confluence v2 (over the same OAuth gateway/request() as Jira) —
 
   async getConfluenceSpace(key: string): Promise<ConfluenceSpace> {
-    const res = await this.request(
-      `/wiki/rest/api/space/${encodeURIComponent(key)}?expand=homepage`
-    )
-    const s = await this.parseJson<{ key: string; name?: string; homepage?: { id?: unknown } }>(res)
-    return { key: s.key, name: s.name ?? s.key, homepageId: String(s.homepage?.id ?? '') }
+    const res = await this.request(`/wiki/api/v2/spaces?keys=${encodeURIComponent(key)}`)
+    const body = await this.parseJson<{
+      results?: Array<{ id: unknown; key?: string; name?: string; homepageId?: unknown }>
+    }>(res)
+    const s = body.results?.[0]
+    if (!s)
+      throw new AtlassianError(
+        'not-found',
+        `Confluence space ${key} not found`,
+        this.creds().instanceId
+      )
+    return {
+      key: s.key ?? key,
+      name: s.name ?? s.key ?? key,
+      homepageId: String(s.homepageId ?? '')
+    }
   }
 
   async getConfluencePage(pageId: string): Promise<ConfluencePageNode> {
-    const res = await this.request(
-      `/wiki/rest/api/content/${encodeURIComponent(pageId)}?expand=${CONFLUENCE_NODE_EXPAND}`
-    )
-    return confluenceNode(await this.parseJson<RawConfluenceContent>(res))
+    const res = await this.request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}`)
+    return confluenceNodeV2(await this.parseJson<RawV2Page>(res))
+  }
+
+  /**
+   * v2 children listing carries only `id`/`title` (no version/lastModified/leaf
+   * indicator — see .superpowers/sdd/v2-shapes.md), so each child is resolved to
+   * a full node via getConfluencePage — an N+1 fetch. Reference-sync runs as an
+   * occasional manual operation, so correctness (real version/lastModified) wins
+   * over the extra round trips.
+   */
+  private async childNode(child: RawV2Child): Promise<ConfluencePageNode> {
+    return this.getConfluencePage(String(child.id))
   }
 
   async getConfluenceChildren(pageId: string): Promise<ConfluencePageNode[]> {
-    const res = await this.request(
-      `/wiki/rest/api/content/${encodeURIComponent(pageId)}/child/page?limit=200&expand=${CONFLUENCE_NODE_EXPAND}`
-    )
-    const body = await this.parseJson<{ results?: RawConfluenceContent[] }>(res)
-    return (body.results ?? []).map(confluenceNode)
+    const out: ConfluencePageNode[] = []
+    let path: string | null = `/wiki/api/v2/pages/${encodeURIComponent(pageId)}/children?limit=250`
+    while (path) {
+      const res = await this.request(path)
+      const body = await this.parseJson<{ results?: RawV2Child[]; _links?: { next?: string } }>(res)
+      for (const child of body.results ?? []) out.push(await this.childNode(child))
+      path = nextCursorPath(body._links?.next)
+    }
+    return out
   }
 
   async getConfluencePageContent(pageId: string): Promise<ConfluencePageContent> {
     const res = await this.request(
-      `/wiki/rest/api/content/${encodeURIComponent(pageId)}?expand=body.atlas_doc_format,${CONFLUENCE_NODE_EXPAND}`
+      `/wiki/api/v2/pages/${encodeURIComponent(pageId)}?body-format=atlas_doc_format`
     )
     const c = await this.parseJson<
-      RawConfluenceContent & {
+      RawV2Page & {
         body?: { atlas_doc_format?: { value?: string } }
         _links?: { base?: string; webui?: string }
       }
@@ -410,35 +441,44 @@ export class AtlassianClient {
     } catch {
       doc = null
     }
+    // v1 parity: v2 pages still carry _links.base (the "{siteUrl}/wiki" prefix) —
+    // NOT resolveSiteUrl, which is unrelated (Jira siteUrl, no /wiki suffix).
     return {
-      node: confluenceNode(c),
+      node: confluenceNodeV2(c),
       url: `${c._links?.base ?? ''}${c._links?.webui ?? ''}`,
       markdown: adfToMarkdown(doc)
     }
   }
 }
 
-const CONFLUENCE_NODE_EXPAND = 'version,history.lastUpdated,children.page'
-
-interface RawConfluenceContent {
+interface RawV2Page {
   id: unknown
   title?: string
-  version?: { number?: number }
-  history?: { lastUpdated?: { when?: string } }
-  children?: { page?: { size?: number } }
+  version?: { number?: number; createdAt?: string }
+}
+interface RawV2Child {
+  id: unknown
+  title?: string
 }
 
-function confluenceNode(c: RawConfluenceContent): ConfluencePageNode {
+function confluenceNodeV2(c: RawV2Page): ConfluencePageNode {
   return {
     id: String(c.id),
     title: c.title ?? '',
     version: c.version?.number ?? 0,
-    lastModified: c.history?.lastUpdated?.when ?? null,
-    hasChildren: (c.children?.page?.size ?? 0) > 0
+    lastModified: c.version?.createdAt ?? null,
+    // v2 exposes no leaf indicator on the page object — always descend; an
+    // empty children fetch is the natural leaf signal (walkSelection unaffected).
+    hasChildren: true
   }
 }
 
-/** Browse URL for a Jira issue. siteUrl comes from AtlassianCreds (already trailing-slash-trimmed). */
+/** `_links.next` is already a ready-to-request `/wiki/api/v2/...` path; null when absent (stop). */
+function nextCursorPath(next: string | undefined): string | null {
+  return next ?? null
+}
+
+/** Browse URL for a Jira issue. siteUrl comes from resolveSiteUrl/cachedSiteUrl (already trailing-slash-trimmed). */
 export function jiraBrowseUrl(siteUrl: string, key: string): string {
   return `${siteUrl}/browse/${encodeURIComponent(key)}`
 }
