@@ -167,6 +167,19 @@ export function getLines(
 export const DEFAULT_MAX_RESULTS = 100_000
 const SEARCH_BATCH_LINES = 100_000 // yield cadence: lines scanned per batch
 
+function buildMatcher(
+  query: string,
+  regex: boolean | undefined,
+  caseSensitive: boolean | undefined
+): (s: string) => boolean {
+  if (regex) {
+    const re = new RegExp(query, caseSensitive ? '' : 'i')
+    return (s) => re.test(s)
+  }
+  const q = caseSensitive ? query : query.toLowerCase()
+  return caseSensitive ? (s) => s.includes(q) : (s) => s.toLowerCase().includes(q)
+}
+
 export interface SearchLinesOpts {
   regex?: boolean
   caseSensitive?: boolean
@@ -174,6 +187,8 @@ export interface SearchLinesOpts {
   toLine?: number
   maxResults?: number
   signal?: AbortSignal
+  /** phase-B seam: when present, a line is a hit iff it matches this AND the query */
+  filter?: { query: string; regex?: boolean; caseSensitive?: boolean }
 }
 
 export interface SearchBatch {
@@ -198,16 +213,10 @@ export async function* searchLines(
 
   // Built before any early return so an invalid regex always throws on the
   // first .next(), even for an empty range.
-  let matcher: (s: string) => boolean
-  if (opts.regex) {
-    const re = new RegExp(query, opts.caseSensitive ? '' : 'i')
-    matcher = (s) => re.test(s)
-  } else if (opts.caseSensitive) {
-    matcher = (s) => s.includes(query)
-  } else {
-    const q = query.toLowerCase()
-    matcher = (s) => s.toLowerCase().includes(q)
-  }
+  const matcher = buildMatcher(query, opts.regex, opts.caseSensitive)
+  const filterMatcher = opts.filter
+    ? buildMatcher(opts.filter.query, opts.filter.regex, opts.filter.caseSensitive)
+    : null
 
   if (fromLine > toLine) {
     yield { hits: [], scannedTo: toLine, done: true, capped: false }
@@ -230,7 +239,9 @@ export async function* searchLines(
     // Strip one trailing \r so matchers see the same text decodeLine yields
     // (anchored regexes like /foo$/ must match on CRLF files).
     const body = line.length > 0 && line[line.length - 1] === 0x0d ? line.subarray(0, -1) : line
-    if (matcher(body.toString('utf8'))) {
+    const text = body.toString('utf8')
+    if (filterMatcher && !filterMatcher(text)) return true // filtered out — keep scanning
+    if (matcher(text)) {
       hits.push(n)
       if (++found >= maxResults) {
         capped = true

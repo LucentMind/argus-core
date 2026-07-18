@@ -285,4 +285,32 @@ describe('searchLines', () => {
     const idx = await ensureIndex(argusHome, p)
     await expect(drain(searchLines(idx, p, '[', { regex: true }))).rejects.toThrow()
   })
+
+  it('filter option: a line must match filter AND query', async () => {
+    const p = path.join(tmp, 'fq.txt')
+    fs.writeFileSync(p, 'CTX1 info a\nCTX2 info b\nCTX1 warn c\nCTX1 info d\n')
+    const idx = await ensureIndex(argusHome, p)
+    const r = await drain(searchLines(idx, p, 'info', { filter: { query: 'CTX1' } }))
+    expect(r.hits).toEqual([1, 4])
+    const rx = await drain(
+      searchLines(idx, p, 'info [ad]$', { regex: true, filter: { query: 'CTX\\d', regex: true } })
+    )
+    expect(rx.hits).toEqual([1, 4])
+  })
+
+  it('filter option: respects range scoping and throws on invalid filter regex', async () => {
+    const p = path.join(tmp, 'fr.txt')
+    fs.writeFileSync(
+      p,
+      Array.from({ length: 100 }, (_, i) => `CTX1 line ${i + 1}`).join('\n') + '\n'
+    )
+    const idx = await ensureIndex(argusHome, p)
+    const r = await drain(
+      searchLines(idx, p, 'line', { fromLine: 50, toLine: 60, filter: { query: 'CTX1' } })
+    )
+    expect(r.hits).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60])
+    await expect(
+      drain(searchLines(idx, p, 'line', { filter: { query: '[', regex: true } }))
+    ).rejects.toThrow()
+  })
 })
