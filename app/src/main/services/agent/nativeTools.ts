@@ -100,7 +100,12 @@ export function argusToolHandlers(
     evidenceId: number
   ): Promise<{ abs: string; index: Awaited<ReturnType<typeof ensureIndex>> }> => {
     const res = resolveTextDocAbs(db, argusHome, { kind: 'evidence', evidenceId })
-    if ('error' in res) throw new Error(`Unknown evidence_id: ${evidenceId}`)
+    // Scope to this session's case — resolveTextDocAbs resolves across ALL cases, so without
+    // this check an agent could read another case's evidence by guessing/iterating ids.
+    // Same error as not-found: don't leak that the id exists in another case.
+    if ('error' in res || res.caseSlug !== caseSlug) {
+      throw new Error(`Unknown evidence_id: ${evidenceId}`)
+    }
     const index = await ensureIndex(argusHome, res.abs)
     return { abs: res.abs, index }
   }
