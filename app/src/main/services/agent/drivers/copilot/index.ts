@@ -1,4 +1,6 @@
+import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import { z } from 'zod'
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
@@ -214,6 +216,20 @@ export function buildCopilotTools(
   return tools
 }
 
+/**
+ * `<caseDir>/.claude/skills` when it exists — the per-skill junctions
+ * `skillsResolver.materializeSessionSkills` already builds for the Claude driver. Copilot
+ * natively supports `SessionConfig.skillDirectories` and loads the same `<name>/SKILL.md`
+ * shape unmodified (EVIDENCE §11b, `14-skills.jsonl`: `session.skills_loaded` listed the
+ * fixture skill and the model both enumerated and invoked it end-to-end). Returns undefined
+ * when the dir is absent so the key is omitted from SessionConfig entirely, rather than
+ * sending an empty/missing directory.
+ */
+export function copilotSkillDirectories(caseDir: string): string[] | undefined {
+  const dir = path.join(caseDir, '.claude', 'skills')
+  return fs.existsSync(dir) ? [dir] : undefined
+}
+
 export interface CopilotDriverDeps {
   /** Injected at the client.ts seam; tests pass a scripted fake to avoid the real runtime. */
   clientFactory?: CopilotClientFactory
@@ -312,12 +328,14 @@ export function createCopilotDriver(
         // extraMcpServers is deliberately NOT forwarded: SDK-declared stdio mcpServers load
         // `not_configured` and never expose tools (EVIDENCE §6/§6b) — capabilities.mcpConnectors
         // is false and each composed server is reported via session.mcp.skipped in events().
+        const skillDirectories = copilotSkillDirectories(ctx.caseDir)
         const sessionConfig: CopilotSessionConfig = {
           workingDirectory: ctx.caseDir,
           systemMessage: { mode: 'append', content: ctx.systemAppend },
           onPermissionRequest: permissionHandler,
           tools: nativeTools,
-          onExitPlanModeRequest: (request) => exitPlanModeDecision(request)
+          onExitPlanModeRequest: (request) => exitPlanModeDecision(request),
+          ...(skillDirectories ? { skillDirectories } : {})
         }
         session = ctx.resumeCursor
           ? await client.resumeSession(ctx.resumeCursor, sessionConfig)

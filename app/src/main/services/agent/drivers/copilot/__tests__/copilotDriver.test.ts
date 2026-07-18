@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { createCopilotDriver, isCopilotAuthErrorMessage } from '../index'
-import type { CopilotClientFactory, CopilotClientLike, CopilotSessionLike } from '../client'
+import type {
+  CopilotClientFactory,
+  CopilotClientLike,
+  CopilotSessionConfig,
+  CopilotSessionLike
+} from '../client'
 import type { RawSdkEvent } from '../normalize'
 import type { AgentEvent } from '../../../../../../shared/agent-events'
 import type { DriverSessionContext, TurnResult } from '../../../driver'
@@ -23,8 +31,11 @@ function makeFake(opts: FakeOpts = {}): {
   forceStop: ReturnType<typeof vi.fn>
   /** Ordered client-method call log (start/createSession/getAuthStatus/…). */
   calls: string[]
+  /** The `SessionConfig` the driver handed to createSession/resumeSession, captured verbatim. */
+  sessionConfigs: CopilotSessionConfig[]
 } {
   const calls: string[] = []
+  const sessionConfigs: CopilotSessionConfig[] = []
   const start = vi.fn(async () => {
     calls.push('start')
   })
@@ -54,12 +65,14 @@ function makeFake(opts: FakeOpts = {}): {
     }
     const client: CopilotClientLike = {
       start,
-      async createSession() {
+      async createSession(config) {
         calls.push('createSession')
+        sessionConfigs.push(config)
         return session
       },
-      async resumeSession() {
+      async resumeSession(_id, config) {
         calls.push('resumeSession')
+        sessionConfigs.push(config)
         return session
       },
       async getAuthStatus() {
@@ -76,7 +89,7 @@ function makeFake(opts: FakeOpts = {}): {
     }
     return client
   }
-  return { factory, start, stop, forceStop, calls }
+  return { factory, start, stop, forceStop, calls, sessionConfigs }
 }
 
 function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionContext {
@@ -233,6 +246,59 @@ describe('createCopilotDriver — session lifecycle', () => {
     session2.end()
     await tick()
     expect(process.listeners('unhandledRejection').includes(trap)).toBe(false)
+  })
+})
+
+describe('createCopilotDriver — skillDirectories (Task 10)', () => {
+  it('passes skillDirectories:[<caseDir>/.claude/skills] when the dir exists (EVIDENCE §11b: NATIVE-LOADS)', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-copilot-skills-'))
+    const skillsDir = path.join(tmp, '.claude', 'skills')
+    fs.mkdirSync(skillsDir, { recursive: true })
+    try {
+      const { factory, sessionConfigs } = makeFake()
+      const driver = createCopilotDriver({}, { clientFactory: factory })
+      const session = driver.createSession(makeCtx({ caseDir: tmp }))
+      await tick()
+      expect(sessionConfigs).toHaveLength(1)
+      expect(sessionConfigs[0].skillDirectories).toEqual([skillsDir])
+      session.end()
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('omits skillDirectories when the case has no .claude/skills dir', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-copilot-skills-'))
+    try {
+      const { factory, sessionConfigs } = makeFake()
+      const driver = createCopilotDriver({}, { clientFactory: factory })
+      const session = driver.createSession(makeCtx({ caseDir: tmp }))
+      await tick()
+      expect(sessionConfigs).toHaveLength(1)
+      expect(sessionConfigs[0].skillDirectories).toBeUndefined()
+      session.end()
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('same wiring applies on resumeSession', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-copilot-skills-'))
+    const skillsDir = path.join(tmp, '.claude', 'skills')
+    fs.mkdirSync(skillsDir, { recursive: true })
+    try {
+      const { factory, sessionConfigs } = makeFake()
+      const driver = createCopilotDriver({}, { clientFactory: factory })
+      const session = driver.createSession(
+        makeCtx({ caseDir: tmp, resumeCursor: 'prior-session-id' })
+      )
+      await tick()
+      expect(sessionConfigs).toHaveLength(1)
+      expect(sessionConfigs[0].skillDirectories).toEqual([skillsDir])
+      session.end()
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })
 
