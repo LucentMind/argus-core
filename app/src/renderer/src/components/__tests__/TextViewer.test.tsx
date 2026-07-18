@@ -322,17 +322,30 @@ describe('TextViewer', () => {
         onClose={vi.fn()}
       />
     )
-    await screen.findByText('2,000,000 lines')
+    // the searchId must be invalidated synchronously in the render-phase reset,
+    // not just in the post-paint [docKey] effect cleanup: a straggler batch from
+    // the OLD file arriving right after the switch must already be dropped, even
+    // before the new doc has resolved
     expect(window.argus.textdoc.cancelSearch).toHaveBeenCalledWith(searchId)
-    // stray late events from the old search must not repopulate the new doc's find bar
     act(() =>
       searchHitsCbs.forEach((cb) =>
         cb({ searchId, hits: [9], scannedTo: 100, done: true, capped: false })
       )
     )
+    await screen.findByText('2,000,000 lines')
+    // and stray late events must not repopulate the new doc's find bar afterwards either
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [10], scannedTo: 100, done: true, capped: false })
+      )
+    )
     const newFind = screen.getByPlaceholderText('find in file') as HTMLInputElement
     expect(newFind.value).toBe('')
     expect(screen.queryByText(/matches/)).not.toBeInTheDocument()
+    // exactly one cancel, from the render-phase reset — the effect cleanup must
+    // not issue a redundant cancelSearch('') or double-cancel the same id
+    expect(window.argus.textdoc.cancelSearch).toHaveBeenCalledTimes(1)
+    expect(window.argus.textdoc.cancelSearch).not.toHaveBeenCalledWith('')
   })
 
   it('cancels the active search when the viewer unmounts', async () => {
