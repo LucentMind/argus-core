@@ -8,10 +8,18 @@ import {
   computeChangedSet,
   referenceStatuses,
   generateReferencesIndex,
+  detectVanished,
   type ConfluenceReader
 } from './engine'
 import { distillTarget, type DistillOptions } from './distill'
-import { refBody, refTier, parseRefSources, stampRefFile, type RefSource } from './refFrontmatter'
+import {
+  refBody,
+  refTier,
+  refTitle,
+  parseRefSources,
+  stampRefFile,
+  type RefSource
+} from './refFrontmatter'
 import {
   isStale,
   isOutdated,
@@ -190,10 +198,21 @@ export class RefSyncService {
     }
     // record the sync run: NEW badges + "known drift" staleness (spec §3.2/§3.4)
     const state = readSyncState(this.deps.argusHome)
+    // Read the PREVIOUS snapshot before overwriting it — it is the only record of what the
+    // space used to contain, and therefore the only way to notice an upstream deletion.
+    const previousSeen = state.spaces[spaceKey]?.seenPages ?? {}
+    const vanished = detectVanished(
+      this.refsDir(),
+      previousSeen,
+      new Set(selected.map((p) => p.id))
+    )
     state.spaces[spaceKey] = {
       lastSyncedAt: this.now().toISOString(),
       seenPages: Object.fromEntries(
-        selected.map((p) => [p.id, { version: p.version, lastModified: p.lastModified }])
+        selected.map((p) => [
+          p.id,
+          { version: p.version, lastModified: p.lastModified, title: p.title }
+        ])
       ),
       driftTargets: changed.map((c) => c.target)
     }
@@ -205,7 +224,8 @@ export class RefSyncService {
       drafts,
       unrouted: unrouted.map((p) => ({ id: p.id, title: p.title })),
       conflicts,
-      failures
+      failures,
+      vanished
     }
     this.pendingDrafts.set(report.syncId, report)
     return report
@@ -275,5 +295,78 @@ export class RefSyncService {
       writeSyncState(this.deps.argusHome, state)
     }
     return { written, skipped }
+  }
+
+  /**
+   * Remove references to pages that vanished upstream, for the targets the user approved.
+   *
+   * An orphaned file (every source gone) is deleted; a partially-affected one keeps its body
+   * and only loses the dead `sources[]` entries, because the surviving pages still justify
+   * it. Mirrors applyDrafts' guards exactly — basename re-validated, tier re-checked at the
+   * point of write — since `target` traces back to hand-editable config.
+   */
+  prune(
+    syncId: string,
+    targets: string[]
+  ): { removed: string[]; trimmed: string[]; skipped: Array<{ target: string; reason: string }> } {
+    const report = this.pendingDrafts.get(syncId)
+    if (!report) throw new Error('Sync report expired — run Sync again')
+    const removed: string[] = []
+    const trimmed: string[] = []
+    const skipped: Array<{ target: string; reason: string }> = []
+    const now = this.now()
+    for (const target of targets) {
+      if (!REF_TARGET_RE.test(target) || target === REFERENCES_INDEX) {
+        skipped.push({ target, reason: 'invalid target name' })
+        continue
+      }
+      const entry = report.vanished.find((v) => v.target === target)
+      if (!entry) {
+        skipped.push({ target, reason: 'not reported as vanished in this sync' })
+        continue
+      }
+      const file = path.join(this.refsDir(), target)
+      if (!fs.existsSync(file)) {
+        skipped.push({ target, reason: 'file no longer exists' })
+        continue
+      }
+      const raw = fs.readFileSync(file, 'utf8')
+      // Re-check the tier at write time: it may have been hand-edited to team-knowledge
+      // between the sync and the approval, and a hand-owned file is never auto-removed.
+      const tier = refTier(raw)
+      if (tier !== 'confluence') {
+        skipped.push({
+          target,
+          reason: `trust_tier ${tier ?? 'team-knowledge'} — never auto-removed`
+        })
+        continue
+      }
+      const goneIds = new Set(entry.pages.map((p) => p.pageId))
+      const keep = parseRefSources(raw).filter((s) => !goneIds.has(s.pageId))
+      if (keep.length === 0) {
+        fs.rmSync(file)
+        removed.push(target)
+        continue
+      }
+      const content = stampRefFile(refBody(raw), {
+        title: refTitle(raw) ?? target.replace(/\.md$/, '').replace(/-/g, ' '),
+        sources: keep,
+        now
+      })
+      fs.writeFileSync(file + '.tmp', content)
+      fs.renameSync(file + '.tmp', file)
+      trimmed.push(target)
+    }
+    if (removed.length || trimmed.length) {
+      // INDEX.md is generated from the directory listing, so an orphan removed here must be
+      // dropped from the agent-facing router in the same breath.
+      const indexPath = path.join(this.refsDir(), REFERENCES_INDEX)
+      fs.writeFileSync(
+        indexPath + '.tmp',
+        generateReferencesIndex(this.refsDir(), this.deps.store.get())
+      )
+      fs.renameSync(indexPath + '.tmp', indexPath)
+    }
+    return { removed, trimmed, skipped }
   }
 }

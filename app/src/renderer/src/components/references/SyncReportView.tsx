@@ -26,6 +26,26 @@ export function SyncReportView({
     skipped: Array<{ target: string; reason: string }>
   } | null>(null)
   const [applyError, setApplyError] = useState<string | null>(null)
+  // Pruning is opt-in per file and defaults OFF: a distilled reference can still hold
+  // hand-reviewed value after its Confluence source is deleted, so nothing goes without
+  // an explicit tick.
+  const [toPrune, setToPrune] = useState<Set<string>>(() => new Set())
+  const [pruning, setPruning] = useState(false)
+  const [pruned, setPruned] = useState<{ removed: string[]; trimmed: string[] } | null>(null)
+  const [pruneError, setPruneError] = useState<string | null>(null)
+
+  const prune = async (): Promise<void> => {
+    setPruning(true)
+    setPruneError(null)
+    try {
+      setPruned(await window.argus.refsync.prune(report.syncId, [...toPrune]))
+      referenceSyncStore.set(await window.argus.refsync.get())
+    } catch (err) {
+      setPruneError((err as Error).message)
+    } finally {
+      setPruning(false)
+    }
+  }
 
   const apply = async (): Promise<void> => {
     setApplying(true)
@@ -74,6 +94,59 @@ export function SyncReportView({
               {u.title}
             </div>
           ))}
+        </div>
+      )}
+      {report.vanished.length > 0 && (
+        <div className="flex flex-col gap-1 text-xs">
+          <div className="text-mute">
+            Pages that no longer exist upstream. Removing a fully-orphaned file deletes it;
+            otherwise only the dead source links are dropped.
+          </div>
+          {report.vanished.map((v) => (
+            <label key={v.target} className="text-dim flex items-start gap-2">
+              <input
+                type="checkbox"
+                aria-label={`Prune ${v.target}`}
+                checked={toPrune.has(v.target)}
+                disabled={pruning || pruned != null}
+                onChange={(e) =>
+                  setToPrune((prev) => {
+                    const next = new Set(prev)
+                    if (e.target.checked) next.add(v.target)
+                    else next.delete(v.target)
+                    return next
+                  })
+                }
+              />
+              <span>
+                <span className="text-ink">{v.target}</span>{' '}
+                <Chip tone={v.orphaned ? 'danger' : 'review'}>
+                  {v.orphaned ? 'orphaned' : `${v.pages.length} source(s) gone`}
+                </Chip>
+                <span className="block text-mute">{v.pages.map((p) => p.title).join(', ')}</span>
+              </span>
+            </label>
+          ))}
+          {pruned ? (
+            <div className="text-mute" role="status">
+              removed {pruned.removed.length}, trimmed {pruned.trimmed.length}
+            </div>
+          ) : (
+            <span>
+              <Btn
+                variant="danger"
+                disabled={pruning || toPrune.size === 0}
+                onClick={() => void prune()}
+              >
+                {pruning ? 'Removing…' : `Remove ${toPrune.size} selected`}
+              </Btn>
+            </span>
+          )}
+          {pruneError && (
+            <div className="text-danger" role="alert">
+              {pruneError}
+            </div>
+          )}
         </div>
       )}
       {report.drafts.map((d) => (

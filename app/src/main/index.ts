@@ -1436,6 +1436,11 @@ function registerIpc(): void {
     broadcast(IPC.refsyncChanged, refSync.payload())
     return r
   })
+  ipcMain.handle(IPC.refsyncPrune, (_e, syncId: string, targets: string[]) => {
+    const r = refSync.prune(syncId, targets)
+    broadcast(IPC.refsyncChanged, refSync.payload())
+    return r
+  })
   ipcMain.handle(IPC.refsyncReadRef, (_e, file: string) => refSync.readReference(file))
   ipcMain.handle(IPC.refsyncSearchRefs, (_e, query: string) => refSync.searchReferences(query))
 }

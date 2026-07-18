@@ -7,6 +7,7 @@ import {
   computeChangedSet,
   referenceStatuses,
   generateReferencesIndex,
+  detectVanished,
   type ConfluenceReader
 } from '../refSync/engine'
 import { stampRefFile } from '../refSync/refFrontmatter'
@@ -247,5 +248,71 @@ describe('generateReferencesIndex', () => {
     expect(idx).toContain('keywords: routing, directions')
     expect(idx).toContain('- [Glossary](glossary.md) — Terms used across references.')
     expect(idx).not.toContain('](INDEX.md')
+  })
+})
+
+describe('detectVanished', () => {
+  const src = (
+    pageId: string
+  ): { url: string; pageId: string; version: number; lastSynced: string } => ({
+    url: `https://c/${pageId}`,
+    pageId,
+    version: 1,
+    lastSynced: '2026-06-01T00:00:00.000Z'
+  })
+  const write = (name: string, pageIds: string[]): void => {
+    fs.writeFileSync(
+      path.join(tmp, name),
+      stampRefFile('# R\n', {
+        title: 'R',
+        sources: pageIds.map(src),
+        now: new Date('2026-06-01T00:00:00Z')
+      })
+    )
+  }
+  const seen = (
+    ids: Record<string, string>
+  ): Record<string, { version: number; lastModified: string | null; title?: string }> =>
+    Object.fromEntries(
+      Object.entries(ids).map(([id, title]) => [id, { version: 1, lastModified: null, title }])
+    )
+
+  it('flags a file whose every source disappeared as orphaned', () => {
+    write('routing-flow.md', ['101'])
+    const v = detectVanished(tmp, seen({ '101': 'Routing flow' }), new Set())
+    expect(v).toEqual([
+      {
+        target: 'routing-flow.md',
+        pages: [{ pageId: '101', title: 'Routing flow' }],
+        orphaned: true
+      }
+    ])
+  })
+
+  it('flags a partially-affected file as NOT orphaned — surviving pages still justify it', () => {
+    write('routing-flow.md', ['101', '102'])
+    const v = detectVanished(tmp, seen({ '101': 'Gone', '102': 'Still here' }), new Set(['102']))
+    expect(v).toHaveLength(1)
+    expect(v[0]).toMatchObject({ orphaned: false })
+    expect(v[0].pages).toEqual([{ pageId: '101', title: 'Gone' }])
+  })
+
+  it('reports nothing when every previously-seen page is still selected', () => {
+    write('routing-flow.md', ['101'])
+    expect(detectVanished(tmp, seen({ '101': 'Routing flow' }), new Set(['101']))).toEqual([])
+  })
+
+  it('never offers a hand-owned (team-knowledge) file for pruning', () => {
+    fs.writeFileSync(
+      path.join(tmp, 'glossary.md'),
+      '---\ntrust_tier: team-knowledge\nsources:\n  - page_id: "101"\n---\nx'
+    )
+    expect(detectVanished(tmp, seen({ '101': 'Gone' }), new Set())).toEqual([])
+  })
+
+  it('falls back to the page id when no title was recorded (pre-upgrade state)', () => {
+    write('routing-flow.md', ['101'])
+    const v = detectVanished(tmp, { '101': { version: 1, lastModified: null } }, new Set())
+    expect(v[0].pages[0].title).toBe('101')
   })
 })

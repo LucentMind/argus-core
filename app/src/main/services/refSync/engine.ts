@@ -11,7 +11,8 @@ import {
   REFERENCES_INDEX,
   type SpaceConfig,
   type ReferenceStatus,
-  type ReferenceSyncConfig
+  type ReferenceSyncConfig,
+  type VanishedRef
 } from '../../../shared/referenceSync'
 import { refTier, refTitle, refBody, parseRefSources } from './refFrontmatter'
 
@@ -166,4 +167,48 @@ export function generateReferencesIndex(
     ...lines,
     ''
   ].join('\n')
+}
+
+/**
+ * Pages that were present at the previous sync but are absent from this one's selection —
+ * deleted, unpublished, or moved out of scope upstream — mapped to the reference files that
+ * still cite them.
+ *
+ * Without this, an upstream deletion is invisible: `seenPages` is overwritten wholesale each
+ * run, so the only record of the disappearance is discarded, `computeChangedSet` is
+ * dirty-only (a target whose pages all vanished yields no work), and the orphaned file keeps
+ * its deleted content and stays in INDEX.md, agent-visible, indefinitely.
+ *
+ * Detection only — nothing is deleted here. A distilled reference can still hold
+ * hand-reviewed value after its source is gone, so pruning stays an explicit user decision.
+ */
+export function detectVanished(
+  referencesDir: string,
+  previousSeen: Record<string, { version: number; lastModified: string | null; title?: string }>,
+  selectedPageIds: Set<string>
+): VanishedRef[] {
+  const gone = new Map(
+    Object.entries(previousSeen)
+      .filter(([id]) => !selectedPageIds.has(id))
+      .map(([id, snap]) => [id, snap.title ?? id])
+  )
+  if (gone.size === 0 || !fs.existsSync(referencesDir)) return []
+
+  const out: VanishedRef[] = []
+  for (const e of fs.readdirSync(referencesDir, { withFileTypes: true })) {
+    if (!e.isFile() || !e.name.endsWith('.md') || e.name === REFERENCES_INDEX) continue
+    const raw = fs.readFileSync(path.join(referencesDir, e.name), 'utf8')
+    // Only confluence-tier files are auto-managed; a team-knowledge file is hand-owned and
+    // must never be offered for pruning (same rule that guards applyDrafts).
+    if (refTier(raw) !== 'confluence') continue
+    const sources = parseRefSources(raw)
+    const hit = sources.filter((s) => gone.has(s.pageId))
+    if (hit.length === 0) continue
+    out.push({
+      target: e.name,
+      pages: hit.map((s) => ({ pageId: s.pageId, title: gone.get(s.pageId) ?? s.pageId })),
+      orphaned: hit.length === sources.length
+    })
+  }
+  return out.sort((a, b) => a.target.localeCompare(b.target))
 }
