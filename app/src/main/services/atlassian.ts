@@ -141,16 +141,14 @@ export function resolveAtlassianCreds(connectors: ConnectorMap, oauth: OAuthLike
 }
 
 /**
- * Site URL of the rovo-preset connector, or null if none is set. Unlike
- * resolveAtlassianCreds this never requires the API token — browser deep-links
- * (Open in Jira) need no REST auth, the user's browser session covers it.
+ * Instance id of the rovo-preset connector, or null if none is configured.
+ * Mirrors the same find as resolveAtlassianCreds — callers use it to look up
+ * siteUrl via AtlassianClient.resolveSiteUrl/cachedSiteUrl instead of reading
+ * a config field directly.
  */
-export function atlassianSiteUrl(connectors: ConnectorMap): string | null {
-  const inst = Object.values(connectors).find((i) => i.preset === 'rovo')
-  if (!inst) return null
-  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '')
-  return /^https?:\/\//.test(siteUrl) ? siteUrl : null
+export function rovoInstanceId(connectors: ConnectorMap): string | null {
+  const entry = Object.entries(connectors).find(([, inst]) => inst.preset === 'rovo')
+  return entry ? entry[0] : null
 }
 
 /**
@@ -294,6 +292,16 @@ export class AtlassianClient {
     } catch {
       return null
     }
+  }
+
+  /**
+   * Sync read of the cached siteUrl — null if discovery hasn't warmed the
+   * cache for this instance yet. Never discovers. For callers that need a
+   * synchronous siteUrl after a prior request already warmed the cache (e.g.
+   * jiraCases's `site` dependency, read only after getIssue succeeds).
+   */
+  cachedSiteUrl(instanceId: string): string | null {
+    return this.cloudId.get(instanceId)?.siteUrl ?? null
   }
 
   /**
@@ -481,7 +489,7 @@ function nextCursorPath(next: string | undefined): string | null {
   return next ?? null
 }
 
-/** Browse URL for a Jira issue. siteUrl comes from atlassianSiteUrl (already trailing-slash-trimmed). */
+/** Browse URL for a Jira issue. siteUrl comes from resolveSiteUrl/cachedSiteUrl (already trailing-slash-trimmed). */
 export function jiraBrowseUrl(siteUrl: string, key: string): string {
   return `${siteUrl}/browse/${encodeURIComponent(key)}`
 }

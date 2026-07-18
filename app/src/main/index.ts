@@ -42,7 +42,7 @@ import {
   AtlassianClient,
   AtlassianError,
   atlassianRestConfigured,
-  atlassianSiteUrl,
+  rovoInstanceId,
   jiraBrowseUrl,
   resolveAtlassianCreds,
   type AtlassianAuth
@@ -1222,7 +1222,10 @@ function registerIpc(): void {
     argusHome,
     detection,
     client: atlassian,
-    site: () => atlassianSiteUrl(connectorRegistry.get()) ?? '',
+    // Read only after a successful client call (getIssue) already warmed the
+    // discovery cache for this instance, so the sync cache read is safe here —
+    // resolveSiteUrl's async discovery path is not needed on this hot path.
+    site: () => atlassian.cachedSiteUrl(rovoInstanceId(connectorRegistry.get()) ?? '') ?? '',
     extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
@@ -1279,12 +1282,16 @@ function registerIpc(): void {
 
   // Open the case's Jira issue in the system browser. URL construction stays in
   // main: siteUrl never crosses to the renderer and the http(s) guard applies.
-  ipcMain.handle(IPC.jiraOpenIssue, (_e, caseSlug: string) => {
+  ipcMain.handle(IPC.jiraOpenIssue, async (_e, caseSlug: string) => {
     const kase = getCase(db, caseSlug)
     if (!kase?.jiraKey) return
     // siteUrl only, no creds: the browser opens the issue on the user's own
-    // Atlassian session, so a missing API token must not block this.
-    const siteUrl = atlassianSiteUrl(connectorRegistry.get())
+    // Atlassian session, so a missing API token must not block this. siteUrl
+    // comes from the OAuth discovery cache (warmed on authorize / prior REST
+    // calls) rather than a config field — degrade to a no-op when it's cold
+    // or the rovo connector isn't authorized.
+    const id = rovoInstanceId(connectorRegistry.get())
+    const siteUrl = id ? await atlassian.resolveSiteUrl(id) : null
     if (!siteUrl) return // no connector / site URL — menu item is a no-op
     const url = jiraBrowseUrl(siteUrl, kase.jiraKey)
     if (!isOpenableUrl(url)) return
