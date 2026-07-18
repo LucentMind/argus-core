@@ -70,9 +70,16 @@ it('writes a line-index sidecar for large imported text evidence (ingest parity)
   const count = Math.ceil(MAX_READ_BYTES / line.length) + 10
   ingestContent(dbA, homeA, detection, 'NAV-100', 'big.log', line.repeat(count), 'upload')
   const bigBundle = path.join(homeA, 'NAV-100-big.arguscase')
-  await exportCase(dbA, homeA, 'NAV-100', bigBundle, { includeTranscripts: false }, {
-    argusVersion: '1.0.0'
-  })
+  await exportCase(
+    dbA,
+    homeA,
+    'NAV-100',
+    bigBundle,
+    { includeTranscripts: false },
+    {
+      argusVersion: '1.0.0'
+    }
+  )
   await importCase(dbB, homeB, bigBundle, 'NAV-100')
   const abs = path.join(homeB, 'cases', 'NAV-100', 'evidence', 'big.log')
   expect(fs.existsSync(abs)).toBe(true)
