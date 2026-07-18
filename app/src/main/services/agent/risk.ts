@@ -77,7 +77,7 @@ export const CLAUDE_TOOL_TAXONOMY: ToolTaxonomy = {
     NotebookEdit: { kind: 'fs-write', pathFields: FS_PATH_FIELDS },
     Bash: { kind: 'shell', commandField: 'command' }
   },
-  // The pre-taxonomy heuristic, verbatim (risk.ts:260-271) — Claude's built-in long
+  // The pre-taxonomy legacy heuristic, relocated verbatim — Claude's built-in long
   // tail (TodoWrite, WebFetch, Task, …) keeps today's classification exactly.
   fallback: (toolName) => {
     const last = toolName.split('__').pop() ?? toolName
