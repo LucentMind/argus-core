@@ -203,24 +203,36 @@ describe('AgentSettings provider picker', () => {
     })
   })
 
-  it('generated instance ids skip ones already taken', () => {
-    const p = payload((p) => {
-      p.settings.agent.providerInstances['github-copilot-1'] = {
-        driver: 'github-copilot',
-        enabled: true,
-        config: {}
-      }
-    })
-    render(<AgentSettings payload={p} />)
+  it('does not offer a driver that is already added', () => {
+    // The default payload already has a Claude instance; Copilot is still addable.
+    render(<AgentSettings payload={payload()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'GitHub Copilot' }))
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      agent: {
-        providerInstances: {
-          'github-copilot-2': { driver: 'github-copilot', enabled: true, config: {} }
-        },
-        activeInstanceId: 'github-copilot-2'
-      }
+    // With no delete affordance a second Claude instance would be permanent, so it must
+    // not be offered at all.
+    expect(screen.queryByRole('menuitem', { name: 'Claude Agent SDK' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'GitHub Copilot' })).toBeTruthy()
+  })
+
+  it('hides the Add provider button entirely once every driver is added', () => {
+    render(<AgentSettings payload={payload(withCopilotInstance)} />)
+    expect(screen.queryByRole('button', { name: 'Add provider' })).toBeNull()
+  })
+})
+
+describe('AgentSettings provider icon', () => {
+  it('renders a distinct glyph per driver rather than the Claude mark for all', () => {
+    const { container: claude } = render(<AgentSettings payload={payload()} />)
+    const claudePath = claude.querySelector('svg path')?.getAttribute('d')
+
+    const copilotActive = payload((p) => {
+      withCopilotInstance(p)
+      p.settings.agent.activeInstanceId = 'copilot-1'
     })
+    const { container: copilot } = render(<AgentSettings payload={copilotActive} />)
+    const copilotPath = copilot.querySelector('svg path')?.getAttribute('d')
+
+    expect(claudePath).toBeTruthy()
+    expect(copilotPath).toBeTruthy()
+    expect(copilotPath).not.toBe(claudePath)
   })
 })

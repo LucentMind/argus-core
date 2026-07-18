@@ -301,6 +301,7 @@ export function createCopilotDriver(
   return {
     kind: 'github-copilot',
     toolTaxonomy: COPILOT_TOOL_TAXONOMY,
+    authFixHint: 'Sign in to GitHub with `gh auth login`, and ensure your account has Copilot.',
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false, // permission channel cannot carry edited input (EVIDENCE §2)

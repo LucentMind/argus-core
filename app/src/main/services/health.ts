@@ -102,7 +102,11 @@ export class HealthService {
           ...row,
           ok: r.ok,
           detail: r.detail,
-          ...(r.ok ? {} : { fixHint: 'Log in with `claude login` (or set ANTHROPIC_API_KEY).' })
+          // The hint travels with the probe result so it matches the *active* driver;
+          // the fallback covers an unknown/unresolvable driver slug, which has no vendor.
+          ...(r.ok
+            ? {}
+            : { fixHint: r.fixHint ?? 'Check the active provider in Settings → Agent.' })
         }
       }
       if (row.id === 'data-root') return this.checkDataRoot(row)

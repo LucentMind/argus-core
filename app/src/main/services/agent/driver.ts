@@ -105,6 +105,10 @@ export interface AgentDriver {
   readonly kind: DriverKind
   readonly toolTaxonomy: ToolTaxonomy
   readonly capabilities: DriverCapabilities
+  /** Remediation shown on the Health screen's "Agent auth" row when `probeAuth` fails.
+   *  Driver-owned because the fix is vendor-specific — telling a Copilot user to run
+   *  `claude login` is worse than saying nothing. */
+  readonly authFixHint: string
   createSession(ctx: DriverSessionContext): DriverSession
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
   /**

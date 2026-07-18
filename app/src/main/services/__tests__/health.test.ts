@@ -120,6 +120,31 @@ describe('HealthService', () => {
       expect(out.find((r) => r.id === id)!.fixHint).toBeTruthy()
   })
 
+  it('agent auth fix hint comes from the probe, not a hardcoded Claude string', async () => {
+    const out = await runAll(
+      deps({
+        agentAuth: async () => ({
+          ok: false,
+          verified: false,
+          detail: 'copilot not authenticated',
+          fixHint: 'Sign in to GitHub with `gh auth login`.'
+        })
+      }),
+      ['agent']
+    )
+    expect(out[0].fixHint).toBe('Sign in to GitHub with `gh auth login`.')
+    expect(out[0].fixHint).not.toContain('claude login')
+  })
+
+  it('falls back to a vendor-neutral hint when the probe supplies none', async () => {
+    const out = await runAll(
+      deps({ agentAuth: async () => ({ ok: false, verified: false, detail: 'unknown driver' }) }),
+      ['agent']
+    )
+    expect(out[0].fixHint).toBeTruthy()
+    expect(out[0].fixHint).not.toContain('claude login')
+  })
+
   it('run with ids filters; a throwing dep becomes a failed row', async () => {
     const out = await runAll(
       deps({

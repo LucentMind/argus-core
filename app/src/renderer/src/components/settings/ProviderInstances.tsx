@@ -9,6 +9,12 @@ import type { ProviderInstance } from '../../../../shared/settings'
  * instance named by `activeInstanceId`). Deliberately no delete/rename/enable-toggle
  * here (YAGNI): those aren't trivially consistent with existing idioms and nothing
  * in this codebase can currently disable an instance either.
+ *
+ * Because there is no delete, the menu offers only drivers that aren't already added —
+ * one instance per driver kind. The settings model does support several instances of the
+ * same driver, but with no way to remove one an accidental double-click was permanent, so
+ * the affordance is deliberately narrower than the model. The whole button disappears once
+ * every driver is added rather than opening an empty menu.
  */
 export function ProviderInstances({
   providerInstances,
@@ -21,6 +27,8 @@ export function ProviderInstances({
   onSelect: (id: string) => void
   onAdd: (driverKind: string) => void
 }): React.JSX.Element {
+  const added = new Set(Object.values(providerInstances).map((i) => i.driver))
+  const addable = Object.values(DRIVERS).filter((d) => !added.has(d.kind))
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -52,20 +60,22 @@ export function ProviderInstances({
           )
         })}
       </div>
-      <MenuButton
-        label={
-          <span className="flex items-center gap-1.5">
-            <Plus size={13} strokeWidth={1.5} /> Add provider
-          </span>
-        }
-        variant="ghost"
-        align="left"
-        aria-label="Add provider"
-        items={Object.values(DRIVERS).map((d) => ({
-          label: d.label,
-          onSelect: () => onAdd(d.kind)
-        }))}
-      />
+      {addable.length > 0 && (
+        <MenuButton
+          label={
+            <span className="flex items-center gap-1.5">
+              <Plus size={13} strokeWidth={1.5} /> Add provider
+            </span>
+          }
+          variant="ghost"
+          align="left"
+          aria-label="Add provider"
+          items={addable.map((d) => ({
+            label: d.label,
+            onSelect: () => onAdd(d.kind)
+          }))}
+        />
+      )}
     </div>
   )
 }

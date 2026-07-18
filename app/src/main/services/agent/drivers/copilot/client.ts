@@ -101,6 +101,43 @@ export function copilotHome(argusHome: string): string {
   return path.join(argusHome, 'copilot-home')
 }
 
+/** Platform packages the Copilot CLI ships as, in the SDK's own preference order. */
+function cliPlatformPackages(): string[] {
+  return process.platform === 'linux'
+    ? [`@github/copilot-linux-${process.arch}`, `@github/copilot-linuxmusl-${process.arch}`]
+    : [`@github/copilot-${process.platform}-${process.arch}`]
+}
+
+/**
+ * Resolve the Copilot CLI's **native** executable (the platform package's `exports["."]`,
+ * e.g. `copilot.exe`), rather than letting the SDK fall back to its own `getBundledCliPath()`.
+ *
+ * Why this exists (verified empirically 2026-07-18, not inferred from types): the SDK's
+ * bundled-path resolver always returns the platform package's `index.js`, and for a `.js`
+ * entrypoint it spawns `process.execPath`. In the Electron **main** process `process.execPath`
+ * is `electron.exe`, which — absent `ELECTRON_RUN_AS_NODE=1` — treats the script as an app
+ * path, boots, and exits immediately with code 0. The SDK then surfaces the opaque
+ * "CLI server exited unexpectedly with code 0", which is what users saw for every Copilot
+ * probe *and* every Copilot session. Pointing at the native binary sidesteps the Node
+ * launcher entirely; `ELECTRON_RUN_AS_NODE=1` would also "work" but would run the CLI's
+ * native addons under Electron's ABI, which they are not built for.
+ *
+ * Returns null when no platform package is installed — the caller then leaves the SDK to
+ * its own resolution so its actionable "Ensure @github/copilot is installed" error wins.
+ */
+export function resolveCopilotCliPath(
+  resolve: (id: string) => string = require.resolve
+): string | null {
+  for (const name of cliPlatformPackages()) {
+    try {
+      return resolve(name)
+    } catch {
+      // try the next platform package
+    }
+  }
+  return null
+}
+
 /**
  * The production factory: lazily requires `@github/copilot-sdk` (a runtime dependency of
  * the Electron main process) so importing this module never pulls the SDK into unit tests
@@ -112,10 +149,15 @@ export const defaultClientFactory: CopilotClientFactory = (opts) => {
   const mod = require('@github/copilot-sdk') as {
     CopilotClient: new (options: Record<string, unknown>) => CopilotClientLike
   }
+  // A user-configured cliPath wins; otherwise steer the SDK at the native binary (see
+  // `resolveCopilotCliPath`). `env` REPLACES the child env in the SDK (`options.env ??
+  // process.env`) rather than merging, so it must be spread from process.env — otherwise
+  // the runtime loses PATH/HOME and gh-cli auth resolution silently breaks.
+  const cliPath = opts.cliPath ?? resolveCopilotCliPath()
   return new mod.CopilotClient({
     baseDirectory: opts.baseDirectory,
     workingDirectory: opts.workingDirectory,
     logLevel: 'error',
-    ...(opts.cliPath ? { env: { COPILOT_CLI_PATH: opts.cliPath } } : {})
+    ...(cliPath ? { env: { ...process.env, COPILOT_CLI_PATH: cliPath } } : {})
   })
 }

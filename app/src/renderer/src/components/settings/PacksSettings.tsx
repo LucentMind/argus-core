@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import semver from 'semver'
 import { SettingsSection, SettingRow } from './settingsLayout'
 import { Btn, Chip } from '../ui'
@@ -18,6 +19,54 @@ function installErrorMessage(code: string, error: string): string {
     default:
       return `Install failed: ${error}`
   }
+}
+
+/**
+ * Collapsed-by-default disclosure for a pack's tools. Packs each contribute their own
+ * tool rows (path input + probe + Browse), so with several packs installed the always-open
+ * list buried the pack names it belonged to; the pack list is the index, the tools are the
+ * detail. Local state per pack — expansion is a transient view concern, not a setting.
+ */
+function PackTools({
+  packId,
+  tools,
+  report,
+  onInstalled
+}: {
+  packId: string
+  tools: SettingsPayload['resolvedTools']
+  report: ReturnType<typeof useToolProbes>['report']
+  onInstalled: () => void
+}): React.JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  if (tools.length === 0) return null
+  return (
+    <div className="border-l border-hair pl-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`${open ? 'Hide' : 'Show'} tools · ${packId}`}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-1.5 py-1.5 text-xs text-dim transition-colors hover:text-ink"
+      >
+        <ChevronRight
+          size={13}
+          strokeWidth={1.5}
+          className={`transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        <span>
+          {tools.length} {tools.length === 1 ? 'tool' : 'tools'}
+        </span>
+      </button>
+      {open && (
+        <div data-pack-tools={packId}>
+          {tools.map((t) => (
+            <ToolRow key={t.id} row={t} report={report} onInstalled={onInstalled} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function PacksSettings({ settings }: { settings: SettingsPayload }): React.JSX.Element {
@@ -179,13 +228,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
                   </Btn>
                 )}
               </SettingRow>
-              {tools.length > 0 && (
-                <div data-pack-tools={p.id} className="border-l border-hair pl-4">
-                  {tools.map((t) => (
-                    <ToolRow key={t.id} row={t} report={report} onInstalled={runChecks} />
-                  ))}
-                </div>
-              )}
+              <PackTools packId={p.id} tools={tools} report={report} onInstalled={runChecks} />
             </div>
           )
         })}

@@ -1208,7 +1208,7 @@ function registerIpc(): void {
         timeoutMs: settings.agent.probeTimeoutMs,
         cliPath: activeInstanceConfig(settings).cliPath
       })
-      return { ...result, verified: false }
+      return { ...result, verified: false, fixHint: driver.authFixHint }
     },
     enabledConnectors: () =>
       Object.entries(connectorRegistry.get())

@@ -602,6 +602,7 @@ function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
   return {
     kind,
     toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+    authFixHint: 'stub hint',
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,

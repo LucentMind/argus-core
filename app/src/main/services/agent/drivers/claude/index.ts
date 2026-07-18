@@ -55,6 +55,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
   return {
     kind: 'claude-agent-sdk',
     toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+    authFixHint: 'Log in with `claude login` (or set ANTHROPIC_API_KEY).',
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
