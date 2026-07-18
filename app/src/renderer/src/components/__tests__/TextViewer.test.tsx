@@ -215,6 +215,44 @@ describe('TextViewer', () => {
     expect(screen.queryByText(/showing lines near/)).not.toBeInTheDocument()
   })
 
+  it('re-seeds the scroll when entering and leaving the filtered view', async () => {
+    // the same VirtualLines instance is reused across the full<->filtered
+    // branch switch, so without an explicit re-seed the stale scrollTop from
+    // deep in the full file leaks into the (much shorter) filtered list
+    const { container } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1_500_000}
+        focusEnd={1_500_000}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByPlaceholderText('filter lines')
+    const scroller = container.querySelector('.overflow-auto') as HTMLElement
+    await waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(1_000_000))
+    const filterInput = screen.getByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'ERROR')
+    await waitFor(() => {
+      const calls = searchCalls('flt')
+      expect(calls.length).toBeGreaterThan(0)
+    })
+    const [fltId] = lastSearchCall('flt')
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fltId, hits: [10, 20, 30], scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    // entering the filtered view scrolls to the top of the (3-row) list
+    await waitFor(() => expect(scroller.scrollTop).toBe(0))
+    // leaving it returns to where the user was looking (the filtered top row's
+    // line, tracked by currentLine), not the stale 1.5M-line offset
+    await userEvent.clear(filterInput)
+    await waitFor(() => {
+      expect(scroller.scrollTop).toBeGreaterThan(0)
+      expect(scroller.scrollTop).toBeLessThan(10_000)
+    })
+  })
+
   it('flags a stale citation pointing beyond EOF and clamps the scroll', async () => {
     render(
       <TextViewer

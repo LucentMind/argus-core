@@ -537,6 +537,27 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
 
   const search = useViewerStreams(source, doc !== null && doc.whole === undefined, cut)
   const filterActive = search.state.filter.query.trim() !== ''
+
+  // Entering/leaving the filtered view reuses the same VirtualLines instance,
+  // so the previous branch's scrollTop would otherwise leak across the switch
+  // (a deep-file offset clamps to the bottom of a short filtered list, and
+  // vice versa). Re-seed on each transition: the filtered view opens at its
+  // top; the full view returns to the line the user was last looking at.
+  const prevFilterActive = useRef(filterActive)
+  useEffect(() => {
+    if (prevFilterActive.current === filterActive) return
+    prevFilterActive.current = filterActive
+    if (!doc || doc.whole !== undefined) return
+    nonce.current++
+    const target = filterActive
+      ? { row: 0, nonce: nonce.current }
+      : { row: Math.max(0, currentLine.current - cut.from), nonce: nonce.current }
+    // promise-callback shape per the set-state-in-effect lint convention
+    void Promise.resolve().then(() => setScrollTarget(target))
+    // transition detection only — doc/cut are read, not watched
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterActive])
+
   const activeLine =
     search.state.activeIdx !== null
       ? (search.state.find.hits[search.state.activeIdx] ?? null)
