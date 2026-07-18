@@ -224,24 +224,21 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
   // also OWN it. Creating it in useMemo breaks under StrictMode's dev-only
   // setup→cleanup→setup mount cycle: cleanup would dispose the memoized instance,
   // and the second setup would reuse it dead — every page fetch silently dropped.
-  const cacheRef = useRef<LinePageCache | null>(null)
+  // Held in state (not a ref) because rows read it during render; adoption happens
+  // from a microtask per the repo's promise-callback set-state-in-effect idiom.
+  const [cache, setCache] = useState<LinePageCache | null>(null)
   useEffect(() => {
     const c = new LinePageCache((from, to) => window.argus.textdoc.lines(source, from, to))
-    cacheRef.current = c
     const un = c.subscribe(() => bump((n) => n + 1))
-    // rows already rendered (as skeletons) before this effect ran — nudge one
-    // re-render from a microtask so they re-query the now-live cache
-    // (promise-callback shape keeps react-hooks/set-state-in-effect happy)
-    void Promise.resolve().then(() => bump((n) => n + 1))
+    void Promise.resolve().then(() => setCache(c))
     return () => {
       un()
       c.dispose()
-      if (cacheRef.current === c) cacheRef.current = null
     }
     // source identity is docKey (fresh object literal per parent render)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docKey])
-  const getCachedLine = (n: number): string | undefined => cacheRef.current?.getLine(n)
+  const getCachedLine = (n: number): string | undefined => cache?.getLine(n)
 
   useEffect(() => {
     // a source switch tears this effect down; drop any open() response that
@@ -404,7 +401,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
               // hits naturally coalesce onto the same page via LinePageCache
               for (let r = first; r <= last; r++) {
                 const n = search.state.hits[r]
-                if (n !== undefined) cacheRef.current?.prefetch(n, n)
+                if (n !== undefined) cache?.prefetch(n, n)
               }
               const mid = search.state.hits[Math.floor((first + last) / 2)]
               if (mid !== undefined) currentLine.current = mid
@@ -420,7 +417,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             totalRows={doc.totalLines}
             rowToLine={(r) => r + 1}
             onVisibleRows={(first, last) => {
-              cacheRef.current?.prefetch(first - 500, last + 502)
+              cache?.prefetch(first - 500, last + 502)
               currentLine.current = Math.floor((first + last) / 2) + 1
             }}
           />
