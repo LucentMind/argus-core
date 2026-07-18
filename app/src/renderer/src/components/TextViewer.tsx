@@ -164,35 +164,52 @@ function useViewerSearch(
     })
     setState((s) => ({ ...s, capped: false }))
   }
-  // binary search helpers over the sorted hits array. Return both the file
-  // line AND its index into `hits` — filter mode's VirtualLines is indexed
-  // by hit-index, not file-line, so callers need the index to scroll there.
+  // Next/prev cursor: the ACTIVE MATCH is the cursor once one exists — each
+  // press advances exactly one hit. The caller-supplied viewport line only
+  // seeds the first jump (binary search over the sorted hits). Never derive
+  // the cursor from the viewport midpoint on subsequent presses: it includes
+  // overscan rows, and in filter mode a short list pins it to the list centre,
+  // which trapped next/prev in a handful of entries.
+  // Return both the file line AND its index into `hits` — filter mode's
+  // VirtualLines is indexed by hit-index, so callers need the index to scroll.
   const next = (fromLine: number): { line: number; idx: number } | null => {
     const h = state.hits
-    let lo = 0
-    let hi = h.length
-    while (lo < hi) {
-      const m = (lo + hi) >> 1
-      h[m] > fromLine ? (hi = m) : (lo = m + 1)
+    let idx: number
+    if (state.activeIdx !== null) {
+      idx = state.activeIdx + 1
+    } else {
+      let lo = 0
+      let hi = h.length
+      while (lo < hi) {
+        const m = (lo + hi) >> 1
+        h[m] > fromLine ? (hi = m) : (lo = m + 1)
+      }
+      idx = lo
     }
-    if (lo >= h.length) {
+    if (idx >= h.length) {
       requestMore()
       return null
     }
-    setState((s) => ({ ...s, activeIdx: lo }))
-    return { line: h[lo], idx: lo }
+    setState((s) => ({ ...s, activeIdx: idx }))
+    return { line: h[idx], idx }
   }
   const prev = (fromLine: number): { line: number; idx: number } | null => {
     const h = state.hits
-    let lo = 0
-    let hi = h.length
-    while (lo < hi) {
-      const m = (lo + hi) >> 1
-      h[m] < fromLine ? (lo = m + 1) : (hi = m)
+    let idx: number
+    if (state.activeIdx !== null) {
+      idx = state.activeIdx - 1
+    } else {
+      let lo = 0
+      let hi = h.length
+      while (lo < hi) {
+        const m = (lo + hi) >> 1
+        h[m] < fromLine ? (lo = m + 1) : (hi = m)
+      }
+      idx = lo - 1
     }
-    if (lo === 0) return null
-    setState((s) => ({ ...s, activeIdx: lo - 1 }))
-    return { line: h[lo - 1], idx: lo - 1 }
+    if (idx < 0) return null
+    setState((s) => ({ ...s, activeIdx: idx }))
+    return { line: h[idx], idx }
   }
   return { state, setQuery, toggle, next, prev }
 }
@@ -403,8 +420,11 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
                 const n = search.state.hits[r]
                 if (n !== undefined) cache?.prefetch(n, n)
               }
-              const mid = search.state.hits[Math.floor((first + last) / 2)]
-              if (mid !== undefined) currentLine.current = mid
+              // seed next/prev from the top of the window, not its midpoint —
+              // the midpoint (overscan-included) pins to the list centre on
+              // short filtered lists and trapped the cursor (see useViewerSearch)
+              const top = search.state.hits[first]
+              if (top !== undefined) currentLine.current = top
             }}
             onRowClick={(n) => {
               search.toggle('filterMode')
@@ -418,7 +438,8 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             rowToLine={(r) => r + 1}
             onVisibleRows={(first, last) => {
               cache?.prefetch(first - 500, last + 502)
-              currentLine.current = Math.floor((first + last) / 2) + 1
+              // top-of-window seed; only the first next/prev press reads this
+              currentLine.current = first + 1
             }}
           />
         ) : (
