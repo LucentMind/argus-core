@@ -135,7 +135,17 @@ export function CaseFiles({
   function clickFile(r: EvidenceRecord): void {
     const name = r.relPath.split('/').pop() ?? r.relPath
     if (TEXT_LIKE.test(name)) {
-      onOpenFile({ name, relPath: r.relPath, kind: 'file', size: r.size })
+      onOpenFile({
+        name,
+        relPath: r.relPath,
+        kind: 'file',
+        size: r.size,
+        evidence: {
+          id: r.id,
+          artifactType: r.artifactType,
+          derived: typeof r.meta.derivedFrom === 'number'
+        }
+      })
     } else {
       void window.argus.files.open(caseSlug, r.relPath)
     }
