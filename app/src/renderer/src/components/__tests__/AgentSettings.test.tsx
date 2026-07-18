@@ -44,7 +44,7 @@ beforeEach(() => {
 describe('AgentSettings', () => {
   it('fetches cached auth on mount, shows the Claude header, and keeps the body collapsed by default', async () => {
     render(<AgentSettings payload={payload()} />)
-    expect(screen.getByText('Claude')).toBeTruthy()
+    expect(screen.getByTestId('active-driver-label').textContent).toBe('Claude')
     expect(screen.queryByText('claude-default')).toBeNull()
     expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
     expect(screen.queryByText(/Models ·/)).toBeNull()
@@ -144,5 +144,83 @@ describe('AgentSettings', () => {
     expect(screen.getByText(/unavailable driver/i)).toBeTruthy()
     expandCard()
     expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
+  })
+})
+
+function withCopilotInstance(p: SettingsPayload): void {
+  p.settings.agent.providerInstances['copilot-1'] = {
+    driver: 'github-copilot',
+    enabled: true,
+    config: {}
+  }
+}
+
+describe('AgentSettings provider picker', () => {
+  it('renders every provider instance with the active one marked', () => {
+    render(<AgentSettings payload={payload(withCopilotInstance)} />)
+    expect(screen.getByRole('button', { name: 'Switch to Claude Agent SDK' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Switch to GitHub Copilot' })).toBeTruthy()
+    expect(screen.getByText('active')).toBeTruthy()
+  })
+
+  it('clicking an inactive instance switches activeInstanceId via the settings bridge', () => {
+    render(<AgentSettings payload={payload(withCopilotInstance)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to GitHub Copilot' }))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: { activeInstanceId: 'copilot-1' }
+    })
+  })
+
+  it('clicking the already-active instance is a no-op', () => {
+    render(<AgentSettings payload={payload(withCopilotInstance)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Claude Agent SDK' }))
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+  })
+
+  it('disables switching to a disabled instance', () => {
+    const p = payload((p) => {
+      withCopilotInstance(p)
+      p.settings.agent.providerInstances['copilot-1'].enabled = false
+    })
+    render(<AgentSettings payload={p} />)
+    const btn = screen.getByRole('button', { name: 'Switch to GitHub Copilot' })
+    expect((btn as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(btn)
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+  })
+
+  it('adding a provider creates a new instance for that driver and activates it', () => {
+    render(<AgentSettings payload={payload()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'GitHub Copilot' }))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        providerInstances: {
+          'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+        },
+        activeInstanceId: 'github-copilot-1'
+      }
+    })
+  })
+
+  it('generated instance ids skip ones already taken', () => {
+    const p = payload((p) => {
+      p.settings.agent.providerInstances['github-copilot-1'] = {
+        driver: 'github-copilot',
+        enabled: true,
+        config: {}
+      }
+    })
+    render(<AgentSettings payload={p} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'GitHub Copilot' }))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        providerInstances: {
+          'github-copilot-2': { driver: 'github-copilot', enabled: true, config: {} }
+        },
+        activeInstanceId: 'github-copilot-2'
+      }
+    })
   })
 })
