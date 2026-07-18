@@ -16,6 +16,7 @@ function setup(over: Partial<Parameters<typeof VirtualLines>[0]> = {}): ReturnTy
     getLine: (n: number) => (n <= 50_000 ? `line ${n}` : undefined),
     focusStart: null as number | null,
     focusEnd: null as number | null,
+    activeLine: null as number | null,
     lang: null,
     scrollTarget: null,
     ...over
@@ -74,5 +75,17 @@ describe('VirtualLines', () => {
     const { scroller, rerender, props } = setup()
     rerender(<VirtualLines {...props} scrollTarget={{ row: 5000, nonce: 1 }} />)
     expect(scroller.scrollTop).toBe(5000 * ROW_H - 200 + ROW_H / 2)
+  })
+
+  it('marks the active line distinctly, overriding the focus highlight', () => {
+    const { scroller, container } = setup({ focusStart: 1001, focusEnd: 1005, activeLine: 1003 })
+    scroller.scrollTop = 1000 * ROW_H
+    fireEvent.scroll(scroller)
+    const active = container.querySelector('[data-active-line]')
+    expect(active).toBe(container.querySelector('#line-1003'))
+    expect(active!.className).toContain('bg-hair')
+    expect(active!.className).not.toContain('bg-defect/20')
+    expect(container.querySelector('#line-1002')!.className).toContain('bg-defect/20')
+    expect(container.querySelectorAll('[data-active-line]')).toHaveLength(1)
   })
 })
