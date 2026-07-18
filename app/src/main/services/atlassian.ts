@@ -3,7 +3,6 @@
 import fs from 'node:fs'
 import {
   connectorConfig,
-  isSecretRef,
   type ConnectorMap,
   type HttpConnectorConfig
 } from '../../shared/connectors'
@@ -106,9 +105,6 @@ export interface OAuthLike {
 
 export interface AtlassianAuth {
   instanceId: string
-  siteUrl: string | null // legacy base + browse-URL source; null if unset
-  token: string | null // legacy REST token; null if unset
-  email?: string
   /** Present iff the rovo connector's OAuth is authorized. */
   oauth?: {
     serverUrl: string // config.url, for refresh
@@ -117,15 +113,8 @@ export interface AtlassianAuth {
   }
 }
 
-/** @deprecated use AtlassianAuth — kept so existing callers still compile. */
-export type AtlassianCreds = AtlassianAuth
-
-/** Find the rovo-preset connector and resolve its mode-aware credentials. */
-export function resolveAtlassianCreds(
-  connectors: ConnectorMap,
-  resolveSecret: (name: string) => string | null,
-  oauth: OAuthLike
-): AtlassianAuth {
+/** Find the rovo-preset connector and resolve its OAuth-only credentials. */
+export function resolveAtlassianCreds(connectors: ConnectorMap, oauth: OAuthLike): AtlassianAuth {
   // `inst.enabled` is deliberately ignored here: this REST path is UI-native (New
   // Case / Refresh) and independent of the agent's MCP session — `enabled` only
   // governs whether the connector is composed into that MCP session.
@@ -136,12 +125,9 @@ export function resolveAtlassianCreds(
       'No Atlassian connector configured — add the Atlassian Rovo preset in Settings → Connectors.'
     )
   const [instanceId, inst] = entry
-  const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-  const siteUrl = (cfg.siteUrl ?? '').trim().replace(/\/+$/, '') || null
-  const token = isSecretRef(cfg.apiToken) ? resolveSecret(cfg.apiToken.$secret) : null
-  const email = (cfg.email ?? '').trim()
-  const auth: AtlassianAuth = { instanceId, siteUrl, token, ...(email ? { email } : {}) }
+  const auth: AtlassianAuth = { instanceId }
   if (oauth.status(instanceId) === 'authorized') {
+    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
     const serverUrl = cfg.url
     auth.oauth = {
       serverUrl,
@@ -169,21 +155,16 @@ export function atlassianSiteUrl(connectors: ConnectorMap): string | null {
 
 /**
  * True once Jira REST is usable on a rovo-preset connector: its OAuth is
- * authorized, or legacy REST configuration has begun (siteUrl or token set).
- * Gates the Health page's Atlassian REST row: a Rovo connector used MCP-only
- * with neither is fully healthy without REST, so that state is not a failure
- * — it simply has no row.
+ * authorized (or 'error', e.g. a failed refresh — still counts as configured so
+ * the Health row turns red instead of vanishing). Gates the Health page's
+ * Atlassian REST row: a Rovo connector with OAuth never begun is fully healthy
+ * without REST, so that state is not a failure — it simply has no row.
  */
 export function atlassianRestConfigured(connectors: ConnectorMap, oauth: OAuthLike): boolean {
   return Object.entries(connectors).some(([id, inst]) => {
     if (inst.preset !== 'rovo') return false
-    // 'error' (e.g. a failed refresh) still counts as configured — otherwise an
-    // OAuth-only user with no siteUrl/token fallback loses the Health row entirely
-    // instead of seeing it turn red.
     const s = oauth.status(id)
-    if (s === 'authorized' || s === 'error') return true
-    const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
-    return Boolean((cfg.siteUrl ?? '').trim()) || isSecretRef(cfg.apiToken)
+    return s === 'authorized' || s === 'error'
   })
 }
 
@@ -205,7 +186,7 @@ export class AtlassianClient {
     private timeoutMs = REST_TIMEOUT_MS
   ) {}
 
-  /** Shared status→error mapping so both the OAuth-gateway and legacy paths agree. */
+  /** Maps a non-OK gateway response to the right AtlassianError code. */
   private mapStatus(res: Response, instanceId: string, authDescription: string): void {
     if (res.status === 401 || res.status === 403)
       throw new AtlassianError(
@@ -500,7 +481,7 @@ function nextCursorPath(next: string | undefined): string | null {
   return next ?? null
 }
 
-/** Browse URL for a Jira issue. siteUrl comes from AtlassianCreds (already trailing-slash-trimmed). */
+/** Browse URL for a Jira issue. siteUrl comes from atlassianSiteUrl (already trailing-slash-trimmed). */
 export function jiraBrowseUrl(siteUrl: string, key: string): string {
   return `${siteUrl}/browse/${encodeURIComponent(key)}`
 }

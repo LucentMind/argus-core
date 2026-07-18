@@ -350,7 +350,7 @@ function registerIpc(): void {
 
   // — Atlassian REST (UI-native; the agent uses Rovo MCP) —
   const atlassianCreds = (): AtlassianAuth =>
-    resolveAtlassianCreds(connectorRegistry.get(), (n) => secretStore.resolve(n), mcpOauth)
+    resolveAtlassianCreds(connectorRegistry.get(), mcpOauth)
   const atlassian = new AtlassianClient(atlassianCreds)
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
 
@@ -1222,7 +1222,7 @@ function registerIpc(): void {
     argusHome,
     detection,
     client: atlassian,
-    site: () => atlassianCreds().siteUrl ?? '',
+    site: () => atlassianSiteUrl(connectorRegistry.get()) ?? '',
     extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
