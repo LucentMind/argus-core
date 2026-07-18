@@ -1168,11 +1168,11 @@ function registerIpc(): void {
     probeConnector: (id) => mcpService.probe(id),
     // REST is optional for MCP-only Rovo usage — the row appears only once REST
     // configuration has begun (siteUrl or token set), never as a failure before that.
-    atlassianConfigured: () => atlassianRestConfigured(connectorRegistry.get()),
+    atlassianConfigured: () => atlassianRestConfigured(connectorRegistry.get(), mcpOauth),
     atlassianCheck: async () => {
       try {
-        const me = await atlassian.myself()
-        return { ok: true, detail: `authenticated as ${me.displayName}` }
+        await atlassian.probeJira()
+        return { ok: true, detail: 'Jira REST reachable' }
       } catch (err) {
         return { ok: false, detail: (err as Error).message }
       }

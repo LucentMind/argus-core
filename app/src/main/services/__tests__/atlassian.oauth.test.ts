@@ -3,7 +3,8 @@ import {
   discoverJiraCloud,
   AtlassianError,
   resolveAtlassianCreds,
-  AtlassianClient
+  AtlassianClient,
+  atlassianRestConfigured
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
 import type { OAuthLike, AtlassianAuth } from '../atlassian'
@@ -309,5 +310,26 @@ describe('AtlassianClient.request routing', () => {
     const lastCall = calls[calls.length - 1]
     expect(lastCall.url.startsWith('https://legacy.example/rest/api/3/issue/')).toBe(true)
     expect(lastCall.auth!.startsWith('Basic ')).toBe(true)
+  })
+})
+
+describe('health', () => {
+  it('probeJira hits project/search', async () => {
+    const { impl, calls } = recordingFetch([ARES, () => OK({ values: [] })])
+    const c = new AtlassianClient(authFixture({}), impl)
+    await c.probeJira()
+    expect(calls.some((x) => x.url.includes('/rest/api/3/project/search'))).toBe(true)
+  })
+
+  it('atlassianRestConfigured true for OAuth-only (no token/siteUrl)', () => {
+    const conn = {
+      rovo: {
+        preset: 'rovo',
+        enabled: true,
+        config: { url: 'https://mcp', transport: 'http', oauth: true }
+      }
+    } as unknown as ConnectorMap
+    expect(atlassianRestConfigured(conn, fakeOAuth(true))).toBe(true)
+    expect(atlassianRestConfigured(conn, fakeOAuth(false))).toBe(false)
   })
 })

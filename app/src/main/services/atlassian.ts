@@ -143,14 +143,16 @@ export function atlassianSiteUrl(connectors: ConnectorMap): string | null {
 }
 
 /**
- * True once REST configuration has begun on a rovo-preset connector (siteUrl or
- * token set). Gates the Health page's Atlassian REST row: a Rovo connector used
- * MCP-only is fully healthy without REST, so an untouched REST config is not a
- * failure — it simply has no row.
+ * True once Jira REST is usable on a rovo-preset connector: its OAuth is
+ * authorized, or legacy REST configuration has begun (siteUrl or token set).
+ * Gates the Health page's Atlassian REST row: a Rovo connector used MCP-only
+ * with neither is fully healthy without REST, so that state is not a failure
+ * — it simply has no row.
  */
-export function atlassianRestConfigured(connectors: ConnectorMap): boolean {
-  return Object.values(connectors).some((inst) => {
+export function atlassianRestConfigured(connectors: ConnectorMap, oauth: OAuthLike): boolean {
+  return Object.entries(connectors).some(([id, inst]) => {
     if (inst.preset !== 'rovo') return false
+    if (oauth.status(id) === 'authorized') return true
     const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
     return Boolean((cfg.siteUrl ?? '').trim()) || isSecretRef(cfg.apiToken)
   })
@@ -348,11 +350,10 @@ export class AtlassianClient {
     fs.writeFileSync(destPath, Buffer.from(await res.arrayBuffer()))
   }
 
-  /** Cheap auth probe for the Health page. */
-  async myself(): Promise<{ displayName: string }> {
-    const res = await this.request('/rest/api/3/myself')
-    const raw = await this.parseJson<{ displayName?: string }>(res)
-    return { displayName: raw.displayName ?? '(unknown)' }
+  /** Cheap reachability probe for the Health page — covered by read:jira-work. */
+  async probeJira(): Promise<{ reachable: true }> {
+    await this.request('/rest/api/3/project/search?maxResults=1')
+    return { reachable: true }
   }
 
   // — Confluence (Wave 3 Part 3; same request()/auth/error mapping as Jira) —
