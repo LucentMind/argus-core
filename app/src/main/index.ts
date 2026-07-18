@@ -1134,7 +1134,10 @@ function registerIpc(): void {
     // this has no effect on what the next session actually includes.
     if (r.ok) {
       mcpService.clearRuntime(id)
-      void atlassian.resolveSiteUrl(id) // warm cloudId+siteUrl cache; ignore result/errors
+      // Only the rovo-preset connector has Atlassian REST behind it — resolveSiteUrl
+      // otherwise resolves creds for a connector that was never registered with
+      // resolveAtlassianCreds, and would cache Atlassian's site under the wrong id.
+      if (inst.preset === 'rovo') void atlassian.resolveSiteUrl(id) // warm cloudId+siteUrl cache; ignore result/errors
     }
     broadcast(IPC.connectorsChanged, connectorsPayload())
     return r

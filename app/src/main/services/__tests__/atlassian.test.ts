@@ -279,6 +279,14 @@ describe('AtlassianClient siteUrl accessors', () => {
     const c = new AtlassianClient(noOauth, gatewayFetch())
     expect(await c.resolveSiteUrl('rovo')).toBeNull()
   })
+
+  it('resolveSiteUrl never throws, even when creds() itself throws (e.g. resolveAtlassianCreds not-configured)', async () => {
+    const throwingCreds = (): AtlassianAuth => {
+      throw new AtlassianError('not-configured', 'No Atlassian connector configured')
+    }
+    const c = new AtlassianClient(throwingCreds, gatewayFetch())
+    await expect(c.resolveSiteUrl('rovo')).resolves.toBeNull()
+  })
 })
 
 describe('getComments', () => {
