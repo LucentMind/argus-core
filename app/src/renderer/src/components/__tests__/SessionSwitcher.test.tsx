@@ -2,13 +2,28 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SessionSwitcher } from '../SessionSwitcher'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 
 const sessions = [
-  { id: 2, title: 'Braking RCA', turnCount: 4, updatedAt: '2026-07-11T10:00:00Z' },
-  { id: 1, title: '', turnCount: 9, updatedAt: '2026-07-10T10:00:00Z' }
+  {
+    id: 2,
+    title: 'Braking RCA',
+    turnCount: 4,
+    updatedAt: '2026-07-11T10:00:00Z',
+    driverKind: 'claude-agent-sdk'
+  },
+  {
+    id: 1,
+    title: '',
+    turnCount: 9,
+    updatedAt: '2026-07-10T10:00:00Z',
+    driverKind: 'claude-agent-sdk'
+  }
 ]
 
 beforeEach(() => {
+  settingsStore.reset()
   window.argus = {
     sessions: {
       list: vi.fn(async () => sessions),
@@ -16,16 +31,53 @@ beforeEach(() => {
         id: 3,
         title: '',
         turnCount: 0,
-        updatedAt: '2026-07-11T11:00:00Z'
+        updatedAt: '2026-07-11T11:00:00Z',
+        driverKind: 'claude-agent-sdk'
       })),
       rename: vi.fn(async () => undefined),
       delete: vi.fn(async () => undefined)
     },
-    chat: { search: vi.fn(async () => ({ hits: [] })) }
+    chat: { search: vi.fn(async () => ({ hits: [] })) },
+    settings: {
+      get: vi.fn(async () => ({
+        settings: defaultSettings(),
+        resolvedTools: [],
+        dataRoot: { path: 'C:\\x', fromEnv: false },
+        loadError: null
+      })),
+      patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
 describe('SessionSwitcher', () => {
+  it('shows no driver badge when every session matches the active driver', async () => {
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    expect(screen.queryByText('Copilot')).toBeNull()
+    expect(screen.queryByText('Claude')).toBeNull()
+  })
+
+  it('badges a session whose driverKind differs from the active driver, not the matching one', async () => {
+    window.argus.sessions.list = vi.fn(async () => [
+      { ...sessions[0], driverKind: 'github-copilot' }, // differs → badged
+      sessions[1] // matches claude-agent-sdk (the default active instance) → no badge
+    ]) as never
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
+    expect(await screen.findByText('Copilot')).toBeTruthy()
+    expect(screen.queryByText('Claude')).toBeNull()
+  })
+
+  it('shows the active driver badge on the trigger when the active session itself differs', async () => {
+    window.argus.sessions.list = vi.fn(async () => [
+      { ...sessions[1], id: 1, driverKind: 'github-copilot' }
+    ]) as never
+    render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
+    expect(await screen.findByText('Copilot')).toBeTruthy()
+  })
+
   it('shows the active session title; untitled falls back to Chat <id>', async () => {
     render(<SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={vi.fn()} onJumpToTurn={vi.fn()} />)
     expect(await screen.findByText('Chat 1')).toBeTruthy()

@@ -8,6 +8,8 @@ import {
   orderedVisibleModels,
   orderedModels,
   effectiveDefaultModel,
+  activeDriver,
+  activeCapabilities,
   type ClaudeDriverConfig
 } from '../drivers'
 import { settingsSchema, type AppSettings } from '../settings'
@@ -92,6 +94,111 @@ describe('driver registry', () => {
     const d = getDriver('claude-agent-sdk')!
     expect(d.models.map((m) => m.slug)).toEqual(CATALOG_ORDER)
     expect(d.models.every((m) => !m.isCustom)).toBe(true)
+  })
+
+  it('claude-agent-sdk capabilities: all four permission modes, editable approvals, cost reporting, no plan flag', () => {
+    const d = getDriver('claude-agent-sdk')!
+    expect(d.capabilities.permissionModes).toEqual([
+      'default',
+      'acceptEdits',
+      'plan',
+      'bypassPermissions'
+    ])
+    expect(d.capabilities.editableApprovals).toBe(true)
+    expect(d.capabilities.costReporting).toBe(true)
+    expect(d.capabilities.planMode).toBeUndefined()
+  })
+
+  it('has github-copilot with an accepting config schema and a non-empty model list', () => {
+    const d = getDriver('github-copilot')!
+    expect(d.label).toBe('GitHub Copilot')
+    expect(d.shortLabel).toBe('Copilot')
+    const parsed = d.configSchema.safeParse({ model: 'x', cliPath: 'y' })
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data).toMatchObject({ model: 'x', cliPath: 'y' })
+    expect(d.models.length).toBeGreaterThan(0)
+  })
+
+  it('github-copilot models: free tier is auto-only (Task 7 evidence, 09-models.jsonl)', () => {
+    const d = getDriver('github-copilot')!
+    expect(d.models).toEqual([{ slug: 'auto', name: 'Auto' }])
+  })
+
+  it('github-copilot capabilities: all four permission modes, plan mode supported, no editable approvals/cost reporting', () => {
+    const d = getDriver('github-copilot')!
+    expect(d.capabilities.permissionModes).toEqual([
+      'default',
+      'acceptEdits',
+      'plan',
+      'bypassPermissions'
+    ])
+    expect(d.capabilities.editableApprovals).toBe(false)
+    expect(d.capabilities.costReporting).toBe(false)
+    expect(d.capabilities.planMode).toBe(true)
+  })
+
+  it('activeDriver resolves the active instance driver; null for unknown slug', () => {
+    expect(activeDriver(withPrefs())?.kind).toBe('claude-agent-sdk')
+    const s = withPrefs()
+    s.agent.providerInstances['claude-default'].driver = 'mystery-driver'
+    expect(activeDriver(s)).toBeNull()
+  })
+
+  it('activeCapabilities returns the active driver capabilities when settings resolve', () => {
+    expect(activeCapabilities(withPrefs())).toBe(DRIVERS['claude-agent-sdk'].capabilities)
+    const s = withPrefs()
+    s.agent.providerInstances['claude-default'].driver = 'github-copilot'
+    expect(activeCapabilities(s)).toBe(DRIVERS['github-copilot'].capabilities)
+  })
+
+  it('activeCapabilities fallback (null settings / unknown driver) is conservative on editableApprovals only', () => {
+    // The fallback covers both the pre-load window AND the settled state where
+    // settings IPC failed (SettingsStore.start swallows the error and the payload
+    // stays null forever). Cosmetic fields stay permissive; the security-relevant
+    // edit affordance must not be offered when the driver is unknown.
+    for (const caps of [
+      activeCapabilities(null),
+      activeCapabilities(undefined),
+      (() => {
+        const s = withPrefs()
+        s.agent.providerInstances['claude-default'].driver = 'mystery-driver'
+        return activeCapabilities(s)
+      })()
+    ]) {
+      expect(caps.permissionModes).toEqual(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+      expect(caps.editableApprovals).toBe(false)
+      expect(caps.costReporting).toBe(true)
+    }
+  })
+
+  it('both driver configs accept the shared {model?, cliPath?, customModels?} shape', () => {
+    for (const slug of ['claude-agent-sdk', 'github-copilot']) {
+      const d = getDriver(slug)!
+      const parsed = d.configSchema.safeParse({
+        model: 'm',
+        cliPath: 'p',
+        customModels: ['a', 'b']
+      })
+      expect(parsed.success).toBe(true)
+    }
+  })
+})
+
+describe('github-copilot activeInstanceConfig', () => {
+  it('resolves the config of an enabled copilot active instance', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'copilot-default',
+        providerInstances: {
+          'copilot-default': {
+            driver: 'github-copilot',
+            enabled: true,
+            config: { model: 'auto', cliPath: '/usr/local/bin/copilot' }
+          }
+        }
+      }
+    })
+    expect(activeInstanceConfig(s)).toEqual({ model: 'auto', cliPath: '/usr/local/bin/copilot' })
   })
 })
 

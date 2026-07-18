@@ -203,6 +203,40 @@ line. The runtime emitted `session.mcp_servers_loaded` with
 
 ---
 
+## 6b. MCP retry (Task 9B) — VERDICT: NOT SOLVED
+
+Bounded (half-day) resolution attempt of open question 1, captured in
+`13-mcp-retry.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 13`, real
+runtime, same `JiaweiHan88` gh-cli auth, Copilot Free). Three candidate fixes,
+one variant each; every variant sent a tiny prompt asking the model to list/call
+the `mcp_echo` tool from the SDK-declared stdio `argusEcho` server:
+
+| Variant | Config | `argusEcho` load status | `mcp_echo` reachable by model? |
+| --- | --- | --- | --- |
+| A | `enableConfigDiscovery:true` + `SessionConfig.mcpServers` | `not_configured` | **no** ("don't see any tools from an 'argusEcho' MCP server") |
+| B | `.mcp.json` (`{mcpServers}`) written into `workingDirectory` + `enableConfigDiscovery:true` | `not_configured` | **no** (`NO_MCP_TOOL`) |
+| C | client `mode:"empty"` + `availableTools:['mcp:*','custom:*',…]` + `SessionConfig.mcpServers` | `not_configured` | **no** (`NO_MCP_TOOL`) |
+
+**Key observation:** in variants A/B the runtime's OWN builtin
+`github-mcp-server` loads `status:"connected"` (transport `http`, `source:"builtin"`)
+in the same `session.mcp_servers_loaded` event where the SDK-declared stdio
+`argusEcho` is `not_configured`. So the runtime CAN connect MCP servers — it just
+does not connect app-declared **stdio** `mcpServers` in `mode:"copilot-cli"`, and
+none of `enableConfigDiscovery`, a discovered `.mcp.json`, or `mode:"empty"` +
+`availableTools` changed that. The connection semantics for app-supplied stdio
+MCP remain unresolved and are beyond this task's bounded budget.
+
+> **Driver decision (shipped in Task 9B):** `capabilities.mcpConnectors = false`
+> on both the Copilot `AgentDriver` and the `shared/drivers.ts` `github-copilot`
+> entry. `createSession` does **not** forward `ctx.extraMcpServers`; instead the
+> driver emits one `session.mcp.skipped` AgentEvent per composed connector
+> (`reason:"copilot-driver-no-mcp"`) at session start, so the UI surfaces the
+> degradation honestly. A fast-follow can revisit stdio-MCP connection (candidate
+> next steps: an `http`/`sse` connector shape like the builtin that DID connect,
+> or a runtime trust/allow RPC not yet surfaced in the `.d.ts`).
+
+---
+
 ## 7. Auth shapes (happy + failure)
 
 `client.getAuthStatus()` → `GetAuthStatusResponse` (`types.d.ts:2434`).
@@ -295,6 +329,45 @@ one plan-mode item still to observe end-to-end.
 
 ---
 
+## 9b. Exit-plan handshake, end-to-end (Task 12e) — VERDICT: **CAPTURED & CONFIRMED.**
+
+Open question 3 (the one plan-mode item §9 left unobserved) is now answered. Captured in
+`15-exit-plan.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 15`, real runtime, same
+`JiaweiHan88` gh-cli auth, Copilot Free). The §12 scenario 12 stalled because it DENIED the
+plan artifact write; here we give the model a tiny fully-completable task, approve **only** the
+plan-artifact write (`COPILOT_HOME/session-state/<id>/plan.md`, never the sandbox) so the model
+can finish planning, and instruct it to exit plan mode. On the 2nd attempt (`exitFired:true`)
+the runtime fired `onExitPlanModeRequest` with the full live payload:
+
+```jsonc
+// ExitPlanModeRequest (exit-plan-request line)
+{
+  "summary": "…Approach: Add a one-line CONTRIBUTORS file… Steps: (1) Create… (2) Commit…",
+  "planContent": "# Plan: Add CONTRIBUTORS File\n## Approach…\n## Steps\n1. …\n2. …",
+  "actions": ["autopilot", "exit_only"],   // the concrete action enum, finally observed
+  "recommendedAction": "autopilot"
+}
+```
+
+Both `exit_plan_mode.requested` and `exit_plan_mode.completed` events fired on the stream. The
+handler returned the driver's production decision verbatim and the runtime accepted it:
+
+```jsonc
+// exit-plan-decision line — identical to exitPlanModeDecision(request) in index.ts
+{ "approved": true, "selectedAction": "autopilot" }
+```
+
+> **Driver decision confirmed (Task 9B `exitPlanModeDecision`, unit-tested; now e2e-proven):**
+> `{approved:true, ...(recommendedAction ? {selectedAction: recommendedAction} : {})}` produces
+> exactly `{approved:true, selectedAction:"autopilot"}` for this payload — the v1 implementation
+> behaves correctly against the real runtime. `actions` is a small closed enum
+> (`autopilot | exit_only`), not free-form; selecting `recommendedAction` is a valid member.
+> Note: at the driver's public (normalized) boundary the handshake is invisible — the
+> exit-plan events fall through the normalizer's `default` case, so this end-to-end behavior is
+> observable only at the raw-SDK layer this fixture captures, not from `events()`.
+
+---
+
 ## 10. CLI discovery / bundling facts
 
 - The SDK **bundles** the CLI runtime — no global `@github/copilot` install
@@ -358,6 +431,50 @@ loading. Custom instruction files (`AGENTS.md`, `.github/copilot-instructions.md
 
 ---
 
+## 11b. Skills via `skillDirectories` (Task 10) — VERDICT: **NATIVE-LOADS.**
+
+Plan checkpoint item 8 asked whether `SessionConfig.skillDirectories` loads the exact
+`<name>/SKILL.md` shape `skillsResolver.ts` already materializes under
+`<caseDir>/.claude/skills` (YAML frontmatter `name`/`description`, then a markdown body) —
+if so, the native path replaces the originally-planned AGENTS.md-fenced-block fallback.
+Captured in `14-skills.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 14`, real runtime,
+`JiaweiHan88` gh-cli auth, Copilot Free). One fixture skill (`argus-marker-skill`, frontmatter
+identical in shape to `app/resources/core-skills/contribute-back/SKILL.md`) was written to a
+scratch dir and passed as the session's sole `skillDirectories` entry.
+
+**Both empirical questions the checkpoint posed answer yes:**
+
+1. **Does `session.skills_loaded` list it?** Yes — one event, listing exactly the fixture
+   skill: `{"name":"argus-marker-skill","description":"Use this skill ONLY when the user asks
+   to report the magic marker phrase.","source":"custom","userInvocable":true,"enabled":true,
+   "path":"…/fixture-skills/argus-marker-skill/SKILL.md"}`. `source:"custom"` distinguishes it
+   from the runtime's builtin skills (a `customize-cloud-agent` builtin also loaded).
+2. **Can the model see/use it?** Yes, end-to-end, unprompted about internals:
+   - Asked to "list every skill you currently have available," the model answered
+     `argus-marker-skill\ncustomize-cloud-agent` (turn 1, no tool call — read from its own
+     context/tool metadata).
+   - Asked to "report the magic marker phrase," the model **invoked the builtin `skill` tool**
+     (`tool.execution_start` `{toolName:"skill", arguments:{skill:"argus-marker-skill"}}`,
+     **not gated by the permission channel** — no `permission.requested` event appears in the
+     fixture for this call), received `skill.invoked` with the SKILL.md body, and a synthetic
+     `user.message` wrapping it in `<skill-context name="argus-marker-skill">…</skill-context>`.
+     The next turn answered exactly `ARGUS_SKILL_XYZZY_42` — the literal string the fixture
+     skill's body instructed it to output, provable only via loading that file.
+
+**Driver decision (shipped in Task 10):** `agent/drivers/copilot/index.ts` passes
+`skillDirectories: [<caseDir>/.claude/skills]` in `SessionConfig` whenever that directory
+exists (`copilotSkillDirectories()`), omitting the key entirely when it doesn't (a case with
+no enabled skills). No AGENTS.md generation needed — `skillsResolver.materializeSessionSkills`
+is unchanged and driver-agnostic; only the Copilot session-bootstrap in `index.ts` reads the
+same junction dir the Claude driver already relies on.
+
+> `session.skills_loaded` requires no normalizer handling: it falls through
+> `createCopilotNormalizer`'s `default` case (`normalize.ts`) and is silently ignored, already
+> exercised by the pre-existing `01-chat.jsonl` fixture (which itself contains a
+> `session.skills_loaded` event) and its `normalize.test.ts` replay assertion.
+
+---
+
 ## Open questions (capture could not answer)
 
 1. **MCP tools never connected** (`status:"not_configured"`, §6). What opt-in
@@ -368,9 +485,10 @@ loading. Custom instruction files (`AGENTS.md`, `.github/copilot-instructions.md
 2. **Paid-tier model catalog.** Does `listModels()` widen beyond `auto`, and does
    `SessionConfig.model` / `session.setModel()` pin a specific slug, on a Pro/
    Business account? (Free tier is `auto`-only + router.)
-3. **`exit_plan_mode.requested` end-to-end.** Need a longer plan-mode turn where
-   the model completes a plan and requests exit, to capture the live
-   `ExitPlanModeRequest` payload and the `actions[]`/`recommendedAction` values.
+3. ~~**`exit_plan_mode.requested` end-to-end.**~~ **ANSWERED (Task 12, §9b, `15-exit-plan.jsonl`):**
+   captured the live `ExitPlanModeRequest` (`actions:["autopilot","exit_only"]`,
+   `recommendedAction:"autopilot"`) + `exit_plan_mode.requested`/`completed`; the driver's
+   `exitPlanModeDecision` v1 is confirmed correct end-to-end.
 4. **`tool.execution_complete` full `result`/`error` shape** for a failing tool
    (only success paths captured here).
 5. **Sub-agent (`task`) event stream** (`subagent.*`, `includeSubAgentStreaming

@@ -49,7 +49,7 @@ const mkService = (): AgentService =>
 
 it('raises a MEDIUM editable card and, on approve, writes the (edited) finding', async () => {
   const svc = mkService()
-  const s = createSession(db, 'NAV-1')
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   const p = svc.emitPanelFinding('NAV-1', s.id, { title: 'T', markdown: 'body' })
 
   // the card surfaces as request.opened with the panel-finding tool + MEDIUM + input
@@ -76,7 +76,7 @@ it('raises a MEDIUM editable card and, on approve, writes the (edited) finding',
 
 it('returns { ok:false } and writes nothing on deny', async () => {
   const svc = mkService()
-  const s = createSession(db, 'NAV-1')
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   const p = svc.emitPanelFinding('NAV-1', s.id, { title: 'T', markdown: 'body' })
   await new Promise((r) => setTimeout(r, 5))
   const opened = events.find((e) => e.type === 'request.opened')!

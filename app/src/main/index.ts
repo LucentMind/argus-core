@@ -82,7 +82,7 @@ import {
   deleteSession
 } from './services/agent/sessionStore'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
-import { getActiveDriver } from './services/agent/driverRegistry'
+import { getActiveDriver, resolveDriver } from './services/agent/driverRegistry'
 import { AuthCache } from './services/agent/authCache'
 import {
   linkWorkspace,
@@ -428,7 +428,14 @@ function registerIpc(): void {
   const authCache = new AuthCache(
     async () => {
       const settings = settingsService.get()
-      const result = await getActiveDriver(settings.agent).probeAuth({
+      const { driver, unknownSlug } = resolveDriver(settings.agent)
+      // Unknown driver slug (e.g. a provider instance naming a not-yet-registered driver
+      // kind): report the mismatch directly instead of silently probing the Claude
+      // fallback, which would misreport an unrelated account as this instance's status.
+      if (unknownSlug) {
+        return { ok: false, verified: false, detail: `Unknown agent driver: ${unknownSlug}` }
+      }
+      const result = await driver.probeAuth({
         timeoutMs: settings.agent.probeTimeoutMs,
         cliPath: activeInstanceConfig(settings).cliPath
       })
@@ -805,6 +812,10 @@ function registerIpc(): void {
     },
     agentAccess: () => agentAccessStore.get(),
     agentSettings: () => settingsService.get().agent,
+    // Thunk, not a resolved value: AgentService re-invokes this at every getOrCreate, so
+    // switching the active provider in settings takes effect on the NEXT session without
+    // an app restart (Phase 3 checkpoint item 5).
+    driver: () => getActiveDriver(settingsService.get().agent),
     composeMcp: () => mcpService.composeForSession(),
     onAuthFailure: () => authCache.onAuthFailure(),
     onAuthVerified: () => authCache.onAuthVerified(),
@@ -849,8 +860,12 @@ function registerIpc(): void {
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
   })
-  ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) => listSessions(db, caseSlug))
-  ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) => createSession(db, caseSlug))
+  ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) =>
+    listSessions(db, caseSlug, getActiveDriver(settingsService.get().agent).kind)
+  )
+  ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) =>
+    createSession(db, caseSlug, getActiveDriver(settingsService.get().agent).kind)
+  )
   ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
     renameSession(db, sessionId, title)
   )
@@ -1185,7 +1200,11 @@ function registerIpc(): void {
     checkBinary: (id) => binariesService.healthCheck(id),
     agentAuth: async () => {
       const settings = settingsService.get()
-      const result = await getActiveDriver(settings.agent).probeAuth({
+      const { driver, unknownSlug } = resolveDriver(settings.agent)
+      if (unknownSlug) {
+        return { ok: false, verified: false, detail: `Unknown agent driver: ${unknownSlug}` }
+      }
+      const result = await driver.probeAuth({
         timeoutMs: settings.agent.probeTimeoutMs,
         cliPath: activeInstanceConfig(settings).cliPath
       })

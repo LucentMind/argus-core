@@ -161,6 +161,7 @@ export class CaseSession {
       resumeCursor: deps.resumeCursor,
       eventCtx: () => this.ctx(),
       onToolRequest: this.handleToolRequest.bind(this),
+      classifyOnly: this.classifyOnly.bind(this),
       // Tag the cursor with the driver that produced it — sessionCursor gates resume on
       // this match so a future Copilot driver can never resume a Claude session's cursor.
       onCursor: (cursor) => {
@@ -386,6 +387,60 @@ export class CaseSession {
     this.deps.mirror?.close?.()
   }
 
+  /** Append one row to the tool_calls audit trail. Shared by the ask pipeline and the
+   *  classify-only seam so both write identical audit records. */
+  private logToolCall(
+    toolName: string,
+    input: Record<string, unknown>,
+    risk: string,
+    decision: string,
+    durationMs: number
+  ): void {
+    this.deps.db
+      .prepare(
+        `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision, duration_ms, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        this.deps.caseId,
+        this.sessionId,
+        this.currentTurnRow,
+        toolName,
+        crypto.createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 16),
+        risk,
+        decision,
+        durationMs,
+        new Date().toISOString()
+      )
+  }
+
+  /** Classify a tool call WITHOUT opening an approval card (the driver's classifyOnly seam).
+   *  A permission-mode short-circuit that suppresses the *ask* (Copilot acceptEdits) calls this
+   *  so a *deny* verdict — an out-of-sandbox or read-only-root write — is still enforced. The
+   *  outcome is logged to the audit trail as 'auto' (allow/ask, since the ask is suppressed) or
+   *  'denied', mirroring the ask pipeline's records. */
+  private classifyOnly(
+    toolName: string,
+    input: Record<string, unknown>
+  ): { action: 'allow' | 'ask' | 'deny'; reason?: string } {
+    const started = Date.now()
+    const verdict = classifyToolCall(toolName, input, {
+      ...this.riskCtx,
+      toolRisk: this.deps.toolRisk?.()
+    })
+    this.logToolCall(
+      toolName,
+      input,
+      verdict.risk,
+      verdict.action === 'deny' ? 'denied' : 'auto',
+      Date.now() - started
+    )
+    return {
+      action: verdict.action,
+      ...('reason' in verdict ? { reason: verdict.reason } : {})
+    }
+  }
+
   // --- approval pipeline (the driver's onToolRequest): classify → decide → ask → log ---
   private async handleToolRequest(
     toolName: string,
@@ -400,24 +455,8 @@ export class CaseSession {
       ...this.riskCtx,
       toolRisk: this.deps.toolRisk?.()
     })
-    const log = (decision: string): void => {
-      this.deps.db
-        .prepare(
-          `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision, duration_ms, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          this.deps.caseId,
-          this.sessionId,
-          this.currentTurnRow,
-          toolName,
-          crypto.createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 16),
-          verdict.risk,
-          decision,
-          Date.now() - started,
-          new Date().toISOString()
-        )
-    }
+    const log = (decision: string): void =>
+      this.logToolCall(toolName, input, verdict.risk, decision, Date.now() - started)
 
     if (verdict.action === 'deny') {
       log('denied')
@@ -532,7 +571,13 @@ export class CaseSession {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const interrupted = /abort|interrupt/i.test(message)
-      if (!interrupted && isAuthFailure(message)) this.deps.onAuthFailure?.()
+      // Prefer the active driver's own auth-error classifier when it has one (Copilot
+      // reports auth failure via a typed channel + a distinct message substring); fall
+      // back to the Claude heuristic, which remains correct for the Claude driver.
+      const authFailed = this.deps.driver.isAuthErrorMessage
+        ? this.deps.driver.isAuthErrorMessage(message)
+        : isAuthFailure(message)
+      if (!interrupted && authFailed) this.deps.onAuthFailure?.()
       if (this.state !== 'dead') {
         this.state = 'dead'
         if (!interrupted) {
