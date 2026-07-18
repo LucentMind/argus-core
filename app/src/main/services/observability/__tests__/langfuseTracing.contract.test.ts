@@ -83,10 +83,18 @@ describe('Langfuse v5 tracing contract', () => {
 
     const generation = spans.find((s) => s.name === 'turn')
     expect(generation).toBeDefined()
-    const attrs = JSON.stringify(generation!.attributes)
-    expect(attrs).toContain('usage_details')
-    expect(attrs).toContain('cost_details')
-    expect(attrs).toContain('claude-opus-4-8')
+    // Assert both key and value for usage, cost, and model — substring-match alone
+    // would pass even against empty payloads, missing the silent-drop failure this
+    // contract test exists to catch. The values are JSON strings, not objects.
+    expect(generation!.attributes[LangfuseOtelSpanAttributes.OBSERVATION_USAGE_DETAILS]).toBe(
+      '{"input":10,"output":5}'
+    )
+    expect(generation!.attributes[LangfuseOtelSpanAttributes.OBSERVATION_COST_DETAILS]).toBe(
+      '{"total":0.01}'
+    )
+    expect(generation!.attributes[LangfuseOtelSpanAttributes.OBSERVATION_MODEL]).toBe(
+      'claude-opus-4-8'
+    )
 
     // Explicit start/end produce a real duration, not an instant.
     const durationNs = generation!.duration[0] * 1e9 + generation!.duration[1]
