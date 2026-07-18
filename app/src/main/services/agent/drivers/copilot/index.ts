@@ -479,7 +479,10 @@ export function createCopilotDriver(
      * `detail` — deliberately NOT the `email` field, which `login` is not (plan amendment 4).
      */
     async probeAuth(config2: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult> {
+      const timeoutMs = config2.timeoutMs ?? 10000
       let client: CopilotClientLike | null = null
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let timedOut = false
       try {
         // A probe only needs a scratch home to boot the runtime; auth resolves via gh-cli
         // regardless. Use the OS temp dir so probing never pollutes the repo/cwd.
@@ -491,12 +494,27 @@ export function createCopilotDriver(
             ? { cliPath: config2.cliPath ?? config.cliPath }
             : {})
         })
-        await client.start() // boot the runtime transport before querying auth
-        const status = await client.getAuthStatus()
-        const version = await client
-          .getStatus()
-          .then((s) => s.version)
-          .catch(() => undefined)
+        const c = client
+        // The runtime boot + auth query is bounded: a wedged `start()` (e.g. a hung child
+        // transport) must not hang the probe forever. Race it against timeoutMs.
+        const probe = (async () => {
+          await c.start() // boot the runtime transport before querying auth
+          const status = await c.getAuthStatus()
+          const version = await c
+            .getStatus()
+            .then((s) => s.version)
+            .catch(() => undefined)
+          return { status, version }
+        })()
+        probe.catch(() => undefined) // never leak an unhandled rejection if it settles post-timeout
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true
+            reject(new Error('copilot-probe-timeout'))
+          }, timeoutMs)
+          timer.unref?.()
+        })
+        const { status, version } = await Promise.race([probe, timeout])
         if (!status.isAuthenticated) {
           return {
             ok: false,
@@ -512,8 +530,21 @@ export function createCopilotDriver(
           ...(version ? { version } : {})
         }
       } catch (err) {
-        return { ok: false, detail: (err as Error).message }
+        if (timedOut) return { ok: false, detail: `Copilot probe timed out after ${timeoutMs}ms` }
+        // A missing/unspawnable runtime (ENOENT / spawn-shaped) gets an actionable detail;
+        // everything else surfaces the raw message unchanged.
+        const e = err as NodeJS.ErrnoException
+        const spawnShaped = e?.code === 'ENOENT' || /ENOENT|spawn/i.test(e?.message ?? '')
+        return {
+          ok: false,
+          detail: spawnShaped
+            ? 'Copilot runtime not found — check the CLI path or reinstall @github/copilot-sdk'
+            : (e?.message ?? String(err))
+        }
       } finally {
+        if (timer) clearTimeout(timer)
+        // Always reap the probe client on BOTH branches; on a wedged start() the graceful stop
+        // may not respond, so forceStop is the fallback — never leave an orphaned runtime.
         await client?.stop().catch(() => client?.forceStop().catch(() => undefined))
       }
     }
