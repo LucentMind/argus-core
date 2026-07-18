@@ -1,13 +1,15 @@
 import type { AgentSettings } from '../../../shared/settings'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver } from './drivers/claude'
+import { createCopilotDriver } from './drivers/copilot'
 
 /** Constructed drivers, keyed by the open `driver` slug stored on a provider instance
  *  (`ProviderInstance.driver` — an open string so unknown/future driver kinds still
  *  round-trip through settings). Phase 1 has only the Claude driver; Phase 3 adds
  *  `'github-copilot'`. */
 export const DRIVERS: Record<string, AgentDriver> = {
-  'claude-agent-sdk': createClaudeDriver()
+  'claude-agent-sdk': createClaudeDriver(),
+  'github-copilot': createCopilotDriver()
 }
 
 const fallbackDriver = DRIVERS['claude-agent-sdk']

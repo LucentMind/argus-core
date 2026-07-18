@@ -532,7 +532,13 @@ export class CaseSession {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const interrupted = /abort|interrupt/i.test(message)
-      if (!interrupted && isAuthFailure(message)) this.deps.onAuthFailure?.()
+      // Prefer the active driver's own auth-error classifier when it has one (Copilot
+      // reports auth failure via a typed channel + a distinct message substring); fall
+      // back to the Claude heuristic, which remains correct for the Claude driver.
+      const authFailed = this.deps.driver.isAuthErrorMessage
+        ? this.deps.driver.isAuthErrorMessage(message)
+        : isAuthFailure(message)
+      if (!interrupted && authFailed) this.deps.onAuthFailure?.()
       if (this.state !== 'dead') {
         this.state = 'dead'
         if (!interrupted) {
