@@ -79,6 +79,11 @@ export interface DriverCapabilities {
 export interface ProbeAuthResult {
   ok: boolean
   detail: string
+  /** Account identity, when the probe surfaced one (same fields as `AuthStatus`, minus
+   *  `verified` — a probe alone never proves credentials work; only a real turn does). */
+  email?: string
+  subscription?: string
+  version?: string
 }
 
 export interface AgentDriver {
