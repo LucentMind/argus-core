@@ -31,18 +31,29 @@ export class AtlassianError extends Error {
   }
 }
 
-export interface JiraCloud {
+export type AtlassianProduct = 'jira' | 'confluence'
+
+export interface AtlassianCloud {
   cloudId: string
   siteUrl: string
 }
 
+/** @deprecated use AtlassianCloud — kept so existing callers still compile. */
+export type JiraCloud = AtlassianCloud
+
 const GATEWAY = 'https://api.atlassian.com'
 
-export async function discoverJiraCloud(
+const SCOPE_MAP: Record<AtlassianProduct, string> = {
+  jira: 'jira-work',
+  confluence: 'confluence'
+}
+
+export async function discoverCloud(
   bearer: string,
+  product: AtlassianProduct,
   fetchImpl: typeof fetch,
   timeoutMs: number
-): Promise<JiraCloud> {
+): Promise<AtlassianCloud> {
   let res: Response
   try {
     res = await fetchImpl(`${GATEWAY}/oauth/token/accessible-resources`, {
@@ -55,7 +66,7 @@ export async function discoverJiraCloud(
   if (!res.ok)
     throw new AtlassianError(
       'auth',
-      `Atlassian authorization couldn't reach Jira (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`
+      `Atlassian authorization couldn't reach ${product} (HTTP ${res.status}) — re-authorize the connector in Settings → Connectors.`
     )
   let resources: Array<{ id: string; url: string; scopes?: string[] }>
   try {
@@ -63,13 +74,22 @@ export async function discoverJiraCloud(
   } catch {
     throw new AtlassianError('http', 'Atlassian returned invalid JSON', undefined)
   }
-  const jira = resources.find((r) => (r.scopes ?? []).some((s) => s.includes('jira-work')))
-  if (!jira)
+  const scope = SCOPE_MAP[product]
+  const cloud = resources.find((r) => (r.scopes ?? []).some((s) => s.includes(scope)))
+  if (!cloud)
     throw new AtlassianError(
       'auth',
-      'Your Atlassian authorization does not grant Jira access — re-authorize, or set an API token.'
+      `Your Atlassian authorization does not grant ${product} access — re-authorize, or set an API token.`
     )
-  return { cloudId: jira.id, siteUrl: jira.url.replace(/\/+$/, '') }
+  return { cloudId: cloud.id, siteUrl: cloud.url.replace(/\/+$/, '') }
+}
+
+export async function discoverJiraCloud(
+  bearer: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number
+): Promise<JiraCloud> {
+  return discoverCloud(bearer, 'jira', fetchImpl, timeoutMs)
 }
 
 /** Minimal OAuth surface resolveAtlassianCreds needs (McpOAuth satisfies it). */
@@ -172,7 +192,7 @@ const REST_TIMEOUT_MS = 15000
 const ISSUE_FIELDS = 'summary,description,status,labels,reporter,created,updated,attachment'
 
 export class AtlassianClient {
-  private cloudId = new Map<string, JiraCloud>()
+  private cloudId = new Map<string, AtlassianCloud>()
 
   constructor(
     private creds: () => AtlassianAuth,
@@ -278,7 +298,7 @@ export class AtlassianClient {
     return this.legacyRequest(pathAndQuery)
   }
 
-  private async resolveCloud(instanceId: string, token: string): Promise<JiraCloud> {
+  private async resolveCloud(instanceId: string, token: string): Promise<AtlassianCloud> {
     const cached = this.cloudId.get(instanceId)
     if (cached) return cached
     const cloud = await discoverJiraCloud(token, this.fetchImpl, this.timeoutMs)
