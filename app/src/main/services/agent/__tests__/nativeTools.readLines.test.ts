@@ -10,7 +10,11 @@ import { createDetection } from '../../packs/detection'
 import { argusToolHandlers } from '../nativeTools'
 import { __clearIndexCacheForTests } from '../../lineIndex'
 
-let tmp: string, argusHome: string, db: DatabaseSync, evidenceId: number
+let tmp: string,
+  argusHome: string,
+  db: DatabaseSync,
+  evidenceId: number,
+  otherCaseEvidenceId: number
 let handlers: ReturnType<typeof argusToolHandlers>
 const detection = createDetection()
 
@@ -25,6 +29,12 @@ beforeEach(() => {
   )
   fs.writeFileSync(src, lines.join('\n') + '\n')
   evidenceId = ingestArtifact(db, argusHome, detection, 'NAV-3', src).id
+
+  createCase(db, argusHome, { slug: 'OTHER-1', title: 'other' })
+  const otherSrc = path.join(tmp, 'other.log')
+  fs.writeFileSync(otherSrc, 'secret line 1\nsecret line 2\n')
+  otherCaseEvidenceId = ingestArtifact(db, argusHome, detection, 'OTHER-1', otherSrc).id
+
   __clearIndexCacheForTests()
   handlers = argusToolHandlers({
     db,
@@ -67,6 +77,12 @@ describe('read_lines', () => {
       handlers.read_lines({ evidence_id: evidenceId, from: 'abc', to: 5 })
     ).rejects.toThrow(/must be a number/)
   })
+
+  it('rejects evidence belonging to another case', async () => {
+    await expect(
+      handlers.read_lines({ evidence_id: otherCaseEvidenceId, from: 1, to: 1 })
+    ).rejects.toThrow(/Unknown evidence_id/)
+  })
 })
 
 describe('grep_lines', () => {
@@ -97,5 +113,11 @@ describe('grep_lines', () => {
     await expect(
       handlers.grep_lines({ evidence_id: evidenceId, query: 'trace', max_results: 'lots' })
     ).rejects.toThrow(/must be a number/)
+  })
+
+  it('rejects evidence belonging to another case', async () => {
+    await expect(
+      handlers.grep_lines({ evidence_id: otherCaseEvidenceId, query: 'secret' })
+    ).rejects.toThrow(/Unknown evidence_id/)
   })
 })
