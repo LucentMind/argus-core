@@ -363,7 +363,11 @@ export class CaseSession {
   }
 
   async interrupt(): Promise<void> {
-    await this.driverSession.interrupt()
+    // Harness-side swallow (matches the pre-driver `query.interrupt().catch(...)`): stop()
+    // awaits this between draining approvals and emitting session.exited / closing the
+    // mirror, so a rejecting driver interrupt must never abort the teardown sequence or
+    // surface to IPC callers — regardless of what any driver does internally.
+    await this.driverSession.interrupt().catch(() => undefined)
   }
 
   async stop(reason: 'stopped' | 'reaped' | 'reconfigured'): Promise<void> {
