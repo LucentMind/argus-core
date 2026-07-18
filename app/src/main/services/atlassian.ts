@@ -152,7 +152,11 @@ export function atlassianSiteUrl(connectors: ConnectorMap): string | null {
 export function atlassianRestConfigured(connectors: ConnectorMap, oauth: OAuthLike): boolean {
   return Object.entries(connectors).some(([id, inst]) => {
     if (inst.preset !== 'rovo') return false
-    if (oauth.status(id) === 'authorized') return true
+    // 'error' (e.g. a failed refresh) still counts as configured — otherwise an
+    // OAuth-only user with no siteUrl/token fallback loses the Health row entirely
+    // instead of seeing it turn red.
+    const s = oauth.status(id)
+    if (s === 'authorized' || s === 'error') return true
     const cfg = connectorConfig<HttpConnectorConfig>('http', inst.config)
     return Boolean((cfg.siteUrl ?? '').trim()) || isSecretRef(cfg.apiToken)
   })
