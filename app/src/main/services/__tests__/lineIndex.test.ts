@@ -67,6 +67,15 @@ describe('ensureIndex', () => {
     expect(idx3.totalLines).toBe(1501)
   })
 
+  it('concurrent ensureIndex calls share one build (no duplicate scan)', async () => {
+    const p = writeLines('conc.txt', 3000)
+    fs.rmSync(sidecarPath(argusHome, p), { force: true })
+    __clearIndexCacheForTests()
+    const [a, b] = await Promise.all([ensureIndex(argusHome, p), ensureIndex(argusHome, p)])
+    // same object reference proves the second call joined the first build
+    expect(b).toBe(a)
+  })
+
   it('cadence reset survives zero-hit windows (no starved-then-tiny first batch)', async () => {
     // Regression guard for the sinceYield reset bug: a scan window with zero
     // hits must still reset the batch-cadence counter. Without the reset, the
@@ -121,7 +130,12 @@ describe('ensureIndex', () => {
       [
         [1, 0],
         ['x', 3]
-      ] // non-numeric entry
+      ], // non-numeric entry
+      [
+        [1, 0],
+        [500, 6000],
+        [400, 3000]
+      ] // non-ascending — would break checkpointAtOrBelow's binary search
     ]) {
       fs.writeFileSync(
         side,
