@@ -140,12 +140,42 @@ describe('openDb', () => {
       legacy.close()
       const migrated = openDb(file)
       const row = migrated
-        .prepare(`SELECT id, sdk_session_id, turn_count, title FROM sessions`)
+        .prepare(`SELECT id, driver_cursor, driver_kind, turn_count, title FROM sessions`)
         .get() as never
-      expect(row).toMatchObject({ id: 1, sdk_session_id: 'abc', turn_count: 5, title: '' })
+      expect(row).toMatchObject({
+        id: 1,
+        driver_cursor: 'abc',
+        driver_kind: 'claude-agent-sdk',
+        turn_count: 5,
+        title: ''
+      })
       migrated
         .prepare(`INSERT INTO sessions (case_id, created_at, updated_at) VALUES (1,'x','x')`)
         .run() // no UNIQUE violation
+      migrated.close()
+    })
+
+    it('migrates sdk_session_id to driver_cursor + driver_kind, preserving values', () => {
+      const file = path.join(tmp, 'pre-cursor.db')
+      const old = new DatabaseSync(file)
+      old.exec(`CREATE TABLE cases (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL, jira_key TEXT, status TEXT NOT NULL DEFAULT 'open',
+        tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE, sdk_session_id TEXT, title TEXT NOT NULL DEFAULT '', turn_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`)
+      old.exec(
+        `INSERT INTO cases (slug, title, created_at, updated_at) VALUES ('NAV-1','t','x','x')`
+      )
+      old.exec(
+        `INSERT INTO sessions (case_id, sdk_session_id, turn_count, created_at, updated_at) VALUES (1,'u-u-i-d',0,'x','x')`
+      )
+      old.close()
+      const migrated = openDb(file)
+      const row = migrated
+        .prepare(`SELECT driver_cursor, driver_kind FROM sessions WHERE case_id = 1`)
+        .get()
+      expect(row).toEqual({ driver_cursor: 'u-u-i-d', driver_kind: 'claude-agent-sdk' })
+      const cols = migrated.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
+      expect(cols.some((c) => c.name === 'sdk_session_id')).toBe(false)
       migrated.close()
     })
   })

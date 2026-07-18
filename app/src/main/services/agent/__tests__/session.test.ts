@@ -163,11 +163,11 @@ describe('CaseSession', () => {
     expect(events.map((e) => e.type)).toEqual(
       expect.arrayContaining(['session.started', 'content.delta', 'turn.completed'])
     )
-    const sess = db.prepare(`SELECT sdk_session_id, turn_count FROM sessions`).get() as {
-      sdk_session_id: string
+    const sess = db.prepare(`SELECT driver_cursor, turn_count FROM sessions`).get() as {
+      driver_cursor: string
       turn_count: number
     }
-    expect(sess.sdk_session_id).toBe('11111111-1111-4111-8111-111111111111')
+    expect(sess.driver_cursor).toBe('11111111-1111-4111-8111-111111111111')
     expect(sess.turn_count).toBe(1)
     const turn = db.prepare(`SELECT status, input_tokens FROM turns`).get() as {
       status: string
@@ -295,10 +295,10 @@ describe('CaseSession', () => {
     })
     sdk.messages.push({ type: 'system', subtype: 'hook_event', session_id: 'transient-not-a-uuid' })
     await flush()
-    const sess = db.prepare(`SELECT sdk_session_id FROM sessions`).get() as {
-      sdk_session_id: string
+    const sess = db.prepare(`SELECT driver_cursor FROM sessions`).get() as {
+      driver_cursor: string
     }
-    expect(sess.sdk_session_id).toBe('11111111-1111-4111-8111-111111111111')
+    expect(sess.driver_cursor).toBe('11111111-1111-4111-8111-111111111111')
     await s.stop('stopped')
   })
 
