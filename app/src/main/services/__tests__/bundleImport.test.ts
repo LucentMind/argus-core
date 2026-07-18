@@ -9,6 +9,8 @@ import { ingestContent, ingestDerived, listEvidence, sha256File } from '../inges
 import { createDetection } from '../packs/detection'
 import { searchEvidence } from '../search'
 import { exportCase, importCase, inspectBundle, proposeSlug } from '../bundle'
+import { sidecarPath } from '../lineIndex'
+import { MAX_READ_BYTES } from '../search'
 import { listSessions } from '../agent/sessionStore'
 import { readSessionEvents } from '../agent/mirror'
 import type { DatabaseSync } from 'node:sqlite'
@@ -61,6 +63,20 @@ afterEach(() => {
   dbA.close()
   dbB.close()
   for (const h of [homeA, homeB]) fs.rmSync(h, { recursive: true, force: true })
+})
+
+it('writes a line-index sidecar for large imported text evidence (ingest parity)', async () => {
+  const line = 'y'.repeat(1024) + '\n'
+  const count = Math.ceil(MAX_READ_BYTES / line.length) + 10
+  ingestContent(dbA, homeA, detection, 'NAV-100', 'big.log', line.repeat(count), 'upload')
+  const bigBundle = path.join(homeA, 'NAV-100-big.arguscase')
+  await exportCase(dbA, homeA, 'NAV-100', bigBundle, { includeTranscripts: false }, {
+    argusVersion: '1.0.0'
+  })
+  await importCase(dbB, homeB, bigBundle, 'NAV-100')
+  const abs = path.join(homeB, 'cases', 'NAV-100', 'evidence', 'big.log')
+  expect(fs.existsSync(abs)).toBe(true)
+  expect(fs.existsSync(sidecarPath(homeB, abs))).toBe(true)
 })
 
 /**

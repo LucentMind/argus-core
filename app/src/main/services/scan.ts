@@ -40,6 +40,7 @@ function writeSidecar(evidenceDir: string, rel: string, record: EvidenceRecord):
 /** Register an untracked file in place — no copy (registerEvidenceFile pattern, nested-path aware). */
 function registerScanned(
   db: DatabaseSync,
+  argusHome: string,
   detection: Detection,
   caseId: number,
   evidenceDir: string,
@@ -72,7 +73,7 @@ function registerScanned(
     createdAt: now
   }
   try {
-    if (indexable) indexEvidenceFile(db, id, absPath)
+    if (indexable) indexEvidenceFile(db, id, absPath, 400, argusHome)
     writeSidecar(evidenceDir, rel, record)
   } catch (err) {
     // error isolation contract: a failed registration must not leave a ghost row
@@ -86,6 +87,7 @@ function registerScanned(
 /** External edit detected: re-hash/re-detect/re-index in place, keep the old hash for audit. */
 function rescanModified(
   db: DatabaseSync,
+  argusHome: string,
   detection: Detection,
   evidenceDir: string,
   rec: EvidenceRecord,
@@ -109,7 +111,7 @@ function rescanModified(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), rec.id)
   deleteEvidenceIndex(db, rec.id)
-  if (indexable) indexEvidenceFile(db, rec.id, absPath)
+  if (indexable) indexEvidenceFile(db, rec.id, absPath, 400, argusHome)
   return updated
 }
 
@@ -154,7 +156,7 @@ export function scanEvidence(
       try {
         const existing = byRelPath.get(relPath)
         if (!existing) {
-          kickExtraction(registerScanned(db, detection, kase.id, evidenceDir, rel))
+          kickExtraction(registerScanned(db, argusHome, detection, kase.id, evidenceDir, rel))
           summary.added.push(relPath)
           continue
         }
@@ -165,7 +167,9 @@ export function scanEvidence(
           for (const e of byRelPath.values()) {
             if (e.meta.derivedFrom === existing.id) deleteEvidence(db, argusHome, caseSlug, e.id)
           }
-          kickExtraction(rescanModified(db, detection, evidenceDir, existing, absPath, sha256))
+          kickExtraction(
+            rescanModified(db, argusHome, detection, evidenceDir, existing, absPath, sha256)
+          )
           summary.modified.push(relPath)
         } else if (existing.meta.missing) {
           setMissing(db, existing, false)
