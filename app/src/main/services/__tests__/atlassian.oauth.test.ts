@@ -155,6 +155,15 @@ describe('AtlassianClient.request routing', () => {
     expect(calls.filter((x) => x.url.includes('accessible-resources'))).toHaveLength(1) // cached
   })
 
+  it('invalidateCloud drops the cached cloudId so the next call re-discovers it', async () => {
+    const { impl, calls } = recordingFetch([ARES, () => OK(ISSUE_BODY), ARES, () => OK(ISSUE_BODY)])
+    const c = new AtlassianClient(authFixture({}), impl)
+    await c.getIssue('KAN-2')
+    c.invalidateCloud('rovo')
+    await c.getIssue('KAN-2')
+    expect(calls.filter((x) => x.url.includes('accessible-resources'))).toHaveLength(2)
+  })
+
   it('Jira path without OAuth → legacy siteUrl + Basic', async () => {
     const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
     const c = new AtlassianClient(authFixture({ oauth: undefined }), impl)

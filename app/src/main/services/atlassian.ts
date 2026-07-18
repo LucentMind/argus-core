@@ -282,6 +282,15 @@ export class AtlassianClient {
     return cloud
   }
 
+  /**
+   * Drops the cached cloudId for an instance. Call this whenever its OAuth grant
+   * is cleared or re-authorized — otherwise a re-auth to a different Atlassian
+   * site keeps resolving Jira calls against the previous site's cloudId.
+   */
+  invalidateCloud(instanceId: string): void {
+    this.cloudId.delete(instanceId)
+  }
+
   private async parseJson<T>(res: Response): Promise<T> {
     try {
       return (await res.json()) as T
