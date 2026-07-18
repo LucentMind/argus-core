@@ -203,6 +203,40 @@ line. The runtime emitted `session.mcp_servers_loaded` with
 
 ---
 
+## 6b. MCP retry (Task 9B) — VERDICT: NOT SOLVED
+
+Bounded (half-day) resolution attempt of open question 1, captured in
+`13-mcp-retry.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 13`, real
+runtime, same `JiaweiHan88` gh-cli auth, Copilot Free). Three candidate fixes,
+one variant each; every variant sent a tiny prompt asking the model to list/call
+the `mcp_echo` tool from the SDK-declared stdio `argusEcho` server:
+
+| Variant | Config | `argusEcho` load status | `mcp_echo` reachable by model? |
+| --- | --- | --- | --- |
+| A | `enableConfigDiscovery:true` + `SessionConfig.mcpServers` | `not_configured` | **no** ("don't see any tools from an 'argusEcho' MCP server") |
+| B | `.mcp.json` (`{mcpServers}`) written into `workingDirectory` + `enableConfigDiscovery:true` | `not_configured` | **no** (`NO_MCP_TOOL`) |
+| C | client `mode:"empty"` + `availableTools:['mcp:*','custom:*',…]` + `SessionConfig.mcpServers` | `not_configured` | **no** (`NO_MCP_TOOL`) |
+
+**Key observation:** in variants A/B the runtime's OWN builtin
+`github-mcp-server` loads `status:"connected"` (transport `http`, `source:"builtin"`)
+in the same `session.mcp_servers_loaded` event where the SDK-declared stdio
+`argusEcho` is `not_configured`. So the runtime CAN connect MCP servers — it just
+does not connect app-declared **stdio** `mcpServers` in `mode:"copilot-cli"`, and
+none of `enableConfigDiscovery`, a discovered `.mcp.json`, or `mode:"empty"` +
+`availableTools` changed that. The connection semantics for app-supplied stdio
+MCP remain unresolved and are beyond this task's bounded budget.
+
+> **Driver decision (shipped in Task 9B):** `capabilities.mcpConnectors = false`
+> on both the Copilot `AgentDriver` and the `shared/drivers.ts` `github-copilot`
+> entry. `createSession` does **not** forward `ctx.extraMcpServers`; instead the
+> driver emits one `session.mcp.skipped` AgentEvent per composed connector
+> (`reason:"copilot-driver-no-mcp"`) at session start, so the UI surfaces the
+> degradation honestly. A fast-follow can revisit stdio-MCP connection (candidate
+> next steps: an `http`/`sse` connector shape like the builtin that DID connect,
+> or a runtime trust/allow RPC not yet surfaced in the `.d.ts`).
+
+---
+
 ## 7. Auth shapes (happy + failure)
 
 `client.getAuthStatus()` → `GetAuthStatusResponse` (`types.d.ts:2434`).

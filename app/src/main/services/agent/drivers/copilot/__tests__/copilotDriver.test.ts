@@ -86,7 +86,9 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
     permissionMode: 'default',
     systemAppend: 'PERSONA',
     extraMcpServers: {},
-    nativeToolDeps: { argusHome: '/tmp/argus-home' } as unknown as NativeToolDeps,
+    // Enough for buildCopilotTools → argusToolHandlers to construct (it computes caseDir
+    // eagerly); the handlers themselves are never invoked in these lifecycle tests.
+    nativeToolDeps: { argusHome: '/tmp/argus-home', caseSlug: 'c' } as unknown as NativeToolDeps,
     panelCommandDecls: [],
     resumeCursor: null,
     eventCtx: () => ({ caseId: 1, caseSlug: 'c', sessionId: 1, turnId: 1 }),
@@ -98,14 +100,15 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
 }
 
 describe('createCopilotDriver — capabilities + auth predicate', () => {
-  it('declares the four permission modes, no editable approvals, no cost reporting', () => {
+  it('declares the four permission modes, no editable approvals, no cost/mcp support', () => {
     const d = createCopilotDriver()
     expect(d.kind).toBe('github-copilot')
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.capabilities.costReporting).toBe(false)
+    expect(d.capabilities.mcpConnectors).toBe(false)
     expect(d.capabilities.permissionModes.length).toBe(4)
-    // 9A taxonomy is a fail-closed stub: no entries, no fallback.
-    expect(d.toolTaxonomy.entries).toEqual({})
+    // 9B taxonomy: write/read/shell/fetch entries, still fail-closed (no fallback).
+    expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])
     expect(d.toolTaxonomy.fallback).toBeUndefined()
   })
 

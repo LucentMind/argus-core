@@ -414,3 +414,28 @@ describe('tool taxonomy', () => {
     })
   })
 })
+
+describe("network taxonomy kind (Copilot 'fetch')", () => {
+  // A driver taxonomy exercising the 'network' kind. Claude declares none (WebFetch stays
+  // on the legacy fallback), so this is exercised only through an inline entry / Copilot.
+  const netTax: ToolTaxonomy = { entries: { fetch: { kind: 'network', urlField: 'url' } } }
+
+  it('classifies a fetch as MEDIUM ask with a per-host session grant key', () => {
+    const v = classifyToolCall(
+      'fetch',
+      { url: 'https://example.com/path?q=1' },
+      ctx({ taxonomy: netTax })
+    )
+    expect(v).toEqual({
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: 'net:example.com',
+      reason: 'Network egress: https://example.com/path?q=1'
+    })
+  })
+
+  it('yields an empty host (grantKey "net:") on an unparseable url', () => {
+    const v = classifyToolCall('fetch', { url: 'not a url' }, ctx({ taxonomy: netTax }))
+    expect(v).toMatchObject({ action: 'ask', risk: 'MEDIUM', grantKey: 'net:' })
+  })
+})

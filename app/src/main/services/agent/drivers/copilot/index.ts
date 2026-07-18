@@ -1,12 +1,18 @@
 import os from 'node:os'
+import { z } from 'zod'
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
+import { makeEvent } from '../../events'
+import { NATIVE_RISK } from '../../risk'
+import { NATIVE_TOOL_SPECS, argusToolHandlers } from '../../nativeTools'
+import { panelCommandDescription } from '../../panelCommands'
 import type {
   AgentDriver,
   DriverSession,
   DriverSessionContext,
-  ProbeAuthResult
+  ProbeAuthResult,
+  ToolDecision
 } from '../../driver'
 import { COPILOT_TOOL_TAXONOMY } from './taxonomy'
 import {
@@ -19,8 +25,10 @@ import {
   defaultClientFactory,
   type CopilotClientFactory,
   type CopilotClientLike,
+  type CopilotExitPlanModeResult,
   type CopilotSessionConfig,
-  type CopilotSessionLike
+  type CopilotSessionLike,
+  type CopilotToolDef
 } from './client'
 
 /** A fatal stream error is threaded through the events queue as this sentinel so it can
@@ -63,6 +71,149 @@ function acquireAuthRejectionTrap(): () => void {
   }
 }
 
+const ARGUS_TOOL_PREFIX = 'argus_'
+
+/** A canonical Argus/Copilot tool name + the input to hand `ctx.onToolRequest`, synthesized
+ *  from one typed Copilot `PermissionRequest` (EVIDENCE §2/§3). */
+export interface SynthesizedToolRequest {
+  name: string
+  input: Record<string, unknown>
+}
+
+/**
+ * Map a typed Copilot permission request onto Argus's canonical (tool-name, input) pair.
+ * `toolNameMap` reverses the driver's own registration names (`argus_<x>`, `panel_<…>`)
+ * to their canonical `mcp__…` form for the risk classifier + events; it is authoritative
+ * (built at session start), with an `argus_` prefix rule as the fallback for custom tools
+ * the map doesn't know (e.g. a non-native `argus_*`). Unmapped/unknown kinds become
+ * `copilot:<kind>` which — absent a taxonomy fallback — fails closed at HIGH ask.
+ */
+export function synthesizePermissionRequest(
+  request: Record<string, unknown>,
+  toolNameMap: ReadonlyMap<string, string> = new Map()
+): SynthesizedToolRequest {
+  const kind = String(request?.kind ?? 'unknown')
+  const args = (request?.args as Record<string, unknown>) ?? {}
+  switch (kind) {
+    case 'write':
+      return { name: 'write', input: { file_path: request.fileName, diff: request.diff } }
+    case 'read':
+      return { name: 'read', input: { file_path: request.path } }
+    case 'shell':
+      // Include the pre-parsed metadata so the approval card's input is informative; the
+      // shell taxonomy still keys risk off `command` (fullCommandText), not these fields.
+      return {
+        name: 'shell',
+        input: {
+          command: request.fullCommandText,
+          commands: request.commands,
+          possiblePaths: request.possiblePaths,
+          hasWriteFileRedirection: request.hasWriteFileRedirection
+        }
+      }
+    case 'url':
+      return { name: 'fetch', input: { url: request.url } }
+    case 'mcp':
+      return { name: `mcp__${request.serverName}__${request.toolName}`, input: args }
+    case 'custom-tool': {
+      const toolName = String(request.toolName ?? '')
+      const canonical =
+        toolNameMap.get(toolName) ??
+        (toolName.startsWith(ARGUS_TOOL_PREFIX)
+          ? `mcp__argus__${toolName.slice(ARGUS_TOOL_PREFIX.length)}`
+          : toolName)
+      return { name: canonical, input: args }
+    }
+    default:
+      // memory | hook | extension-management | extension-permission-access | unknown
+      return { name: `copilot:${kind}`, input: { ...request } }
+  }
+}
+
+/** Map the harness `ToolDecision` back to a Copilot `PermissionDecision`. The permission
+ *  channel provably cannot carry edited input (EVIDENCE §2), so allow → approve-once
+ *  (Argus owns session-scoping via its own grants, so the driver never emits
+ *  approve-for-session — every call re-enters the classifier and is logged). */
+export function mapToolDecision(
+  decision: ToolDecision
+): { kind: 'approve-once' } | { kind: 'reject'; feedback: string } {
+  return decision.behavior === 'allow'
+    ? { kind: 'approve-once' }
+    : { kind: 'reject', feedback: decision.message }
+}
+
+/** v1 exit-plan handshake: approve, selecting the runtime's recommended action (EVIDENCE §9;
+ *  no fixture — the model never completed a plan in the capped spike turn, so this is
+ *  implemented from the `ExitPlanModeRequest`/`Result` types and unit-tested directly). */
+export function exitPlanModeDecision(request: {
+  recommendedAction?: string
+}): CopilotExitPlanModeResult {
+  return {
+    approved: true,
+    ...(request?.recommendedAction ? { selectedAction: request.recommendedAction } : {})
+  }
+}
+
+/**
+ * Build the `SessionConfig.tools` list from native specs + panel command decls, recording
+ * each registration→canonical name into `toolNameMap`. Native tools register as
+ * `argus_<name>` (canonical `mcp__argus__<name>`); panel commands as
+ * `panel_<pack>_<window>_<cmd>` (canonical `mcp__<pack>__<window>_<cmd>`). A tool whose
+ * NATIVE_RISK / panel risk is LOW gets `skipPermission:true` so it bypasses the permission
+ * channel exactly like Claude's auto-allow — MEDIUM/HIGH tools stay gated so Argus cards appear.
+ */
+export function buildCopilotTools(
+  ctx: DriverSessionContext,
+  toolNameMap: Map<string, string>
+): CopilotToolDef[] {
+  const tools: CopilotToolDef[] = []
+  const handlers = argusToolHandlers(ctx.nativeToolDeps)
+  for (const spec of NATIVE_TOOL_SPECS) {
+    const registration = `${ARGUS_TOOL_PREFIX}${spec.name}`
+    const canonical = `mcp__argus__${spec.name}`
+    toolNameMap.set(registration, canonical)
+    tools.push({
+      name: registration,
+      description: spec.description,
+      parameters: z.object(spec.schema),
+      skipPermission: NATIVE_RISK[canonical]?.action === 'allow',
+      handler: (args) => handlers[spec.name](args)
+    })
+  }
+  const dispatch = ctx.dispatchPanelCommand
+  if (dispatch) {
+    for (const d of ctx.panelCommandDecls) {
+      const suffix = `${d.windowId}_${d.cmd}`
+      const registration = `panel_${d.packId}_${suffix}`
+      toolNameMap.set(registration, `mcp__${d.packId}__${suffix}`)
+      const argShape = Object.fromEntries(
+        d.args.map((a) => {
+          const desc = d.argDescriptions?.[a]
+          return [a, desc ? z.string().describe(desc) : z.string()]
+        })
+      )
+      tools.push({
+        name: registration,
+        description: panelCommandDescription(d),
+        parameters: z.object(argShape),
+        skipPermission: d.risk === 'low',
+        handler: async (a) =>
+          JSON.stringify(
+            await dispatch(
+              d.packId,
+              d.windowId,
+              d.cmd,
+              d.args.map((n) => a[n])
+            ),
+            null,
+            2
+          )
+      })
+    }
+  }
+  return tools
+}
+
 export interface CopilotDriverDeps {
   /** Injected at the client.ts seam; tests pass a scripted fake to avoid the real runtime. */
   clientFactory?: CopilotClientFactory
@@ -80,7 +231,8 @@ export function createCopilotDriver(
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false, // permission channel cannot carry edited input (EVIDENCE §2)
-      costReporting: false // free tier bills cost:0; costUsd is always null (§5, amendment 10)
+      costReporting: false, // free tier bills cost:0; costUsd is always null (§5, amendment 10)
+      mcpConnectors: false // SDK stdio mcpServers never expose tools (EVIDENCE §6/§6b)
     },
 
     isAuthErrorMessage: isCopilotAuthErrorMessage,
@@ -97,6 +249,15 @@ export function createCopilotDriver(
       const pendingPrompts: string[] = []
       let ended = false
       let stopped = false
+
+      // Registration-name → canonical `mcp__…` name for native + panel tools, populated by
+      // buildCopilotTools and consulted by the permission handler for `custom-tool` requests.
+      const toolNameMap = new Map<string, string>()
+      const nativeTools = buildCopilotTools(ctx, toolNameMap)
+
+      // Aborts pending approval promises when the session ends/interrupts, so a card left
+      // open at teardown rejects instead of dangling.
+      const abort = new AbortController()
 
       // See authRejectionTrap above: swallow the SDK's leaked auth rejection for this
       // session's lifetime without hijacking unrelated rejections process-wide.
@@ -122,15 +283,20 @@ export function createCopilotDriver(
       }
 
       const permissionHandler: CopilotSessionConfig['onPermissionRequest'] = async (request) => {
-        // Minimal 9A seam: adapt the SDK permission request onto the harness approval
-        // pipeline. Task 9B replaces this with per-`kind` argument extraction + taxonomy.
-        const toolName = String(request?.toolName ?? request?.kind ?? 'unknown')
-        const input = (request?.args ?? request?.input ?? {}) as Record<string, unknown>
-        const decision = await ctx.onToolRequest(toolName, input, {
-          signal: new AbortController().signal
-        })
-        if (decision.behavior === 'allow') return { kind: 'approve-once' }
-        return { kind: 'reject', feedback: decision.message }
+        const kind = String(request?.kind ?? 'unknown')
+        // Permission-mode short-circuits mirror the Claude SDK (canUseTool is NOT called for
+        // auto-approved requests): approve WITHOUT consulting onToolRequest so behavior parity
+        // holds. bypassPermissions → approve everything; acceptEdits → approve `write` kind.
+        if (ctx.permissionMode === 'bypassPermissions') return { kind: 'approve-once' }
+        if (ctx.permissionMode === 'acceptEdits' && kind === 'write')
+          return { kind: 'approve-once' }
+
+        const { name, input } = synthesizePermissionRequest(
+          request as Record<string, unknown>,
+          toolNameMap
+        )
+        const decision = await ctx.onToolRequest(name, input, { signal: abort.signal })
+        return mapToolDecision(decision)
       }
 
       // Async session bootstrap. createSession succeeds even when unauthenticated (the
@@ -143,10 +309,15 @@ export function createCopilotDriver(
           ...(config.cliPath ? { cliPath: config.cliPath } : {})
         })
         await client.start() // boot the runtime transport before create/resume
+        // extraMcpServers is deliberately NOT forwarded: SDK-declared stdio mcpServers load
+        // `not_configured` and never expose tools (EVIDENCE §6/§6b) — capabilities.mcpConnectors
+        // is false and each composed server is reported via session.mcp.skipped in events().
         const sessionConfig: CopilotSessionConfig = {
           workingDirectory: ctx.caseDir,
           systemMessage: { mode: 'append', content: ctx.systemAppend },
-          onPermissionRequest: permissionHandler
+          onPermissionRequest: permissionHandler,
+          tools: nativeTools,
+          onExitPlanModeRequest: (request) => exitPlanModeDecision(request)
         }
         session = ctx.resumeCursor
           ? await client.resumeSession(ctx.resumeCursor, sessionConfig)
@@ -157,6 +328,13 @@ export function createCopilotDriver(
         ctx.onCursor(session.sessionId)
         session.on((event) => queue.push(event))
 
+        // Plan mode is engaged after creation via the mode RPC (EVIDENCE §9). Attached after
+        // the event listener so the mode_changed event is observed. Optional-chained so
+        // scripted fakes without an rpc surface no-op; a real failure surfaces as fatal.
+        if (ctx.permissionMode === 'plan') {
+          await session.rpc?.mode?.set?.({ mode: 'plan' })
+        }
+
         // Flush any prompts that arrived before the session was ready.
         for (const p of pendingPrompts) doSend(p)
         pendingPrompts.length = 0
@@ -166,6 +344,15 @@ export function createCopilotDriver(
 
       async function* events(): AsyncIterable<AgentEvent> {
         try {
+          // Declared degradation: connectors composed for this session cannot be exposed to
+          // Copilot (capabilities.mcpConnectors:false), so surface each as skipped up front
+          // — the UI shows the loss honestly rather than silently dropping connector tools.
+          for (const instanceId of Object.keys(ctx.extraMcpServers ?? {})) {
+            yield makeEvent(ctx.eventCtx(), 'session.mcp.skipped', {
+              instanceId,
+              reason: 'copilot-driver-no-mcp'
+            })
+          }
           for await (const item of queue) {
             if (isFatal(item)) throw item.__fatal
             const raw = item
@@ -211,11 +398,13 @@ export function createCopilotDriver(
         },
         async interrupt(): Promise<void> {
           await ready.catch(() => undefined)
+          abort.abort()
           await session?.abort().catch(() => undefined)
         },
         end(): void {
           if (ended) return
           ended = true
+          abort.abort() // reject any approval card still pending at teardown
           queue.end()
           stopClient() // never leave an orphaned runtime
           cleanup()

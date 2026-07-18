@@ -74,6 +74,10 @@ export interface DriverCapabilities {
   permissionModes: readonly PermissionMode[]
   editableApprovals: boolean
   costReporting: boolean
+  /** Whether the driver can expose Argus connector (external MCP) servers to the agent.
+   *  Absent = supported (Claude). `false` = declared degradation (Copilot v1): connector
+   *  tools are unavailable and each composed server is reported via `session.mcp.skipped`. */
+  mcpConnectors?: boolean
 }
 
 export interface ProbeAuthResult {
