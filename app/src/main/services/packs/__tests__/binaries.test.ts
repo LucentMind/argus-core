@@ -37,6 +37,7 @@ describe('resolveBinary (exe)', () => {
   it('captured env wins when it exists', () => {
     const envBin = mkExe(path.join(tmp, 'env'), 'fake-parse')
     const r = resolveBinary(exeDecl(), {
+      packId: 'sample-pack',
       packDir: tmp,
       envValue: envBin,
       settingsValue: undefined
@@ -48,6 +49,7 @@ describe('resolveBinary (exe)', () => {
     mkExe(path.join(tmp, 'bin-out'), 'fake-parse')
     const settingsBin = mkExe(path.join(tmp, 'settings'), 'fake-parse')
     const r = resolveBinary(exeDecl(), {
+      packId: 'sample-pack',
       packDir: tmp,
       envValue: path.join(tmp, 'missing.exe'),
       settingsValue: settingsBin
@@ -57,19 +59,34 @@ describe('resolveBinary (exe)', () => {
 
   it('falls back to devPaths relative to the pack dir', () => {
     const dev = mkExe(path.join(tmp, 'bin-out'), 'fake-parse')
-    const r = resolveBinary(exeDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    const r = resolveBinary(exeDecl(), {
+      packId: 'sample-pack',
+      packDir: tmp,
+      envValue: null,
+      settingsValue: undefined
+    })
     expect(r).toMatchObject({ value: dev, source: 'pack-dev' })
   })
 
   it('resolves the installed bundle bin/ before devPaths', () => {
     const bundled = mkExe(path.join(tmp, 'bin'), 'fake-parse') // <packDir>/bin
     mkExe(path.join(tmp, 'bin-out'), 'fake-parse') // devPaths — must lose to the bundle
-    const r = resolveBinary(exeDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    const r = resolveBinary(exeDecl(), {
+      packId: 'sample-pack',
+      packDir: tmp,
+      envValue: null,
+      settingsValue: undefined
+    })
     expect(r).toMatchObject({ value: bundled, source: 'pack-bundle' })
   })
 
   it('returns null when nothing is found and no pathProbeArgs', () => {
-    const r = resolveBinary(exeDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    const r = resolveBinary(exeDecl(), {
+      packId: 'sample-pack',
+      packDir: tmp,
+      envValue: null,
+      settingsValue: undefined
+    })
     expect(r).toMatchObject({ value: null, source: null })
   })
 
@@ -82,6 +99,7 @@ describe('resolveBinary (exe)', () => {
     const spy = vi.spyOn(os, 'homedir').mockReturnValue(home)
     try {
       const r = resolveBinary(exeDecl({ devPaths: [] }), {
+        packId: 'sample-pack',
         packDir: tmp,
         envValue: null,
         settingsValue: undefined
@@ -110,13 +128,23 @@ describe('resolveBinary (pathDir)', () => {
     const plat = process.platform === 'win32' ? 'Scripts' : 'bin'
     const dev = path.join(tmp, 'venv', plat)
     fs.mkdirSync(dev, { recursive: true })
-    const r = resolveBinary(dirDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    const r = resolveBinary(dirDecl(), {
+      packId: 'sample-pack',
+      packDir: tmp,
+      envValue: null,
+      settingsValue: undefined
+    })
     expect(r).toMatchObject({ value: dev, source: 'pack-dev' })
   })
 
   it('resolves to bundle bin/ when it holds the executable', () => {
     mkExe(path.join(tmp, 'bin'), 'fake-trace')
-    const r = resolveBinary(dirDecl(), { packDir: tmp, envValue: null, settingsValue: undefined })
+    const r = resolveBinary(dirDecl(), {
+      packId: 'sample-pack',
+      packDir: tmp,
+      envValue: null,
+      settingsValue: undefined
+    })
     expect(r).toMatchObject({ value: path.join(tmp, 'bin'), source: 'pack-bundle' })
   })
 
@@ -124,10 +152,16 @@ describe('resolveBinary (pathDir)', () => {
     const envDir = path.join(tmp, 'env-dir')
     fs.mkdirSync(envDir, { recursive: true })
     expect(
-      resolveBinary(dirDecl(), { packDir: tmp, envValue: envDir, settingsValue: undefined })
+      resolveBinary(dirDecl(), {
+        packId: 'sample-pack',
+        packDir: tmp,
+        envValue: envDir,
+        settingsValue: undefined
+      })
     ).toMatchObject({ value: envDir, source: 'env' })
     expect(
       resolveBinary(dirDecl(), {
+        packId: 'sample-pack',
         packDir: path.join(tmp, 'nope'),
         envValue: null,
         settingsValue: undefined
@@ -316,6 +350,7 @@ describe('BinariesService', () => {
     expect(svc.settingsRows()).toEqual([
       {
         id: 'fake-parse',
+        packId: 'testpack',
         displayName: 'Fake parse',
         description: 'desc',
         kind: 'exe',
@@ -466,5 +501,35 @@ describe('BinariesService', () => {
     expect(parseChecks).toHaveLength(1)
     expect(parseChecks[0]).toMatchObject({ ok: true, detail: dev }) // exe check won, doctor's dup dropped
     expect(rep.ok).toBe(true) // the dropped failing dup no longer poisons the aggregate
+  })
+})
+
+describe('BinariesService.settingsRows packId', () => {
+  it('attributes each row to the pack that declared it', () => {
+    const a: LoadedPack = {
+      id: 'alpha',
+      dir: tmp,
+      manifest: packManifestSchema.parse({
+        id: 'alpha',
+        displayName: 'alpha',
+        version: '1',
+        argusApi: '^1',
+        binaries: [
+          { id: 'tool-a', kind: 'exe', displayName: 'Tool A', names: ['tool-a'], devPaths: [] }
+        ]
+      }),
+      personaText: null,
+      skillsDir: null,
+      referencesDir: null,
+      uiDir: null
+    }
+    const svc = new BinariesService({
+      registry: new PackRegistry([a]),
+      settingsTools: () => ({}),
+      capturedEnv: {}
+    })
+    expect(svc.settingsRows().map((r) => ({ id: r.id, packId: r.packId }))).toEqual([
+      { id: 'tool-a', packId: 'alpha' }
+    ])
   })
 })
