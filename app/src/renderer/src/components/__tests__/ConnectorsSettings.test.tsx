@@ -223,10 +223,10 @@ describe('ConnectorsSettings', () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    expect(screen.getByLabelText('Atlassian API token (PAT)')).toBeTruthy()
+    expect(screen.getByLabelText('Atlassian API token (optional)')).toBeTruthy()
     const createTokenBtn = screen.getByRole('button', { name: 'create api token · rovo' })
     // the link now sits beside the PAT label rather than below the whole form
-    expect(createTokenBtn.closest('span')?.textContent).toContain('Atlassian API token (PAT)')
+    expect(createTokenBtn.closest('span')?.textContent).toContain('Atlassian API token (optional)')
     fireEvent.click(createTokenBtn)
     expect(window.argus.openExternal).toHaveBeenCalledWith(
       'https://id.atlassian.com/manage-profile/security/api-tokens'
@@ -239,7 +239,7 @@ describe('ConnectorsSettings', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
     expect(
       screen.getByTitle(
-        'Used by Argus to download Jira ticket attachments via the Atlassian REST API. Not used for the MCP connection (that uses OAuth).'
+        'Optional. Only needed for Confluence reference-sync, or as a fallback if your Atlassian authorization lacks Jira access. Jira ticket import and attachments now use your Atlassian authorization.'
       )
     ).toBeTruthy()
   })
@@ -248,7 +248,7 @@ describe('ConnectorsSettings', () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    const token = screen.getByLabelText('Atlassian API token (PAT)')
+    const token = screen.getByLabelText('Atlassian API token (optional)')
     fireEvent.change(token, { target: { value: 'atl-tok' } })
     fireEvent.blur(token)
     await vi.waitFor(() =>
@@ -270,7 +270,7 @@ describe('ConnectorsSettings', () => {
     render(<ConnectorsSettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit details' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (PAT)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Atlassian API token (optional)' }))
     expect(window.argus.secrets.delete).toHaveBeenCalledWith('connector/rovo/apiToken')
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({
       rovo: { config: { apiToken: null } }

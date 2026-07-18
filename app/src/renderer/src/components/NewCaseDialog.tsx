@@ -86,11 +86,11 @@ export function NewCaseDialog({
     if (!r.ok) {
       setTicketKey(key)
       setError(
-        r.code === 'not-configured' || r.code === 'no-site-url' || r.code === 'no-token'
+        r.code === 'not-configured' || r.code === 'no-site-url'
           ? `${r.message} (Settings → Connectors)`
           : r.code === 'not-found'
             ? `Ticket ${key} not found on Jira.`
-            : r.message
+            : r.message // no-token's message already ends "…in Settings → Connectors."
       )
       return
     }

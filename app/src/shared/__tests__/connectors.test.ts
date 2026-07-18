@@ -116,7 +116,7 @@ describe('forms and preset', () => {
     expect(Object.keys(ROVO_FORM_EXTRAS)).toEqual(['siteUrl', 'email', 'apiToken'])
     expect(ROVO_FORM_EXTRAS.apiToken.sensitive).toBe(true)
     expect(ROVO_FORM_EXTRAS.apiToken.control).toBe('password')
-    expect(ROVO_FORM_EXTRAS.apiToken.label).toContain('PAT')
+    expect(ROVO_FORM_EXTRAS.apiToken.label).toContain('optional')
     // email is an identifier, not a secret — plain text, ordered between siteUrl and the PAT
     expect(ROVO_FORM_EXTRAS.email.control).toBe('text')
     expect(ROVO_FORM_EXTRAS.email.sensitive).toBeFalsy()

@@ -12,6 +12,15 @@ import {
   resolveAtlassianCreds
 } from '../atlassian'
 import type { ConnectorMap } from '../../../shared/connectors'
+import type { OAuthLike } from '../atlassian'
+
+// Legacy REST-token path: the connector's OAuth is not authorized, so
+// resolveAtlassianCreds never attaches an oauth block here.
+const notAuthorized: OAuthLike = {
+  status: () => 'not-authorized',
+  accessToken: () => null,
+  refresh: async () => false
+}
 
 const ISSUE = {
   key: 'NAV-7',
@@ -70,9 +79,9 @@ beforeAll(async () => {
       // Jira answers the content endpoint with a redirect to the media host
       res.writeHead(303, { location: `${mediaBase}/blob/10001` })
       res.end()
-    } else if (req.url?.startsWith('/rest/api/3/myself')) {
+    } else if (req.url?.startsWith('/rest/api/3/project/search')) {
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ displayName: 'Ada' }))
+      res.end(JSON.stringify({ values: [] }))
     } else {
       res.writeHead(500)
       res.end()
@@ -101,7 +110,8 @@ describe('resolveAtlassianCreds', () => {
         siteUrl: 'https://acme.atlassian.net/',
         apiToken: { $secret: 'connector/rovo/apiToken' }
       }),
-      (n) => (n === 'connector/rovo/apiToken' ? 'PAT123' : null)
+      (n) => (n === 'connector/rovo/apiToken' ? 'PAT123' : null),
+      notAuthorized
     )
     expect(c).toEqual({
       instanceId: 'rovo',
@@ -116,7 +126,8 @@ describe('resolveAtlassianCreds', () => {
         email: 'ada@acme.test',
         apiToken: { $secret: 'connector/rovo/apiToken' }
       }),
-      () => 'PAT123'
+      () => 'PAT123',
+      notAuthorized
     )
     expect(withEmail.email).toBe('ada@acme.test')
     const blank = resolveAtlassianCreds(
@@ -125,21 +136,26 @@ describe('resolveAtlassianCreds', () => {
         email: '   ',
         apiToken: { $secret: 'connector/rovo/apiToken' }
       }),
-      () => 'PAT123'
+      () => 'PAT123',
+      notAuthorized
     )
     expect(blank.email).toBeUndefined()
   })
 
-  it('throws typed errors: not-configured / no-site-url / no-token', () => {
-    expect(() => resolveAtlassianCreds({} as never, () => null)).toThrowError(
+  it('throws not-configured when no rovo connector exists; missing site/token no longer throw', () => {
+    expect(() => resolveAtlassianCreds({} as never, () => null, notAuthorized)).toThrowError(
       expect.objectContaining({ code: 'not-configured' })
     )
-    expect(() => resolveAtlassianCreds(reg({}), () => 'x')).toThrowError(
-      expect.objectContaining({ code: 'no-site-url' })
+    const noSite = resolveAtlassianCreds(reg({}), () => 'x', notAuthorized)
+    expect(noSite.siteUrl).toBeNull()
+    expect(noSite.token).toBeNull() // no apiToken secret-ref configured, so resolveSecret is never consulted
+    const noToken = resolveAtlassianCreds(
+      reg({ siteUrl: 'https://a.atlassian.net' }),
+      () => null,
+      notAuthorized
     )
-    expect(() =>
-      resolveAtlassianCreds(reg({ siteUrl: 'https://a.atlassian.net' }), () => null)
-    ).toThrowError(expect.objectContaining({ code: 'no-token', instanceId: 'rovo' }))
+    expect(noToken.siteUrl).toBe('https://a.atlassian.net')
+    expect(noToken.token).toBeNull()
   })
 })
 
@@ -165,14 +181,32 @@ describe('atlassianRestConfigured', () => {
     ({ rovo: { kind: 'http', preset: 'rovo', enabled: true, config: cfg } }) as never
 
   it('is false with no rovo connector or an untouched REST config (MCP-only usage)', () => {
-    expect(atlassianRestConfigured({} as never)).toBe(false)
-    expect(atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }))).toBe(false)
-    expect(atlassianRestConfigured(reg({ siteUrl: '   ' }))).toBe(false)
+    expect(atlassianRestConfigured({} as never, notAuthorized)).toBe(false)
+    expect(
+      atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }), notAuthorized)
+    ).toBe(false)
+    expect(atlassianRestConfigured(reg({ siteUrl: '   ' }), notAuthorized)).toBe(false)
   })
 
   it('is true once REST configuration has begun (siteUrl or token set)', () => {
-    expect(atlassianRestConfigured(reg({ siteUrl: 'https://acme.atlassian.net' }))).toBe(true)
-    expect(atlassianRestConfigured(reg({ apiToken: { $secret: 'connector/rovo/apiToken' } }))).toBe(
+    expect(
+      atlassianRestConfigured(reg({ siteUrl: 'https://acme.atlassian.net' }), notAuthorized)
+    ).toBe(true)
+    expect(
+      atlassianRestConfigured(
+        reg({ apiToken: { $secret: 'connector/rovo/apiToken' } }),
+        notAuthorized
+      )
+    ).toBe(true)
+  })
+
+  it('is true for an OAuth-authorized rovo connector even with no siteUrl/token', () => {
+    const authorized: OAuthLike = {
+      status: () => 'authorized',
+      accessToken: () => 'tok',
+      refresh: async () => true
+    }
+    expect(atlassianRestConfigured(reg({ url: 'https://mcp.atlassian.com/x' }), authorized)).toBe(
       true
     )
   })
@@ -209,7 +243,7 @@ describe('AtlassianClient', () => {
       token: 'PAT123',
       email: 'ada@acme.test'
     }))
-    await basic.myself()
+    await basic.probeJira()
     expect(lastAuthHeader).toBe(`Basic ${Buffer.from('ada@acme.test:PAT123').toString('base64')}`)
   })
 
