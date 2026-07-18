@@ -89,6 +89,22 @@ export function argusToolHandlers(
   const { db, argusHome, detection, caseSlug, sessionId } = deps
   const dir = caseDir(argusHome, caseSlug)
 
+  const num = (v: unknown, name: string, fallback?: number): number => {
+    if (v == null && fallback !== undefined) return fallback
+    const n = Number(v)
+    if (!Number.isFinite(n)) throw new Error(`${name} must be a number`)
+    return n
+  }
+
+  const resolveIndexedEvidence = async (
+    evidenceId: number
+  ): Promise<{ abs: string; index: Awaited<ReturnType<typeof ensureIndex>> }> => {
+    const res = resolveTextDocAbs(db, argusHome, { kind: 'evidence', evidenceId })
+    if ('error' in res) throw new Error(`Unknown evidence_id: ${evidenceId}`)
+    const index = await ensureIndex(argusHome, res.abs)
+    return { abs: res.abs, index }
+  }
+
   return {
     async search_evidence(args) {
       const scope = args.scope === 'all' ? undefined : caseSlug
@@ -119,36 +135,26 @@ export function argusToolHandlers(
     },
 
     async read_lines(args) {
-      const res = resolveTextDocAbs(db, argusHome, {
-        kind: 'evidence',
-        evidenceId: Number(args.evidence_id)
-      })
-      if ('error' in res) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
-      const index = await ensureIndex(argusHome, res.abs)
-      const from = Math.max(1, Number(args.from ?? 1))
-      const to = Math.min(Number(args.to ?? from), from + 499)
+      const { abs, index } = await resolveIndexedEvidence(num(args.evidence_id, 'evidence_id'))
+      const from = Math.max(1, num(args.from, 'from', 1))
+      const to = Math.min(num(args.to, 'to', from), from + 499)
       if (from > index.totalLines) {
         return `line ${from} does not exist — the file ends at line ${index.totalLines}`
       }
-      const r = getLines(index, res.abs, from, to)
+      const r = getLines(index, abs, from, to)
       const body = r.lines.map((l, i) => `${r.from + i}\t${l}`).join('\n')
       return `lines ${r.from}-${r.from + r.lines.length - 1} of ${index.totalLines}\n${body}`
     },
 
     async grep_lines(args) {
-      const res = resolveTextDocAbs(db, argusHome, {
-        kind: 'evidence',
-        evidenceId: Number(args.evidence_id)
-      })
-      if ('error' in res) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
-      const index = await ensureIndex(argusHome, res.abs)
-      const maxResults = Math.min(Number(args.max_results ?? 200), 1000)
-      const fromLine = Math.max(1, Number(args.from_line ?? 1))
-      const toLine = args.to_line == null ? undefined : Number(args.to_line)
+      const { abs, index } = await resolveIndexedEvidence(num(args.evidence_id, 'evidence_id'))
+      const maxResults = Math.min(num(args.max_results, 'max_results', 200), 1000)
+      const fromLine = Math.max(1, num(args.from_line, 'from_line', 1))
+      const toLine = args.to_line == null ? undefined : num(args.to_line, 'to_line')
       const hits: number[] = []
       let scannedTo = fromLine - 1
       let capped = false
-      for await (const b of searchLines(index, res.abs, String(args.query ?? ''), {
+      for await (const b of searchLines(index, abs, String(args.query ?? ''), {
         regex: args.regex === true,
         fromLine,
         toLine,
@@ -159,7 +165,7 @@ export function argusToolHandlers(
         capped = b.capped
       }
       const shown = hits.map((n) => {
-        const line = getLines(index, res.abs, n, n).lines[0] ?? ''
+        const line = getLines(index, abs, n, n).lines[0] ?? ''
         return `${n}\t${line}`
       })
       const header = `${hits.length} matches (lines ${fromLine}-${scannedTo} of ${index.totalLines})`
