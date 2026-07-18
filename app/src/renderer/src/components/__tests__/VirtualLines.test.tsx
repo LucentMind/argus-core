@@ -77,6 +77,23 @@ describe('VirtualLines', () => {
     expect(scroller.scrollTop).toBe(5000 * ROW_H - 200 + ROW_H / 2)
   })
 
+  it('suppresses the echo scroll event of its own programmatic scroll', () => {
+    // real browsers fire an async `scroll` event when scrollTop is assigned;
+    // that echo must not re-fire onVisibleRows (parents react to the
+    // programmatic scroll once — see TextViewer's cursor restore)
+    const onVisibleRows = vi.fn()
+    const { scroller, rerender, props } = setup({ onVisibleRows })
+    rerender(<VirtualLines {...props} onVisibleRows={onVisibleRows} scrollTarget={{ row: 5000, nonce: 1 }} />)
+    const callsAfterProgrammatic = onVisibleRows.mock.calls.length
+    // the echo: a scroll event with the scrollTop the component itself set
+    fireEvent.scroll(scroller)
+    expect(onVisibleRows.mock.calls.length).toBe(callsAfterProgrammatic)
+    // a genuine user scroll (scrollTop changed) fires normally
+    scroller.scrollTop = 7000 * ROW_H
+    fireEvent.scroll(scroller)
+    expect(onVisibleRows.mock.calls.length).toBe(callsAfterProgrammatic + 1)
+  })
+
   it('marks the active line distinctly, overriding the focus highlight', () => {
     const { scroller, container } = setup({ focusStart: 1001, focusEnd: 1005, activeLine: 1003 })
     scroller.scrollTop = 1000 * ROW_H
