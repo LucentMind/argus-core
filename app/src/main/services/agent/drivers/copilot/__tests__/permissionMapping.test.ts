@@ -137,7 +137,9 @@ describe('exitPlanModeDecision — routes the plan through the approval pipeline
   }
 
   it('synthesizes copilot:exit-plan with the plan content and asks onToolRequest', async () => {
-    const onToolRequest = vi.fn(async () => ({ behavior: 'allow' as const, updatedInput: {} }))
+    const onToolRequest = vi.fn<(n: string, i: Record<string, unknown>) => Promise<ToolDecision>>(
+      async () => ({ behavior: 'allow', updatedInput: {} })
+    )
     const res = await exitPlanModeDecision(req, onToolRequest, signal)
     expect(onToolRequest).toHaveBeenCalledTimes(1)
     expect(onToolRequest.mock.calls[0][0]).toBe('copilot:exit-plan')
