@@ -1,0 +1,6 @@
+{"scenario":"99-bonus","t":"2026-07-18T12:09:14.060Z","kind":"result","data":{"phase":"ping","ping":{"message":"pong: spike-health","timestamp":"2026-07-18T12:09:14.059Z","protocolVersion":3}}}
+{"scenario":"99-bonus","t":"2026-07-18T12:09:14.061Z","kind":"result","data":{"phase":"status","status":{"version":"1.0.71","protocolVersion":3}}}
+{"scenario":"99-bonus","t":"2026-07-18T12:09:14.489Z","kind":"result","data":{"phase":"auth","auth":{"isAuthenticated":true,"authType":"gh-cli","host":"https://github.com","statusMessage":"JiaweiHan88 (via gh)","login":"JiaweiHan88"}}}
+{"scenario":"99-bonus","t":"2026-07-18T12:09:14.490Z","kind":"result","data":{"phase":"listSessions","count":0,"sample":[]}}
+{"scenario":"99-bonus","t":"2026-07-18T12:09:14.491Z","kind":"result","data":{"phase":"getLastSessionId"}}
+{"scenario":"99-bonus","t":"2026-07-18T12:09:14.636Z","kind":"result","data":{"phase":"session-capabilities","sessionId":"15c53d0f-c5a2-43b5-84dd-6a2fe5398388","capabilities":{"ui":{"elicitation":false,"mcpApps":false},"extensions":false},"workspacePath":"C:\\Users\\Power\\argus-core\\.claude\\worktrees\\copilot-spike\\app\\scripts\\spike-copilot\\.copilot-home\\session-state\\15c53d0f-c5a2-43b5-84dd-6a2fe5398388"}}

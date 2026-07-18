@@ -1,0 +1,6 @@
+{"scenario":"09-models","t":"2026-07-18T12:09:12.370Z","kind":"meta","data":{"auth":{"isAuthenticated":true,"authType":"gh-cli","host":"https://github.com","statusMessage":"JiaweiHan88 (via gh)","login":"JiaweiHan88"},"status":{"version":"1.0.71","protocolVersion":3}}}
+{"scenario":"09-models","t":"2026-07-18T12:09:13.238Z","kind":"result","data":{"phase":"listModels-1","count":1,"models":[{"id":"auto","name":"Auto","capabilities":{"supports":{},"limits":{"max_context_window_tokens":0}}}]}}
+{"scenario":"09-models","t":"2026-07-18T12:09:13.239Z","kind":"result","data":{"phase":"listModels-2-cached","count":1,"ids":["auto"]}}
+{"scenario":"09-models","t":"2026-07-18T12:09:13.543Z","kind":"meta","data":{"sessionId":"fc592674-0b9b-4546-b2e2-417d73ea3b2c"}}
+{"scenario":"09-models","t":"2026-07-18T12:09:13.543Z","kind":"result","data":{"phase":"listModels-3-after-session","count":1,"ids":["auto"]}}
+{"scenario":"09-models","t":"2026-07-18T12:09:13.544Z","kind":"result","data":{"phase":"session.rpc.models.list"}}
