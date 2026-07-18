@@ -86,6 +86,26 @@ describe('read_lines', () => {
 })
 
 describe('grep_lines', () => {
+  it('case_sensitive applies to both query and filter', async () => {
+    // fixture lines are 'ERROR at step N' / 'trace N' — lowercase query misses
+    // uppercase ERROR when case_sensitive, matches when insensitive (default)
+    const insensitive = await handlers.grep_lines({ evidence_id: evidenceId, query: 'error' })
+    expect(insensitive).toContain('10 matches')
+    const sensitive = await handlers.grep_lines({
+      evidence_id: evidenceId,
+      query: 'error',
+      case_sensitive: true
+    })
+    expect(sensitive).toContain('0 matches')
+    const filterSensitive = await handlers.grep_lines({
+      evidence_id: evidenceId,
+      query: 'at step',
+      filter_query: 'error',
+      case_sensitive: true
+    })
+    expect(filterSensitive).toContain('0 matches')
+  })
+
   it('finds matches with totalLines context', async () => {
     const out = await handlers.grep_lines({ evidence_id: evidenceId, query: 'ERROR' })
     expect(out).toContain('10 matches')

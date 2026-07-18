@@ -160,15 +160,17 @@ export function argusToolHandlers(
       const hits: number[] = []
       let scannedTo = fromLine - 1
       let capped = false
+      const caseSensitive = args.case_sensitive === true
       for await (const b of searchLines(index, abs, String(args.query ?? ''), {
         regex: args.regex === true,
+        caseSensitive,
         fromLine,
         toLine,
         maxResults,
         filter:
           filterQuery === undefined
             ? undefined
-            : { query: filterQuery, regex: args.filter_regex === true }
+            : { query: filterQuery, regex: args.filter_regex === true, caseSensitive }
       })) {
         hits.push(...b.hits)
         scannedTo = b.scannedTo
@@ -353,7 +355,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'grep_lines',
     description:
-      'Exhaustive line-number search inside ONE evidence file of any size. Pipeline mirrors the viewer: from_line/to_line = cut, filter_query (+filter_regex) = filter, query = search — a line must match filter AND query. Case-insensitive by default. Scope with from_line/to_line (e.g. second half of the file); when capped, continue from the reported from_line. Complements search_evidence (cross-evidence FTS, top hits only).',
+      'Exhaustive line-number search inside ONE evidence file of any size. Pipeline mirrors the viewer: from_line/to_line = cut, filter_query (+filter_regex) = filter, query = search — a line must match filter AND query. Case-insensitive by default; case_sensitive: true applies to both query and filter. Scope with from_line/to_line (e.g. second half of the file); when capped, continue from the reported from_line. Complements search_evidence (cross-evidence FTS, top hits only).',
     schema: {
       evidence_id: z.number(),
       query: z.string(),
@@ -362,7 +364,8 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
       to_line: z.number().optional(),
       max_results: z.number().optional(),
       filter_query: z.string().optional(),
-      filter_regex: z.boolean().optional()
+      filter_regex: z.boolean().optional(),
+      case_sensitive: z.boolean().optional()
     }
   },
   {
