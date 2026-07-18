@@ -487,7 +487,12 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
       setIndexing(null)
       if (r.whole === undefined) {
         nonce.current++
-        setScrollTarget({ row: Math.max(0, focusStart - 1), nonce: nonce.current })
+        // clamp a stale citation beyond EOF to the last line (the header shows a
+        // notice chip for this case — see staleFocus below)
+        setScrollTarget({
+          row: Math.max(0, Math.min(focusStart, r.totalLines) - 1),
+          nonce: nonce.current
+        })
       }
     })
     return () => {
@@ -561,7 +566,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
       onClick={onClose}
       onKeyDown={(e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
           e.preventDefault()
           // stop the native event from reaching ChatPane's window-level Ctrl/Cmd+F
           // listener underneath this modal (it stays mounted while the viewer is open)
@@ -581,6 +586,11 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
             {doc?.ref && <Chip tone="neutral">@ {doc.ref}</Chip>}
             {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
             {doc && <Chip tone="neutral">{doc.totalLines.toLocaleString('en-US')} lines</Chip>}
+            {doc && doc.whole === undefined && focusStart > doc.totalLines && (
+              <Chip tone="danger">
+                line {focusStart} does not exist — the file ends at line {doc.totalLines}
+              </Chip>
+            )}
             {indexing !== null && (
               <Chip tone="neutral">indexing… {Math.round(indexing * 100)}%</Chip>
             )}
