@@ -341,4 +341,20 @@ describe('health', () => {
     expect(atlassianRestConfigured(conn, fakeOAuth(true))).toBe(true)
     expect(atlassianRestConfigured(conn, fakeOAuth(false))).toBe(false)
   })
+
+  it('atlassianRestConfigured true for OAuth status "error" (no token/siteUrl) — Health row must not vanish', () => {
+    const conn = {
+      rovo: {
+        preset: 'rovo',
+        enabled: true,
+        config: { url: 'https://mcp', transport: 'http', oauth: true }
+      }
+    } as unknown as ConnectorMap
+    const erroredOAuth: OAuthLike = {
+      status: () => 'error',
+      accessToken: () => null,
+      refresh: async () => false
+    }
+    expect(atlassianRestConfigured(conn, erroredOAuth)).toBe(true)
+  })
 })
