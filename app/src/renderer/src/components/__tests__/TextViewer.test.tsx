@@ -92,6 +92,22 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
 
+// search ids are `<docKey>:<channel>:<seq>` (channel `flt`/`fnd`) — these pick
+// out the calls on one channel from the shared `search` mock.
+function searchCalls(channel: 'flt' | 'fnd'): (Mock['mock']['calls'][number] & string[])[] {
+  return (window.argus.textdoc.search as Mock).mock.calls.filter((c) =>
+    (c[0] as string).includes(`:${channel}:`)
+  ) as never
+}
+function firstSearchCall(channel: 'flt' | 'fnd'): Mock['mock']['calls'][number] {
+  const calls = searchCalls(channel)
+  return calls[0]
+}
+function lastSearchCall(channel: 'flt' | 'fnd'): Mock['mock']['calls'][number] {
+  const calls = searchCalls(channel)
+  return calls[calls.length - 1]
+}
+
 describe('TextViewer', () => {
   it('renders numbered lines with line-N ids and highlights the focus line', async () => {
     const { container } = render(
@@ -284,7 +300,8 @@ describe('TextViewer', () => {
     const find = await screen.findByPlaceholderText('find in file')
     await userEvent.type(find, 'frame')
     await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
-    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    const [searchId] = firstSearchCall('fnd')
+    expect(searchId).toContain(':fnd:')
     // 111 hits spread across the file (mirrors the real bug report)
     const hits = Array.from({ length: 111 }, (_, i) => (i + 1) * 10)
     act(() =>
@@ -300,18 +317,44 @@ describe('TextViewer', () => {
       await userEvent.click(down)
       expect(await screen.findByText(`${k} / 111 matches`)).toBeInTheDocument()
     }
-    // same in filter mode, where the short list made the midpoint pin dead-center
-    await userEvent.click(screen.getByTitle('filter to matches'))
-    for (let k = 6; k <= 10; k++) {
+    // switch into the filtered view — a filter query restarts `find` on its own
+    // channel (find now runs AND-ed with the filter), so fresh batches follow
+    const filterInput = screen.getByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX')
+    await waitFor(() => expect(searchCalls('fnd').length).toBeGreaterThan(1))
+    const [fltId] = lastSearchCall('flt')
+    const [fndId2] = lastSearchCall('fnd')
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fltId, hits, scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    const findHits2 = [20, 40, 60, 80]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fndId2, hits: findHits2, scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(filterInput).toHaveValue('CTX')
+    // VirtualLines is the same DOM node across the branch switch and keeps its
+    // old scroll offset, which no longer means anything in the new (smaller)
+    // filtered row space — re-seed a known position via jump-to-line (already
+    // covered on its own below) before exercising next() from scratch
+    const jump = screen.getByPlaceholderText('go to line')
+    await userEvent.type(jump, '1{Enter}')
+    // the short filtered list is where the old midpoint bug pinned dead-center
+    for (let k = 1; k <= 4; k++) {
       await userEvent.click(down)
-      expect(await screen.findByText(`${k} / 111 matches`)).toBeInTheDocument()
+      expect(await screen.findByText(`${k} / 4 matches`)).toBeInTheDocument()
     }
-    // and prev walks straight back down
+    // prev walks straight back down
     await userEvent.click(screen.getByRole('button', { name: '↑' }))
-    expect(await screen.findByText('9 / 111 matches')).toBeInTheDocument()
+    expect(await screen.findByText('3 / 4 matches')).toBeInTheDocument()
+    // still filtered throughout
+    expect(filterInput).toHaveValue('CTX')
   })
 
-  it('search streams hits; filter mode shows only matching lines; row click exits to context', async () => {
+  it('no-wrap: pressing ↓ at the last find hit keeps the label at n / n (no jump back to 1)', async () => {
     render(
       <TextViewer
         source={{ kind: 'evidence', evidenceId: 2 }}
@@ -323,22 +366,60 @@ describe('TextViewer', () => {
     const find = await screen.findByPlaceholderText('find in file')
     await userEvent.type(find, 'ERROR')
     await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
-    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    const [fndId] = firstSearchCall('fnd')
     act(() =>
       searchHitsCbs.forEach((cb) =>
-        cb({ searchId, hits: [7, 1_234_567], scannedTo: 3_000_000, done: true, capped: false })
+        cb({ searchId: fndId, hits: [10, 20, 30], scannedTo: 3_000_000, done: true, capped: false })
       )
     )
-    expect(await screen.findByText('2 matches')).toBeInTheDocument()
-    await userEvent.click(screen.getByTitle('filter to matches'))
-    // filter mode: two rows, numbered by true file line
-    expect(document.querySelector('#line-1234567')).toBeInTheDocument()
-    await userEvent.click(document.querySelector('#line-1234567')!)
-    // exits filter mode, jumps to context: row for the neighbor line materializes
-    await waitFor(() => expect(document.querySelector('#line-1234566')).toBeInTheDocument())
+    expect(await screen.findByText('3 matches')).toBeInTheDocument()
+    const down = screen.getByRole('button', { name: '↓' })
+    for (let k = 1; k <= 3; k++) {
+      await userEvent.click(down)
+      expect(await screen.findByText(`${k} / 3 matches`)).toBeInTheDocument()
+    }
+    // one more press past the last hit — the search is done (not capped), so
+    // there is nothing more to fetch; the cursor must not wrap back to 1
+    await userEvent.click(down)
+    expect(await screen.findByText('3 / 3 matches')).toBeInTheDocument()
   })
 
-  it('Enter in find input scrolls filter-mode results in hit-index space, not file-line space', async () => {
+  it('filter input shows only matching lines; row click no longer exits the filtered view', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const filterInput = await screen.findByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [fltId] = firstSearchCall('flt')
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fltId,
+          hits: [7, 1_234_567],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
+      )
+    )
+    expect(await screen.findByText('2 filtered')).toBeInTheDocument()
+    // filtered view: two rows, numbered by true file line
+    expect(document.querySelector('#line-7')).toBeInTheDocument()
+    expect(document.querySelector('#line-1234567')).toBeInTheDocument()
+    await userEvent.click(document.querySelector('#line-1234567')!)
+    // the filtered view is input-driven — clicking a row no longer exits it
+    expect(document.querySelector('#line-1234567')).toBeInTheDocument()
+    expect(document.querySelector('#line-7')).toBeInTheDocument()
+    expect(filterInput).toHaveValue('ERROR')
+  })
+
+  it('Enter in find input scrolls the filtered view in filter-hit-index space, not file-line space', async () => {
     render(
       <TextViewer
         source={{ kind: 'evidence', evidenceId: 2 }}
@@ -347,28 +428,129 @@ describe('TextViewer', () => {
         onClose={vi.fn()}
       />
     )
-    const find = await screen.findByPlaceholderText('find in file')
-    await userEvent.type(find, 'ERROR')
+    const filterInput = await screen.findByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX')
     await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
-    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    const [fltId] = firstSearchCall('flt')
+    // filter.hits is a wider set that CONTAINS the eventual find hit (subset invariant)
+    const filterHits = [5, 7, 1_234_567, 2_000_000]
     act(() =>
       searchHitsCbs.forEach((cb) =>
-        cb({ searchId, hits: [7, 1_234_567], scannedTo: 3_000_000, done: true, capped: false })
+        cb({ searchId: fltId, hits: filterHits, scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('4 filtered')).toBeInTheDocument()
+
+    const find = screen.getByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(searchCalls('fnd').length).toBeGreaterThan(0))
+    const [fndId] = firstSearchCall('fnd')
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fndId,
+          hits: [7, 1_234_567],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
       )
     )
     expect(await screen.findByText('2 matches')).toBeInTheDocument()
-    await userEvent.click(screen.getByTitle('filter to matches'))
+
     // currentLine starts at focusStart (1,000,000) — next() lands on the only
-    // hit past it: hits[1] = 1,234,567 at hit-index 1
+    // hit past it: find.hits[1] = 1,234,567, which sits at filter.hits[2]
     await userEvent.type(find, '{Enter}')
     await waitFor(() => expect(document.querySelector('#line-1234567')).toBeInTheDocument())
     const scroller = document.querySelector('.overflow-auto') as HTMLElement
-    // row-index space (row 1), NOT file-line space (which would be ~24M px)
-    const expected = Math.max(0, 1 * 20 - scroller.clientHeight / 2 + 10)
+    // filter-hit-index space (row 2), NOT find-hit-index space (row 1) and NOT
+    // file-line space (which would be ~24M px)
+    const expected = Math.max(0, 2 * 20 - scroller.clientHeight / 2 + 10)
     expect(scroller.scrollTop).toBe(expected)
   })
 
-  it('jump-to-line input exits filter mode and jumps in file-line space', async () => {
+  it('jump-to-line input stays filtered and scrolls to the nearest filter-hit row', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const filterInput = await screen.findByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [fltId] = firstSearchCall('flt')
+    const filterHits = [100, 200, 300, 400_000]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fltId, hits: filterHits, scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('4 filtered')).toBeInTheDocument()
+
+    const jump = screen.getByPlaceholderText('go to line')
+    // 250 isn't itself a filter hit — nearest ≤ is 200 (index 1)
+    await userEvent.type(jump, '250{Enter}')
+    await waitFor(() => expect(document.querySelector('#line-200')).toBeInTheDocument())
+    // still filtered: the filter query and its rows are untouched
+    expect(filterInput).toHaveValue('CTX')
+    expect(document.querySelector('#line-100')).toBeInTheDocument()
+  })
+
+  it('a find query ANDs with an active filter — the fnd search call carries `filter`', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const filterInput = await screen.findByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX1')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [fltId] = firstSearchCall('flt')
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fltId,
+          hits: [10, 20, 30, 40],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
+      )
+    )
+    expect(await screen.findByText('4 filtered')).toBeInTheDocument()
+
+    const find = screen.getByPlaceholderText('find in file')
+    await userEvent.type(find, 'info')
+    await waitFor(() => expect(searchCalls('fnd').length).toBeGreaterThan(0))
+    const fndCall = firstSearchCall('fnd')
+    expect(fndCall[3]).toEqual(
+      expect.objectContaining({ filter: expect.objectContaining({ query: 'CTX1' }) })
+    )
+
+    const [fndId] = fndCall
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fndId, hits: [20, 40], scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+
+    const down = screen.getByRole('button', { name: '↓' })
+    await userEvent.click(down)
+    expect(await screen.findByText('1 / 2 matches')).toBeInTheDocument()
+    await userEvent.click(down)
+    expect(await screen.findByText('2 / 2 matches')).toBeInTheDocument()
+    // navigation stayed in the filtered view throughout
+    expect(filterInput).toHaveValue('CTX1')
+  })
+
+  it('marks exactly one active-line row in both the full and filtered views', async () => {
     render(
       <TextViewer
         source={{ kind: 'evidence', evidenceId: 2 }}
@@ -380,21 +562,94 @@ describe('TextViewer', () => {
     const find = await screen.findByPlaceholderText('find in file')
     await userEvent.type(find, 'ERROR')
     await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
-    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    const [fndId1] = firstSearchCall('fnd')
     act(() =>
       searchHitsCbs.forEach((cb) =>
-        cb({ searchId, hits: [7, 1_234_567], scannedTo: 3_000_000, done: true, capped: false })
+        cb({
+          searchId: fndId1,
+          hits: [10, 20, 30],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
       )
     )
-    expect(await screen.findByText('2 matches')).toBeInTheDocument()
-    await userEvent.click(screen.getByTitle('filter to matches'))
-    expect(document.querySelector('#line-1234567')).toBeInTheDocument()
+    expect(await screen.findByText('3 matches')).toBeInTheDocument()
 
+    const down = screen.getByRole('button', { name: '↓' })
+    await userEvent.click(down)
+    await waitFor(() => expect(document.querySelectorAll('[data-active-line]')).toHaveLength(1))
+    expect(document.querySelector('#line-10')).toHaveAttribute('data-active-line')
+
+    await userEvent.click(down)
+    expect(document.querySelectorAll('[data-active-line]')).toHaveLength(1)
+    expect(document.querySelector('#line-20')).toHaveAttribute('data-active-line')
+
+    // switch to the filtered view — a filter change restarts find on its own channel
+    const filterInput = screen.getByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX')
+    await waitFor(() => expect(searchCalls('fnd').length).toBeGreaterThan(1))
+    const [fltId] = lastSearchCall('flt')
+    const [fndId2] = lastSearchCall('fnd')
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId: fltId, hits: [10, 20, 30], scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({
+          searchId: fndId2,
+          hits: [10, 20, 30],
+          scannedTo: 3_000_000,
+          done: true,
+          capped: false
+        })
+      )
+    )
+    expect(await screen.findByText('3 filtered')).toBeInTheDocument()
+
+    // re-seed a known position (see the sequential-navigation test above for
+    // why): VirtualLines keeps its prior scroll offset across the branch switch.
+    // The seed becomes the filtered view's top row (line 10) once it settles —
+    // next() is exclusive, so the first press lands on the hit AFTER it (20).
     const jump = screen.getByPlaceholderText('go to line')
-    await userEvent.type(jump, '500000{Enter}')
-    // exits filter mode: full-file row ids around the target line materialize
-    await waitFor(() => expect(document.querySelector('#line-500000')).toBeInTheDocument())
-    expect(screen.getByTitle('filter to matches').className).not.toContain('bg-hair text-ink')
+    await userEvent.type(jump, '1{Enter}')
+
+    await userEvent.click(down)
+    await waitFor(() => expect(document.querySelectorAll('[data-active-line]')).toHaveLength(1))
+    expect(document.querySelector('#line-20')).toHaveAttribute('data-active-line')
+    await userEvent.click(down)
+    expect(document.querySelectorAll('[data-active-line]')).toHaveLength(1)
+    expect(document.querySelector('#line-30')).toHaveAttribute('data-active-line')
+  })
+
+  it('a cut range clamps the full view and both stream starts', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByText('3,000,000 lines')
+    const from = screen.getByPlaceholderText('from')
+    const to = screen.getByPlaceholderText('to')
+    await userEvent.type(from, '100')
+    await userEvent.type(to, '200')
+    // full view: row 0 is line 100 — rowToLine is offset by cut.from
+    await waitFor(() => expect(document.querySelector('#line-100')).toBeInTheDocument())
+
+    const filterInput = screen.getByPlaceholderText('filter lines')
+    await userEvent.type(filterInput, 'CTX')
+    const find = screen.getByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(searchCalls('fnd').length).toBeGreaterThan(0))
+    const fltCall = firstSearchCall('flt')
+    const fndCall = firstSearchCall('fnd')
+    expect(fltCall[3]).toEqual(expect.objectContaining({ fromLine: 100, toLine: 200 }))
+    expect(fndCall[3]).toEqual(expect.objectContaining({ fromLine: 100, toLine: 200 }))
   })
 
   it('does not render the find bar for small (whole-content) files', async () => {
