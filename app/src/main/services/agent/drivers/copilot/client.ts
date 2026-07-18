@@ -14,6 +14,27 @@ export interface CopilotSessionLike {
   send(options: { prompt: string }): Promise<string>
   /** Request cancellation of the in-flight turn. */
   abort(): Promise<void>
+  /** Per-session RPC surface. Plan mode is engaged via `rpc.mode.set` (EVIDENCE §9).
+   *  Optional/structural so scripted fakes need not provide it. */
+  rpc?: { mode?: { set?: (req: { mode: string }) => Promise<unknown> } }
+}
+
+/** Result of the exit-plan-mode handshake (SDK `ExitPlanModeResult`, EVIDENCE §9). */
+export interface CopilotExitPlanModeResult {
+  approved: boolean
+  selectedAction?: string
+  feedback?: string
+}
+
+/** A native/panel tool bound via `SessionConfig.tools` (SDK `Tool`/`defineTool`, EVIDENCE §4).
+ *  `parameters` is a Zod schema (`z.object(...)`, accepted per evidence) or a raw JSON schema. */
+export interface CopilotToolDef {
+  name: string
+  description: string
+  parameters: unknown
+  /** LOW-risk tools bypass the permission channel, mirroring Claude's auto-allow. */
+  skipPermission?: boolean
+  handler: (args: Record<string, unknown>, invocation?: unknown) => Promise<unknown>
 }
 
 export interface CopilotAuthStatus {
@@ -30,6 +51,18 @@ export interface CopilotSessionConfig {
   systemMessage: { mode: 'append'; content: string }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onPermissionRequest: (request: any, invocation: { sessionId: string }) => Promise<any>
+  /** Native + panel tools exposed to the agent (Task 9B). */
+  tools?: CopilotToolDef[]
+  /** Approve/deny the agent's request to leave plan mode (Task 9B; EVIDENCE §9). */
+  onExitPlanModeRequest?: (
+    request: {
+      summary?: string
+      planContent?: string
+      actions?: string[]
+      recommendedAction?: string
+    },
+    invocation: { sessionId: string }
+  ) => Promise<CopilotExitPlanModeResult> | CopilotExitPlanModeResult
 }
 
 export interface CopilotClientLike {

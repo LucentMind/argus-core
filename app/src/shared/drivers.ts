@@ -38,6 +38,10 @@ export interface DriverCapabilities {
   editableApprovals: boolean
   costReporting: boolean
   planMode?: boolean
+  /** Whether the driver exposes Argus connector (external MCP) servers to the agent.
+   *  Absent = supported; `false` = declared degradation (Copilot v1). Mirrors
+   *  `main/services/agent/driver.ts` `DriverCapabilities.mcpConnectors`. */
+  mcpConnectors?: boolean
 }
 
 export interface DriverDefinition {
@@ -116,7 +120,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
-      planMode: true
+      planMode: true,
+      mcpConnectors: false // Task 9B: SDK stdio mcpServers never expose tools (EVIDENCE §6/§6b)
     }
   }
 }
