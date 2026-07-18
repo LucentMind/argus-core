@@ -58,4 +58,23 @@ describe('TopBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(onSettings).toHaveBeenCalled()
   })
+
+  it('hides each close button until hover or keyboard focus', () => {
+    uiStore.openTab('alpha')
+    uiStore.openTab('beta')
+    render(<TopBar activeSlug="alpha" onHome={vi.fn()} onSelect={vi.fn()} onSettings={vi.fn()} />)
+    const close = screen.getByRole('button', { name: 'Close alpha' })
+    expect(close.className).toContain('opacity-0')
+    expect(close.className).toContain('group-hover:opacity-100')
+    // without this the button is unreachable by keyboard
+    expect(close.className).toContain('focus-visible:opacity-100')
+  })
+
+  it('draws a separator between tabs but not before the first', () => {
+    uiStore.openTab('alpha')
+    uiStore.openTab('beta')
+    render(<TopBar activeSlug="alpha" onHome={vi.fn()} onSelect={vi.fn()} onSettings={vi.fn()} />)
+    const nav = screen.getByRole('navigation', { name: 'Recent cases' })
+    expect(nav.querySelectorAll('[data-tab-separator]')).toHaveLength(1)
+  })
 })
