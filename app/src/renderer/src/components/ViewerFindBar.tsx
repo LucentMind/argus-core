@@ -20,6 +20,18 @@ interface ViewerFindBarProps {
   onPrev: () => void
 }
 
+/** Match-count / progress label. Precedence: capped (there's more to fetch on
+ *  demand) beats done (final count, possibly with the active position) beats
+ *  in-flight (still streaming). Empty query shows nothing. */
+function findLabel(state: FindState): string {
+  if (state.query === '') return ''
+  const count = state.hits.length.toLocaleString('en-US')
+  if (state.capped) return `${count} matches — more on demand`
+  if (!state.done) return `${count}… searching`
+  if (state.activeIdx !== null) return `${state.activeIdx + 1} / ${count} matches`
+  return `${count} matches`
+}
+
 /** Streaming-search find bar for the large-file viewer. Purely controlled —
  *  all state (query, hits, toggles) lives in the caller's useViewerSearch hook. */
 export function ViewerFindBar({
@@ -29,17 +41,7 @@ export function ViewerFindBar({
   onNext,
   onPrev
 }: ViewerFindBarProps): React.JSX.Element {
-  const count = state.hits.length
-  const label =
-    state.query === ''
-      ? ''
-      : state.capped
-        ? `${count.toLocaleString('en-US')} matches — more on demand`
-        : state.done
-          ? state.activeIdx !== null
-            ? `${state.activeIdx + 1} / ${count.toLocaleString('en-US')} matches`
-            : `${count.toLocaleString('en-US')} matches`
-          : `${count.toLocaleString('en-US')}… searching`
+  const label = findLabel(state)
   return (
     <div className="flex items-center gap-2 border-b border-hair px-3 py-1.5">
       <input
