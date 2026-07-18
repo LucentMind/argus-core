@@ -56,6 +56,8 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
     kind: 'claude-agent-sdk',
     toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
     authFixHint: 'Log in with `claude login` (or set ANTHROPIC_API_KEY).',
+    npmPackage: '@anthropic-ai/claude-code',
+    updateCommand: 'npm install -g @anthropic-ai/claude-code@latest',
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,

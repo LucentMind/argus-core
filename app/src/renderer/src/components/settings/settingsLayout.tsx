@@ -47,14 +47,20 @@ export function DisclosureBtn({
 
 export function SettingsSection({
   title,
+  action,
   children
 }: {
   title: string
+  /** Controls rendered on the section header line, right-aligned (e.g. a refresh button). */
+  action?: ReactNode
   children: ReactNode
 }): React.JSX.Element {
   return (
     <section className="flex flex-col gap-2">
-      <SectionLabel>{title}</SectionLabel>
+      <div className="flex items-center justify-between gap-2">
+        <SectionLabel>{title}</SectionLabel>
+        {action}
+      </div>
       <Card className="flex flex-col divide-y divide-hair">{children}</Card>
     </section>
   )

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AgentSettings } from '../settings/AgentSettings'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
-import type { AuthStatus } from '../../../../shared/types'
+import type { ProviderStatus } from '../../../../shared/types'
 
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   const p: SettingsPayload = {
@@ -17,137 +17,38 @@ function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   return p
 }
 
-function mockAuth(overrides?: Partial<AuthStatus>): AuthStatus {
-  return { ok: true, verified: false, detail: 'claude ready (claude-fable-5)', ...overrides }
+function status(over?: Partial<ProviderStatus>): ProviderStatus {
+  return {
+    instanceId: 'claude-default',
+    driverKind: 'claude-agent-sdk',
+    displayName: 'Claude',
+    state: 'ready',
+    detail: 'claude ready',
+    checkedAt: new Date().toISOString(),
+    ...over
+  }
 }
 
-function authStatusMock(status: AuthStatus): (force?: boolean) => Promise<AuthStatus> {
-  return vi.fn(async () => status)
-}
-
-function expandCard(): void {
-  fireEvent.click(screen.getByRole('button', { name: 'Expand provider details' }))
-}
-
+let statuses: ProviderStatus[]
 beforeEach(() => {
   settingsStore.reset()
+  statuses = [status()]
   window.argus = {
     settings: {
       get: vi.fn(async () => payload()),
       patch: vi.fn(async () => payload()),
       onChanged: vi.fn(() => () => {})
     },
-    agent: { authStatus: authStatusMock(mockAuth()) }
+    providers: {
+      statuses: vi.fn(async () => statuses),
+      refresh: vi.fn(async () => statuses),
+      onChanged: vi.fn(() => () => {})
+    }
   } as never
 })
 
-describe('AgentSettings', () => {
-  it('fetches cached auth on mount, shows the Claude header, and keeps the body collapsed by default', async () => {
-    render(<AgentSettings payload={payload()} />)
-    expect(screen.getByTestId('active-driver-label').textContent).toBe('Claude')
-    expect(screen.queryByText('claude-default')).toBeNull()
-    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
-    expect(screen.queryByText(/Models ·/)).toBeNull()
-    await vi.waitFor(() => expect(window.argus.agent.authStatus).toHaveBeenCalledWith())
-  })
-
-  it('expanding the card reveals display name, annotation config (model excluded), and the Models section', async () => {
-    render(<AgentSettings payload={payload()} />)
-    await vi.waitFor(() => expect(window.argus.agent.authStatus).toHaveBeenCalled())
-    expandCard()
-    expect(screen.getByLabelText('Display name')).toBeTruthy()
-    expect(screen.getByLabelText('Claude CLI path')).toBeTruthy()
-    expect(screen.queryByLabelText('Model')).toBeNull()
-    expect(screen.getByText(/Models ·/)).toBeTruthy()
-  })
-
-  it('collapsing again hides the body', async () => {
-    render(<AgentSettings payload={payload()} />)
-    expandCard()
-    expect(screen.getByLabelText('Claude CLI path')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse provider details' }))
-    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
-  })
-
-  it('renders the version and a blurred email that reveals the real value on click', async () => {
-    window.argus.agent.authStatus = authStatusMock(
-      mockAuth({
-        email: 'jdoe@example.com',
-        subscription: 'Claude Max Subscription',
-        version: '2.1.204'
-      })
-    )
-    render(<AgentSettings payload={payload()} />)
-    expect(await screen.findByText('v2.1.204')).toBeTruthy()
-    const emailBtn = await screen.findByLabelText('Toggle account email visibility')
-    expect(emailBtn.textContent).not.toBe('jdoe@example.com')
-    expect(screen.getByText(/Claude Max Subscription/)).toBeTruthy()
-    fireEvent.click(emailBtn)
-    expect(emailBtn.textContent).toBe('jdoe@example.com')
-  })
-
-  it('shows a danger line with the probe detail when auth fails', async () => {
-    window.argus.agent.authStatus = authStatusMock({
-      ok: false,
-      verified: false,
-      detail: 'not logged in'
-    })
-    render(<AgentSettings payload={payload()} />)
-    const line = await screen.findByText('not logged in')
-    expect(line.className).toMatch(/text-danger/)
-  })
-
-  it('editing the CLI path patches the instance config envelope', async () => {
-    render(<AgentSettings payload={payload()} />)
-    expandCard()
-    const cliPath = screen.getByLabelText('Claude CLI path')
-    fireEvent.change(cliPath, { target: { value: '/usr/local/bin/claude' } })
-    fireEvent.blur(cliPath)
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      agent: {
-        providerInstances: {
-          'claude-default': { config: { cliPath: '/usr/local/bin/claude' } }
-        }
-      }
-    })
-  })
-
-  it('session-default rows patch agent keys (unaffected by the collapsible card)', () => {
-    render(<AgentSettings payload={payload()} />)
-    fireEvent.change(screen.getByLabelText('Default permission mode'), {
-      target: { value: 'Plan mode' }
-    })
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      agent: { defaultPermissionMode: 'plan' }
-    })
-    fireEvent.change(screen.getByLabelText('Max concurrent sessions'), { target: { value: '5' } })
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({ agent: { maxSessions: 5 } })
-    const persona = screen.getByLabelText('Persona append')
-    fireEvent.change(persona, { target: { value: 'be brief' } })
-    fireEvent.blur(persona)
-    expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      agent: { personaAppend: 'be brief' }
-    })
-  })
-
-  it('Test connection forces a fresh auth probe', async () => {
-    render(<AgentSettings payload={payload()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
-    await vi.waitFor(() => expect(window.argus.agent.authStatus).toHaveBeenCalledWith(true))
-  })
-
-  it('unknown driver → unavailable badge, config fields hidden even when expanded', () => {
-    const p = payload((p) => {
-      p.settings.agent.providerInstances['claude-default'].driver = 'mystery-driver'
-    })
-    render(<AgentSettings payload={p} />)
-    expect(screen.getByText(/unavailable driver/i)).toBeTruthy()
-    expandCard()
-    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
-  })
-})
-
-function withCopilotInstance(p: SettingsPayload): void {
+/** Adds a second, Copilot-backed instance. */
+function withCopilot(p: SettingsPayload): void {
   p.settings.agent.providerInstances['copilot-1'] = {
     driver: 'github-copilot',
     enabled: true,
@@ -155,84 +56,194 @@ function withCopilotInstance(p: SettingsPayload): void {
   }
 }
 
-describe('AgentSettings provider picker', () => {
-  it('renders every provider instance with the active one marked', () => {
-    render(<AgentSettings payload={payload(withCopilotInstance)} />)
-    expect(screen.getByRole('button', { name: 'Switch to Claude Agent SDK' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Switch to GitHub Copilot' })).toBeTruthy()
-    expect(screen.getByText('active')).toBeTruthy()
+describe('AgentSettings provider list', () => {
+  it('renders one row per instance in a single section — no separate detail card', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    expect((await screen.findByTestId('provider-label-claude-default')).textContent).toBe('Claude')
+    expect(screen.getByTestId('provider-label-copilot-1').textContent).toBe('Copilot')
+    // the old flow had a chip rail that only *selected* an instance plus a card for the
+    // selected one; both are gone
+    expect(screen.queryByRole('button', { name: /switch to/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /test connection/i })).toBeNull()
   })
 
-  it('clicking an inactive instance switches activeInstanceId via the settings bridge', () => {
-    render(<AgentSettings payload={payload(withCopilotInstance)} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to GitHub Copilot' }))
+  it('shows the authenticated account for a ready provider', async () => {
+    statuses = [status({ email: 'x@y.z', subscription: 'Claude Max', version: '2.1.204' })]
+    render(<AgentSettings payload={payload()} />)
+    expect(await screen.findByText(/authenticated as/i)).toBeTruthy()
+    expect(screen.getByText('Claude Max', { exact: false })).toBeTruthy()
+    expect(screen.getByText('v2.1.204')).toBeTruthy()
+  })
+
+  it('shows the failure detail AND the driver-owned fix hint when a provider errors', async () => {
+    statuses = [
+      status({
+        state: 'error',
+        detail: 'copilot not authenticated',
+        fixHint: 'Sign in to GitHub with `gh auth login`.'
+      })
+    ]
+    render(<AgentSettings payload={payload()} />)
+    expect(await screen.findByText('copilot not authenticated')).toBeTruthy()
+    expect(screen.getByText(/gh auth login/)).toBeTruthy()
+  })
+
+  it('surfaces an update advisory when the CLI is behind, without offering to install it', async () => {
+    statuses = [
+      status({
+        version: '2.1.200',
+        latestVersion: '2.1.204',
+        updateCommand: 'npm install -g @anthropic-ai/claude-code@latest'
+      })
+    ]
+    render(<AgentSettings payload={payload()} />)
+    expect(await screen.findByText('v2.1.204')).toBeTruthy()
+    expect(screen.getByTitle(/npm install -g @anthropic-ai\/claude-code@latest/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /update now/i })).toBeNull()
+  })
+
+  it('toggling a provider off patches enabled without touching the others', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Enable Copilot'))
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
-      agent: { activeInstanceId: 'copilot-1' }
+      agent: { providerInstances: { 'copilot-1': { enabled: false } } }
     })
   })
 
-  it('clicking the already-active instance is a no-op', () => {
-    render(<AgentSettings payload={payload(withCopilotInstance)} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to Claude Agent SDK' }))
-    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+  it('hands the default role to another enabled provider when the default is switched off', async () => {
+    // Background work (distillation, refsync, probes) has no model picker to fall back to,
+    // so the default must never point at a disabled provider.
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Enable Claude'))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: {
+        providerInstances: { 'claude-default': { enabled: false } },
+        activeInstanceId: 'copilot-1'
+      }
+    })
   })
 
-  it('disables switching to a disabled instance', () => {
+  it('leaves the default alone when disabling a non-default provider', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Enable Copilot'))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: { providerInstances: { 'copilot-1': { enabled: false } } }
+    })
+  })
+
+  it('expands a row to reveal display name, driver config and the models section', async () => {
+    render(<AgentSettings payload={payload()} />)
+    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
+    fireEvent.click(await screen.findByLabelText('Expand Claude settings'))
+    expect(screen.getByLabelText('Display name · claude-default')).toBeTruthy()
+    expect(screen.getByLabelText('Claude CLI path')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Collapse Claude settings'))
+    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
+  })
+
+  it('expands only one provider at a time', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Expand Claude settings'))
+    fireEvent.click(screen.getByLabelText('Expand Copilot settings'))
+    expect(screen.getByLabelText('Copilot CLI path')).toBeTruthy()
+    expect(screen.queryByLabelText('Claude CLI path')).toBeNull()
+  })
+
+  it('editing the CLI path patches that instance’s config envelope', async () => {
+    render(<AgentSettings payload={payload()} />)
+    fireEvent.click(await screen.findByLabelText('Expand Claude settings'))
+    const input = screen.getByLabelText('Claude CLI path')
+    fireEvent.change(input, { target: { value: 'C:/claude.exe' } })
+    fireEvent.blur(input)
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: { providerInstances: { 'claude-default': { config: { cliPath: 'C:/claude.exe' } } } }
+    })
+  })
+
+  it('unknown driver renders an unavailable badge instead of a row', async () => {
     const p = payload((p) => {
-      withCopilotInstance(p)
-      p.settings.agent.providerInstances['copilot-1'].enabled = false
+      p.settings.agent.providerInstances['claude-default'].driver = 'mystery-driver'
     })
     render(<AgentSettings payload={p} />)
-    const btn = screen.getByRole('button', { name: 'Switch to GitHub Copilot' })
-    expect((btn as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(btn)
-    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+    expect(await screen.findByText(/unavailable driver: mystery-driver/)).toBeTruthy()
+  })
+})
+
+describe('AgentSettings provider status refresh', () => {
+  it('reads statuses on mount and re-reads when the main process says they changed', async () => {
+    let fire: (() => void) | null = null
+    window.argus.providers.onChanged = vi.fn((cb: () => void) => {
+      fire = cb
+      return () => {}
+    }) as never
+    render(<AgentSettings payload={payload()} />)
+    await screen.findByTestId('provider-label-claude-default')
+    expect(window.argus.providers.statuses).toHaveBeenCalledTimes(1)
+
+    statuses = [status({ state: 'error', detail: 'logged out' })]
+    fire!()
+    expect(await screen.findByText('logged out')).toBeTruthy()
   })
 
-  it('adding a provider creates a new instance for that driver and activates it', () => {
+  it('the refresh button re-probes every provider', async () => {
     render(<AgentSettings payload={payload()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
+    fireEvent.click(await screen.findByLabelText('Refresh provider status'))
+    expect(window.argus.providers.refresh).toHaveBeenCalled()
+  })
+
+  it('shows how long ago the newest probe ran', async () => {
+    render(<AgentSettings payload={payload()} />)
+    expect(await screen.findByText(/Checked just now/)).toBeTruthy()
+  })
+
+  it('renders no checked-label before any probe has completed', async () => {
+    statuses = [status({ state: 'checking', checkedAt: null })]
+    render(<AgentSettings payload={payload()} />)
+    await screen.findByTestId('provider-label-claude-default')
+    expect(screen.queryByText(/Checked/)).toBeNull()
+  })
+})
+
+describe('AgentSettings add provider', () => {
+  it('does not offer a driver that is already added', async () => {
+    render(<AgentSettings payload={payload()} />)
+    fireEvent.click(await screen.findByLabelText('Add provider'))
+    expect(screen.queryByRole('menuitem', { name: 'Claude Agent SDK' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'GitHub Copilot' })).toBeTruthy()
+  })
+
+  it('adding a provider creates the instance and expands it, without changing the default', async () => {
+    render(<AgentSettings payload={payload()} />)
+    fireEvent.click(await screen.findByLabelText('Add provider'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'GitHub Copilot' }))
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       agent: {
         providerInstances: {
           'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
-        },
-        activeInstanceId: 'github-copilot-1'
+        }
       }
     })
   })
 
-  it('does not offer a driver that is already added', () => {
-    // The default payload already has a Claude instance; Copilot is still addable.
-    render(<AgentSettings payload={payload()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
-    // With no delete affordance a second Claude instance would be permanent, so it must
-    // not be offered at all.
-    expect(screen.queryByRole('menuitem', { name: 'Claude Agent SDK' })).toBeNull()
-    expect(screen.getByRole('menuitem', { name: 'GitHub Copilot' })).toBeTruthy()
-  })
-
-  it('hides the Add provider button entirely once every driver is added', () => {
-    render(<AgentSettings payload={payload(withCopilotInstance)} />)
-    expect(screen.queryByRole('button', { name: 'Add provider' })).toBeNull()
+  it('hides the add affordance once every driver is present', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    await screen.findByTestId('provider-label-copilot-1')
+    expect(screen.queryByLabelText('Add provider')).toBeNull()
   })
 })
 
-describe('AgentSettings provider icon', () => {
-  it('renders a distinct glyph per driver rather than the Claude mark for all', () => {
-    const { container: claude } = render(<AgentSettings payload={payload()} />)
-    const claudePath = claude.querySelector('svg path')?.getAttribute('d')
+describe('AgentSettings session defaults', () => {
+  it('session-default rows still patch agent keys', async () => {
+    render(<AgentSettings payload={payload()} />)
+    const input = await screen.findByLabelText('Max concurrent sessions')
+    fireEvent.change(input, { target: { value: '5' } })
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({ agent: { maxSessions: 5 } })
+  })
 
-    const copilotActive = payload((p) => {
-      withCopilotInstance(p)
-      p.settings.agent.activeInstanceId = 'copilot-1'
-    })
-    const { container: copilot } = render(<AgentSettings payload={copilotActive} />)
-    const copilotPath = copilot.querySelector('svg path')?.getAttribute('d')
-
-    expect(claudePath).toBeTruthy()
-    expect(copilotPath).toBeTruthy()
-    expect(copilotPath).not.toBe(claudePath)
+  it('provider rows and session defaults are distinct sections', async () => {
+    render(<AgentSettings payload={payload()} />)
+    const providers = (await screen.findByText('Providers')).closest('section')!
+    expect(within(providers).getByTestId('provider-label-claude-default')).toBeTruthy()
+    expect(within(providers).queryByLabelText('Max concurrent sessions')).toBeNull()
   })
 })

@@ -9,6 +9,7 @@ import type {
   CaseStatus,
   FileNode,
   FileReadResult,
+  ProviderStatus,
   SessionSummary,
   ChatSearchResult,
   UnifiedHit,
@@ -296,6 +297,17 @@ const argus = {
       ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
+  },
+  providers: {
+    /** Per-instance provider status for the settings page. */
+    statuses: (): Promise<ProviderStatus[]> => ipcRenderer.invoke(IPC.providerStatuses),
+    /** Re-probe every enabled provider; resolves with the fresh list. */
+    refresh: (): Promise<ProviderStatus[]> => ipcRenderer.invoke(IPC.providerRefresh),
+    onChanged: (cb: () => void): (() => void) => {
+      const h = (): void => cb()
+      ipcRenderer.on(IPC.providersChanged, h)
+      return () => ipcRenderer.removeListener(IPC.providersChanged, h)
+    }
   },
   workspaces: {
     pick: () => ipcRenderer.invoke(IPC.workspacesPick),
