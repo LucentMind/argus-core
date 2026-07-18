@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { Mock } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TextViewer } from '../TextViewer'
@@ -8,6 +9,7 @@ import {
   textDocKey,
   type TextDocOpenOk,
   type TextDocOpenResult,
+  type TextDocSearchEvent,
   type TextDocSource
 } from '../../../../shared/textdoc'
 
@@ -49,9 +51,11 @@ const LARGE_DOC_B: TextDocOpenOk = {
 }
 
 let progressCbs: Array<(p: { key: string; fraction: number }) => void> = []
+let searchHitsCbs: Array<(e: TextDocSearchEvent) => void> = []
 
 beforeEach(() => {
   progressCbs = []
+  searchHitsCbs = []
   window.argus = {
     evidence: {
       list: vi.fn(async () => [])
@@ -69,7 +73,12 @@ beforeEach(() => {
       })),
       search: vi.fn(async () => undefined),
       cancelSearch: vi.fn(async () => undefined),
-      onSearchHits: vi.fn(() => () => {}),
+      onSearchHits: vi.fn((cb: (e: TextDocSearchEvent) => void) => {
+        searchHitsCbs.push(cb)
+        return () => {
+          searchHitsCbs = searchHitsCbs.filter((c) => c !== cb)
+        }
+      }),
       onIndexProgress: vi.fn((cb: (p: { key: string; fraction: number }) => void) => {
         progressCbs.push(cb)
         return () => {
@@ -243,5 +252,155 @@ describe('TextViewer', () => {
     await act(async () => pending.get('e:2')!(LARGE_DOC))
     expect(screen.getByText('NAV-1 / evidence/big2.log')).toBeInTheDocument()
     expect(screen.queryByText('NAV-1 / evidence/big.log')).not.toBeInTheDocument()
+  })
+
+  it('search streams hits; filter mode shows only matching lines; row click exits to context', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [7, 1_234_567], scannedTo: 3_000_000, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+    await userEvent.click(screen.getByTitle('filter to matches'))
+    // filter mode: two rows, numbered by true file line
+    expect(document.querySelector('#line-1234567')).toBeInTheDocument()
+    await userEvent.click(document.querySelector('#line-1234567')!)
+    // exits filter mode, jumps to context: row for the neighbor line materializes
+    await waitFor(() => expect(document.querySelector('#line-1234566')).toBeInTheDocument())
+  })
+
+  it('does not render the find bar for small (whole-content) files', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 1 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByText('b')
+    expect(screen.queryByPlaceholderText('find in file')).not.toBeInTheDocument()
+  })
+
+  it('resets find state and cancels the outstanding search when the source switches', async () => {
+    const { rerender } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [7, 8], scannedTo: 100, done: true, capped: false })
+      )
+    )
+    expect(await screen.findByText('2 matches')).toBeInTheDocument()
+
+    rerender(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 3 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByText('2,000,000 lines')
+    expect(window.argus.textdoc.cancelSearch).toHaveBeenCalledWith(searchId)
+    // stray late events from the old search must not repopulate the new doc's find bar
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [9], scannedTo: 100, done: true, capped: false })
+      )
+    )
+    const newFind = screen.getByPlaceholderText('find in file') as HTMLInputElement
+    expect(newFind.value).toBe('')
+    expect(screen.queryByText(/matches/)).not.toBeInTheDocument()
+  })
+
+  it('cancels the active search when the viewer unmounts', async () => {
+    const { unmount } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    unmount()
+    expect(window.argus.textdoc.cancelSearch).toHaveBeenCalledWith(searchId)
+  })
+
+  it('Ctrl-F focuses the find input', async () => {
+    const { container } = render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = (await screen.findByPlaceholderText('find in file')) as HTMLInputElement
+    find.blur()
+    expect(find).not.toHaveFocus()
+    const root = container.firstElementChild as HTMLElement
+    root.focus()
+    await userEvent.keyboard('{Control>}f{/Control}')
+    expect(find).toHaveFocus()
+  })
+
+  it('capped search resumes with fromLine on the same searchId', async () => {
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={vi.fn()}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'ERROR')
+    await waitFor(() => expect(window.argus.textdoc.search).toHaveBeenCalled())
+    const [searchId] = (window.argus.textdoc.search as Mock).mock.calls[0]
+    act(() =>
+      searchHitsCbs.forEach((cb) =>
+        cb({ searchId, hits: [7], scannedTo: 500, done: false, capped: true })
+      )
+    )
+    expect(await screen.findByText(/1 matches — more on demand/)).toBeInTheDocument()
+    // first ↓ lands on the one collected hit (line 7); the second ↓ exhausts
+    // the collected hits while still capped, which pulls the next page
+    await userEvent.click(screen.getByText('↓'))
+    await waitFor(() => expect(document.querySelector('#line-7')).toBeInTheDocument())
+    await userEvent.click(screen.getByText('↓'))
+    await waitFor(() =>
+      expect(window.argus.textdoc.search).toHaveBeenCalledWith(
+        searchId,
+        { kind: 'evidence', evidenceId: 2 },
+        'ERROR',
+        expect.objectContaining({ fromLine: 501 })
+      )
+    )
   })
 })
