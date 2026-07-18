@@ -75,9 +75,21 @@ function useViewerSearch(
   const currentId = useRef('')
 
   // source switch: reset synchronously during render so no stale hits from the
-  // previous doc ever paint against the new one (mirrors the doc/error reset above)
+  // previous doc ever paint against the new one (mirrors the doc/error reset above).
+  // The active searchId must be nulled here too — the [docKey] effect cleanup below
+  // runs post-paint, and a straggler onSearchHits batch from the OLD file arriving
+  // in that window would pass the stale-id check and land in the NEW file's empty
+  // hits. Safe in render because the branch only runs on a key change (idempotent
+  // across re-renders with the same docKey).
   if (docKey !== lastDocKey) {
     setLastDocKey(docKey)
+    // deliberate ref access in render: the id must be invalidated before this very
+    // render's output can paint, and the branch is idempotent (key-change only)
+    // eslint-disable-next-line react-hooks/refs
+    const old = currentId.current
+    // eslint-disable-next-line react-hooks/refs
+    currentId.current = ''
+    if (old) void window.argus.textdoc.cancelSearch(old)
     setState(EMPTY_FIND_STATE)
   }
 
@@ -99,9 +111,9 @@ function useViewerSearch(
     })
   }, [])
 
-  // invalidate the id ref as soon as the doc changes (before the debounced restart
-  // below fires) so any straggler event from the old search's in-flight IPC is
-  // dropped by the onSearchHits filter above, and cancel it on unmount too
+  // belt-and-braces: the render-phase reset above already nulls + cancels on a
+  // docKey change (so this cleanup usually finds currentId === '' and does nothing);
+  // its real job is the unmount path, where it cancels the still-active search
   useEffect(() => {
     return () => {
       if (currentId.current) void window.argus.textdoc.cancelSearch(currentId.current)
