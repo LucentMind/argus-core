@@ -37,9 +37,6 @@ export interface AtlassianCloud {
   siteUrl: string
 }
 
-/** @deprecated use AtlassianCloud — kept so existing callers still compile. */
-export type JiraCloud = AtlassianCloud
-
 const GATEWAY = 'https://api.atlassian.com'
 
 const SCOPE_MAP: Record<AtlassianProduct, string> = {
@@ -86,14 +83,6 @@ export async function discoverCloud(
       `Your Atlassian authorization does not grant ${PRODUCT_DISPLAY[product]} access — re-authorize the connector in Settings → Connectors.`
     )
   return { cloudId: cloud.id, siteUrl: cloud.url.replace(/\/+$/, '') }
-}
-
-export async function discoverJiraCloud(
-  bearer: string,
-  fetchImpl: typeof fetch,
-  timeoutMs: number
-): Promise<JiraCloud> {
-  return discoverCloud(bearer, 'jira', fetchImpl, timeoutMs)
 }
 
 /** Minimal OAuth surface resolveAtlassianCreds needs (McpOAuth satisfies it). */

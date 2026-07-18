@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  discoverJiraCloud,
   discoverCloud,
   AtlassianError,
   resolveAtlassianCreds,
@@ -27,23 +26,23 @@ const RESOURCES = [
   }
 ]
 
-describe('discoverJiraCloud', () => {
+describe('discoverCloud (jira product, replaces the removed discoverJiraCloud alias)', () => {
   it('picks the jira-work resource and returns cloudId + siteUrl', async () => {
-    const c = await discoverJiraCloud('tok', fetchReturning(200, RESOURCES), 15000)
+    const c = await discoverCloud('tok', 'jira', fetchReturning(200, RESOURCES), 15000)
     expect(c).toEqual({ cloudId: 'cloud-1', siteUrl: 'https://argus88.atlassian.net' })
   })
 
   it('throws auth error on non-200', async () => {
     await expect(
-      discoverJiraCloud('tok', fetchReturning(401, { message: 'nope' }), 15000)
+      discoverCloud('tok', 'jira', fetchReturning(401, { message: 'nope' }), 15000)
     ).rejects.toBeInstanceOf(AtlassianError)
   })
 
   it('throws when no jira-work resource is present', async () => {
     const only = [{ id: 'x', url: 'https://x', scopes: ['read:page:confluence'] }]
-    await expect(discoverJiraCloud('tok', fetchReturning(200, only), 15000)).rejects.toBeInstanceOf(
-      AtlassianError
-    )
+    await expect(
+      discoverCloud('tok', 'jira', fetchReturning(200, only), 15000)
+    ).rejects.toBeInstanceOf(AtlassianError)
   })
 
   it('throws AtlassianError on invalid JSON response body', async () => {
@@ -52,7 +51,7 @@ describe('discoverJiraCloud', () => {
         status: 200,
         headers: { 'content-type': 'application/json' }
       })) as unknown as typeof fetch
-    const err = await discoverJiraCloud('tok', invalidJsonFetch, 15000).catch((e) => e)
+    const err = await discoverCloud('tok', 'jira', invalidJsonFetch, 15000).catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('http')
   })
