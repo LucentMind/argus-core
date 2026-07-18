@@ -14,12 +14,14 @@ export type BinarySource = 'env' | 'settings' | 'pack-bundle' | 'pack-dev' | 'pa
 
 export interface ResolvedBinary {
   decl: PackBinary
+  packId: string
   packDir: string
   value: string | null
   source: BinarySource | null
 }
 
 export interface ResolveCtx {
+  packId: string
   packDir: string
   /**
    * USER-set env value for decl.envVar, captured by the caller at startup —
@@ -52,6 +54,7 @@ export function firstExistingExe(dir: string, names: string[]): string | null {
 export function resolveBinary(decl: PackBinary, ctx: ResolveCtx): ResolvedBinary {
   const found = (value: string | null, source: BinarySource | null): ResolvedBinary => ({
     decl,
+    packId: ctx.packId,
     packDir: ctx.packDir,
     value,
     source
@@ -123,7 +126,7 @@ export class BinariesService {
   recompute(): void {
     const tools = this.deps.settingsTools()
     this.resolved = new Map()
-    for (const { packDir, decl } of this.deps.registry.binaryDecls()) {
+    for (const { packId, packDir, decl } of this.deps.registry.binaryDecls()) {
       if (
         decl.platforms &&
         !decl.platforms.includes(process.platform as 'win32' | 'darwin' | 'linux')
@@ -138,6 +141,7 @@ export class BinariesService {
       this.resolved.set(
         decl.id,
         resolveBinary(decl, {
+          packId,
           packDir,
           envValue: decl.envVar ? (this.captured[decl.envVar] ?? null) : null,
           settingsValue: typeof raw === 'string' && raw !== '' ? raw : undefined
@@ -191,6 +195,7 @@ export class BinariesService {
     const tools = this.deps.settingsTools()
     return this.all().map((r) => ({
       id: r.decl.id,
+      packId: r.packId,
       displayName: r.decl.displayName,
       description: r.decl.description,
       kind: r.decl.kind,

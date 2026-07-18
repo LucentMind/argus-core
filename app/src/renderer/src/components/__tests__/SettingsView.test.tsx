@@ -5,6 +5,7 @@ import { SettingsView } from '../settings/SettingsView'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
+import type { PacksListPayload } from '../../../../shared/packs'
 
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -12,6 +13,7 @@ function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
     resolvedTools: [
       {
         id: 'sample-parse',
+        packId: 'sample-pack',
         displayName: 'sample-parse binary',
         description: 'Binary log decoder',
         kind: 'exe',
@@ -26,6 +28,21 @@ function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
     loadError: null,
     ...overrides
   }
+}
+
+const packsListed: PacksListPayload = {
+  error: null,
+  packs: [
+    {
+      id: 'navigation',
+      displayName: 'Navigation',
+      installedVersion: '1.0.0',
+      loadedVersion: '1.0.0',
+      platform: 'win-x64',
+      pendingRelaunch: false,
+      binaries: []
+    }
+  ]
 }
 
 let currentPayload: SettingsPayload
@@ -43,6 +60,15 @@ beforeEach(() => {
       probeTools: vi.fn(async () => []),
       pickPath: vi.fn(async () => null),
       reveal: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    },
+    packs: {
+      list: vi.fn(async () => packsListed),
+      pickBundle: vi.fn(async () => null),
+      inspect: vi.fn(),
+      install: vi.fn(),
+      uninstall: vi.fn(),
+      relaunch: vi.fn(),
       onChanged: vi.fn(() => () => {})
     },
     agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })) },
@@ -92,13 +118,12 @@ beforeEach(() => {
 })
 
 describe('SettingsView', () => {
-  it('renders the rail: 9 active pages, 0 coming-soon entries', async () => {
+  it('renders the rail: 8 active pages, 0 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
     for (const label of [
       'General',
       'Agent',
-      'Analysis Tools',
       'Health',
       'Connectors',
       'Skills',
@@ -109,6 +134,35 @@ describe('SettingsView', () => {
       expect(
         (screen.getByRole('button', { name: new RegExp(label) }) as HTMLButtonElement).disabled
       ).toBe(false)
+  })
+
+  it('lists sections in the intended order and drops Analysis Tools', () => {
+    render(<SettingsView onClose={() => {}} />)
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    const labels = Array.from(nav.querySelectorAll('button')).map((b) => b.textContent?.trim())
+    expect(labels).toEqual([
+      'General',
+      'Agent',
+      'Connectors',
+      'HiveMind',
+      'Skills',
+      'Memory',
+      'References',
+      'Packs',
+      'Health',
+      'Observability'
+    ])
+    expect(screen.queryByText('Analysis Tools')).toBeNull()
+  })
+
+  it('falls back to General for an unrecognised initialPage', () => {
+    // OnboardingProvider deep-links via `target as PageId`, so a stale 'tools'
+    // target is a runtime value the type system never sees.
+    render(<SettingsView onClose={() => {}} initialPage={'tools' as never} />)
+    const general = screen
+      .getByRole('navigation', { name: 'Settings sections' })
+      .querySelector('button')
+    expect(general?.className).toContain('bg-hi')
   })
 
   it('clicking Health renders the health page', async () => {
@@ -125,11 +179,12 @@ describe('SettingsView', () => {
     expect(await screen.findByRole('button', { name: /add connector/i })).toBeTruthy()
   })
 
-  it('switches pages via the rail', async () => {
+  it('clicking Packs renders PacksSettings', async () => {
     render(<SettingsView onClose={vi.fn()} />)
-    await screen.findByRole('button', { name: /Analysis Tools/ })
-    fireEvent.click(screen.getByRole('button', { name: /Analysis Tools/ }))
-    expect(await screen.findByText(/sample-parse/i)).toBeTruthy()
+    await screen.findByRole('button', { name: /General/ })
+    fireEvent.click(screen.getByRole('button', { name: /^Packs$/ }))
+    expect(await screen.findByText('Installed Packs')).toBeTruthy()
+    expect(await screen.findByText('Navigation')).toBeTruthy()
   })
 
   it('Escape calls onClose', async () => {
