@@ -5,7 +5,6 @@ import { z } from 'zod'
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
-import { makeEvent } from '../../events'
 import { NATIVE_RISK } from '../../risk'
 import { NATIVE_TOOL_SPECS, argusToolHandlers } from '../../nativeTools'
 import { panelCommandDescription } from '../../panelCommands'
@@ -115,8 +114,16 @@ export function synthesizePermissionRequest(
       }
     case 'url':
       return { name: 'fetch', input: { url: request.url } }
-    case 'mcp':
-      return { name: `mcp__${request.serverName}__${request.toolName}`, input: args }
+    case 'mcp': {
+      // The live runtime reports `toolName` in its model-facing prefixed form
+      // (`<server>-<tool>`, e.g. "argusEcho-mcp_echo" — smoke (f) capture, EVIDENCE §6c);
+      // strip the prefix so the canonical name is `mcp__<server>__<tool>` like Claude's.
+      const server = String(request.serverName ?? '')
+      const rawTool = String(request.toolName ?? '')
+      const tool =
+        server && rawTool.startsWith(`${server}-`) ? rawTool.slice(server.length + 1) : rawTool
+      return { name: `mcp__${server}__${tool}`, input: args }
+    }
     case 'custom-tool': {
       const toolName = String(request.toolName ?? '')
       const canonical =
@@ -261,6 +268,25 @@ export function copilotSkillDirectories(caseDir: string): string[] | undefined {
   return fs.existsSync(dir) ? [dir] : undefined
 }
 
+/**
+ * Translate Argus's composed connector servers into Copilot `MCPServerConfig` entries.
+ * The composed shapes ({type:"stdio",command,args,env} / {type:"http"|"sse",url,headers})
+ * are already field-compatible; the one Copilot-specific requirement is the `tools`
+ * allowlist. The SDK's .d.ts claims omitting `tools` "means include all tools" — that is
+ * empirically FALSE: without it the server loads `status:"not_configured"` and exposes
+ * nothing (EVIDENCE §6c, 16-mcp-transports.jsonl variants A vs D). `["*"]` connects all
+ * three transports. An explicit `tools` on a composed entry is preserved.
+ */
+export function toCopilotMcpServers(
+  extra: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const entries = Object.entries(extra)
+  if (entries.length === 0) return undefined
+  return Object.fromEntries(
+    entries.map(([id, server]) => [id, { tools: ['*'], ...(server as Record<string, unknown>) }])
+  )
+}
+
 export interface CopilotDriverDeps {
   /** Injected at the client.ts seam; tests pass a scripted fake to avoid the real runtime. */
   clientFactory?: CopilotClientFactory
@@ -278,8 +304,9 @@ export function createCopilotDriver(
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false, // permission channel cannot carry edited input (EVIDENCE §2)
-      costReporting: false, // free tier bills cost:0; costUsd is always null (§5, amendment 10)
-      mcpConnectors: false // SDK stdio mcpServers never expose tools (EVIDENCE §6/§6b)
+      costReporting: false // free tier bills cost:0; costUsd is always null (§5, amendment 10)
+      // mcpConnectors omitted (= supported): connector servers forward with a tools:["*"]
+      // allowlist, which resolves the §6/§6b "not_configured" failure (EVIDENCE §6c).
     },
 
     isAuthErrorMessage: isCopilotAuthErrorMessage,
@@ -367,10 +394,12 @@ export function createCopilotDriver(
           ...(config.cliPath ? { cliPath: config.cliPath } : {})
         })
         await client.start() // boot the runtime transport before create/resume
-        // extraMcpServers is deliberately NOT forwarded: SDK-declared stdio mcpServers load
-        // `not_configured` and never expose tools (EVIDENCE §6/§6b) — capabilities.mcpConnectors
-        // is false and each composed server is reported via session.mcp.skipped in events().
         const skillDirectories = copilotSkillDirectories(ctx.caseDir)
+        // Composed connectors forward on BOTH create and resume: resume honoring mcpServers
+        // is proven empirically (17-mcp-resume.jsonl) despite upstream sdk#1113 claiming
+        // otherwise. Permission requests for these tools arrive as kind:"mcp" and synthesize
+        // to `mcp__<server>__<tool>` (§2), so they re-enter the Argus classifier per call.
+        const mcpServers = toCopilotMcpServers(ctx.extraMcpServers ?? {})
         const sessionConfig: CopilotSessionConfig = {
           workingDirectory: ctx.caseDir,
           systemMessage: { mode: 'append', content: ctx.systemAppend },
@@ -378,7 +407,8 @@ export function createCopilotDriver(
           tools: nativeTools,
           onExitPlanModeRequest: (request) =>
             exitPlanModeDecision(request, ctx.onToolRequest, abort.signal),
-          ...(skillDirectories ? { skillDirectories } : {})
+          ...(skillDirectories ? { skillDirectories } : {}),
+          ...(mcpServers ? { mcpServers } : {})
         }
         session = ctx.resumeCursor
           ? await client.resumeSession(ctx.resumeCursor, sessionConfig)
@@ -405,15 +435,6 @@ export function createCopilotDriver(
 
       async function* events(): AsyncIterable<AgentEvent> {
         try {
-          // Declared degradation: connectors composed for this session cannot be exposed to
-          // Copilot (capabilities.mcpConnectors:false), so surface each as skipped up front
-          // — the UI shows the loss honestly rather than silently dropping connector tools.
-          for (const instanceId of Object.keys(ctx.extraMcpServers ?? {})) {
-            yield makeEvent(ctx.eventCtx(), 'session.mcp.skipped', {
-              instanceId,
-              reason: 'copilot-driver-no-mcp'
-            })
-          }
           for await (const item of queue) {
             if (isFatal(item)) throw item.__fatal
             const raw = item
