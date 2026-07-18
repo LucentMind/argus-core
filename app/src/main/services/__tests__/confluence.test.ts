@@ -106,8 +106,6 @@ const gatewayFetch = (): typeof fetch =>
 
 const authFixture = (): AtlassianAuth => ({
   instanceId: 'rovo',
-  siteUrl: null,
-  token: null,
   oauth: {
     serverUrl: 'https://mcp',
     accessToken: () => 'oauth-tok',

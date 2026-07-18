@@ -102,10 +102,7 @@ const ROVO: ConnectorMap = {
     config: {
       url: 'https://mcp.atlassian.com/v1/mcp/authv2',
       transport: 'http',
-      oauth: true,
-      siteUrl: 'https://argus88.atlassian.net',
-      email: 'me@x.com',
-      apiToken: { $secret: 'connector/rovo/apiToken' }
+      oauth: true
     }
   }
 } as unknown as ConnectorMap
@@ -116,25 +113,23 @@ const fakeOAuth = (authorized: boolean): OAuthLike => ({
   refresh: async () => authorized
 })
 
-describe('resolveAtlassianCreds (mode-aware)', () => {
-  it('exposes oauth block when authorized', () => {
-    const a = resolveAtlassianCreds(ROVO, () => 'REST-TOKEN', fakeOAuth(true))
+describe('resolveAtlassianCreds (OAuth-only)', () => {
+  it('exposes an oauth block iff authorized', () => {
+    const a = resolveAtlassianCreds(ROVO, fakeOAuth(true))
     expect(a.oauth).toBeTruthy()
     expect(a.oauth!.accessToken()).toBe('oauth-tok')
     expect(a.oauth!.serverUrl).toBe('https://mcp.atlassian.com/v1/mcp/authv2')
-    expect(a.token).toBe('REST-TOKEN')
   })
 
-  it('no oauth block when not authorized; token still present', () => {
-    const a = resolveAtlassianCreds(ROVO, () => 'REST-TOKEN', fakeOAuth(false))
+  it('no oauth block when not authorized', () => {
+    const a = resolveAtlassianCreds(ROVO, fakeOAuth(false))
     expect(a.oauth).toBeUndefined()
-    expect(a.token).toBe('REST-TOKEN')
   })
 
-  it('does not throw when token is missing (oauth-only)', () => {
-    const a = resolveAtlassianCreds(ROVO, () => null, fakeOAuth(true))
-    expect(a.token).toBeNull()
-    expect(a.oauth).toBeTruthy()
+  it('throws not-configured when no rovo connector exists', () => {
+    expect(() => resolveAtlassianCreds({} as never, fakeOAuth(true))).toThrowError(
+      expect.objectContaining({ code: 'not-configured' })
+    )
   })
 })
 
@@ -173,9 +168,6 @@ const ISSUE_BODY = { key: 'KAN-2', fields: { summary: 's', attachment: [] } }
 function authFixture(over: Partial<AtlassianAuth>): () => AtlassianAuth {
   return () => ({
     instanceId: 'rovo',
-    siteUrl: 'https://legacy.example',
-    token: 'REST-TOKEN',
-    email: 'me@x.com',
     oauth: {
       serverUrl: 'https://mcp',
       accessToken: () => 'oauth-tok',
@@ -208,13 +200,13 @@ describe('AtlassianClient.request routing', () => {
     expect(calls.filter((x) => x.url.includes('accessible-resources'))).toHaveLength(2)
   })
 
-  it('Jira path without OAuth → auth error (no legacy fallback)', async () => {
+  it('Jira path without OAuth → auth error', async () => {
     const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
     const c = new AtlassianClient(authFixture({ oauth: undefined }), impl)
     const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('auth')
-    expect(calls).toHaveLength(0) // never hits the network — legacy siteUrl/token are ignored
+    expect(calls).toHaveLength(0) // never hits the network — no oauth block, nothing to try
   })
 
   it('Confluence routes to the /ex/confluence gateway with Bearer', async () => {
@@ -230,7 +222,7 @@ describe('AtlassianClient.request routing', () => {
     expect(g!.auth).toBe('Bearer oauth-tok')
   })
 
-  it('401 on OAuth Jira → refresh once → retry; still 401 → auth error (no legacy fallback)', async () => {
+  it('401 on OAuth Jira → refresh once → retry; still 401 → auth error', async () => {
     let refreshed = 0
     const auth = authFixture({
       oauth: {
@@ -242,28 +234,15 @@ describe('AtlassianClient.request routing', () => {
       }
     })
     const un = (): Response => new Response('{}', { status: 401 })
-    const { impl, calls } = recordingFetch([ARES, un, un]) // ares, try(401), retry(401) — no legacy call follows
+    const { impl } = recordingFetch([ARES, un, un]) // ares, try(401), retry(401)
     const c = new AtlassianClient(auth, impl)
     const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(refreshed).toBe(1)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('auth')
-    expect(calls.every((x) => !x.url.startsWith('https://legacy.example'))).toBe(true)
   })
 
-  it('no oauth and no legacy fields either → still auth error (not no-token)', async () => {
-    const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
-    const c = new AtlassianClient(
-      authFixture({ oauth: undefined, token: null, siteUrl: null }),
-      impl
-    )
-    const err = await c.getIssue('KAN-2').catch((e) => e)
-    expect(err).toBeInstanceOf(AtlassianError)
-    expect(err.code).toBe('auth')
-    expect(calls).toHaveLength(0)
-  })
-
-  it('accessToken() null → refresh → still null → auth error (no legacy fallback)', async () => {
+  it('accessToken() null → refresh → still null → auth error', async () => {
     const { impl, calls } = recordingFetch([() => OK(ISSUE_BODY)])
     const c = new AtlassianClient(
       authFixture({
@@ -271,16 +250,14 @@ describe('AtlassianClient.request routing', () => {
           serverUrl: 'https://mcp',
           accessToken: () => null,
           refresh: async () => undefined
-        },
-        token: 'LEGACY-TOKEN',
-        siteUrl: 'https://legacy.example'
+        }
       }),
       impl
     )
     const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('auth')
-    expect(calls).toHaveLength(0) // never reaches discovery/fetch — no valid token, no legacy fallback
+    expect(calls).toHaveLength(0) // never reaches discovery/fetch — no valid token
   })
 
   it('OAuth 401 twice → auth error', async () => {
@@ -289,18 +266,7 @@ describe('AtlassianClient.request routing', () => {
       () => new Response('{}', { status: 401 }),
       () => new Response('{}', { status: 401 })
     ])
-    const c = new AtlassianClient(
-      authFixture({
-        oauth: {
-          serverUrl: 'https://mcp',
-          accessToken: () => 'oauth-tok',
-          refresh: async () => undefined
-        },
-        token: null,
-        siteUrl: null
-      }),
-      impl
-    )
+    const c = new AtlassianClient(authFixture({}), impl)
     const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('auth')
@@ -308,41 +274,10 @@ describe('AtlassianClient.request routing', () => {
 
   it('cloud discovery fails (accessible-resources 401) → auth error', async () => {
     const { impl } = recordingFetch([() => new Response('{}', { status: 401 })])
-    const c = new AtlassianClient(
-      authFixture({
-        oauth: {
-          serverUrl: 'https://mcp',
-          accessToken: () => 'oauth-tok',
-          refresh: async () => undefined
-        },
-        token: null,
-        siteUrl: null
-      }),
-      impl
-    )
+    const c = new AtlassianClient(authFixture({}), impl)
     const err = await c.getIssue('KAN-2').catch((e) => e)
     expect(err).toBeInstanceOf(AtlassianError)
     expect(err.code).toBe('auth')
-  })
-
-  it('cloud discovery fails even when legacy siteUrl/token fields are set → still throws (no fallback)', async () => {
-    const { impl, calls } = recordingFetch([() => new Response('{}', { status: 401 })])
-    const c = new AtlassianClient(
-      authFixture({
-        oauth: {
-          serverUrl: 'https://mcp',
-          accessToken: () => 'oauth-tok',
-          refresh: async () => undefined
-        },
-        token: 'LEGACY-TOKEN',
-        siteUrl: 'https://legacy.example'
-      }),
-      impl
-    )
-    const err = await c.getIssue('KAN-2').catch((e) => e)
-    expect(err).toBeInstanceOf(AtlassianError)
-    expect(err.code).toBe('auth')
-    expect(calls).toHaveLength(1) // only the failed accessible-resources call — no legacy fetch after it
   })
 })
 
