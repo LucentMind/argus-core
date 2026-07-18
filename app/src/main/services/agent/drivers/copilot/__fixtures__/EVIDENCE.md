@@ -329,6 +329,45 @@ one plan-mode item still to observe end-to-end.
 
 ---
 
+## 9b. Exit-plan handshake, end-to-end (Task 12e) — VERDICT: **CAPTURED & CONFIRMED.**
+
+Open question 3 (the one plan-mode item §9 left unobserved) is now answered. Captured in
+`15-exit-plan.jsonl` (rerun: `node scripts/spike-copilot/run.mjs 15`, real runtime, same
+`JiaweiHan88` gh-cli auth, Copilot Free). The §12 scenario 12 stalled because it DENIED the
+plan artifact write; here we give the model a tiny fully-completable task, approve **only** the
+plan-artifact write (`COPILOT_HOME/session-state/<id>/plan.md`, never the sandbox) so the model
+can finish planning, and instruct it to exit plan mode. On the 2nd attempt (`exitFired:true`)
+the runtime fired `onExitPlanModeRequest` with the full live payload:
+
+```jsonc
+// ExitPlanModeRequest (exit-plan-request line)
+{
+  "summary": "…Approach: Add a one-line CONTRIBUTORS file… Steps: (1) Create… (2) Commit…",
+  "planContent": "# Plan: Add CONTRIBUTORS File\n## Approach…\n## Steps\n1. …\n2. …",
+  "actions": ["autopilot", "exit_only"],   // the concrete action enum, finally observed
+  "recommendedAction": "autopilot"
+}
+```
+
+Both `exit_plan_mode.requested` and `exit_plan_mode.completed` events fired on the stream. The
+handler returned the driver's production decision verbatim and the runtime accepted it:
+
+```jsonc
+// exit-plan-decision line — identical to exitPlanModeDecision(request) in index.ts
+{ "approved": true, "selectedAction": "autopilot" }
+```
+
+> **Driver decision confirmed (Task 9B `exitPlanModeDecision`, unit-tested; now e2e-proven):**
+> `{approved:true, ...(recommendedAction ? {selectedAction: recommendedAction} : {})}` produces
+> exactly `{approved:true, selectedAction:"autopilot"}` for this payload — the v1 implementation
+> behaves correctly against the real runtime. `actions` is a small closed enum
+> (`autopilot | exit_only`), not free-form; selecting `recommendedAction` is a valid member.
+> Note: at the driver's public (normalized) boundary the handshake is invisible — the
+> exit-plan events fall through the normalizer's `default` case, so this end-to-end behavior is
+> observable only at the raw-SDK layer this fixture captures, not from `events()`.
+
+---
+
 ## 10. CLI discovery / bundling facts
 
 - The SDK **bundles** the CLI runtime — no global `@github/copilot` install
@@ -446,9 +485,10 @@ same junction dir the Claude driver already relies on.
 2. **Paid-tier model catalog.** Does `listModels()` widen beyond `auto`, and does
    `SessionConfig.model` / `session.setModel()` pin a specific slug, on a Pro/
    Business account? (Free tier is `auto`-only + router.)
-3. **`exit_plan_mode.requested` end-to-end.** Need a longer plan-mode turn where
-   the model completes a plan and requests exit, to capture the live
-   `ExitPlanModeRequest` payload and the `actions[]`/`recommendedAction` values.
+3. ~~**`exit_plan_mode.requested` end-to-end.**~~ **ANSWERED (Task 12, §9b, `15-exit-plan.jsonl`):**
+   captured the live `ExitPlanModeRequest` (`actions:["autopilot","exit_only"]`,
+   `recommendedAction:"autopilot"`) + `exit_plan_mode.requested`/`completed`; the driver's
+   `exitPlanModeDecision` v1 is confirmed correct end-to-end.
 4. **`tool.execution_complete` full `result`/`error` shape** for a failing tool
    (only success paths captured here).
 5. **Sub-agent (`task`) event stream** (`subagent.*`, `includeSubAgentStreaming
