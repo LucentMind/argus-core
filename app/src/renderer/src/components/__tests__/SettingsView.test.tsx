@@ -5,6 +5,7 @@ import { SettingsView } from '../settings/SettingsView'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
+import type { PacksListPayload } from '../../../../shared/packs'
 
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -29,6 +30,21 @@ function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   }
 }
 
+const packsListed: PacksListPayload = {
+  error: null,
+  packs: [
+    {
+      id: 'navigation',
+      displayName: 'Navigation',
+      installedVersion: '1.0.0',
+      loadedVersion: '1.0.0',
+      platform: 'win-x64',
+      pendingRelaunch: false,
+      binaries: []
+    }
+  ]
+}
+
 let currentPayload: SettingsPayload
 
 beforeEach(() => {
@@ -44,6 +60,15 @@ beforeEach(() => {
       probeTools: vi.fn(async () => []),
       pickPath: vi.fn(async () => null),
       reveal: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    },
+    packs: {
+      list: vi.fn(async () => packsListed),
+      pickBundle: vi.fn(async () => null),
+      inspect: vi.fn(),
+      install: vi.fn(),
+      uninstall: vi.fn(),
+      relaunch: vi.fn(),
       onChanged: vi.fn(() => () => {})
     },
     agent: { authStatus: vi.fn(async () => ({ ok: true, detail: 'ready' })) },
@@ -152,6 +177,14 @@ describe('SettingsView', () => {
     await screen.findByRole('button', { name: /General/ })
     fireEvent.click(screen.getByRole('button', { name: /Connectors/ }))
     expect(await screen.findByRole('button', { name: /add connector/i })).toBeTruthy()
+  })
+
+  it('clicking Packs renders PacksSettings', async () => {
+    render(<SettingsView onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: /General/ })
+    fireEvent.click(screen.getByRole('button', { name: /^Packs$/ }))
+    expect(await screen.findByText('Installed Packs')).toBeTruthy()
+    expect(await screen.findByText('Navigation')).toBeTruthy()
   })
 
   it('Escape calls onClose', async () => {
