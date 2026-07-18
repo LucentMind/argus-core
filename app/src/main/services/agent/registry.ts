@@ -1,12 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision, CaseRecord } from '../../../shared/types'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import { activeInstanceConfig, effectiveDefaultModel } from '../../../shared/drivers'
 import { settingsSchema, type AgentSettings } from '../../../shared/settings'
 import type { AgentAccess } from '../../../shared/agentAccess'
-import { CaseSession, type CreateQueryFn, type SessionMirrorLike } from './session'
+import { CaseSession, type SessionMirrorLike } from './session'
+import type { AgentDriver } from './driver'
+import { createClaudeDriver, type CreateQueryFn } from './drivers/claude'
 import type { PanelCommandDecl } from './panelCommands'
 import { sessionCursor } from './sessionStore'
 import { getCase } from '../caseService'
@@ -27,6 +28,10 @@ export interface AgentServiceDeps {
   onEvent: (e: AgentEvent) => void
   /** Live agent-access overrides (skills/memory); consulted at each session construction. */
   agentAccess: () => AgentAccess
+  /** The agent driver every session runs on; defaults to the Claude driver. */
+  driver?: AgentDriver
+  /** Back-compat test seam: when only `createQuery` is given, it is wrapped in the Claude
+   *  driver (`createClaudeDriver(createQuery)`). Ignored when `driver` is supplied. */
   createQuery?: CreateQueryFn
   maxSessions?: number
   mirrorFactory?: (caseSlug: string, sessionId: number) => SessionMirrorLike
@@ -70,9 +75,6 @@ export interface AgentServiceDeps {
   ) => Promise<unknown>
 }
 
-const defaultCreateQuery: CreateQueryFn = (args) =>
-  query({ prompt: args.prompt as never, options: args.options as never }) as never
-
 export class AgentService {
   private deps: Required<
     Pick<
@@ -81,10 +83,15 @@ export class AgentService {
     >
   > &
     AgentServiceDeps
+  private driver: AgentDriver
   private sessions = new Map<string, CaseSession>()
 
   constructor(deps: AgentServiceDeps) {
-    this.deps = { maxSessions: 3, createQuery: defaultCreateQuery, ...deps }
+    this.deps = { maxSessions: 3, ...deps }
+    // Resolve the driver once: an explicit driver wins; otherwise wrap the (optional)
+    // createQuery seam in the Claude driver — createClaudeDriver falls back to the real
+    // SDK query() when createQuery is undefined (production).
+    this.driver = deps.driver ?? createClaudeDriver(deps.createQuery)
   }
 
   private keyOf(caseSlug: string, sessionId: number): string {
@@ -162,8 +169,8 @@ export class AgentService {
       ],
       packCliNames: this.deps.packCliNames?.() ?? [],
       emit: this.deps.onEvent,
-      createQuery: this.deps.createQuery ?? defaultCreateQuery,
-      resumeSdkSessionId: cursor,
+      driver: this.driver,
+      resumeCursor: cursor,
       toolRisk: this.deps.toolRisk,
       agentAccess: this.deps.agentAccess,
       extraMcpServers: mcp?.servers,

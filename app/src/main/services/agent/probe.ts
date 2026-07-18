@@ -1,5 +1,5 @@
 import type { AuthStatus } from '../../../shared/types'
-import type { CreateQueryFn } from './session'
+import type { CreateQueryFn } from './drivers/claude'
 
 /** "max*"/"pro*"/"team*"/"enterprise*" prefixes win; apiKey token source overrides all; else title-case. */
 function subscriptionLabel(

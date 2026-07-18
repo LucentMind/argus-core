@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { distillTarget, buildDistillPrompt, type DistillInput } from '../refSync/distill'
-import type { CreateQueryFn } from '../agent/session'
+import type { CreateQueryFn } from '../agent/drivers/claude'
 
 const input: DistillInput = {
   target: 'routing-flow.md',

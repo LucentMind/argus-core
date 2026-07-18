@@ -1,4 +1,4 @@
-import type { CreateQueryFn } from '../agent/session'
+import type { CreateQueryFn } from '../agent/drivers/claude'
 import type { CaseDistillInput, CaseDistillOutput } from '../../../shared/distill'
 import { runOneShot, type DistillOptions } from '../refSync/distill'
 import { buildCaseDistillPrompt, parseCaseDistillOutput } from './contract'

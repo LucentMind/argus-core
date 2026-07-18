@@ -11,7 +11,7 @@ import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
 import { caseDir } from '../../paths'
-import type { CreateQueryFn } from '../session'
+import type { CreateQueryFn } from '../drivers/claude'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 const detection = createDetection()

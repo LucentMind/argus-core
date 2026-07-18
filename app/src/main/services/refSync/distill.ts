@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import type { CreateQueryFn } from '../agent/session'
+import type { CreateQueryFn } from '../agent/drivers/claude'
 
 export interface DistillPage {
   title: string
