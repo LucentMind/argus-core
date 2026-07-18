@@ -130,11 +130,19 @@ export function getDriver(slug: string): DriverDefinition | null {
   return DRIVERS[slug] ?? null
 }
 
-/** Permissive fallback used only before settings first load, or when the active
- *  instance's driver is unknown — matches pre-Task-11 behavior (unrestricted). */
+/**
+ * Fallback used before settings first load, when the active instance's driver is
+ * unknown, AND in the settled settings-IPC-failure state — `SettingsStore.start()`
+ * swallows a failed `settings.get()` and the payload then stays null indefinitely,
+ * so this is a possible steady state, not just a pre-load flicker. Cosmetic fields
+ * stay permissive (the full mode picker), but `editableApprovals` is conservative:
+ * offering an edit affordance the active driver may silently drop (Copilot v1)
+ * would be a false "your edit applied" signal, while withholding it merely costs
+ * a convenience.
+ */
 const DEFAULT_CAPABILITIES: DriverCapabilities = {
   permissionModes: PERMISSION_MODES,
-  editableApprovals: true,
+  editableApprovals: false,
   costReporting: true
 }
 
@@ -149,8 +157,10 @@ export function activeDriver(s: AppSettings): DriverDefinition | null {
 /**
  * Renderer-wide source of truth for "what can the active driver do" — Composer's
  * permission picker, ApprovalCard's edit affordance, and the cost chip all read
- * this instead of hardcoding capabilities. Falls back to the permissive default
- * when `s` is null/undefined (settings not yet loaded) or the driver is unknown.
+ * this instead of hardcoding capabilities. Falls back to DEFAULT_CAPABILITIES
+ * when `s` is null/undefined (settings not yet loaded, or settings IPC failed and
+ * the payload settled at null) or the driver slug is unknown — see the fallback's
+ * own doc comment for why it is conservative on `editableApprovals`.
  */
 export function activeCapabilities(s: AppSettings | null | undefined): DriverCapabilities {
   if (!s) return DEFAULT_CAPABILITIES

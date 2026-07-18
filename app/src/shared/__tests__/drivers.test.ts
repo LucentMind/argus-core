@@ -8,6 +8,8 @@ import {
   orderedVisibleModels,
   orderedModels,
   effectiveDefaultModel,
+  activeDriver,
+  activeCapabilities,
   type ClaudeDriverConfig
 } from '../drivers'
 import { settingsSchema, type AppSettings } from '../settings'
@@ -133,6 +135,40 @@ describe('driver registry', () => {
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.capabilities.costReporting).toBe(false)
     expect(d.capabilities.planMode).toBe(true)
+  })
+
+  it('activeDriver resolves the active instance driver; null for unknown slug', () => {
+    expect(activeDriver(withPrefs())?.kind).toBe('claude-agent-sdk')
+    const s = withPrefs()
+    s.agent.providerInstances['claude-default'].driver = 'mystery-driver'
+    expect(activeDriver(s)).toBeNull()
+  })
+
+  it('activeCapabilities returns the active driver capabilities when settings resolve', () => {
+    expect(activeCapabilities(withPrefs())).toBe(DRIVERS['claude-agent-sdk'].capabilities)
+    const s = withPrefs()
+    s.agent.providerInstances['claude-default'].driver = 'github-copilot'
+    expect(activeCapabilities(s)).toBe(DRIVERS['github-copilot'].capabilities)
+  })
+
+  it('activeCapabilities fallback (null settings / unknown driver) is conservative on editableApprovals only', () => {
+    // The fallback covers both the pre-load window AND the settled state where
+    // settings IPC failed (SettingsStore.start swallows the error and the payload
+    // stays null forever). Cosmetic fields stay permissive; the security-relevant
+    // edit affordance must not be offered when the driver is unknown.
+    for (const caps of [
+      activeCapabilities(null),
+      activeCapabilities(undefined),
+      (() => {
+        const s = withPrefs()
+        s.agent.providerInstances['claude-default'].driver = 'mystery-driver'
+        return activeCapabilities(s)
+      })()
+    ]) {
+      expect(caps.permissionModes).toEqual(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
+      expect(caps.editableApprovals).toBe(false)
+      expect(caps.costReporting).toBe(true)
+    }
   })
 
   it('both driver configs accept the shared {model?, cliPath?, customModels?} shape', () => {

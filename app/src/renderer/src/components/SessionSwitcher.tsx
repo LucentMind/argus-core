@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronDown, MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
 import { useSettingsPayload } from '../lib/settingsStore'
-import { DRIVERS } from '../../../shared/drivers'
+import { DRIVERS, activeDriver } from '../../../shared/drivers'
 import { Chip } from './ui'
 
 function displayTitle(s: { id: number; title: string }): string {
@@ -75,9 +75,7 @@ export function SessionSwitcher({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const settingsPayload = useSettingsPayload()
   const activeDriverKind = settingsPayload
-    ? settingsPayload.settings.agent.providerInstances[
-        settingsPayload.settings.agent.activeInstanceId
-      ]?.driver
+    ? activeDriver(settingsPayload.settings)?.kind
     : undefined
 
   // the trigger needs the active title even before the popup is ever opened

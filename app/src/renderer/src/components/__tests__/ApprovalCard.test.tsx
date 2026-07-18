@@ -85,9 +85,12 @@ const mcpRequest = {
 }
 
 describe('ApprovalCard editable MCP preview', () => {
-  it('renders string fields as editors and sends edits as updatedInput on approve', () => {
+  // the edit affordance only appears once the settings payload settles (the
+  // pre-load fallback is deliberately conservative: editableApprovals false),
+  // so editor lookups must be findBy*, not getBy*
+  it('renders string fields as editors and sends edits as updatedInput on approve', async () => {
     render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
-    const body = screen.getByLabelText('body')
+    const body = await screen.findByLabelText('body')
     fireEvent.change(body, { target: { value: 'edited RCA' } })
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
@@ -98,8 +101,9 @@ describe('ApprovalCard editable MCP preview', () => {
     })
   })
 
-  it('sends no updatedInput when nothing was edited', () => {
+  it('sends no updatedInput when nothing was edited', async () => {
     render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    await screen.findByLabelText('body') // settings settled, editors up
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
       requestId: 'r1',
@@ -109,9 +113,9 @@ describe('ApprovalCard editable MCP preview', () => {
     })
   })
 
-  it('deny never sends updatedInput even after edits', () => {
+  it('deny never sends updatedInput even after edits', async () => {
     render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
-    fireEvent.change(screen.getByLabelText('body'), { target: { value: 'x' } })
+    fireEvent.change(await screen.findByLabelText('body'), { target: { value: 'x' } })
     fireEvent.click(screen.getByRole('button', { name: /deny/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith(
       'NAV-7',
@@ -143,8 +147,10 @@ describe('ApprovalCard editable MCP preview', () => {
     s.agent.providerInstances['claude-default'].driver = 'github-copilot'
     window.argus.settings.get = settingsGet(s)
     render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
-    // once settings resolve, an otherwise-editable MEDIUM MCP ask stays read-only
-    await waitFor(() => expect(screen.queryByLabelText('body')).toBeNull())
+    // wait until the payload has actually settled, so the assertion covers the
+    // settled copilot state, not merely the (also read-only) pre-load fallback
+    await waitFor(() => expect(settingsStore.get()).not.toBeNull())
+    expect(screen.queryByLabelText('body')).toBeNull()
     expect(screen.getByText(mcpRequest.argsPreview)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
     expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
@@ -155,7 +161,29 @@ describe('ApprovalCard editable MCP preview', () => {
     })
   })
 
-  it('write_memory (allowlisted native tool) renders editable field editors at MEDIUM', () => {
+  it('stays read-only when settings never load (IPC failure settles the payload at null)', async () => {
+    // SettingsStore.start() swallows a failed settings.get() — the payload stays
+    // null indefinitely, a SETTLED state, and the conservative fallback must not
+    // offer an edit affordance the (unknown) active driver might silently drop.
+    window.argus.settings.get = vi.fn(async () => {
+      throw new Error('ipc down')
+    }) as never
+    render(<ApprovalCard slug="NAV-7" sessionId={2} request={mcpRequest} />)
+    // let the rejected fetch flush; the payload must still be null afterwards
+    await new Promise((r) => setTimeout(r, 0))
+    expect(settingsStore.get()).toBeNull()
+    expect(screen.queryByLabelText('body')).toBeNull()
+    expect(screen.getByText(mcpRequest.argsPreview)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^approve$/i }))
+    expect(window.argus.agent.respond).toHaveBeenCalledWith('NAV-7', 2, {
+      requestId: 'r1',
+      kind: 'allow',
+      comment: undefined,
+      updatedInput: undefined
+    })
+  })
+
+  it('write_memory (allowlisted native tool) renders editable field editors at MEDIUM', async () => {
     render(
       <ApprovalCard
         slug="NAV-7"
@@ -170,7 +198,7 @@ describe('ApprovalCard editable MCP preview', () => {
         }}
       />
     )
-    expect(screen.getByLabelText('content')).toBeTruthy()
+    expect(await screen.findByLabelText('content')).toBeTruthy()
   })
 
   it('update_case_status (non-allowlisted native tool) stays read-only at MEDIUM', () => {
