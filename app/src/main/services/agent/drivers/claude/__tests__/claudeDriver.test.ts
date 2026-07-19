@@ -161,6 +161,23 @@ describe('createClaudeDriver', () => {
     expect(await resumedFlagFor('copilot-abc')).toBe(false)
   })
 
+  // GUARD — do not delete without reading this.
+  // Top-level tool calls get their `tool.call.started` (and therefore their name and
+  // duration) ONLY from `stream_event` partials, which exist only while
+  // includePartialMessages is on. normalize.ts deliberately does NOT recover them from
+  // finished assistant messages, because top-level tool_use arrives on BOTH paths with
+  // the same id and the duplicate would clobber the real start time.
+  // Turning this option off would silently strip names and durations from every
+  // top-level tool in Langfuse, with nothing pointing back to the cause. This test is
+  // that pointer.
+  it('keeps includePartialMessages on — top-level tool starts depend on it', () => {
+    const spy = vi.fn(fakeQuery([]))
+    createClaudeDriver(spy).createSession(baseCtx())
+    expect((spy.mock.calls[0][0].options as Record<string, unknown>).includePartialMessages).toBe(
+      true
+    )
+  })
+
   it('flags auth-shaped failed turns', async () => {
     const ctx = baseCtx()
     const driver = createClaudeDriver(
