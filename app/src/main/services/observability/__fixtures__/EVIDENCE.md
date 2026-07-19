@@ -86,6 +86,40 @@ TRACE_OUTPUT     = langfuse.trace.output
 **=> The sink must set `TRACE_NAME` (and metadata) on the root span.** Without it every
 Argus session appears as an unnamed row, defeating the trace-per-session design.
 
+## Q5. `session.id` populates the Sessions view and groups traces — **acted on**
+
+Spike C emitted two traces, each a separate deterministic seed, both setting the same
+value on their root span:
+
+```js
+root.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_SESSION_ID, caseSlug)
+```
+
+API read-back of `GET /api/public/sessions/spike-case-1`:
+
+```
+id     : spike-case-1
+traces : [ { name: "spike-case-1 · session 2", sessionId: "spike-case-1" }, ... ]
+```
+
+and each trace individually reports `sessionId: "spike-case-1"`, `userId: null`.
+
+**=> Langfuse sessions are populated by a plain root-span attribute.** Argus maps its
+**case** (not its session) onto the Langfuse session, so every Argus session for a case
+groups under one row. Mapping the Argus *session* would be pointless: one Argus session
+is already exactly one trace, so each Langfuse session would contain a single trace.
+
+`userId` is left unset deliberately — Argus is a single-user desktop app, so the Users
+view would show one user owning everything. Revisit if several people ever point their
+Argus at a shared Langfuse project.
+
+### Incidental observation
+
+Traces carry `metadata.resourceAttributes["service.name"] = "unknown_service:<path to the
+node/electron executable>"`, an OpenTelemetry default. Harmless, but it does put a local
+filesystem path into trace metadata. Setting a real service name on the tracer provider's
+resource would clean it up. Not done here.
+
 ### Side note, recorded but not acted on
 
 `TRACE_SESSION_ID = session.id` is settable as a plain span attribute, so the
