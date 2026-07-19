@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { asarUnpackedPath } from '../asar'
 import type { RawSdkEvent } from './normalize'
 
 /**
@@ -122,6 +123,12 @@ function cliPlatformPackages(): string[] {
  * launcher entirely; `ELECTRON_RUN_AS_NODE=1` would also "work" but would run the CLI's
  * native addons under Electron's ABI, which they are not built for.
  *
+ * In a packaged build the resolved path lives inside `app.asar`, which Electron virtualizes
+ * for `fs` but NOT for `CreateProcess`/`exec` — spawning it fails ENOENT (verified 2026-07-19
+ * against `dist/win-unpacked`), the SDK's child never comes up, and its jsonrpc writer floods
+ * unhandled `ERR_STREAM_DESTROYED` rejections on every probe. electron-builder already unpacks
+ * the native binary, so we rewrite onto the `app.asar.unpacked` twin.
+ *
  * Returns null when no platform package is installed — the caller then leaves the SDK to
  * its own resolution so its actionable "Ensure @github/copilot is installed" error wins.
  */
@@ -130,7 +137,7 @@ export function resolveCopilotCliPath(
 ): string | null {
   for (const name of cliPlatformPackages()) {
     try {
-      return resolve(name)
+      return asarUnpackedPath(resolve(name))
     } catch {
       // try the next platform package
     }

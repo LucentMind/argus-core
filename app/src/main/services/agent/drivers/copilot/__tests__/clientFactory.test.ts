@@ -28,6 +28,27 @@ describe('resolveCopilotCliPath', () => {
     ).toBeNull()
   })
 
+  /**
+   * Packaged-build regression (verified 2026-07-19 against `dist/win-unpacked`): inside an
+   * asar archive `require.resolve` yields a path under `app.asar`, which Electron virtualizes
+   * for `fs` but NOT for `CreateProcess` — spawning it fails ENOENT, the SDK's child dies, and
+   * its jsonrpc writer floods unhandled ERR_STREAM_DESTROYED rejections. electron-builder
+   * already unpacks the binary; we must point at the `app.asar.unpacked` twin.
+   */
+  it('rewrites an asar-internal path to its app.asar.unpacked twin', () => {
+    const got = resolveCopilotCliPath(
+      () => 'C:\\app\\resources\\app.asar\\node_modules\\@github\\copilot-win32-x64\\copilot.exe'
+    )
+    expect(got).toBe(
+      'C:\\app\\resources\\app.asar.unpacked\\node_modules\\@github\\copilot-win32-x64\\copilot.exe'
+    )
+  })
+
+  it('leaves a path that merely contains "asar" in a directory name alone', () => {
+    const got = resolveCopilotCliPath(() => '/home/asario/pkgs/copilot.exe')
+    expect(got).toBe('/home/asario/pkgs/copilot.exe')
+  })
+
   it('resolves the real installed platform binary in this workspace', () => {
     const got = resolveCopilotCliPath()
     expect(got).toBeTruthy()
