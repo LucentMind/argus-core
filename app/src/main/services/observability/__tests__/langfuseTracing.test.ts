@@ -1,6 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { setLangfuseTracerProvider, getLangfuseTracerProvider } from '@langfuse/tracing'
+import {
+  setLangfuseTracerProvider,
+  getLangfuseTracerProvider,
+  createTraceId,
+  startObservation
+} from '@langfuse/tracing'
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
 import { createLangfuseTracing } from '../langfuseTracing'
+import { synthSpanId } from '../langfuseSink'
 
 /**
  * Regression coverage for the rebuild-ordering bug: a settings-change rebuild calls
@@ -51,5 +58,32 @@ describe('createLangfuseTracing shutdown ordering', () => {
     // Once cleared, getLangfuseTracerProvider() falls back to the OTel default —
     // a different object from the isolated provider that was just torn down.
     expect(getLangfuseTracerProvider()).not.toBe(providerSolo)
+  })
+})
+
+describe('createLangfuseTracing resource attributes', () => {
+  afterEach(() => {
+    setLangfuseTracerProvider(null)
+  })
+
+  it('sets service.name to argus instead of the OTel default (which embeds the local exe path)', async () => {
+    // Every trace's resourceAttributes.service.name defaulted to
+    // "unknown_service:C:\...\argus.exe" — OTel's default when no service name
+    // is set on the NodeTracerProvider's resource. That leaked the local
+    // filesystem path into every trace shipped to Langfuse.
+    createLangfuseTracing(cfg)
+
+    const seed = 'argus-session-resource-test'
+    const traceId = await createTraceId(seed)
+    const span = startObservation(
+      'probe',
+      {},
+      { parentSpanContext: { traceId, spanId: synthSpanId(seed), traceFlags: 1 } }
+    )
+    span.end()
+
+    const resourceAttrs = (span.otelSpan as unknown as { resource: { attributes: Record<string, unknown> } })
+      .resource.attributes
+    expect(resourceAttrs[ATTR_SERVICE_NAME]).toBe('argus')
   })
 })
