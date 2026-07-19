@@ -137,7 +137,8 @@ import type {
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
-import { buildLangfuseClient } from './services/observability/langfuseClient'
+import { LangfuseSink } from './services/observability/langfuseSink'
+import { createLangfuseTracing } from './services/observability/langfuseTracing'
 import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
 import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
@@ -342,7 +343,7 @@ function registerIpc(): void {
       return
     }
     langfuseExporter = new LangfuseExporter(
-      buildLangfuseClient({ host: s.host, publicKey: s.publicKey, secretKey }),
+      new LangfuseSink(createLangfuseTracing({ host: s.host, publicKey: s.publicKey, secretKey })),
       { captureContent: s.captureContent }
     )
   }
@@ -1532,11 +1533,27 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', () => {
+let quitting = false
+app.on('before-quit', (event) => {
+  // This handler re-enters once app.quit() is called below — the second entry
+  // must fall straight through so quit actually proceeds.
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+
   panelHost?.closeAll()
   externalAppHost?.closeAll()
   void agentService?.stopAll()
-  void langfuseExporter?.flush()
+
+  // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
+  // reached on the quit path before. Race it against a hard timeout: a quit hang
+  // is worse than losing telemetry, so a hung network call must never block quit.
+  const shutdown = langfuseExporter?.shutdown() ?? Promise.resolve()
+  const timeout = new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, 3000)
+    t.unref?.()
+  })
+  void Promise.race([shutdown, timeout]).finally(() => app.quit())
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

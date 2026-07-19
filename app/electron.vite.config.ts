@@ -4,7 +4,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        external: [/^@langfuse\//, /^@opentelemetry\//]
+      }
+    }
+  },
   preload: {
     build: {
       rollupOptions: {
