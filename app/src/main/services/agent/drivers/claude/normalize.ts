@@ -51,11 +51,41 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
     }
 
     case 'assistant': {
-      const text = (msg.message?.content ?? [])
+      const content = msg.message?.content ?? []
+      const out: AgentEvent[] = []
+
+      const text = content
         .filter((b: { type: string }) => b.type === 'text')
         .map((b: { text: string }) => b.text)
         .join('')
-      return text ? [makeEvent(ctx, 'assistant.message', { text })] : []
+      if (text) out.push(makeEvent(ctx, 'assistant.message', { text }))
+
+      // A sub-agent's tool calls NEVER arrive as `stream_event` partials — they appear
+      // only here, in finished assistant messages tagged with `parent_tool_use_id`.
+      // Captured live from the SDK; see __fixtures__/EVIDENCE.md. Without this their
+      // starts are lost, and the matching completions reach Langfuse with no name and
+      // no duration ("Unnamed tool", zero length).
+      //
+      // Gated on `parent_tool_use_id` deliberately: a TOP-LEVEL tool_use arrives twice
+      // — once as a stream_event partial, once in the finished message, same id — so
+      // emitting for those here would produce a second start and overwrite the real,
+      // earlier start time, shortening the tool's measured duration. Top-level starts
+      // therefore stay the stream path's job, which depends on includePartialMessages
+      // remaining on (guarded by a test in __tests__/claudeDriver.test.ts).
+      if (msg.parent_tool_use_id) {
+        for (const block of content) {
+          if (block?.type === 'tool_use') {
+            out.push(
+              makeEvent(ctx, 'tool.call.started', {
+                toolCallId: String(block.id),
+                name: String(block.name)
+              })
+            )
+          }
+        }
+      }
+
+      return out
     }
 
     case 'user': {

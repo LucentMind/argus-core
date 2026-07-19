@@ -160,4 +160,67 @@ describe('normalizeSdkMessage', () => {
       payload: { toolCallId: 't1', outputPreview: '', isError: false }
     })
   })
+
+  // A sub-agent's tool calls never appear as `stream_event` partials — they arrive
+  // ONLY as finished `assistant` messages carrying `parent_tool_use_id`. Captured
+  // live from the SDK; see __fixtures__/EVIDENCE.md. Without this, their starts are
+  // dropped and the completions land with no name and no duration.
+  it('emits tool.call.started for a sub-agent tool_use in a finished assistant message', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'assistant',
+        session_id: 'abc',
+        parent_tool_use_id: 'toolu_parentAgent',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'toolu_child1', name: 'Read', input: {} }]
+        }
+      },
+      ctx
+    )
+    expect(evs).toContainEqual(
+      expect.objectContaining({
+        type: 'tool.call.started',
+        payload: { toolCallId: 'toolu_child1', name: 'Read' }
+      })
+    )
+  })
+
+  // Top-level tool_use arrives TWICE — once as a stream_event partial, once in the
+  // finished assistant message, same id. Emitting from both would give it a second
+  // start and overwrite its real (earlier) start time, shortening its duration.
+  // Only sub-agent messages are read here, so the duplicate cannot occur.
+  it('does NOT emit tool.call.started for a top-level tool_use (no parent_tool_use_id)', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'assistant',
+        session_id: 'abc',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'toolu_topLevel', name: 'Agent', input: {} }]
+        }
+      },
+      ctx
+    )
+    expect(evs.filter((e) => e.type === 'tool.call.started')).toEqual([])
+  })
+
+  it('still emits assistant.message text alongside a sub-agent tool_use', () => {
+    const evs = normalizeSdkMessage(
+      {
+        type: 'assistant',
+        session_id: 'abc',
+        parent_tool_use_id: 'toolu_parentAgent',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'looking that up' },
+            { type: 'tool_use', id: 'toolu_child2', name: 'Glob', input: {} }
+          ]
+        }
+      },
+      ctx
+    )
+    expect(evs.map((e) => e.type)).toEqual(['assistant.message', 'tool.call.started'])
+  })
 })
