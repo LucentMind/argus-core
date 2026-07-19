@@ -6,6 +6,7 @@ import { CLAUDE_TOOL_TAXONOMY } from '../../risk'
 import { createArgusMcpServer } from '../../nativeTools'
 import { buildPanelCommandServers } from '../../panelCommands'
 import { probeAuth } from './probe'
+import { qualifySkill, skillPluginRoot } from '../../skillsResolver'
 import type {
   AgentDriver,
   DriverSession,
@@ -75,10 +76,15 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         options: {
           cwd: ctx.caseDir,
           additionalDirectories: [...ctx.additionalDirectories],
+          // `<caseDir>/.claude` is a local plugin root (manifest written by
+          // materializeSessionSkills), which namespaces our skills as `argus:<name>`.
+          plugins: [{ type: 'local', path: skillPluginRoot(ctx.caseDir) }],
           // Always sent, empty included: omitting `skills` is not "skills off" — the SDK
           // leaves the CLI's own discover-everything default in place, which pulls in the
           // .claude/skills of every additionalDirectory (i.e. of linked case workspaces).
-          skills: [...ctx.skills],
+          // Qualified, because a BARE name matches every skill so named — including a
+          // linked workspace's collider (verified: one bare entry loaded two skills).
+          skills: ctx.skills.map(qualifySkill),
           includePartialMessages: true,
           systemPrompt: {
             type: 'preset',
