@@ -58,6 +58,7 @@ export function ProviderRow({
   status,
   enabled,
   expanded,
+  isDefault,
   onToggleEnabled,
   onToggleExpanded,
   children
@@ -68,6 +69,7 @@ export function ProviderRow({
   status: ProviderStatus | null
   enabled: boolean
   expanded: boolean
+  isDefault: boolean
   onToggleEnabled: (v: boolean) => void
   onToggleExpanded: () => void
   children: React.ReactNode
@@ -103,6 +105,13 @@ export function ProviderRow({
               >
                 <ArrowUpCircle size={13} strokeWidth={1.5} aria-hidden />
                 <Chip tone="review">v{behind}</Chip>
+              </span>
+            )}
+            {isDefault && (
+              <span data-testid={`provider-default-${instanceId}`} className="shrink-0">
+                <Chip title="Used for new chats and background work (distillation, reference sync)">
+                  Default
+                </Chip>
               </span>
             )}
           </span>
