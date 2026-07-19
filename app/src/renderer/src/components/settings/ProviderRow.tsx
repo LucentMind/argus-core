@@ -58,8 +58,11 @@ export function ProviderRow({
   status,
   enabled,
   expanded,
+  isDefault,
+  canSetDefault,
   onToggleEnabled,
   onToggleExpanded,
+  onSetDefault,
   children
 }: {
   instanceId: string
@@ -68,8 +71,11 @@ export function ProviderRow({
   status: ProviderStatus | null
   enabled: boolean
   expanded: boolean
+  isDefault: boolean
+  canSetDefault: boolean
   onToggleEnabled: (v: boolean) => void
   onToggleExpanded: () => void
+  onSetDefault: () => void
   children: React.ReactNode
 }): React.JSX.Element {
   const behind = status?.latestVersion
@@ -104,6 +110,23 @@ export function ProviderRow({
                 <ArrowUpCircle size={13} strokeWidth={1.5} aria-hidden />
                 <Chip tone="review">v{behind}</Chip>
               </span>
+            )}
+            {isDefault && (
+              <span data-testid={`provider-default-${instanceId}`} className="shrink-0">
+                <Chip title="Used for new chats and background work (distillation, reference sync)">
+                  Default
+                </Chip>
+              </span>
+            )}
+            {canSetDefault && (
+              <button
+                type="button"
+                onClick={onSetDefault}
+                aria-label={`Set ${label} as default provider`}
+                className="shrink-0 text-xs text-mute hover:text-ink"
+              >
+                Set as default
+              </button>
             )}
           </span>
           <StatusLine status={status} enabled={enabled} />
