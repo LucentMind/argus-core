@@ -11,6 +11,8 @@ import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
 import { sharedSkillsDir } from '../../skillsDir'
+import { caseDir } from '../../paths'
+import { materializeSessionSkills, ARGUS_SKILL_PLUGIN } from '../skillsResolver'
 import type { CreateQueryFn } from '../drivers/claude'
 
 /**
@@ -66,7 +68,7 @@ const mkService = (access = defaultAgentAccess()): AgentService =>
     createQuery: capturingCreateQuery()
   })
 
-it('passes an explicit skills allowlist naming only the resolved, enabled skills', async () => {
+it('allowlists the resolved skills under the argus plugin namespace', async () => {
   writeSkill(sharedSkillsDir(home), 'code-graph', 'blast radius queries')
   writeSkill(sharedSkillsDir(home), 'contribute-back', 'draft proposals')
 
@@ -74,7 +76,23 @@ it('passes an explicit skills allowlist naming only the resolved, enabled skills
   const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   await svc.send('NAV-1', s.id, 'hi')
 
-  expect(lastOptions?.skills).toEqual(['code-graph', 'contribute-back'])
+  // Qualified, not bare: a bare name also matches a same-named skill in a linked
+  // workspace (empirically 2 entries load for one bare allowlist entry), so only the
+  // `argus:` form actually excludes the collider.
+  expect(lastOptions?.skills).toEqual(['argus:code-graph', 'argus:contribute-back'])
+  await svc.stopAll()
+})
+
+it('declares <caseDir>/.claude as a local plugin root so the namespace exists', async () => {
+  writeSkill(sharedSkillsDir(home), 'code-graph', 'blast radius queries')
+
+  const svc = mkService()
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
+  await svc.send('NAV-1', s.id, 'hi')
+
+  expect(lastOptions?.plugins).toEqual([
+    { type: 'local', path: path.join(caseDir(home, 'NAV-1'), '.claude') }
+  ])
   await svc.stopAll()
 })
 
@@ -86,8 +104,22 @@ it('omits a skill the user disabled, so the Skills page stays the control surfac
   const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
   await svc.send('NAV-1', s.id, 'hi')
 
-  expect(lastOptions?.skills).toEqual(['contribute-back'])
+  expect(lastOptions?.skills).toEqual(['argus:contribute-back'])
   await svc.stopAll()
+})
+
+it('materializes a plugin manifest beside the junctions, naming the argus namespace', () => {
+  writeSkill(sharedSkillsDir(home), 'code-graph', 'blast radius queries')
+  materializeSessionSkills(home, 'NAV-1', defaultAgentAccess())
+
+  const manifest = path.join(caseDir(home, 'NAV-1'), '.claude', '.claude-plugin', 'plugin.json')
+  expect(fs.existsSync(manifest)).toBe(true)
+  expect(JSON.parse(fs.readFileSync(manifest, 'utf8')).name).toBe(ARGUS_SKILL_PLUGIN)
+  // The junctions keep their bare layout: <root>/skills/<name> is exactly what a plugin
+  // root requires, and Copilot's skillDirectories still points at that same dir.
+  expect(fs.existsSync(path.join(caseDir(home, 'NAV-1'), '.claude', 'skills', 'code-graph'))).toBe(
+    true
+  )
 })
 
 it('sends an empty allowlist (never undefined) when no skill resolves enabled', async () => {

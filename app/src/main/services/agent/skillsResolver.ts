@@ -6,6 +6,28 @@ import { skillEnabled, type AgentAccess } from '../../../shared/agentAccess'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
+/**
+ * Plugin name under which Argus's resolved skills are registered with the Claude CLI.
+ *
+ * Skill names are otherwise a flat global namespace, so an allowlist entry like
+ * `contribute-back` matches EVERY skill of that name — including one shipped by a linked
+ * code workspace (verified: one bare entry loaded two skills). Registering the case's
+ * `.claude` dir as a local plugin qualifies ours as `argus:<name>`, which matches only
+ * ours. See `qualifySkill` / `skillPluginRoot`.
+ */
+export const ARGUS_SKILL_PLUGIN = 'argus'
+
+/** `<caseDir>/.claude` — a valid plugin root, since `<root>/skills/<name>` is already the
+ *  junction layout `materializeSessionSkills` builds (and Copilot's skillDirectories reads). */
+export function skillPluginRoot(caseDir: string): string {
+  return path.join(caseDir, '.claude')
+}
+
+/** Bare resolved name → the plugin-qualified form an allowlist must use. */
+export function qualifySkill(name: string): string {
+  return `${ARGUS_SKILL_PLUGIN}:${name}`
+}
+
 export interface ResolvedSkill {
   name: string
   tier: SkillTier
@@ -85,17 +107,32 @@ export function deleteUserSkill(argusHome: string, name: string): void {
 }
 
 /**
- * Rebuild <caseDir>/.claude/skills as per-skill junctions filtered by access.
+ * Rebuild <caseDir>/.claude/skills as per-skill junctions filtered by access, and write the
+ * `.claude-plugin/plugin.json` that turns `<caseDir>/.claude` into a local plugin root.
  * Replaces the legacy whole-dir junction that caseService created for old cases.
+ *
+ * The manifest sits BESIDE `skills/`, not inside it, so the junction layout Copilot's
+ * `skillDirectories` reads is untouched — only the Claude driver acts on the plugin.
  */
 export function materializeSessionSkills(
   argusHome: string,
   caseSlug: string,
   access: AgentAccess
 ): ResolvedSkill[] {
-  const linkDir = path.join(caseDir(argusHome, caseSlug), '.claude', 'skills')
+  const pluginRoot = skillPluginRoot(caseDir(argusHome, caseSlug))
+  const linkDir = path.join(pluginRoot, 'skills')
   fs.rmSync(linkDir, { recursive: true, force: true })
   fs.mkdirSync(linkDir, { recursive: true })
+  const manifestDir = path.join(pluginRoot, '.claude-plugin')
+  fs.mkdirSync(manifestDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(manifestDir, 'plugin.json'),
+    JSON.stringify(
+      { name: ARGUS_SKILL_PLUGIN, description: 'Argus case skills', version: '1.0.0' },
+      null,
+      2
+    )
+  )
   const resolved = resolveSkills(argusHome, access)
   for (const s of resolved) {
     if (!s.enabled) continue
