@@ -216,6 +216,62 @@ describe('reduce', () => {
     expect(intents).toEqual([])
   })
 
+  it('creates session state on turn.started when no session.started has arrived yet (real event order)', () => {
+    // Real event order observed in a live session log: turn.started fires ~1.1s
+    // BEFORE session.started, because the turn begins before the SDK session
+    // finishes initialising. Every existing test above builds the reverse
+    // (session-first) order because it reads more naturally.
+    const [state] = reduce(initialState(), turnStarted('summarize the readme in evidence', T0), {
+      captureContent: true
+    })
+    const entry = state.sessions.get(7)
+    expect(entry?.userText).toBe('summarize the readme in evidence')
+    expect(entry?.turnStartedAt).toBe(Date.parse(T0))
+  })
+
+  it('carries the user prompt and a real startTime when turn.started precedes session.started (real event order)', () => {
+    const intents = run(
+      [
+        turnStarted('summarize the readme in evidence', T0),
+        started({ ts: T1 }),
+        { ...base, ts: T2, type: 'assistant.message', payload: { text: 'reply text' } } as AgentEvent,
+        turnCompleted('success', T2)
+      ],
+      { captureContent: true }
+    )
+    const gen = intents.find((i) => i.kind === 'generation')
+    // Input must not be silently dropped just because the session didn't exist
+    // yet when turn.started arrived.
+    expect(gen).toMatchObject({
+      input: 'summarize the readme in evidence',
+      output: 'reply text',
+      startTime: Date.parse(T0)
+    })
+  })
+
+  it('does not clobber userText/turnStartedAt already recorded by turn.started when session.started later arrives', () => {
+    // session.started must only update `model` and emit its trace-root; it must
+    // preserve text/timing state that turn.started already populated. Replacing
+    // the whole entry via freshSessionState is exactly how the prompt gets
+    // thrown away a second time.
+    let s = initialState()
+    ;[s] = reduce(s, turnStarted('secret prompt', T0), { captureContent: true })
+    let intents: ObservationIntent[]
+    ;[s, intents] = reduce(s, started({ ts: T1 }), { captureContent: true })
+
+    const entry = s.sessions.get(7)
+    expect(entry?.userText).toBe('secret prompt')
+    expect(entry?.turnStartedAt).toBe(Date.parse(T0))
+    expect(entry?.model).toBe('claude-opus-4-8')
+    expect(intents).toContainEqual({
+      kind: 'trace-root',
+      seed: 'argus-session-7',
+      name: 'auth-bug · session 7',
+      caseSlug: 'auth-bug',
+      metadata: { caseSlug: 'auth-bug', caseId: 1 }
+    })
+  })
+
   it('omits tool duration when the start event was never seen', () => {
     const intents = run([
       started(),
