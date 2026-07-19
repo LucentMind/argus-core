@@ -84,6 +84,23 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           // .claude/skills of every additionalDirectory (i.e. of linked case workspaces).
           // Qualified, because a BARE name matches every skill so named — including a
           // linked workspace's collider (verified: one bare entry loaded two skills).
+          //
+          // KNOWN GAP — this bounds the MAIN SESSION ONLY. A subagent spawned via Task
+          // re-derives its own skill listing and sees everything discovery finds, linked
+          // workspaces included (measured 2026-07-19: main 2 skills, subagent 52 with all
+          // of analyze-logcat/-dlt/-recording/doctor/rca). That matters because a linked
+          // repo is an investigation artifact — often someone else's — so its SKILL.md is
+          // untrusted text a subagent would load as instructions, with no approval card.
+          //
+          // Deliberately left open; do not "fix" it with the obvious moves, all measured:
+          //   - AgentDefinition.skills is PRELOAD, not a filter — no restricting effect.
+          //   - settingSources:['project'] drops user-level plugins (52→34) but the
+          //     workspace's own skills still load.
+          //   - disallowedTools:['Skill'] in an `agents` entry works ONLY for a custom type
+          //     name; overriding a built-in (general-purpose) is ignored, and the model can
+          //     always fall back to a built-in, so it is escapable rather than contained.
+          // The only reliable containment is denying Task outright (disallowedTools:['Task'],
+          // verified: no subagent spawns) — a deliberate product call, not an oversight.
           skills: ctx.skills.map(qualifySkill),
           includePartialMessages: true,
           systemPrompt: {
