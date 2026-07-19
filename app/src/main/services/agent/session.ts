@@ -43,6 +43,8 @@ export interface SessionDeps {
   sessionId: number
   workspaceRoots: string[]
   skillsRoots: string[]
+  /** Resolved+enabled skill names (registry.ts); becomes the driver's skill allowlist. */
+  enabledSkills?: string[]
   /** Pack-contributed persona fragments (from PackRegistry), injected after the base persona. */
   personaFragments?: string[]
   /** Pack-declared CLI binary names (from PackRegistry), auto-allowlisted as LOW risk. */
@@ -141,6 +143,7 @@ export class CaseSession {
     const driverCtx: DriverSessionContext = {
       caseDir: dir,
       additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
+      skills: deps.enabledSkills ?? [],
       model: ao.model,
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',

@@ -90,6 +90,7 @@ export function runDriverContractSuite(
     const makeCtx = (overrides: Partial<DriverSessionContext> = {}): DriverSessionContext => ({
       caseDir: tmp,
       additionalDirectories: [],
+      skills: [],
       permissionMode: 'default',
       systemAppend: 'CONTRACT',
       extraMcpServers: {},

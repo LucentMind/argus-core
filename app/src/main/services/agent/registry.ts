@@ -201,6 +201,9 @@ export class AgentService {
       sessionId,
       workspaceRoots: await workspaceSandboxRoots(this.deps.db, this.deps.argusHome, caseSlug),
       skillsRoots: this.deps.skillsRoots,
+      // The same resolution that materialized the junctions also bounds what the driver
+      // may load — a linked workspace's own .claude/skills must never enter the session.
+      enabledSkills: resolvedSkills.filter((s) => s.enabled).map((s) => s.name),
       personaFragments: [
         ...(this.deps.personaFragments?.() ?? []),
         ...(contributeBack ? [CONTRIBUTE_BACK_NUDGE] : [])

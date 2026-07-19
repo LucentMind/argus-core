@@ -117,6 +117,7 @@ function open(
   const ctx: DriverSessionContext = {
     caseDir: scratch.caseDir,
     additionalDirectories: [],
+    skills: [],
     permissionMode: opts.permissionMode ?? 'default',
     systemAppend: '',
     extraMcpServers: opts.extraMcpServers ?? {},

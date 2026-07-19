@@ -30,6 +30,16 @@ export type ToolDecision =
 export interface DriverSessionContext {
   caseDir: string
   additionalDirectories: readonly string[]
+  /**
+   * Names of the skills Argus resolved as enabled — the ONLY skills a session may load.
+   * Passed to the driver as an explicit allowlist because `additionalDirectories` entries
+   * are scanned for `.claude/skills` by the Claude CLI: a linked code workspace is an
+   * investigation artifact, and a repo that ships its own skills would otherwise inject
+   * them into the session, bypassing the tier precedence and the Skills page. An empty
+   * array means "no skills" — it must still be sent, since omitting the allowlist falls
+   * back to the CLI's discover-everything default.
+   */
+  skills: readonly string[]
   model?: string
   cliPath?: string
   permissionMode: PermissionMode

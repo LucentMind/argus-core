@@ -342,6 +342,7 @@ function baseCtx(over: Partial<DriverSessionContext> = {}): DriverSessionContext
   return {
     caseDir: '/tmp/case',
     additionalDirectories: [],
+    skills: [],
     permissionMode: 'default',
     systemAppend: '',
     extraMcpServers: {},
