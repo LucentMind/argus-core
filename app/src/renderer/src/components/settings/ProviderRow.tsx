@@ -113,7 +113,10 @@ export function ProviderRow({
             )}
             {isDefault && (
               <span data-testid={`provider-default-${instanceId}`} className="shrink-0">
-                <Chip title="Used for new chats and background work (distillation, reference sync)">
+                <Chip
+                  tone="signal"
+                  title="Used for new chats and background work (distillation, reference sync)"
+                >
                   Default
                 </Chip>
               </span>
@@ -123,7 +126,7 @@ export function ProviderRow({
                 type="button"
                 onClick={onSetDefault}
                 aria-label={`Set ${label} as default provider`}
-                className="shrink-0 text-xs text-mute hover:text-ink"
+                className="shrink-0 text-xs text-defect hover:text-defect/70"
               >
                 Set as default
               </button>
