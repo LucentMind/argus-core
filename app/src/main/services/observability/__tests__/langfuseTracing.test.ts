@@ -82,8 +82,9 @@ describe('createLangfuseTracing resource attributes', () => {
     )
     span.end()
 
-    const resourceAttrs = (span.otelSpan as unknown as { resource: { attributes: Record<string, unknown> } })
-      .resource.attributes
+    const resourceAttrs = (
+      span.otelSpan as unknown as { resource: { attributes: Record<string, unknown> } }
+    ).resource.attributes
     expect(resourceAttrs[ATTR_SERVICE_NAME]).toBe('argus')
   })
 })
