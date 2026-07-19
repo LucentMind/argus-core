@@ -244,7 +244,8 @@ describe('createCopilotDriver — session lifecycle', () => {
       // unawaited from inside the SDK. Swallowed only when the stack proves SDK provenance.
       const teardown = Object.assign(new Error('Cannot call write after a stream was destroyed'), {
         code: 'ERR_STREAM_DESTROYED',
-        stack: 'Error\n    at WritableStreamWrapper.write (/app/node_modules/vscode-jsonrpc/lib/node/ril.js:78:16)'
+        stack:
+          'Error\n    at WritableStreamWrapper.write (/app/node_modules/vscode-jsonrpc/lib/node/ril.js:78:16)'
       })
       trap(teardown, Promise.resolve())
       expect(deferred).toHaveLength(0)

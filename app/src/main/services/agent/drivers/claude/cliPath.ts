@@ -21,17 +21,37 @@ import { asarUnpackedPath, isInsideAsar } from '../asar'
 export function resolveClaudeCliPath(
   resolve: (id: string) => string = require.resolve
 ): string | null {
-  const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`
-  let manifest: string
-  try {
-    manifest = resolve(`${pkg}/package.json`)
-  } catch {
-    return null // not installed — the SDK's own error is more actionable than ours
-  }
-  if (!isInsideAsar(manifest)) return null
+  return insideAsar(resolve) ? claudeBinaryPath(resolve) : null
+}
+
+/**
+ * The bundled Claude binary's spawnable path, regardless of whether we would override the
+ * SDK with it. The packaged smoke check spawns this directly (`--version`) — a launch check
+ * must not depend on auth state, and asking the binary its version is the whole question.
+ * Null when the platform package is not installed.
+ */
+export function claudeBinaryPath(
+  resolve: (id: string) => string = require.resolve
+): string | null {
+  const manifest = resolveManifest(resolve)
+  if (!manifest) return null
   const bin = path.join(
     path.dirname(manifest),
     process.platform === 'win32' ? 'claude.exe' : 'claude'
   )
   return asarUnpackedPath(bin)
+}
+
+function resolveManifest(resolve: (id: string) => string): string | null {
+  const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`
+  try {
+    return resolve(`${pkg}/package.json`)
+  } catch {
+    return null // not installed — the SDK's own error is more actionable than ours
+  }
+}
+
+function insideAsar(resolve: (id: string) => string): boolean {
+  const manifest = resolveManifest(resolve)
+  return manifest !== null && isInsideAsar(manifest)
 }
