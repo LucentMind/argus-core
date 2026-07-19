@@ -1,5 +1,57 @@
 import { describe, expect, it } from 'vitest'
-import { classifyProbe, runProviderSmoke } from '../smokeProviders'
+import { checkDriverBinaries, classifyProbe, runProviderSmoke } from '../smokeProviders'
+
+/**
+ * The CI gate. Spawning `--version` answers "can this binary be launched?" directly, with no
+ * dependence on credentials — which matters because CI has none, and the probe-based check
+ * this replaced would have scored a healthy logged-out build as FAILED (the Claude probe
+ * reports 'claude CLI exited before initializing' with no auth, which no auth-verdict
+ * allowlist should be expected to recognize).
+ */
+describe('checkDriverBinaries', () => {
+  const ok = (): { status: number; error?: Error; stdout: string } => ({
+    status: 0,
+    stdout: '2.1.205 (Claude Code)'
+  })
+
+  it('passes when every binary answers --version with exit 0', () => {
+    const result = checkDriverBinaries({ a: '/bin/a', b: '/bin/b' }, ok)
+    expect(result.ok).toBe(true)
+    expect(result.results.map((r) => r.kind)).toEqual(['a', 'b'])
+    expect(result.results[0].detail).toContain('2.1.205')
+  })
+
+  it('fails on the ENOENT the asar path produced', () => {
+    const result = checkDriverBinaries({ a: '/inside/app.asar/bin' }, () => ({
+      status: null,
+      error: Object.assign(new Error('spawn /inside/app.asar/bin ENOENT'), { code: 'ENOENT' }),
+      stdout: ''
+    }))
+    expect(result.ok).toBe(false)
+    expect(result.results[0].detail).toContain('ENOENT')
+  })
+
+  it('fails on a non-zero exit', () => {
+    const result = checkDriverBinaries({ a: '/bin/a' }, () => ({ status: 1, stdout: '' }))
+    expect(result.ok).toBe(false)
+  })
+
+  /** An unresolvable binary is a packaging failure, not a pass. */
+  it('fails when a driver has no resolvable binary path', () => {
+    const result = checkDriverBinaries({ a: null }, ok)
+    expect(result.ok).toBe(false)
+    expect(result.results[0].detail).toMatch(/could not be resolved/i)
+  })
+
+  it('spawns each binary with --version', () => {
+    const seen: Array<[string, string[]]> = []
+    checkDriverBinaries({ a: '/bin/a' }, (bin, args) => {
+      seen.push([bin, args])
+      return ok()
+    })
+    expect(seen).toEqual([['/bin/a', ['--version']]])
+  })
+})
 
 /**
  * The packaged smoke test asserts one thing only: every driver's CLI binary *launched*.
