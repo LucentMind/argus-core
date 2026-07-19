@@ -11,6 +11,19 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+  # Native binaries cannot be spawned from inside an asar (Electron virtualizes asar paths
+  # for fs but not for CreateProcess/exec). Both bundled agent CLIs shipped broken because of
+  # this. electron-builder auto-detects and unpacks executables, which is how they worked at
+  # all, but relying on that detection is implicit — a dependency shipping a binary in a shape
+  # it does not recognize would silently regress. Unpack node_modules explicitly instead.
+  #
+  # Scoped to the two binary-bearing packages rather than a blanket '**/node_modules/**',
+  # which would inflate the installer and forfeit the asar for everything else. The tradeoff
+  # is that each new provider needs a line here; `npm run smoke:packaged` is the backstop that
+  # catches a forgotten one. If we grow past a handful of providers, switch to the blanket
+  # pattern (as t3code does) and stop maintaining this list by hand.
+  - '**/node_modules/@github/copilot-*/**'
+  - '**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 extraResources:
   # Core-shipped internal packs (declarative only — no domain binaries baked in).
   # Loaded read-only from <resources>/packs.seed, distinct from the writable ARGUS_HOME/packs.
