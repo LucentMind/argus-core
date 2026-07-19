@@ -67,10 +67,16 @@ describe('resolveDistillProvider', () => {
   })
 
   it('rejects an explicit instance whose driver cannot run headless', () => {
-    const s = copilotActive({ distillProvider: { instanceId: 'github-copilot-1' } })
+    const s = copilotActive({
+      providerInstances: {
+        'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} },
+        'future-1': { driver: 'future-driver', enabled: true, config: {} }
+      },
+      distillProvider: { instanceId: 'future-1' }
+    })
     expect(resolveDistillProvider(s)).toEqual({
       ok: false,
-      reason: 'provider "github-copilot-1" (github-copilot) cannot run headless distillation'
+      reason: 'provider "future-1" (future-driver) cannot run headless distillation'
     })
   })
 

@@ -1,4 +1,4 @@
-import { vi } from 'vitest'
+import { vi, it, expect } from 'vitest'
 import { createCopilotDriver } from '../index'
 import type {
   CopilotClientFactory,
@@ -124,3 +124,8 @@ runDriverContractSuite(
     currentScript = script
   }
 )
+
+it('declared headlessOneShot matches runHeadless presence', () => {
+  const d = createCopilotDriver()
+  expect(d.capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
+})
