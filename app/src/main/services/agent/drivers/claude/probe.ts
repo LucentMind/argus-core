@@ -1,5 +1,6 @@
 import type { AuthStatus } from '../../../../../shared/types'
 import type { CreateQueryFn } from './index'
+import { resolveClaudeCliPath } from './cliPath'
 
 /** "max*"/"pro*"/"team*"/"enterprise*" prefixes win; apiKey token source overrides all; else title-case. */
 function subscriptionLabel(
@@ -50,6 +51,9 @@ export async function probeAuth(
 ): Promise<AuthStatus> {
   const timeoutMs = opts.timeoutMs ?? 10000
   const deadline = Date.now() + timeoutMs
+  // Same packaged-build escape as the session path (see resolveClaudeCliPath): without it the
+  // probe reports a bogus "libc mismatch" instead of an auth verdict.
+  const cliPath = opts.cliPath ?? resolveClaudeCliPath()
   let q: ReturnType<CreateQueryFn> | null = null
   try {
     q = createQuery({
@@ -57,7 +61,7 @@ export async function probeAuth(
       options: {
         maxTurns: 0,
         allowedTools: [],
-        ...(opts.cliPath ? { pathToClaudeCodeExecutable: opts.cliPath } : {})
+        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
       }
     })
     const first = await Promise.race([

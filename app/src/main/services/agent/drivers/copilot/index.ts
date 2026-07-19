@@ -54,9 +54,27 @@ export function isCopilotAuthErrorMessage(message: string): boolean {
 // tick, where it becomes an uncaughtException and Node's default handling applies again;
 // (b) be a single ref-counted process listener, so concurrent Copilot sessions never
 // stack duplicate handlers that would each rethrow the same unrelated rejection.
+/**
+ * True for a write rejection the SDK's own jsonrpc transport leaked after its runtime child
+ * went away. When the CLI dies (crash, teardown race, or an unspawnable binary) every queued
+ * write rejects `ERR_STREAM_DESTROYED`/`EPIPE` from inside the SDK, unawaited — a flood of
+ * unhandled rejections we can neither catch at a call site nor act on.
+ *
+ * Provenance is checked against the stack, not just the code: an identical error raised by
+ * Argus's own streams is a real bug and must keep crashing loudly.
+ */
+export function isCopilotTransportTeardownError(reason: unknown): boolean {
+  if (!(reason instanceof Error)) return false
+  const code = (reason as NodeJS.ErrnoException).code
+  if (code !== 'ERR_STREAM_DESTROYED' && code !== 'ERR_STREAM_WRITE_AFTER_END' && code !== 'EPIPE')
+    return false
+  return /vscode-jsonrpc|@github[\\/]copilot-sdk/.test(reason.stack ?? '')
+}
+
 const authRejectionTrap = (reason: unknown): void => {
   const msg = reason instanceof Error ? reason.message : String(reason)
   if (isCopilotAuthErrorMessage(msg)) return // swallowed: prevents the process crash
+  if (isCopilotTransportTeardownError(reason)) return // swallowed: dead-runtime write flood
   setImmediate(() => {
     throw reason instanceof Error ? reason : new Error(msg)
   })
@@ -507,6 +525,10 @@ export function createCopilotDriver(
       let client: CopilotClientLike | null = null
       let timer: ReturnType<typeof setTimeout> | undefined
       let timedOut = false
+      // The probe boots its own runtime, so it needs the same rejection trap a session holds:
+      // a runtime that fails to spawn leaks its write rejections from inside the SDK, and the
+      // probe is periodic — untrapped, that floods the log on every tick.
+      const releaseTrap = acquireAuthRejectionTrap()
       try {
         // A probe only needs a scratch home to boot the runtime; auth resolves via gh-cli
         // regardless. Use the OS temp dir so probing never pollutes the repo/cwd.
@@ -570,6 +592,7 @@ export function createCopilotDriver(
         // Always reap the probe client on BOTH branches; on a wedged start() the graceful stop
         // may not respond, so forceStop is the fallback — never leave an orphaned runtime.
         await client?.stop().catch(() => client?.forceStop().catch(() => undefined))
+        releaseTrap()
       }
     }
   }

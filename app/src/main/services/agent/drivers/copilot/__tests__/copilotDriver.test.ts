@@ -238,6 +238,25 @@ describe('createCopilotDriver — session lifecycle', () => {
       trap(unrelated, Promise.resolve())
       expect(deferred).toHaveLength(1) // everything else: rethrown on a fresh tick
       expect(() => deferred[0]()).toThrow(unrelated)
+      deferred.length = 0
+
+      // A dead SDK runtime makes its jsonrpc writer reject every queued write; those escape
+      // unawaited from inside the SDK. Swallowed only when the stack proves SDK provenance.
+      const teardown = Object.assign(new Error('Cannot call write after a stream was destroyed'), {
+        code: 'ERR_STREAM_DESTROYED',
+        stack: 'Error\n    at WritableStreamWrapper.write (/app/node_modules/vscode-jsonrpc/lib/node/ril.js:78:16)'
+      })
+      trap(teardown, Promise.resolve())
+      expect(deferred).toHaveLength(0)
+
+      // Same error code from unrelated app code still crashes loudly — no blanket suppression.
+      const ourStream = Object.assign(new Error('Cannot call write after a stream was destroyed'), {
+        code: 'ERR_STREAM_DESTROYED',
+        stack: 'Error\n    at exportWriter (/app/out/main/services/export.js:12:3)'
+      })
+      trap(ourStream, Promise.resolve())
+      expect(deferred).toHaveLength(1)
+      expect(() => deferred[0]()).toThrow(ourStream)
     } finally {
       spy.mockRestore()
     }
@@ -247,6 +266,20 @@ describe('createCopilotDriver — session lifecycle', () => {
     session2.end()
     await tick()
     expect(process.listeners('unhandledRejection').includes(trap)).toBe(false)
+  })
+
+  /** The observed packaged-build flood came from the periodic probe, not a session: the probe
+   *  boots its own client, so it must hold the trap for its own lifetime too. */
+  it('holds the rejection trap for the duration of probeAuth and releases it after', async () => {
+    const { factory } = makeFake()
+    const driver = createCopilotDriver({}, { clientFactory: factory })
+    const before = process.listeners('unhandledRejection').length
+    let during = 0
+    const probe = driver.probeAuth({})
+    during = process.listeners('unhandledRejection').length
+    await probe
+    expect(during).toBe(before + 1)
+    expect(process.listeners('unhandledRejection').length).toBe(before)
   })
 })
 

@@ -6,6 +6,7 @@ import { CLAUDE_TOOL_TAXONOMY } from '../../risk'
 import { createArgusMcpServer } from '../../nativeTools'
 import { buildPanelCommandServers } from '../../panelCommands'
 import { probeAuth } from './probe'
+import { resolveClaudeCliPath } from './cliPath'
 import type {
   AgentDriver,
   DriverSession,
@@ -67,6 +68,10 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
     createSession(ctx: DriverSessionContext): DriverSession {
       const promptQueue = new AsyncQueue<unknown>()
 
+      // A user-configured path wins; otherwise steer a packaged build off the unspawnable
+      // in-asar binary (see resolveClaudeCliPath). Null in dev — the SDK resolves itself.
+      const cliPath = ctx.cliPath ?? resolveClaudeCliPath()
+
       // Options bag: relocated from session.ts:168-211; the DriverSessionContext
       // fields substitute for the SessionDeps/agentOptions values the harness used to
       // read directly (systemAppend, extraMcpServers, nativeToolDeps, onToolRequest).
@@ -82,7 +87,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             append: ctx.systemAppend
           },
           ...(ctx.model ? { model: ctx.model } : {}),
-          ...(ctx.cliPath ? { pathToClaudeCodeExecutable: ctx.cliPath } : {}),
+          ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
           ...(ctx.permissionMode && ctx.permissionMode !== 'default'
             ? { permissionMode: ctx.permissionMode }
             : {}),
