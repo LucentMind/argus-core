@@ -14,7 +14,7 @@ import { AnnotatedForm } from './AnnotatedForm'
 import { ProviderModels } from './ProviderModels'
 import { ProviderRow } from './ProviderRow'
 import { AddProviderMenu, LastChecked } from './providerHeader'
-import { getDriver, nextInstanceId } from '../../../../shared/drivers'
+import { defaultInstanceId, getDriver, nextInstanceId } from '../../../../shared/drivers'
 import {
   PERMISSION_MODES,
   PERMISSION_MODE_LABELS,
@@ -89,6 +89,11 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
     }
   }
 
+  // The tag must name the instance that is ACTUALLY serving as default. When the stored id
+  // points at a disabled or unknown instance, defaultInstanceId() falls back to the first
+  // enabled one at read time — and that fallback is what background work really uses.
+  const effectiveDefaultId = defaultInstanceId(payload.settings)
+
   const entries = Object.entries(a.providerInstances)
   return (
     <>
@@ -132,6 +137,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
               status={statuses.find((s) => s.instanceId === id) ?? null}
               enabled={instance.enabled}
               expanded={expandedId === id}
+              isDefault={id === effectiveDefaultId}
               onToggleEnabled={(v) => setEnabled(id, v)}
               onToggleExpanded={() => setExpandedId(expandedId === id ? null : id)}
             >
