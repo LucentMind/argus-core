@@ -65,6 +65,7 @@ export function reduce(
         kind: 'trace-root',
         seed,
         name: `${e.caseSlug} · session ${e.sessionId}`,
+        caseSlug: e.caseSlug,
         metadata: { caseSlug: e.caseSlug, caseId: e.caseId }
       })
       break
