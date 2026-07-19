@@ -42,6 +42,15 @@ jobs:
         working-directory: app
         run: npm run ${{ matrix.script }} -- --publish never
 
+      # Catches the class of bug the unit suite structurally cannot: a bundled CLI binary
+      # that resolves inside app.asar and therefore cannot be spawned. There is no asar
+      # until the app is packaged, so this only has teeth here. Asserts the binaries
+      # LAUNCH, not that they authenticate — CI has no credentials, and "not
+      # authenticated" is a healthy answer that proves the process ran.
+      - name: Smoke-test packaged provider CLIs
+        working-directory: app
+        run: npm run smoke:packaged
+
       - uses: actions/upload-artifact@v4
         with:
           name: argus-${{ matrix.artifact }}

@@ -1487,7 +1487,19 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Packaged-build smoke check (npm run smoke:packaged): probe every driver, print the
+  // verdicts, exit. Runs before any IPC/window setup so it never touches user state.
+  if (process.argv.includes('--smoke-providers')) {
+    const { runProviderSmoke } = await import('./services/agent/smokeProviders')
+    const { ok, results } = await runProviderSmoke()
+    for (const r of results) {
+      console.log(`${r.launched ? 'LAUNCHED' : 'FAILED  '}  ${r.kind}: ${r.detail}`)
+    }
+    app.exit(ok ? 0 : 1)
+    return
+  }
+
   // Set app user model id for windows — match the installer appId so the running
   // app's taskbar button groups with the pinned shortcut and shows notifications
   // under the right identity.

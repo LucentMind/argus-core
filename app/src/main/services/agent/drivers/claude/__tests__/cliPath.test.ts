@@ -22,8 +22,9 @@ describe('resolveClaudeCliPath', () => {
   /** Unpackaged runs must keep deferring to the SDK's own resolution — we only override to
    *  escape the asar, never to second-guess the SDK elsewhere. */
   it('returns null when the binary is not inside an asar', () => {
-    expect(resolveClaudeCliPath(() => '/repo/node_modules/@anthropic-ai/sdk-linux-x64/package.json'))
-      .toBeNull()
+    expect(
+      resolveClaudeCliPath(() => '/repo/node_modules/@anthropic-ai/sdk-linux-x64/package.json')
+    ).toBeNull()
   })
 
   it('returns null when the platform package is not installed', () => {
