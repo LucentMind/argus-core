@@ -75,6 +75,10 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         options: {
           cwd: ctx.caseDir,
           additionalDirectories: [...ctx.additionalDirectories],
+          // Always sent, empty included: omitting `skills` is not "skills off" — the SDK
+          // leaves the CLI's own discover-everything default in place, which pulls in the
+          // .claude/skills of every additionalDirectory (i.e. of linked case workspaces).
+          skills: [...ctx.skills],
           includePartialMessages: true,
           systemPrompt: {
             type: 'preset',

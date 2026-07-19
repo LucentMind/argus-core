@@ -48,6 +48,7 @@ function fakeQuery(messages: unknown[]): CreateQueryFn {
 const baseCtx = (): Parameters<ReturnType<typeof createClaudeDriver>['createSession']>[0] => ({
   caseDir: tmp,
   additionalDirectories: [],
+  skills: [],
   permissionMode: 'default' as const,
   systemAppend: 'PERSONA',
   extraMcpServers: {},
