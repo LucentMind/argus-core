@@ -68,6 +68,24 @@ Because top-level starts come *only* from the streaming path, they depend on
 every top-level tool with nothing pointing at the cause, so
 `__tests__/claudeDriver.test.ts` carries a guard test asserting the option is set.
 
+### Redactions
+
+The capture is real SDK output with three edits, none touching the `tool_use` /
+`tool_result` flow this fixture exists to document:
+
+- `#2 system/hook_response` — `output`/`stdout` replaced. They carried the capturing
+  environment's SessionStart hook text (an unrelated plugin's instructions), about a
+  third of the original file.
+- `#3 system/init` — `cwd`, `memory_paths`, and the `tools` / `mcp_servers` /
+  `slash_commands` / `skills` / `plugins` / `agents` inventories replaced. `normalize.ts`
+  reads only `model` from this message.
+- Windows paths had the account name replaced with `<user>`, and the capturing session's
+  scratch directory with `<tmp>`. Path *shape* is preserved deliberately — this is a
+  fixture, and realistic paths are part of what it demonstrates.
+
+Message count, ordering, ids, and every `parent_tool_use_id` are untouched, so the
+numbering used above still refers to the lines in this file.
+
 ### Reproducing
 
 No committed script — this was a throwaway. To recapture: call `query()` from the SDK
