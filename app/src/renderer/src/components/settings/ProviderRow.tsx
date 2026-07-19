@@ -113,10 +113,7 @@ export function ProviderRow({
             )}
             {isDefault && (
               <span data-testid={`provider-default-${instanceId}`} className="shrink-0">
-                <Chip
-                  tone="signal"
-                  title="Used for new chats and background work (distillation, reference sync)"
-                >
+                <Chip tone="signal" title="Used for new chats and provider probes">
                   Default
                 </Chip>
               </span>
