@@ -1,143 +1,79 @@
 import { describe, it, expect, vi } from 'vitest'
-import { LangfuseExporter, type LangfuseClientLike } from '../langfuse'
+import { LangfuseExporter } from '../langfuse'
+import type { ObservationSink } from '../sink'
+import type { ObservationIntent } from '../intent'
 import type { AgentEvent } from '../../../../shared/agent-events'
+import type { FindingRow } from '../../../../shared/observability'
 
-function fakeClient(): { client: LangfuseClientLike; calls: Record<string, unknown[]> } {
-  const calls: Record<string, unknown[]> = { trace: [], generation: [], span: [], score: [] }
-  const client: LangfuseClientLike = {
-    trace: (o) => {
-      calls.trace.push(o)
-      return { update: () => {} }
-    },
-    generation: (o) => calls.generation.push(o),
-    span: (o) => calls.span.push(o),
-    score: (o) => calls.score.push(o),
-    flushAsync: vi.fn().mockResolvedValue(undefined),
-    shutdownAsync: vi.fn().mockResolvedValue(undefined)
+function fakeSink(): { sink: ObservationSink; seen: ObservationIntent[] } {
+  const seen: ObservationIntent[] = []
+  return {
+    seen,
+    sink: {
+      emit: (intents) => seen.push(...intents),
+      flush: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined)
+    }
   }
-  return { client, calls }
 }
 
-const base = { eventId: 'e', caseId: 1, caseSlug: 'c1', sessionId: 7, turnId: 3, ts: 't' }
+const base = {
+  eventId: 'e',
+  caseId: 1,
+  caseSlug: 'auth-bug',
+  sessionId: 7,
+  turnId: 3,
+  ts: '2026-07-19T10:00:00.000Z'
+}
+
+const started = (): AgentEvent =>
+  ({ ...base, type: 'session.started', payload: { model: 'm', resumed: false } }) as AgentEvent
 
 describe('LangfuseExporter', () => {
-  it('maps a turn to a generation with usage and omits content when captureContent=false', () => {
-    const { client, calls } = fakeClient()
-    const ex = new LangfuseExporter(client, { captureContent: false })
-    ex.handle({
-      ...base,
-      type: 'session.started',
-      payload: { model: 'claude-opus-4-8', resumed: false }
-    } as AgentEvent)
-    ex.handle({
-      ...base,
-      type: 'turn.started',
-      payload: { userText: 'secret log line' }
-    } as AgentEvent)
-    ex.handle({
-      ...base,
-      type: 'turn.completed',
-      payload: {
-        status: 'success',
-        inputTokens: 10,
-        outputTokens: 5,
-        costUsd: 0.01,
-        durationMs: 100
-      }
-    } as AgentEvent)
-    expect(calls.trace).toHaveLength(1)
-    expect(calls.generation).toHaveLength(1)
-    const gen = calls.generation[0] as Record<string, unknown>
-    expect(gen.model).toBe('claude-opus-4-8')
-    expect(JSON.stringify(gen)).not.toContain('secret log line') // content gated OFF
+  it('forwards reducer intents to the sink', () => {
+    const { sink, seen } = fakeSink()
+    new LangfuseExporter(sink, { captureContent: false }).handle(started())
+    expect(seen).toEqual([expect.objectContaining({ kind: 'trace-root', seed: 'argus-session-7' })])
   })
 
-  it('includes content when captureContent=true', () => {
-    const { client, calls } = fakeClient()
-    const ex = new LangfuseExporter(client, { captureContent: true })
-    ex.handle({
-      ...base,
-      type: 'session.started',
-      payload: { model: 'm', resumed: false }
-    } as AgentEvent)
-    ex.handle({
-      ...base,
-      type: 'turn.started',
-      payload: { userText: 'secret log line' }
-    } as AgentEvent)
-    ex.handle({
-      ...base,
-      type: 'turn.completed',
-      payload: { status: 'success', inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1 }
-    } as AgentEvent)
-    expect(JSON.stringify(calls.generation[0])).toContain('secret log line')
+  it('emits a finding_accepted score for a reviewed finding', () => {
+    const { sink, seen } = fakeSink()
+    const ex = new LangfuseExporter(sink, { captureContent: false })
+    ex.scoreFinding({ sessionId: 7, reviewState: 'accepted' } as FindingRow)
+    expect(seen).toEqual([
+      { kind: 'score', seed: 'argus-session-7', name: 'finding_accepted', value: 1 }
+    ])
   })
 
-  it('emits a turn_error score on error turns', () => {
-    const { client, calls } = fakeClient()
-    const ex = new LangfuseExporter(client, { captureContent: false })
-    ex.handle({
-      ...base,
-      type: 'session.started',
-      payload: { model: 'm', resumed: false }
-    } as AgentEvent)
-    ex.handle({ ...base, type: 'turn.started', payload: { userText: 'x' } } as AgentEvent)
-    ex.handle({
-      ...base,
-      type: 'turn.completed',
-      payload: {
-        status: 'error',
-        inputTokens: null,
-        outputTokens: null,
-        costUsd: null,
-        durationMs: null
-      }
-    } as AgentEvent)
-    expect(calls.score).toContainEqual(expect.objectContaining({ name: 'turn_error', value: 1 }))
+  it('ignores pending findings and findings with no session', () => {
+    const { sink, seen } = fakeSink()
+    const ex = new LangfuseExporter(sink, { captureContent: false })
+    ex.scoreFinding({ sessionId: 7, reviewState: 'pending' } as FindingRow)
+    ex.scoreFinding({ sessionId: null, reviewState: 'accepted' } as FindingRow)
+    ex.scoreFinding(null)
+    expect(seen).toEqual([])
   })
 
-  it('evicts session state on session.exited so a later turn.completed for that session is a no-op', () => {
-    const { client, calls } = fakeClient()
-    const ex = new LangfuseExporter(client, { captureContent: false })
-    ex.handle({
-      ...base,
-      type: 'session.started',
-      payload: { model: 'm', resumed: false }
-    } as AgentEvent)
-    ex.handle({
-      ...base,
-      type: 'session.exited',
-      payload: { reason: 'stopped' }
-    } as AgentEvent)
-    // Session state was evicted, so a stray turn.completed after exit must
-    // not produce a generation call (there's no trace to attach it to).
-    ex.handle({
-      ...base,
-      type: 'turn.completed',
-      payload: { status: 'success', inputTokens: 1, outputTokens: 1, costUsd: 0, durationMs: 1 }
-    } as AgentEvent)
-    expect(calls.generation).toHaveLength(0)
-  })
-
-  it('never throws when the client throws', () => {
-    const client = {
-      trace: () => {
+  it('records a synchronous emit throw', () => {
+    const sink: ObservationSink = {
+      emit: () => {
         throw new Error('down')
       },
-      generation: () => {},
-      span: () => {},
-      score: () => {},
-      flushAsync: async () => {},
-      shutdownAsync: async () => {}
-    } as LangfuseClientLike
-    const ex = new LangfuseExporter(client, { captureContent: false })
-    expect(() =>
-      ex.handle({
-        ...base,
-        type: 'session.started',
-        payload: { model: 'm', resumed: false }
-      } as AgentEvent)
-    ).not.toThrow()
+      flush: async () => {},
+      shutdown: async () => {}
+    }
+    const ex = new LangfuseExporter(sink, { captureContent: false })
+    expect(() => ex.handle(started())).not.toThrow()
     expect(ex.lastError()).toContain('down')
+  })
+
+  it('does not report a reducer bug as a connector fault', () => {
+    const { sink } = fakeSink()
+    const ex = new LangfuseExporter(sink, { captureContent: false })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // sessionId is required by the reducer; a malformed event must not poison lastError.
+    expect(() => ex.handle({ ...base, type: 'session.started' } as AgentEvent)).not.toThrow()
+    expect(ex.lastError()).toBeNull()
+    spy.mockRestore()
   })
 })
