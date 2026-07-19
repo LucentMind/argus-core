@@ -17,27 +17,45 @@ export function headlessScratchDir(argusHome: string): string {
   return path.join(argusHome, '.headless')
 }
 
-/** Resolve on turn end with the last finalized assistant message; reject on session.error. */
-function collectOneTurn(session: CopilotSessionLike, prompt: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
+/**
+ * Resolve on turn end with the last finalized assistant message; reject on session.error.
+ * The listener unsubscribe is exposed alongside the promise (not just called internally on
+ * the three paths above) because a fourth exit exists that this function can't see or
+ * control: the caller races this promise against a timeout, and when the timeout wins,
+ * this promise is simply abandoned — nothing here ever runs to unsubscribe. `unsubscribe`
+ * is idempotent so the caller can always call it in a `finally`, regardless of who won.
+ */
+function collectOneTurn(
+  session: CopilotSessionLike,
+  prompt: string
+): { result: Promise<string>; unsubscribe: () => void } {
+  let off: () => void = () => {}
+  let unsubscribed = false
+  const unsubscribe = (): void => {
+    if (unsubscribed) return
+    unsubscribed = true
+    off()
+  }
+  const result = new Promise<string>((resolve, reject) => {
     let last = ''
-    const off = session.on((raw: RawSdkEvent) => {
+    off = session.on((raw: RawSdkEvent) => {
       const d = (raw?.data ?? {}) as Record<string, unknown>
       if (raw?.type === 'assistant.message' && d.content) {
         last = String(d.content)
       } else if (raw?.type === 'assistant.turn_end') {
-        off()
+        unsubscribe()
         resolve(last)
       } else if (raw?.type === 'session.error') {
-        off()
+        unsubscribe()
         reject(new Error(String(d.message ?? 'Copilot session error')))
       }
     })
     session.send({ prompt }).catch((e: unknown) => {
-      off()
+      unsubscribe()
       reject(e instanceof Error ? e : new Error(String(e)))
     })
   })
+  return { result, unsubscribe }
 }
 
 /**
@@ -75,17 +93,24 @@ export async function runCopilotHeadless(
       }),
       tools: []
     })
-    const text = await Promise.race([
-      collectOneTurn(session, prompt),
-      new Promise<never>((_, rej) => {
-        timer = setTimeout(
-          () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
-          timeoutMs
-        )
-      })
-    ])
-    if (!text.trim()) throw new Error('headless run returned no text')
-    return text
+    const { result, unsubscribe } = collectOneTurn(session, prompt)
+    try {
+      const text = await Promise.race([
+        result,
+        new Promise<never>((_, rej) => {
+          timer = setTimeout(
+            () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          )
+        })
+      ])
+      if (!text.trim()) throw new Error('headless run returned no text')
+      return text
+    } finally {
+      // The three settlement paths inside collectOneTurn already unsubscribe themselves;
+      // this covers the fourth (the timeout winning the race), and is a no-op otherwise.
+      unsubscribe()
+    }
   } finally {
     if (timer) clearTimeout(timer)
     try {
