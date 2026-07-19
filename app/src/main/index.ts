@@ -104,6 +104,7 @@ import { activeInstanceConfig, defaultModelRef, effectiveDefaultModel } from '..
 import { settingsSchema } from '../shared/settings'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
+import { createHeadlessRunner } from './services/agent/headless'
 import {
   seedSharedAssets,
   sharedSkillsDir,
@@ -384,6 +385,13 @@ function registerIpc(): void {
     const cfg = activeInstanceConfig(parsed)
     return { model: cfg.model ?? effectiveDefaultModel(parsed), cliPath: cfg.cliPath }
   }
+  // — headless one-shot runner shared by case distillation and reference sync —
+  // Resolves its own provider from settings.distillProvider; deliberately NOT the active
+  // chat instance (see the 2026-07-19 "model (auto)" failure).
+  const headlessRun = createHeadlessRunner({
+    settings: () => settingsService.get(),
+    argusHome
+  })
   const refSync = new RefSyncService({
     argusHome,
     store: refSyncStore,
@@ -402,7 +410,7 @@ function registerIpc(): void {
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
-    distill: (input) => runCaseDistill(input, distillOptions()),
+    distill: (input) => runCaseDistill(input, headlessRun),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p)
   })
