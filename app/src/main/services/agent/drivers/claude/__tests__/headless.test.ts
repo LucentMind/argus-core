@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createClaudeDriver, type CreateQueryFn } from '..'
+import { runClaudeHeadless } from '../headless'
 
 /** A scripted query handle: yields the given SDK messages, then a success result. */
 function scriptedQuery(texts: string[]): {
@@ -65,6 +66,39 @@ describe('claude runHeadless', () => {
       /returned no text/
     )
     expect(q.interrupts).toBe(1)
+  })
+
+  it('falls back to resolveCliPath when opts.cliPath is absent (packaged-build escape)', async () => {
+    const q = scriptedQuery(['ok'])
+    const resolveCliPath = vi.fn(() => '/asar-unpacked/claude.exe')
+    const text = await runClaudeHeadless(
+      'prompt',
+      { argusHome: '/tmp/argus' },
+      q.fn,
+      resolveCliPath
+    )
+    expect(text).toBe('ok')
+    expect(resolveCliPath).toHaveBeenCalledTimes(1)
+    expect(q.opts()).toMatchObject({ pathToClaudeCodeExecutable: '/asar-unpacked/claude.exe' })
+  })
+
+  it('prefers opts.cliPath over the resolver fallback, and never calls the resolver', async () => {
+    const q = scriptedQuery(['ok'])
+    const resolveCliPath = vi.fn(() => '/should-not-be-used')
+    await runClaudeHeadless(
+      'prompt',
+      { argusHome: '/tmp/argus', cliPath: '/user/configured/claude' },
+      q.fn,
+      resolveCliPath
+    )
+    expect(resolveCliPath).not.toHaveBeenCalled()
+    expect(q.opts()).toMatchObject({ pathToClaudeCodeExecutable: '/user/configured/claude' })
+  })
+
+  it('omits pathToClaudeCodeExecutable when both opts.cliPath and the resolver are absent', async () => {
+    const q = scriptedQuery(['ok'])
+    await runClaudeHeadless('prompt', { argusHome: '/tmp/argus' }, q.fn, () => null)
+    expect(q.opts()).not.toHaveProperty('pathToClaudeCodeExecutable')
   })
 
   it('rejects when the timeout elapses first', async () => {

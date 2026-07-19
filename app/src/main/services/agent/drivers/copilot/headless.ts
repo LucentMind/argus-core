@@ -74,6 +74,10 @@ export async function runCopilotHeadless(
   const releaseTrap = acquireAuthRejectionTrap()
   let client: CopilotClientLike | null = null
   let timer: NodeJS.Timeout | null = null
+  // The three settlement paths inside collectOneTurn already unsubscribe themselves; this
+  // covers the timeout winning the race (assigned only once collectOneTurn runs, which may
+  // never happen if start()/createSession() itself is what hangs) and is a no-op otherwise.
+  let unsubscribe: () => void = () => {}
   try {
     const resolved = opts.cliPath ?? cliPath
     client = clientFactory({
@@ -81,38 +85,49 @@ export async function runCopilotHeadless(
       workingDirectory: scratch,
       ...(resolved ? { cliPath: resolved } : {})
     })
-    await client.start()
-    const session = await client.createSession({
-      workingDirectory: scratch,
-      systemMessage: { mode: 'append', content: '' },
-      // No tools are registered, so nothing should ever ask. Deny rather than approve:
-      // a headless distill run has no human to consult and no case to act on.
-      onPermissionRequest: async () => ({
-        kind: 'reject',
-        feedback: 'headless run: tools are not available'
-      }),
-      tools: []
-    })
-    const { result, unsubscribe } = collectOneTurn(session, prompt)
-    try {
-      const text = await Promise.race([
-        result,
-        new Promise<never>((_, rej) => {
-          timer = setTimeout(
-            () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
-            timeoutMs
-          )
-        })
-      ])
-      if (!text.trim()) throw new Error('headless run returned no text')
-      return text
-    } finally {
-      // The three settlement paths inside collectOneTurn already unsubscribe themselves;
-      // this covers the fourth (the timeout winning the race), and is a no-op otherwise.
-      unsubscribe()
-    }
+    const c = client
+    // start()/createSession()/send() must all be bounded by the same race as the turn
+    // itself — a wedged transport handshake (start() never resolving) must not hang this
+    // run forever, mirroring probeAuth's rationale at index.ts:505-506. Everything from
+    // boot through the collected turn is folded into one awaited promise so the race
+    // below covers the whole lifecycle, not just the final result.
+    const run = (async () => {
+      await c.start()
+      const session = await c.createSession({
+        workingDirectory: scratch,
+        systemMessage: { mode: 'append', content: '' },
+        // The runtime's OWN built-in tools (read/write/shell/url) are NOT governed by the
+        // `tools` array below — that only scopes ARGUS-registered tools — so the runtime
+        // can still raise a permission request here even with none registered. Deny with
+        // the empirically-verified onPermissionRequest deny shape (EVIDENCE.md §2,
+        // `rpc.d.ts:8157`, captured denying `url` in 04-read-fetch.jsonl — the SAME shape
+        // `mapToolDecision` in index.ts uses for the chat driver's own permission
+        // handler): a headless distill run has no human to consult and no case to act on.
+        onPermissionRequest: async () => ({
+          kind: 'reject',
+          feedback: 'headless run: tools are not available'
+        }),
+        tools: []
+      })
+      const { result, unsubscribe: unsub } = collectOneTurn(session, prompt)
+      unsubscribe = unsub
+      return result
+    })()
+    run.catch(() => undefined) // never leak an unhandled rejection if it settles post-timeout
+    const text = await Promise.race([
+      run,
+      new Promise<never>((_, rej) => {
+        timer = setTimeout(
+          () => rej(new Error(`headless run timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        )
+      })
+    ])
+    if (!text.trim()) throw new Error('headless run returned no text')
+    return text
   } finally {
     if (timer) clearTimeout(timer)
+    unsubscribe()
     try {
       await client?.stop()
     } catch {

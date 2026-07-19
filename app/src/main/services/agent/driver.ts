@@ -99,7 +99,8 @@ export interface DriverCapabilities {
    *  Absent = supported (Claude). `false` = declared degradation (Copilot v1): connector
    *  tools are unavailable and each composed server is reported via `session.mcp.skipped`. */
   mcpConnectors?: boolean
-  /** Mirrors the shared DriverDefinition flag; a contract test asserts the two agree. */
+  /** Mirrors the shared DriverDefinition flag; each driver's contract test file asserts
+   *  this flag, the shared flag, and `runHeadless` method presence all agree. */
   headlessOneShot: boolean
 }
 
