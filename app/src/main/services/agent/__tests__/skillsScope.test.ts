@@ -96,6 +96,22 @@ it('declares <caseDir>/.claude as a local plugin root so the namespace exists', 
   await svc.stopAll()
 })
 
+it('loads project settings only, keeping CLAUDE.md but dropping the operator toolkit', async () => {
+  writeSkill(sharedSkillsDir(home), 'code-graph', 'blast radius queries')
+
+  const svc = mkService()
+  const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
+  await svc.send('NAV-1', s.id, 'hi')
+
+  // 'project' MUST stay in the list: without it the per-case CLAUDE.md (citation rules,
+  // linked-workspace list) stops loading. Dropping 'user'/'local' is what removes the
+  // operator's personal skills/plugins from SUBAGENT context — the main session is already
+  // bounded by the `skills` allowlist, but subagents re-derive their own listing and
+  // measured 52 skills, 36 of them unrelated to defect analysis.
+  expect(lastOptions?.settingSources).toEqual(['project'])
+  await svc.stopAll()
+})
+
 it('omits a skill the user disabled, so the Skills page stays the control surface', async () => {
   writeSkill(sharedSkillsDir(home), 'code-graph', 'blast radius queries')
   writeSkill(sharedSkillsDir(home), 'contribute-back', 'draft proposals')
