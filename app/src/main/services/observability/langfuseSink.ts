@@ -52,6 +52,7 @@ export function synthSpanId(seed: string): string {
 
 export class LangfuseSink implements ObservationSink {
   private roots = new Map<string, Promise<SpanContextLike>>()
+  private traceIds = new Map<string, Promise<string>>()
   private pending = new Set<Promise<void>>()
   private error: string | null = null
   private stopped = false
@@ -72,6 +73,20 @@ export class LangfuseSink implements ObservationSink {
   }
 
   /**
+   * Resolves (and caches) the trace id for a seed alone, with no observation
+   * created. A `score` intent needs only this — createScore() attaches to a trace
+   * by id, it does not need a root span. Shared with rootFor() below so a root
+   * created later for the same seed reuses the same createTraceId() call.
+   */
+  private traceIdFor(seed: string): Promise<string> {
+    const cached = this.traceIds.get(seed)
+    if (cached) return cached
+    const promise = this.api.createTraceId(seed)
+    this.traceIds.set(seed, promise)
+    return promise
+  }
+
+  /**
    * Resolves (and caches) the root span context for a seed. Callers may pass
    * the trace-root intent when they have it; intents that arrive before their
    * root fall back to naming the trace after its seed. Because the trace id
@@ -81,7 +96,7 @@ export class LangfuseSink implements ObservationSink {
     const cached = this.roots.get(seed)
     if (cached) return cached
     const promise = (async () => {
-      const traceId = await this.api.createTraceId(seed)
+      const traceId = await this.traceIdFor(seed)
       const parent: SpanContextLike = {
         traceId,
         spanId: synthSpanId(seed),
@@ -95,11 +110,13 @@ export class LangfuseSink implements ObservationSink {
           // Trace-level naming is separate from observation naming — see
           // __fixtures__/EVIDENCE.md Q4. Omitting it yields an unnamed trace.
           //
-          // Deliberately NOT falling back to `seed`: an intent can reach the sink
-          // without its trace-root (a scoreFinding() for a session that ended in an
-          // earlier app run). That trace already exists in Langfuse with its real
-          // name, and writing the raw seed here would overwrite it. Only a genuine
-          // trace-root names the trace.
+          // Deliberately NOT falling back to `seed`: a non-root intent (tool,
+          // generation, event) can reach the sink before its trace-root, or in a
+          // trace whose root was created in an earlier app run. That trace may
+          // already exist in Langfuse with its real name, and writing the raw seed
+          // here would overwrite it. Only a genuine trace-root names the trace.
+          // (Score intents never reach this path at all — see apply()'s score
+          // branch, which resolves a trace id via traceIdFor() with no root.)
           ...(root ? { traceName: root.name, traceMetadata: root.metadata } : {})
         }
       )
@@ -111,18 +128,23 @@ export class LangfuseSink implements ObservationSink {
   }
 
   private async apply(intent: ObservationIntent): Promise<void> {
-    const ctx = await this.rootFor(intent.seed, intent.kind === 'trace-root' ? intent : null)
-    if (intent.kind === 'trace-root') return // the root itself was created by rootFor
-
     if (intent.kind === 'score') {
+      // A score only needs a trace id to attach to — no observation. Using rootFor()
+      // here would create (and immediately end) a junk observation named after the
+      // raw seed on every trace that has no cached root yet, e.g. reviewing a
+      // finding after an app restart, when the trace already has a proper root.
+      const traceId = await this.traceIdFor(intent.seed)
       await this.api.createScore({
-        traceId: ctx.traceId,
+        traceId,
         name: intent.name,
         value: intent.value,
         comment: intent.comment
       })
       return
     }
+
+    const ctx = await this.rootFor(intent.seed, intent.kind === 'trace-root' ? intent : null)
+    if (intent.kind === 'trace-root') return // the root itself was created by rootFor
 
     const common = {
       parentSpanContext: ctx,
