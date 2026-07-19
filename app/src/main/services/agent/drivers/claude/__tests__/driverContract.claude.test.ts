@@ -1,5 +1,7 @@
+import { it, expect } from 'vitest'
 import { createClaudeDriver, type CreateQueryFn } from '../index'
 import { runDriverContractSuite, type TransportScript } from '../../../__tests__/driverContract'
+import { DRIVERS } from '../../../../../../shared/drivers'
 
 // Claude script entries are raw SDK-shaped messages (the same fixtures Task 3's
 // claudeDriver.test.ts uses). The fake query is send-gated: it produces nothing until a
@@ -86,3 +88,18 @@ runDriverContractSuite(
     currentScript = script
   }
 )
+
+it('declared headlessOneShot matches runHeadless presence', () => {
+  const d = createClaudeDriver()
+  expect(d.capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
+})
+
+// resolveDistillProvider (shared/drivers.ts) gates on the SHARED flag; what actually runs
+// is the main-side method. If shared says true but the method is absent (or vice versa),
+// distillation either silently refuses a working provider or throws on a provider the UI
+// claims supports it. All three — shared flag, main-side flag, main-side method — must agree.
+it('shared DRIVERS headlessOneShot agrees with the main-process driver flag and method', () => {
+  const d = createClaudeDriver()
+  expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(d.capabilities.headlessOneShot)
+  expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
+})

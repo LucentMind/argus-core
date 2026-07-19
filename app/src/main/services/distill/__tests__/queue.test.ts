@@ -157,4 +157,17 @@ describe('DistillQueue', () => {
     })
     expect(() => q.enqueue('c')).not.toThrow()
   })
+
+  it('records the runner failure reason on the job when no provider can distill', async () => {
+    const { q } = makeQueue({
+      distill: async () => {
+        throw new Error('no provider configured for distillation')
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    const job = q.statusFor('case-a')!
+    expect(job.state).toBe('failed')
+    expect(job.error).toBe('no provider configured for distillation')
+  })
 })

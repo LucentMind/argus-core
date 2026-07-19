@@ -36,6 +36,14 @@ const modelPreferencesSchema = z.looseObject({
 })
 export type ModelPreferences = z.infer<typeof modelPreferencesSchema>
 
+/** Provider instance used for headless one-shot distillation (case close, reference sync).
+ *  Absent = resolve the first enabled claude-agent-sdk instance. Deliberately NOT the active
+ *  chat instance: activeInstanceId is a chat default, not a commitment to a driver kind. */
+const distillProviderSchema = z.looseObject({
+  instanceId: z.string(),
+  model: z.string().optional()
+})
+
 const agentSchema = z.looseObject({
   activeInstanceId: z.string().default('claude-default'),
   maxSessions: z.number().int().min(1).max(16).default(3),
@@ -46,7 +54,8 @@ const agentSchema = z.looseObject({
     'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} }
   })),
   /** Keyed by provider instance id. An entry whose lists are all empty is equivalent to absent. */
-  modelPreferences: z.record(z.string(), modelPreferencesSchema).default(() => ({}))
+  modelPreferences: z.record(z.string(), modelPreferencesSchema).default(() => ({})),
+  distillProvider: distillProviderSchema.optional()
 })
 
 const toolsSchema = z.looseObject({

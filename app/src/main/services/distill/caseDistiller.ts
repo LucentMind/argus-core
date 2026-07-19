@@ -1,6 +1,4 @@
-import type { CreateQueryFn } from '../agent/drivers/claude'
 import type { CaseDistillInput, CaseDistillOutput } from '../../../shared/distill'
-import { runOneShot, type DistillOptions } from '../refSync/distill'
 import { buildCaseDistillPrompt, parseCaseDistillOutput } from './contract'
 
 export interface CaseDistillRun {
@@ -8,13 +6,16 @@ export interface CaseDistillRun {
   output: CaseDistillOutput
 }
 
-/** v1 distiller: tool-less one-shot (spec "A now, B later"). Swap internals here for a
- *  tool-enabled headless session later — callers only see CaseDistillRun. */
+/**
+ * v1 distiller: one tool-less headless prompt. Deliberately provider-blind — it receives a
+ * runner and owns only the prompt and the parse. Resolving WHICH provider runs it belongs to
+ * agent/headless.ts; conflating the two is what let the active chat instance's "auto" model
+ * reach the Claude SDK.
+ */
 export async function runCaseDistill(
   input: CaseDistillInput,
-  opts: DistillOptions = {},
-  createQuery?: CreateQueryFn
+  run: (prompt: string) => Promise<string>
 ): Promise<CaseDistillRun> {
-  const raw = await runOneShot(buildCaseDistillPrompt(input), opts, createQuery)
+  const raw = await run(buildCaseDistillPrompt(input))
   return { raw, output: parseCaseDistillOutput(raw) }
 }

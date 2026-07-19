@@ -100,10 +100,10 @@ import {
 } from './services/workspaces'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
-import { activeInstanceConfig, defaultModelRef, effectiveDefaultModel } from '../shared/drivers'
-import { settingsSchema } from '../shared/settings'
+import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
+import { createHeadlessRunner } from './services/agent/headless'
 import {
   seedSharedAssets,
   sharedSkillsDir,
@@ -379,16 +379,18 @@ function registerIpc(): void {
   const restErrors: Record<string, string> = {} // instanceId → last auth-error message
 
   // — reference sync (Wave 3 Part 3; UI-native REST + headless distillation) —
-  const distillOptions = (): { model?: string; cliPath?: string } => {
-    const parsed = settingsSchema.parse({ agent: settingsService.get().agent })
-    const cfg = activeInstanceConfig(parsed)
-    return { model: cfg.model ?? effectiveDefaultModel(parsed), cliPath: cfg.cliPath }
-  }
+  // — headless one-shot runner shared by case distillation and reference sync —
+  // Resolves its own provider from settings.distillProvider; deliberately NOT the active
+  // chat instance (see the 2026-07-19 "model (auto)" failure).
+  const headlessRun = createHeadlessRunner({
+    settings: () => settingsService.get(),
+    argusHome
+  })
   const refSync = new RefSyncService({
     argusHome,
     store: refSyncStore,
     reader: atlassian,
-    distillOptions
+    run: headlessRun
   })
   refSyncStore.subscribe(() => broadcast(IPC.refsyncChanged, refSync.payload()))
 
@@ -402,7 +404,7 @@ function registerIpc(): void {
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
-    distill: (input) => runCaseDistill(input, distillOptions()),
+    distill: (input) => runCaseDistill(input, headlessRun),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p)
   })

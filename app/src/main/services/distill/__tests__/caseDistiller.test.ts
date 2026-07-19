@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { runCaseDistill } from '../caseDistiller'
 import { DistillParseError } from '../contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
-import type { CreateQueryFn } from '../../agent/drivers/claude'
 
 const INPUT: CaseDistillInput = {
   caseMeta: {
@@ -23,29 +22,28 @@ const INPUT: CaseDistillInput = {
   alreadyCaptured: { proposals: [], memoryWrites: [] }
 }
 
-function fakeQuery(responseText: string): CreateQueryFn {
-  return (() => {
-    const iter = (async function* () {
-      yield {
-        type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'text', text: responseText }] }
-      }
-      yield { type: 'result', subtype: 'success' }
-    })()
-    return Object.assign(iter, { interrupt: async () => undefined })
-  }) as unknown as CreateQueryFn
-}
-
 describe('runCaseDistill', () => {
   it('returns parsed output on valid JSON', async () => {
-    const run = await runCaseDistill(INPUT, {}, fakeQuery('```json\n{}\n```'))
+    const run = await runCaseDistill(INPUT, async () => '```json\n{}\n```')
     expect(run.output).toEqual({})
     expect(run.raw).toContain('```json')
   })
 
   it('throws DistillParseError with raw preserved on invalid output', async () => {
-    await expect(runCaseDistill(INPUT, {}, fakeQuery('no json here'))).rejects.toThrow(
+    await expect(runCaseDistill(INPUT, async () => 'no json here')).rejects.toThrow(
       DistillParseError
     )
+  })
+
+  it('passes the built prompt to the injected runner and parses its text', async () => {
+    let seen = ''
+    const run = async (prompt: string): Promise<string> => {
+      seen = prompt
+      return '```json\n{"memoryAppends":[{"topic":"a-topic","content":"c"}]}\n```'
+    }
+    const result = await runCaseDistill(INPUT, run)
+    expect(seen).toContain('# Case')
+    expect(result.output.memoryAppends).toHaveLength(1)
+    expect(result.raw).toContain('```json')
   })
 })

@@ -11,7 +11,6 @@ import { assembleDistillInput } from '../input'
 import { runCaseDistill } from '../caseDistiller'
 import { stageDistillOutput } from '../staging'
 import { DistillQueue } from '../queue'
-import type { CreateQueryFn } from '../../agent/drivers/claude'
 
 const RESPONSE =
   '```json\n' +
@@ -29,16 +28,6 @@ const RESPONSE =
   }) +
   '\n```'
 
-function fakeQuery(text: string): CreateQueryFn {
-  return (() => {
-    const iter = (async function* () {
-      yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } }
-      yield { type: 'result', subtype: 'success' }
-    })()
-    return Object.assign(iter, { interrupt: async () => undefined })
-  }) as unknown as CreateQueryFn
-}
-
 let home: string
 let db: DatabaseSync
 beforeEach(() => {
@@ -51,7 +40,7 @@ it('close → enqueue → distill → stage → accept lands memory + summary', 
   const queue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, home, slug),
-    distill: (input) => runCaseDistill(input, {}, fakeQuery(RESPONSE)),
+    distill: (input) => runCaseDistill(input, async () => RESPONSE),
     stage: (slug, jobId, output) => stageDistillOutput(db, home, slug, jobId, output),
     broadcast: () => undefined
   })
