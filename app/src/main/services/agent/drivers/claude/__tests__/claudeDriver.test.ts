@@ -127,6 +127,40 @@ describe('createClaudeDriver', () => {
     )
   })
 
+  // `session.started.resumed` drives observability: the Langfuse exporter opens a new
+  // trace root for a fresh session and only a lightweight marker for a resumed one.
+  // The flag must mirror the SAME condition that decides whether `resume` is actually
+  // passed to the SDK — an invalid cursor means the SDK starts fresh, so reporting a
+  // resume there would be a lie.
+  async function resumedFlagFor(resumeCursor: string | null): Promise<boolean | undefined> {
+    const session = createClaudeDriver(
+      fakeQuery([
+        {
+          type: 'system',
+          subtype: 'init',
+          session_id: '11111111-1111-4111-8111-111111111111',
+          model: 'claude-sonnet-5'
+        }
+      ])
+    ).createSession({ ...baseCtx(), resumeCursor })
+    for await (const e of session.events()) {
+      if (e.type === 'session.started') return e.payload.resumed
+    }
+    return undefined
+  }
+
+  it('reports resumed=true when a UUID cursor actually resumes the SDK session', async () => {
+    expect(await resumedFlagFor('11111111-1111-4111-8111-111111111111')).toBe(true)
+  })
+
+  it('reports resumed=false with no cursor', async () => {
+    expect(await resumedFlagFor(null)).toBe(false)
+  })
+
+  it('reports resumed=false for a non-UUID cursor, which the SDK never receives', async () => {
+    expect(await resumedFlagFor('copilot-abc')).toBe(false)
+  })
+
   it('flags auth-shaped failed turns', async () => {
     const ctx = baseCtx()
     const driver = createClaudeDriver(

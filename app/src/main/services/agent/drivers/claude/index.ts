@@ -73,6 +73,14 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // in-asar binary (see resolveClaudeCliPath). Null in dev — the SDK resolves itself.
       const cliPath = ctx.cliPath ?? resolveClaudeCliPath()
 
+      // Single source of truth for "is this a resume?". It gates the SDK's `resume`
+      // option below AND the `resumed` flag on session.started — they must never
+      // disagree. A non-UUID cursor is rejected, so the SDK starts fresh and the flag
+      // must say so. Observability depends on this: the Langfuse exporter opens a new
+      // trace root for a fresh session and only a marker for a resumed one, so a
+      // hardcoded `false` here made every restart mint a second root.
+      const isResume = Boolean(ctx.resumeCursor && UUID_RE.test(ctx.resumeCursor))
+
       // Options bag: relocated from session.ts:168-211; the DriverSessionContext
       // fields substitute for the SessionDeps/agentOptions values the harness used to
       // read directly (systemAppend, extraMcpServers, nativeToolDeps, onToolRequest).
@@ -146,9 +154,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             input: Record<string, unknown>,
             opts: { signal: AbortSignal }
           ) => ctx.onToolRequest(toolName, input, opts),
-          ...(ctx.resumeCursor && UUID_RE.test(ctx.resumeCursor)
-            ? { resume: ctx.resumeCursor }
-            : {})
+          ...(isResume ? { resume: ctx.resumeCursor } : {})
         }
       })
 
@@ -235,6 +241,12 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           updateCursor(msg)
           if (msg.type === 'result') ctx.onTurnResult(extractTurnResult(msg))
           for (const ev of normalizeSdkMessage(msg, ctx.eventCtx())) {
+            // normalize.ts cannot know whether this session resumed — NormalizeCtx
+            // carries no cursor — so it emits a placeholder that is corrected here,
+            // the same way tool names are backfilled below.
+            if (ev.type === 'session.started') {
+              ev.payload.resumed = isResume
+            }
             if (ev.type === 'tool.call.started') {
               toolNames.set(ev.payload.toolCallId, ev.payload.name)
             }
