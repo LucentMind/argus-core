@@ -27,6 +27,8 @@ export function normalizeSdkMessage(msg: any, ctx: NormalizeCtx): AgentEvent[] {
     case 'system':
       if (msg.subtype === 'init') {
         return [
+          // `resumed` is a placeholder — corrected by the driver, which owns the cursor.
+          // NormalizeCtx carries no resume cursor, so this cannot be decided here.
           makeEvent(ctx, 'session.started', { model: String(msg.model ?? ''), resumed: false })
         ]
       }
