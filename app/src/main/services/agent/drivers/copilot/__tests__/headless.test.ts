@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
 import { runCopilotHeadless, headlessScratchDir } from '../headless'
@@ -94,6 +94,36 @@ function hangFactory(): {
   return { factory, calls, unsubscribed: () => unsubscribed }
 }
 
+/** Scripted client whose `start()` never resolves — models a wedged transport handshake.
+ *  `createSession` must never be reached: a fixed start() should trip the timeout before
+ *  the code ever gets there. */
+function hangOnStartFactory(): {
+  factory: CopilotClientFactory
+  calls: { stops: number; forceStops: number; createSessionCalls: number }
+} {
+  const calls = { stops: 0, forceStops: 0, createSessionCalls: 0 }
+  const factory: CopilotClientFactory = () => ({
+    start: () => new Promise(() => undefined), // never resolves
+    getAuthStatus: async () => ({ isAuthenticated: true }),
+    getStatus: async () => ({}),
+    stop: async () => {
+      calls.stops++
+      return []
+    },
+    forceStop: async () => {
+      calls.forceStops++
+    },
+    resumeSession: async () => {
+      throw new Error('not used')
+    },
+    createSession: async () => {
+      calls.createSessionCalls++
+      throw new Error('should not be reached while start() is wedged')
+    }
+  })
+  return { factory, calls }
+}
+
 describe('runCopilotHeadless', () => {
   it('returns the final assistant message and stops the client', async () => {
     const { factory, calls } = fakeFactory([msg('partial'), msg('final answer'), turnEnd])
@@ -134,5 +164,20 @@ describe('runCopilotHeadless', () => {
     expect(calls.stops).toBe(1)
     // The pinning assertion: a timeout must not leave the session.on listener attached.
     expect(unsubscribed()).toBe(true)
+  })
+
+  it('times out when start() never resolves, instead of hanging forever', async () => {
+    vi.useFakeTimers()
+    try {
+      const { factory, calls } = hangOnStartFactory()
+      const p = runCopilotHeadless('prompt', { argusHome: '/tmp/argus', timeoutMs: 1000 }, factory)
+      const assertion = expect(p).rejects.toThrow(/timed out after 1000ms/)
+      await vi.advanceTimersByTimeAsync(1001)
+      await assertion
+      expect(calls.stops).toBe(1)
+      expect(calls.createSessionCalls).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
