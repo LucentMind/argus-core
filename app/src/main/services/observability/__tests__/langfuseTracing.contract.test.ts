@@ -46,6 +46,7 @@ describe('Langfuse v5 tracing contract', () => {
       { parentSpanContext }
     )
     root.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_NAME, 'auth-bug · session 7')
+    root.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_SESSION_ID, 'auth-bug')
     root.end()
     const rootCtx = { traceId, spanId: root.otelSpan.spanContext().spanId, traceFlags: 1 }
 
@@ -80,6 +81,10 @@ describe('Langfuse v5 tracing contract', () => {
     // alone leaves the trace unnamed — proven in Task 1, see EVIDENCE.md Q4.
     const rootSpan = spans.find((s) => s.name === 'auth-bug · session 7')
     expect(rootSpan!.attributes[LangfuseOtelSpanAttributes.TRACE_NAME]).toBe('auth-bug · session 7')
+    // Proven in EVIDENCE.md Q5: this plain span attribute is what groups traces
+    // for a case into one Langfuse session. Assert the exact value, not just
+    // key presence — a silent-drop regression would otherwise pass unnoticed.
+    expect(rootSpan!.attributes[LangfuseOtelSpanAttributes.TRACE_SESSION_ID]).toBe('auth-bug')
 
     const generation = spans.find((s) => s.name === 'turn')
     expect(generation).toBeDefined()

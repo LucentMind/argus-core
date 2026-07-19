@@ -55,6 +55,9 @@ export function createLangfuseTracing(cfg: {
       if (opts.traceName != null) {
         span.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_NAME, opts.traceName)
       }
+      if (opts.traceSessionId != null) {
+        span.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_SESSION_ID, opts.traceSessionId)
+      }
       for (const [k, v] of Object.entries(opts.traceMetadata ?? {})) {
         span.otelSpan.setAttribute(
           `${LangfuseOtelSpanAttributes.TRACE_METADATA}.${k}`,

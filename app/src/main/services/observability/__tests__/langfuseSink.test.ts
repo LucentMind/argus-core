@@ -35,6 +35,7 @@ const rootIntent = {
   kind: 'trace-root' as const,
   seed: 'argus-session-7',
   name: 'auth-bug · session 7',
+  caseSlug: 'auth-bug',
   metadata: { caseId: 1 }
 }
 
@@ -75,6 +76,30 @@ describe('LangfuseSink', () => {
       (c) => (c as { name: string }).name === 'auth-bug · session 7'
     ) as { opts: { traceName?: string } }
     expect(root.opts.traceName).toBe('auth-bug · session 7')
+  })
+
+  it('sets traceSessionId on the root to the case slug so traces group in the Sessions view', async () => {
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api)
+    sink.emit([rootIntent])
+    resolveIds()
+    await sink.flush()
+    const root = calls.start.find(
+      (c) => (c as { name: string }).name === 'auth-bug · session 7'
+    ) as { opts: { traceSessionId?: string } }
+    expect(root.opts.traceSessionId).toBe('auth-bug')
+  })
+
+  it('does not set traceSessionId when no trace-root intent is present', async () => {
+    // Mirrors the traceName guard above: an intent for a session whose root was
+    // created in an earlier app run must not write trace-level attributes.
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api)
+    sink.emit([{ kind: 'tool', seed: 'argus-session-7', name: 'read_file', isError: false }])
+    resolveIds()
+    await sink.flush()
+    const fallbackRoot = calls.start[0] as { opts: { traceSessionId?: string } }
+    expect(fallbackRoot.opts.traceSessionId).toBeUndefined()
   })
 
   it('resolves an intent that arrives before its trace-root into the same trace', async () => {

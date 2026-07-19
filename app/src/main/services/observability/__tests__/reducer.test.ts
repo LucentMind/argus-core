@@ -55,6 +55,7 @@ describe('reduce', () => {
         kind: 'trace-root',
         seed: 'argus-session-7',
         name: 'auth-bug · session 7',
+        caseSlug: 'auth-bug',
         metadata: { caseSlug: 'auth-bug', caseId: 1 }
       }
     ])

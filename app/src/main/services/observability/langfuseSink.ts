@@ -25,6 +25,8 @@ export interface StartOpts {
   traceName?: string
   /** Trace-level metadata, set only on a root observation. */
   traceMetadata?: Record<string, unknown>
+  /** Langfuse session id — groups traces. Argus maps its case onto this. */
+  traceSessionId?: string
 }
 
 /** The seam between sink logic and the Langfuse/OTel SDK. */
@@ -121,7 +123,9 @@ export class LangfuseSink implements ObservationSink {
           // here would overwrite it. Only a genuine trace-root names the trace.
           // (Score intents never reach this path at all — see apply()'s score
           // branch, which resolves a trace id via traceIdFor() with no root.)
-          ...(root ? { traceName: root.name, traceMetadata: root.metadata } : {})
+          ...(root
+            ? { traceName: root.name, traceMetadata: root.metadata, traceSessionId: root.caseSlug }
+            : {})
         }
       )
       span.end()

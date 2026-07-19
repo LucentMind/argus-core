@@ -7,6 +7,8 @@ export interface TraceRootIntent {
   kind: 'trace-root'
   seed: string
   name: string
+  /** Argus case this session belongs to. The sink maps this onto the Langfuse session. */
+  caseSlug: string
   metadata: Record<string, unknown>
 }
 
