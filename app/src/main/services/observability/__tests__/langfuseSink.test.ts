@@ -93,13 +93,16 @@ describe('LangfuseSink', () => {
   it('does not set traceSessionId when no trace-root intent is present', async () => {
     // Mirrors the traceName guard above: an intent for a session whose root was
     // created in an earlier app run must not write trace-level attributes.
+    // No placeholder root observation is created either (see the dedicated
+    // "no placeholder root" test below) — the tool intent is the only call.
     const { api, calls, resolveIds } = fakeTracing()
     const sink = new LangfuseSink(api)
     sink.emit([{ kind: 'tool', seed: 'argus-session-7', name: 'read_file', isError: false }])
     resolveIds()
     await sink.flush()
-    const fallbackRoot = calls.start[0] as { opts: { traceSessionId?: string } }
-    expect(fallbackRoot.opts.traceSessionId).toBeUndefined()
+    expect(calls.start).toHaveLength(1)
+    const toolCall = calls.start[0] as { opts: { traceSessionId?: string } }
+    expect(toolCall.opts.traceSessionId).toBeUndefined()
   })
 
   it('resolves an intent that arrives before its trace-root into the same trace', async () => {
@@ -114,9 +117,14 @@ describe('LangfuseSink', () => {
         (c as { opts: { parentSpanContext: { traceId: string } } }).opts.parentSpanContext.traceId
     )
     expect(new Set(traceIds)).toEqual(new Set(['trace-argus-session-7']))
-    // The fallback root (named after the seed) plus the real one must not both exist.
+    // The real root, named after the trace-root intent, must be created exactly
+    // once — no placeholder root (named after the raw seed) steals the roots
+    // cache slot and blocks it.
     expect(
       calls.start.filter((c) => (c as { name: string }).name === 'auth-bug · session 7')
+    ).toHaveLength(1)
+    expect(
+      calls.start.filter((c) => (c as { name: string }).name === 'argus-session-7')
     ).toHaveLength(0)
   })
 
@@ -129,8 +137,52 @@ describe('LangfuseSink', () => {
     sink.emit([{ kind: 'tool', seed: 'argus-session-7', name: 'read_file', isError: false }])
     resolveIds()
     await sink.flush()
-    const fallbackRoot = calls.start[0] as { opts: { traceName?: string } }
-    expect(fallbackRoot.opts.traceName).toBeUndefined()
+    expect(calls.start).toHaveLength(1)
+    const toolCall = calls.start[0] as { opts: { traceName?: string } }
+    expect(toolCall.opts.traceName).toBeUndefined()
+  })
+
+  it('creates no placeholder root observation for a resumed session with no cached root', async () => {
+    // App restart: the sink's roots cache is empty. A resumed session emits a
+    // "session resumed" event intent and no trace-root (correct — the trace
+    // already exists). Before the fix, rootFor() fell back to creating a
+    // placeholder root observation named after the raw seed — seen live as an
+    // observation literally named "argus-session-50". Only the event intent's
+    // own observation should be created.
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api)
+    sink.emit([{ kind: 'event', seed: 'argus-session-50', name: 'session resumed' }])
+    resolveIds()
+    await sink.flush()
+    expect(calls.start).toHaveLength(1)
+    expect((calls.start[0] as { name: string }).name).toBe('session resumed')
+    expect(
+      calls.start.filter((c) => (c as { name: string }).name === 'argus-session-50')
+    ).toHaveLength(0)
+  })
+
+  it('does not cache the synthetic parent context, so a later trace-root still creates the real root', async () => {
+    // Critical caching subtlety: the synthetic-parent path must not populate the
+    // roots cache. If it did, a trace-root intent for the same seed arriving
+    // later (e.g. a resumed session's root created lazily) would hit the cache
+    // and the real root observation would never be created.
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api)
+    sink.emit([{ kind: 'event', seed: 'argus-session-50', name: 'session resumed' }])
+    sink.emit([
+      {
+        kind: 'trace-root' as const,
+        seed: 'argus-session-50',
+        name: 'auth-bug · session 50',
+        caseSlug: 'auth-bug',
+        metadata: { caseId: 50 }
+      }
+    ])
+    resolveIds()
+    await sink.flush()
+    expect(
+      calls.start.filter((c) => (c as { name: string }).name === 'auth-bug · session 50')
+    ).toHaveLength(1)
   })
 
   it('creates no observation for a bare score intent with no cached root', async () => {

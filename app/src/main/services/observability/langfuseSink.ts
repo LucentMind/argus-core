@@ -94,13 +94,34 @@ export class LangfuseSink implements ObservationSink {
 
   /**
    * Resolves (and caches) the root span context for a seed. Callers may pass
-   * the trace-root intent when they have it; intents that arrive before their
-   * root fall back to naming the trace after its seed. Because the trace id
-   * derives from the seed alone, a later root lands in the same trace.
+   * the trace-root intent when they have it. Because the trace id derives from
+   * the seed alone, a later root lands in the same trace.
+   *
+   * When no root intent is present and none is cached yet, this does NOT create
+   * a placeholder observation — an intent can reach the sink before its
+   * trace-root (same app run), or in a trace whose root was created in an
+   * earlier app run (e.g. a resumed session after a restart, where the roots
+   * cache is empty but the trace already exists in Langfuse). Creating a
+   * fallback observation named after the raw seed produced junk observations
+   * like "argus-session-50" in the latter case. Instead, the intent attaches
+   * directly to a synthetic parent context — the same dangling-synthetic-parent
+   * pattern the real root observation uses (see __fixtures__/EVIDENCE.md Q3).
+   *
+   * Critical: the synthetic-context path must NOT populate the roots cache. If
+   * it did, a trace-root intent arriving later for the same seed would hit the
+   * cache and the real root observation would never be created.
    */
   private rootFor(seed: string, root: TraceRootIntent | null): Promise<SpanContextLike> {
     const cached = this.roots.get(seed)
     if (cached) return cached
+
+    if (!root) {
+      return (async () => {
+        const traceId = await this.traceIdFor(seed)
+        return { traceId, spanId: synthSpanId(seed), traceFlags: 1 }
+      })()
+    }
+
     const promise = (async () => {
       const traceId = await this.traceIdFor(seed)
       const parent: SpanContextLike = {
@@ -109,23 +130,15 @@ export class LangfuseSink implements ObservationSink {
         traceFlags: 1
       }
       const span = this.api.startObservation(
-        root?.name ?? seed,
-        { metadata: root?.metadata ?? {} },
+        root.name,
+        { metadata: root.metadata },
         {
           parentSpanContext: parent,
           // Trace-level naming is separate from observation naming — see
           // __fixtures__/EVIDENCE.md Q4. Omitting it yields an unnamed trace.
-          //
-          // Deliberately NOT falling back to `seed`: a non-root intent (tool,
-          // generation, event) can reach the sink before its trace-root, or in a
-          // trace whose root was created in an earlier app run. That trace may
-          // already exist in Langfuse with its real name, and writing the raw seed
-          // here would overwrite it. Only a genuine trace-root names the trace.
-          // (Score intents never reach this path at all — see apply()'s score
-          // branch, which resolves a trace id via traceIdFor() with no root.)
-          ...(root
-            ? { traceName: root.name, traceMetadata: root.metadata, traceSessionId: root.caseSlug }
-            : {})
+          traceName: root.name,
+          traceMetadata: root.metadata,
+          traceSessionId: root.caseSlug
         }
       )
       span.end()
