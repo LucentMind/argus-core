@@ -167,6 +167,32 @@ describe('AgentSettings provider list', () => {
     render(<AgentSettings payload={p} />)
     expect(await screen.findByText(/unavailable driver: mystery-driver/)).toBeTruthy()
   })
+
+  it('setting another enabled provider as default patches activeInstanceId alone', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Set Copilot as default provider'))
+    expect(window.argus.settings.patch).toHaveBeenCalledWith({
+      agent: { activeInstanceId: 'copilot-1' }
+    })
+  })
+
+  it('offers no set-as-default control on the row that already is the default', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    await screen.findByTestId('provider-default-claude-default')
+    expect(screen.queryByLabelText('Set Claude as default provider')).toBeNull()
+  })
+
+  it('offers no set-as-default control on a disabled provider', async () => {
+    // The default must always be runnable: you enable first, then set it.
+    const p = payload((p) => {
+      withCopilot(p)
+      p.settings.agent.providerInstances['copilot-1'].enabled = false
+    })
+    render(<AgentSettings payload={p} />)
+    await screen.findByTestId('provider-label-copilot-1')
+    expect(screen.queryByLabelText('Set Copilot as default provider')).toBeNull()
+    expect(screen.queryByTestId('provider-default-copilot-1')).toBeNull()
+  })
 })
 
 describe('AgentSettings provider status refresh', () => {
