@@ -54,6 +54,46 @@ const msg = (content: string): RawSdkEvent =>
   ({ type: 'assistant.message', data: { content } }) as RawSdkEvent
 const turnEnd = { type: 'assistant.turn_end', data: {} } as RawSdkEvent
 
+/** Scripted client whose session `send()` resolves but never emits `assistant.turn_end` or
+ *  `session.error` — models a wedged/hung turn so the timeout branch is the only way the
+ *  race can settle. Exposes whether the driver ever unsubscribed the `session.on` listener,
+ *  which is the one thing the abandoned-promise timeout path can silently skip. */
+function hangFactory(): {
+  factory: CopilotClientFactory
+  calls: { stops: number; forceStops: number }
+  unsubscribed: () => boolean
+} {
+  const calls = { stops: 0, forceStops: 0 }
+  let unsubscribed = false
+  const factory: CopilotClientFactory = () => ({
+    start: async () => undefined,
+    getAuthStatus: async () => ({ isAuthenticated: true }),
+    getStatus: async () => ({}),
+    stop: async () => {
+      calls.stops++
+      return []
+    },
+    forceStop: async () => {
+      calls.forceStops++
+    },
+    resumeSession: async () => {
+      throw new Error('not used')
+    },
+    createSession: async () => {
+      const session: CopilotSessionLike = {
+        sessionId: 'headless-hang',
+        on: () => () => {
+          unsubscribed = true
+        },
+        send: async () => 'ok', // resolves, but the turn never produces an end/error event
+        abort: async () => undefined
+      }
+      return session
+    }
+  })
+  return { factory, calls, unsubscribed: () => unsubscribed }
+}
+
 describe('runCopilotHeadless', () => {
   it('returns the final assistant message and stops the client', async () => {
     const { factory, calls } = fakeFactory([msg('partial'), msg('final answer'), turnEnd])
@@ -84,5 +124,15 @@ describe('runCopilotHeadless', () => {
     await expect(
       runCopilotHeadless('prompt', { argusHome: '/tmp/argus' }, factory)
     ).rejects.toThrow(/returned no text/)
+  })
+
+  it('unsubscribes the listener and stops the client when the run times out', async () => {
+    const { factory, calls, unsubscribed } = hangFactory()
+    await expect(
+      runCopilotHeadless('prompt', { argusHome: '/tmp/argus', timeoutMs: 20 }, factory)
+    ).rejects.toThrow(/timed out/)
+    expect(calls.stops).toBe(1)
+    // The pinning assertion: a timeout must not leave the session.on listener attached.
+    expect(unsubscribed()).toBe(true)
   })
 })
