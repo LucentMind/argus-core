@@ -121,7 +121,12 @@ export function defaultSettings(): AppSettings {
  *  and a union with undefined does not satisfy `extends Record<string, unknown>`. Without it
  *  such a property never recursed, so a nested null — this codebase's delete idiom — was
  *  inexpressible for it. Stripping undefined before the test is purely widening: required
- *  object properties and scalar leaves are unaffected. */
+ *  object properties, arrays (no string index signature) and scalar leaves are unaffected.
+ *
+ *  Note the widening reaches nested REQUIRED keys too, so `{a:{b:null}}` type-checks even
+ *  when `b` is required and `parse` would then reject it. That hazard is inherent to a
+ *  null-deletes patch type — it already applied to `providerInstances.<id>.driver`, which is
+ *  why `SETTINGS_ATOMIC_PATHS` exists — and is not introduced by this change. */
 export type DeepPatch<T> = {
   [K in keyof T]?:
     | (unknown extends T[K]

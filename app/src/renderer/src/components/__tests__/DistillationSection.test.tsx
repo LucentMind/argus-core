@@ -153,20 +153,99 @@ describe('DistillationSection', () => {
     expect(patchSpy).toHaveBeenCalledWith({ agent: { distillProvider: null } })
   })
 
-  it('disables both selects and shows the resolver reason when nothing can distill', () => {
+  it('keeps the provider row usable on a Copilot-only install', () => {
+    // The resolver's FALLBACK is claude-agent-sdk-only, so this install resolves ok:false —
+    // but Copilot is capable and selectable. Disabling here would strand the user with an
+    // error above a dropdown they cannot use, which is the state this section removes.
     render(
       <DistillationSection
         payload={payload((p) => {
           p.settings.agent.providerInstances = {
             'github-copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
           }
-          p.settings.agent.distillProvider = { instanceId: 'nope' }
+        })}
+      />
+    )
+    expect(select('Distillation provider').disabled).toBe(false)
+    expect(optionsOf('Distillation provider')).toContain('Copilot')
+    fireEvent.change(select('Distillation provider'), { target: { value: 'Copilot' } })
+    expect(patchSpy).toHaveBeenCalledWith({
+      agent: { distillProvider: { instanceId: 'github-copilot-1' } }
+    })
+  })
+
+  it('still lists a pinned model that was later hidden, rather than misreporting Automatic', () => {
+    // resolveDistillProvider passes an explicit model through without a visibility check, so
+    // the runtime uses it either way — the row must not claim otherwise.
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          p.settings.agent.distillProvider = {
+            instanceId: 'claude-agent-sdk-1',
+            model: 'claude-haiku-4-5'
+          }
+          p.settings.agent.modelPreferences['claude-agent-sdk-1'].hiddenModels.push(
+            'claude-haiku-4-5'
+          )
+        })}
+      />
+    )
+    expect(select('Distillation model').value).toBe('claude-haiku-4-5')
+    expect(optionsOf('Distillation model')).toContain('claude-haiku-4-5')
+  })
+
+  it('disambiguates two un-renamed instances of the same driver', () => {
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          p.settings.agent.providerInstances['claude-agent-sdk-2'] = {
+            driver: 'claude-agent-sdk',
+            enabled: true,
+            config: {}
+          }
+        })}
+      />
+    )
+    const opts = optionsOf('Distillation provider')
+    expect(opts).toContain('Claude (claude-agent-sdk-1)')
+    expect(opts).toContain('Claude (claude-agent-sdk-2)')
+    // Selecting the second must pin the SECOND — a label collision would map both to one id.
+    fireEvent.change(select('Distillation provider'), {
+      target: { value: 'Claude (claude-agent-sdk-2)' }
+    })
+    expect(patchSpy).toHaveBeenCalledWith({
+      agent: { distillProvider: { instanceId: 'claude-agent-sdk-2' } }
+    })
+  })
+
+  it('disables both selects and shows the resolver reason when NO instance is capable', () => {
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          // Nothing eligible: one disabled instance and one unregistered driver.
+          p.settings.agent.providerInstances = {
+            'claude-agent-sdk-1': { driver: 'claude-agent-sdk', enabled: false, config: {} },
+            'future-1': { driver: 'future-driver', enabled: true, config: {} }
+          }
         })}
       />
     )
     expect(select('Distillation provider').disabled).toBe(true)
     expect(select('Distillation model').disabled).toBe(true)
     // getByText throws when absent, so reaching this line is the assertion.
+    screen.getByText('no provider configured for distillation')
+  })
+
+  it('shows the resolver reason for a stored instance that no longer resolves', () => {
+    render(
+      <DistillationSection
+        payload={payload((p) => {
+          p.settings.agent.distillProvider = { instanceId: 'nope' }
+        })}
+      />
+    )
     screen.getByText('distillation provider "nope" is unknown or disabled')
+    // The orphaned id must remain visible rather than silently reading as something else.
+    expect(select('Distillation provider').value).toBe('nope')
   })
 })
