@@ -54,7 +54,7 @@ describe('LangfuseExporter', () => {
     expect(seen).toEqual([])
   })
 
-  it('surfaces a sink failure through lastError without throwing', () => {
+  it('records a synchronous emit throw', () => {
     const sink: ObservationSink = {
       emit: () => {
         throw new Error('down')
