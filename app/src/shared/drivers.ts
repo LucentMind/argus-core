@@ -127,7 +127,7 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       costReporting: false,
       planMode: true,
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
-      headlessOneShot: false // Task 3 implements Copilot headless support and flips this
+      headlessOneShot: true
     }
   }
 }

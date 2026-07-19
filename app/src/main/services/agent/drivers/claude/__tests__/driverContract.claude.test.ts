@@ -1,3 +1,4 @@
+import { it, expect } from 'vitest'
 import { createClaudeDriver, type CreateQueryFn } from '../index'
 import { runDriverContractSuite, type TransportScript } from '../../../__tests__/driverContract'
 
@@ -86,3 +87,8 @@ runDriverContractSuite(
     currentScript = script
   }
 )
+
+it('declared headlessOneShot matches runHeadless presence', () => {
+  const d = createClaudeDriver()
+  expect(d.capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
+})
