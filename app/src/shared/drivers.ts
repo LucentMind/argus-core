@@ -43,6 +43,9 @@ export interface DriverCapabilities {
    *  Absent = supported; `false` = declared degradation (Copilot v1). Mirrors
    *  `main/services/agent/driver.ts` `DriverCapabilities.mcpConnectors`. */
   mcpConnectors?: boolean
+  /** Whether this driver can run a tool-less one-shot prompt with no case and no session.
+   *  Explicit and required — unlike `mcpConnectors`, absence here means nothing. */
+  headlessOneShot: boolean
 }
 
 export interface DriverDefinition {
@@ -99,7 +102,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
-      costReporting: true
+      costReporting: true,
+      headlessOneShot: true
     }
   },
   'github-copilot': {
@@ -121,8 +125,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false,
       costReporting: false,
-      planMode: true
+      planMode: true,
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
+      headlessOneShot: false // Task 3 implements Copilot headless support and flips this
     }
   }
 }
@@ -155,7 +160,8 @@ export function nextInstanceId(
 const DEFAULT_CAPABILITIES: DriverCapabilities = {
   permissionModes: PERMISSION_MODES,
   editableApprovals: false,
-  costReporting: true
+  costReporting: true,
+  headlessOneShot: false
 }
 
 /** An enabled provider instance paired with its resolved driver, in settings key order. */
@@ -365,4 +371,56 @@ export function effectiveDefaultModel(s: AppSettings): string | undefined {
   const cfg = activeInstanceConfig(s)
   if (cfg.model) return cfg.model
   return orderedVisibleModels(s)[0]?.slug
+}
+
+export type DistillProviderResolution =
+  | { ok: true; instanceId: string; driverKind: string; model?: string; cliPath?: string }
+  | { ok: false; reason: string }
+
+function distillOk(
+  s: AppSettings,
+  instanceId: string,
+  explicitModel?: string
+): DistillProviderResolution {
+  const inst = s.agent.providerInstances[instanceId]
+  const cfg = driverConfig<AgentDriverConfig>(inst.driver, inst.config)
+  return {
+    ok: true,
+    instanceId,
+    driverKind: inst.driver,
+    // Scoped to THIS instance. effectiveDefaultModel() resolves against the active
+    // instance and is exactly what leaked Copilot's "auto" into the Claude SDK.
+    model: explicitModel ?? cfg.model ?? orderedVisibleModels(s, instanceId)[0]?.slug,
+    cliPath: cfg.cliPath
+  }
+}
+
+/**
+ * The provider instance headless distillation runs on. Explicit `agent.distillProvider`
+ * wins; otherwise the first enabled claude-agent-sdk instance (the contract was authored
+ * and tested against Claude). Never consults activeInstanceId.
+ */
+export function resolveDistillProvider(s: AppSettings): DistillProviderResolution {
+  const instances = s.agent.providerInstances
+  const explicit = s.agent.distillProvider
+  if (explicit?.instanceId) {
+    const id = explicit.instanceId
+    const inst = instances[id]
+    if (!inst || !inst.enabled)
+      return { ok: false, reason: `distillation provider "${id}" is unknown or disabled` }
+    if (!getDriver(inst.driver)?.capabilities.headlessOneShot)
+      return {
+        ok: false,
+        reason: `provider "${id}" (${inst.driver}) cannot run headless distillation`
+      }
+    return distillOk(s, id, explicit.model)
+  }
+  const fallback = Object.keys(instances).find(
+    (id) =>
+      instances[id].enabled &&
+      instances[id].driver === 'claude-agent-sdk' &&
+      getDriver(instances[id].driver)?.capabilities.headlessOneShot
+  )
+  if (!fallback) return { ok: false, reason: 'no provider configured for distillation' }
+  return distillOk(s, fallback)
 }
