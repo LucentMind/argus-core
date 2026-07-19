@@ -99,6 +99,18 @@ export interface DriverCapabilities {
    *  Absent = supported (Claude). `false` = declared degradation (Copilot v1): connector
    *  tools are unavailable and each composed server is reported via `session.mcp.skipped`. */
   mcpConnectors?: boolean
+  /** Mirrors the shared DriverDefinition flag; a contract test asserts the two agree. */
+  headlessOneShot: boolean
+}
+
+/** Inputs for a tool-less one-shot run with no case and no session (distillation).
+ *  `argusHome` is threaded explicitly rather than captured so a driver can derive its own
+ *  runtime home and scratch dir from it. */
+export interface HeadlessOpts {
+  model?: string
+  cliPath?: string
+  argusHome: string
+  timeoutMs?: number
 }
 
 export interface ProbeAuthResult {
@@ -126,6 +138,12 @@ export interface AgentDriver {
    *  update check for this driver (the advisory simply never appears). */
   readonly npmPackage?: string
   createSession(ctx: DriverSessionContext): DriverSession
+  /**
+   * Run one prompt with no tools, no case, no session row, and return the assistant text.
+   * Optional: a driver may legitimately not support it. Presence MUST match
+   * `capabilities.headlessOneShot`.
+   */
+  runHeadless?(prompt: string, opts: HeadlessOpts): Promise<string>
   probeAuth(config: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult>
   /**
    * Optional driver-specific classifier for whether a thrown/consumed error message is an

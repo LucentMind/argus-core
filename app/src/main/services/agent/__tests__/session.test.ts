@@ -426,7 +426,12 @@ describe('CaseSession', () => {
       kind: 'claude-agent-sdk',
       toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
       authFixHint: 'stub hint',
-      capabilities: { permissionModes: ['default'], editableApprovals: true, costReporting: true },
+      capabilities: {
+        permissionModes: ['default'],
+        editableApprovals: true,
+        costReporting: true,
+        headlessOneShot: false
+      },
       createSession: () => ({
         events: () => eventQueue,
         send: () => undefined,
