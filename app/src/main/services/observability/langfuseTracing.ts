@@ -2,7 +2,12 @@ import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node'
 import { LangfuseSpanProcessor } from '@langfuse/otel'
 import { LangfuseOtelSpanAttributes } from '@langfuse/core'
 import { LangfuseClient } from '@langfuse/client'
-import { createTraceId, startObservation, setLangfuseTracerProvider } from '@langfuse/tracing'
+import {
+  createTraceId,
+  startObservation,
+  setLangfuseTracerProvider,
+  getLangfuseTracerProvider
+} from '@langfuse/tracing'
 import type { ObservationHandle, StartOpts, TracingApi } from './langfuseSink'
 
 /**
@@ -76,7 +81,14 @@ export function createLangfuseTracing(cfg: {
 
     shutdown: async () => {
       await provider.shutdown()
-      setLangfuseTracerProvider(null)
+      // A settings-change rebuild installs a new provider synchronously via
+      // setLangfuseTracerProvider while this shutdown may still be suspended after
+      // its first await. getLangfuseTracerProvider() reads the same module-global
+      // slot (globalThis[Symbol.for('langfuse')]) and only falls back to the OTel
+      // default when the slot is empty, so comparing it against `provider` is a
+      // reliable identity check: only clear the global if we still own it. Clearing
+      // unconditionally would disable the new (live) provider instead of this dead one.
+      if (getLangfuseTracerProvider() === provider) setLangfuseTracerProvider(null)
     }
   }
 }
