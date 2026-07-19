@@ -107,6 +107,22 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           // The only reliable containment is denying Task outright (disallowedTools:['Task'],
           // verified: no subagent spawns) — a deliberate product call, not an oversight.
           skills: ctx.skills.map(qualifySkill),
+          // Load PROJECT settings only. The main session is already bounded by `skills`
+          // above, but a subagent re-derives its own listing and measured 52 skills — 36 of
+          // them the operator's personal Claude Code toolkit (superpowers, revealjs,
+          // web-asset-generator, …), which is noise for defect analysis. Dropping
+          // 'user'/'local' removes those (52→34) while KEEPING the linked repo's domain
+          // log-parsers, which are useful to a subagent.
+          //
+          // 'project' is mandatory: without it the per-case CLAUDE.md — citation rules and
+          // the linked-workspace list — stops loading. Do not "tighten" this to []; that
+          // also drops the repo skills (52→18) but silently takes the case briefing with
+          // it, unless CLAUDE.md is first folded into `systemAppend`.
+          //
+          // Side effect, deliberate: Argus no longer inherits the operator's personal
+          // ~/.claude permission allowlists, so tool calls they had pre-approved globally
+          // now reach Argus's own approval pipeline instead of being auto-allowed.
+          settingSources: ['project'],
           includePartialMessages: true,
           systemPrompt: {
             type: 'preset',
