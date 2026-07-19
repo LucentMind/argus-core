@@ -30,7 +30,8 @@ function fakeDriver(kind: string, probe: () => Promise<ProbeAuthResult>): AgentD
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
-      costReporting: true
+      costReporting: true,
+      headlessOneShot: false
     },
     createSession: () => ({}) as never,
     probeAuth: probe

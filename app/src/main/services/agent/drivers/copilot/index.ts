@@ -325,9 +325,10 @@ export function createCopilotDriver(
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false, // permission channel cannot carry edited input (EVIDENCE §2)
-      costReporting: false // free tier bills cost:0; costUsd is always null (§5, amendment 10)
+      costReporting: false, // free tier bills cost:0; costUsd is always null (§5, amendment 10)
       // mcpConnectors omitted (= supported): connector servers forward with a tools:["*"]
       // allowlist, which resolves the §6/§6b "not_configured" failure (EVIDENCE §6c).
+      headlessOneShot: false // Task 3 implements Copilot headless support and flips this
     },
 
     isAuthErrorMessage: isCopilotAuthErrorMessage,
