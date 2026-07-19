@@ -115,9 +115,21 @@ export function defaultSettings(): AppSettings {
   return settingsSchema.parse({})
 }
 
-/** Patch type: any leaf may be its value or null (null deletes the key → default refills). */
+/** Patch type: any leaf may be its value or null (null deletes the key → default refills).
+ *
+ *  `NonNullable` is load-bearing: an OPTIONAL object property has type `{...} | undefined`,
+ *  and a union with undefined does not satisfy `extends Record<string, unknown>`. Without it
+ *  such a property never recursed, so a nested null — this codebase's delete idiom — was
+ *  inexpressible for it. Stripping undefined before the test is purely widening: required
+ *  object properties and scalar leaves are unaffected. */
 export type DeepPatch<T> = {
-  [K in keyof T]?: (T[K] extends Record<string, unknown> ? DeepPatch<T[K]> : T[K]) | null
+  [K in keyof T]?:
+    | (unknown extends T[K]
+        ? T[K] // zod looseObject index signatures are `unknown` — leave them permissive
+        : NonNullable<T[K]> extends Record<string, unknown>
+          ? DeepPatch<NonNullable<T[K]>>
+          : T[K])
+    | null
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

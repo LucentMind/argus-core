@@ -198,10 +198,9 @@ describe('AgentSettings provider list', () => {
     render(<AgentSettings payload={payload(withCopilot)} />)
     expect(await screen.findByTestId('provider-default-claude-default')).toBeTruthy()
     expect(screen.queryByTestId('provider-default-copilot-1')).toBeNull()
-    expect(
-      screen.getByTitle('Used for new chats and background work (distillation, reference sync)')
-        .textContent
-    ).toBe('Default')
+    // Narrowed 2026-07-20: distillation and reference sync resolve their own provider
+    // (see DistillationSection), so the default only governs new chats and probes.
+    expect(screen.getByTitle('Used for new chats and provider probes').textContent).toBe('Default')
   })
 
   it('tags the provider actually in use when the stored default is disabled', async () => {
