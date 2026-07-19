@@ -1,0 +1,89 @@
+name: Build desktop binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: build:win
+            artifact: windows
+          - os: macos-latest
+            script: build:mac
+            artifact: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      # `--publish never` keeps electron-builder from trying to push to the
+      # `publish.generic` URL in electron-builder.yml. Releasing is the
+      # release job's business, not the build's.
+      - name: Build
+        working-directory: app
+        run: npm run ${{ matrix.script }} -- --publish never
+
+      # Catches the class of bug the unit suite structurally cannot: a bundled CLI binary
+      # that resolves inside app.asar and therefore cannot be spawned. There is no asar
+      # until the app is packaged, so this only has teeth here. Asserts the binaries
+      # LAUNCH, not that they authenticate — CI has no credentials, and "not
+      # authenticated" is a healthy answer that proves the process ran.
+      - name: Smoke-test packaged provider CLIs
+        working-directory: app
+        run: npm run smoke:packaged
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: argus-${{ matrix.artifact }}
+          path: |
+            app/dist/*.exe
+            app/dist/*.dmg
+            app/dist/*.zip
+            app/dist/*.blockmap
+            app/dist/latest*.yml
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # Draft: assets land on the release page but nothing is public until
+      # someone clicks Publish. Binaries are unsigned, so they are worth a
+      # manual look before they go out.
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --draft \
+            --generate-notes \
+            artifacts/*

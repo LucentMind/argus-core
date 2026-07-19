@@ -138,7 +138,8 @@ import type {
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { LangfuseExporter } from './services/observability/langfuse'
-import { buildLangfuseClient } from './services/observability/langfuseClient'
+import { LangfuseSink } from './services/observability/langfuseSink'
+import { createLangfuseTracing } from './services/observability/langfuseTracing'
 import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
 import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
@@ -352,7 +353,7 @@ function registerIpc(): void {
       return
     }
     langfuseExporter = new LangfuseExporter(
-      buildLangfuseClient({ host: s.host, publicKey: s.publicKey, secretKey }),
+      new LangfuseSink(createLangfuseTracing({ host: s.host, publicKey: s.publicKey, secretKey })),
       { captureContent: s.captureContent }
     )
   }
@@ -1497,7 +1498,28 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Packaged-build smoke check (npm run smoke:packaged): probe every driver, print the
+  // verdicts, exit. Runs before any IPC/window setup so it never touches user state.
+  if (process.argv.includes('--smoke-providers')) {
+    const { checkDriverBinaries, runProviderSmoke } = await import(
+      './services/agent/smokeProviders'
+    )
+    // The gate: every bundled CLI must launch. No credentials required.
+    const { ok, results } = checkDriverBinaries()
+    for (const r of results) {
+      console.log(`${r.launched ? 'LAUNCHED' : 'FAILED  '}  ${r.kind}: ${r.detail}`)
+    }
+    // Informational only: the auth probes exercise the full driver path, but their verdicts
+    // depend on being logged in, so they must never decide the build's fate.
+    console.log('--- auth probes (informational; not gating) ---')
+    for (const r of (await runProviderSmoke()).results) {
+      console.log(`  ${r.kind}: ${r.detail}`)
+    }
+    app.exit(ok ? 0 : 1)
+    return
+  }
+
   // Set app user model id for windows — match the installer appId so the running
   // app's taskbar button groups with the pinned shortcut and shows notifications
   // under the right identity.
@@ -1521,11 +1543,27 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
+let quitting = false
+app.on('before-quit', (event) => {
+  // This handler re-enters once app.quit() is called below — the second entry
+  // must fall straight through so quit actually proceeds.
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+
   panelHost?.closeAll()
   externalAppHost?.closeAll()
   void agentService?.stopAll()
-  void langfuseExporter?.flush()
+
+  // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
+  // reached on the quit path before. Race it against a hard timeout: a quit hang
+  // is worse than losing telemetry, so a hung network call must never block quit.
+  const shutdown = langfuseExporter?.shutdown() ?? Promise.resolve()
+  const timeout = new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, 3000)
+    t.unref?.()
+  })
+  void Promise.race([shutdown, timeout]).finally(() => app.quit())
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
