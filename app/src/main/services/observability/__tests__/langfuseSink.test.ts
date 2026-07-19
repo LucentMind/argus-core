@@ -96,16 +96,32 @@ describe('LangfuseSink', () => {
   })
 
   it('does not set traceName when no trace-root intent is present', async () => {
-    // A scoreFinding() for a session that ended in an earlier app run reaches the
-    // sink with no trace-root. That trace already carries its real name in Langfuse;
+    // A tool intent for a session that ended in an earlier app run reaches the sink
+    // with no trace-root. That trace already carries its real name in Langfuse;
     // writing the raw seed here would overwrite it.
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api)
+    sink.emit([{ kind: 'tool', seed: 'argus-session-7', name: 'read_file', isError: false }])
+    resolveIds()
+    await sink.flush()
+    const fallbackRoot = calls.start[0] as { opts: { traceName?: string } }
+    expect(fallbackRoot.opts.traceName).toBeUndefined()
+  })
+
+  it('creates no observation for a bare score intent with no cached root', async () => {
+    // Reviewing a finding after an app restart: scoreFinding() reaches the sink
+    // with only a seed, no cached root. Before the fix, rootFor() would create (and
+    // immediately end) a junk observation named after the raw seed on the trace
+    // that already has a proper root. A score needs only the trace id.
     const { api, calls, resolveIds } = fakeTracing()
     const sink = new LangfuseSink(api)
     sink.emit([{ kind: 'score', seed: 'argus-session-7', name: 'finding_accepted', value: 1 }])
     resolveIds()
     await sink.flush()
-    const fallbackRoot = calls.start[0] as { opts: { traceName?: string } }
-    expect(fallbackRoot.opts.traceName).toBeUndefined()
+    expect(calls.start).toHaveLength(0)
+    expect(calls.score).toEqual([
+      { traceId: 'trace-argus-session-7', name: 'finding_accepted', value: 1, comment: undefined }
+    ])
   })
 
   it('settles in-flight work before forcing a flush', async () => {
