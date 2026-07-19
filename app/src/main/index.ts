@@ -1438,11 +1438,27 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
+let quitting = false
+app.on('before-quit', (event) => {
+  // This handler re-enters once app.quit() is called below — the second entry
+  // must fall straight through so quit actually proceeds.
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+
   panelHost?.closeAll()
   externalAppHost?.closeAll()
   void agentService?.stopAll()
-  void langfuseExporter?.flush()
+
+  // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
+  // reached on the quit path before. Race it against a hard timeout: a quit hang
+  // is worse than losing telemetry, so a hung network call must never block quit.
+  const shutdown = langfuseExporter?.shutdown() ?? Promise.resolve()
+  const timeout = new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, 3000)
+    t.unref?.()
+  })
+  void Promise.race([shutdown, timeout]).finally(() => app.quit())
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common
