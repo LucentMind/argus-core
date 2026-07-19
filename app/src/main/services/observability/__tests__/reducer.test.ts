@@ -173,16 +173,24 @@ describe('reduce', () => {
   it('emits a resume marker rather than a second trace-root', () => {
     const s = initialState()
     run([started()], { captureContent: false }, s)
+    // Passing the same `s` into both run() calls is deliberate, not a copy-paste
+    // slip: reduce() mutates state in place (see its docblock), so this threads
+    // the session state from the first run into the second the way index.ts's
+    // real long-lived state does across events.
     const second = run([started({}, true)], { captureContent: false }, s)
-    expect(second).toEqual([
-      { kind: 'event', seed: 'argus-session-7', name: 'session resumed' }
-    ])
+    expect(second).toEqual([{ kind: 'event', seed: 'argus-session-7', name: 'session resumed' }])
   })
 
   it('creates session state on a resume with no prior state (restarted app)', () => {
     const s = initialState()
-    const intents = run([started({}, true), turnStarted('x'), turnCompleted()], { captureContent: false }, s)
-    expect(intents).toContainEqual(expect.objectContaining({ kind: 'event', name: 'session resumed' }))
+    const intents = run(
+      [started({}, true), turnStarted('x'), turnCompleted()],
+      { captureContent: false },
+      s
+    )
+    expect(intents).toContainEqual(
+      expect.objectContaining({ kind: 'event', name: 'session resumed' })
+    )
     expect(intents).toContainEqual(expect.objectContaining({ kind: 'generation', name: 'turn' }))
   })
 
