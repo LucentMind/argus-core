@@ -234,7 +234,12 @@ describe('reduce', () => {
       [
         turnStarted('summarize the readme in evidence', T0),
         started({ ts: T1 }),
-        { ...base, ts: T2, type: 'assistant.message', payload: { text: 'reply text' } } as AgentEvent,
+        {
+          ...base,
+          ts: T2,
+          type: 'assistant.message',
+          payload: { text: 'reply text' }
+        } as AgentEvent,
         turnCompleted('success', T2)
       ],
       { captureContent: true }
@@ -254,12 +259,10 @@ describe('reduce', () => {
     // preserve text/timing state that turn.started already populated. Replacing
     // the whole entry via freshSessionState is exactly how the prompt gets
     // thrown away a second time.
-    let s = initialState()
-    ;[s] = reduce(s, turnStarted('secret prompt', T0), { captureContent: true })
-    let intents: ObservationIntent[]
-    ;[s, intents] = reduce(s, started({ ts: T1 }), { captureContent: true })
+    const [s1] = reduce(initialState(), turnStarted('secret prompt', T0), { captureContent: true })
+    const [s2, intents] = reduce(s1, started({ ts: T1 }), { captureContent: true })
 
-    const entry = s.sessions.get(7)
+    const entry = s2.sessions.get(7)
     expect(entry?.userText).toBe('secret prompt')
     expect(entry?.turnStartedAt).toBe(Date.parse(T0))
     expect(entry?.model).toBe('claude-opus-4-8')
