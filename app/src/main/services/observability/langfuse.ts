@@ -10,11 +10,15 @@ import type { ObservationSink } from './sink'
  *
  * Error policy is deliberately split: a throw from `reduce` is a logic bug and
  * is logged loudly without touching `lastError()`, so it is never reported as
- * a connector fault. A throw from the sink is a network or config condition
- * and *is* recorded via `lastError()` — but nothing currently reads it. The
- * health row is driven separately, by `langfuseCheck()` calling
- * `probeLangfuseCredentials`, a live credential probe that does not consult
- * this exporter.
+ * a connector fault. A throw from `sink.emit` would be a network or config
+ * condition and is recorded via `lastError()`.
+ *
+ * Note that path is currently inert: the concrete `LangfuseSink` never throws
+ * synchronously — it swallows failures into its own private field — so `lastError()`
+ * is not populated by a real sink failure, and no caller reads it either. Runtime
+ * ingestion failures are therefore not surfaced anywhere today; the Langfuse health
+ * row runs an independent credential probe (`probeLangfuseCredentials`). Wiring
+ * runtime failures into health is a deliberate open question, not an oversight.
  */
 export class LangfuseExporter {
   private state: ExporterState = initialState()
