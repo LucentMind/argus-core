@@ -53,14 +53,21 @@ export function reduce(
 
   switch (e.type) {
     case 'session.started': {
+      // The real event order (seen live) has turn.started arriving BEFORE
+      // session.started: the turn begins, then the SDK session finishes
+      // initialising. When that happens, turn.started already created this
+      // session's state and populated userText/turnStartedAt. Replacing the
+      // whole entry via freshSessionState here would throw that away a second
+      // time — so update `model` on the existing entry instead of clobbering
+      // it. Only a genuinely missing entry gets a fresh one.
+      const existing = state.sessions.get(e.sessionId)
+      if (existing) existing.model = e.payload.model
+      else state.sessions.set(e.sessionId, freshSessionState(seed, e.payload.model))
+
       if (e.payload.resumed) {
-        const existing = state.sessions.get(e.sessionId)
-        if (existing) existing.model = e.payload.model
-        else state.sessions.set(e.sessionId, freshSessionState(seed, e.payload.model))
         intents.push({ kind: 'event', seed, name: 'session resumed' })
         break
       }
-      state.sessions.set(e.sessionId, freshSessionState(seed, e.payload.model))
       intents.push({
         kind: 'trace-root',
         seed,
@@ -72,8 +79,16 @@ export function reduce(
     }
 
     case 'turn.started': {
-      const s = state.sessions.get(e.sessionId)
-      if (!s) break
+      // Do not drop this event when session state doesn't exist yet — the real
+      // event order has turn.started arriving before session.started (see
+      // above), so dropping here silently discards userText and turnStartedAt
+      // for every turn. Model is unknown at this point; session.started fills
+      // it in when it arrives.
+      let s = state.sessions.get(e.sessionId)
+      if (!s) {
+        s = freshSessionState(seed, '')
+        state.sessions.set(e.sessionId, s)
+      }
       s.assistantText = ''
       s.userText = opts.captureContent ? e.payload.userText : ''
       s.turnStartedAt = tsOf(e)
