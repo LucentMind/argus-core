@@ -59,8 +59,10 @@ export function ProviderRow({
   enabled,
   expanded,
   isDefault,
+  canSetDefault,
   onToggleEnabled,
   onToggleExpanded,
+  onSetDefault,
   children
 }: {
   instanceId: string
@@ -70,8 +72,10 @@ export function ProviderRow({
   enabled: boolean
   expanded: boolean
   isDefault: boolean
+  canSetDefault: boolean
   onToggleEnabled: (v: boolean) => void
   onToggleExpanded: () => void
+  onSetDefault: () => void
   children: React.ReactNode
 }): React.JSX.Element {
   const behind = status?.latestVersion
@@ -113,6 +117,16 @@ export function ProviderRow({
                   Default
                 </Chip>
               </span>
+            )}
+            {canSetDefault && (
+              <button
+                type="button"
+                onClick={onSetDefault}
+                aria-label={`Set ${label} as default provider`}
+                className="shrink-0 text-xs text-mute hover:text-ink"
+              >
+                Set as default
+              </button>
             )}
           </span>
           <StatusLine status={status} enabled={enabled} />
