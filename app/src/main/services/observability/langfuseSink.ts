@@ -67,6 +67,10 @@ export class LangfuseSink implements ObservationSink {
   private track(p: Promise<void>): void {
     const wrapped = p.catch((err) => {
       this.error = err instanceof Error ? err.message : String(err)
+      // lastError() has no reader today (see langfuse.ts's docblock) — without this,
+      // a runtime ingestion failure (rotated credentials, unreachable host, oversized
+      // payload) produces zero signal anywhere. Keep it at least greppable.
+      console.error('[observability] Langfuse sink failed to ingest', err)
     })
     this.pending.add(wrapped)
     void wrapped.finally(() => this.pending.delete(wrapped))
