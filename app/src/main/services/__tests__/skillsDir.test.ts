@@ -7,7 +7,8 @@ import {
   sharedSkillsDir,
   sharedReferencesDir,
   isNonPackTiered,
-  resolveCoreSkillsDir
+  resolveCoreSkillsDir,
+  detectSkillCollisions
 } from '../skillsDir'
 import { frontmatterDescription, resolveSkills } from '../agent/skillsResolver'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
@@ -126,6 +127,55 @@ describe('seedSharedAssets', () => {
     // env override last: dev dir still beats core
     seedSharedAssets(home, { skills: [pack, core, env], references: [] })
     expect(fs.readFileSync(dest, 'utf8')).toBe('from-env')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+})
+
+describe('detectSkillCollisions', () => {
+  const mk = (root: string, ...names: string[]): string => {
+    for (const n of names) {
+      fs.mkdirSync(path.join(root, n), { recursive: true })
+      fs.writeFileSync(path.join(root, n, 'SKILL.md'), `---\nname: ${n}\n---\nbody\n`)
+    }
+    return root
+  }
+
+  it('reports a name two packs both provide, naming the winner and the shadowed source', () => {
+    // seedSharedAssets flat-copies every source into ONE dir with later-wins semantics, so
+    // the loser vanishes before resolveSkills ever scans — its `shadows[]` cannot see it.
+    // Detection has to happen against the sources, not the destination.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-col-'))
+    const a = mk(path.join(tmp, 'pack-a'), 'analyze-logs', 'only-a')
+    const b = mk(path.join(tmp, 'pack-b'), 'analyze-logs')
+
+    expect(detectSkillCollisions([a, b])).toEqual([
+      { name: 'analyze-logs', winner: b, shadowed: [a] }
+    ])
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('is silent when every skill name is unique', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-col-'))
+    const a = mk(path.join(tmp, 'pack-a'), 'alpha')
+    const b = mk(path.join(tmp, 'pack-b'), 'beta')
+    expect(detectSkillCollisions([a, b])).toEqual([])
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('tolerates missing sources and ignores dirs without a SKILL.md', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-col-'))
+    const a = mk(path.join(tmp, 'pack-a'), 'alpha')
+    fs.mkdirSync(path.join(a, 'not-a-skill'), { recursive: true }) // no SKILL.md
+    expect(detectSkillCollisions([path.join(tmp, 'missing'), a])).toEqual([])
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('collects every shadowed source when three sources claim one name', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-col-'))
+    const a = mk(path.join(tmp, 'pack-a'), 'dup')
+    const b = mk(path.join(tmp, 'pack-b'), 'dup')
+    const c = mk(path.join(tmp, 'core'), 'dup')
+    expect(detectSkillCollisions([a, b, c])).toEqual([{ name: 'dup', winner: c, shadowed: [a, b] }])
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 })
