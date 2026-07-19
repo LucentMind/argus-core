@@ -37,6 +37,7 @@ import type {
   ConfluencePageNode,
   ConfluencePageContent
 } from '../../../shared/confluence'
+
 export interface RefSyncServiceDeps {
   argusHome: string
   store: ReferenceSyncStore
