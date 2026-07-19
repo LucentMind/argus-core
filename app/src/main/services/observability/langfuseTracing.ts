@@ -1,4 +1,6 @@
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node'
+import { resourceFromAttributes } from '@opentelemetry/resources'
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
 import { LangfuseSpanProcessor } from '@langfuse/otel'
 import { LangfuseOtelSpanAttributes } from '@langfuse/core'
 import { LangfuseClient } from '@langfuse/client'
@@ -27,7 +29,11 @@ export function createLangfuseTracing(cfg: {
     secretKey: cfg.secretKey,
     baseUrl: cfg.host
   })
-  const provider = new NodeTracerProvider({ spanProcessors: [processor] })
+  // Without an explicit service name, OTel's default resource falls back to
+  // "unknown_service:<process.execPath>" — leaking the local executable path
+  // (e.g. the packaged argus.exe path) into every trace shipped to Langfuse.
+  const resource = resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'argus' })
+  const provider = new NodeTracerProvider({ spanProcessors: [processor], resource })
   setLangfuseTracerProvider(provider)
 
   const client = new LangfuseClient({
