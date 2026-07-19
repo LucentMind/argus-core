@@ -259,11 +259,14 @@ export function SelectField({
   value,
   options,
   onChange,
+  disabled,
   'aria-label': ariaLabel
 }: {
   value: string
   options: readonly string[]
   onChange: (v: string) => void
+  /** Greys the control out — e.g. a setting whose prerequisites aren't configured. */
+  disabled?: boolean
   'aria-label': string
 }): React.JSX.Element {
   return (
@@ -271,6 +274,7 @@ export function SelectField({
       aria-label={ariaLabel}
       className={FIELD}
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
     >
       {options.map((o) => (

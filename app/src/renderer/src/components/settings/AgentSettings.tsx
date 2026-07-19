@@ -11,6 +11,7 @@ import {
   DraftTextarea
 } from './settingsLayout'
 import { AnnotatedForm } from './AnnotatedForm'
+import { DistillationSection } from './DistillationSection'
 import { ProviderModels } from './ProviderModels'
 import { ProviderRow } from './ProviderRow'
 import { AddProviderMenu, LastChecked } from './providerHeader'
@@ -60,8 +61,9 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
   /**
    * Several providers may be enabled at once — the chat's model picker aggregates across
    * them. Disabling the one currently designated the default hands that role to another
-   * enabled instance, so background work (distillation, reference sync, probes) never
-   * points at a switched-off provider.
+   * enabled instance, so new chats and provider probes never point at a switched-off
+   * provider. Distillation and reference sync resolve their own provider — see
+   * DistillationSection.
    */
   function setEnabled(id: string, enabled: boolean): void {
     const next: Record<string, unknown> = { providerInstances: { [id]: { enabled } } }
@@ -74,7 +76,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
     patchAgent(next)
   }
 
-  /** Designate the instance background work should use. Only ever called for an enabled,
+  /** Designate the instance new chats and probes should use. Only ever called for an enabled,
    *  non-default instance, so the "the default is always runnable" invariant holds without
    *  a guard here — see canSetDefault at the call site. */
   function setDefault(id: string): void {
@@ -98,7 +100,7 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
 
   // The tag must name the instance that is ACTUALLY serving as default. When the stored id
   // points at a disabled or unknown instance, defaultInstanceId() falls back to the first
-  // enabled one at read time — and that fallback is what background work really uses.
+  // enabled one at read time — and that fallback is what new chats and probes really use.
   const effectiveDefaultId = defaultInstanceId(payload.settings)
 
   const entries = Object.entries(a.providerInstances)
@@ -172,6 +174,8 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
           )
         })}
       </SettingsSection>
+
+      <DistillationSection payload={payload} />
 
       <SettingsSection title="Session defaults">
         <SettingRow
