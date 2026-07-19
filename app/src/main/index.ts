@@ -108,7 +108,8 @@ import {
   seedSharedAssets,
   sharedSkillsDir,
   sharedReferencesDir,
-  resolveCoreSkillsDir
+  resolveCoreSkillsDir,
+  detectSkillCollisions
 } from './services/skillsDir'
 import { PackRegistry } from './services/packs/registry'
 import { createDetection } from './services/packs/detection'
@@ -268,14 +269,23 @@ function registerIpc(): void {
 
   const packsState = new PacksStateStore(argusHome)
   const coreSkillsDir = resolveCoreSkillsDir(app.getAppPath(), resourcesPath)
+  const skillSources = [
+    ...packRegistry.skillsSources(),
+    // Core-shipped skills seed AFTER packs: later-wins means a pack cannot
+    // silently replace a core capability. The dev env override stays last.
+    coreSkillsDir,
+    ...(process.env.ARGUS_SKILLS_DIR ? [process.env.ARGUS_SKILLS_DIR] : [])
+  ]
+  // Later-wins is deliberate, but the loser disappears before resolveSkills can see it, so
+  // two packs claiming one name would otherwise be indistinguishable from one never
+  // shipping it. Report before seeding flattens the sources.
+  for (const c of detectSkillCollisions(skillSources)) {
+    console.warn(
+      `[skills] name collision on "${c.name}": ${c.winner} wins; shadowed: ${c.shadowed.join(', ')}`
+    )
+  }
   seedSharedAssets(argusHome, {
-    skills: [
-      ...packRegistry.skillsSources(),
-      // Core-shipped skills seed AFTER packs: later-wins means a pack cannot
-      // silently replace a core capability. The dev env override stays last.
-      coreSkillsDir,
-      ...(process.env.ARGUS_SKILLS_DIR ? [process.env.ARGUS_SKILLS_DIR] : [])
-    ],
+    skills: skillSources,
     references: [
       ...packRegistry.referencesSources(),
       ...(process.env.ARGUS_REFERENCES_DIR ? [process.env.ARGUS_REFERENCES_DIR] : [])
