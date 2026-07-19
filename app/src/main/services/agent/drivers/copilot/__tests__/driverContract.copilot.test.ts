@@ -1,4 +1,4 @@
-import { vi } from 'vitest'
+import { vi, it, expect } from 'vitest'
 import { createCopilotDriver } from '../index'
 import type {
   CopilotClientFactory,
@@ -8,6 +8,7 @@ import type {
 } from '../client'
 import type { RawSdkEvent } from '../normalize'
 import { runDriverContractSuite, type TransportScript } from '../../../__tests__/driverContract'
+import { DRIVERS } from '../../../../../../shared/drivers'
 
 const DEFAULT_SESSION_ID = '33333333-3333-4333-8333-333333333333'
 
@@ -124,3 +125,18 @@ runDriverContractSuite(
     currentScript = script
   }
 )
+
+it('declared headlessOneShot matches runHeadless presence', () => {
+  const d = createCopilotDriver()
+  expect(d.capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
+})
+
+// resolveDistillProvider (shared/drivers.ts) gates on the SHARED flag; what actually runs
+// is the main-side method. If shared says true but the method is absent (or vice versa),
+// distillation either silently refuses a working provider or throws on a provider the UI
+// claims supports it. All three — shared flag, main-side flag, main-side method — must agree.
+it('shared DRIVERS headlessOneShot agrees with the main-process driver flag and method', () => {
+  const d = createCopilotDriver()
+  expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(d.capabilities.headlessOneShot)
+  expect(DRIVERS[d.kind].capabilities.headlessOneShot).toBe(typeof d.runHeadless === 'function')
+})

@@ -606,7 +606,8 @@ function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
-      costReporting: true
+      costReporting: true,
+      headlessOneShot: false
     },
     createSession(): DriverSession {
       calls.push(kind)

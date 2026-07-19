@@ -11,7 +11,7 @@ import {
   detectVanished,
   type ConfluenceReader
 } from './engine'
-import { distillTarget, type DistillOptions } from './distill'
+import { distillTarget } from './distill'
 import {
   refBody,
   refTier,
@@ -37,15 +37,14 @@ import type {
   ConfluencePageNode,
   ConfluencePageContent
 } from '../../../shared/confluence'
-import type { CreateQueryFn } from '../agent/drivers/claude'
 
 export interface RefSyncServiceDeps {
   argusHome: string
   store: ReferenceSyncStore
   reader: ConfluenceReader
-  createQuery?: CreateQueryFn
-  distillOptions?: () => DistillOptions
-  /** Injectable for tests; defaults to the headless SDK distiller. */
+  /** Headless one-shot runner; resolves its own provider. Injectable for tests. */
+  run?: (prompt: string) => Promise<string>
+  /** Injectable for tests; defaults to the headless distiller. */
   distill?: typeof distillTarget
   now?: () => Date
 }
@@ -177,8 +176,10 @@ export class RefSyncService {
               version: c.node.version
             }))
           },
-          this.deps.distillOptions?.() ?? {},
-          this.deps.createQuery
+          this.deps.run ??
+            (() => {
+              throw new Error('no provider configured for distillation')
+            })
         )
         drafts.push({
           target,
