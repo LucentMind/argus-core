@@ -179,6 +179,16 @@ export class CaseSession {
       eventCtx: () => this.ctx(),
       onToolRequest: this.handleToolRequest.bind(this),
       classifyOnly: this.classifyOnly.bind(this),
+      // Usage-stats capture for the two classes the Claude SDK auto-allows without ever
+      // consulting canUseTool (proven live 2026-07-20): `Skill` activations and sandboxed
+      // reference reads. Everything else still audits through the approval pipeline —
+      // observing those here too would double-count them. Copilot never fires this seam
+      // (its reads audit via classifyOnly), so the split stays disjoint per driver.
+      onToolObserved: (toolName, input) => {
+        const detail = extractToolDetail(toolName, input, this.detailCtx)
+        if (toolName !== 'Skill' && !detail?.startsWith('ref:')) return
+        this.logToolCall(toolName, input, 'LOW', 'observed', 0)
+      },
       // Tag the cursor with the driver that produced it — sessionCursor gates resume on
       // this match so a future Copilot driver can never resume a Claude session's cursor.
       onCursor: (cursor) => {
