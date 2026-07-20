@@ -239,6 +239,23 @@ describe('syncAll', () => {
     expect(getCase(db, 'c')!.jiraSyncedAt).not.toBeNull()
   })
 
+  it('survives onProgress throwing a non-Error (null) — the run still completes', async () => {
+    const { svc, db, home } = setup()
+    createCase(db, home, { slug: 'a', title: 'a', jiraKey: 'P-1' })
+    createCase(db, home, { slug: 'b', title: 'b', jiraKey: 'P-2' })
+    let calls = 0
+    const r = await svc.syncAll(() => {
+      calls++
+      if (calls === 1) throw null
+    })
+    expect(r.total).toBe(2)
+    expect(r.synced).toBe(2)
+    expect(r.failed).toBe(0)
+    // assert persisted state, not just the counters
+    expect(getCase(db, 'a')!.jiraSyncedAt).not.toBeNull()
+    expect(getCase(db, 'b')!.jiraSyncedAt).not.toBeNull()
+  })
+
   it('never runs more than the concurrency limit at once', async () => {
     const { svc, db, home, client } = setup()
     for (let i = 0; i < 10; i++) {

@@ -384,7 +384,9 @@ export class JiraCases {
           try {
             onProgress?.(++done, total)
           } catch (err) {
-            console.warn(`[jira] onProgress callback threw: ${(err as Error).message}`)
+            console.warn(
+              `[jira] onProgress callback threw: ${err instanceof Error ? err.message : String(err)}`
+            )
           }
         }
       }
