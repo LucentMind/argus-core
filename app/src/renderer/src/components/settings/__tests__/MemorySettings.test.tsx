@@ -1,0 +1,110 @@
+// @vitest-environment jsdom
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
+import { MemorySettings } from '../MemorySettings'
+import type { MemoryTopicsPayload } from '../../../../../shared/memoryIpc'
+import type { UsageStatsPayload } from '../../../../../shared/observability'
+
+// MemorySettings reads enablement via useAccessPayload/accessStore, which is a separate
+// external-store singleton (not part of window.argus.memory/usage). Mocking it here keeps
+// this suite focused on the usage/hygiene/archive behavior under test — accessStore's own
+// IPC wiring (access.get/onChanged) is covered by its own tests.
+vi.mock('../../../lib/accessStore', () => ({
+  accessStore: { patch: vi.fn() },
+  useAccessPayload: () => null
+}))
+
+const topics: MemoryTopicsPayload = {
+  topics: [
+    { name: 'hot-topic', sizeBytes: 2048, lastWritten: '2026-07-19T10:00:00.000Z', enabled: true },
+    { name: 'cold-topic', sizeBytes: 1024, lastWritten: '2026-01-05T10:00:00.000Z', enabled: true }
+  ],
+  indexLines: 2,
+  capLines: 200
+}
+const usage: UsageStatsPayload = {
+  hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
+  skills: [],
+  memory: [
+    {
+      topic: 'hot-topic',
+      recallCount: 7,
+      lastRecalledAt: '2026-07-19T10:00:00.000Z',
+      lastWrittenAt: '2026-07-19T10:00:00.000Z',
+      staleCandidate: false
+    },
+    {
+      topic: 'cold-topic',
+      recallCount: 0,
+      lastRecalledAt: null,
+      lastWrittenAt: '2026-01-05T10:00:00.000Z',
+      staleCandidate: true
+    }
+  ],
+  references: [],
+  archived: [{ topic: 'old-lesson', archivedAt: '2026-06-01T00:00:00.000Z', sizeBytes: 512 }]
+}
+
+function mockArgus(): {
+  memory: {
+    topics: ReturnType<typeof vi.fn>
+    audit: ReturnType<typeof vi.fn>
+    read: ReturnType<typeof vi.fn>
+    write: ReturnType<typeof vi.fn>
+    remove: ReturnType<typeof vi.fn>
+    archive: ReturnType<typeof vi.fn>
+    restore: ReturnType<typeof vi.fn>
+  }
+  usage: { stats: ReturnType<typeof vi.fn> }
+} {
+  return {
+    memory: {
+      topics: vi.fn().mockResolvedValue(topics),
+      audit: vi.fn().mockResolvedValue([]),
+      read: vi.fn().mockResolvedValue(''),
+      write: vi.fn().mockResolvedValue(topics),
+      remove: vi.fn().mockResolvedValue(topics),
+      archive: vi.fn().mockResolvedValue(topics),
+      restore: vi.fn().mockResolvedValue(topics)
+    },
+    usage: { stats: vi.fn().mockResolvedValue(usage) }
+  }
+}
+let argus: ReturnType<typeof mockArgus>
+beforeEach(() => {
+  argus = mockArgus()
+  ;(window as unknown as { argus: unknown }).argus = argus
+  window.confirm = vi.fn(() => true)
+})
+
+describe('MemorySettings usage + hygiene', () => {
+  it('shows recall counts and a stale badge on candidates only', async () => {
+    render(<MemorySettings />)
+    expect(await screen.findByText(/7 recalls/)).toBeInTheDocument()
+    expect(await screen.findByText(/never recalled/)).toBeInTheDocument()
+    const stale = await screen.findAllByText('stale')
+    expect(stale).toHaveLength(1)
+  })
+
+  it('archive asks for confirmation then calls memory.archive', async () => {
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive cold-topic' }))
+    expect(window.confirm).toHaveBeenCalled()
+    await waitFor(() => expect(argus.memory.archive).toHaveBeenCalledWith('cold-topic'))
+  })
+
+  it('archived section lists topics with a Restore action', async () => {
+    render(<MemorySettings />)
+    expect(await screen.findByText('old-lesson')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore old-lesson' }))
+    await waitFor(() => expect(argus.memory.restore).toHaveBeenCalledWith('old-lesson'))
+  })
+
+  it('cancelling the archive confirm does nothing', async () => {
+    window.confirm = vi.fn(() => false)
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive cold-topic' }))
+    expect(argus.memory.archive).not.toHaveBeenCalled()
+  })
+})
