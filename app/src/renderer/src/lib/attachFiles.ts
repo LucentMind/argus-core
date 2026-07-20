@@ -39,11 +39,19 @@ const nextId = (): string => `att-${++seq}`
 export async function attachFiles(
   caseSlug: string,
   sessionId: number,
-  files: File[]
+  files: File[],
+  opts: { fromClipboard?: boolean } = {}
 ): Promise<void> {
   for (const file of files) {
     const isImage = file.type.startsWith('image/')
-    const name = file.name || screenshotName(file.type, new Date())
+    // Chromium synthesises a name (typically `image.png`) for every clipboard image
+    // paste, so `file.name` is truthy even though it carries no real identity — trust
+    // it only when the file did NOT come from the clipboard. Non-image clipboard files
+    // (e.g. a copied document) still carry a meaningful name and keep it.
+    const name =
+      opts.fromClipboard && isImage
+        ? screenshotName(file.type, new Date())
+        : file.name || screenshotName(file.type, new Date())
     const id = nextId()
 
     if (file.size > MAX_ATTACHMENT_BYTES) {

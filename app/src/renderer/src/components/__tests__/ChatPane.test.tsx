@@ -268,13 +268,20 @@ describe('ChatPane', () => {
 
     render(<ChatPane slug="NAVAPI-1" sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
 
+    // Chromium supplies a name like this for every clipboard image paste — real or not,
+    // the composer must ignore it and mint a sortable screenshot-style name instead.
     const file = new File([new Uint8Array(4)], 'shot.png', { type: 'image/png' })
     fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), {
       clipboardData: { files: [file], items: [], types: ['Files'] } as never
     })
 
     // the chip appears from a promise resolution — findBy, never a mock-gated waitFor
-    expect(await screen.findByText('shot.png')).toBeTruthy()
-    expect(ingestContent).toHaveBeenCalledWith('NAVAPI-1', 'shot.png', expect.any(Uint8Array))
+    const nameRe = /^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/
+    expect(await screen.findByText(nameRe)).toBeTruthy()
+    expect(ingestContent).toHaveBeenCalledWith(
+      'NAVAPI-1',
+      expect.stringMatching(nameRe),
+      expect.any(Uint8Array)
+    )
   })
 })

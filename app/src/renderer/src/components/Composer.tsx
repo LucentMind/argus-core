@@ -112,8 +112,11 @@ export function Composer({
   attachments?: Attachment[]
   /** Detach from the message — does NOT delete the evidence. */
   onRemoveAttachment?: (id: string) => void
-  /** Hand pasted/dropped files to the owner, which ingests them. */
-  onAttachFiles?: (files: File[]) => void
+  /** Hand pasted/dropped files to the owner, which ingests them. `fromClipboard` marks
+   *  paste — the owner needs it because Chromium synthesises a filename (e.g. `image.png`)
+   *  for clipboard images, so `file.name` alone can't distinguish a screenshot from a
+   *  real file. */
+  onAttachFiles?: (files: File[], opts?: { fromClipboard?: boolean }) => void
   /** The chat this composer belongs to — supplies the pinned model and the provider whose
    *  capabilities gate the permission picker. Absent while the session list is loading. */
   session?: SessionSummary | null
@@ -268,7 +271,7 @@ export function Composer({
             const files = Array.from(e.clipboardData?.files ?? [])
             if (files.length === 0) return
             e.preventDefault()
-            onAttachFiles?.(files)
+            onAttachFiles?.(files, { fromClipboard: true })
           }}
           onDragOver={(e) => {
             if (onAttachFiles) e.preventDefault() // required for onDrop to fire

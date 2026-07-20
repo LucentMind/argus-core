@@ -239,12 +239,14 @@ describe('Composer attachments', () => {
     expect(revoked).not.toContain(renderedUrl)
   })
 
-  it('forwards pasted files to onAttachFiles', () => {
+  it('forwards pasted files to onAttachFiles marked as clipboard-sourced', () => {
     const onAttach = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onAttachFiles={onAttach} />)
-    const file = new File([new Uint8Array(4)], 'shot.png', { type: 'image/png' })
+    // Chromium supplies a synthetic name like this for a pasted screenshot — the
+    // `fromClipboard` flag, not the filename, is what tells the owner it's clipboard data.
+    const file = new File([new Uint8Array(4)], 'image.png', { type: 'image/png' })
     fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), pasteEvent([file]))
-    expect(onAttach).toHaveBeenCalledWith([file])
+    expect(onAttach).toHaveBeenCalledWith([file], { fromClipboard: true })
   })
 
   it('leaves a text-only paste to the browser', () => {
@@ -254,13 +256,15 @@ describe('Composer attachments', () => {
     expect(onAttach).not.toHaveBeenCalled()
   })
 
-  it('forwards dropped files to onAttachFiles', () => {
+  it('forwards dropped files to onAttachFiles without the clipboard flag', () => {
     const onAttach = vi.fn()
     render(<Composer disabled={false} onSend={vi.fn()} onAttachFiles={onAttach} />)
     const file = new File([new Uint8Array(4)], 'log.txt', { type: 'text/plain' })
     fireEvent.drop(screen.getByPlaceholderText(/Message the analyst/i), {
       dataTransfer: { files: [file], types: ['Files'] } as never
     })
+    // exactly one argument — no second (opts) arg is passed for a drop
     expect(onAttach).toHaveBeenCalledWith([file])
+    expect(onAttach.mock.calls[0]).toHaveLength(1)
   })
 })
