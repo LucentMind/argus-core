@@ -47,4 +47,14 @@ describe('extractToolDetail', () => {
     expect(extractToolDetail('TodoWrite', { whatever: 1 }, ctx)).toBeNull()
     expect(extractToolDetail('Bash', { command: 'cat x' }, ctx)).toBeNull()
   })
+  it('references-root prefix match is case-insensitive on win32 (NTFS casing drift), still case-sensitive on POSIX', () => {
+    const upperCtx: ToolDetailCtx = { ...ctx, referencesDir: REFS.toUpperCase() }
+    const lowerPath = path.join(REFS.toLowerCase(), 'playbooks', 'triage.md')
+    const result = extractToolDetail('Read', { file_path: lowerPath }, upperCtx)
+    if (process.platform === 'win32') {
+      expect(result).toBe('ref:playbooks/triage.md')
+    } else {
+      expect(result).toBeNull()
+    }
+  })
 })
