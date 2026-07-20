@@ -14,11 +14,18 @@ const cases: CaseRecord[] = [
     jiraKey: 'NAV-1',
     jiraSyncedAt: null,
     jiraDeselected: [],
+    jiraStatus: null,
+    jiraPriority: null,
+    jiraCommentCount: null,
+    jiraAttachmentIds: [],
+    reviewBaseline: null,
+    lastSyncError: null,
     status: 'analyzing',
     resolution: null,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
-    updatedAt: '2026-07-08T00:00:00Z'
+    updatedAt: '2026-07-08T00:00:00Z',
+    actionItems: []
   }
 ]
 
@@ -34,7 +41,11 @@ function payload(): SettingsPayload {
 beforeEach(() => {
   window.argus = {
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   } as never
   settingsStore.reset()
 })
@@ -97,6 +108,8 @@ describe('CaseDashboard', () => {
         onDeleted={vi.fn()}
       />
     )
+    // hide-closed defaults to on — reveal the closed case first
+    fireEvent.click(screen.getByLabelText('Show closed cases'))
     expect(screen.getByText('closed · wont-fix')).toBeTruthy()
   })
 

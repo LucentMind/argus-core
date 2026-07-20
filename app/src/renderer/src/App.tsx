@@ -67,6 +67,8 @@ function App(): React.JSX.Element {
 
   const openCase = useCallback((slug: string) => {
     uiStore.openTab(slug)
+    // Clears the card's action items — see spec §1 (baseline capture on open).
+    void window.argus.jira.markReviewed(slug).catch(() => undefined)
     setView({ kind: 'case', slug })
   }, [])
 

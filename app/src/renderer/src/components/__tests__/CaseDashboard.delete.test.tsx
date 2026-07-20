@@ -14,11 +14,18 @@ const cases: CaseRecord[] = [
     jiraKey: null,
     jiraSyncedAt: null,
     jiraDeselected: [],
+    jiraStatus: null,
+    jiraPriority: null,
+    jiraCommentCount: null,
+    jiraAttachmentIds: [],
+    reviewBaseline: null,
+    lastSyncError: null,
     status: 'open',
     resolution: null,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
-    updatedAt: '2026-07-08T00:00:00Z'
+    updatedAt: '2026-07-08T00:00:00Z',
+    actionItems: []
   }
 ]
 
@@ -41,7 +48,11 @@ function setup(p: SettingsPayload): void {
     cases: { delete: deleteMock },
     settings: { get: vi.fn(async () => p), onChanged: vi.fn(() => () => {}) },
     bundle: { export: vi.fn() },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   } as never
   settingsStore.reset()
 }
