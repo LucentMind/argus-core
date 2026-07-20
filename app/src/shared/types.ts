@@ -34,6 +34,21 @@ export interface NewCaseInput {
   jiraKey?: string
 }
 
+/** Upstream Jira snapshot captured when the user last opened (reviewed) the case. */
+export interface ReviewBaseline {
+  status: string
+  commentCount: number
+  attachmentIds: string[]
+  capturedAt: string // ISO 8601
+}
+
+/** Last sync failure for a case; cleared on the next successful sync. */
+export interface SyncError {
+  code: string // AtlassianErrorCode
+  message: string
+  at: string // ISO 8601
+}
+
 export interface CaseRecord {
   id: number
   slug: string
@@ -43,6 +58,18 @@ export interface CaseRecord {
   jiraSyncedAt: string | null
   /** Jira attachment ids the user chose not to ingest; [] when none. */
   jiraDeselected: string[]
+  /** Upstream Jira status as of the last successful sync; null when never synced. */
+  jiraStatus: string | null
+  /** Upstream Jira priority name as of the last successful sync. */
+  jiraPriority: string | null
+  /** Upstream comment count as of the last successful sync. */
+  jiraCommentCount: number | null
+  /** Upstream attachment ids as of the last successful sync; [] when none/never. */
+  jiraAttachmentIds: string[]
+  /** Snapshot to diff against; null means "nothing known to have changed". */
+  reviewBaseline: ReviewBaseline | null
+  /** Set when the last sync failed; null on success. */
+  lastSyncError: SyncError | null
   status: CaseStatus
   /** Why the case was closed; non-null iff status === 'closed'. */
   resolution: CaseResolution | null
