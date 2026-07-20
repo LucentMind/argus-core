@@ -95,6 +95,7 @@ export function MemorySettings(): React.JSX.Element {
   const [usage, setUsage] = useState<UsageStatsPayload | null>(null)
   const [editing, setEditing] = useState<string | null>(null) // topic name or '_index'
   const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.memory.topics())
@@ -151,19 +152,37 @@ export function MemorySettings(): React.JSX.Element {
       )
     )
       return
-    setPayload(await window.argus.memory.archive(name))
-    void refresh()
+    setError(null)
+    try {
+      setPayload(await window.argus.memory.archive(name))
+      void refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   async function restore(name: string): Promise<void> {
-    setPayload(await window.argus.memory.restore(name))
-    void refresh()
+    setError(null)
+    try {
+      setPayload(await window.argus.memory.restore(name))
+      void refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   if (!payload) return <div className="text-dim">loading…</div>
 
   return (
     <div className="flex flex-col gap-6">
+      {error && (
+        <div
+          role="alert"
+          className="rounded-r2 border border-danger/30 px-3 py-2 text-xs text-danger"
+        >
+          {error}
+        </div>
+      )}
       <SettingsSection title="Memory index">
         <SettingRow
           label="_index.md"
