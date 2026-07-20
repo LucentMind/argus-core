@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   Settings2,
   BrainCog,
@@ -13,6 +13,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { useSettingsPayload } from '../../lib/settingsStore'
+import { useEscapeLayer } from '../../lib/escapeLayer'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
 import { ConnectorsSettings } from './ConnectorsSettings'
@@ -62,16 +63,7 @@ export function SettingsView({
   )
   const payload = useSettingsPayload()
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeLayer({ onEscape: onClose })
 
   return (
     <div className="flex min-h-0 flex-1">
