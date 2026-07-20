@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { FileViewer } from '../FileViewer'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
+
+afterEach(() => __resetEscapeLayersForTest())
 
 beforeEach(() => {
   window.argus = {
@@ -58,5 +62,12 @@ describe('FileViewer', () => {
     expect(await screen.findByText(/loading/i)).toBeTruthy()
     resolveRead({ content: '# Title\n\nbody text' })
     expect(await screen.findByRole('heading', { name: 'Title' })).toBeTruthy()
+  })
+
+  it('closes on Escape', async () => {
+    const onClose = vi.fn()
+    render(<FileViewer slug="C-1" relPath="a.txt" onClose={onClose} />)
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
