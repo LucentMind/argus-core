@@ -106,12 +106,23 @@ function App(): React.JSX.Element {
     void reload()
   }
 
+  // `prevView` is where the Settings/Observability overlays return to, so it must
+  // only ever hold a base view. Recording an overlay here would let `prevView`
+  // point at the very view being closed, making both the toggle and Escape no-ops.
+  //
+  // Consequence: going Settings -> Observability -> toggle-shut now lands on
+  // the base view (Home or the case you were in), not back on Settings --
+  // `prevView` is the base view, not a history stack.
+  function recordPrevView(): void {
+    if (view.kind === 'home' || view.kind === 'case') setPrevView(view)
+  }
+
   function openSettings(page?: PageId): void {
     // The TopBar gear calls this with no page, so a second click toggles shut
     // (nextView returns to prevView). A page argument is a deep link and must
     // switch pages instead, even while already on Settings -- see
     // lib/viewReducer.ts for the toggle/carve-out rules.
-    if (view.kind !== 'settings') setPrevView(view)
+    recordPrevView()
     setView(nextView(view, prevView, { kind: 'settings', page }))
   }
   function closeSettings(): void {
@@ -119,7 +130,7 @@ function App(): React.JSX.Element {
   }
 
   function openObservability(): void {
-    if (view.kind !== 'observability') setPrevView(view)
+    recordPrevView()
     setView(nextView(view, prevView, { kind: 'observability' }))
   }
 

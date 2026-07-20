@@ -103,4 +103,46 @@ describe('App: toolbar icon toggles', () => {
     // call site reaches that branch)
     expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
   })
+
+  it('the gear still toggles Settings shut after a Settings -> Observability -> toggle-shut sequence', async () => {
+    render(<App />)
+    // 1. Home -> Settings
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    // 2. Settings -> Observability
+    await userEvent.click(screen.getByLabelText('Observability'))
+    expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument()
+    // 3. Observability -> toggle shut. `prevView` must have stayed Home (the
+    // base view from step 1) rather than being corrupted to Settings, so this
+    // lands on Home, not back on Settings.
+    await userEvent.click(screen.getByLabelText('Observability'))
+    expect(screen.queryByRole('heading', { name: 'Observability' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+    // 4. Gear click from Home opens Settings again (prevView is still Home).
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    // 5. A second gear click must actually toggle it shut -- under the bug,
+    // `prevView` had been corrupted to Settings itself, making this a
+    // permanent no-op that left Settings undismissable.
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+  })
+
+  it('Escape still closes Settings after a Settings -> Observability -> toggle-shut sequence', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Observability'))
+    expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument()
+    // Toggling Observability shut returns to the base view (Home), not Settings.
+    await userEvent.click(screen.getByLabelText('Observability'))
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+    // Reopen Settings from Home, then confirm Escape (wired to closeSettings,
+    // i.e. setView(prevView)) actually dismisses it instead of no-oping on a
+    // self-referential prevView.
+    await userEvent.click(screen.getByLabelText('Settings'))
+    expect(screen.getByLabelText('Settings sections')).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByLabelText('Settings sections')).not.toBeInTheDocument()
+  })
 })
