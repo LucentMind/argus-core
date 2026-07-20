@@ -205,11 +205,6 @@ export function MemorySettings(): React.JSX.Element {
                 label={t.name}
                 description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
               >
-                <Switch
-                  checked={access ? topicEnabled(access.access, t.name) : t.enabled}
-                  onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
-                  aria-label={`enabled · ${t.name}`}
-                />
                 {u?.staleCandidate && (
                   <Chip tone="review">
                     <span
@@ -226,6 +221,11 @@ export function MemorySettings(): React.JSX.Element {
                 >
                   <Archive size={14} />
                 </IconBtn>
+                <Switch
+                  checked={access ? topicEnabled(access.access, t.name) : t.enabled}
+                  onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
+                  aria-label={`enabled · ${t.name}`}
+                />
                 <EditToggle
                   name={t.name}
                   open={editing === t.name}
