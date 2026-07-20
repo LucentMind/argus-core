@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CaseRecord } from '../../../shared/types'
 import { Btn, Card, SectionLabel } from './ui'
 import { FolderInput, Plus } from 'lucide-react'
@@ -42,10 +42,25 @@ export function CaseDashboard({
     }
   }, [])
 
-  useEffect(() => window.argus.jira.onSyncProgress((p) => setSyncing(p)), [])
+  // Progress arrives on a broadcast channel while the result arrives on the
+  // invoke reply; their order is NOT guaranteed. Observed live: the final
+  // `3/3` event landed after the run resolved and re-disabled the button
+  // permanently, with the result line already on screen. A ref (not state)
+  // because the listener is registered once and would otherwise close over a
+  // stale `syncing`.
+  const syncActive = useRef(false)
+
+  useEffect(
+    () =>
+      window.argus.jira.onSyncProgress((p) => {
+        if (syncActive.current) setSyncing(p)
+      }),
+    []
+  )
 
   async function syncAll(): Promise<void> {
     setSyncNote(null)
+    syncActive.current = true
     setSyncing({ done: 0, total: 0 })
     try {
       const r = await window.argus.jira.syncAll()
@@ -55,6 +70,9 @@ export function CaseDashboard({
           : r.message
       )
     } finally {
+      // clear the gate BEFORE the state reset, so a progress event racing this
+      // block can never win and leave the button stuck
+      syncActive.current = false
       setSyncing(null)
       onDeleted() // reuse the existing list-reload callback
     }
