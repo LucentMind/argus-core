@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ChevronDown, Eraser } from 'lucide-react'
 import { Card, IconBtn, SectionLabel } from '../ui'
+import { blurOnEscape } from '../../lib/escapeLayer'
 
 export const FIELD =
   'h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
@@ -276,6 +277,7 @@ export function SelectField({
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={blurOnEscape}
     >
       {options.map((o) => (
         <option key={o} value={o}>

@@ -36,6 +36,7 @@ export function FileViewer({
     <ModalShell
       title={`${slug} / ${relPath}`}
       onClose={onClose}
+      ariaLabel={`file · ${slug} / ${relPath}`}
       actions={
         isMd && doc && 'content' in doc ? (
           <Btn variant="ghost" onClick={() => setRaw(!raw)}>
