@@ -5,6 +5,7 @@ import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { composerAttachments } from '../../lib/composerAttachments'
 import { defaultSettings } from '../../../../shared/settings'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
@@ -99,6 +100,22 @@ describe('ChatPane', () => {
     fireEvent.change(box, { target: { value: 'run /analyze-applog' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(window.argus.agent.send).toHaveBeenCalledWith('NAV-1', 1, 'run /analyze-applog')
+  })
+
+  // Minor review finding: composerAttachments.clear was uncovered — a
+  // regression here (e.g. dropping the call on send) would leave stale
+  // attachment chips from a previous message sitting in the tray.
+  it('clears staged composer attachments on send', () => {
+    const slug = 'NAV-CLEAR'
+    composerAttachments.add(slug, 1, { id: 'a', name: 'shot.png', status: 'ready' })
+    const clearSpy = vi.spyOn(composerAttachments, 'clear')
+    render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+    const box = screen.getByPlaceholderText(/message the analyst/i)
+    fireEvent.change(box, { target: { value: 'see attached' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(clearSpy).toHaveBeenCalledWith(slug, 1)
+    expect(composerAttachments.get(slug, 1)).toHaveLength(0)
+    clearSpy.mockRestore()
   })
 
   it('renders a data-turn-id anchor on user turns for jump-to-turn', () => {

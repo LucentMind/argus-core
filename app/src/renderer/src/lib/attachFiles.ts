@@ -60,7 +60,8 @@ export async function attachFiles(
       id,
       name,
       status: 'pending',
-      previewUrl: isImage ? URL.createObjectURL(file) : undefined
+      // a File IS a Blob — stash the data itself, not a derived object URL
+      previewBlob: isImage ? file : undefined
     }
     composerAttachments.add(caseSlug, sessionId, pending)
 

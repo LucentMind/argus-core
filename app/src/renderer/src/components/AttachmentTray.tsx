@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Paperclip, Loader2, TriangleAlert } from 'lucide-react'
 import type { Attachment } from '../lib/composerAttachments'
 
@@ -27,10 +27,16 @@ export function AttachmentTray({
 /**
  * One chip, owning its own preview URL lifetime.
  *
- * The revoke MUST live here rather than in a tray-level effect: a tray-level cleanup
- * would close over whichever `attachments` array it was created with, so URLs for
- * attachments added later would leak. Keyed by `id`, each chip unmounts exactly when
- * its attachment goes away.
+ * The create-and-revoke MUST live here rather than in a tray-level effect: a
+ * tray-level cleanup would close over whichever `attachments` array it was
+ * created with, so URLs for attachments added later would leak. Keyed by
+ * `id`, each chip unmounts exactly when its attachment goes away.
+ *
+ * The URL is minted from `previewBlob` on mount rather than stored on the
+ * attachment itself, so that a chip that unmounts and later remounts (e.g.
+ * `Composer` remounting on a session switch while `composerAttachments`
+ * retains its data across that switch) always gets a fresh, unrevoked URL
+ * instead of inheriting one this same chip already revoked last time.
  */
 function AttachmentChip({
   attachment: a,
@@ -39,7 +45,15 @@ function AttachmentChip({
   attachment: Attachment
   onRemove: (id: string) => void
 }): React.JSX.Element {
-  const previewUrl = a.previewUrl
+  const previewBlob = a.previewBlob
+  // Lazy initializer: mints the URL synchronously during this chip's first
+  // render, not in an effect body (setState-in-effect triggers cascading
+  // renders). `previewBlob` is set once at attach time and never mutated
+  // afterward, so it is stable for this chip's whole lifetime — the effect
+  // below only needs to revoke on unmount, never to react to a blob change.
+  const [previewUrl] = useState<string | undefined>(() =>
+    previewBlob ? URL.createObjectURL(previewBlob) : undefined
+  )
   useEffect(() => {
     if (!previewUrl) return
     return () => URL.revokeObjectURL(previewUrl)

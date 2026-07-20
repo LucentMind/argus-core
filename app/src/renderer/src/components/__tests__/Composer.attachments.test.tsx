@@ -144,10 +144,19 @@ describe('Composer attachments', () => {
   })
 
   it('revokes a preview url when its chip goes away, including one added later', () => {
+    const urls = new Map<Blob, string>()
+    let n = 0
+    URL.createObjectURL = vi.fn((b: Blob) => {
+      const url = `blob:${++n}`
+      urls.set(b, url)
+      return url
+    })
     const revoke = vi.fn()
     URL.revokeObjectURL = revoke
-    const first: Attachment = { ...ready('a', 'evidence/one.png'), previewUrl: 'blob:one' }
-    const second: Attachment = { ...ready('b', 'evidence/two.png'), previewUrl: 'blob:two' }
+    const blobOne = new Blob(['one'])
+    const blobTwo = new Blob(['two'])
+    const first: Attachment = { ...ready('a', 'evidence/one.png'), previewBlob: blobOne }
+    const second: Attachment = { ...ready('b', 'evidence/two.png'), previewBlob: blobTwo }
     const props = {
       disabled: false,
       onSend: vi.fn(),
@@ -158,8 +167,47 @@ describe('Composer attachments', () => {
     // `second` is added AFTER mount — a tray-level cleanup would never revoke it
     rerender(<Composer {...props} attachments={[first, second]} />)
     rerender(<Composer {...props} attachments={[first]} />)
-    expect(revoke).toHaveBeenCalledWith('blob:two')
-    expect(revoke).not.toHaveBeenCalledWith('blob:one')
+    const urlOne = urls.get(blobOne)
+    const urlTwo = urls.get(blobTwo)
+    expect(revoke).toHaveBeenCalledWith(urlTwo)
+    expect(revoke).not.toHaveBeenCalledWith(urlOne)
+  })
+
+  it('remounting a chip after unmount (session-switch scenario) mints a fresh, working URL', () => {
+    let n = 0
+    URL.createObjectURL = vi.fn(() => `blob:${++n}`)
+    const revoked: string[] = []
+    URL.revokeObjectURL = vi.fn((url: string) => revoked.push(url))
+    const blob = new Blob(['shot'])
+    const attachment: Attachment = { ...ready('a', 'evidence/shot.png'), previewBlob: blob }
+    const props = {
+      disabled: false,
+      onSend: vi.fn(),
+      onRemoveAttachment: () => {},
+      onAttachFiles: () => {}
+    }
+    // mount 1: e.g. Composer mounted for session A
+    // alt="" gives the thumbnail a presentation role, so query by tag
+    const { unmount, container } = render(<Composer {...props} attachments={[attachment]} />)
+    const firstImg = container.querySelector('img') as HTMLImageElement
+    const firstUrl = firstImg.getAttribute('src')
+    expect(revoked).not.toContain(firstUrl)
+
+    // simulate the ChatPane session-switch remount: Composer is keyed per
+    // session, so switching away and back unmounts and remounts it while
+    // composerAttachments (and this same `attachment` object) is retained
+    unmount()
+    expect(revoked).toContain(firstUrl)
+
+    // mount 2: switching back to session A — same attachment, new chip instance
+    const { container: container2 } = render(<Composer {...props} attachments={[attachment]} />)
+    const secondImg = container2.querySelector('img') as HTMLImageElement
+    const secondUrl = secondImg.getAttribute('src')
+
+    // this is the crux of the fix: the URL rendered after remount must be a
+    // fresh one, not the already-revoked URL from the first mount
+    expect(secondUrl).not.toBe(firstUrl)
+    expect(revoked).not.toContain(secondUrl)
   })
 
   it('forwards pasted files to onAttachFiles', () => {
