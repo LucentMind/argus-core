@@ -286,7 +286,7 @@ export function ChatPane({
         onCitationsConsumed={() => citationsTray.clear(slug, sessionId)}
         attachments={attachments}
         onRemoveAttachment={(id) => composerAttachments.remove(slug, sessionId, id)}
-        onAttachFiles={(files) => void attachFiles(slug, sessionId, files)}
+        onAttachFiles={(files, opts) => void attachFiles(slug, sessionId, files, opts)}
       />
     </div>
   )

@@ -55,6 +55,24 @@ describe('attachFiles', () => {
     expect(ingestContent.mock.calls[0][1]).toMatch(/^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/)
   })
 
+  // Regression test: Chromium always synthesises a filename (typically `image.png`) for
+  // clipboard image pastes — `file.name` is never empty in practice. Naming must come from
+  // the paste/drop distinction (opts.fromClipboard), not from whether `file.name` is falsy.
+  it('names a clipboard image screenshot-style even though Chromium supplies image.png', async () => {
+    await attachFiles('A-1', 1, [fileOf('image.png', 'image/png')], { fromClipboard: true })
+    expect(ingestContent.mock.calls[0][1]).toMatch(/^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/)
+  })
+
+  it("keeps a dropped file's real name", async () => {
+    await attachFiles('A-1', 1, [fileOf('report.pdf', 'application/pdf')])
+    expect(ingestContent.mock.calls[0][1]).toBe('report.pdf')
+  })
+
+  it("keeps a clipboard non-image file's real name", async () => {
+    await attachFiles('A-1', 1, [fileOf('notes.txt', 'text/plain')], { fromClipboard: true })
+    expect(ingestContent.mock.calls[0][1]).toBe('notes.txt')
+  })
+
   it('attaches a preview blob for images only', async () => {
     const imgFile = fileOf('a.png', 'image/png')
     await attachFiles('A-1', 1, [imgFile, fileOf('b.txt', 'text/plain')])
