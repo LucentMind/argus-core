@@ -159,7 +159,7 @@ function App(): React.JSX.Element {
         ) : view.kind === 'settings' ? (
           <SettingsView onClose={closeSettings} initialPage={view.page} />
         ) : view.kind === 'observability' ? (
-          <ObservabilityView onOpenCase={openCase} />
+          <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
         ) : (
           <CaseWorkspace
             slug={view.slug}
