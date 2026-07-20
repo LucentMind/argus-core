@@ -80,6 +80,23 @@ describe('attachFiles', () => {
     expect(a.error).toBe('disk full')
   })
 
+  it('marks the attachment as error when ingest rejects with a non-Error value, without throwing', async () => {
+    ingestContent.mockRejectedValueOnce(null)
+    await expect(attachFiles('A-1', 1, [fileOf('a.png', 'image/png')])).resolves.toBeUndefined()
+    const [a] = composerAttachments.get('A-1', 1)
+    expect(a.status).toBe('error')
+    expect(a.error).toBeTypeOf('string')
+    expect(a.error).not.toHaveLength(0)
+  })
+
+  it('produces a usable message when ingest rejects with a plain string', async () => {
+    ingestContent.mockRejectedValueOnce('disk full')
+    await attachFiles('A-1', 1, [fileOf('a.png', 'image/png')])
+    const [a] = composerAttachments.get('A-1', 1)
+    expect(a.status).toBe('error')
+    expect(a.error).toBe('disk full')
+  })
+
   it('continues past a failure to ingest the remaining files', async () => {
     ingestContent.mockRejectedValueOnce(new Error('nope'))
     await attachFiles('A-1', 1, [fileOf('a.png', 'image/png'), fileOf('b.png', 'image/png')])
