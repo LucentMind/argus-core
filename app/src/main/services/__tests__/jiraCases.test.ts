@@ -305,7 +305,7 @@ function setup(
     comments?: JiraCommentInfo[]
     commentsThrow?: Error
   } = {}
-): { svc: JiraCases; db: DatabaseSync; home: string } {
+): { svc: JiraCases; db: DatabaseSync; home: string; client: AtlassianClientLike } {
   const client = fakeClient(() => issue(opts.preview ?? {}))
   if (opts.commentsThrow) {
     const err = opts.commentsThrow
@@ -321,7 +321,7 @@ function setup(
     title: 'Case C-1',
     jiraKey: opts.preview?.key ?? 'C-1'
   })
-  return { svc: service(client), db, home: argusHome }
+  return { svc: service(client), db, home: argusHome, client }
 }
 
 describe('JiraCases comments file', () => {
@@ -407,9 +407,18 @@ describe('refresh persists sync state', () => {
     expect(home).toBe(argusHome)
   })
 
-  it('leaves the comment count untouched when the comments fetch fails', async () => {
-    const { svc, db } = setup({ commentsThrow: new Error('boom') })
+  it('leaves a previously-synced comment count untouched when a later comments fetch fails', async () => {
+    const { svc, db, client } = setup({ comments: [mkComment('c1'), mkComment('c2')] })
+    // first refresh succeeds: establishes a real, non-null count to protect
     await svc.refresh('C-1')
-    expect(getCase(db, 'C-1')!.jiraCommentCount).toBeNull()
+    expect(getCase(db, 'C-1')!.jiraCommentCount).toBe(2)
+
+    // comments fetch now fails on a subsequent refresh
+    client.getComments = vi.fn(async () => {
+      throw new Error('boom')
+    })
+    await svc.refresh('C-1')
+    // the known-good count must survive the partial refresh, not be clobbered with null
+    expect(getCase(db, 'C-1')!.jiraCommentCount).toBe(2)
   })
 })
