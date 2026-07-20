@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Btn } from '../ui'
+import { ModalShell } from '../ModalShell'
 import { PageTree } from './PageTree'
 import { SyncReportView } from './SyncReportView'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
+import { transientFieldEscape } from '../../lib/escapeLayer'
 import {
   toggleSelection,
   type SpaceConfig,
@@ -50,14 +52,6 @@ export function SpaceDialog({
       setRoutingSeeds([])
     })
   }, [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   const validate = async (key: string): Promise<void> => {
     setState({ step: 'entry', keyInput: key, busy: true, error: null })
@@ -108,21 +102,15 @@ export function SpaceDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-      onClick={onClose}
+    <ModalShell
+      title={existing ? `Manage · ${existing.key}` : 'Add Confluence space'}
+      ariaLabel={existing ? `manage · ${existing.key}` : 'add confluence space'}
+      onClose={onClose}
+      className="max-h-[85vh] w-[42rem]"
     >
-      <div
-        role="dialog"
-        aria-label={existing ? `manage · ${existing.key}` : 'add confluence space'}
-        className="flex max-h-[85vh] w-[42rem] flex-col gap-3 overflow-y-auto rounded-r4 border border-hair2 bg-panel p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {state.step === 'entry' && (
           <div className="flex flex-col gap-3">
-            <div className="text-sm font-medium">
-              {existing ? `Manage · ${existing.key}` : 'Add Confluence space'}
-            </div>
             <input
               aria-label="space key"
               className="rounded-r2 bg-black/20 px-2 py-1 text-sm"
@@ -130,6 +118,11 @@ export function SpaceDialog({
               value={state.keyInput}
               disabled={state.busy}
               onChange={(e) => setState({ ...state, keyInput: e.target.value })}
+              onKeyDown={(e) =>
+                transientFieldEscape(e, state.keyInput === '', () =>
+                  setState({ ...state, keyInput: '' })
+                )
+              }
             />
             {state.error && (
               <div role="alert" className="text-danger text-xs">
@@ -197,8 +190,8 @@ export function SpaceDialog({
             </div>
           </div>
         )}
-        {state.step === 'report' && <SyncReportView report={state.report} onClose={onClose} />}
+        {state.step === 'report' && <SyncReportView report={state.report} />}
       </div>
-    </div>
+    </ModalShell>
   )
 }
