@@ -10,12 +10,14 @@ import type {
   JiraAttachmentProgress,
   JiraCommentInfo,
   JiraIssuePreview,
-  JiraRefreshSummary
+  JiraRefreshSummary,
+  JiraSyncAllSummary
 } from '../../shared/jira'
 import { AtlassianError, type JiraIssueData } from './atlassian'
 import {
   createCase,
   getCase,
+  listCases,
   setCaseJira,
   setCaseSyncState,
   setReviewBaseline
@@ -334,6 +336,63 @@ export class JiraCases {
       newComments,
       ...(commentsError ? { commentsError } : {}),
       syncedAt: now
+    }
+  }
+
+  /**
+   * Refresh every non-closed, Jira-linked case. Reuses the per-case refresh()
+   * wholesale — the only added logic is fan-out, a concurrency bound, and
+   * per-case error capture. One case failing never aborts the run.
+   *
+   * Never downloads attachments: refresh() returns new ones for the renderer's
+   * selection dialog, and N dialogs racing would be unusable. The card reports
+   * the count; ingestion happens inside the case.
+   */
+  async syncAll(onProgress?: (done: number, total: number) => void): Promise<JiraSyncAllSummary> {
+    const { db, argusHome } = this.deps
+    const targets = listCases(db).filter((c) => c.jiraKey && c.status !== 'closed')
+    const total = targets.length
+    const failures: JiraSyncAllSummary['failures'] = []
+    let synced = 0
+    let done = 0
+
+    const CONCURRENCY = 4
+    let next = 0
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const i = next++
+        if (i >= targets.length) return
+        const kase = targets[i]
+        try {
+          await this.refresh(kase.slug)
+          synced++
+        } catch (err) {
+          const code = err instanceof AtlassianError ? err.code : 'internal'
+          const message = (err as Error).message
+          failures.push({ slug: kase.slug, code, message })
+          setCaseSyncState(db, argusHome, kase.slug, {
+            lastSyncError: { code, message, at: new Date().toISOString() }
+          })
+        } finally {
+          onProgress?.(++done, total)
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()))
+
+    // Recompute after the run so `changed` reflects persisted state, not the
+    // transient per-refresh summaries.
+    const changed = listCases(db).filter(
+      (c) => targets.some((t) => t.slug === c.slug) && c.actionItems.length > 0
+    ).length
+
+    return {
+      total,
+      synced,
+      changed,
+      failed: failures.length,
+      failures,
+      finishedAt: new Date().toISOString()
     }
   }
 
