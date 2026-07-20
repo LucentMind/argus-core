@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { it, expect, vi, beforeEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import '@testing-library/jest-dom/vitest'
+import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import type { TreeNodeVM, SyncReport } from '../../../../shared/referenceSync'
 
 const root: TreeNodeVM = {
@@ -63,6 +66,26 @@ beforeEach(() => {
   }
 })
 
+afterEach(() => __resetEscapeLayersForTest())
+
+it('Escape in the space-key field clears it, then blurs, then closes the dialog', async () => {
+  const onClose = vi.fn()
+  render(<SpaceDialog onClose={onClose} />)
+  const key = screen.getByRole('textbox', { name: 'space key' })
+  await userEvent.type(key, 'NAV')
+  // stage 1: non-empty field — Escape clears it, dialog stays open
+  await userEvent.keyboard('{Escape}')
+  expect(key).toHaveValue('')
+  expect(onClose).not.toHaveBeenCalled()
+  // stage 2: now-empty field — Escape blurs it, dialog still stays open
+  await userEvent.keyboard('{Escape}')
+  expect(key).not.toHaveFocus()
+  expect(onClose).not.toHaveBeenCalled()
+  // stage 3: focus is back on the shell — Escape reaches the overlay and closes it
+  await userEvent.keyboard('{Escape}')
+  expect(onClose).toHaveBeenCalledTimes(1)
+})
+
 it('add flow: validate → curate → save & sync → approve drafts', async () => {
   const onClose = vi.fn()
   render(<SpaceDialog onClose={onClose} />)
@@ -98,7 +121,7 @@ it('SyncReportView surfaces a rejected applyDrafts as an alert instead of failin
   ;(window.argus.refsync.applyDrafts as ReturnType<typeof vi.fn>).mockRejectedValue(
     new Error('Sync report expired — run Sync again')
   )
-  render(<SyncReportView report={report} onClose={vi.fn()} />)
+  render(<SyncReportView report={report} />)
   fireEvent.click(screen.getByRole('button', { name: 'Apply 1 file' }))
   const message = await screen.findByText('Sync report expired — run Sync again')
   expect(message.getAttribute('role')).toBe('alert')
