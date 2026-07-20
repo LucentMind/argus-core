@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Btn, Chip } from './ui'
+import { Chip } from './ui'
+import { ModalShell } from './ModalShell'
 import { HighlightedLines } from './HighlightedLines'
 import { VirtualLines } from './VirtualLines'
 import { ViewerFindBar, type FindBarState, type StreamState } from './ViewerFindBar'
 import { LinePageCache } from '../lib/linePages'
+import { blurOnEscape } from '../lib/escapeLayer'
 import { textDocKey, type TextDocOpenOk, type TextDocSource } from '../../../shared/textdoc'
 
 export type ViewerSource = TextDocSource
@@ -616,9 +618,8 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-      onClick={onClose}
+    <ModalShell
+      onClose={onClose}
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
           e.preventDefault()
@@ -628,134 +629,126 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
           ;(document.querySelector('[data-viewer-find]') as HTMLInputElement | null)?.focus()
         }
       }}
-      tabIndex={-1}
-    >
-      <div
-        className="flex h-[80vh] w-[80vw] flex-col rounded-r4 border border-hair2 bg-panel shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-hair px-3 py-2">
-          <span className="flex items-center gap-2 font-mono text-sm text-ink">
-            {doc ? doc.title : error ? 'Unavailable' : 'Loading…'}
-            {doc?.ref && <Chip tone="neutral">@ {doc.ref}</Chip>}
-            {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
-            {doc && <Chip tone="neutral">{doc.totalLines.toLocaleString('en-US')} lines</Chip>}
-            {doc && focusStart > doc.totalLines && (
-              <Chip tone="danger">
-                line {focusStart} does not exist — the file ends at line {doc.totalLines}
-              </Chip>
-            )}
-            {indexing !== null && (
-              <Chip tone="neutral">indexing… {Math.round(indexing * 100)}%</Chip>
-            )}
-          </span>
-          <span className="flex items-center gap-2">
-            {doc && doc.whole === undefined && (
-              <input
-                className="w-28 rounded border border-hair bg-transparent px-2 py-0.5 font-mono text-xs text-ink"
-                placeholder="go to line"
-                value={jump}
-                onChange={(e) => setJump(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const n = parseInt(jump, 10)
-                    if (Number.isFinite(n)) {
-                      if (filterActive) {
-                        // jump-to-line stays filtered — scroll to the nearest
-                        // filter row at-or-below the (cut-clamped) target line,
-                        // without touching the filter itself
-                        const clamped = clampToCut(n)
-                        currentLine.current = clamped
-                        nonce.current++
-                        setScrollTarget({
-                          row: nearestAtOrBelow(search.state.filter.hits, clamped),
-                          nonce: nonce.current
-                        })
-                      } else {
-                        goToLine(n)
-                      }
-                    }
+      title={
+        <>
+          {doc ? doc.title : error ? 'Unavailable' : 'Loading…'}
+          {doc?.ref && <Chip tone="neutral">@ {doc.ref}</Chip>}
+          {derivedFrom && <Chip tone="neutral">derived from {derivedFrom}</Chip>}
+          {doc && <Chip tone="neutral">{doc.totalLines.toLocaleString('en-US')} lines</Chip>}
+          {doc && focusStart > doc.totalLines && (
+            <Chip tone="danger">
+              line {focusStart} does not exist — the file ends at line {doc.totalLines}
+            </Chip>
+          )}
+          {indexing !== null && <Chip tone="neutral">indexing… {Math.round(indexing * 100)}%</Chip>}
+        </>
+      }
+      actions={
+        doc && doc.whole === undefined ? (
+          <input
+            className="w-28 rounded border border-hair bg-transparent px-2 py-0.5 font-mono text-xs text-ink"
+            placeholder="go to line"
+            value={jump}
+            onChange={(e) => setJump(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const n = parseInt(jump, 10)
+                if (Number.isFinite(n)) {
+                  if (filterActive) {
+                    // jump-to-line stays filtered — scroll to the nearest
+                    // filter row at-or-below the (cut-clamped) target line,
+                    // without touching the filter itself
+                    const clamped = clampToCut(n)
+                    currentLine.current = clamped
+                    nonce.current++
+                    setScrollTarget({
+                      row: nearestAtOrBelow(search.state.filter.hits, clamped),
+                      nonce: nonce.current
+                    })
+                  } else {
+                    goToLine(n)
                   }
-                }}
-              />
-            )}
-            <Btn variant="ghost" onClick={onClose}>
-              Close
-            </Btn>
-          </span>
-        </div>
-        {doc && doc.whole === undefined && (
-          <ViewerFindBar
-            state={{ ...search.state, cutFrom, cutTo }}
-            onQueryChange={search.setQuery}
-            onToggle={search.toggle}
-            onCutChange={(which, value) => (which === 'from' ? setCutFrom(value) : setCutTo(value))}
-            onNext={() => jumpToHit(search.next(currentLine.current))}
-            onPrev={() => jumpToHit(search.prev(currentLine.current))}
-          />
-        )}
-        {error ? (
-          <div className="flex-1 p-4 text-sm text-mute">{error}</div>
-        ) : doc?.whole !== undefined ? (
-          <HighlightedLines
-            className="flex-1 p-3"
-            lines={doc.whole.split('\n')}
-            startLine={1}
-            focusStart={focusStart}
-            focusEnd={focusEnd}
-            lang={doc.lang}
-            lineIdPrefix="line-"
-          />
-        ) : doc && filterActive ? (
-          <VirtualLines
-            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
-            activeLine={activeLine}
-            totalRows={search.state.filter.hits.length}
-            rowToLine={(r) => search.state.filter.hits[r]}
-            onVisibleRows={(first, last) => {
-              // v1: prefetch each visible hit's own page individually — adjacent
-              // hits naturally coalesce onto the same page via LinePageCache
-              for (let r = first; r <= last; r++) {
-                const n = search.state.filter.hits[r]
-                if (n !== undefined) cache?.prefetch(n, n)
+                }
+              } else {
+                // nothing to revert in a jump box — hand focus back to the shell
+                blurOnEscape(e)
               }
-              // seed next/prev from the top of the window, not its midpoint —
-              // the midpoint (overscan-included) pins to the list centre on
-              // short filtered lists and trapped the cursor (see useViewerStreams).
-              // (Programmatic transition scrolls are undone by the
-              // pendingCursorRestore effect above.)
-              const top = search.state.filter.hits[first]
-              if (top !== undefined) currentLine.current = top
-            }}
-            onRowClick={(n) => {
-              // the filtered view is input-driven — a row click no longer exits
-              // it. It just moves the active line, marking the row as the
-              // active find match when it happens to be one.
-              currentLine.current = n
-              const idx = indexOfLine(search.state.find.hits, n)
-              search.setActive(idx >= 0 ? idx : null)
             }}
           />
-        ) : doc ? (
-          <VirtualLines
-            {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
-            activeLine={activeLine}
-            totalRows={Math.max(0, (cut.to ?? doc.totalLines) - cut.from + 1)}
-            rowToLine={(r) => r + cut.from}
-            onVisibleRows={(first, last) => {
-              const loLine = Math.max(cut.from, first + cut.from - 500)
-              const hiLineRaw = last + cut.from + 502
-              const hiLine = cut.to !== null ? Math.min(hiLineRaw, cut.to) : hiLineRaw
-              cache?.prefetch(loLine, hiLine)
-              // top-of-window seed; only the first next/prev press reads this
-              // (programmatic transition scrolls are undone by pendingCursorRestore)
-              currentLine.current = first + cut.from
-            }}
-          />
-        ) : (
-          <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim" />
-        )}
-      </div>
-    </div>
+        ) : null
+      }
+    >
+      {doc && doc.whole === undefined && (
+        <ViewerFindBar
+          state={{ ...search.state, cutFrom, cutTo }}
+          onQueryChange={search.setQuery}
+          onToggle={search.toggle}
+          onCutChange={(which, value) => (which === 'from' ? setCutFrom(value) : setCutTo(value))}
+          onNext={() => jumpToHit(search.next(currentLine.current))}
+          onPrev={() => jumpToHit(search.prev(currentLine.current))}
+        />
+      )}
+      {error ? (
+        <div className="flex-1 p-4 text-sm text-mute">{error}</div>
+      ) : doc?.whole !== undefined ? (
+        <HighlightedLines
+          className="flex-1 p-3"
+          lines={doc.whole.split('\n')}
+          startLine={1}
+          focusStart={focusStart}
+          focusEnd={focusEnd}
+          lang={doc.lang}
+          lineIdPrefix="line-"
+        />
+      ) : doc && filterActive ? (
+        <VirtualLines
+          {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
+          activeLine={activeLine}
+          totalRows={search.state.filter.hits.length}
+          rowToLine={(r) => search.state.filter.hits[r]}
+          onVisibleRows={(first, last) => {
+            // v1: prefetch each visible hit's own page individually — adjacent
+            // hits naturally coalesce onto the same page via LinePageCache
+            for (let r = first; r <= last; r++) {
+              const n = search.state.filter.hits[r]
+              if (n !== undefined) cache?.prefetch(n, n)
+            }
+            // seed next/prev from the top of the window, not its midpoint —
+            // the midpoint (overscan-included) pins to the list centre on
+            // short filtered lists and trapped the cursor (see useViewerStreams).
+            // (Programmatic transition scrolls are undone by the
+            // pendingCursorRestore effect above.)
+            const top = search.state.filter.hits[first]
+            if (top !== undefined) currentLine.current = top
+          }}
+          onRowClick={(n) => {
+            // the filtered view is input-driven — a row click no longer exits
+            // it. It just moves the active line, marking the row as the
+            // active find match when it happens to be one.
+            currentLine.current = n
+            const idx = indexOfLine(search.state.find.hits, n)
+            search.setActive(idx >= 0 ? idx : null)
+          }}
+        />
+      ) : doc ? (
+        <VirtualLines
+          {...virtualLinesCommonProps(doc, focusStart, focusEnd, scrollTarget, getCachedLine)}
+          activeLine={activeLine}
+          totalRows={Math.max(0, (cut.to ?? doc.totalLines) - cut.from + 1)}
+          rowToLine={(r) => r + cut.from}
+          onVisibleRows={(first, last) => {
+            const loLine = Math.max(cut.from, first + cut.from - 500)
+            const hiLineRaw = last + cut.from + 502
+            const hiLine = cut.to !== null ? Math.min(hiLineRaw, cut.to) : hiLineRaw
+            cache?.prefetch(loLine, hiLine)
+            // top-of-window seed; only the first next/prev press reads this
+            // (programmatic transition scrolls are undone by pendingCursorRestore)
+            currentLine.current = first + cut.from
+          }}
+        />
+      ) : (
+        <pre className="flex-1 overflow-auto p-3 font-mono text-xs leading-5 text-dim" />
+      )}
+    </ModalShell>
   )
 }
