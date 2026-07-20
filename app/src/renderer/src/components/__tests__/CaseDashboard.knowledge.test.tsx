@@ -15,11 +15,18 @@ const cases: CaseRecord[] = [
     jiraKey: 'NAV-1',
     jiraSyncedAt: null,
     jiraDeselected: [],
+    jiraStatus: null,
+    jiraPriority: null,
+    jiraCommentCount: null,
+    jiraAttachmentIds: [],
+    reviewBaseline: null,
+    lastSyncError: null,
     status: 'analyzing',
     resolution: null,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
-    updatedAt: '2026-07-08T00:00:00Z'
+    updatedAt: '2026-07-08T00:00:00Z',
+    actionItems: []
   }
 ]
 
@@ -44,7 +51,11 @@ const defaultProps = {
 
 beforeEach(() => {
   window.argus = {
-    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) }
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   } as never
   settingsStore.reset()
   ;(window as never as { argus: Record<string, unknown> }).argus.proposals = {

@@ -1,16 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { CaseRecord, CaseStatus } from '../../../shared/types'
-import { Card, Chip, IconBtn, SectionLabel } from './ui'
-import { Download, FolderInput, Plus, Trash2 } from 'lucide-react'
+import type { CaseRecord } from '../../../shared/types'
+import { Btn, Card, SectionLabel } from './ui'
+import { FolderInput, Plus } from 'lucide-react'
+import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { useSettingsPayload } from '../lib/settingsStore'
-
-const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
-  open: 'signal',
-  analyzing: 'defect',
-  'rca-drafted': 'review',
-  closed: 'neutral'
-}
 
 export function CaseDashboard({
   cases,
@@ -29,6 +23,10 @@ export function CaseDashboard({
   const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [pendingKnowledge, setPendingKnowledge] = useState(0)
+  const [filter, setFilter] = useState('')
+  const [showClosed, setShowClosed] = useState(false)
+  const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
+  const [syncNote, setSyncNote] = useState<string | null>(null)
   const settings = useSettingsPayload()
 
   useEffect(() => {
@@ -43,6 +41,24 @@ export function CaseDashboard({
       mounted = false
     }
   }, [])
+
+  useEffect(() => window.argus.jira.onSyncProgress((p) => setSyncing(p)), [])
+
+  async function syncAll(): Promise<void> {
+    setSyncNote(null)
+    setSyncing({ done: 0, total: 0 })
+    try {
+      const r = await window.argus.jira.syncAll()
+      setSyncNote(
+        r.ok
+          ? `${r.value.synced} synced · ${r.value.changed} changed · ${r.value.failed} failed`
+          : r.message
+      )
+    } finally {
+      setSyncing(null)
+      onDeleted() // reuse the existing list-reload callback
+    }
+  }
 
   async function exportCase(slug: string): Promise<void> {
     setExportNote(null)
@@ -69,70 +85,72 @@ export function CaseDashboard({
     setDeleting(slug)
   }
 
+  const q = filter.trim().toLowerCase()
+  const visible = cases.filter((c) => {
+    if (!showClosed && c.status === 'closed') return false
+    if (!q) return true
+    return (
+      c.slug.toLowerCase().includes(q) ||
+      c.title.toLowerCase().includes(q) ||
+      (c.jiraKey?.toLowerCase().includes(q) ?? false)
+    )
+  })
+  const counts = cases.reduce<Record<string, number>>((acc, c) => {
+    acc[c.status] = (acc[c.status] ?? 0) + 1
+    return acc
+  }, {})
+  const countLabel = (['open', 'analyzing', 'rca-drafted', 'closed'] as const)
+    .filter((s) => counts[s])
+    .map((s) => `${counts[s]} ${s}`)
+    .join(' · ')
+
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
       <div className="flex flex-col gap-1">
-        <SectionLabel>Cases · {cases.length} total</SectionLabel>
+        <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
         <p className="text-sm text-dim">Defect analysis workbench</p>
         {pendingKnowledge > 0 && (
           <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
         )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            className="h-8 w-56 rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
+            placeholder="Filter cases…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <label className="flex items-center gap-1.5 text-xs text-dim">
+            <input
+              type="checkbox"
+              aria-label="Show closed cases"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+            />
+            Show closed
+          </label>
+          <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
+            {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
+          </Btn>
+          {syncNote && <span className="text-xs text-dim">{syncNote}</span>}
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {cases.map((c) => (
-          <Card
+        {visible.map((c) => (
+          <CaseCard
             key={c.slug}
-            onClick={() => onOpen(c.slug)}
-            className="group flex flex-col gap-2 p-4"
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-sm text-defect">{c.slug}</span>
-              <span className="flex items-center gap-1.5">
-                <IconBtn
-                  aria-label={`Export ${c.slug}`}
-                  title="Export case"
-                  className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation() // the Card itself opens the case
-                    void exportCase(c.slug)
-                  }}
-                >
-                  <Download size={14} />
-                </IconBtn>
-                <IconBtn
-                  aria-label={`Delete ${c.slug}`}
-                  title="Delete case"
-                  className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation() // the Card itself opens the case
-                    void requestDelete(c.slug)
-                  }}
-                >
-                  <Trash2 size={14} />
-                </IconBtn>
-                <Chip tone={STATUS_TONE[c.status]}>
-                  {c.status === 'closed' && c.resolution ? `closed · ${c.resolution}` : c.status}
-                </Chip>
-              </span>
-            </div>
-            <div className="text-sm text-ink">{c.title}</div>
-            <div className="mt-auto text-xs text-mute">
-              {deleteError?.slug === c.slug ? (
-                <span className="truncate text-danger" title={deleteError.text}>
-                  {deleteError.text}
-                </span>
-              ) : exportNote?.slug === c.slug ? (
-                <span className="truncate" title={exportNote.text}>
-                  {exportNote.text}
-                </span>
-              ) : (
-                <>
-                  {c.jiraKey ?? 'no ticket'} · updated {new Date(c.updatedAt).toLocaleDateString()}
-                </>
-              )}
-            </div>
-          </Card>
+            c={c}
+            onOpen={onOpen}
+            onExport={(slug) => void exportCase(slug)}
+            onDelete={(slug) => void requestDelete(slug)}
+            note={
+              deleteError?.slug === c.slug
+                ? { text: deleteError.text, danger: true }
+                : exportNote?.slug === c.slug
+                  ? { text: exportNote.text, danger: false }
+                  : null
+            }
+          />
         ))}
         <Card className="flex min-h-24 flex-col items-stretch divide-y divide-hair p-0">
           <button

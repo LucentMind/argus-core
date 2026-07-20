@@ -1436,6 +1436,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC.jiraRefreshCase, (_e, caseSlug: string) =>
     jiraResult(() => jiraCases.refresh(caseSlug))
   )
+  ipcMain.handle(IPC.jiraMarkReviewed, (_e, caseSlug: string) =>
+    jiraResult(async () => jiraCases.markReviewed(caseSlug))
+  )
+  ipcMain.handle(IPC.jiraSyncAll, (e) =>
+    jiraResult(() =>
+      jiraCases.syncAll((done, total) => e.sender.send(IPC.jiraSyncProgress, { done, total }))
+    )
+  )
   ipcMain.handle(IPC.jiraSetAttachmentSelection, (_e, caseSlug: string, deselected: string[]) =>
     jiraResult(async () => setCaseJiraDeselected(db, argusHome, caseSlug, deselected.map(String)))
   )

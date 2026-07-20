@@ -9,7 +9,8 @@ import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
-import { setCaseJiraDeselected } from '../caseService'
+import { createCase, getCase, setCaseJiraDeselected } from '../caseService'
+import { deriveActionItems } from '../../../shared/triage'
 import type {
   JiraAttachmentProgress,
   JiraCommentInfo,
@@ -36,6 +37,7 @@ function issue(over: Partial<JiraIssuePreview> = {}): JiraIssueData {
     key: 'NAV-7',
     summary: 'Route flickers',
     status: 'Open',
+    priority: null,
     labels: ['nav'],
     reporter: 'Ada',
     created: 'c',
@@ -121,6 +123,28 @@ describe('JiraCases.createFromTicket', () => {
       fs.readFileSync(path.join(caseDir(argusHome, 'NAV-7'), 'case.json'), 'utf8')
     )
     expect(cj.jira).toMatchObject({ key: 'NAV-7', site: 'https://acme.atlassian.net' })
+  })
+
+  // Finding I1: creation fetches the same status/comments/attachments it ingests,
+  // but used to leave the sync-state columns empty. markReviewed then baselined
+  // off those empty columns, so the very next sync — even with nothing changed
+  // upstream — diffed real values against the empty baseline and reported the
+  // just-imported ticket, comments, and attachments as brand-new. Reverting the
+  // setCaseSyncState call added to createFromTicket must turn this test red.
+  it('reports no false action items on the first sync after creation (Finding I1)', async () => {
+    const svc = service(
+      fakeClient(() => issue(), new Set(), [comment('1', 'first'), comment('2', 'second')])
+    )
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'Route flickers', key: 'NAV-7' })
+
+    // opening the case captures the review baseline, as the renderer does on open
+    svc.markReviewed('NAV-7')
+
+    // first "Sync all" / refresh, upstream completely unchanged
+    await svc.refresh('NAV-7')
+
+    const rec = getCase(db, 'NAV-7')!
+    expect(deriveActionItems(rec)).toEqual([])
   })
 })
 
@@ -291,6 +315,38 @@ const comment = (id: string, body: string): JiraCommentInfo => ({
   bodyMarkdown: body
 })
 
+const mkComment = (id: string): JiraCommentInfo => comment(id, `comment body ${id}`)
+
+/**
+ * Builds a JiraCases service backed by a fake client, and links case 'C-1'
+ * to a Jira key up front (sync, via caseService directly) so refresh('C-1')
+ * has something to refresh against without needing an awaited createFromTicket.
+ */
+function setup(
+  opts: {
+    preview?: Partial<JiraIssuePreview>
+    comments?: JiraCommentInfo[]
+    commentsThrow?: Error
+  } = {}
+): { svc: JiraCases; db: DatabaseSync; home: string; client: AtlassianClientLike } {
+  const client = fakeClient(() => issue(opts.preview ?? {}))
+  if (opts.commentsThrow) {
+    const err = opts.commentsThrow
+    client.getComments = vi.fn(async () => {
+      throw err
+    })
+  } else if (opts.comments) {
+    const comments = opts.comments
+    client.getComments = vi.fn(async () => comments)
+  }
+  createCase(db, argusHome, {
+    slug: 'C-1',
+    title: 'Case C-1',
+    jiraKey: opts.preview?.key ?? 'C-1'
+  })
+  return { svc: service(client), db, home: argusHome, client }
+}
+
 describe('JiraCases comments file', () => {
   it('creates <KEY>.comments.md with provenance banner and attributed comments', async () => {
     const svc = service(fakeClient(() => issue(), new Set(), [comment('1', 'saw it in prod logs')]))
@@ -343,5 +399,95 @@ describe('JiraCases comments file', () => {
     expect(summary.commentsError).toContain('comments boom')
     expect(summary.newComments).toBe(0)
     expect(summary.key).toBe('NAV-7')
+  })
+})
+
+describe('refresh persists sync state', () => {
+  it('writes status, priority, comment count and attachment ids onto the case', async () => {
+    const { svc, db, home } = setup({
+      preview: {
+        key: 'PROJ-1',
+        summary: 'S',
+        status: 'In Progress',
+        priority: 'High',
+        labels: [],
+        reporter: null,
+        created: '2026-07-01T00:00:00.000Z',
+        updated: '2026-07-20T00:00:00.000Z',
+        attachments: [
+          { id: 'a1', filename: 'f.log', size: 1, mimeType: 'text/plain', createdAt: '' }
+        ]
+      },
+      comments: [mkComment('c1'), mkComment('c2')]
+    })
+    await svc.refresh('C-1')
+    const rec = getCase(db, 'C-1')!
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(2)
+    expect(rec.jiraAttachmentIds).toEqual(['a1'])
+    expect(rec.lastSyncError).toBeNull()
+    expect(home).toBe(argusHome)
+  })
+
+  it('leaves a previously-synced comment count untouched when a later comments fetch fails', async () => {
+    const { svc, db, client } = setup({ comments: [mkComment('c1'), mkComment('c2')] })
+    // first refresh succeeds: establishes a real, non-null count to protect
+    await svc.refresh('C-1')
+    expect(getCase(db, 'C-1')!.jiraCommentCount).toBe(2)
+
+    // comments fetch now fails on a subsequent refresh
+    client.getComments = vi.fn(async () => {
+      throw new Error('boom')
+    })
+    await svc.refresh('C-1')
+    // the known-good count must survive the partial refresh, not be clobbered with null
+    expect(getCase(db, 'C-1')!.jiraCommentCount).toBe(2)
+  })
+})
+
+const PREVIEW = {
+  key: 'PROJ-1',
+  summary: 'S',
+  status: 'In Progress',
+  priority: 'High',
+  labels: [],
+  reporter: null,
+  created: '2026-07-01T00:00:00.000Z',
+  updated: '2026-07-20T00:00:00.000Z',
+  attachments: [{ id: 'a1', filename: 'f.log', size: 1, mimeType: 'text/plain', createdAt: '' }]
+}
+
+describe('markReviewed', () => {
+  it('captures the current upstream state as the baseline, clearing action items', async () => {
+    const { svc } = setup({ preview: PREVIEW, comments: [mkComment('c1'), mkComment('c2')] })
+    await svc.refresh('C-1')
+    const rec = svc.markReviewed('C-1')
+    expect(rec.reviewBaseline).toMatchObject({
+      status: 'In Progress',
+      commentCount: 2,
+      attachmentIds: ['a1']
+    })
+    expect(deriveActionItems(rec)).toEqual([])
+  })
+
+  it('is idempotent — a second sync with no upstream change yields no items', async () => {
+    const { svc, db } = setup({ preview: PREVIEW, comments: [mkComment('c1'), mkComment('c2')] })
+    await svc.refresh('C-1')
+    svc.markReviewed('C-1')
+    await svc.refresh('C-1')
+    await svc.refresh('C-1')
+    expect(deriveActionItems(getCase(db, 'C-1')!)).toEqual([])
+    expect(getCase(db, 'C-1')!.reviewBaseline).toMatchObject({
+      status: 'In Progress',
+      commentCount: 2,
+      attachmentIds: ['a1']
+    })
+  })
+
+  it('captures a zero baseline for a case that has never synced', () => {
+    const { svc } = setup()
+    const rec = svc.markReviewed('C-1')
+    expect(rec.reviewBaseline).toMatchObject({ status: '', commentCount: 0, attachmentIds: [] })
   })
 })
