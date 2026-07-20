@@ -1,7 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { CaseRecord, CaseResolution, CaseStatus, NewCaseInput } from '../../shared/types'
+import type {
+  CaseRecord,
+  CaseResolution,
+  CaseStatus,
+  NewCaseInput,
+  ReviewBaseline,
+  SyncError
+} from '../../shared/types'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 
@@ -39,6 +46,12 @@ interface CaseRow {
   jira_key: string | null
   jira_synced_at: string | null
   jira_deselected: string | null
+  jira_status: string | null
+  jira_priority: string | null
+  jira_comment_count: number | null
+  jira_attachment_ids: string | null
+  review_baseline: string | null
+  last_sync_error: string | null
   status: string
   resolution: string | null
   tags: string
@@ -54,12 +67,12 @@ function rowToCase(r: CaseRow): CaseRecord {
     jiraKey: r.jira_key,
     jiraSyncedAt: r.jira_synced_at ?? null,
     jiraDeselected: JSON.parse(r.jira_deselected ?? '[]') as string[],
-    jiraStatus: null,
-    jiraPriority: null,
-    jiraCommentCount: null,
-    jiraAttachmentIds: [],
-    reviewBaseline: null,
-    lastSyncError: null,
+    jiraStatus: r.jira_status ?? null,
+    jiraPriority: r.jira_priority ?? null,
+    jiraCommentCount: r.jira_comment_count ?? null,
+    jiraAttachmentIds: JSON.parse(r.jira_attachment_ids ?? '[]') as string[],
+    reviewBaseline: r.review_baseline ? (JSON.parse(r.review_baseline) as ReviewBaseline) : null,
+    lastSyncError: r.last_sync_error ? (JSON.parse(r.last_sync_error) as SyncError) : null,
     status: r.status as CaseStatus,
     resolution: (r.resolution ?? null) as CaseResolution | null,
     tags: JSON.parse(r.tags) as string[],
@@ -227,6 +240,110 @@ export function setCaseJiraDeselected(
   }
   const jira = { ...((onDisk.jira as object) ?? {}), deselectedAttachmentIds: deselected }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, updatedAt: now, jira }, null, 2))
+  return getCase(db, slug)!
+}
+
+export interface CaseSyncState {
+  jiraStatus?: string | null
+  jiraPriority?: string | null
+  jiraCommentCount?: number | null
+  jiraAttachmentIds?: string[]
+  lastSyncError?: SyncError | null
+}
+
+/**
+ * Persist the upstream snapshot a sync produced. Every field is optional: a
+ * failed sync writes only lastSyncError and leaves the last-known-good values
+ * intact, so the card shows stale data plainly marked rather than blank.
+ *
+ * Does NOT touch updated_at — a sync that changed nothing must not reorder the
+ * dashboard, which breaks ties on updatedAt.
+ */
+export function setCaseSyncState(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  state: CaseSyncState
+): CaseRecord {
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+
+  const sets: string[] = []
+  const vals: Array<string | number | null> = []
+  if ('jiraStatus' in state) {
+    sets.push('jira_status = ?')
+    vals.push(state.jiraStatus ?? null)
+  }
+  if ('jiraPriority' in state) {
+    sets.push('jira_priority = ?')
+    vals.push(state.jiraPriority ?? null)
+  }
+  if ('jiraCommentCount' in state) {
+    sets.push('jira_comment_count = ?')
+    vals.push(state.jiraCommentCount ?? null)
+  }
+  if ('jiraAttachmentIds' in state) {
+    sets.push('jira_attachment_ids = ?')
+    vals.push(JSON.stringify(state.jiraAttachmentIds ?? []))
+  }
+  if ('lastSyncError' in state) {
+    sets.push('last_sync_error = ?')
+    vals.push(state.lastSyncError ? JSON.stringify(state.lastSyncError) : null)
+  }
+  if (sets.length === 0) return existing
+
+  db.prepare(`UPDATE cases SET ${sets.join(', ')} WHERE slug = ?`).run(...vals, slug)
+  const updated = getCase(db, slug)!
+
+  // Mirror into case.json like every other case writer, so an exported/imported
+  // bundle carries sync state and the dir stays the readable source of truth.
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    onDisk = { ...updated, id: undefined }
+  }
+  fs.writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        ...onDisk,
+        jiraStatus: updated.jiraStatus,
+        jiraPriority: updated.jiraPriority,
+        jiraCommentCount: updated.jiraCommentCount,
+        jiraAttachmentIds: updated.jiraAttachmentIds,
+        lastSyncError: updated.lastSyncError
+      },
+      null,
+      2
+    )
+  )
+  return updated
+}
+
+/** Capture (or clear) the snapshot that sync diffs against; mirrored into case.json. */
+export function setReviewBaseline(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  baseline: ReviewBaseline | null
+): CaseRecord {
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+  db.prepare(`UPDATE cases SET review_baseline = ? WHERE slug = ?`).run(
+    baseline ? JSON.stringify(baseline) : null,
+    slug
+  )
+
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    onDisk = { ...existing, id: undefined }
+  }
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, reviewBaseline: baseline }, null, 2))
   return getCase(db, slug)!
 }
 
