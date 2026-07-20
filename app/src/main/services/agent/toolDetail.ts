@@ -40,7 +40,12 @@ export function extractToolDetail(
         if (typeof v !== 'string' || !v.trim()) continue
         const abs = path.resolve(ctx.caseDir, v)
         const root = path.resolve(ctx.referencesDir)
-        if (abs !== root && abs.startsWith(root + path.sep)) {
+        // NTFS is case-insensitive; a raw string compare here silently drops attribution
+        // when input casing drifts from the stored referencesDir (e.g. lowercase drive
+        // letter). Windows-only: POSIX filesystems are genuinely case-sensitive.
+        const cmpAbs = process.platform === 'win32' ? abs.toLowerCase() : abs
+        const cmpRoot = process.platform === 'win32' ? root.toLowerCase() : root
+        if (cmpAbs !== cmpRoot && cmpAbs.startsWith(cmpRoot + path.sep)) {
           const rel = path.relative(root, abs).split(path.sep).join('/')
           return `ref:${rel}`.slice(0, MAX_DETAIL)
         }
