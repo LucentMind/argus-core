@@ -14,8 +14,19 @@ export interface Attachment {
   status: 'pending' | 'ready' | 'error'
   /** Set once ingested, e.g. `evidence/screenshot-2026-07-20-143052.png`. */
   relPath?: string
-  /** Object URL for an image preview; revoked by the tray on unmount. */
-  previewUrl?: string
+  /**
+   * Raw image data for the preview thumbnail, for image attachments only.
+   *
+   * The store holds the DATA rather than a derived `URL.createObjectURL`
+   * result: an object URL's lifetime is owned by whichever component created
+   * it, but `Composer` (and its `AttachmentTray`) remounts on session switch
+   * while this store deliberately retains attachments across that switch —
+   * so a URL minted before the switch would already be revoked by the time a
+   * remounted chip tried to render it. Each chip mints and revokes its own
+   * URL from this blob every time it mounts, so a remount always gets a
+   * fresh, valid URL.
+   */
+  previewBlob?: Blob
   /** Failure message, shown on the error chip. */
   error?: string
 }

@@ -55,11 +55,14 @@ describe('attachFiles', () => {
     expect(ingestContent.mock.calls[0][1]).toMatch(/^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/)
   })
 
-  it('attaches a preview url for images only', async () => {
-    await attachFiles('A-1', 1, [fileOf('a.png', 'image/png'), fileOf('b.txt', 'text/plain')])
+  it('attaches a preview blob for images only', async () => {
+    const imgFile = fileOf('a.png', 'image/png')
+    await attachFiles('A-1', 1, [imgFile, fileOf('b.txt', 'text/plain')])
     const [img, txt] = composerAttachments.get('A-1', 1)
-    expect(img.previewUrl).toBe('blob:preview')
-    expect(txt.previewUrl).toBeUndefined()
+    expect(img.previewBlob).toBe(imgFile)
+    expect(txt.previewBlob).toBeUndefined()
+    // the store holds the data, not a derived object URL — no create call at ingest time
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 
   it('rejects a file over the size cap without calling ingest', async () => {
