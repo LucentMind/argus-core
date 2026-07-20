@@ -203,11 +203,10 @@ export function ingestBytes(
 
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex')
   const existing = db
-    .prepare(`SELECT id FROM evidence WHERE case_id = ? AND sha256 = ? LIMIT 1`)
-    .get(kase.id, sha256) as { id: number } | undefined
+    .prepare(`SELECT * FROM evidence WHERE case_id = ? AND sha256 = ? LIMIT 1`)
+    .get(kase.id, sha256) as unknown as EvidenceRow | undefined
   if (existing) {
-    const record = listEvidence(db, caseSlug).find((r) => r.id === existing.id)
-    if (record) return { record, deduped: true }
+    return { record: rowToEvidence(existing), deduped: true }
   }
 
   const record = ingestContent(
