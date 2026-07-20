@@ -69,6 +69,15 @@ beforeEach(() => {
       topics: vi.fn(async () => memoryTopics),
       audit: vi.fn(async () => [])
     },
+    usage: {
+      stats: vi.fn(async () => ({
+        hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '' },
+        skills: [],
+        memory: [],
+        references: [],
+        archived: []
+      }))
+    },
     // CaseDashboard subscribes to sync progress on mount and CaseCard/openCase
     // call the other two; without these the dashboard throws during render and
     // every toggle assertion below fails for an unrelated reason.
