@@ -515,6 +515,8 @@ const argus = {
       ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
     refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
       ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+    markReviewed: (caseSlug: string): Promise<JiraResult<CaseRecord>> =>
+      ipcRenderer.invoke(IPC.jiraMarkReviewed, caseSlug),
     setAttachmentSelection: (
       caseSlug: string,
       deselectedIds: string[]

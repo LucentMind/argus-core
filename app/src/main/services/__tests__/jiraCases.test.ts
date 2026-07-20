@@ -10,6 +10,7 @@ import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
 import { createCase, getCase, setCaseJiraDeselected } from '../caseService'
+import { deriveActionItems } from '../../../shared/triage'
 import type {
   JiraAttachmentProgress,
   JiraCommentInfo,
@@ -420,5 +421,46 @@ describe('refresh persists sync state', () => {
     await svc.refresh('C-1')
     // the known-good count must survive the partial refresh, not be clobbered with null
     expect(getCase(db, 'C-1')!.jiraCommentCount).toBe(2)
+  })
+})
+
+const PREVIEW = {
+  key: 'PROJ-1',
+  summary: 'S',
+  status: 'In Progress',
+  priority: 'High',
+  labels: [],
+  reporter: null,
+  created: '2026-07-01T00:00:00.000Z',
+  updated: '2026-07-20T00:00:00.000Z',
+  attachments: [{ id: 'a1', filename: 'f.log', size: 1, mimeType: 'text/plain', createdAt: '' }]
+}
+
+describe('markReviewed', () => {
+  it('captures the current upstream state as the baseline, clearing action items', async () => {
+    const { svc } = setup({ preview: PREVIEW, comments: [mkComment('c1'), mkComment('c2')] })
+    await svc.refresh('C-1')
+    const rec = svc.markReviewed('C-1')
+    expect(rec.reviewBaseline).toMatchObject({
+      status: 'In Progress',
+      commentCount: 2,
+      attachmentIds: ['a1']
+    })
+    expect(deriveActionItems(rec)).toEqual([])
+  })
+
+  it('is idempotent — a second sync with no upstream change yields no items', async () => {
+    const { svc, db } = setup({ preview: PREVIEW, comments: [mkComment('c1'), mkComment('c2')] })
+    await svc.refresh('C-1')
+    svc.markReviewed('C-1')
+    await svc.refresh('C-1')
+    await svc.refresh('C-1')
+    expect(deriveActionItems(getCase(db, 'C-1')!)).toEqual([])
+  })
+
+  it('captures a zero baseline for a case that has never synced', () => {
+    const { svc } = setup()
+    const rec = svc.markReviewed('C-1')
+    expect(rec.reviewBaseline).toMatchObject({ status: '', commentCount: 0, attachmentIds: [] })
   })
 })

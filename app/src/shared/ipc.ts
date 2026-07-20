@@ -69,6 +69,7 @@ export const IPC = {
   jiraCreateCase: 'jira:create-case',
   jiraIngestAttachments: 'jira:ingest-attachments',
   jiraRefreshCase: 'jira:refresh-case',
+  jiraMarkReviewed: 'jira:mark-reviewed',
   jiraAttachmentProgress: 'jira:attachment-progress',
   jiraSetAttachmentSelection: 'jira:set-attachment-selection',
   jiraOpenIssue: 'jira:open-issue',

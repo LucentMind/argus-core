@@ -13,7 +13,13 @@ import type {
   JiraRefreshSummary
 } from '../../shared/jira'
 import { AtlassianError, type JiraIssueData } from './atlassian'
-import { createCase, getCase, setCaseJira, setCaseSyncState } from './caseService'
+import {
+  createCase,
+  getCase,
+  setCaseJira,
+  setCaseSyncState,
+  setReviewBaseline
+} from './caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
 import { extractDerivedText } from './extraction'
 import type { Detection } from './packs/detection'
@@ -329,5 +335,25 @@ export class JiraCases {
       ...(commentsError ? { commentsError } : {}),
       syncedAt: now
     }
+  }
+
+  /**
+   * Snapshot current upstream state as the review baseline — this is what
+   * clears a card's action items. Called when the user opens a case.
+   *
+   * Synchronous and DB-only: it deliberately does NOT hit Jira, so opening a
+   * case is instant and works offline. It marks "reviewed as of what we last
+   * synced", which is exactly what the user just saw on the card.
+   */
+  markReviewed(caseSlug: string): CaseRecord {
+    const { db, argusHome } = this.deps
+    const kase = getCase(db, caseSlug)
+    if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+    return setReviewBaseline(db, argusHome, caseSlug, {
+      status: kase.jiraStatus ?? '',
+      commentCount: kase.jiraCommentCount ?? 0,
+      attachmentIds: [...kase.jiraAttachmentIds],
+      capturedAt: new Date().toISOString()
+    })
   }
 }
