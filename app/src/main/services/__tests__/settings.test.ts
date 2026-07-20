@@ -171,4 +171,9 @@ describe('SettingsService', () => {
     const onDisk = JSON.parse(fs.readFileSync(settingsPath(argusHome), 'utf8'))
     expect(onDisk.onboarding).toEqual({ phase1Done: true, sampleCaseSlug: 'sample-onboarding' })
   })
+
+  it('memoryHygiene defaults: 45 stale days, 3 min recalls, unstamped epoch', () => {
+    const s = settingsSchema.parse({})
+    expect(s.memoryHygiene).toEqual({ staleDays: 45, minRecalls: 3, trackingStartedAt: '' })
+  })
 })

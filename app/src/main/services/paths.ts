@@ -76,6 +76,10 @@ export function memoryAuditPath(argusHome: string): string {
   return path.join(memoryDir(argusHome), '.audit.jsonl')
 }
 
+export function memoryArchiveDir(argusHome: string): string {
+  return path.join(memoryDir(argusHome), 'archive')
+}
+
 export function userSkillsDir(argusHome: string): string {
   return path.join(argusHome, 'skills-user')
 }

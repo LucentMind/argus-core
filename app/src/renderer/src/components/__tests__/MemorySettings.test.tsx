@@ -56,6 +56,15 @@ beforeEach(() => {
       write: vi.fn(async () => topics),
       remove: vi.fn(async () => topics),
       audit: vi.fn(async () => audit)
+    },
+    usage: {
+      stats: vi.fn(async () => ({
+        hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '' },
+        skills: [],
+        memory: [],
+        references: [],
+        archived: []
+      }))
     }
   } as never
 })

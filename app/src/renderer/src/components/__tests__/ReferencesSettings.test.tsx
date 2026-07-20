@@ -85,6 +85,15 @@ beforeEach(() => {
       test: vi.fn().mockResolvedValue({ ok: true, tools: [] }),
       oauth: vi.fn().mockResolvedValue({ ok: true }),
       onChanged: vi.fn(() => () => undefined)
+    },
+    usage: {
+      stats: vi.fn(async () => ({
+        hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '' },
+        skills: [],
+        memory: [],
+        references: [],
+        archived: []
+      }))
     }
   }
 })

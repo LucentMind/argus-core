@@ -3,6 +3,7 @@ import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { accessStore } from '../../lib/accessStore'
 import type { SkillsPayload, SkillListItem } from '../../../../shared/memoryIpc'
+import type { SkillUsageRow } from '../../../../shared/observability'
 
 const TIER_ORDER = ['user', 'hivemind', 'bundled'] as const
 const TIER_TITLE: Record<(typeof TIER_ORDER)[number], string> = {
@@ -18,6 +19,7 @@ const TIER_EMPTY: Partial<Record<(typeof TIER_ORDER)[number], string>> = {
 export function InstalledSkills(): React.JSX.Element {
   const [payload, setPayload] = useState<SkillsPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [usage, setUsage] = useState<Map<string, SkillUsageRow> | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.skills.list())
@@ -30,6 +32,12 @@ export function InstalledSkills(): React.JSX.Element {
       if (!mounted) return
       setPayload(data)
     })()
+    void window.argus.usage
+      .stats()
+      .then((u) => {
+        if (mounted) setUsage(new Map(u.skills.map((s) => [s.name, s])))
+      })
+      .catch(() => undefined)
     return () => {
       mounted = false
     }
@@ -82,9 +90,21 @@ export function InstalledSkills(): React.JSX.Element {
                   label={s.name}
                   description={s.description}
                   badge={
-                    s.shadows.length > 0 ? (
-                      <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>
-                    ) : undefined
+                    <>
+                      {s.shadows.length > 0 && (
+                        <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>
+                      )}
+                      {usage?.get(s.name) &&
+                        (usage.get(s.name)!.activationCount > 0 ? (
+                          <Chip tone="neutral">
+                            {`${usage.get(s.name)!.activationCount}× · last ${usage
+                              .get(s.name)!
+                              .lastActivatedAt!.slice(0, 10)}`}
+                          </Chip>
+                        ) : (
+                          <Chip tone="neutral">never activated</Chip>
+                        ))}
+                    </>
                   }
                 >
                   {s.tier === 'user' && (
