@@ -9,7 +9,7 @@ import { listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
-import { setCaseJiraDeselected } from '../caseService'
+import { createCase, getCase, setCaseJiraDeselected } from '../caseService'
 import type {
   JiraAttachmentProgress,
   JiraCommentInfo,
@@ -36,6 +36,7 @@ function issue(over: Partial<JiraIssuePreview> = {}): JiraIssueData {
     key: 'NAV-7',
     summary: 'Route flickers',
     status: 'Open',
+    priority: null,
     labels: ['nav'],
     reporter: 'Ada',
     created: 'c',
@@ -291,6 +292,38 @@ const comment = (id: string, body: string): JiraCommentInfo => ({
   bodyMarkdown: body
 })
 
+const mkComment = (id: string): JiraCommentInfo => comment(id, `comment body ${id}`)
+
+/**
+ * Builds a JiraCases service backed by a fake client, and links case 'C-1'
+ * to a Jira key up front (sync, via caseService directly) so refresh('C-1')
+ * has something to refresh against without needing an awaited createFromTicket.
+ */
+function setup(
+  opts: {
+    preview?: Partial<JiraIssuePreview>
+    comments?: JiraCommentInfo[]
+    commentsThrow?: Error
+  } = {}
+): { svc: JiraCases; db: DatabaseSync; home: string } {
+  const client = fakeClient(() => issue(opts.preview ?? {}))
+  if (opts.commentsThrow) {
+    const err = opts.commentsThrow
+    client.getComments = vi.fn(async () => {
+      throw err
+    })
+  } else if (opts.comments) {
+    const comments = opts.comments
+    client.getComments = vi.fn(async () => comments)
+  }
+  createCase(db, argusHome, {
+    slug: 'C-1',
+    title: 'Case C-1',
+    jiraKey: opts.preview?.key ?? 'C-1'
+  })
+  return { svc: service(client), db, home: argusHome }
+}
+
 describe('JiraCases comments file', () => {
   it('creates <KEY>.comments.md with provenance banner and attributed comments', async () => {
     const svc = service(fakeClient(() => issue(), new Set(), [comment('1', 'saw it in prod logs')]))
@@ -343,5 +376,40 @@ describe('JiraCases comments file', () => {
     expect(summary.commentsError).toContain('comments boom')
     expect(summary.newComments).toBe(0)
     expect(summary.key).toBe('NAV-7')
+  })
+})
+
+describe('refresh persists sync state', () => {
+  it('writes status, priority, comment count and attachment ids onto the case', async () => {
+    const { svc, db, home } = setup({
+      preview: {
+        key: 'PROJ-1',
+        summary: 'S',
+        status: 'In Progress',
+        priority: 'High',
+        labels: [],
+        reporter: null,
+        created: '2026-07-01T00:00:00.000Z',
+        updated: '2026-07-20T00:00:00.000Z',
+        attachments: [
+          { id: 'a1', filename: 'f.log', size: 1, mimeType: 'text/plain', createdAt: '' }
+        ]
+      },
+      comments: [mkComment('c1'), mkComment('c2')]
+    })
+    await svc.refresh('C-1')
+    const rec = getCase(db, 'C-1')!
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(2)
+    expect(rec.jiraAttachmentIds).toEqual(['a1'])
+    expect(rec.lastSyncError).toBeNull()
+    expect(home).toBe(argusHome)
+  })
+
+  it('leaves the comment count untouched when the comments fetch fails', async () => {
+    const { svc, db } = setup({ commentsThrow: new Error('boom') })
+    await svc.refresh('C-1')
+    expect(getCase(db, 'C-1')!.jiraCommentCount).toBeNull()
   })
 })

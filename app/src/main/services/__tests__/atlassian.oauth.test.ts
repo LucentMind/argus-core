@@ -184,7 +184,7 @@ describe('AtlassianClient.request routing', () => {
     await c.getIssue('KAN-2')
     const jiraCalls = calls.filter((x) => x.url.includes('/ex/jira/'))
     expect(jiraCalls[0].url).toBe(
-      'https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/KAN-2?fields=summary,description,status,labels,reporter,created,updated,attachment'
+      'https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/KAN-2?fields=summary,description,status,priority,labels,reporter,created,updated,attachment'
     )
     expect(jiraCalls[0].auth).toBe('Bearer oauth-tok')
     expect(calls.filter((x) => x.url.includes('accessible-resources'))).toHaveLength(1) // cached

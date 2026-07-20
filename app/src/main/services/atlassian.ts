@@ -162,7 +162,8 @@ export interface JiraIssueData {
 }
 
 const REST_TIMEOUT_MS = 15000
-const ISSUE_FIELDS = 'summary,description,status,labels,reporter,created,updated,attachment'
+const ISSUE_FIELDS =
+  'summary,description,status,priority,labels,reporter,created,updated,attachment'
 
 export class AtlassianClient {
   private cloudId = new Map<string, AtlassianCloud>()
@@ -329,6 +330,7 @@ export class AtlassianClient {
       key: String(raw.key ?? key),
       summary: String(f.summary ?? ''),
       status: String((f.status as { name?: string } | undefined)?.name ?? ''),
+      priority: (f.priority as { name?: string } | undefined)?.name ?? null,
       labels: Array.isArray(f.labels) ? f.labels.map(String) : [],
       reporter: (f.reporter as { displayName?: string } | undefined)?.displayName ?? null,
       created: String(f.created ?? ''),
