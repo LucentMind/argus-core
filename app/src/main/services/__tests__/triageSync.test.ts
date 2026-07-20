@@ -28,7 +28,10 @@ function issueFor(key: string, status: string): JiraIssueData {
     reporter: null,
     created: '2026-07-01T00:00:00Z',
     updated: '2026-07-01T00:00:00Z',
-    attachments: []
+    attachments: [
+      { id: `${key}-a1`, filename: 'a.txt', size: 1, mimeType: 'text/plain', createdAt: '' },
+      { id: `${key}-a2`, filename: 'b.txt', size: 1, mimeType: 'text/plain', createdAt: '' }
+    ]
   }
   return { preview, descriptionMarkdown: 'desc', raw: { key, fields: {} } }
 }
@@ -43,6 +46,7 @@ function issueFor(key: string, status: string): JiraIssueData {
 interface FakeClient extends AtlassianClientLike {
   issueKeys: string[]
   maxConcurrent: number
+  downloadAttachmentCalls: number
   failFor: (key: string, err: Error) => void
   clearFailures: () => void
   setStatus: (key: string, status: string) => void
@@ -56,6 +60,7 @@ function fakeClient(): FakeClient {
   const client: FakeClient = {
     issueKeys: [],
     maxConcurrent: 0,
+    downloadAttachmentCalls: 0,
     async getIssue(key: string): Promise<JiraIssueData> {
       client.issueKeys.push(key)
       inFlight++
@@ -70,7 +75,9 @@ function fakeClient(): FakeClient {
       }
     },
     async downloadAttachment(): Promise<void> {
-      throw new Error('syncAll must never download attachments')
+      // syncAll must never reach this: it only reports new attachments for the
+      // renderer's per-case dialog to ingest. A count > 0 means a regression.
+      client.downloadAttachmentCalls++
     },
     async getComments(): Promise<JiraCommentInfo[]> {
       return []
@@ -280,8 +287,11 @@ describe('syncAll', () => {
   })
 
   it('never downloads attachments', async () => {
-    const { svc, db, home } = setup()
+    const { svc, db, home, client } = setup()
     createCase(db, home, { slug: 'a', title: 'a', jiraKey: 'P-1' })
+    // the issue fixture carries real attachments (see issueFor) — a sync that
+    // downloaded them would show up here, not just in a passing synced count
     await expect(svc.syncAll()).resolves.toMatchObject({ synced: 1 })
+    expect(client.downloadAttachmentCalls).toBe(0)
   })
 })
