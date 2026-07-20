@@ -239,4 +239,25 @@ describe('ChatPane', () => {
     expect(screen.queryByLabelText('Find in chat')).toBeNull()
     expect(container.querySelector('textarea')).toBe(document.activeElement)
   })
+
+  it('ingests a pasted file and stages it on the composer tray', async () => {
+    const ingestContent = vi.fn(async (_slug: string, fileName: string) => ({
+      record: { relPath: `evidence/${fileName}` },
+      deduped: false
+    }))
+    window.argus.evidence = { ...window.argus.evidence, ingestContent } as never
+    URL.createObjectURL = vi.fn(() => 'blob:preview')
+    URL.revokeObjectURL = vi.fn()
+
+    render(<ChatPane slug="NAVAPI-1" sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+    const file = new File([new Uint8Array(4)], 'shot.png', { type: 'image/png' })
+    fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), {
+      clipboardData: { files: [file], items: [], types: ['Files'] } as never
+    })
+
+    // the chip appears from a promise resolution — findBy, never a mock-gated waitFor
+    expect(await screen.findByText('shot.png')).toBeTruthy()
+    expect(ingestContent).toHaveBeenCalledWith('NAVAPI-1', 'shot.png', expect.any(Uint8Array))
+  })
 })
