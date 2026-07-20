@@ -317,9 +317,9 @@ export function MemorySettings(): React.JSX.Element {
         </SettingsSection>
       )}
 
-      <SettingsSection title="Audit — recent agent writes">
+      <SettingsSection title="Audit — recent memory activity">
         {audit.length === 0 && (
-          <div className="px-3 py-2 text-xs text-dim">No agent memory writes recorded yet.</div>
+          <div className="px-3 py-2 text-xs text-dim">No memory activity recorded yet.</div>
         )}
         {audit.map((a, i) => {
           const summary = a.indexEntry ? auditSummary(a.topic, a.indexEntry) : null
