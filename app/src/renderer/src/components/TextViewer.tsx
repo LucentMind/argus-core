@@ -620,6 +620,7 @@ export function TextViewer({ source, focusStart, focusEnd, onClose }: Props): Re
   return (
     <ModalShell
       onClose={onClose}
+      ariaLabel={doc ? `document · ${doc.title}` : 'document viewer'}
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
           e.preventDefault()

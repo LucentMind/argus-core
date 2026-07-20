@@ -223,6 +223,23 @@ describe('SettingsView', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('Escape on a focused SelectField blurs it instead of being swallowed', async () => {
+    // Focus remains on a <select> after choosing an option, and the shared
+    // escape-layer dispatcher deliberately ignores Escape targeting a focused
+    // field (the field is supposed to own that keystroke) — so an unhandled
+    // select would trap Escape forever on whatever page it's on. SelectField
+    // must blur itself on Escape so the *next* Escape reaches the layer.
+    const onClose = vi.fn()
+    render(<SettingsView onClose={onClose} />)
+    await screen.findByRole('button', { name: /General/ })
+    const themeSelect = screen.getByRole('combobox', { name: 'Theme' })
+    themeSelect.focus()
+    expect(document.activeElement).toBe(themeSelect)
+    fireEvent.keyDown(themeSelect, { key: 'Escape' })
+    expect(document.activeElement).not.toBe(themeSelect)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it('shows a load-error banner with an Open file action', async () => {
     currentPayload = payload({ loadError: 'Unexpected token' })
     render(<SettingsView onClose={vi.fn()} />)
