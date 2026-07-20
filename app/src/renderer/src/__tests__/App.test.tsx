@@ -68,6 +68,14 @@ beforeEach(() => {
     memory: {
       topics: vi.fn(async () => memoryTopics),
       audit: vi.fn(async () => [])
+    },
+    // CaseDashboard subscribes to sync progress on mount and CaseCard/openCase
+    // call the other two; without these the dashboard throws during render and
+    // every toggle assertion below fails for an unrelated reason.
+    jira: {
+      onSyncProgress: vi.fn(() => () => {}),
+      markReviewed: vi.fn(async () => undefined),
+      syncAll: vi.fn(async () => undefined)
     }
   } as never
 })
