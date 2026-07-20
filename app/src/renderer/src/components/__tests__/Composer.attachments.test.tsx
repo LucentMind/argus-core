@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
@@ -208,6 +209,34 @@ describe('Composer attachments', () => {
     // fresh one, not the already-revoked URL from the first mount
     expect(secondUrl).not.toBe(firstUrl)
     expect(revoked).not.toContain(secondUrl)
+  })
+
+  it('renders a live (non-revoked) preview url under StrictMode', () => {
+    // the app mounts under StrictMode (main.tsx); dev double-invokes effect
+    // setup/cleanup on mount. A chip that mints its object URL during render
+    // (lazy useState initializer) and only revokes in effect cleanup ends up
+    // rendering the ALREADY-REVOKED url after the simulated remount, because
+    // useState preserves state across it while the cleanup still fires.
+    let n = 0
+    URL.createObjectURL = vi.fn(() => `blob:${++n}`)
+    const revoked: string[] = []
+    URL.revokeObjectURL = vi.fn((url: string) => revoked.push(url))
+    const blob = new Blob(['shot'])
+    const attachment: Attachment = { ...ready('a', 'evidence/shot.png'), previewBlob: blob }
+    const { container } = render(
+      <StrictMode>
+        <Composer
+          disabled={false}
+          onSend={vi.fn()}
+          attachments={[attachment]}
+          onRemoveAttachment={() => {}}
+          onAttachFiles={() => {}}
+        />
+      </StrictMode>
+    )
+    const img = container.querySelector('img') as HTMLImageElement
+    const renderedUrl = img.getAttribute('src')
+    expect(revoked).not.toContain(renderedUrl)
   })
 
   it('forwards pasted files to onAttachFiles', () => {
