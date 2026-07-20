@@ -3,6 +3,8 @@ import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
+import { composerAttachments } from '../lib/composerAttachments'
+import { attachFiles } from '../lib/attachFiles'
 import { reposStore } from '../lib/reposStore'
 import type { CiteTarget } from '../lib/citations'
 import { CitedText } from './CitedText'
@@ -93,6 +95,10 @@ export function ChatPane({
   const stagedDraft = useSyncExternalStore(
     (cb) => composerDraft.subscribe(cb),
     () => composerDraft.get(slug, sessionId)
+  )
+  const attachments = useSyncExternalStore(
+    (cb) => composerAttachments.subscribe(cb),
+    () => composerAttachments.get(slug, sessionId)
   )
   const bottom = useRef<HTMLDivElement>(null)
   const paneRef = useRef<HTMLDivElement>(null)
@@ -271,12 +277,16 @@ export function ChatPane({
         onSend={(t) => {
           void window.argus.agent.send(slug, sessionId, t)
           composerDraft.clear(slug, sessionId)
+          composerAttachments.clear(slug, sessionId)
         }}
         session={session}
         onModelChange={onModelChange}
         citations={citations}
         onRemoveCitation={(i) => citationsTray.remove(slug, sessionId, i)}
         onCitationsConsumed={() => citationsTray.clear(slug, sessionId)}
+        attachments={attachments}
+        onRemoveAttachment={(id) => composerAttachments.remove(slug, sessionId, id)}
+        onAttachFiles={(files) => void attachFiles(slug, sessionId, files)}
       />
     </div>
   )
