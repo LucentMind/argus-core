@@ -46,18 +46,31 @@ function AttachmentChip({
   onRemove: (id: string) => void
 }): React.JSX.Element {
   const previewBlob = a.previewBlob
-  // Lazy initializer: mints the URL synchronously during this chip's first
-  // render, not in an effect body (setState-in-effect triggers cascading
-  // renders). `previewBlob` is set once at attach time and never mutated
-  // afterward, so it is stable for this chip's whole lifetime — the effect
-  // below only needs to revoke on unmount, never to react to a blob change.
-  const [previewUrl] = useState<string | undefined>(() =>
-    previewBlob ? URL.createObjectURL(previewBlob) : undefined
-  )
+  // The object URL is a disposable resource, so the effect that disposes it must
+  // also OWN it (mint it), matching TextViewer's page-cache idiom. Minting it in a
+  // lazy useState initializer instead breaks under StrictMode's dev-only
+  // setup→cleanup→setup mount cycle: useState PRESERVES state across the simulated
+  // remount, but the cleanup still revokes — so the second setup renders the
+  // already-revoked URL from the first, with nothing to re-mint it. Owning it here
+  // costs one extra render per chip but guarantees a REMOUNT always gets a fresh URL.
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined)
   useEffect(() => {
-    if (!previewUrl) return
-    return () => URL.revokeObjectURL(previewUrl)
-  }, [previewUrl])
+    if (!previewBlob) return
+    const url = URL.createObjectURL(previewBlob)
+    // Deferring this to a microtask (the repo's usual set-state-in-effect idiom,
+    // see TextViewer's page-cache effect) does NOT work here: the `<img>` must
+    // show the fresh url in the SAME commit the resource is minted, because a
+    // consumer (this file's StrictMode test, and any real render right after a
+    // remount) reads `previewUrl` synchronously off the DOM with no chance to
+    // await a follow-up tick. This is a mount-only probe with controlled
+    // setState, same category as SpaceDialog/ToolRow/HivemindSettings.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resource-owning effect must set state in the same commit it mints the URL
+    setPreviewUrl(url)
+    return () => {
+      setPreviewUrl(undefined)
+      URL.revokeObjectURL(url)
+    }
+  }, [previewBlob])
 
   return (
     <span
