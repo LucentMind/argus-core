@@ -45,7 +45,7 @@ function countsFor(db: DatabaseSync, where: string, bind: string[]): Map<string,
        WHERE detail IS NOT NULL AND decision NOT IN ('denied','cancelled') AND ${where}
        GROUP BY detail`
     )
-    .all(...bind) as CountRow[]
+    .all(...bind) as unknown as CountRow[]
   return new Map(rows.map((r) => [r.detail, r]))
 }
 

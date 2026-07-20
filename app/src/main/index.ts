@@ -29,6 +29,7 @@ import {
   readAudit,
   MEMORY_INDEX_MAX_LINES
 } from './services/memory'
+import { archiveTopic, restoreTopic } from './services/memoryHygiene'
 import { deleteUserSkill, resolveSkills } from './services/agent/skillsResolver'
 import { HivemindService } from './services/hivemind'
 import { listProposals, acceptProposal, rejectProposal } from './services/proposals'
@@ -141,6 +142,7 @@ import { LangfuseExporter } from './services/observability/langfuse'
 import { LangfuseSink } from './services/observability/langfuseSink'
 import { createLangfuseTracing } from './services/observability/langfuseTracing'
 import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
+import { usageStats, ensureTrackingStarted } from './services/observability/usage'
 import { listFindings, reviewFinding, clearFindings } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
 import { DistillQueue } from './services/distill/queue'
@@ -302,6 +304,9 @@ function registerIpc(): void {
   const settingsService = new SettingsService(argusHome, {
     resolvedTools: () => binariesService.settingsRows()
   })
+
+  // Usage-stats epoch: stamped once; anchors the memory-hygiene grace period (spec §2).
+  ensureTrackingStarted(settingsService)
 
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.
@@ -1019,6 +1024,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC.metricsCase, (_e, caseSlug: string, q?: MetricsQuery) =>
     caseMetrics(db, caseSlug, q)
   )
+  ipcMain.handle(IPC.usageStats, () =>
+    usageStats({
+      db,
+      argusHome,
+      access: agentAccessStore.get(),
+      hygiene: settingsService.get().memoryHygiene
+    })
+  )
   ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, argusHome, caseSlug))
   ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
     const row = reviewFinding(db, id, state)
@@ -1230,6 +1243,14 @@ function registerIpc(): void {
     return memoryTopicsPayload()
   })
   ipcMain.handle(IPC.memoryAudit, () => readAudit(argusHome, 50))
+  ipcMain.handle(IPC.memoryArchive, (_e, name: string) => {
+    archiveTopic(argusHome, name)
+    return memoryTopicsPayload()
+  })
+  ipcMain.handle(IPC.memoryRestore, (_e, name: string) => {
+    restoreTopic(argusHome, name)
+    return memoryTopicsPayload()
+  })
 
   // — settings —
   ipcMain.handle(IPC.settingsGet, () => settingsService.payload())
