@@ -5,6 +5,8 @@ export const IPC = {
   caseReadFindings: 'cases:read-findings',
   casesSetStatus: 'cases:set-status',
   evidenceIngest: 'evidence:ingest',
+  /** renderer → main: ingest in-memory bytes (pasted screenshot, dropped file). */
+  evidenceIngestContent: 'evidence:ingest-content',
   evidenceList: 'evidence:list',
   evidenceRead: 'evidence:read',
   evidenceReadSnippet: 'evidence:read-snippet',

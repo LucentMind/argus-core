@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitForElementToBeRemoved } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { composerAttachments } from '../../lib/composerAttachments'
 import { defaultSettings } from '../../../../shared/settings'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
@@ -44,6 +45,10 @@ beforeEach(() => {
         loadError: null
       })),
       patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    },
+    evidence: {
+      list: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {})
     }
   } as never
@@ -99,6 +104,22 @@ describe('ChatPane', () => {
     fireEvent.change(box, { target: { value: 'run /analyze-applog' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(window.argus.agent.send).toHaveBeenCalledWith('NAV-1', 1, 'run /analyze-applog')
+  })
+
+  // Minor review finding: composerAttachments.clear was uncovered — a
+  // regression here (e.g. dropping the call on send) would leave stale
+  // attachment chips from a previous message sitting in the tray.
+  it('clears staged composer attachments on send', () => {
+    const slug = 'NAV-CLEAR'
+    composerAttachments.add(slug, 1, { id: 'a', name: 'shot.png', status: 'ready' })
+    const clearSpy = vi.spyOn(composerAttachments, 'clear')
+    render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+    const box = screen.getByPlaceholderText(/message the analyst/i)
+    fireEvent.change(box, { target: { value: 'see attached' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(clearSpy).toHaveBeenCalledWith(slug, 1)
+    expect(composerAttachments.get(slug, 1)).toHaveLength(0)
+    clearSpy.mockRestore()
   })
 
   it('renders a data-turn-id anchor on user turns for jump-to-turn', () => {
@@ -238,5 +259,217 @@ describe('ChatPane', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(screen.queryByLabelText('Find in chat')).toBeNull()
     expect(container.querySelector('textarea')).toBe(document.activeElement)
+  })
+
+  it('ingests a pasted file and stages it on the composer tray', async () => {
+    const ingestContent = vi.fn(async (_slug: string, fileName: string) => ({
+      record: { relPath: `evidence/${fileName}` },
+      deduped: false
+    }))
+    window.argus.evidence = { ...window.argus.evidence, ingestContent } as never
+    URL.createObjectURL = vi.fn(() => 'blob:preview')
+    URL.revokeObjectURL = vi.fn()
+
+    render(<ChatPane slug="NAVAPI-1" sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+    // Chromium supplies a name like this for every clipboard image paste — real or not,
+    // the composer must ignore it and mint a sortable screenshot-style name instead.
+    const file = new File([new Uint8Array(4)], 'shot.png', { type: 'image/png' })
+    fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), {
+      clipboardData: { files: [file], items: [], types: ['Files'] } as never
+    })
+
+    // the chip appears from a promise resolution — findBy, never a mock-gated waitFor
+    const nameRe = /^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/
+    expect(await screen.findByText(nameRe)).toBeTruthy()
+    expect(ingestContent).toHaveBeenCalledWith(
+      'NAVAPI-1',
+      expect.stringMatching(nameRe),
+      expect.any(Uint8Array)
+    )
+  })
+
+  // Regression: deleting evidence from the Files card while its chip is still
+  // staged in the composer must drop the chip too — otherwise the stale chip
+  // sends `[evidence/<deleted-file>]` on send and the agent's Read fails on a
+  // file that no longer exists.
+  describe('pruning staged attachments on evidence:changed', () => {
+    it('drops a staged ready chip whose relPath is no longer in the evidence list', async () => {
+      const slug = 'NAV-PRUNE-GONE'
+      composerAttachments.add(slug, 1, {
+        id: 'a1',
+        name: 'foo.txt',
+        status: 'ready',
+        relPath: 'evidence/foo.txt'
+      })
+      let changedCb: ((s: string) => void) | null = null
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list: vi.fn(async () => []),
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      expect(screen.getByText('foo.txt')).toBeTruthy()
+
+      act(() => {
+        changedCb?.(slug)
+      })
+
+      // the chip's disappearance is the tail of a promise resolution
+      // (evidence.list) — assert it with a real DOM-removal wait, not a
+      // mock-gated bare waitFor.
+      await waitForElementToBeRemoved(() => screen.getByText('foo.txt'))
+      expect(composerAttachments.get(slug, 1)).toHaveLength(0)
+    })
+
+    it('keeps a staged ready chip whose relPath is still in the evidence list', async () => {
+      const slug = 'NAV-PRUNE-STILL'
+      composerAttachments.add(slug, 1, {
+        id: 'a1',
+        name: 'foo.txt',
+        status: 'ready',
+        relPath: 'evidence/foo.txt'
+      })
+      let changedCb: ((s: string) => void) | null = null
+      const list = vi.fn(async () => [{ relPath: 'evidence/foo.txt' }])
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list,
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+      act(() => {
+        changedCb?.(slug)
+      })
+      // await the exact promise the component awaits (registered first, so
+      // its .then runs before ours resumes) rather than polling with waitFor.
+      await act(async () => {
+        await list.mock.results[0]!.value
+      })
+
+      expect(screen.getByText('foo.txt')).toBeTruthy()
+      expect(composerAttachments.get(slug, 1)).toHaveLength(1)
+    })
+
+    it('does not prune a pending attachment whose ingest is still in flight', async () => {
+      const slug = 'NAV-PRUNE-PENDING'
+      composerAttachments.add(slug, 1, { id: 'a1', name: 'shot.png', status: 'pending' })
+      let changedCb: ((s: string) => void) | null = null
+      const list = vi.fn(async () => [])
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list,
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+      // an unrelated evidence:changed fires while this attachment is still
+      // pending (no relPath yet) — it must survive
+      act(() => {
+        changedCb?.(slug)
+      })
+      await act(async () => {
+        await list.mock.results[0]!.value
+      })
+
+      expect(screen.getByText('shot.png')).toBeTruthy()
+      expect(composerAttachments.get(slug, 1)).toHaveLength(1)
+    })
+
+    // Regression: `evidence:changed` also fires on the very ingest that
+    // creates a chip — not just on deletion of an unrelated one — so pruning
+    // must not eat the chip it just staged. Every other test in this
+    // `describe` seeds `composerAttachments` directly BEFORE mount, so the
+    // effect's very first (mount-time) read of the store already contains
+    // the chip; a future refactor that snapshotted `attachments` once at
+    // effect-setup time (instead of re-reading the store live inside the
+    // `.then`) would slip past all of them undetected. This test instead
+    // drives a REAL paste through `attachFiles()` so the chip is added AFTER
+    // mount, and additionally proves the guard is still doing genuine live
+    // work afterward (not just permanently disabled) by forcing a real
+    // deletion once the race is over.
+    it('survives the evidence:changed fired by its own in-flight ingest, and stays prunable afterward', async () => {
+      const slug = 'NAV-PRUNE-SELF'
+      let changedCb: ((s: string) => void) | null = null
+      let relPath = ''
+      const list = vi.fn(async () => (relPath ? [{ relPath }] : []))
+      const ingestContent = vi.fn(async (_slug: string, fileName: string) => {
+        relPath = `evidence/${fileName}`
+        // Mirrors real main-process ordering: evidenceChangedB broadcasts
+        // BEFORE the IPC reply is sent, so the renderer's evidence:changed
+        // listener — and the evidence.list() it triggers — fires and starts
+        // resolving WHILE this very ingest is still in flight, racing its
+        // own resolution. `list`'s `.then` is registered here, synchronously,
+        // before this function returns, so it settles before attachFiles'
+        // own continuation (registered when it awaited this promise) does.
+        changedCb?.(slug)
+        return { record: { relPath }, deduped: false }
+      })
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list,
+        ingestContent,
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+      const file = new File([new Uint8Array(4)], 'race.txt', { type: 'text/plain' })
+      fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), {
+        clipboardData: { files: [file], items: [], types: ['Files'] } as never
+      })
+
+      // The chip's `title` only carries its relPath once it is 'ready' (see
+      // AttachmentChip) — waiting on that, rather than on the name text
+      // (present from the instant it lands as 'pending'), guarantees this
+      // resolves only after the self-triggered prune pass has ALREADY run
+      // and left the chip alone: reaching 'ready' means attachFiles' own
+      // `.then` ran, which per the ordering above only happens after the
+      // race's `list().then(...)` settled.
+      const chip = await screen.findByTitle('evidence/race.txt')
+      expect(chip).toBeTruthy()
+      expect(composerAttachments.get(slug, 1)).toHaveLength(1)
+      expect(composerAttachments.get(slug, 1)[0]!.status).toBe('ready')
+      expect(composerAttachments.get(slug, 1)[0]!.relPath).toBe('evidence/race.txt')
+
+      // Prove the guard isn't just quietly disabled for this chip — once the
+      // evidence genuinely is gone, a later evidence:changed must still
+      // prune it.
+      relPath = ''
+      act(() => {
+        changedCb?.(slug)
+      })
+      await waitForElementToBeRemoved(() => screen.getByText('race.txt'))
+      expect(composerAttachments.get(slug, 1)).toHaveLength(0)
+    })
+
+    it('unsubscribes from evidence:changed on unmount', () => {
+      const slug = 'NAV-PRUNE-UNMOUNT'
+      const off = vi.fn()
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list: vi.fn(async () => []),
+        onChanged: vi.fn(() => off)
+      } as never
+      const { unmount } = render(
+        <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      )
+      expect(off).not.toHaveBeenCalled()
+      unmount()
+      expect(off).toHaveBeenCalledTimes(1)
+    })
   })
 })

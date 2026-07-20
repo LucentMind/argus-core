@@ -180,6 +180,48 @@ export function ingestContent(
   return rec
 }
 
+/**
+ * Ingest raw bytes from the renderer (a pasted screenshot, a dropped file).
+ *
+ * Hashes BEFORE writing so identical content can be deduped — `registerEvidenceFile`
+ * hashes the file only after it is already on disk, which is too late to avoid a
+ * duplicate copy. Dedupe is scoped to the case, matching the `UNIQUE (case_id, rel_path)`
+ * grain of the evidence table.
+ */
+export function ingestBytes(
+  db: DatabaseSync,
+  argusHome: string,
+  detection: Detection,
+  caseSlug: string,
+  fileName: string,
+  bytes: Buffer,
+  origin: EvidenceOrigin,
+  extraMeta: Record<string, unknown> = {}
+): { record: EvidenceRecord; deduped: boolean } {
+  const kase = getCase(db, caseSlug)
+  if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex')
+  const existing = db
+    .prepare(`SELECT * FROM evidence WHERE case_id = ? AND sha256 = ? LIMIT 1`)
+    .get(kase.id, sha256) as unknown as EvidenceRow | undefined
+  if (existing) {
+    return { record: rowToEvidence(existing), deduped: true }
+  }
+
+  const record = ingestContent(
+    db,
+    argusHome,
+    detection,
+    caseSlug,
+    fileName,
+    bytes,
+    origin,
+    extraMeta
+  )
+  return { record, deduped: false }
+}
+
 /** Overwrite an existing evidence file in place (ticket refresh): re-hash, re-detect, re-index. */
 export function updateEvidenceContent(
   db: DatabaseSync,
