@@ -10,7 +10,9 @@ import {
   setCaseJira,
   setCaseJiraDeselected,
   setCaseStatus,
-  maybeAdvanceToAnalyzing
+  maybeAdvanceToAnalyzing,
+  setCaseSyncState,
+  setReviewBaseline
 } from '../caseService'
 import { caseDir } from '../paths'
 import type { DatabaseSync } from 'node:sqlite'
@@ -249,5 +251,57 @@ describe('maybeAdvanceToAnalyzing', () => {
     setCaseStatus(db, home, 'a3', 'closed', 'solved')
     maybeAdvanceToAnalyzing(db, home, id)
     expect(getCase(db, 'a3')!.status).toBe('closed')
+  })
+})
+
+describe('sync state persistence', () => {
+  it('defaults the new fields on a fresh case', () => {
+    const rec = createCase(db, home, { slug: 'C-1', title: 'T' })
+    expect(rec.jiraStatus).toBeNull()
+    expect(rec.jiraPriority).toBeNull()
+    expect(rec.jiraCommentCount).toBeNull()
+    expect(rec.jiraAttachmentIds).toEqual([])
+    expect(rec.reviewBaseline).toBeNull()
+    expect(rec.lastSyncError).toBeNull()
+  })
+
+  it('round-trips sync state through the DB', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    setCaseSyncState(db, home, 'C-1', {
+      jiraStatus: 'In Progress',
+      jiraPriority: 'High',
+      jiraCommentCount: 4,
+      jiraAttachmentIds: ['a1', 'a2'],
+      lastSyncError: null
+    })
+    const rec = getCase(db, 'C-1')!
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(4)
+    expect(rec.jiraAttachmentIds).toEqual(['a1', 'a2'])
+  })
+
+  it('round-trips a sync error and clears it', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    setCaseSyncState(db, home, 'C-1', {
+      lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-20T11:00:00.000Z' }
+    })
+    expect(getCase(db, 'C-1')!.lastSyncError?.code).toBe('auth')
+    setCaseSyncState(db, home, 'C-1', { lastSyncError: null })
+    expect(getCase(db, 'C-1')!.lastSyncError).toBeNull()
+  })
+
+  it('round-trips the review baseline and mirrors it into case.json', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    const baseline = {
+      status: 'Open',
+      commentCount: 2,
+      attachmentIds: ['a1'],
+      capturedAt: '2026-07-20T10:00:00.000Z'
+    }
+    setReviewBaseline(db, home, 'C-1', baseline)
+    expect(getCase(db, 'C-1')!.reviewBaseline).toEqual(baseline)
+    const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'C-1'), 'case.json'), 'utf8'))
+    expect(onDisk.reviewBaseline).toEqual(baseline)
   })
 })
