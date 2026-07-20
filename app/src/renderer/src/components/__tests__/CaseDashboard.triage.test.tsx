@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
@@ -211,6 +211,35 @@ describe('CaseDashboard triage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sync all' }))
     expect(syncAll).toHaveBeenCalled()
     expect(await screen.findByText('2 synced · 1 changed · 1 failed')).toBeInTheDocument()
+  })
+
+  it('ignores a progress event that lands after the run resolved', async () => {
+    // Observed live: the final `syncing 3/3…` event arrived AFTER syncAll's
+    // `finally` cleared `syncing`, re-disabling the button permanently with no
+    // way to recover. The result line and the stuck button were on screen at
+    // once. Ordering between the last progress send and the invoke reply is not
+    // guaranteed, so the listener must ignore post-run events outright.
+    let emit: ((p: { done: number; total: number }) => void) | undefined
+    window.argus.jira.onSyncProgress = vi.fn((cb) => {
+      emit = cb
+      return () => {}
+    })
+    window.argus.jira.syncAll = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { total: 3, synced: 3, changed: 0, failed: 0, failures: [], finishedAt: '' }
+    })
+    render(<CaseDashboard cases={[mkCase()]} {...noopHandlers} onDeleted={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sync all' }))
+    expect(await screen.findByText('3 synced · 0 changed · 0 failed')).toBeInTheDocument()
+
+    await act(async () => {
+      emit?.({ done: 3, total: 3 })
+    })
+
+    const btn = screen.getByRole('button', { name: 'Sync all' })
+    expect(btn).toBeEnabled()
+    expect(screen.queryByText(/syncing/)).not.toBeInTheDocument()
   })
 
   it('surfaces a sync failure', async () => {
