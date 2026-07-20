@@ -33,6 +33,26 @@ function plural(n: number, noun: string): string {
 }
 
 /**
+ * How long ago we last talked to Jira, as the card footer and the `stale` item
+ * both phrase it. One formatter so the two can never drift apart.
+ */
+export function formatSyncRecency(syncedAtIso: string, now: Date = new Date()): string {
+  const days = daysBetween(syncedAtIso, now)
+  return days < 1 ? 'synced today' : `synced ${days}d ago`
+}
+
+/**
+ * Whether these items represent an actual upstream change worth counting.
+ *
+ * Info-severity items (`stale`, `idle`) say "we have not looked lately" — they
+ * are a property of OUR sync cadence, not of the ticket — so they must never
+ * inflate the overview header's "N changed".
+ */
+export function hasUpstreamChange(items: ActionItem[]): boolean {
+  return items.some((i) => i.severity === 'action')
+}
+
+/**
  * Derives what needs attention on a case. Pure: a function of the record alone.
  *
  * A null reviewBaseline means "nothing known to have changed" — NOT "everything
@@ -69,7 +89,7 @@ export function deriveActionItems(c: CaseRecord, now: Date = new Date()): Action
   if (c.jiraKey && c.jiraSyncedAt) {
     const days = daysBetween(c.jiraSyncedAt, now)
     if (days > STALE_AFTER_DAYS) {
-      items.push({ kind: 'stale', severity: 'info', label: `synced ${days}d ago` })
+      items.push({ kind: 'stale', severity: 'info', label: formatSyncRecency(c.jiraSyncedAt, now) })
     }
   }
 

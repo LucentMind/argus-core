@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CaseRecord } from '../types'
-import { deriveActionItems, triageRank } from '../triage'
+import { deriveActionItems, formatSyncRecency, hasUpstreamChange, triageRank } from '../triage'
 
 const NOW = new Date('2026-07-20T12:00:00.000Z')
 
@@ -116,6 +116,42 @@ describe('deriveActionItems', () => {
       NOW
     )
     expect(items.map((i) => i.kind)).toEqual(['status', 'comments', 'attachments'])
+  })
+})
+
+describe('hasUpstreamChange', () => {
+  it('is false when the only item is info-only', () => {
+    // `stale` and `idle` say "we have not looked lately", not "Jira moved".
+    expect(hasUpstreamChange([{ kind: 'stale', severity: 'info', label: 'synced 9d ago' }])).toBe(
+      false
+    )
+  })
+
+  it('is false for a case with nothing to report', () => {
+    expect(hasUpstreamChange([])).toBe(false)
+  })
+
+  it('is true when any item is action-severity, even mixed with info', () => {
+    expect(
+      hasUpstreamChange([
+        { kind: 'comments', severity: 'action', label: '2 new comments' },
+        { kind: 'stale', severity: 'info', label: 'synced 9d ago' }
+      ])
+    ).toBe(true)
+  })
+})
+
+describe('formatSyncRecency', () => {
+  it('reads "synced today" on the day of the sync', () => {
+    expect(formatSyncRecency('2026-07-20T02:00:00.000Z', NOW)).toBe('synced today')
+  })
+
+  it('counts whole elapsed days', () => {
+    expect(formatSyncRecency('2026-07-18T12:00:00.000Z', NOW)).toBe('synced 2d ago')
+  })
+
+  it('reads "synced 1d ago", not "1 days"', () => {
+    expect(formatSyncRecency('2026-07-19T12:00:00.000Z', NOW)).toBe('synced 1d ago')
   })
 })
 

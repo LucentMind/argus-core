@@ -41,6 +41,11 @@ function mkCase(overrides: Partial<CaseRecord> = {}): CaseRecord {
   }
 }
 
+/** Relative to the real clock — these assertions must not rot with the date. */
+function daysAgo(n: number): string {
+  return new Date(Date.now() - n * 86_400_000).toISOString()
+}
+
 const noopHandlers = {
   onOpen: vi.fn(),
   onNew: vi.fn(),
@@ -80,13 +85,56 @@ describe('CaseDashboard triage', () => {
   it('renders info items as muted text, not chips', () => {
     render(
       <CaseDashboard
+        cases={[mkCase({ actionItems: [{ kind: 'idle', severity: 'info', label: 'idle 20d' }] })]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.getByText('idle 20d')).toBeInTheDocument()
+  })
+
+  it('shows sync recency in the footer well before the case goes stale', () => {
+    render(
+      <CaseDashboard
+        cases={[mkCase({ jiraSyncedAt: daysAgo(2), actionItems: [] })]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.getByText(/synced 2d ago/)).toBeInTheDocument()
+  })
+
+  it('says "synced today" for a case synced within the day', () => {
+    render(
+      <CaseDashboard
+        cases={[mkCase({ jiraSyncedAt: new Date().toISOString() })]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.getByText(/synced today/)).toBeInTheDocument()
+  })
+
+  it('shows no recency for a case with no jira key', () => {
+    render(
+      <CaseDashboard
+        cases={[mkCase({ jiraKey: null, jiraSyncedAt: daysAgo(2) })]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.queryByText(/synced/)).not.toBeInTheDocument()
+  })
+
+  it('states the sync recency once — the stale chip does not repeat the footer', () => {
+    render(
+      <CaseDashboard
         cases={[
-          mkCase({ actionItems: [{ kind: 'stale', severity: 'info', label: 'synced 9d ago' }] })
+          mkCase({
+            jiraSyncedAt: daysAgo(9),
+            actionItems: [{ kind: 'stale', severity: 'info', label: 'synced 9d ago' }]
+          })
         ]}
         {...noopHandlers}
       />
     )
-    expect(screen.getByText('synced 9d ago')).toBeInTheDocument()
+    expect(screen.getAllByText(/synced 9d ago/)).toHaveLength(1)
   })
 
   it('shows the jira priority', () => {
