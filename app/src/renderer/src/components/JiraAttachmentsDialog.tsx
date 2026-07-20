@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Btn, Chip, SectionLabel } from './ui'
+import { Btn, Chip } from './ui'
+import { ModalShell } from './ModalShell'
 import type { JiraAttachmentInfo } from '../../../shared/jira'
 
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
@@ -77,19 +78,13 @@ export function JiraAttachmentsDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-      onClick={() => {
-        if (!busy) onClose()
-      }}
+    <ModalShell
+      title="Ticket attachments changed"
+      ariaLabel="Ticket attachments changed"
+      onClose={busy ? () => {} : onClose}
+      className="max-h-[85vh] w-[560px]"
     >
-      <div
-        role="dialog"
-        aria-label="Ticket attachments changed"
-        className="flex max-h-[85vh] w-[560px] flex-col gap-3 overflow-y-auto rounded-r4 border border-hair2 bg-panel p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <SectionLabel>Ticket attachments changed</SectionLabel>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {error && (
           <div
             role="alert"
@@ -112,6 +107,6 @@ export function JiraAttachmentsDialog({
           </Btn>
         </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }

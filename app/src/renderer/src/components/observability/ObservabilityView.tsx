@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import type { CaseRecord } from '../../../../shared/types'
+import { IconBtn } from '../ui'
+import { blurOnEscape, useEscapeLayer } from '../../lib/escapeLayer'
 import { useCaseMetrics, useGlobalMetrics } from '../../lib/metricsStore'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { StatCard, pct, usd } from './MetricCards'
@@ -33,13 +36,16 @@ function hitlApproval(byDecision: Record<string, number>): {
 }
 
 export function ObservabilityView({
-  onOpenCase
+  onOpenCase,
+  onClose
 }: {
   onOpenCase: (slug: string) => void
+  onClose: () => void
 }): React.JSX.Element {
   // onOpenCase wires per-case drilldown, added in Task 6; kept as a prop now
   // so App.tsx's call site doesn't change shape between tasks.
   void onOpenCase
+  useEscapeLayer({ onEscape: onClose })
   const [range, setRange] = useState<(typeof RANGES)[number]['id']>('30d')
   const [scope, setScope] = useState<'global' | string>('global')
   const [cases, setCases] = useState<CaseRecord[]>([])
@@ -59,12 +65,18 @@ export function ObservabilityView({
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-ink">Observability</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-ink">Observability</h1>
+          <IconBtn aria-label="Close" title="Close" onClick={onClose}>
+            <X size={14} />
+          </IconBtn>
+        </div>
         <div className="flex items-center gap-3">
           <select
             aria-label="Metrics scope"
             value={scope}
             onChange={(e) => setScope(e.target.value)}
+            onKeyDown={blurOnEscape}
             className="rounded-r1 border border-hair bg-deep px-2 py-1 text-xs text-ink"
           >
             <option value="global">All cases</option>

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Btn, Chip, SectionLabel } from './ui'
+import { Btn, Chip } from './ui'
+import { ModalShell } from './ModalShell'
+import { transientFieldEscape } from '../lib/escapeLayer'
 import type { NewCaseInput } from '../../../shared/types'
 import type { JiraAttachmentInfo, JiraIssuePreview } from '../../../shared/jira'
 
@@ -42,15 +44,6 @@ export function NewCaseDialog({
   const [caseSlug, setCaseSlug] = useState('')
   const [caseTitle, setCaseTitle] = useState('')
   const [checked, setChecked] = useState<Set<string>>(new Set())
-
-  // Escape closes (skip while typing in a field mid-edit is fine — dialog state is cheap)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   // per-file progress stream (main keeps downloading even if the dialog closes)
   const ingestSlug = step.step === 'ingest' ? step.slug : null
@@ -162,23 +155,13 @@ export function NewCaseDialog({
   )
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-      onClick={onClose}
+    <ModalShell
+      title="New case"
+      ariaLabel="New case"
+      onClose={onClose}
+      className="max-h-[85vh] w-[560px]"
     >
-      <div
-        role="dialog"
-        aria-label="New case"
-        className="flex max-h-[85vh] w-[560px] flex-col gap-3 overflow-y-auto rounded-r4 border border-hair2 bg-panel p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center">
-          <SectionLabel>New case</SectionLabel>
-          <Btn variant="ghost" className="ml-auto" onClick={onClose}>
-            Close
-          </Btn>
-        </div>
-
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {error && (
           <div
             role="alert"
@@ -198,6 +181,9 @@ export function NewCaseDialog({
                   placeholder="ticket key (e.g. PROJ-1234)"
                   value={ticketKey}
                   onChange={(e) => setTicketKey(e.target.value)}
+                  onKeyDown={(e) =>
+                    transientFieldEscape(e, ticketKey === '', () => setTicketKey(''))
+                  }
                 />
                 <Btn
                   variant="primary"
@@ -216,18 +202,21 @@ export function NewCaseDialog({
                 placeholder="slug (e.g. NAVAPI-123)"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
+                onKeyDown={(e) => transientFieldEscape(e, slug === '', () => setSlug(''))}
               />
               <input
                 className={INPUT}
                 placeholder="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => transientFieldEscape(e, title === '', () => setTitle(''))}
               />
               <input
                 className={`${INPUT} font-mono`}
                 placeholder="jira key (optional)"
                 value={jira}
                 onChange={(e) => setJira(e.target.value)}
+                onKeyDown={(e) => transientFieldEscape(e, jira === '', () => setJira(''))}
               />
               <Btn
                 variant="outline"
@@ -253,12 +242,14 @@ export function NewCaseDialog({
               className={`${INPUT} font-mono`}
               value={caseSlug}
               onChange={(e) => setCaseSlug(e.target.value)}
+              onKeyDown={(e) => transientFieldEscape(e, caseSlug === '', () => setCaseSlug(''))}
             />
             <input
               aria-label="Case title"
               className={INPUT}
               value={caseTitle}
               onChange={(e) => setCaseTitle(e.target.value)}
+              onKeyDown={(e) => transientFieldEscape(e, caseTitle === '', () => setCaseTitle(''))}
             />
             <div className="flex flex-col gap-1">
               <span className="text-xs text-dim">
@@ -349,6 +340,6 @@ export function NewCaseDialog({
           </>
         )}
       </div>
-    </div>
+    </ModalShell>
   )
 }

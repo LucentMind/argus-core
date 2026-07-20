@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ObservabilityView } from '../ObservabilityView'
 import { settingsStore } from '../../../lib/settingsStore'
+import { __resetEscapeLayersForTest } from '../../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../../shared/settings'
 
 function settingsPayloadWith(hiddenCards: string[]): SettingsPayload {
@@ -36,6 +38,7 @@ const sample = {
 }
 
 beforeEach(() => {
+  __resetEscapeLayersForTest()
   settingsStore.reset()
   window.argus = {
     cases: { list: vi.fn().mockResolvedValue([]) },
@@ -50,13 +53,13 @@ beforeEach(() => {
 
 describe('ObservabilityView', () => {
   it('renders the total cost card', async () => {
-    render(<ObservabilityView onOpenCase={() => {}} />)
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
     expect(await screen.findByText(/\$1\.23/)).toBeInTheDocument()
     expect(await screen.findByText(/Total cost/i)).toBeInTheDocument()
   })
 
   it('computes HITL approval from grant+user decisions over decision-requiring calls, excluding auto', async () => {
-    render(<ObservabilityView onOpenCase={() => {}} />)
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
     // 2 approved (1 user + 1 grant) / 3 decisions (user + grant + denied) = 67%.
     // auto (5) must be excluded from the denominator, and 'grant' (the real
     // stored value for session-scoped approvals) must be counted -- a bug
@@ -73,7 +76,7 @@ describe('ObservabilityView', () => {
     ;(window.argus.metrics.case as unknown as ReturnType<typeof vi.fn>) = vi
       .fn()
       .mockResolvedValue({ ...sample, totalCostUsd: 0.5 })
-    render(<ObservabilityView onOpenCase={() => {}} />)
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
     const select = await screen.findByLabelText(/scope/i)
     fireEvent.change(select, { target: { value: 'c1' } })
     expect(await screen.findByText(/\$0\.50/)).toBeInTheDocument()
@@ -102,7 +105,7 @@ describe('ObservabilityView', () => {
       .mockImplementation((slug: string) =>
         slug === 'c2' ? c2Promise : Promise.resolve(bySlug[slug])
       )
-    render(<ObservabilityView onOpenCase={() => {}} />)
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
     const select = await screen.findByLabelText(/scope/i)
 
     fireEvent.change(select, { target: { value: 'c1' } })
@@ -121,7 +124,7 @@ describe('ObservabilityView', () => {
 
   it('hides a card whose id is in the hiddenCards setting but keeps others visible', async () => {
     window.argus.settings.get = vi.fn().mockResolvedValue(settingsPayloadWith(['toolDenials']))
-    render(<ObservabilityView onOpenCase={() => {}} />)
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
     expect(await screen.findByText(/Total cost/i)).toBeInTheDocument()
     expect(screen.queryByText(/Tool denials/i)).not.toBeInTheDocument()
   })
@@ -130,8 +133,32 @@ describe('ObservabilityView', () => {
     const globalSpy = vi.fn().mockResolvedValue(sample)
     window.argus.metrics.global = globalSpy
     window.argus.settings.get = vi.fn().mockResolvedValue(settingsPayloadWith(['toolDenials']))
-    render(<ObservabilityView onOpenCase={() => {}} />)
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
     await screen.findByText(/Total cost/i)
     expect(globalSpy).toHaveBeenCalled()
+  })
+
+  it('closes on Escape', async () => {
+    const onClose = vi.fn()
+    render(<ObservabilityView onOpenCase={vi.fn()} onClose={onClose} />)
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape blurs the scope select before closing', async () => {
+    const onClose = vi.fn()
+    render(<ObservabilityView onOpenCase={vi.fn()} onClose={onClose} />)
+    const scope = screen.getByLabelText('Metrics scope')
+    scope.focus()
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+    expect(scope).not.toHaveFocus()
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders a visible close control', async () => {
+    render(<ObservabilityView onOpenCase={() => {}} onClose={() => {}} />)
+    expect(await screen.findByRole('button', { name: 'Close' })).toBeInTheDocument()
   })
 })

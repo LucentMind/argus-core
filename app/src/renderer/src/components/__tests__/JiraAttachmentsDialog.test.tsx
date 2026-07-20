@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { JiraAttachmentsDialog } from '../JiraAttachmentsDialog'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import type { JiraAttachmentInfo } from '../../../../shared/jira'
 
 const att = (id: string, filename: string): JiraAttachmentInfo => ({
@@ -22,6 +23,8 @@ beforeEach(() => {
     }
   } as never
 })
+
+afterEach(() => __resetEscapeLayersForTest())
 
 describe('JiraAttachmentsDialog', () => {
   it('pre-checks new attachments and leaves previously deselected unchecked', () => {
@@ -117,5 +120,40 @@ describe('JiraAttachmentsDialog', () => {
     await user.click(screen.getByRole('button', { name: /download selected/i }))
     expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /download selected/i })).toBeDisabled()
+  })
+
+  it('closes on Escape', async () => {
+    const onClose = vi.fn()
+    render(
+      <JiraAttachmentsDialog
+        slug="NAV-7"
+        newAttachments={[att('1', 'new.txt')]}
+        deselectedAttachments={[]}
+        ingestedAttachments={[]}
+        onClose={onClose}
+      />
+    )
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not close on Escape while busy', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    // never resolves: keeps the dialog in its busy state for the assertion
+    window.argus.jira.setAttachmentSelection = vi.fn(() => new Promise(() => {})) as never
+    render(
+      <JiraAttachmentsDialog
+        slug="NAV-7"
+        newAttachments={[att('1', 'new.txt')]}
+        deselectedAttachments={[]}
+        ingestedAttachments={[]}
+        onClose={onClose}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /download selected/i }))
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

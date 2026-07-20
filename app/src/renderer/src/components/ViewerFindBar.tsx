@@ -1,4 +1,5 @@
 import { Btn } from './ui'
+import { transientFieldEscape } from '../lib/escapeLayer'
 
 export interface StreamState {
   query: string
@@ -63,6 +64,9 @@ export function ViewerFindBar({
         placeholder="filter lines"
         value={filter.query}
         onChange={(e) => onQueryChange('filter', e.target.value)}
+        onKeyDown={(e) =>
+          transientFieldEscape(e, state.filter.query === '', () => onQueryChange('filter', ''))
+        }
       />
       <button
         title="filter regex"
@@ -93,7 +97,7 @@ export function ViewerFindBar({
           if (e.key === 'Enter') (e.shiftKey ? onPrev : onNext)()
           else if (e.key === 'Escape') {
             e.stopPropagation()
-            onQueryChange('find', '')
+            transientFieldEscape(e, state.find.query === '', () => onQueryChange('find', ''))
           }
         }}
       />
@@ -115,6 +119,9 @@ export function ViewerFindBar({
           title="cut start line"
           value={state.cutFrom}
           onChange={(e) => onCutChange('from', e.target.value)}
+          onKeyDown={(e) =>
+            transientFieldEscape(e, state.cutFrom === '', () => onCutChange('from', ''))
+          }
         />
         <input
           className="w-16 rounded border border-hair bg-transparent px-2 py-0.5 font-mono text-xs text-ink"
@@ -122,6 +129,9 @@ export function ViewerFindBar({
           title="cut end line"
           value={state.cutTo}
           onChange={(e) => onCutChange('to', e.target.value)}
+          onKeyDown={(e) =>
+            transientFieldEscape(e, state.cutTo === '', () => onCutChange('to', ''))
+          }
         />
         <Btn variant="ghost" onClick={onPrev}>
           ↑

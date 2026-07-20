@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Btn, Chip, SectionLabel } from './ui'
+import { useState } from 'react'
+import { Btn, Chip } from './ui'
+import { ModalShell } from './ModalShell'
 import type { BundleInspection } from '../../../shared/bundle'
 
 export type ImportDialogState = { inspection: BundleInspection } | { error: string }
@@ -17,14 +18,6 @@ export function ImportCaseDialog({
   const [error, setError] = useState<string | null>('error' in state ? state.error : null)
   const insp = 'inspection' in state ? state.inspection : null
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   async function confirm(): Promise<void> {
     if (!insp || busy) return
     setBusy(true)
@@ -39,23 +32,13 @@ export function ImportCaseDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-      onClick={onClose}
+    <ModalShell
+      title="Import case"
+      ariaLabel="Import case"
+      onClose={onClose}
+      className="max-h-[85vh] w-[480px]"
     >
-      <div
-        role="dialog"
-        aria-label="Import case"
-        className="flex max-h-[85vh] w-[480px] flex-col gap-3 overflow-y-auto rounded-r4 border border-hair2 bg-panel p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center">
-          <SectionLabel>Import case</SectionLabel>
-          <Btn variant="ghost" className="ml-auto" onClick={onClose}>
-            Close
-          </Btn>
-        </div>
-
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {error && (
           <div
             role="alert"
@@ -100,6 +83,6 @@ export function ImportCaseDialog({
           </>
         )}
       </div>
-    </div>
+    </ModalShell>
   )
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { SAMPLE_CASE_SLUG, WIZARD_STEPS, type WizardStepId } from '../../../../shared/onboarding'
+import { useEscapeLayer } from '../../lib/escapeLayer'
 
 const LABELS: Record<WizardStepId, string> = {
   welcome: 'Welcome',
@@ -31,6 +32,11 @@ export function SetupWizard({
   const isLast = index === WIZARD_STEPS.length - 1
   const next = (): void => setIndex((i) => Math.min(i + 1, WIZARD_STEPS.length - 1))
   const back = (): void => setIndex((i) => Math.max(i - 1, 0))
+
+  // Onboarding is deliberately not Escape-dismissible (it has an explicit "Skip
+  // setup"), but it must still consume Escape — otherwise a wizard opened over
+  // Settings via "rerun setup" would close the Settings view behind it.
+  useEscapeLayer({ swallow: true })
 
   // Reset the gate when the step changes, during render, BEFORE child mount
   // effects run (React "adjust state during render" pattern), so a step that

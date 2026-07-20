@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { ImportCaseDialog } from '../ImportCaseDialog'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import type { BundleInspection } from '../../../../shared/bundle'
 
 const inspection: BundleInspection = {
@@ -27,7 +29,16 @@ beforeEach(() => {
   }
 })
 
+afterEach(() => __resetEscapeLayersForTest())
+
 describe('ImportCaseDialog', () => {
+  it('closes on Escape', async () => {
+    const onClose = vi.fn()
+    render(<ImportCaseDialog state={{ inspection }} onClose={onClose} onImported={vi.fn()} />)
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('shows the summary incl. the renamed-slug note and imports on confirm', async () => {
     const onImported = vi.fn()
     render(
