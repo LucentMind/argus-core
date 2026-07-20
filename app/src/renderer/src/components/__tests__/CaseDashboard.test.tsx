@@ -41,7 +41,11 @@ function payload(): SettingsPayload {
 beforeEach(() => {
   window.argus = {
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   } as never
   settingsStore.reset()
 })
@@ -104,6 +108,8 @@ describe('CaseDashboard', () => {
         onDeleted={vi.fn()}
       />
     )
+    // hide-closed defaults to on — reveal the closed case first
+    fireEvent.click(screen.getByLabelText('Show closed cases'))
     expect(screen.getByText('closed · wont-fix')).toBeTruthy()
   })
 
