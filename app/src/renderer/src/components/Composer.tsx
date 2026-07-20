@@ -200,14 +200,15 @@ export function Composer({
     setText(`/${name} `)
   }
 
+  // pending and errored attachments have no relPath yet — only what landed is sendable.
+  // Hoisted so `send()` and the send button's `disabled` check share one predicate and
+  // can't drift apart.
+  const sendableAttachments = attachments.filter((a) => a.status === 'ready' && a.relPath)
+
   function send(): void {
     const t = text.trim()
     const cites = citations.map((c) => `[${c.relPath}:${c.line}]`).join(' ')
-    // pending and errored attachments have no relPath yet — reference only what landed
-    const atts = attachments
-      .filter((a) => a.status === 'ready' && a.relPath)
-      .map((a) => `[${a.relPath}]`)
-      .join('\n')
+    const atts = sendableAttachments.map((a) => `[${a.relPath}]`).join('\n')
     const body = [t, cites, atts].filter(Boolean).join('\n\n')
     if (!body) return
     onSend(body)
@@ -353,9 +354,7 @@ export function Composer({
             title="Send (⏎)"
             disabled={
               disabled ||
-              (!text.trim() &&
-                citations.length === 0 &&
-                !attachments.some((a) => a.status === 'ready' && a.relPath))
+              (!text.trim() && citations.length === 0 && sendableAttachments.length === 0)
             }
             className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
             onClick={send}
