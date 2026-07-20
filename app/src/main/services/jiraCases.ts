@@ -353,6 +353,7 @@ export class JiraCases {
     const targets = listCases(db).filter((c) => c.jiraKey && c.status !== 'closed')
     const total = targets.length
     const failures: JiraSyncAllSummary['failures'] = []
+    const succeeded = new Set<string>()
     let synced = 0
     let done = 0
 
@@ -366,6 +367,7 @@ export class JiraCases {
         try {
           await this.refresh(kase.slug)
           synced++
+          succeeded.add(kase.slug)
         } catch (err) {
           const code = err instanceof AtlassianError ? err.code : 'internal'
           const message = (err as Error).message
@@ -374,16 +376,30 @@ export class JiraCases {
             lastSyncError: { code, message, at: new Date().toISOString() }
           })
         } finally {
-          onProgress?.(++done, total)
+          // A throwing onProgress must never abort the run: this sits in a
+          // `finally`, and an exception thrown here is NOT caught by the
+          // `catch` above — it would propagate out of the worker, reject
+          // Promise.all, and abandon every un-started case. Progress
+          // reporting is best-effort only. Do not remove this guard.
+          try {
+            onProgress?.(++done, total)
+          } catch (err) {
+            console.warn(`[jira] onProgress callback threw: ${(err as Error).message}`)
+          }
         }
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()))
 
     // Recompute after the run so `changed` reflects persisted state, not the
-    // transient per-refresh summaries.
+    // transient per-refresh summaries. Only cases that actually SUCCEEDED this
+    // run count: a case that FAILED gets a fresh `sync-error` action item from
+    // its own lastSyncError, which would make "changed" count outages as
+    // changes. A succeeded case can't carry a sync-error item — refresh()
+    // clears lastSyncError on success — so its action items are genuine
+    // upstream changes.
     const changed = listCases(db).filter(
-      (c) => targets.some((t) => t.slug === c.slug) && c.actionItems.length > 0
+      (c) => succeeded.has(c.slug) && c.actionItems.length > 0
     ).length
 
     return {
