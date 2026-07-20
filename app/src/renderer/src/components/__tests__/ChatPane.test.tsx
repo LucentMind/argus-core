@@ -386,6 +386,76 @@ describe('ChatPane', () => {
       expect(composerAttachments.get(slug, 1)).toHaveLength(1)
     })
 
+    // Regression: `evidence:changed` also fires on the very ingest that
+    // creates a chip — not just on deletion of an unrelated one — so pruning
+    // must not eat the chip it just staged. Every other test in this
+    // `describe` seeds `composerAttachments` directly BEFORE mount, so the
+    // effect's very first (mount-time) read of the store already contains
+    // the chip; a future refactor that snapshotted `attachments` once at
+    // effect-setup time (instead of re-reading the store live inside the
+    // `.then`) would slip past all of them undetected. This test instead
+    // drives a REAL paste through `attachFiles()` so the chip is added AFTER
+    // mount, and additionally proves the guard is still doing genuine live
+    // work afterward (not just permanently disabled) by forcing a real
+    // deletion once the race is over.
+    it('survives the evidence:changed fired by its own in-flight ingest, and stays prunable afterward', async () => {
+      const slug = 'NAV-PRUNE-SELF'
+      let changedCb: ((s: string) => void) | null = null
+      let relPath = ''
+      const list = vi.fn(async () => (relPath ? [{ relPath }] : []))
+      const ingestContent = vi.fn(async (_slug: string, fileName: string) => {
+        relPath = `evidence/${fileName}`
+        // Mirrors real main-process ordering: evidenceChangedB broadcasts
+        // BEFORE the IPC reply is sent, so the renderer's evidence:changed
+        // listener — and the evidence.list() it triggers — fires and starts
+        // resolving WHILE this very ingest is still in flight, racing its
+        // own resolution. `list`'s `.then` is registered here, synchronously,
+        // before this function returns, so it settles before attachFiles'
+        // own continuation (registered when it awaited this promise) does.
+        changedCb?.(slug)
+        return { record: { relPath }, deduped: false }
+      })
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list,
+        ingestContent,
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+      const file = new File([new Uint8Array(4)], 'race.txt', { type: 'text/plain' })
+      fireEvent.paste(screen.getByPlaceholderText(/Message the analyst/i), {
+        clipboardData: { files: [file], items: [], types: ['Files'] } as never
+      })
+
+      // The chip's `title` only carries its relPath once it is 'ready' (see
+      // AttachmentChip) — waiting on that, rather than on the name text
+      // (present from the instant it lands as 'pending'), guarantees this
+      // resolves only after the self-triggered prune pass has ALREADY run
+      // and left the chip alone: reaching 'ready' means attachFiles' own
+      // `.then` ran, which per the ordering above only happens after the
+      // race's `list().then(...)` settled.
+      const chip = await screen.findByTitle('evidence/race.txt')
+      expect(chip).toBeTruthy()
+      expect(composerAttachments.get(slug, 1)).toHaveLength(1)
+      expect(composerAttachments.get(slug, 1)[0]!.status).toBe('ready')
+      expect(composerAttachments.get(slug, 1)[0]!.relPath).toBe('evidence/race.txt')
+
+      // Prove the guard isn't just quietly disabled for this chip — once the
+      // evidence genuinely is gone, a later evidence:changed must still
+      // prune it.
+      relPath = ''
+      act(() => {
+        changedCb?.(slug)
+      })
+      await waitForElementToBeRemoved(() => screen.getByText('race.txt'))
+      expect(composerAttachments.get(slug, 1)).toHaveLength(0)
+    })
+
     it('unsubscribes from evidence:changed on unmount', () => {
       const slug = 'NAV-PRUNE-UNMOUNT'
       const off = vi.fn()
