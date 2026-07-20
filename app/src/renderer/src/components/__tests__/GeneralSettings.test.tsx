@@ -4,7 +4,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GeneralSettings } from '../settings/GeneralSettings'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm } from '../../lib/confirmStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   const p: SettingsPayload = {
@@ -67,22 +73,21 @@ describe('GeneralSettings', () => {
     )
   })
 
-  it('changing the data root confirms, then relaunches into the picked folder', () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('changing the data root confirms, then relaunches into the picked folder', async () => {
+    vi.mocked(confirm).mockResolvedValue(true)
     render(<GeneralSettings payload={payload((p) => (p.dataRoot.fromEnv = false))} />)
     const btn = screen.getByRole('button', { name: 'Change…' }) as HTMLButtonElement
     expect(btn.disabled).toBe(false)
     fireEvent.click(btn)
-    expect(window.argus.settings.setDataRoot).toHaveBeenCalled()
-    confirmSpy.mockRestore()
+    await waitFor(() => expect(window.argus.settings.setDataRoot).toHaveBeenCalled())
   })
 
-  it('changing the data root does nothing if the user cancels the confirm', () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('changing the data root does nothing if the user cancels the confirm', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<GeneralSettings payload={payload((p) => (p.dataRoot.fromEnv = false))} />)
     fireEvent.click(screen.getByRole('button', { name: 'Change…' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(window.argus.settings.setDataRoot).not.toHaveBeenCalled()
-    confirmSpy.mockRestore()
   })
 
   it('shows "not set" and browses for a default repository', async () => {

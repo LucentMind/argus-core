@@ -15,6 +15,7 @@ export function ModalShell({
   actions,
   children,
   className = 'h-[80vh] w-[80vw]',
+  overlayZClassName = 'z-30',
   onKeyDown,
   ariaLabel
 }: {
@@ -23,6 +24,9 @@ export function ModalShell({
   actions?: ReactNode
   children: ReactNode
   className?: string
+  /** Stacking layer for the backdrop. Confirm/alert dialogs raise this so they
+   *  sit above a settings modal that spawned them. Defaults to the base modal layer. */
+  overlayZClassName?: string
   /** Extra key handling for the card subtree (e.g. TextViewer's Ctrl/Cmd+F). */
   onKeyDown?: (e: KeyboardEvent) => void
   ariaLabel?: string
@@ -32,7 +36,7 @@ export function ModalShell({
   return (
     <div
       data-testid="modal-backdrop"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
+      className={`fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[2px] ${overlayZClassName}`}
       onClick={onClose}
       onKeyDown={onKeyDown}
       tabIndex={-1}

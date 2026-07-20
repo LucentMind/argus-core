@@ -4,6 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FindingsPane } from '../FindingsPane'
 import { uiStore } from '../../lib/uiStore'
 import { clearSnippetCache } from '../../lib/snippetCache'
+import { confirm } from '../../lib/confirmStore'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 beforeEach(() => {
   localStorage.clear()
@@ -87,7 +93,7 @@ describe('FindingsPane', () => {
   })
 
   it('Clear findings confirms, calls clear, and refetches', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     const list = vi
       .fn()
       .mockResolvedValueOnce([
@@ -97,8 +103,11 @@ describe('FindingsPane', () => {
     ;(window.argus.findings as unknown as { list: unknown }).list = list
     render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Clear findings' }))
-    expect(window.confirm).toHaveBeenCalledWith(
-      'Clear all findings for this case? 1 finding and findings.md are reset.'
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Clear all findings for this case?',
+        message: '1 finding and findings.md are reset.'
+      })
     )
     await waitFor(() =>
       expect(
@@ -109,7 +118,7 @@ describe('FindingsPane', () => {
   })
 
   it('shows an inline error and still refetches when clear rejects', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     const list = vi.fn(async () => [
       { id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }
     ])

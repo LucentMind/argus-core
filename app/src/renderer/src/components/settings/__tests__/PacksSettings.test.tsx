@@ -3,7 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
+import { confirm } from '../../../lib/confirmStore'
 import type { PacksListPayload } from '../../../../../shared/packs'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 import {
   defaultSettings,
   type SettingsPayload,
@@ -103,7 +109,7 @@ beforeEach(() => {
     },
     graph: { install: vi.fn(async () => ({ ok: true, log: 'installed' })) }
   }
-  window.confirm = vi.fn(() => true)
+  vi.mocked(confirm).mockResolvedValue(true)
 })
 
 describe('PacksSettings', () => {
@@ -121,7 +127,7 @@ describe('PacksSettings', () => {
       expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
     )
     // installed 1.0.0, picked 2.0.0 — a clean upgrade must proceed without a confirm
-    expect(window.confirm).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
     const relaunch = await screen.findByRole('button', { name: 'Relaunch now' })
     fireEvent.click(relaunch)
     expect(packs.relaunch).toHaveBeenCalled()
@@ -149,10 +155,10 @@ describe('PacksSettings', () => {
       apiCompatible: true,
       platformCompatible: true
     })
-    window.confirm = vi.fn(() => false)
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(packs.install).not.toHaveBeenCalled()
   })
 
@@ -164,10 +170,10 @@ describe('PacksSettings', () => {
       apiCompatible: true,
       platformCompatible: true
     })
-    window.confirm = vi.fn(() => false)
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(packs.install).not.toHaveBeenCalled()
   })
 
@@ -195,10 +201,10 @@ describe('PacksSettings', () => {
       apiCompatible: true,
       platformCompatible: true
     })
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     render(<PacksSettings settings={settingsPayload()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     await waitFor(() =>
       expect(packs.install).toHaveBeenCalledWith('C:/dl/navigation-2.0.0-win-x64.zip')
     )

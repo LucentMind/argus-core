@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, MessageSquarePlus, Pencil, Trash2 } from 'lucide-react'
 import type { ChatJumpTarget, ChatSearchHit, SessionSummary } from '../../../shared/types'
+import { confirm } from '../lib/confirmStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { DRIVERS, activeDriver } from '../../../shared/drivers'
 import { Chip } from './ui'
@@ -179,7 +180,15 @@ export function SessionSwitcher({
 
   async function deleteChat(s: SessionSummary): Promise<void> {
     const title = displayTitle(s)
-    if (!window.confirm(`Delete "${title}"? Its transcript and turn history are removed.`)) return
+    if (
+      !(await confirm({
+        title: `Delete "${title}"?`,
+        message: 'Its transcript and turn history are removed.',
+        confirmLabel: 'Delete',
+        danger: true
+      }))
+    )
+      return
     setDeleteError(null)
     let ok = true
     try {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import semver from 'semver'
 import { SettingsSection, SettingRow, DisclosureBtn } from './settingsLayout'
 import { Btn, Chip } from '../ui'
+import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
 import type { PacksListPayload, InstalledPackRow } from '../../../../shared/packs'
 import type { SettingsPayload } from '../../../../shared/settings'
@@ -138,9 +139,11 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
       const notNewer = current != null && (bothSemver ? semver.lte(info.version, current) : true)
       if (
         notNewer &&
-        !window.confirm(
-          `"${info.id}" ${info.version} is not newer than the installed version (${current}). Install anyway?`
-        )
+        !(await confirm({
+          title: `Install "${info.id}" ${info.version} anyway?`,
+          message: `It is not newer than the installed version (${current}).`,
+          confirmLabel: 'Install'
+        }))
       ) {
         return
       }
@@ -160,7 +163,14 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
 
   async function uninstall(row: InstalledPackRow): Promise<void> {
     if (busy) return
-    if (!window.confirm(`Uninstall "${row.id}"? Its binaries, skills, and references are removed.`))
+    if (
+      !(await confirm({
+        title: `Uninstall "${row.id}"?`,
+        message: 'Its binaries, skills, and references are removed.',
+        confirmLabel: 'Uninstall',
+        danger: true
+      }))
+    )
       return
     setError(null)
     setBusy(true)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
 import { Chip, MenuButton, SectionLabel } from './ui'
+import { confirm } from '../lib/confirmStore'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
 import type {
@@ -169,7 +170,14 @@ export function CaseFiles({
     }
     const derived = doomed.size - 1
     const extra = derived > 0 ? ` and ${derived} derived file${derived > 1 ? 's' : ''}` : ''
-    if (!window.confirm(`Delete "${displayName(r.relPath)}"${extra}? This cannot be undone.`))
+    if (
+      !(await confirm({
+        title: `Delete "${displayName(r.relPath)}"${extra}?`,
+        message: 'This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true
+      }))
+    )
       return
     setDeleteError(null)
     try {

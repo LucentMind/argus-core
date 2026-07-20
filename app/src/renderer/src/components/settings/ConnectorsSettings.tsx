@@ -12,6 +12,7 @@ import {
 } from '../../../../shared/connectors'
 import { connectorsStore, useConnectorsPayload } from '../../lib/connectorsStore'
 import { formValue, commitField, commitSecret } from '../../lib/connectorForm'
+import { confirm } from '../../lib/confirmStore'
 import { AnnotatedForm } from './AnnotatedForm'
 import { SettingsSection, SettingRow, Switch, DraftInput, FIELD } from './settingsLayout'
 import { SourceControl } from './SourceControl'
@@ -89,9 +90,13 @@ function ConnectorCard({
   }
 
   function remove(): void {
-    if (window.confirm(`Remove connector "${inst.displayName ?? id}"?`)) {
-      void connectorsStore.patch({ [id]: null })
-    }
+    void confirm({
+      title: `Remove connector "${inst.displayName ?? id}"?`,
+      confirmLabel: 'Remove',
+      danger: true
+    }).then((ok) => {
+      if (ok) void connectorsStore.patch({ [id]: null })
+    })
   }
 
   function authorize(): void {

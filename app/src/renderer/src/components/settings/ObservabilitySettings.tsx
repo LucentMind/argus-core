@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { SettingsSection, SettingRow, Switch, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
+import { alert } from '../../lib/confirmStore'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { HealthCheckResult } from '../../../../shared/health'
 
@@ -90,7 +91,7 @@ export function ObservabilitySettings({
     void window.argus.secrets
       .set(SECRET_NAME, plaintext)
       .then(() => setSecretSet(true))
-      .catch((err: Error) => window.alert(`secret not saved: ${err.message}`))
+      .catch((err: Error) => void alert(`secret not saved: ${err.message}`))
   }
 
   function toggleCard(id: string, hidden: boolean): void {

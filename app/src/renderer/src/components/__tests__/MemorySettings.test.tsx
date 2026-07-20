@@ -3,6 +3,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemorySettings } from '../settings/MemorySettings'
 import { accessStore } from '../../lib/accessStore'
+import { confirm } from '../../lib/confirmStore'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const topics = {
   topics: [
@@ -92,7 +98,7 @@ describe('MemorySettings', () => {
   })
 
   it('delete confirms then calls remove', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     render(<MemorySettings />)
     fireEvent.click((await screen.findAllByRole('button', { name: /delete/i }))[0])
     await waitFor(() => expect(window.argus.memory.remove).toHaveBeenCalledWith('tile-blocks'))

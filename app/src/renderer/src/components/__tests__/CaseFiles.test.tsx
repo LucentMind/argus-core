@@ -4,8 +4,14 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseFiles } from '../CaseFiles'
+import { confirm } from '../../lib/confirmStore'
 import type { ArtifactTypeMeta, EvidenceRecord } from '../../../../shared/types'
 import type { PanelDecl } from '../../../../shared/panels'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const evidenceFixture: EvidenceRecord[] = [
   {
@@ -193,7 +199,7 @@ describe('CaseFiles', () => {
   })
 
   it('Delete confirms with the derived count and calls evidence.delete', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     window.argus.evidence.list = vi.fn(async () => [
       ...evidenceFixture,
       {
@@ -212,8 +218,8 @@ describe('CaseFiles', () => {
     await screen.findByText('trace.binlog')
     fireEvent.click(screen.getByRole('button', { name: 'Delete trace.binlog' }))
     await waitFor(() =>
-      expect(window.confirm).toHaveBeenCalledWith(
-        'Delete "trace.binlog" and 1 derived file? This cannot be undone.'
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Delete "trace.binlog" and 1 derived file?' })
       )
     )
     await waitFor(() =>
@@ -222,16 +228,16 @@ describe('CaseFiles', () => {
   })
 
   it('cancelling the confirm deletes nothing', async () => {
-    window.confirm = vi.fn(() => false)
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<CaseFiles caseSlug="NAV-1" onOpenFile={vi.fn()} />)
     await screen.findByText('notes.md')
     fireEvent.click(screen.getByRole('button', { name: 'Delete notes.md' }))
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect((window.argus.evidence as { delete: unknown }).delete).not.toHaveBeenCalled()
   })
 
   it('shows an inline error and still reloads when evidence.delete rejects', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     window.argus.evidence.delete = vi.fn(async () => {
       throw new Error('evidence locked')
     })

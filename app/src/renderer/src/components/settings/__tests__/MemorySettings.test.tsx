@@ -3,8 +3,16 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { MemorySettings } from '../MemorySettings'
+import { confirm } from '../../../lib/confirmStore'
 import type { MemoryTopicsPayload } from '../../../../../shared/memoryIpc'
 import type { UsageStatsPayload } from '../../../../../shared/observability'
+
+// The Argus-styled confirm dialog is exercised in ConfirmHost.test.tsx; here we stub it so
+// these tests drive the confirm/cancel branches without mounting the host.
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 // MemorySettings reads enablement via useAccessPayload/accessStore, which is a separate
 // external-store singleton (not part of window.argus.memory/usage). Mocking it here keeps
@@ -75,7 +83,7 @@ let argus: ReturnType<typeof mockArgus>
 beforeEach(() => {
   argus = mockArgus()
   ;(window as unknown as { argus: unknown }).argus = argus
-  window.confirm = vi.fn(() => true)
+  vi.mocked(confirm).mockResolvedValue(true)
 })
 
 describe('MemorySettings usage + hygiene', () => {
@@ -90,7 +98,7 @@ describe('MemorySettings usage + hygiene', () => {
   it('archive asks for confirmation then calls memory.archive', async () => {
     render(<MemorySettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Archive cold-topic' }))
-    expect(window.confirm).toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalled()
     await waitFor(() => expect(argus.memory.archive).toHaveBeenCalledWith('cold-topic'))
   })
 
@@ -102,9 +110,10 @@ describe('MemorySettings usage + hygiene', () => {
   })
 
   it('cancelling the archive confirm does nothing', async () => {
-    window.confirm = vi.fn(() => false)
+    vi.mocked(confirm).mockResolvedValueOnce(false)
     render(<MemorySettings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Archive cold-topic' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(argus.memory.archive).not.toHaveBeenCalled()
   })
 
@@ -148,6 +157,43 @@ describe('MemorySettings usage + hygiene', () => {
     expect(await screen.findByText('128 B')).toBeInTheDocument()
     expect(screen.queryByText('archived')).not.toBeInTheDocument()
     expect(screen.queryByText('restored')).not.toBeInTheDocument()
+  })
+
+  it('collapses the repeated topic name in an archive/restore audit row', async () => {
+    // archive/restore save the whole "- [topic](topic.md) — desc" index line; rendering it
+    // raw repeated the (long) slug up to four times per row.
+    argus.memory.audit.mockResolvedValue([
+      {
+        ts: '2026-07-20T22:12:00.000Z',
+        caseSlug: 'ui',
+        topic: 'nav-fusion-bearing-discontinuity',
+        indexEntry:
+          '- [nav-fusion-bearing-discontinuity](nav-fusion-bearing-discontinuity.md) — nav-fusion-bearing-discontinuity — bearing errors follow an IMU warning',
+        bytes: 0,
+        action: 'restore'
+      }
+    ])
+    render(<MemorySettings />)
+    // the description collapses to just the summary
+    expect(await screen.findByText('— bearing errors follow an IMU warning')).toBeInTheDocument()
+    // the markdown-link boilerplate (a second + third copy of the slug) is gone
+    expect(screen.queryByText(/\.md\)/)).not.toBeInTheDocument()
+    // the topic still appears once, as the row label
+    expect(screen.getByText('nav-fusion-bearing-discontinuity')).toBeInTheDocument()
+  })
+
+  it('leaves a bare agent-write description untouched', async () => {
+    argus.memory.audit.mockResolvedValue([
+      {
+        ts: '2026-07-20T09:00:00.000Z',
+        caseSlug: 'NAV-1',
+        topic: 'nav-drift',
+        indexEntry: 'bearing errors follow an IMU warning',
+        bytes: 128
+      }
+    ])
+    render(<MemorySettings />)
+    expect(await screen.findByText('— bearing errors follow an IMU warning')).toBeInTheDocument()
   })
 
   it('surfaces a restore failure (e.g. live namesake collision) as an alert', async () => {

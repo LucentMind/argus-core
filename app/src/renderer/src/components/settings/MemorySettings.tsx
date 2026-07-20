@@ -3,9 +3,26 @@ import { Archive, ArchiveRestore, Check, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch, TEXTAREA_FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
+import { confirm } from '../../lib/confirmStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
 import type { UsageStatsPayload, MemoryUsageRow } from '../../../../shared/observability'
+
+/**
+ * A readable summary for an audit row. The audit stores two `indexEntry` shapes: an agent
+ * write keeps the bare description, while archive/restore save the whole
+ * `- [topic](topic.md) — description` index line (load-bearing — restore rebuilds _index.md
+ * from it verbatim). Rendered raw, the long slug repeats up to four times per row, so strip
+ * the markdown-link boilerplate and any leading echo of the topic name, keeping the stored
+ * value untouched. Display-side mirror of main's stripTopicEcho (services/memory.ts).
+ */
+function auditSummary(topic: string, indexEntry: string): string {
+  const afterLink = indexEntry.replace(/^-?\s*\[[^\]]*\]\([^)]*\)\s*[—–\-:]*\s*/, '').trim()
+  const slug = topic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '[-\\s]')
+  const deEchoed = afterLink.replace(new RegExp(`^${slug}\\s*[—–\\-:]+\\s*`, 'i'), '').trim()
+  // never collapse to nothing — a slightly redundant line beats a blank one
+  return deEchoed || afterLink || indexEntry.trim()
+}
 
 /** ` · N recalls[, last YYYY-MM-DD]` — appended to a topic row's description. */
 function usageLine(u: MemoryUsageRow | undefined): string {
@@ -140,16 +157,26 @@ export function MemorySettings(): React.JSX.Element {
   }
 
   async function remove(name: string): Promise<void> {
-    if (!window.confirm(`Delete memory topic "${name}"? Its _index.md line is removed too.`)) return
+    if (
+      !(await confirm({
+        title: `Delete memory topic "${name}"?`,
+        message: 'Its _index.md line is removed too. This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true
+      }))
+    )
+      return
     setPayload(await window.argus.memory.remove(name))
     void refresh()
   }
 
   async function archive(name: string): Promise<void> {
     if (
-      !window.confirm(
-        `Archive memory topic "${name}"? It stops being injected/recallable; restore any time from the Archived section.`
-      )
+      !(await confirm({
+        title: `Archive memory topic "${name}"?`,
+        message: 'It stops being injected/recallable; restore any time from the Archived section.',
+        confirmLabel: 'Archive'
+      }))
     )
       return
     setError(null)
@@ -294,21 +321,24 @@ export function MemorySettings(): React.JSX.Element {
         {audit.length === 0 && (
           <div className="px-3 py-2 text-xs text-dim">No agent memory writes recorded yet.</div>
         )}
-        {audit.map((a, i) => (
-          <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-            <span className="font-mono text-mute">{a.ts.slice(0, 16).replace('T', ' ')}</span>
-            <Chip tone="defect">{a.caseSlug}</Chip>
-            {a.action && (
-              <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
-                {a.action === 'restore' ? 'restored' : 'archived'}
-              </Chip>
-            )}
-            <span className="font-mono text-ink">{a.topic}</span>
-            {a.indexEntry && <span className="truncate text-dim">— {a.indexEntry}</span>}
-            {/* bytes are meaningful only for content writes; archive/restore carry none */}
-            {!a.action && <span className="ml-auto text-faint">{a.bytes} B</span>}
-          </div>
-        ))}
+        {audit.map((a, i) => {
+          const summary = a.indexEntry ? auditSummary(a.topic, a.indexEntry) : null
+          return (
+            <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+              <span className="font-mono text-mute">{a.ts.slice(0, 16).replace('T', ' ')}</span>
+              <Chip tone="defect">{a.caseSlug}</Chip>
+              {a.action && (
+                <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
+                  {a.action === 'restore' ? 'restored' : 'archived'}
+                </Chip>
+              )}
+              <span className="font-mono text-ink">{a.topic}</span>
+              {summary && <span className="truncate text-dim">— {summary}</span>}
+              {/* bytes are meaningful only for content writes; archive/restore carry none */}
+              {!a.action && <span className="ml-auto text-faint">{a.bytes} B</span>}
+            </div>
+          )
+        })}
       </SettingsSection>
     </div>
   )

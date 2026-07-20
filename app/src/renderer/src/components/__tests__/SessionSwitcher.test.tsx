@@ -3,7 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SessionSwitcher } from '../SessionSwitcher'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm } from '../../lib/confirmStore'
 import { defaultSettings } from '../../../../shared/settings'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const sessions = [
   {
@@ -211,7 +217,7 @@ describe('SessionSwitcher', () => {
   })
 
   it('Delete confirms, calls sessions.delete, and switches when the active chat was deleted', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     const onSwitch = vi.fn()
     ;(window.argus.sessions as unknown as { list: ReturnType<typeof vi.fn> }).list = vi
       .fn()
@@ -223,8 +229,11 @@ describe('SessionSwitcher', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: /chat 1/i }))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete Chat 1' }))
-    expect(window.confirm).toHaveBeenCalledWith(
-      'Delete "Chat 1"? Its transcript and turn history are removed.'
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Delete "Chat 1"?',
+        message: 'Its transcript and turn history are removed.'
+      })
     )
     await waitFor(() =>
       expect((window.argus.sessions as { delete: unknown }).delete).toHaveBeenCalledWith('NAV-1', 1)
@@ -233,7 +242,7 @@ describe('SessionSwitcher', () => {
   })
 
   it('deleting a background chat does not switch; cancel deletes nothing', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     const onSwitch = vi.fn()
     render(
       <SessionSwitcher slug="NAV-1" sessionId={1} onSwitch={onSwitch} onJumpToTurn={vi.fn()} />
@@ -245,15 +254,17 @@ describe('SessionSwitcher', () => {
     )
     expect(onSwitch).not.toHaveBeenCalled()
 
-    window.confirm = vi.fn(() => false)
+    vi.mocked(confirm).mockResolvedValue(false)
+    const confirmsBefore = vi.mocked(confirm).mock.calls.length
     fireEvent.click(await screen.findByRole('button', { name: 'Delete Chat 1' }))
+    await waitFor(() => expect(vi.mocked(confirm).mock.calls.length).toBe(confirmsBefore + 1))
     expect(
       (window.argus.sessions as unknown as { delete: ReturnType<typeof vi.fn> }).delete
     ).toHaveBeenCalledTimes(1)
   })
 
   it('shows an inline error and still refetches the list when sessions.delete rejects', async () => {
-    window.confirm = vi.fn(() => true)
+    vi.mocked(confirm).mockResolvedValue(true)
     const onSwitch = vi.fn()
     window.argus.sessions.delete = vi.fn(async () => {
       throw new Error('chat locked')

@@ -3,7 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { InstalledSkills } from '../InstalledSkills'
+import { confirm } from '../../../lib/confirmStore'
 import type { SkillsPayload } from '../../../../../shared/memoryIpc'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const initial: SkillsPayload = {
   skills: [
@@ -76,14 +82,14 @@ let argus: ReturnType<typeof mockArgus>
 beforeEach(() => {
   argus = mockArgus()
   ;(window as unknown as { argus: unknown }).argus = argus
-  window.confirm = vi.fn(() => true)
+  vi.mocked(confirm).mockResolvedValue(true)
 })
 
 describe('InstalledSkills delete/adopt actions', () => {
   it('user skill shadowing hivemind gets "Adopt upstream"; confirm deletes and refreshes', async () => {
     render(<InstalledSkills />)
     fireEvent.click(await screen.findByRole('button', { name: 'Adopt upstream · rca' }))
-    expect(window.confirm).toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalled()
     await waitFor(() => expect(argus.skills.deleteUser).toHaveBeenCalledWith('rca'))
     // list now shows the hivemind winner from the returned payload
     expect(await screen.findByText('upstream rca')).toBeInTheDocument()
@@ -97,10 +103,10 @@ describe('InstalledSkills delete/adopt actions', () => {
   })
 
   it('cancelling the confirm leaves the skill alone', async () => {
-    window.confirm = vi.fn(() => false)
+    vi.mocked(confirm).mockResolvedValue(false)
     render(<InstalledSkills />)
     fireEvent.click(await screen.findByRole('button', { name: 'Adopt upstream · rca' }))
-    expect(window.confirm).toHaveBeenCalled()
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(argus.skills.deleteUser).not.toHaveBeenCalled()
   })
 

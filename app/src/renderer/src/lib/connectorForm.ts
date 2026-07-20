@@ -1,4 +1,5 @@
 import { connectorsStore } from './connectorsStore'
+import { alert } from './confirmStore'
 
 /** Adapt raw connector config to AnnotatedForm scalars (args ↔ space-joined, env/headers ↔ JSON text). */
 export function formValue(kind: string, cfg: Record<string, unknown>): Record<string, unknown> {
@@ -46,5 +47,5 @@ export function commitSecret(id: string, key: string, plaintext: string | null):
   void window.argus.secrets
     .set(name, plaintext)
     .then(() => connectorsStore.patch({ [id]: { config: { [key]: { $secret: name } } } }))
-    .catch((err: Error) => window.alert(`secret not saved: ${err.message}`))
+    .catch((err: Error) => void alert(`secret not saved: ${err.message}`))
 }
