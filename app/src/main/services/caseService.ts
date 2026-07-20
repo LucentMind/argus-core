@@ -199,7 +199,7 @@ export function listCases(db: DatabaseSync): CaseRecord[] {
   return cases.sort((a, b) => {
     const d = triageRank(a.actionItems) - triageRank(b.actionItems)
     if (d !== 0) return d
-    const u = b.updatedAt.localeCompare(a.updatedAt)
+    const u = b.updatedAt > a.updatedAt ? 1 : b.updatedAt < a.updatedAt ? -1 : 0
     if (u !== 0) return u
     // Priority is the LAST tiebreak only — a chip you read, not a key you trust.
     return PRIORITY_ORDER(a.jiraPriority) - PRIORITY_ORDER(b.jiraPriority)

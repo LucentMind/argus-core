@@ -391,4 +391,59 @@ describe('listCases triage ordering', () => {
       expect.objectContaining({ kind: 'idle', severity: 'info' })
     )
   })
+
+  function idOfSlug(slug: string): number {
+    return (db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug) as { id: number }).id
+  }
+
+  function addEvidenceRow(caseId: number): void {
+    db.prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
+       VALUES (?, 'evidence/x.txt', 'h', 'text', 1, 'upload', 'now')`
+    ).run(caseId)
+  }
+
+  it('does not flag an old, evidence-free case as idle when it is not open', () => {
+    createCase(db, home, { slug: 'idle-closed', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'idle-closed'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    setCaseStatus(db, home, 'idle-closed', 'closed', 'solved')
+    const rec = listCases(db).find((c) => c.slug === 'idle-closed')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+
+  it('does not flag an old, open case as idle once it has evidence', () => {
+    createCase(db, home, { slug: 'idle-with-evidence', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'idle-with-evidence'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    addEvidenceRow(idOfSlug('idle-with-evidence'))
+    const rec = listCases(db).find((c) => c.slug === 'idle-with-evidence')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+
+  it('does not flag a young, open, evidence-free case as idle', () => {
+    createCase(db, home, { slug: 'idle-young', title: 'i' })
+    // created_at defaults to "now" — well under the 14-day idle threshold.
+    const rec = listCases(db).find((c) => c.slug === 'idle-young')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+
+  it('getCase never populates actionItems, even when listCases would show one', () => {
+    createCase(db, home, { slug: 'contract-1', title: 'c' })
+    setCaseSyncState(db, home, 'contract-1', { jiraStatus: 'In Progress' })
+    setReviewBaseline(db, home, 'contract-1', {
+      status: 'Open',
+      commentCount: 0,
+      attachmentIds: [],
+      capturedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const listed = listCases(db).find((c) => c.slug === 'contract-1')!
+    expect(listed.actionItems).toContainEqual(
+      expect.objectContaining({ kind: 'status', severity: 'action' })
+    )
+    const fetched = getCase(db, 'contract-1')!
+    expect(fetched.actionItems).toEqual([])
+  })
 })
