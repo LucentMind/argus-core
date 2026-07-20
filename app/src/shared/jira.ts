@@ -13,6 +13,8 @@ export interface JiraIssuePreview {
   key: string
   summary: string
   status: string
+  /** Priority name (e.g. "High"); null when the field is absent or unset. */
+  priority: string | null
   labels: string[]
   reporter: string | null
   created: string

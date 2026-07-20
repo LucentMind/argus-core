@@ -13,7 +13,7 @@ import type {
   JiraRefreshSummary
 } from '../../shared/jira'
 import { AtlassianError, type JiraIssueData } from './atlassian'
-import { createCase, getCase, setCaseJira } from './caseService'
+import { createCase, getCase, setCaseJira, setCaseSyncState } from './caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
 import { extractDerivedText } from './extraction'
 import type { Detection } from './packs/detection'
@@ -254,12 +254,14 @@ export class JiraCases {
 
     // comments evidence: update in place (or create if missing), tolerating fetch failure
     let newComments = 0
+    let commentCount: number | null = null
     let commentsError: string | undefined
     try {
       const comments = await this.deps.client.getComments(kase.jiraKey)
       const cmRec = evidence.find((e) => jiraMeta(e.meta).role === 'comments')
       const oldCount = cmRec ? (jiraMeta(cmRec.meta).commentCount ?? 0) : 0
       newComments = Math.max(0, comments.length - oldCount)
+      commentCount = comments.length
       const cmMeta = {
         jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
       }
@@ -300,6 +302,16 @@ export class JiraCases {
       .filter(([id]) => !liveIds.has(id))
       .map(([attachmentId, filename]) => ({ attachmentId, filename }))
 
+    // Persist the upstream snapshot the dashboard diffs against. commentCount
+    // stays null when the comments fetch failed, so a partial refresh never
+    // clobbers a known-good count with a wrong one.
+    setCaseSyncState(db, argusHome, caseSlug, {
+      jiraStatus: preview.status,
+      jiraPriority: preview.priority,
+      jiraAttachmentIds: preview.attachments.map((a) => a.id),
+      lastSyncError: null,
+      ...(commentCount === null ? {} : { jiraCommentCount: commentCount })
+    })
     setCaseJira(db, argusHome, caseSlug, {
       key: preview.key,
       site: this.deps.site(),
