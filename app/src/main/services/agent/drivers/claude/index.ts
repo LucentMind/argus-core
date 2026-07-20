@@ -244,6 +244,22 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
           if (msg.type === 'result') ctx.onTurnResult(extractTurnResult(msg))
+          // Finished assistant messages are the ONE place a tool_use block carries its
+          // full input (stream partials arrive before input_json_deltas assemble), and
+          // each toolCallId appears in exactly one finished message — top-level and
+          // subagent blocks alike. The SDK runs `Skill` and sandboxed reads without
+          // consulting canUseTool, so this observation seam is the only capture point
+          // for those (see DriverSessionContext.onToolObserved).
+          if (msg.type === 'assistant') {
+            for (const block of msg.message?.content ?? []) {
+              if (block?.type === 'tool_use') {
+                ctx.onToolObserved?.(
+                  String(block.name),
+                  (block.input ?? {}) as Record<string, unknown>
+                )
+              }
+            }
+          }
           for (const ev of normalizeSdkMessage(msg, ctx.eventCtx())) {
             // normalize.ts cannot know whether this session resumed — NormalizeCtx
             // carries no cursor — so it emits a placeholder that is corrected here,
