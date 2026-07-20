@@ -9,6 +9,7 @@ import { RefViewer } from '../references/RefViewer'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import { useConnectorsPayload } from '../../lib/connectorsStore'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
+import type { ReferenceUsageRow } from '../../../../shared/observability'
 
 /** Atlassian (Rovo preset) OAuth state, checked client-side before the user hits Sync. */
 function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayload>): string | null {
@@ -42,6 +43,20 @@ export function ReferencesSettings(): React.JSX.Element {
   const [query, setQuery] = useState('')
   // null = no active search (show all); otherwise the set of matching file names
   const [matches, setMatches] = useState<Set<string> | null>(null)
+  const [usage, setUsage] = useState<Map<string, ReferenceUsageRow> | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    void window.argus.usage
+      .stats()
+      .then((u) => {
+        if (mounted) setUsage(new Map(u.references.map((r) => [r.relPath, r])))
+      })
+      .catch(() => undefined)
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!query.trim()) return
@@ -195,6 +210,14 @@ export function ReferencesSettings(): React.JSX.Element {
               <span className="text-sm text-ink">{r.file}</span>
               <span className="text-xs text-dim">
                 {r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
+                {usage?.get(r.file) && (
+                  <>
+                    {' · '}
+                    {usage.get(r.file)!.readCount === 0
+                      ? 'never read'
+                      : `${usage.get(r.file)!.readCount} reads · last ${usage.get(r.file)!.lastReadAt!.slice(0, 10)}`}
+                  </>
+                )}
               </span>
             </div>
             {r.tier && <Chip tone="neutral">{r.tier}</Chip>}
