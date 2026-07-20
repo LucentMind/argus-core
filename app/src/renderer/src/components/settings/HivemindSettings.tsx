@@ -3,6 +3,7 @@ import { BookUp, ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
 import type { HivemindItem, HivemindPayload, PushableItem } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
@@ -70,14 +71,17 @@ function BrowseRow({
             aria-label={`Uninstall ${it.name}`}
             disabled={busy}
             onClick={() => {
-              if (
-                window.confirm(
+              void askConfirm({
+                title: `Uninstall ${it.name}?`,
+                message:
                   it.kind === 'skill'
-                    ? `Uninstall ${it.name}? Its skills-hivemind folder is removed; it stays installable from Browse.`
-                    : `Uninstall ${it.name}? Its local references copy is removed; it stays installable from Browse.`
-                )
-              )
-                onUninstall()
+                    ? 'Its skills-hivemind folder is removed; it stays installable from Browse.'
+                    : 'Its local references copy is removed; it stays installable from Browse.',
+                confirmLabel: 'Uninstall',
+                danger: true
+              }).then((ok) => {
+                if (ok) onUninstall()
+              })
             }}
           >
             Uninstall
@@ -89,12 +93,14 @@ function BrowseRow({
             aria-label={`Keep ${it.name} as mine`}
             disabled={busy}
             onClick={() => {
-              if (
-                window.confirm(
-                  `Keep ${it.name} as yours? It becomes pushable to the HiveMind and future updates keep your authorship.`
-                )
-              )
-                onClaim()
+              void askConfirm({
+                title: `Keep ${it.name} as yours?`,
+                message:
+                  'It becomes pushable to the HiveMind and future updates keep your authorship.',
+                confirmLabel: 'Keep as mine'
+              }).then((ok) => {
+                if (ok) onClaim()
+              })
             }}
           >
             Keep as mine

@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ChevronRight, PanelRight, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
+import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
@@ -59,9 +60,12 @@ export function FindingsPane({
 
   async function clearAll(): Promise<void> {
     const count = findings.length
-    const ok = window.confirm(
-      `Clear all findings for this case? ${count} finding${count === 1 ? '' : 's'} and findings.md are reset.`
-    )
+    const ok = await confirm({
+      title: 'Clear all findings for this case?',
+      message: `${count} finding${count === 1 ? '' : 's'} and findings.md are reset.`,
+      confirmLabel: 'Clear all',
+      danger: true
+    })
     if (!ok) return
     setClearError(null)
     try {

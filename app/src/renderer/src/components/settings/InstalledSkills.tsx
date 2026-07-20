@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { accessStore } from '../../lib/accessStore'
+import { confirm } from '../../lib/confirmStore'
 import type { SkillsPayload, SkillListItem } from '../../../../shared/memoryIpc'
 import type { SkillUsageRow } from '../../../../shared/observability'
 
@@ -50,10 +51,20 @@ export function InstalledSkills(): React.JSX.Element {
 
   /** Delete the skills-user copy — plain delete, or "adopt upstream" when it shadows a hivemind install. */
   async function removeUserSkill(s: SkillListItem, adopt: boolean): Promise<void> {
-    const msg = adopt
-      ? `Adopt the HiveMind version of "${s.name}"? Your local copy in skills-user is deleted and the installed HiveMind skill takes over.`
-      : `Delete user skill "${s.name}"? Its skills-user folder is removed.`
-    if (!window.confirm(msg)) return
+    const prompt = adopt
+      ? {
+          title: `Adopt the HiveMind version of "${s.name}"?`,
+          message:
+            'Your local copy in skills-user is deleted and the installed HiveMind skill takes over.',
+          confirmLabel: 'Adopt'
+        }
+      : {
+          title: `Delete user skill "${s.name}"?`,
+          message: 'Its skills-user folder is removed.',
+          confirmLabel: 'Delete',
+          danger: true
+        }
+    if (!(await confirm(prompt))) return
     setError(null)
     try {
       setPayload(await window.argus.skills.deleteUser(s.name))

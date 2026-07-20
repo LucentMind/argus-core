@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
+import { ConfirmHost } from './components/ConfirmHost'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewCaseDialog } from './components/NewCaseDialog'
@@ -248,6 +249,7 @@ function App(): React.JSX.Element {
           else if (target) openCase(target)
         }}
       />
+      <ConfirmHost />
     </div>
   )
 }

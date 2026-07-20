@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { uiStore, UI_SCALES, type Theme, type UiScale } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm } from '../../lib/confirmStore'
 import { onboardingReplay } from '../../lib/onboardingStore'
 import { tourStore } from '../../lib/tourStore'
 import { Btn, Chip } from '../ui'
@@ -114,13 +115,14 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
               : 'Pick a new folder and relaunch — existing data stays where it is'
           }
           onClick={() => {
-            if (
-              window.confirm(
-                'Argus will relaunch and start reading/writing from the new folder. Move any existing data there yourself first if you want to keep it. Continue?'
-              )
-            ) {
-              void window.argus.settings.setDataRoot()
-            }
+            void confirm({
+              title: 'Change data folder?',
+              message:
+                'Argus will relaunch and start reading/writing from the new folder. Move any existing data there yourself first if you want to keep it.',
+              confirmLabel: 'Continue'
+            }).then((ok) => {
+              if (ok) void window.argus.settings.setDataRoot()
+            })
           }}
         >
           Change…

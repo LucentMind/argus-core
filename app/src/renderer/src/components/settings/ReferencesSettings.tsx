@@ -6,6 +6,7 @@ import { ModalShell } from '../ModalShell'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
+import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import { useConnectorsPayload } from '../../lib/connectorsStore'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
@@ -165,11 +166,18 @@ export function ReferencesSettings(): React.JSX.Element {
                   title="Remove space"
                   className="hover:text-danger"
                   onClick={() => {
-                    if (window.confirm(`Remove ${card.key}? Synced reference files stay.`)) {
-                      void window.argus.refsync
-                        .removeSpace(card.key)
-                        .then((p) => referenceSyncStore.set(p))
-                    }
+                    void confirm({
+                      title: `Remove ${card.key}?`,
+                      message: 'Synced reference files stay.',
+                      confirmLabel: 'Remove',
+                      danger: true
+                    }).then((ok) => {
+                      if (ok) {
+                        void window.argus.refsync
+                          .removeSpace(card.key)
+                          .then((p) => referenceSyncStore.set(p))
+                      }
+                    })
                   }}
                 >
                   <Trash2 size={14} />

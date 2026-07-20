@@ -5,9 +5,15 @@ import userEvent from '@testing-library/user-event'
 import { ReferencesSettings } from '../settings/ReferencesSettings'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import { connectorsStore } from '../../lib/connectorsStore'
+import { confirm } from '../../lib/confirmStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import type { RefSyncPayload, SyncReport } from '../../../../shared/referenceSync'
 import type { ConnectorsPayload } from '../../../../shared/connectors'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const payload: RefSyncPayload = {
   config: {
@@ -189,13 +195,12 @@ it('clicking a reference row opens the markdown viewer', async () => {
 })
 
 it('manage and remove are icon buttons; remove confirms before calling', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  vi.mocked(confirm).mockResolvedValue(true)
   render(<ReferencesSettings />)
   expect(await screen.findByRole('button', { name: 'manage · NAVNATIVE' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'remove · NAVNATIVE' }))
-  expect(confirmSpy).toHaveBeenCalled()
+  expect(confirm).toHaveBeenCalled()
   await waitFor(() => expect(window.argus.refsync.removeSpace).toHaveBeenCalledWith('NAVNATIVE'))
-  confirmSpy.mockRestore()
 })
 
 const syncReport: SyncReport = {

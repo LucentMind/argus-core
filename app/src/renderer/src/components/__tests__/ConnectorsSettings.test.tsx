@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ConnectorsSettings } from '../settings/ConnectorsSettings'
 import { connectorsStore } from '../../lib/connectorsStore'
+import { confirm } from '../../lib/confirmStore'
 import { DEFAULT_PRESETS, type ConnectorsPayload } from '../../../../shared/connectors'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const basePayload = (over: Partial<ConnectorsPayload> = {}): ConnectorsPayload => ({
   connectors: {
@@ -49,7 +55,7 @@ let currentPayload: ConnectorsPayload
 beforeEach(() => {
   connectorsStore.reset()
   currentPayload = basePayload()
-  window.confirm = vi.fn(() => true)
+  vi.mocked(confirm).mockResolvedValue(true)
   window.argus = {
     connectors: {
       get: vi.fn(() => Promise.resolve(currentPayload)),
@@ -115,8 +121,8 @@ describe('ConnectorsSettings', () => {
     expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: { enabled: false } })
     fireEvent.click(screen.getByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
-    expect(window.confirm).toHaveBeenCalled()
-    expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: null })
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() => expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: null }))
   })
 
   it('menu actions: Edit details toggles the form, Test connection probes, Remove confirms', async () => {
@@ -126,8 +132,8 @@ describe('ConnectorsSettings', () => {
     expect(window.argus.connectors.test).toHaveBeenCalledWith('rovo')
     fireEvent.click(screen.getByRole('button', { name: 'actions · rovo' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove' }))
-    expect(window.confirm).toHaveBeenCalled()
-    expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: null })
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() => expect(window.argus.connectors.patch).toHaveBeenCalledWith({ rovo: null }))
   })
 
   it('authorized oauth card: no Authorize on the face, Re-authorize in the menu', async () => {
