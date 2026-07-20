@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CaseRecord } from '../../../shared/types'
-import { Btn, Card, SectionLabel } from './ui'
+import { Btn, SectionLabel } from './ui'
 import { FolderInput, Plus } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
@@ -125,12 +125,24 @@ export function CaseDashboard({
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
       <div className="flex flex-col gap-1">
-        <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
-        <p className="text-sm text-dim">Defect analysis workbench</p>
-        {pendingKnowledge > 0 && (
-          <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
-        )}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
+            <p className="text-sm text-dim">Defect analysis workbench</p>
+            {pendingKnowledge > 0 && (
+              <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Btn onClick={onNew}>
+              <Plus size={14} aria-hidden="true" /> New case
+            </Btn>
+            <Btn onClick={onImport}>
+              <FolderInput size={14} aria-hidden="true" /> Import case…
+            </Btn>
+          </div>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input
             className="h-8 w-56 rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
@@ -170,20 +182,6 @@ export function CaseDashboard({
             }
           />
         ))}
-        <Card className="flex min-h-24 flex-col items-stretch divide-y divide-hair p-0">
-          <button
-            onClick={onNew}
-            className="flex flex-1 items-center justify-center gap-2 rounded-t-r3 text-sm text-dim transition-colors hover:bg-hi hover:text-ink"
-          >
-            <Plus size={14} aria-hidden="true" /> New case
-          </button>
-          <button
-            onClick={onImport}
-            className="flex flex-1 items-center justify-center gap-2 rounded-b-r3 text-sm text-dim transition-colors hover:bg-hi hover:text-ink"
-          >
-            <FolderInput size={14} aria-hidden="true" /> Import case…
-          </button>
-        </Card>
       </div>
       {deleting && (
         <DeleteCaseDialog
