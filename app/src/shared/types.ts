@@ -1,3 +1,5 @@
+import type { ActionItem } from './triage'
+
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
 export type CaseResolution =
@@ -76,6 +78,8 @@ export interface CaseRecord {
   tags: string[]
   createdAt: string // ISO 8601
   updatedAt: string
+  /** Derived triage cues, computed by listCases. Empty for records from getCase. */
+  actionItems: ActionItem[]
 }
 
 export interface SessionSummary {

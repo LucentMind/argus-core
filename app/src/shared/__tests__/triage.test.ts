@@ -28,6 +28,7 @@ function mkCase(over: Partial<CaseRecord> = {}): CaseRecord {
     tags: [],
     createdAt: '2026-07-20T09:00:00.000Z',
     updatedAt: '2026-07-20T11:00:00.000Z',
+    actionItems: [],
     ...over
   }
 }

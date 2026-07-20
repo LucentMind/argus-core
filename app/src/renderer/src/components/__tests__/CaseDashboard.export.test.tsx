@@ -25,7 +25,8 @@ const cases: CaseRecord[] = [
     resolution: null,
     tags: [],
     createdAt: '2026-07-10T00:00:00.000Z',
-    updatedAt: '2026-07-10T00:00:00.000Z'
+    updatedAt: '2026-07-10T00:00:00.000Z',
+    actionItems: []
   }
 ]
 
