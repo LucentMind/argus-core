@@ -10,6 +10,7 @@ import type {
   FileNode,
   FileReadResult,
   ProviderStatus,
+  EvidenceRecord,
   SessionSummary,
   ChatSearchResult,
   UnifiedHit,
@@ -30,7 +31,8 @@ import type {
   JiraAttachmentProgress,
   JiraIssuePreview,
   JiraRefreshSummary,
-  JiraResult
+  JiraResult,
+  JiraSyncAllSummary
 } from '../shared/jira'
 import type {
   BundleExportResult,
@@ -88,6 +90,12 @@ const argus = {
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) =>
       ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
+    ingestContent: (
+      caseSlug: string,
+      fileName: string,
+      bytes: Uint8Array
+    ): Promise<{ record: EvidenceRecord; deduped: boolean }> =>
+      ipcRenderer.invoke(IPC.evidenceIngestContent, caseSlug, fileName, bytes),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
     read: (evidenceId: number, focusLine?: number) =>
       ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
@@ -515,6 +523,8 @@ const argus = {
       ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
     refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
       ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+    markReviewed: (caseSlug: string): Promise<JiraResult<CaseRecord>> =>
+      ipcRenderer.invoke(IPC.jiraMarkReviewed, caseSlug),
     setAttachmentSelection: (
       caseSlug: string,
       deselectedIds: string[]
@@ -525,6 +535,12 @@ const argus = {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)
       return () => ipcRenderer.removeListener(IPC.jiraAttachmentProgress, listener)
+    },
+    syncAll: (): Promise<JiraResult<JiraSyncAllSummary>> => ipcRenderer.invoke(IPC.jiraSyncAll),
+    onSyncProgress: (cb: (p: { done: number; total: number }) => void): (() => void) => {
+      const listener = (_e: unknown, p: { done: number; total: number }): void => cb(p)
+      ipcRenderer.on(IPC.jiraSyncProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.jiraSyncProgress, listener)
     }
   },
   health: {

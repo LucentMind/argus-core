@@ -13,6 +13,8 @@ export interface JiraIssuePreview {
   key: string
   summary: string
   status: string
+  /** Priority name (e.g. "High"); null when the field is absent or unset. */
+  priority: string | null
   labels: string[]
   reporter: string | null
   created: string
@@ -54,6 +56,23 @@ export interface JiraRefreshSummary {
   commentsError?: string
   /** When this refresh ran (also persisted as CaseRecord.jiraSyncedAt). */
   syncedAt: string
+}
+
+/** Outcome of a bulk overview sync. */
+export interface JiraSyncAllSummary {
+  /** Cases attempted (non-closed, with a Jira key). */
+  total: number
+  synced: number
+  /** Cases that SUCCEEDED this run and now carry at least one ACTION-severity
+   *  item. Excludes failed cases even though a failure adds a sync-error action
+   *  item — that's a failure being reported, not a change. Also excludes
+   *  info-severity items (`stale`, `idle`): those describe our sync cadence,
+   *  not the ticket, so they must never inflate this count. */
+  changed: number
+  failed: number
+  /** Per-case failures, for the header's result line. */
+  failures: Array<{ slug: string; code: AtlassianErrorCode; message: string }>
+  finishedAt: string
 }
 
 export const ATLASSIAN_ERROR_CODES = [

@@ -5,6 +5,8 @@ export const IPC = {
   caseReadFindings: 'cases:read-findings',
   casesSetStatus: 'cases:set-status',
   evidenceIngest: 'evidence:ingest',
+  /** renderer → main: ingest in-memory bytes (pasted screenshot, dropped file). */
+  evidenceIngestContent: 'evidence:ingest-content',
   evidenceList: 'evidence:list',
   evidenceRead: 'evidence:read',
   evidenceReadSnippet: 'evidence:read-snippet',
@@ -69,6 +71,9 @@ export const IPC = {
   jiraCreateCase: 'jira:create-case',
   jiraIngestAttachments: 'jira:ingest-attachments',
   jiraRefreshCase: 'jira:refresh-case',
+  jiraMarkReviewed: 'jira:mark-reviewed',
+  jiraSyncAll: 'jira:sync-all',
+  jiraSyncProgress: 'jira:sync-progress',
   jiraAttachmentProgress: 'jira:attachment-progress',
   jiraSetAttachmentSelection: 'jira:set-attachment-selection',
   jiraOpenIssue: 'jira:open-issue',
