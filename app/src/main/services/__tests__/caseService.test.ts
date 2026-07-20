@@ -334,3 +334,61 @@ describe('sync state persistence', () => {
     expect(onDisk.reviewBaseline).toEqual(baseline)
   })
 })
+
+describe('listCases triage ordering', () => {
+  it('puts cases with action items first, then info, then untouched', () => {
+    // Created in the reverse of the expected triage order, so creation-descending
+    // (the old ordering) would yield ['quiet', 'stale-one', 'changed'] — wrong —
+    // and only the new triage-rank sort produces the expected order below.
+    for (const slug of ['changed', 'stale-one', 'quiet']) {
+      createCase(db, home, { slug, title: slug })
+    }
+    setCaseSyncState(db, home, 'changed', { jiraStatus: 'In Progress', jiraCommentCount: 0 })
+    setReviewBaseline(db, home, 'changed', {
+      status: 'Open',
+      commentCount: 0,
+      attachmentIds: [],
+      capturedAt: '2026-07-01T00:00:00.000Z'
+    })
+    db.prepare(
+      `UPDATE cases SET jira_key = 'P-1', jira_synced_at = ? WHERE slug = 'stale-one'`
+    ).run(new Date(Date.now() - 20 * 86_400_000).toISOString())
+    expect(listCases(db).map((c) => c.slug)).toEqual(['changed', 'stale-one', 'quiet'])
+  })
+
+  it('breaks ties on updatedAt descending', () => {
+    // 'newer' is created FIRST (so creation-descending would rank it last) — the
+    // explicit updated_at values below are what must win under the new sort.
+    createCase(db, home, { slug: 'newer', title: 'n' })
+    createCase(db, home, { slug: 'older', title: 'o' })
+    db.prepare(
+      `UPDATE cases SET updated_at = '2026-01-01T00:00:00.000Z' WHERE slug = 'older'`
+    ).run()
+    db.prepare(
+      `UPDATE cases SET updated_at = '2026-07-01T00:00:00.000Z' WHERE slug = 'newer'`
+    ).run()
+    expect(listCases(db).map((c) => c.slug)).toEqual(['newer', 'older'])
+  })
+
+  it('falls back to jira priority when rank and updatedAt tie', () => {
+    // 'highp' is created FIRST (so creation-descending would rank it last) —
+    // only the priority tiebreak below should put it first.
+    createCase(db, home, { slug: 'highp', title: 'h' })
+    createCase(db, home, { slug: 'lowp', title: 'l' })
+    db.prepare(`UPDATE cases SET updated_at = '2026-07-01T00:00:00.000Z'`).run()
+    setCaseSyncState(db, home, 'lowp', { jiraPriority: 'Low' })
+    setCaseSyncState(db, home, 'highp', { jiraPriority: 'Highest' })
+    expect(listCases(db).map((c) => c.slug)).toEqual(['highp', 'lowp'])
+  })
+
+  it('flags a long-open case with no evidence as idle', () => {
+    createCase(db, home, { slug: 'idle-one', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'idle-one'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    const rec = listCases(db).find((c) => c.slug === 'idle-one')!
+    expect(rec.actionItems).toContainEqual(
+      expect.objectContaining({ kind: 'idle', severity: 'info' })
+    )
+  })
+})

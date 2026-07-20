@@ -9,6 +9,7 @@ import type {
   ReviewBaseline,
   SyncError
 } from '../../shared/types'
+import { deriveActionItems, triageRank } from '../../shared/triage'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 
@@ -77,7 +78,8 @@ function rowToCase(r: CaseRow): CaseRecord {
     resolution: (r.resolution ?? null) as CaseResolution | null,
     tags: JSON.parse(r.tags) as string[],
     createdAt: r.created_at,
-    updatedAt: r.updated_at
+    updatedAt: r.updated_at,
+    actionItems: []
   }
 }
 
@@ -137,7 +139,8 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       resolution: null,
       tags: [],
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      actionItems: []
     }
     fs.writeFileSync(
       path.join(dir, 'case.json'),
@@ -153,11 +156,54 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
   }
 }
 
+const IDLE_AFTER_MS = 14 * 86_400_000
+
+/** Jira priority names, most urgent first. Unknown/unset sorts last. */
+const PRIORITY_RANK: Record<string, number> = {
+  highest: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  lowest: 4
+}
+const PRIORITY_ORDER = (p: string | null): number => (p ? (PRIORITY_RANK[p.toLowerCase()] ?? 5) : 6)
+
+/**
+ * Triage order: action items first, then info-only, then untouched cases;
+ * ties break on updatedAt desc. Replaces the old created_at ordering, which
+ * disagreed with the updatedAt the cards actually displayed.
+ */
 export function listCases(db: DatabaseSync): CaseRecord[] {
-  const rows = db
-    .prepare(`SELECT * FROM cases ORDER BY created_at DESC, id DESC`)
-    .all() as unknown as CaseRow[]
-  return rows.map(rowToCase)
+  const rows = db.prepare(`SELECT * FROM cases`).all() as unknown as CaseRow[]
+  const evidenceCounts = new Map<number, number>()
+  for (const r of db
+    .prepare(`SELECT case_id AS caseId, COUNT(*) AS n FROM evidence GROUP BY case_id`)
+    .all() as unknown as Array<{ caseId: number; n: number }>) {
+    evidenceCounts.set(r.caseId, r.n)
+  }
+
+  const now = new Date()
+  const cases = rows.map(rowToCase).map((c) => {
+    const items = deriveActionItems(c, now)
+    const idle =
+      c.status === 'open' &&
+      (evidenceCounts.get(c.id) ?? 0) === 0 &&
+      now.getTime() - new Date(c.createdAt).getTime() > IDLE_AFTER_MS
+    if (idle) {
+      const weeks = Math.floor((now.getTime() - new Date(c.createdAt).getTime()) / (7 * 86_400_000))
+      items.push({ kind: 'idle', severity: 'info', label: `open ${weeks}w, no evidence` })
+    }
+    return { ...c, actionItems: items }
+  })
+
+  return cases.sort((a, b) => {
+    const d = triageRank(a.actionItems) - triageRank(b.actionItems)
+    if (d !== 0) return d
+    const u = b.updatedAt.localeCompare(a.updatedAt)
+    if (u !== 0) return u
+    // Priority is the LAST tiebreak only — a chip you read, not a key you trust.
+    return PRIORITY_ORDER(a.jiraPriority) - PRIORITY_ORDER(b.jiraPriority)
+  })
 }
 
 export function getCase(db: DatabaseSync, slug: string): CaseRecord | null {
