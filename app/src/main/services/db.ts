@@ -208,5 +208,11 @@ export function openDb(file: string): DatabaseSync {
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
   }
+  const tcCols = db.prepare(`PRAGMA table_info(tool_calls)`).all() as { name: string }[]
+  if (!tcCols.some((c) => c.name === 'detail')) {
+    // Usage-stats capture: skill name / memory topic / reference relpath for the calls that
+    // have one (see agent/toolDetail.ts); NULL for everything else.
+    db.exec(`ALTER TABLE tool_calls ADD COLUMN detail TEXT`)
+  }
   return db
 }
