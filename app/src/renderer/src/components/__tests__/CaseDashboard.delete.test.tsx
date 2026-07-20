@@ -48,7 +48,11 @@ function setup(p: SettingsPayload): void {
     cases: { delete: deleteMock },
     settings: { get: vi.fn(async () => p), onChanged: vi.fn(() => () => {}) },
     bundle: { export: vi.fn() },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   } as never
   settingsStore.reset()
 }

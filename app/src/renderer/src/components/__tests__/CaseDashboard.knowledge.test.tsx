@@ -51,7 +51,11 @@ const defaultProps = {
 
 beforeEach(() => {
   window.argus = {
-    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) }
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   } as never
   settingsStore.reset()
   ;(window as never as { argus: Record<string, unknown> }).argus.proposals = {

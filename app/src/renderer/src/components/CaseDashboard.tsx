@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CaseRecord } from '../../../shared/types'
-import { Card, SectionLabel } from './ui'
+import { Btn, Card, SectionLabel } from './ui'
 import { FolderInput, Plus } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
@@ -23,6 +23,10 @@ export function CaseDashboard({
   const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [pendingKnowledge, setPendingKnowledge] = useState(0)
+  const [filter, setFilter] = useState('')
+  const [showClosed, setShowClosed] = useState(false)
+  const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
+  const [syncNote, setSyncNote] = useState<string | null>(null)
   const settings = useSettingsPayload()
 
   useEffect(() => {
@@ -37,6 +41,24 @@ export function CaseDashboard({
       mounted = false
     }
   }, [])
+
+  useEffect(() => window.argus.jira.onSyncProgress((p) => setSyncing(p)), [])
+
+  async function syncAll(): Promise<void> {
+    setSyncNote(null)
+    setSyncing({ done: 0, total: 0 })
+    try {
+      const r = await window.argus.jira.syncAll()
+      setSyncNote(
+        r.ok
+          ? `${r.value.synced} synced · ${r.value.changed} changed · ${r.value.failed} failed`
+          : r.message
+      )
+    } finally {
+      setSyncing(null)
+      onDeleted() // reuse the existing list-reload callback
+    }
+  }
 
   async function exportCase(slug: string): Promise<void> {
     setExportNote(null)
@@ -63,18 +85,58 @@ export function CaseDashboard({
     setDeleting(slug)
   }
 
+  const q = filter.trim().toLowerCase()
+  const visible = cases.filter((c) => {
+    if (!showClosed && c.status === 'closed') return false
+    if (!q) return true
+    return (
+      c.slug.toLowerCase().includes(q) ||
+      c.title.toLowerCase().includes(q) ||
+      (c.jiraKey?.toLowerCase().includes(q) ?? false)
+    )
+  })
+  const counts = cases.reduce<Record<string, number>>((acc, c) => {
+    acc[c.status] = (acc[c.status] ?? 0) + 1
+    return acc
+  }, {})
+  const countLabel = (['open', 'analyzing', 'rca-drafted', 'closed'] as const)
+    .filter((s) => counts[s])
+    .map((s) => `${counts[s]} ${s}`)
+    .join(' · ')
+
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
       <div className="flex flex-col gap-1">
-        <SectionLabel>Cases · {cases.length} total</SectionLabel>
+        <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
         <p className="text-sm text-dim">Defect analysis workbench</p>
         {pendingKnowledge > 0 && (
           <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
         )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            className="h-8 w-56 rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
+            placeholder="Filter cases…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <label className="flex items-center gap-1.5 text-xs text-dim">
+            <input
+              type="checkbox"
+              aria-label="Show closed cases"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+            />
+            Show closed
+          </label>
+          <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
+            {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
+          </Btn>
+          {syncNote && <span className="text-xs text-dim">{syncNote}</span>}
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {cases.map((c) => (
+        {visible.map((c) => (
           <CaseCard
             key={c.slug}
             c={c}

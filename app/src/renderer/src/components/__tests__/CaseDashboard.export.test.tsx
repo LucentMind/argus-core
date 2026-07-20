@@ -45,7 +45,11 @@ beforeEach(() => {
       export: vi.fn().mockResolvedValue({ ok: true, path: 'C:/x.arguscase', fileCount: 12 })
     },
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) }
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    jira: {
+      syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
+      onSyncProgress: vi.fn(() => () => {})
+    }
   }
   settingsStore.reset()
 })

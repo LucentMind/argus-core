@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseDashboard } from '../CaseDashboard'
@@ -110,5 +111,66 @@ describe('CaseDashboard triage', () => {
   it('renders no action row when there is nothing to do', () => {
     render(<CaseDashboard cases={[mkCase({ actionItems: [] })]} {...noopHandlers} />)
     expect(screen.queryByTestId('action-items')).not.toBeInTheDocument()
+  })
+
+  it('hides closed cases by default and reveals them on toggle', async () => {
+    render(
+      <CaseDashboard
+        cases={[
+          mkCase({ slug: 'live' }),
+          mkCase({ slug: 'done', status: 'closed', resolution: 'solved' })
+        ]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.queryByText('done')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Show closed cases'))
+    expect(screen.getByText('done')).toBeInTheDocument()
+  })
+
+  it('filters cards by slug, title and jira key', async () => {
+    render(
+      <CaseDashboard
+        cases={[
+          mkCase({ slug: 'alpha', title: 'One' }),
+          mkCase({ slug: 'beta', title: 'Two', jiraKey: 'PROJ-9' })
+        ]}
+        {...noopHandlers}
+      />
+    )
+    await userEvent.type(screen.getByPlaceholderText('Filter cases…'), 'PROJ-9')
+    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+    expect(screen.getByText('beta')).toBeInTheDocument()
+  })
+
+  it('shows counts by status', () => {
+    render(
+      <CaseDashboard
+        cases={[mkCase({ slug: 'a', status: 'open' }), mkCase({ slug: 'b', status: 'analyzing' })]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.getByText(/1 open · 1 analyzing/)).toBeInTheDocument()
+  })
+
+  it('runs a bulk sync and reports the result', async () => {
+    const syncAll = vi.fn().mockResolvedValue({
+      ok: true,
+      value: { total: 3, synced: 2, changed: 1, failed: 1, failures: [], finishedAt: '' }
+    })
+    window.argus.jira.syncAll = syncAll
+    render(<CaseDashboard cases={[mkCase()]} {...noopHandlers} onDeleted={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Sync all' }))
+    expect(syncAll).toHaveBeenCalled()
+    expect(await screen.findByText('2 synced · 1 changed · 1 failed')).toBeInTheDocument()
+  })
+
+  it('surfaces a sync failure', async () => {
+    window.argus.jira.syncAll = vi
+      .fn()
+      .mockResolvedValue({ ok: false, code: 'auth', message: 'nope' })
+    render(<CaseDashboard cases={[mkCase()]} {...noopHandlers} onDeleted={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Sync all' }))
+    expect(await screen.findByText(/nope/)).toBeInTheDocument()
   })
 })
