@@ -28,6 +28,8 @@ export interface MemoryAuditEntry {
   topic: string
   indexEntry: string | null
   bytes: number
+  /** Absent = agent write (the original shape). UI-driven hygiene actions tag themselves. */
+  action?: 'archive' | 'restore'
 }
 
 export interface SkillListItem {

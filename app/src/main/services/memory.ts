@@ -29,6 +29,8 @@ export interface MemoryAuditEntry {
   topic: string
   indexEntry: string | null
   bytes: number
+  /** Absent = agent write (the original shape). UI-driven hygiene actions tag themselves. */
+  action?: 'archive' | 'restore'
 }
 
 function topicPath(argusHome: string, name: string): string {
@@ -40,7 +42,7 @@ function topicPath(argusHome: string, name: string): string {
 /** Matches the markdown index-link line for a given topic, anchored at line start so free
  *  text elsewhere on the line (e.g. a description mentioning another topic's filename) can't
  *  cause a false match. */
-function indexLineFor(name: string): RegExp {
+export function indexLineFor(name: string): RegExp {
   return new RegExp(`^-\\s*\\[[^\\]]*\\]\\(${name}\\.md\\)`)
 }
 
