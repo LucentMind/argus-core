@@ -58,6 +58,19 @@ export interface JiraRefreshSummary {
   syncedAt: string
 }
 
+/** Outcome of a bulk overview sync. */
+export interface JiraSyncAllSummary {
+  /** Cases attempted (non-closed, with a Jira key). */
+  total: number
+  synced: number
+  /** Synced cases that now have at least one action item. */
+  changed: number
+  failed: number
+  /** Per-case failures, for the header's result line. */
+  failures: Array<{ slug: string; code: AtlassianErrorCode; message: string }>
+  finishedAt: string
+}
+
 export const ATLASSIAN_ERROR_CODES = [
   'not-configured', // no rovo-preset connector in the registry
   'auth', // HTTP 401/403 — surfaced on the card + Health row
