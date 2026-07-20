@@ -63,7 +63,7 @@ import {
   getCase
 } from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
-import { ingestArtifact, listEvidence, deleteEvidence } from './services/ingest'
+import { ingestArtifact, ingestBytes, listEvidence, deleteEvidence } from './services/ingest'
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { createCaseWatchHub } from './services/caseWatch'
@@ -541,6 +541,40 @@ function registerIpc(): void {
     caseWatch.suppress(caseSlug)
     return records
   })
+  ipcMain.handle(
+    IPC.evidenceIngestContent,
+    (_e, caseSlug: string, fileName: string, bytes: Uint8Array) => {
+      assertSlug(caseSlug)
+      caseWatch.suppress(caseSlug) // our own write must not light the staleness dot
+      const { record, deduped } = ingestBytes(
+        db,
+        argusHome,
+        detection,
+        caseSlug,
+        path.basename(fileName), // defence in depth: no traversal out of evidence/
+        Buffer.from(bytes),
+        'paste'
+      )
+      if (!deduped) {
+        broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: record.id, active: true })
+        void extractDerivedText(db, argusHome, record, extractors)
+          .then((derived) => {
+            if (derived) evidenceChangedB(caseSlug)
+          })
+          .catch((err) =>
+            console.warn(
+              `[paste] extraction failed for ${record.relPath}: ${(err as Error).message}`
+            )
+          )
+          .finally(() =>
+            broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: record.id, active: false })
+          )
+      }
+      caseWatch.suppress(caseSlug) // re-arm after the write
+      evidenceChangedB(caseSlug)
+      return { record, deduped }
+    }
+  )
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => {
     // start the staleness watcher on first listing; unknown slugs stay unwatched
     if (getCase(db, caseSlug)) caseWatch.watch(caseSlug)
