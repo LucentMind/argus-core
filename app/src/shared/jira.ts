@@ -63,7 +63,9 @@ export interface JiraSyncAllSummary {
   /** Cases attempted (non-closed, with a Jira key). */
   total: number
   synced: number
-  /** Synced cases that now have at least one action item. */
+  /** Cases that SUCCEEDED this run and now have at least one action item.
+   *  Excludes failed cases even though a failure adds a sync-error action
+   *  item — that's a failure being reported, not a change. */
   changed: number
   failed: number
   /** Per-case failures, for the header's result line. */

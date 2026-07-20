@@ -10,7 +10,7 @@ import { openDb } from '../db'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { JiraCases, type AtlassianClientLike } from '../jiraCases'
-import { createCase, getCase, setCaseStatus } from '../caseService'
+import { createCase, getCase, listCases, setCaseStatus } from '../caseService'
 import { AtlassianError } from '../atlassian'
 import type { JiraCommentInfo, JiraIssuePreview } from '../../../shared/jira'
 import type { JiraIssueData } from '../atlassian'
@@ -179,6 +179,64 @@ describe('syncAll', () => {
     client.setStatus('P-1', 'Done')
     const r = await svc.syncAll()
     expect(r.changed).toBe(1)
+  })
+
+  it('does not count failed cases as changed — a total outage reports changed: 0', async () => {
+    const { svc, db, home, client } = setup()
+    createCase(db, home, { slug: 'a', title: 'a', jiraKey: 'P-1' })
+    createCase(db, home, { slug: 'b', title: 'b', jiraKey: 'P-2' })
+    createCase(db, home, { slug: 'c', title: 'c', jiraKey: 'P-3' })
+    client.failFor('P-1', new AtlassianError('network', 'down'))
+    client.failFor('P-2', new AtlassianError('network', 'down'))
+    client.failFor('P-3', new AtlassianError('network', 'down'))
+
+    const r = await svc.syncAll()
+    expect(r.total).toBe(3)
+    expect(r.synced).toBe(0)
+    expect(r.failed).toBe(3)
+    // Every failed case now carries a sync-error action item (from its own
+    // lastSyncError), but that is a failure being reported, not a change.
+    expect(listCases(db).find((c) => c.slug === 'a')!.actionItems.length).toBeGreaterThan(0)
+    expect(r.changed).toBe(0)
+  })
+
+  it('changed counts only the succeeded case in a mix of one success, one failure', async () => {
+    const { svc, db, home, client } = setup()
+    createCase(db, home, { slug: 'ok', title: 'ok', jiraKey: 'P-1' })
+    createCase(db, home, { slug: 'bad', title: 'bad', jiraKey: 'P-2' })
+    await svc.syncAll()
+    svc.markReviewed('ok')
+    svc.markReviewed('bad')
+    // give 'ok' a real upstream change to pick up on the next sync
+    client.setStatus('P-1', 'Done')
+    client.failFor('P-2', new AtlassianError('network', 'down'))
+
+    const r = await svc.syncAll()
+    expect(r.synced).toBe(1)
+    expect(r.failed).toBe(1)
+    const cases = listCases(db)
+    expect(cases.find((c) => c.slug === 'ok')!.actionItems.length).toBeGreaterThan(0)
+    expect(cases.find((c) => c.slug === 'bad')!.actionItems.length).toBeGreaterThan(0)
+    expect(r.changed).toBe(1)
+  })
+
+  it('survives a throwing onProgress callback — the run still completes every case', async () => {
+    const { svc, db, home } = setup()
+    createCase(db, home, { slug: 'a', title: 'a', jiraKey: 'P-1' })
+    createCase(db, home, { slug: 'b', title: 'b', jiraKey: 'P-2' })
+    createCase(db, home, { slug: 'c', title: 'c', jiraKey: 'P-3' })
+    let calls = 0
+    const r = await svc.syncAll(() => {
+      calls++
+      if (calls === 1) throw new Error('renderer window destroyed')
+    })
+    expect(r.total).toBe(3)
+    expect(r.synced).toBe(3)
+    expect(r.failed).toBe(0)
+    // assert persisted state, not just the counters
+    expect(getCase(db, 'a')!.jiraSyncedAt).not.toBeNull()
+    expect(getCase(db, 'b')!.jiraSyncedAt).not.toBeNull()
+    expect(getCase(db, 'c')!.jiraSyncedAt).not.toBeNull()
   })
 
   it('never runs more than the concurrency limit at once', async () => {
