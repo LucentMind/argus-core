@@ -260,6 +260,12 @@ export function MemorySettings(): React.JSX.Element {
                     </span>
                   </Chip>
                 )}
+                <EditToggle
+                  name={t.name}
+                  open={editing === t.name}
+                  onOpen={() => void openEditor(t.name)}
+                  onSave={() => void save(t.name)}
+                />
                 <IconBtn
                   aria-label={`Archive ${t.name}`}
                   title="Archive (recoverable)"
@@ -267,17 +273,6 @@ export function MemorySettings(): React.JSX.Element {
                 >
                   <Archive size={14} />
                 </IconBtn>
-                <Switch
-                  checked={access ? topicEnabled(access.access, t.name) : t.enabled}
-                  onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
-                  aria-label={`enabled · ${t.name}`}
-                />
-                <EditToggle
-                  name={t.name}
-                  open={editing === t.name}
-                  onOpen={() => void openEditor(t.name)}
-                  onSave={() => void save(t.name)}
-                />
                 <IconBtn
                   aria-label={`Delete ${t.name}`}
                   title="Delete"
@@ -286,6 +281,11 @@ export function MemorySettings(): React.JSX.Element {
                 >
                   <Trash2 size={14} />
                 </IconBtn>
+                <Switch
+                  checked={access ? topicEnabled(access.access, t.name) : t.enabled}
+                  onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
+                  aria-label={`enabled · ${t.name}`}
+                />
               </SettingRow>
               {editing === t.name && (
                 <MemoryEditor
