@@ -51,7 +51,7 @@ export async function attachFiles(
         id,
         name,
         status: 'error',
-        error: `Too large — the limit is 25 MB`
+        error: `Too large — the limit is ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`
       })
       continue
     }
@@ -76,7 +76,7 @@ export async function attachFiles(
     } catch (err) {
       composerAttachments.update(caseSlug, sessionId, id, {
         status: 'error',
-        error: (err as Error).message
+        error: err instanceof Error ? err.message : String(err)
       })
     }
   }
