@@ -291,6 +291,35 @@ describe('sync state persistence', () => {
     expect(getCase(db, 'C-1')!.lastSyncError).toBeNull()
   })
 
+  it('a partial update (lastSyncError only) preserves the last-known-good jira fields', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    setCaseSyncState(db, home, 'C-1', {
+      jiraStatus: 'In Progress',
+      jiraPriority: 'High',
+      jiraCommentCount: 4,
+      jiraAttachmentIds: ['a1', 'a2'],
+      lastSyncError: null
+    })
+
+    setCaseSyncState(db, home, 'C-1', {
+      lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-20T11:00:00.000Z' }
+    })
+    let rec = getCase(db, 'C-1')!
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(4)
+    expect(rec.jiraAttachmentIds).toEqual(['a1', 'a2'])
+    expect(rec.lastSyncError?.code).toBe('auth')
+
+    setCaseSyncState(db, home, 'C-1', { lastSyncError: null })
+    rec = getCase(db, 'C-1')!
+    expect(rec.lastSyncError).toBeNull()
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(4)
+    expect(rec.jiraAttachmentIds).toEqual(['a1', 'a2'])
+  })
+
   it('round-trips the review baseline and mirrors it into case.json', () => {
     createCase(db, home, { slug: 'C-1', title: 'T' })
     const baseline = {
