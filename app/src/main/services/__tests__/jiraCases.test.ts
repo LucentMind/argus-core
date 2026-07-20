@@ -456,6 +456,11 @@ describe('markReviewed', () => {
     await svc.refresh('C-1')
     await svc.refresh('C-1')
     expect(deriveActionItems(getCase(db, 'C-1')!)).toEqual([])
+    expect(getCase(db, 'C-1')!.reviewBaseline).toMatchObject({
+      status: 'In Progress',
+      commentCount: 2,
+      attachmentIds: ['a1']
+    })
   })
 
   it('captures a zero baseline for a case that has never synced', () => {
