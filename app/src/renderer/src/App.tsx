@@ -15,13 +15,8 @@ import { viewerForFileNode } from './lib/fileRouting'
 import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
+import { nextView, type View } from './lib/viewReducer'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
-
-type View =
-  | { kind: 'home' }
-  | { kind: 'case'; slug: string }
-  | { kind: 'settings'; page?: PageId }
-  | { kind: 'observability' }
 
 type Viewer =
   | { kind: 'evidence'; evidenceId: number; focusStart: number; focusEnd: number }
@@ -112,18 +107,20 @@ function App(): React.JSX.Element {
   }
 
   function openSettings(page?: PageId): void {
+    // The TopBar gear calls this with no page, so a second click toggles shut
+    // (nextView returns to prevView). A page argument is a deep link and must
+    // switch pages instead, even while already on Settings -- see
+    // lib/viewReducer.ts for the toggle/carve-out rules.
     if (view.kind !== 'settings') setPrevView(view)
-    setView({ kind: 'settings', page })
+    setView(nextView(view, prevView, { kind: 'settings', page }))
   }
   function closeSettings(): void {
     setView(prevView)
   }
 
   function openObservability(): void {
-    if (view.kind !== 'observability') {
-      setPrevView(view)
-      setView({ kind: 'observability' })
-    }
+    if (view.kind !== 'observability') setPrevView(view)
+    setView(nextView(view, prevView, { kind: 'observability' }))
   }
 
   // A native panel view paints above the DOM, so hide docked panels whenever a
