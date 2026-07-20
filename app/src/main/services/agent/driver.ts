@@ -66,6 +66,15 @@ export interface DriverSessionContext {
   ) => Promise<ToolDecision>
   /** Durable resume cursor observed on the stream. */
   onCursor: (cursor: string) => void
+  /**
+   * Fired for every finished tool_use block the driver sees on its stream, WITH the tool
+   * input — including blocks the SDK executes without ever consulting onToolRequest (the
+   * Claude SDK auto-allows `Skill` and sandboxed file reads, proven live 2026-07-20) and
+   * subagent blocks (`parent_tool_use_id`). Usage-stats capture for those bypass classes
+   * hangs off this seam; the harness decides what to record. Optional so drivers/tests
+   * without it are unaffected.
+   */
+  onToolObserved?: (toolName: string, input: Record<string, unknown>) => void
   /** Per-turn accounting + auth verdict, extracted by the driver. */
   onTurnResult: (r: TurnResult) => void
   /**
