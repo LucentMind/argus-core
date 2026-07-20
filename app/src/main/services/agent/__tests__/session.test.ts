@@ -978,6 +978,38 @@ describe('CaseSession', () => {
     expect(onAuthFailure).not.toHaveBeenCalled()
     expect(onAuthVerified).toHaveBeenCalled()
   })
+
+  it('records tool detail: memory topic and reference reads land in tool_calls.detail', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { skillsRoots: [path.join(argusHome, 'references')] })
+    s.send('go')
+    await flush()
+    const canUseTool = sdk.captured.options!.canUseTool as (
+      n: string,
+      i: Record<string, unknown>,
+      o: { signal: AbortSignal }
+    ) => Promise<{ behavior: string }>
+
+    await canUseTool(
+      'mcp__argus__read_memory',
+      { topic: 'nav-drift' },
+      { signal: new AbortController().signal }
+    )
+    await canUseTool(
+      'Read',
+      { file_path: path.join(argusHome, 'references', 'playbooks', 'triage.md') },
+      { signal: new AbortController().signal }
+    )
+    const rows = db.prepare(`SELECT tool, detail FROM tool_calls ORDER BY id`).all() as {
+      tool: string
+      detail: string | null
+    }[]
+    expect(rows).toEqual([
+      expect.objectContaining({ tool: 'mcp__argus__read_memory', detail: 'nav-drift' }),
+      expect.objectContaining({ tool: 'Read', detail: 'ref:playbooks/triage.md' })
+    ])
+    await s.stop('stopped')
+  })
 })
 
 describe('isAuthFailure', () => {

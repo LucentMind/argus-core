@@ -82,6 +82,15 @@ const observabilitySchema = z.looseObject({
     .default(() => ({ hiddenCards: [] }))
 })
 
+const memoryHygieneSchema = z.looseObject({
+  /** A memory topic is a stale candidate after this many days without recall or write. */
+  staleDays: z.number().int().min(1).default(45),
+  /** ...and only when it has fewer than this many recalls since tracking began. */
+  minRecalls: z.number().int().min(1).default(3),
+  /** Stamped once at first startup after the usage-stats feature ships (grace-period anchor). */
+  trackingStartedAt: z.string().default('')
+})
+
 const onboardingSchema = z.looseObject({
   /** ISO time onboarding finished/was dismissed; null = never → treat as first-run. */
   completedAt: z.string().nullable().default(null),
@@ -105,7 +114,8 @@ export const settingsSchema = z.looseObject({
   tools: toolsSchema.default(() => toolsSchema.parse({})),
   hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
-  onboarding: onboardingSchema.default(() => onboardingSchema.parse({}))
+  onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
+  memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>

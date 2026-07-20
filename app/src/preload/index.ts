@@ -55,7 +55,8 @@ import type {
   GlobalMetrics,
   MetricsSummary,
   FindingRow,
-  ReviewState
+  ReviewState,
+  UsageStatsPayload
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
 import type { SeedSampleResult } from '../shared/onboarding'
@@ -474,7 +475,11 @@ const argus = {
       ipcRenderer.invoke(IPC.memoryWrite, name, content),
     remove: (name: string): Promise<MemoryTopicsPayload> =>
       ipcRenderer.invoke(IPC.memoryDelete, name),
-    audit: (): Promise<MemoryAuditEntry[]> => ipcRenderer.invoke(IPC.memoryAudit)
+    audit: (): Promise<MemoryAuditEntry[]> => ipcRenderer.invoke(IPC.memoryAudit),
+    archive: (name: string): Promise<MemoryTopicsPayload> =>
+      ipcRenderer.invoke(IPC.memoryArchive, name),
+    restore: (name: string): Promise<MemoryTopicsPayload> =>
+      ipcRenderer.invoke(IPC.memoryRestore, name)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
@@ -559,6 +564,9 @@ const argus = {
     global: (q?: MetricsQuery): Promise<GlobalMetrics> => ipcRenderer.invoke(IPC.metricsGlobal, q),
     case: (slug: string, q?: MetricsQuery): Promise<MetricsSummary> =>
       ipcRenderer.invoke(IPC.metricsCase, slug, q)
+  },
+  usage: {
+    stats: (): Promise<UsageStatsPayload> => ipcRenderer.invoke(IPC.usageStats)
   },
   findings: {
     list: (slug: string): Promise<FindingRow[]> => ipcRenderer.invoke(IPC.findingsList, slug),

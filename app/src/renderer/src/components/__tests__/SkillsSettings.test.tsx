@@ -27,7 +27,16 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => {})
     },
     skills: { list: vi.fn(async () => skills) },
-    proposals: { list: vi.fn(async () => ({ proposals: [] })) }
+    proposals: { list: vi.fn(async () => ({ proposals: [] })) },
+    usage: {
+      stats: vi.fn(async () => ({
+        hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '' },
+        skills: [],
+        memory: [],
+        references: [],
+        archived: []
+      }))
+    }
   } as never
 })
 

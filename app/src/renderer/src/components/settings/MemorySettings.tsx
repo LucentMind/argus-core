@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, Pencil, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch, TEXTAREA_FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
+import type { UsageStatsPayload, MemoryUsageRow } from '../../../../shared/observability'
+
+/** ` · N recalls[, last YYYY-MM-DD]` — appended to a topic row's description. */
+function usageLine(u: MemoryUsageRow | undefined): string {
+  if (!u) return ''
+  const recalls = u.recallCount === 0 ? 'never recalled' : `${u.recallCount} recalls`
+  const last = u.lastRecalledAt ? `, last ${u.lastRecalledAt.slice(0, 10)}` : ''
+  return ` · ${recalls}${last}`
+}
 
 /**
  * Pencil while closed, check while open — one affordance that both opens and commits, which
@@ -83,12 +92,15 @@ export function MemorySettings(): React.JSX.Element {
   const access = useAccessPayload() // keeps enablement live via access:changed
   const [payload, setPayload] = useState<MemoryTopicsPayload | null>(null)
   const [audit, setAudit] = useState<MemoryAuditEntry[]>([])
+  const [usage, setUsage] = useState<UsageStatsPayload | null>(null)
   const [editing, setEditing] = useState<string | null>(null) // topic name or '_index'
   const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.memory.topics())
     setAudit(await window.argus.memory.audit())
+    setUsage(await window.argus.usage.stats().catch(() => null))
   }, [])
 
   useEffect(() => {
@@ -100,6 +112,9 @@ export function MemorySettings(): React.JSX.Element {
       const entries = await window.argus.memory.audit()
       if (!mounted) return
       setAudit(entries)
+      const stats = await window.argus.usage.stats().catch(() => null)
+      if (!mounted) return
+      setUsage(stats)
     })()
     return () => {
       mounted = false
@@ -130,10 +145,44 @@ export function MemorySettings(): React.JSX.Element {
     void refresh()
   }
 
+  async function archive(name: string): Promise<void> {
+    if (
+      !window.confirm(
+        `Archive memory topic "${name}"? It stops being injected/recallable; restore any time from the Archived section.`
+      )
+    )
+      return
+    setError(null)
+    try {
+      setPayload(await window.argus.memory.archive(name))
+      void refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function restore(name: string): Promise<void> {
+    setError(null)
+    try {
+      setPayload(await window.argus.memory.restore(name))
+      void refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   if (!payload) return <div className="text-dim">loading…</div>
 
   return (
     <div className="flex flex-col gap-6">
+      {error && (
+        <div
+          role="alert"
+          className="rounded-r2 border border-danger/30 px-3 py-2 text-xs text-danger"
+        >
+          {error}
+        </div>
+      )}
       <SettingsSection title="Memory index">
         <SettingRow
           label="_index.md"
@@ -167,44 +216,79 @@ export function MemorySettings(): React.JSX.Element {
             No topics yet — the agent records lessons here after an RCA (via write_memory).
           </div>
         )}
-        {payload.topics.map((t) => (
-          <div key={t.name}>
-            <SettingRow
-              label={t.name}
-              description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}`}
-            >
-              <Switch
-                checked={access ? topicEnabled(access.access, t.name) : t.enabled}
-                onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
-                aria-label={`enabled · ${t.name}`}
-              />
-              <EditToggle
-                name={t.name}
-                open={editing === t.name}
-                onOpen={() => void openEditor(t.name)}
-                onSave={() => void save(t.name)}
-              />
-              <IconBtn
-                aria-label={`Delete ${t.name}`}
-                title="Delete"
-                className="hover:text-danger"
-                onClick={() => void remove(t.name)}
+        {payload.topics.map((t) => {
+          const u = usage?.memory.find((m) => m.topic === t.name)
+          return (
+            <div key={t.name}>
+              <SettingRow
+                label={t.name}
+                description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
               >
-                <Trash2 size={14} />
-              </IconBtn>
-            </SettingRow>
-            {editing === t.name && (
-              <MemoryEditor
-                name={t.name}
-                value={draft}
-                onChange={setDraft}
-                onSave={() => void save(t.name)}
-                onCancel={cancel}
-              />
-            )}
-          </div>
-        ))}
+                {u?.staleCandidate && (
+                  <Chip tone="review">
+                    <span
+                      title={`No recall in ${usage!.hygiene.staleDays}+ days and fewer than ${usage!.hygiene.minRecalls} recalls since ${usage!.hygiene.trackingStartedAt.slice(0, 10)} — candidate to archive`}
+                    >
+                      stale
+                    </span>
+                  </Chip>
+                )}
+                <IconBtn
+                  aria-label={`Archive ${t.name}`}
+                  title="Archive (recoverable)"
+                  onClick={() => void archive(t.name)}
+                >
+                  <Archive size={14} />
+                </IconBtn>
+                <Switch
+                  checked={access ? topicEnabled(access.access, t.name) : t.enabled}
+                  onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
+                  aria-label={`enabled · ${t.name}`}
+                />
+                <EditToggle
+                  name={t.name}
+                  open={editing === t.name}
+                  onOpen={() => void openEditor(t.name)}
+                  onSave={() => void save(t.name)}
+                />
+                <IconBtn
+                  aria-label={`Delete ${t.name}`}
+                  title="Delete"
+                  className="hover:text-danger"
+                  onClick={() => void remove(t.name)}
+                >
+                  <Trash2 size={14} />
+                </IconBtn>
+              </SettingRow>
+              {editing === t.name && (
+                <MemoryEditor
+                  name={t.name}
+                  value={draft}
+                  onChange={setDraft}
+                  onSave={() => void save(t.name)}
+                  onCancel={cancel}
+                />
+              )}
+            </div>
+          )
+        })}
       </SettingsSection>
+
+      {usage && usage.archived.length > 0 && (
+        <SettingsSection title="Archived topics">
+          {usage.archived.map((a) => (
+            <SettingRow
+              key={a.topic}
+              label={a.topic}
+              description={`${(a.sizeBytes / 1024).toFixed(1)} KB${a.archivedAt ? ` · archived ${a.archivedAt.slice(0, 10)}` : ''}`}
+            >
+              <Btn aria-label={`Restore ${a.topic}`} onClick={() => void restore(a.topic)}>
+                <ArchiveRestore size={14} /> Restore
+              </Btn>
+            </SettingRow>
+          ))}
+        </SettingsSection>
+      )}
 
       <SettingsSection title="Audit — recent agent writes">
         {audit.length === 0 && (

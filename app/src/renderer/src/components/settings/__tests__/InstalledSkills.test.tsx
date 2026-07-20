@@ -37,11 +37,36 @@ const afterAdopt: SkillsPayload = {
 
 function mockArgus(): {
   skills: { list: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> }
+  usage: { stats: ReturnType<typeof vi.fn> }
 } {
   return {
     skills: {
       list: vi.fn().mockResolvedValue(initial),
       deleteUser: vi.fn().mockResolvedValue(afterAdopt)
+    },
+    usage: {
+      stats: vi.fn().mockResolvedValue({
+        hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
+        skills: [
+          {
+            name: 'rca',
+            tier: 'user',
+            enabled: true,
+            activationCount: 12,
+            lastActivatedAt: '2026-07-18T00:00:00.000Z'
+          },
+          {
+            name: 'my-notes',
+            tier: 'user',
+            enabled: true,
+            activationCount: 0,
+            lastActivatedAt: null
+          }
+        ],
+        memory: [],
+        references: [],
+        archived: []
+      })
     }
   }
 }
@@ -93,5 +118,22 @@ describe('InstalledSkills delete/adopt actions', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/EPERM: locked/)
     expect(screen.getByText('local adaptation')).toBeInTheDocument()
+  })
+})
+
+describe('InstalledSkills usage stats', () => {
+  it('shows activation count and last-used date per skill', async () => {
+    render(<InstalledSkills />)
+    expect(await screen.findByText(/12× · last 2026-07-18/)).toBeInTheDocument()
+  })
+  it('flags never-activated skills', async () => {
+    render(<InstalledSkills />)
+    expect(await screen.findByText('never activated')).toBeInTheDocument()
+  })
+  it('renders normally when usage stats fail', async () => {
+    argus.usage.stats = vi.fn().mockRejectedValue(new Error('boom'))
+    render(<InstalledSkills />)
+    expect(await screen.findByText('hive-probe')).toBeInTheDocument()
+    expect(screen.queryByText('never activated')).not.toBeInTheDocument()
   })
 })

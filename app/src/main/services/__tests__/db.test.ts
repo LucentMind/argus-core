@@ -178,5 +178,19 @@ describe('openDb', () => {
       expect(cols.some((c) => c.name === 'sdk_session_id')).toBe(false)
       migrated.close()
     })
+
+    it('adds tool_calls.detail to fresh and existing DBs (idempotent)', () => {
+      const db = openDb(':memory:')
+      const cols = db.prepare(`PRAGMA table_info(tool_calls)`).all() as { name: string }[]
+      expect(cols.some((c) => c.name === 'detail')).toBe(true)
+      // nullable: an insert without detail must still work
+      db.prepare(`INSERT INTO cases (slug, title, created_at, updated_at) VALUES ('c','t','x','x')`).run()
+      db.prepare(
+        `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, risk, decision, created_at)
+         VALUES (1, 1, 'Bash', 'h', 'LOW', 'auto', 'x')`
+      ).run()
+      const row = db.prepare(`SELECT detail FROM tool_calls`).get() as { detail: string | null }
+      expect(row.detail).toBeNull()
+    })
   })
 })

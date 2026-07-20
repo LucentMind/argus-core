@@ -20,6 +20,8 @@ import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import { touchSession, setTitleIfEmpty } from './sessionStore'
 import { maybeAdvanceToAnalyzing } from '../caseService'
+import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
+import { sharedReferencesDir } from '../skillsDir'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -112,6 +114,7 @@ export class CaseSession {
   private approvals = new PendingApprovals()
   private grants = new SessionGrants()
   private riskCtx: RiskContext
+  private detailCtx: ToolDetailCtx
   private turnIndex = 0
   private currentTurnRow: number | null = null
 
@@ -134,6 +137,11 @@ export class CaseSession {
       packCliNames: deps.packCliNames,
       panelCommandRisk: panelCommandRiskMap(deps.panelCommandDecls ?? []),
       taxonomy: deps.driver.toolTaxonomy
+    }
+    this.detailCtx = {
+      taxonomy: deps.driver.toolTaxonomy,
+      referencesDir: sharedReferencesDir(deps.argusHome),
+      caseDir: dir
     }
     const ao = deps.agentOptions ?? {}
     // The options bag, stream loop, cursor/result extraction, and the SDK prompt envelope
@@ -407,8 +415,8 @@ export class CaseSession {
   ): void {
     this.deps.db
       .prepare(
-        `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, risk, decision, duration_ms, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tool_calls (case_id, session_id, turn_id, tool, args_hash, detail, risk, decision, duration_ms, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         this.deps.caseId,
@@ -416,6 +424,7 @@ export class CaseSession {
         this.currentTurnRow,
         toolName,
         crypto.createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 16),
+        extractToolDetail(toolName, input, this.detailCtx),
         risk,
         decision,
         durationMs,
