@@ -17,7 +17,11 @@ export function SyncReportView({
   report: SyncReport
   /** Omitted when the host already provides its own dismiss control (e.g. a
    *  `ModalShell` wrapper) — rendering this alongside that would be a second
-   *  close affordance for the same action. */
+   *  close affordance for the same action. This prop and the conditional Close
+   *  button below (line 198) are a transitional shim: they exist only to support
+   *  the unmigrated `SpaceDialog` caller. Once `SpaceDialog` is migrated to
+   *  `ModalShell`, delete both the optional `onClose` prop and the conditional
+   *  button. */
   onClose?: () => void
 }): React.JSX.Element {
   const [approved, setApproved] = useState<Set<string>>(
