@@ -2,6 +2,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ChevronDown, Sparkles, Lock, Gauge, SquareTerminal, ArrowUp } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
+import { AttachmentTray } from './AttachmentTray'
+import type { Attachment } from '../lib/composerAttachments'
 import {
   allVisibleModels,
   capabilitiesFor,
@@ -94,6 +96,9 @@ export function Composer({
   citations = [],
   onRemoveCitation,
   onCitationsConsumed,
+  attachments = [],
+  onRemoveAttachment,
+  onAttachFiles,
   session,
   onModelChange
 }: {
@@ -103,6 +108,12 @@ export function Composer({
   citations?: { relPath: string; line: number }[]
   onRemoveCitation?: (index: number) => void
   onCitationsConsumed?: () => void
+  /** Evidence staged by paste or drop, appended to the body on send. */
+  attachments?: Attachment[]
+  /** Detach from the message — does NOT delete the evidence. */
+  onRemoveAttachment?: (id: string) => void
+  /** Hand pasted/dropped files to the owner, which ingests them. */
+  onAttachFiles?: (files: File[]) => void
   /** The chat this composer belongs to — supplies the pinned model and the provider whose
    *  capabilities gate the permission picker. Absent while the session list is loading. */
   session?: SessionSummary | null
@@ -192,7 +203,12 @@ export function Composer({
   function send(): void {
     const t = text.trim()
     const cites = citations.map((c) => `[${c.relPath}:${c.line}]`).join(' ')
-    const body = cites ? (t ? `${t}\n\n${cites}` : cites) : t
+    // pending and errored attachments have no relPath yet — reference only what landed
+    const atts = attachments
+      .filter((a) => a.status === 'ready' && a.relPath)
+      .map((a) => `[${a.relPath}]`)
+      .join('\n')
+    const body = [t, cites, atts].filter(Boolean).join('\n\n')
     if (!body) return
     onSend(body)
     setText('')
@@ -217,6 +233,7 @@ export function Composer({
           ))}
         </div>
       )}
+      <AttachmentTray attachments={attachments} onRemove={(id) => onRemoveAttachment?.(id)} />
       {citations.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {citations.map((c, i) => (
@@ -243,6 +260,24 @@ export function Composer({
           value={text}
           disabled={disabled}
           onChange={(e) => updateText(e.target.value)}
+          onPaste={(e) => {
+            // Only intercept when the clipboard actually carries files. A plain text
+            // paste — including from an image-bearing app — leaves `.files` empty and
+            // must fall through to the browser untouched.
+            const files = Array.from(e.clipboardData?.files ?? [])
+            if (files.length === 0) return
+            e.preventDefault()
+            onAttachFiles?.(files)
+          }}
+          onDragOver={(e) => {
+            if (onAttachFiles) e.preventDefault() // required for onDrop to fire
+          }}
+          onDrop={(e) => {
+            const files = Array.from(e.dataTransfer?.files ?? [])
+            if (files.length === 0) return
+            e.preventDefault()
+            onAttachFiles?.(files)
+          }}
           onKeyDown={(e) => {
             if (popupOpen) {
               if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -316,7 +351,12 @@ export function Composer({
             type="button"
             aria-label="Send"
             title="Send (⏎)"
-            disabled={disabled || (!text.trim() && citations.length === 0)}
+            disabled={
+              disabled ||
+              (!text.trim() &&
+                citations.length === 0 &&
+                !attachments.some((a) => a.status === 'ready' && a.relPath))
+            }
             className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
             onClick={send}
           >
