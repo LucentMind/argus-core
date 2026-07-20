@@ -107,4 +107,14 @@ describe('MemorySettings usage + hygiene', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Archive cold-topic' }))
     expect(argus.memory.archive).not.toHaveBeenCalled()
   })
+
+  it('surfaces a restore failure (e.g. live namesake collision) as an alert', async () => {
+    argus.memory.restore.mockRejectedValue(
+      new Error('A live topic named "old-lesson" already exists — resolve manually')
+    )
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore old-lesson' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/already exists/)
+  })
 })
