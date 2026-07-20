@@ -124,8 +124,12 @@ export class JiraCases {
     )
     // comments are best-effort at creation: no summary object exists here, so a
     // failure logs and the file appears on the first successful refresh instead.
+    // commentCount stays null on failure so setCaseSyncState below omits the key
+    // (presence semantics) rather than persisting a wrong count of 0.
+    let commentCount: number | null = null
     try {
       const comments = await this.deps.client.getComments(input.key)
+      commentCount = comments.length
       ingestContent(
         db,
         argusHome,
@@ -141,6 +145,18 @@ export class JiraCases {
     } catch (err) {
       console.warn(`[jira] comments fetch failed for ${input.key}: ${(err as Error).message}`)
     }
+    // Persist the snapshot we just fetched so the first `markReviewed` (fired
+    // when the user opens the new case) captures real values instead of the
+    // empty defaults from createCase — otherwise the first sync diffs the real
+    // upstream state against that empty baseline and reports everything just
+    // imported as newly changed. See Finding I1.
+    setCaseSyncState(db, argusHome, input.slug, {
+      jiraStatus: preview.status,
+      jiraPriority: preview.priority,
+      jiraAttachmentIds: preview.attachments.map((a) => a.id),
+      lastSyncError: null,
+      ...(commentCount === null ? {} : { jiraCommentCount: commentCount })
+    })
     return setCaseJira(db, argusHome, input.slug, {
       key: preview.key,
       site: this.deps.site(),

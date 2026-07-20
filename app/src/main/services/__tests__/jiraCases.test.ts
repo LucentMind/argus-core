@@ -124,6 +124,28 @@ describe('JiraCases.createFromTicket', () => {
     )
     expect(cj.jira).toMatchObject({ key: 'NAV-7', site: 'https://acme.atlassian.net' })
   })
+
+  // Finding I1: creation fetches the same status/comments/attachments it ingests,
+  // but used to leave the sync-state columns empty. markReviewed then baselined
+  // off those empty columns, so the very next sync — even with nothing changed
+  // upstream — diffed real values against the empty baseline and reported the
+  // just-imported ticket, comments, and attachments as brand-new. Reverting the
+  // setCaseSyncState call added to createFromTicket must turn this test red.
+  it('reports no false action items on the first sync after creation (Finding I1)', async () => {
+    const svc = service(
+      fakeClient(() => issue(), new Set(), [comment('1', 'first'), comment('2', 'second')])
+    )
+    await svc.createFromTicket({ slug: 'NAV-7', title: 'Route flickers', key: 'NAV-7' })
+
+    // opening the case captures the review baseline, as the renderer does on open
+    svc.markReviewed('NAV-7')
+
+    // first "Sync all" / refresh, upstream completely unchanged
+    await svc.refresh('NAV-7')
+
+    const rec = getCase(db, 'NAV-7')!
+    expect(deriveActionItems(rec)).toEqual([])
+  })
 })
 
 describe('JiraCases.ingestAttachments', () => {
