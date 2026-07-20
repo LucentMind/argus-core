@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitForElementToBeRemoved } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
@@ -45,6 +45,10 @@ beforeEach(() => {
         loadError: null
       })),
       patch: vi.fn(),
+      onChanged: vi.fn(() => () => {})
+    },
+    evidence: {
+      list: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {})
     }
   } as never
@@ -283,5 +287,119 @@ describe('ChatPane', () => {
       expect.stringMatching(nameRe),
       expect.any(Uint8Array)
     )
+  })
+
+  // Regression: deleting evidence from the Files card while its chip is still
+  // staged in the composer must drop the chip too — otherwise the stale chip
+  // sends `[evidence/<deleted-file>]` on send and the agent's Read fails on a
+  // file that no longer exists.
+  describe('pruning staged attachments on evidence:changed', () => {
+    it('drops a staged ready chip whose relPath is no longer in the evidence list', async () => {
+      const slug = 'NAV-PRUNE-GONE'
+      composerAttachments.add(slug, 1, {
+        id: 'a1',
+        name: 'foo.txt',
+        status: 'ready',
+        relPath: 'evidence/foo.txt'
+      })
+      let changedCb: ((s: string) => void) | null = null
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list: vi.fn(async () => []),
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      expect(screen.getByText('foo.txt')).toBeTruthy()
+
+      act(() => {
+        changedCb?.(slug)
+      })
+
+      // the chip's disappearance is the tail of a promise resolution
+      // (evidence.list) — assert it with a real DOM-removal wait, not a
+      // mock-gated bare waitFor.
+      await waitForElementToBeRemoved(() => screen.getByText('foo.txt'))
+      expect(composerAttachments.get(slug, 1)).toHaveLength(0)
+    })
+
+    it('keeps a staged ready chip whose relPath is still in the evidence list', async () => {
+      const slug = 'NAV-PRUNE-STILL'
+      composerAttachments.add(slug, 1, {
+        id: 'a1',
+        name: 'foo.txt',
+        status: 'ready',
+        relPath: 'evidence/foo.txt'
+      })
+      let changedCb: ((s: string) => void) | null = null
+      const list = vi.fn(async () => [{ relPath: 'evidence/foo.txt' }])
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list,
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+      act(() => {
+        changedCb?.(slug)
+      })
+      // await the exact promise the component awaits (registered first, so
+      // its .then runs before ours resumes) rather than polling with waitFor.
+      await act(async () => {
+        await list.mock.results[0]!.value
+      })
+
+      expect(screen.getByText('foo.txt')).toBeTruthy()
+      expect(composerAttachments.get(slug, 1)).toHaveLength(1)
+    })
+
+    it('does not prune a pending attachment whose ingest is still in flight', async () => {
+      const slug = 'NAV-PRUNE-PENDING'
+      composerAttachments.add(slug, 1, { id: 'a1', name: 'shot.png', status: 'pending' })
+      let changedCb: ((s: string) => void) | null = null
+      const list = vi.fn(async () => [])
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list,
+        onChanged: vi.fn((cb: (s: string) => void) => {
+          changedCb = cb
+          return vi.fn()
+        })
+      } as never
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+
+      // an unrelated evidence:changed fires while this attachment is still
+      // pending (no relPath yet) — it must survive
+      act(() => {
+        changedCb?.(slug)
+      })
+      await act(async () => {
+        await list.mock.results[0]!.value
+      })
+
+      expect(screen.getByText('shot.png')).toBeTruthy()
+      expect(composerAttachments.get(slug, 1)).toHaveLength(1)
+    })
+
+    it('unsubscribes from evidence:changed on unmount', () => {
+      const slug = 'NAV-PRUNE-UNMOUNT'
+      const off = vi.fn()
+      window.argus.evidence = {
+        ...window.argus.evidence,
+        list: vi.fn(async () => []),
+        onChanged: vi.fn(() => off)
+      } as never
+      const { unmount } = render(
+        <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      )
+      expect(off).not.toHaveBeenCalled()
+      unmount()
+      expect(off).toHaveBeenCalledTimes(1)
+    })
   })
 })

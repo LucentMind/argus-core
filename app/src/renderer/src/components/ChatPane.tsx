@@ -100,6 +100,32 @@ export function ChatPane({
     (cb) => composerAttachments.subscribe(cb),
     () => composerAttachments.get(slug, sessionId)
   )
+  // Evidence deleted from the Files card while its chip is still staged here
+  // must drop the chip too — otherwise a stale chip still carries its relPath
+  // and sending it emits `[evidence/<deleted-file>]`, which the agent's Read
+  // then fails on. `evidence:changed` also fires on ordinary ingest, so
+  // pruning is driven purely by "this relPath is no longer in the case's
+  // evidence list" rather than by what kind of change occurred — that keeps a
+  // normal paste (or an unrelated case's ingest) from ever touching a chip
+  // here. Only 'ready' attachments carry a relPath; 'pending' (ingest still
+  // in flight) and 'error' ones are left alone.
+  useEffect(() => {
+    const off = window.argus.evidence.onChanged?.((changedSlug) => {
+      if (changedSlug !== slug) return
+      window.argus.evidence.list(slug).then(
+        (records: { relPath: string }[]) => {
+          const relPaths = new Set(records.map((r) => r.relPath))
+          for (const a of composerAttachments.get(slug, sessionId)) {
+            if (a.status === 'ready' && a.relPath && !relPaths.has(a.relPath)) {
+              composerAttachments.remove(slug, sessionId, a.id)
+            }
+          }
+        },
+        (err) => console.warn(`[evidence] list failed for ${slug}: ${(err as Error).message}`)
+      )
+    })
+    return () => off?.()
+  }, [slug, sessionId])
   const bottom = useRef<HTMLDivElement>(null)
   const paneRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
