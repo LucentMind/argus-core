@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
+import { ModalShell } from '../ModalShell'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
@@ -209,19 +210,16 @@ export function ReferencesSettings(): React.JSX.Element {
       {dialog && <SpaceDialog existing={dialog.existing} onClose={() => setDialog(null)} />}
       {viewer && <RefViewer file={viewer} onClose={() => setViewer(null)} />}
       {report && (
-        <div
-          className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-          onClick={() => setReport(null)}
+        <ModalShell
+          title={`Sync report · ${report.spaceKey}`}
+          ariaLabel={`sync report · ${report.spaceKey}`}
+          onClose={() => setReport(null)}
+          className="max-h-[85vh] w-[42rem]"
         >
-          <div
-            role="dialog"
-            aria-label={`sync report · ${report.spaceKey}`}
-            className="flex max-h-[85vh] w-[42rem] flex-col gap-3 overflow-y-auto rounded-r4 border border-hair2 bg-panel p-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <SyncReportView report={report} onClose={() => setReport(null)} />
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <SyncReportView report={report} />
           </div>
-        </div>
+        </ModalShell>
       )}
     </div>
   )

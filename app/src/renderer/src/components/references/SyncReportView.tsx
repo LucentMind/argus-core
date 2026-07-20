@@ -15,7 +15,10 @@ export function SyncReportView({
   onClose
 }: {
   report: SyncReport
-  onClose: () => void
+  /** Omitted when the host already provides its own dismiss control (e.g. a
+   *  `ModalShell` wrapper) — rendering this alongside that would be a second
+   *  close affordance for the same action. */
+  onClose?: () => void
 }): React.JSX.Element {
   const [approved, setApproved] = useState<Set<string>>(
     () => new Set(report.drafts.map((d) => d.target))
@@ -192,9 +195,11 @@ export function SyncReportView({
         </div>
       )}
       <div className="flex justify-end gap-2">
-        <Btn variant="ghost" onClick={onClose}>
-          Close
-        </Btn>
+        {onClose && (
+          <Btn variant="ghost" onClick={onClose}>
+            Close
+          </Btn>
+        )}
         {!applied && report.drafts.length > 0 && (
           <Btn
             variant="primary"
