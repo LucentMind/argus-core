@@ -1010,6 +1010,58 @@ describe('CaseSession', () => {
     ])
     await s.stop('stopped')
   })
+
+  // The real SDK auto-allows `Skill` and sandboxed reads WITHOUT consulting canUseTool
+  // (proven live 2026-07-20: a session's Skill launch and reference Read produced zero
+  // tool_calls rows) — so those two classes are captured from the finished assistant
+  // message's tool_use blocks instead, as decision 'observed'. Everything else still
+  // logs through the approval pipeline; observing it too would double-count.
+  it('observes Skill and reference-read tool_use blocks; leaves permission-path tools alone', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { skillsRoots: [path.join(argusHome, 'references')] })
+    s.send('go')
+    sdk.messages.push({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 't1', name: 'Skill', input: { skill: 'argus:contribute-back' } },
+          {
+            type: 'tool_use',
+            id: 't2',
+            name: 'Read',
+            input: { file_path: path.join(argusHome, 'references', 'triage-playbook.md') }
+          },
+          {
+            type: 'tool_use',
+            id: 't3',
+            name: 'Read',
+            input: { file_path: path.join(tmp, 'elsewhere.md') }
+          },
+          {
+            type: 'tool_use',
+            id: 't4',
+            name: 'mcp__argus__read_memory',
+            input: { topic: 'nav-drift' }
+          }
+        ]
+      }
+    })
+    await flush()
+    const rows = db.prepare(`SELECT tool, detail, decision FROM tool_calls ORDER BY id`).all() as {
+      tool: string
+      detail: string | null
+      decision: string
+    }[]
+    expect(rows).toEqual([
+      expect.objectContaining({ tool: 'Skill', detail: 'contribute-back', decision: 'observed' }),
+      expect.objectContaining({
+        tool: 'Read',
+        detail: 'ref:triage-playbook.md',
+        decision: 'observed'
+      })
+    ])
+    await s.stop('stopped')
+  })
 })
 
 describe('isAuthFailure', () => {
