@@ -298,9 +298,15 @@ export function MemorySettings(): React.JSX.Element {
           <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
             <span className="font-mono text-mute">{a.ts.slice(0, 16).replace('T', ' ')}</span>
             <Chip tone="defect">{a.caseSlug}</Chip>
+            {a.action && (
+              <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
+                {a.action === 'restore' ? 'restored' : 'archived'}
+              </Chip>
+            )}
             <span className="font-mono text-ink">{a.topic}</span>
             {a.indexEntry && <span className="truncate text-dim">— {a.indexEntry}</span>}
-            <span className="ml-auto text-faint">{a.bytes} B</span>
+            {/* bytes are meaningful only for content writes; archive/restore carry none */}
+            {!a.action && <span className="ml-auto text-faint">{a.bytes} B</span>}
           </div>
         ))}
       </SettingsSection>

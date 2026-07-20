@@ -108,6 +108,48 @@ describe('MemorySettings usage + hygiene', () => {
     expect(argus.memory.archive).not.toHaveBeenCalled()
   })
 
+  it('distinguishes an archive from a restore of the same topic in the audit trail', async () => {
+    // Regression: archive and restore both have caseSlug 'ui', bytes 0, and the same
+    // saved indexEntry, so without rendering `action` the two rows are byte-identical.
+    argus.memory.audit.mockResolvedValue([
+      {
+        ts: '2026-07-20T22:04:30.000Z',
+        caseSlug: 'ui',
+        topic: 'nav-drift',
+        indexEntry: '- [nav-drift](nav-drift.md) — bearing errors follow an IMU warning',
+        bytes: 0,
+        action: 'restore'
+      },
+      {
+        ts: '2026-07-20T22:04:10.000Z',
+        caseSlug: 'ui',
+        topic: 'nav-drift',
+        indexEntry: '- [nav-drift](nav-drift.md) — bearing errors follow an IMU warning',
+        bytes: 0,
+        action: 'archive'
+      }
+    ])
+    render(<MemorySettings />)
+    expect(await screen.findByText('archived')).toBeInTheDocument()
+    expect(await screen.findByText('restored')).toBeInTheDocument()
+  })
+
+  it('shows the byte size for an agent write but not its action label', async () => {
+    argus.memory.audit.mockResolvedValue([
+      {
+        ts: '2026-07-20T09:00:00.000Z',
+        caseSlug: 'NAV-1',
+        topic: 'nav-drift',
+        indexEntry: null,
+        bytes: 128
+      }
+    ])
+    render(<MemorySettings />)
+    expect(await screen.findByText('128 B')).toBeInTheDocument()
+    expect(screen.queryByText('archived')).not.toBeInTheDocument()
+    expect(screen.queryByText('restored')).not.toBeInTheDocument()
+  })
+
   it('surfaces a restore failure (e.g. live namesake collision) as an alert', async () => {
     argus.memory.restore.mockRejectedValue(
       new Error('A live topic named "old-lesson" already exists — resolve manually')
