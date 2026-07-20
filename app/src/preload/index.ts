@@ -10,6 +10,7 @@ import type {
   FileNode,
   FileReadResult,
   ProviderStatus,
+  EvidenceRecord,
   SessionSummary,
   ChatSearchResult,
   UnifiedHit,
@@ -88,6 +89,12 @@ const argus = {
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) =>
       ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
+    ingestContent: (
+      caseSlug: string,
+      fileName: string,
+      bytes: Uint8Array
+    ): Promise<{ record: EvidenceRecord; deduped: boolean }> =>
+      ipcRenderer.invoke(IPC.evidenceIngestContent, caseSlug, fileName, bytes),
     list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
     read: (evidenceId: number, focusLine?: number) =>
       ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
