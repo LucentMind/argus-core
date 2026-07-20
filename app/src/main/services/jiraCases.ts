@@ -10,10 +10,18 @@ import type {
   JiraAttachmentProgress,
   JiraCommentInfo,
   JiraIssuePreview,
-  JiraRefreshSummary
+  JiraRefreshSummary,
+  JiraSyncAllSummary
 } from '../../shared/jira'
 import { AtlassianError, type JiraIssueData } from './atlassian'
-import { createCase, getCase, setCaseJira } from './caseService'
+import {
+  createCase,
+  getCase,
+  listCases,
+  setCaseJira,
+  setCaseSyncState,
+  setReviewBaseline
+} from './caseService'
 import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from './ingest'
 import { extractDerivedText } from './extraction'
 import type { Detection } from './packs/detection'
@@ -116,8 +124,12 @@ export class JiraCases {
     )
     // comments are best-effort at creation: no summary object exists here, so a
     // failure logs and the file appears on the first successful refresh instead.
+    // commentCount stays null on failure so setCaseSyncState below omits the key
+    // (presence semantics) rather than persisting a wrong count of 0.
+    let commentCount: number | null = null
     try {
       const comments = await this.deps.client.getComments(input.key)
+      commentCount = comments.length
       ingestContent(
         db,
         argusHome,
@@ -133,6 +145,18 @@ export class JiraCases {
     } catch (err) {
       console.warn(`[jira] comments fetch failed for ${input.key}: ${(err as Error).message}`)
     }
+    // Persist the snapshot we just fetched so the first `markReviewed` (fired
+    // when the user opens the new case) captures real values instead of the
+    // empty defaults from createCase — otherwise the first sync diffs the real
+    // upstream state against that empty baseline and reports everything just
+    // imported as newly changed. See Finding I1.
+    setCaseSyncState(db, argusHome, input.slug, {
+      jiraStatus: preview.status,
+      jiraPriority: preview.priority,
+      jiraAttachmentIds: preview.attachments.map((a) => a.id),
+      lastSyncError: null,
+      ...(commentCount === null ? {} : { jiraCommentCount: commentCount })
+    })
     return setCaseJira(db, argusHome, input.slug, {
       key: preview.key,
       site: this.deps.site(),
@@ -254,12 +278,14 @@ export class JiraCases {
 
     // comments evidence: update in place (or create if missing), tolerating fetch failure
     let newComments = 0
+    let commentCount: number | null = null
     let commentsError: string | undefined
     try {
       const comments = await this.deps.client.getComments(kase.jiraKey)
       const cmRec = evidence.find((e) => jiraMeta(e.meta).role === 'comments')
       const oldCount = cmRec ? (jiraMeta(cmRec.meta).commentCount ?? 0) : 0
       newComments = Math.max(0, comments.length - oldCount)
+      commentCount = comments.length
       const cmMeta = {
         jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
       }
@@ -300,6 +326,16 @@ export class JiraCases {
       .filter(([id]) => !liveIds.has(id))
       .map(([attachmentId, filename]) => ({ attachmentId, filename }))
 
+    // Persist the upstream snapshot the dashboard diffs against. commentCount
+    // stays null when the comments fetch failed, so a partial refresh never
+    // clobbers a known-good count with a wrong one.
+    setCaseSyncState(db, argusHome, caseSlug, {
+      jiraStatus: preview.status,
+      jiraPriority: preview.priority,
+      jiraAttachmentIds: preview.attachments.map((a) => a.id),
+      lastSyncError: null,
+      ...(commentCount === null ? {} : { jiraCommentCount: commentCount })
+    })
     setCaseJira(db, argusHome, caseSlug, {
       key: preview.key,
       site: this.deps.site(),
@@ -317,5 +353,100 @@ export class JiraCases {
       ...(commentsError ? { commentsError } : {}),
       syncedAt: now
     }
+  }
+
+  /**
+   * Refresh every non-closed, Jira-linked case. Reuses the per-case refresh()
+   * wholesale — the only added logic is fan-out, a concurrency bound, and
+   * per-case error capture. One case failing never aborts the run.
+   *
+   * Never downloads attachments: refresh() returns new ones for the renderer's
+   * selection dialog, and N dialogs racing would be unusable. The card reports
+   * the count; ingestion happens inside the case.
+   */
+  async syncAll(onProgress?: (done: number, total: number) => void): Promise<JiraSyncAllSummary> {
+    const { db, argusHome } = this.deps
+    const targets = listCases(db).filter((c) => c.jiraKey && c.status !== 'closed')
+    const total = targets.length
+    const failures: JiraSyncAllSummary['failures'] = []
+    const succeeded = new Set<string>()
+    let synced = 0
+    let done = 0
+
+    const CONCURRENCY = 4
+    let next = 0
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const i = next++
+        if (i >= targets.length) return
+        const kase = targets[i]
+        try {
+          await this.refresh(kase.slug)
+          synced++
+          succeeded.add(kase.slug)
+        } catch (err) {
+          const code = err instanceof AtlassianError ? err.code : 'internal'
+          const message = (err as Error).message
+          failures.push({ slug: kase.slug, code, message })
+          setCaseSyncState(db, argusHome, kase.slug, {
+            lastSyncError: { code, message, at: new Date().toISOString() }
+          })
+        } finally {
+          // A throwing onProgress must never abort the run: this sits in a
+          // `finally`, and an exception thrown here is NOT caught by the
+          // `catch` above — it would propagate out of the worker, reject
+          // Promise.all, and abandon every un-started case. Progress
+          // reporting is best-effort only. Do not remove this guard.
+          try {
+            onProgress?.(++done, total)
+          } catch (err) {
+            console.warn(
+              `[jira] onProgress callback threw: ${err instanceof Error ? err.message : String(err)}`
+            )
+          }
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()))
+
+    // Recompute after the run so `changed` reflects persisted state, not the
+    // transient per-refresh summaries. Only cases that actually SUCCEEDED this
+    // run count: a case that FAILED gets a fresh `sync-error` action item from
+    // its own lastSyncError, which would make "changed" count outages as
+    // changes. A succeeded case can't carry a sync-error item — refresh()
+    // clears lastSyncError on success — so its action items are genuine
+    // upstream changes.
+    const changed = listCases(db).filter(
+      (c) => succeeded.has(c.slug) && c.actionItems.length > 0
+    ).length
+
+    return {
+      total,
+      synced,
+      changed,
+      failed: failures.length,
+      failures,
+      finishedAt: new Date().toISOString()
+    }
+  }
+
+  /**
+   * Snapshot current upstream state as the review baseline — this is what
+   * clears a card's action items. Called when the user opens a case.
+   *
+   * Synchronous and DB-only: it deliberately does NOT hit Jira, so opening a
+   * case is instant and works offline. It marks "reviewed as of what we last
+   * synced", which is exactly what the user just saw on the card.
+   */
+  markReviewed(caseSlug: string): CaseRecord {
+    const { db, argusHome } = this.deps
+    const kase = getCase(db, caseSlug)
+    if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+    return setReviewBaseline(db, argusHome, caseSlug, {
+      status: kase.jiraStatus ?? '',
+      commentCount: kase.jiraCommentCount ?? 0,
+      attachmentIds: [...kase.jiraAttachmentIds],
+      capturedAt: new Date().toISOString()
+    })
   }
 }

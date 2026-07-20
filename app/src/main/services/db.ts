@@ -134,6 +134,24 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'jira_deselected')) {
     db.exec(`ALTER TABLE cases ADD COLUMN jira_deselected TEXT NOT NULL DEFAULT '[]'`)
   }
+  if (!caseCols.some((c) => c.name === 'jira_status')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN jira_status TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'jira_priority')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN jira_priority TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'jira_comment_count')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN jira_comment_count INTEGER`)
+  }
+  if (!caseCols.some((c) => c.name === 'jira_attachment_ids')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN jira_attachment_ids TEXT NOT NULL DEFAULT '[]'`)
+  }
+  if (!caseCols.some((c) => c.name === 'review_baseline')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN review_baseline TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'last_sync_error')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN last_sync_error TEXT`)
+  }
   // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
   // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
   const sessionIdx = db.prepare(`PRAGMA index_list(sessions)`).all() as {

@@ -10,7 +10,9 @@ import {
   setCaseJira,
   setCaseJiraDeselected,
   setCaseStatus,
-  maybeAdvanceToAnalyzing
+  maybeAdvanceToAnalyzing,
+  setCaseSyncState,
+  setReviewBaseline
 } from '../caseService'
 import { caseDir } from '../paths'
 import type { DatabaseSync } from 'node:sqlite'
@@ -249,5 +251,199 @@ describe('maybeAdvanceToAnalyzing', () => {
     setCaseStatus(db, home, 'a3', 'closed', 'solved')
     maybeAdvanceToAnalyzing(db, home, id)
     expect(getCase(db, 'a3')!.status).toBe('closed')
+  })
+})
+
+describe('sync state persistence', () => {
+  it('defaults the new fields on a fresh case', () => {
+    const rec = createCase(db, home, { slug: 'C-1', title: 'T' })
+    expect(rec.jiraStatus).toBeNull()
+    expect(rec.jiraPriority).toBeNull()
+    expect(rec.jiraCommentCount).toBeNull()
+    expect(rec.jiraAttachmentIds).toEqual([])
+    expect(rec.reviewBaseline).toBeNull()
+    expect(rec.lastSyncError).toBeNull()
+  })
+
+  it('round-trips sync state through the DB', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    setCaseSyncState(db, home, 'C-1', {
+      jiraStatus: 'In Progress',
+      jiraPriority: 'High',
+      jiraCommentCount: 4,
+      jiraAttachmentIds: ['a1', 'a2'],
+      lastSyncError: null
+    })
+    const rec = getCase(db, 'C-1')!
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(4)
+    expect(rec.jiraAttachmentIds).toEqual(['a1', 'a2'])
+  })
+
+  it('round-trips a sync error and clears it', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    setCaseSyncState(db, home, 'C-1', {
+      lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-20T11:00:00.000Z' }
+    })
+    expect(getCase(db, 'C-1')!.lastSyncError?.code).toBe('auth')
+    setCaseSyncState(db, home, 'C-1', { lastSyncError: null })
+    expect(getCase(db, 'C-1')!.lastSyncError).toBeNull()
+  })
+
+  it('a partial update (lastSyncError only) preserves the last-known-good jira fields', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    setCaseSyncState(db, home, 'C-1', {
+      jiraStatus: 'In Progress',
+      jiraPriority: 'High',
+      jiraCommentCount: 4,
+      jiraAttachmentIds: ['a1', 'a2'],
+      lastSyncError: null
+    })
+
+    setCaseSyncState(db, home, 'C-1', {
+      lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-20T11:00:00.000Z' }
+    })
+    let rec = getCase(db, 'C-1')!
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(4)
+    expect(rec.jiraAttachmentIds).toEqual(['a1', 'a2'])
+    expect(rec.lastSyncError?.code).toBe('auth')
+
+    setCaseSyncState(db, home, 'C-1', { lastSyncError: null })
+    rec = getCase(db, 'C-1')!
+    expect(rec.lastSyncError).toBeNull()
+    expect(rec.jiraStatus).toBe('In Progress')
+    expect(rec.jiraPriority).toBe('High')
+    expect(rec.jiraCommentCount).toBe(4)
+    expect(rec.jiraAttachmentIds).toEqual(['a1', 'a2'])
+  })
+
+  it('round-trips the review baseline and mirrors it into case.json', () => {
+    createCase(db, home, { slug: 'C-1', title: 'T' })
+    const baseline = {
+      status: 'Open',
+      commentCount: 2,
+      attachmentIds: ['a1'],
+      capturedAt: '2026-07-20T10:00:00.000Z'
+    }
+    setReviewBaseline(db, home, 'C-1', baseline)
+    expect(getCase(db, 'C-1')!.reviewBaseline).toEqual(baseline)
+    const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'C-1'), 'case.json'), 'utf8'))
+    expect(onDisk.reviewBaseline).toEqual(baseline)
+  })
+})
+
+describe('listCases triage ordering', () => {
+  it('puts cases with action items first, then info, then untouched', () => {
+    // Created in the reverse of the expected triage order, so creation-descending
+    // (the old ordering) would yield ['quiet', 'stale-one', 'changed'] — wrong —
+    // and only the new triage-rank sort produces the expected order below.
+    for (const slug of ['changed', 'stale-one', 'quiet']) {
+      createCase(db, home, { slug, title: slug })
+    }
+    setCaseSyncState(db, home, 'changed', { jiraStatus: 'In Progress', jiraCommentCount: 0 })
+    setReviewBaseline(db, home, 'changed', {
+      status: 'Open',
+      commentCount: 0,
+      attachmentIds: [],
+      capturedAt: '2026-07-01T00:00:00.000Z'
+    })
+    db.prepare(
+      `UPDATE cases SET jira_key = 'P-1', jira_synced_at = ? WHERE slug = 'stale-one'`
+    ).run(new Date(Date.now() - 20 * 86_400_000).toISOString())
+    expect(listCases(db).map((c) => c.slug)).toEqual(['changed', 'stale-one', 'quiet'])
+  })
+
+  it('breaks ties on updatedAt descending', () => {
+    // 'newer' is created FIRST (so creation-descending would rank it last) — the
+    // explicit updated_at values below are what must win under the new sort.
+    createCase(db, home, { slug: 'newer', title: 'n' })
+    createCase(db, home, { slug: 'older', title: 'o' })
+    db.prepare(
+      `UPDATE cases SET updated_at = '2026-01-01T00:00:00.000Z' WHERE slug = 'older'`
+    ).run()
+    db.prepare(
+      `UPDATE cases SET updated_at = '2026-07-01T00:00:00.000Z' WHERE slug = 'newer'`
+    ).run()
+    expect(listCases(db).map((c) => c.slug)).toEqual(['newer', 'older'])
+  })
+
+  it('falls back to jira priority when rank and updatedAt tie', () => {
+    // 'highp' is created FIRST (so creation-descending would rank it last) —
+    // only the priority tiebreak below should put it first.
+    createCase(db, home, { slug: 'highp', title: 'h' })
+    createCase(db, home, { slug: 'lowp', title: 'l' })
+    db.prepare(`UPDATE cases SET updated_at = '2026-07-01T00:00:00.000Z'`).run()
+    setCaseSyncState(db, home, 'lowp', { jiraPriority: 'Low' })
+    setCaseSyncState(db, home, 'highp', { jiraPriority: 'Highest' })
+    expect(listCases(db).map((c) => c.slug)).toEqual(['highp', 'lowp'])
+  })
+
+  it('flags a long-open case with no evidence as idle', () => {
+    createCase(db, home, { slug: 'idle-one', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'idle-one'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    const rec = listCases(db).find((c) => c.slug === 'idle-one')!
+    expect(rec.actionItems).toContainEqual(
+      expect.objectContaining({ kind: 'idle', severity: 'info' })
+    )
+  })
+
+  function idOfSlug(slug: string): number {
+    return (db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug) as { id: number }).id
+  }
+
+  function addEvidenceRow(caseId: number): void {
+    db.prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
+       VALUES (?, 'evidence/x.txt', 'h', 'text', 1, 'upload', 'now')`
+    ).run(caseId)
+  }
+
+  it('does not flag an old, evidence-free case as idle when it is not open', () => {
+    createCase(db, home, { slug: 'idle-closed', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'idle-closed'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    setCaseStatus(db, home, 'idle-closed', 'closed', 'solved')
+    const rec = listCases(db).find((c) => c.slug === 'idle-closed')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+
+  it('does not flag an old, open case as idle once it has evidence', () => {
+    createCase(db, home, { slug: 'idle-with-evidence', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'idle-with-evidence'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    addEvidenceRow(idOfSlug('idle-with-evidence'))
+    const rec = listCases(db).find((c) => c.slug === 'idle-with-evidence')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+
+  it('does not flag a young, open, evidence-free case as idle', () => {
+    createCase(db, home, { slug: 'idle-young', title: 'i' })
+    // created_at defaults to "now" — well under the 14-day idle threshold.
+    const rec = listCases(db).find((c) => c.slug === 'idle-young')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
+  })
+
+  it('getCase never populates actionItems, even when listCases would show one', () => {
+    createCase(db, home, { slug: 'contract-1', title: 'c' })
+    setCaseSyncState(db, home, 'contract-1', { jiraStatus: 'In Progress' })
+    setReviewBaseline(db, home, 'contract-1', {
+      status: 'Open',
+      commentCount: 0,
+      attachmentIds: [],
+      capturedAt: '2026-07-01T00:00:00.000Z'
+    })
+    const listed = listCases(db).find((c) => c.slug === 'contract-1')!
+    expect(listed.actionItems).toContainEqual(
+      expect.objectContaining({ kind: 'status', severity: 'action' })
+    )
+    const fetched = getCase(db, 'contract-1')!
+    expect(fetched.actionItems).toEqual([])
   })
 })
