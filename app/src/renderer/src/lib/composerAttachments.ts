@@ -49,9 +49,11 @@ class ComposerAttachments {
   }
   remove(caseSlug: string, sessionId: number, id: string): void {
     const k = keyOf(caseSlug, sessionId)
+    const current = this.byKey.get(k) ?? []
+    if (!current.some((a) => a.id === id)) return // stale id: already removed
     this.byKey.set(
       k,
-      (this.byKey.get(k) ?? []).filter((a) => a.id !== id)
+      current.filter((a) => a.id !== id)
     )
     this.emit()
   }

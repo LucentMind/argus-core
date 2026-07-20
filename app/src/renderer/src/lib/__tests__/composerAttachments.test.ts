@@ -37,8 +37,12 @@ describe('composerAttachments', () => {
 
   it('ignores an update for an unknown id', () => {
     composerAttachments.add('A-1', 1, att('x'))
+    const cb = vi.fn()
+    const off = composerAttachments.subscribe(cb)
     composerAttachments.update('A-1', 1, 'ghost', { status: 'ready' })
     expect(composerAttachments.get('A-1', 1)[0].status).toBe('pending')
+    expect(cb).not.toHaveBeenCalled()
+    off()
   })
 
   it('removes by id, not by position', () => {
@@ -46,6 +50,16 @@ describe('composerAttachments', () => {
     composerAttachments.add('A-1', 1, att('y'))
     composerAttachments.remove('A-1', 1, 'x')
     expect(composerAttachments.get('A-1', 1).map((a) => a.id)).toEqual(['y'])
+  })
+
+  it('does not notify when removing an unknown id', () => {
+    composerAttachments.add('A-1', 1, att('x'))
+    const cb = vi.fn()
+    const off = composerAttachments.subscribe(cb)
+    composerAttachments.remove('A-1', 1, 'ghost')
+    expect(composerAttachments.get('A-1', 1)).toHaveLength(1)
+    expect(cb).not.toHaveBeenCalled()
+    off()
   })
 
   it('notifies subscribers on change and stops after unsubscribe', () => {
