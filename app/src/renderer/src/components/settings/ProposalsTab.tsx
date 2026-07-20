@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Chip, SectionLabel } from '../ui'
 import { diffLines } from '../../lib/lineDiff'
+import { blurOnEscape } from '../../lib/escapeLayer'
 import { MessageView } from '../MessageView'
 import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
 import type { ProposalRecord, ProposalsPayload } from '../../../../shared/proposals'
@@ -119,6 +120,7 @@ export function ProposalsTab({
           className="h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={blurOnEscape}
         >
           <option value="all">all</option>
           {typesPresent.map((t) => (

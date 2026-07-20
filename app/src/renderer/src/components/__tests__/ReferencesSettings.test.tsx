@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { it, expect, vi, beforeEach } from 'vitest'
+import { it, expect, vi, beforeEach, afterEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { ReferencesSettings } from '../settings/ReferencesSettings'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import { connectorsStore } from '../../lib/connectorsStore'
-import type { RefSyncPayload } from '../../../../shared/referenceSync'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
+import type { RefSyncPayload, SyncReport } from '../../../../shared/referenceSync'
 import type { ConnectorsPayload } from '../../../../shared/connectors'
 
 const payload: RefSyncPayload = {
@@ -86,6 +88,8 @@ beforeEach(() => {
     }
   }
 })
+
+afterEach(() => __resetEscapeLayersForTest())
 
 it('renders space cards with staleness and reference statuses', async () => {
   render(<ReferencesSettings />)
@@ -183,4 +187,42 @@ it('manage and remove are icon buttons; remove confirms before calling', async (
   expect(confirmSpy).toHaveBeenCalled()
   await waitFor(() => expect(window.argus.refsync.removeSpace).toHaveBeenCalledWith('NAVNATIVE'))
   confirmSpy.mockRestore()
+})
+
+const syncReport: SyncReport = {
+  syncId: 'sync-1',
+  spaceKey: 'NAVNATIVE',
+  selectedCount: 2,
+  drafts: [],
+  unrouted: [],
+  conflicts: [],
+  failures: [],
+  vanished: []
+}
+
+it('a successful sync opens the sync report modal with a single close control', async () => {
+  ;(window.argus.refsync.sync as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    value: syncReport
+  })
+  render(<ReferencesSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: 'sync · NAVNATIVE' }))
+  expect(await screen.findByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeTruthy()
+  // ModalShell's own X is labelled "Close" too — assert there's exactly one,
+  // i.e. SyncReportView's inline Close button did not also render.
+  expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(1)
+})
+
+it('closes the sync report modal on Escape', async () => {
+  ;(window.argus.refsync.sync as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    value: syncReport
+  })
+  render(<ReferencesSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: 'sync · NAVNATIVE' }))
+  expect(await screen.findByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeTruthy()
+  await userEvent.keyboard('{Escape}')
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeNull()
+  )
 })

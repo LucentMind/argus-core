@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { ModalShell } from './ModalShell'
 
 /** Type-the-slug confirmation — case deletion is the highest-blast-radius action in the app. */
 export function DeleteCaseDialog({
@@ -15,14 +16,6 @@ export function DeleteCaseDialog({
   const [error, setError] = useState<string | null>(null)
   const match = typed === slug
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
-
   async function confirmDelete(): Promise<void> {
     setBusy(true)
     setError(null)
@@ -36,17 +29,13 @@ export function DeleteCaseDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40"
-      onClick={onCancel}
+    <ModalShell
+      title={`Delete case ${slug}?`}
+      ariaLabel={`Delete case ${slug}`}
+      onClose={onCancel}
+      className="w-96"
     >
-      <div
-        role="dialog"
-        aria-label={`Delete case ${slug}`}
-        className="flex w-96 flex-col gap-3 rounded-r3 border border-hair bg-panel p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-sm font-semibold text-ink">Delete case {slug}?</h2>
+      <div className="flex flex-col gap-3 p-4">
         <p className="text-xs text-dim">
           Permanently deletes the case, its evidence, chats, and findings. This cannot be undone.
           Type <span className="font-mono text-defect">{slug}</span> to confirm.
@@ -59,6 +48,10 @@ export function DeleteCaseDialog({
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && match && !busy) void confirmDelete()
+            // Destructive-confirm carve-out (spec §2): this field autofocuses, so the
+            // escape-layer dispatcher never sees Escape here. Cancelling from the field
+            // is the only thing keeping the dialog dismissible.
+            if (e.key === 'Escape') onCancel()
           }}
         />
         {error && <p className="text-xs text-danger">{error}</p>}
@@ -80,6 +73,6 @@ export function DeleteCaseDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   )
 }

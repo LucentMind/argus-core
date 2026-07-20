@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { NewCaseDialog } from '../NewCaseDialog'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import type { JiraAttachmentProgress } from '../../../../shared/jira'
 
 const PREVIEW = {
@@ -51,7 +53,27 @@ beforeEach(() => {
 
 const noop = { onClose: vi.fn(), onCreateBlank: vi.fn(async () => {}), onOpenCase: vi.fn() }
 
+afterEach(() => __resetEscapeLayersForTest())
+
 describe('NewCaseDialog', () => {
+  it('Escape in a draft field clears it, then blurs, then closes the dialog', async () => {
+    const onClose = vi.fn()
+    render(<NewCaseDialog {...noop} onClose={onClose} />)
+    const slug = screen.getByPlaceholderText('slug (e.g. NAVAPI-123)')
+    await userEvent.type(slug, 'ABC-1')
+    // stage 1: non-empty field — Escape clears it, dialog stays open
+    await userEvent.keyboard('{Escape}')
+    expect(slug).toHaveValue('')
+    expect(onClose).not.toHaveBeenCalled()
+    // stage 2: now-empty field — Escape blurs it, dialog still stays open
+    await userEvent.keyboard('{Escape}')
+    expect(slug).not.toHaveFocus()
+    expect(onClose).not.toHaveBeenCalled()
+    // stage 3: focus is back on the shell — Escape reaches the overlay and closes it
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('fetches a ticket and prefills slug + title from key + summary', async () => {
     render(<NewCaseDialog {...noop} />)
     fireEvent.change(screen.getByPlaceholderText(/PROJ-1234/i), { target: { value: 'PROJ-7' } })

@@ -10,13 +10,7 @@ import type { SyncReport } from '../../../../shared/referenceSync'
  * unrouted/conflict/failure sections above the drafts. Apply sends only the
  * currently-approved targets.
  */
-export function SyncReportView({
-  report,
-  onClose
-}: {
-  report: SyncReport
-  onClose: () => void
-}): React.JSX.Element {
+export function SyncReportView({ report }: { report: SyncReport }): React.JSX.Element {
   const [approved, setApproved] = useState<Set<string>>(
     () => new Set(report.drafts.map((d) => d.target))
   )
@@ -192,9 +186,6 @@ export function SyncReportView({
         </div>
       )}
       <div className="flex justify-end gap-2">
-        <Btn variant="ghost" onClick={onClose}>
-          Close
-        </Btn>
         {!applied && report.drafts.length > 0 && (
           <Btn
             variant="primary"

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Mock } from 'vitest'
 import { StrictMode } from 'react'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TextViewer } from '../TextViewer'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import {
   textDocKey,
   type TextDocOpenOk,
@@ -53,6 +54,8 @@ const LARGE_DOC_B: TextDocOpenOk = {
 
 let progressCbs: Array<(p: { key: string; fraction: number }) => void> = []
 let searchHitsCbs: Array<(e: TextDocSearchEvent) => void> = []
+
+afterEach(() => __resetEscapeLayersForTest())
 
 beforeEach(() => {
   progressCbs = []
@@ -1078,5 +1081,61 @@ describe('TextViewer', () => {
     } finally {
       window.removeEventListener('keydown', outerHandler)
     }
+  })
+
+  it('closes on Escape', async () => {
+    const onClose = vi.fn()
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 1 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={onClose}
+      />
+    )
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape in the go-to-line field blurs it instead of closing', async () => {
+    const onClose = vi.fn()
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={onClose}
+      />
+    )
+    const jump = await screen.findByPlaceholderText('go to line')
+    await userEvent.click(jump)
+    await userEvent.type(jump, '42')
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+    expect(jump).not.toHaveFocus()
+    // focus is back on the shell, so the next Escape closes
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape in the find field clears the query, then blurs', async () => {
+    const onClose = vi.fn()
+    render(
+      <TextViewer
+        source={{ kind: 'evidence', evidenceId: 2 }}
+        focusStart={1}
+        focusEnd={1}
+        onClose={onClose}
+      />
+    )
+    const find = await screen.findByPlaceholderText('find in file')
+    await userEvent.type(find, 'needle')
+    await userEvent.keyboard('{Escape}')
+    expect(find).toHaveValue('')
+    expect(find).toHaveFocus()
+    expect(onClose).not.toHaveBeenCalled()
+    await userEvent.keyboard('{Escape}')
+    expect(find).not.toHaveFocus()
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

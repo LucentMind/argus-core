@@ -15,13 +15,8 @@ import { viewerForFileNode } from './lib/fileRouting'
 import { composerDraft } from './lib/composerDraft'
 import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
+import { nextView, type View } from './lib/viewReducer'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
-
-type View =
-  | { kind: 'home' }
-  | { kind: 'case'; slug: string }
-  | { kind: 'settings'; page?: PageId }
-  | { kind: 'observability' }
 
 type Viewer =
   | { kind: 'evidence'; evidenceId: number; focusStart: number; focusEnd: number }
@@ -113,19 +108,32 @@ function App(): React.JSX.Element {
     void reload()
   }
 
+  // `prevView` is where the Settings/Observability overlays return to, so it must
+  // only ever hold a base view. Recording an overlay here would let `prevView`
+  // point at the very view being closed, making both the toggle and Escape no-ops.
+  //
+  // Consequence: going Settings -> Observability -> toggle-shut now lands on
+  // the base view (Home or the case you were in), not back on Settings --
+  // `prevView` is the base view, not a history stack.
+  function recordPrevView(): void {
+    if (view.kind === 'home' || view.kind === 'case') setPrevView(view)
+  }
+
   function openSettings(page?: PageId): void {
-    if (view.kind !== 'settings') setPrevView(view)
-    setView({ kind: 'settings', page })
+    // The TopBar gear calls this with no page, so a second click toggles shut
+    // (nextView returns to prevView). A page argument is a deep link and must
+    // switch pages instead, even while already on Settings -- see
+    // lib/viewReducer.ts for the toggle/carve-out rules.
+    recordPrevView()
+    setView(nextView(view, prevView, { kind: 'settings', page }))
   }
   function closeSettings(): void {
     setView(prevView)
   }
 
   function openObservability(): void {
-    if (view.kind !== 'observability') {
-      setPrevView(view)
-      setView({ kind: 'observability' })
-    }
+    recordPrevView()
+    setView(nextView(view, prevView, { kind: 'observability' }))
   }
 
   // A native panel view paints above the DOM, so hide docked panels whenever a
@@ -161,7 +169,7 @@ function App(): React.JSX.Element {
         ) : view.kind === 'settings' ? (
           <SettingsView onClose={closeSettings} initialPage={view.page} />
         ) : view.kind === 'observability' ? (
-          <ObservabilityView onOpenCase={openCase} />
+          <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
         ) : (
           <CaseWorkspace
             slug={view.slug}
