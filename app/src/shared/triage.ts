@@ -22,12 +22,6 @@ const KIND_ORDER: ActionItemKind[] = [
 ]
 
 const STALE_AFTER_DAYS = 7
-// Reserved for the 'idle' kind, emitted starting in Task 5 (needs an evidence
-// count CaseRecord does not carry yet). Unused here by design; see the note
-// at the bottom of deriveActionItems. Exported (rather than
-// eslint-disable-next-line'd) so tsc's noUnusedLocals doesn't flag it now that
-// this module is reachable from tsconfig.node.json's program too.
-export const IDLE_AFTER_DAYS = 14
 const DAY_MS = 86_400_000
 
 function daysBetween(fromIso: string, now: Date): number {
