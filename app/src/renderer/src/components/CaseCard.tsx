@@ -1,5 +1,5 @@
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
-import type { ActionItem } from '../../../shared/triage'
+import { formatSyncRecency, type ActionItem } from '../../../shared/triage'
 import { Card, Chip, IconBtn } from './ui'
 import { Download, Trash2 } from 'lucide-react'
 
@@ -34,7 +34,12 @@ export function CaseCard({
   note: { text: string; danger: boolean } | null
 }): React.JSX.Element {
   const actions = c.actionItems.filter((i) => i.severity === 'action')
-  const infos = c.actionItems.filter((i) => i.severity === 'info')
+  // `stale` is deliberately dropped: the footer below now states sync recency
+  // for EVERY linked case, in the same words and the same muted style, so the
+  // chip would render the identical fact twice past day 7. The item still
+  // exists in the model — triageRank uses it to sort neglected cases up.
+  const infos = c.actionItems.filter((i) => i.severity === 'info' && i.kind !== 'stale')
+  const recency = c.jiraKey && c.jiraSyncedAt ? formatSyncRecency(c.jiraSyncedAt) : null
 
   return (
     <Card onClick={() => onOpen(c.slug)} className="group flex flex-col gap-2 p-4">
@@ -69,7 +74,7 @@ export function CaseCard({
         </span>
       </div>
       <div className="text-sm text-ink">{c.title}</div>
-      {c.actionItems.length > 0 && (
+      {actions.length + infos.length > 0 && (
         <div data-testid="action-items" className="flex flex-wrap items-center gap-1.5">
           {actions.map((i) => (
             <Chip key={i.kind} tone={ITEM_TONE[i.kind]}>
@@ -93,6 +98,7 @@ export function CaseCard({
             {c.jiraKey ?? 'no ticket'}
             {c.jiraPriority ? ` · ${c.jiraPriority}` : ''} · updated{' '}
             {new Date(c.updatedAt).toLocaleDateString()}
+            {recency ? ` · ${recency}` : ''}
           </>
         )}
       </div>

@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CaseRecord } from '../../shared/types'
+import { hasUpstreamChange } from '../../shared/triage'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
@@ -414,10 +415,16 @@ export class JiraCases {
     // run count: a case that FAILED gets a fresh `sync-error` action item from
     // its own lastSyncError, which would make "changed" count outages as
     // changes. A succeeded case can't carry a sync-error item — refresh()
-    // clears lastSyncError on success — so its action items are genuine
-    // upstream changes.
+    // clears lastSyncError on success.
+    //
+    // hasUpstreamChange, not `length > 0`: info-severity items (`stale`,
+    // `idle`) describe our own sync cadence, not the ticket. Today a succeeded
+    // case cannot carry one — a successful refresh stamps jira_synced_at to
+    // now, which clears `stale` — so this is a semantic guard, not a live bug
+    // fix. It stops the count inflating the moment any info item becomes
+    // reachable post-sync (`idle` is already declared but unemitted).
     const changed = listCases(db).filter(
-      (c) => succeeded.has(c.slug) && c.actionItems.length > 0
+      (c) => succeeded.has(c.slug) && hasUpstreamChange(c.actionItems)
     ).length
 
     return {

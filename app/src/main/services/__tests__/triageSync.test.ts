@@ -227,6 +227,24 @@ describe('syncAll', () => {
     expect(r.changed).toBe(1)
   })
 
+  it('does not count an info-only action item as changed', async () => {
+    const { svc, db, home } = setup()
+    createCase(db, home, { slug: 'x', title: 'x', jiraKey: 'P-1' })
+    await svc.syncAll()
+    svc.markReviewed('x')
+    // Backdate the last sync so the case carries a `stale` info item going in.
+    db.prepare(`UPDATE cases SET jira_synced_at = ? WHERE slug = 'x'`).run(
+      new Date(Date.now() - 10 * 86_400_000).toISOString()
+    )
+    expect(listCases(db).find((c) => c.slug === 'x')!.actionItems).toEqual([
+      expect.objectContaining({ kind: 'stale', severity: 'info' })
+    ])
+
+    const r = await svc.syncAll()
+    expect(r.synced).toBe(1)
+    expect(r.changed).toBe(0)
+  })
+
   it('survives a throwing onProgress callback — the run still completes every case', async () => {
     const { svc, db, home } = setup()
     createCase(db, home, { slug: 'a', title: 'a', jiraKey: 'P-1' })
