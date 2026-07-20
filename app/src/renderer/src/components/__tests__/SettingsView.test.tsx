@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { SettingsView } from '../settings/SettingsView'
+import { SetupWizard } from '../onboarding/SetupWizard'
 import { settingsStore } from '../../lib/settingsStore'
+import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
 import type { PacksListPayload } from '../../../../shared/packs'
@@ -117,6 +120,8 @@ beforeEach(() => {
   } as never
 })
 
+afterEach(() => __resetEscapeLayersForTest())
+
 describe('SettingsView', () => {
   it('renders the rail: 8 active pages, 0 coming-soon entries', async () => {
     render(<SettingsView onClose={vi.fn()} />)
@@ -193,6 +198,29 @@ describe('SettingsView', () => {
     await screen.findByRole('button', { name: /General/ })
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('Escape does not close settings while the setup wizard is open above it', async () => {
+    const onClose = vi.fn()
+    // Mount order mirrors production: SettingsView mounts first, then the
+    // wizard is opened over it via "rerun setup".
+    render(
+      <>
+        <SettingsView onClose={onClose} />
+        <SetupWizard onComplete={vi.fn()} onDismiss={vi.fn()} />
+      </>
+    )
+    await screen.findByRole('button', { name: /General/ })
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('Escape closes settings when no wizard is open', async () => {
+    const onClose = vi.fn()
+    render(<SettingsView onClose={onClose} />)
+    await screen.findByRole('button', { name: /General/ })
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('shows a load-error banner with an Open file action', async () => {
