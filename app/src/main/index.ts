@@ -570,7 +570,8 @@ function registerIpc(): void {
             broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: record.id, active: false })
           )
       }
-      caseWatch.suppress(caseSlug) // re-arm after the write
+      // no re-arm suppress() here: evidenceChangedB() below already suppresses
+      // internally, and suppress() is monotonic — a second call here is a no-op
       evidenceChangedB(caseSlug)
       return { record, deduped }
     }
