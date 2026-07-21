@@ -29,6 +29,18 @@ describe('diffLines', () => {
       { kind: 'same', text: 'c' }
     ])
   })
+
+  it('keeps a real diff for a large, mostly-identical file (no degenerate full replace)', () => {
+    // A ~670-line reference edited by inserting a section is a real skill/reference size:
+    // 671 * 662 exceeds the old 400k LCS guard, which wrongly collapsed it to full replace.
+    const base = Array.from({ length: 670 }, (_, i) => `line ${i}`)
+    const before = base.join('\n')
+    const after = [...base.slice(0, 300), 'INSERTED SECTION', ...base.slice(300)].join('\n')
+    const d = diffLines(before, after)
+    const same = d.filter((l) => l.kind === 'same').length
+    expect(same).toBeGreaterThan(600) // the shared lines are matched, not re-added
+    expect(d).toContainEqual({ kind: 'add', text: 'INSERTED SECTION' })
+  })
 })
 
 describe('pairRows', () => {

@@ -11,8 +11,12 @@ export function diffLines(before: string, after: string): DiffLine[] {
   // remove+re-add instead of a real diff.
   const a = before.split(/\r\n|\r|\n/)
   const b = after.split(/\r\n|\r|\n/)
-  // guard: degenerate to whole-file replace when the LCS table would be huge
-  if (a.length * b.length > 400_000) {
+  // guard: degenerate to whole-file replace when the LCS table would be huge. The bound is
+  // generous on purpose — a ~670-line reference editing itself is 662*672 ≈ 445k cells, and
+  // the old 400k limit wrongly collapsed exactly those real skill/reference edits to a full
+  // remove+re-add. 4M cells (~2000 lines a side, a few MB / <100ms) covers real docs while
+  // still bailing on pathological megabyte inputs.
+  if (a.length * b.length > 4_000_000) {
     return [
       ...a.map((text) => ({ kind: 'del' as const, text })),
       ...b.map((text) => ({ kind: 'add' as const, text }))
