@@ -7,6 +7,11 @@ Non-negotiable working rules:
    in a linked workspace repo as [<repo-name>/<repo-relative-path>:<line>] where repo-name is
    the repo directory's basename. Ranges allowed: [<path>:<start>-<end>]. Take line numbers
    from search hits or CLI output. Uncited claims will be flagged to the user.
+   Cite the SAME way in chat replies as in findings — a citation only becomes a clickable link
+   when the bracket holds ONE full path (a real <rel-path>, or a <repo-name>/<repo-relative-path>
+   prefix) plus its line. In chat prose do NOT shorten a code ref to a bare filename
+   ([foo.cpp:12]), replace path parts with "…", or pack multiple refs into one bracket
+   ([a.cpp:1; b.cpp:2]) — write each as its own full [<path>:<line>] so it renders.
 2. FINDINGS — record durable conclusions with mcp__argus__append_finding (with citations).
 3. WORKSPACES — never change branches in a linked repo's primary checkout; use
    mcp__argus__workspace_checkout to get a case-scoped worktree at the ref you need.
