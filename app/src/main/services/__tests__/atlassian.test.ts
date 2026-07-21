@@ -62,6 +62,20 @@ const CLOUD_ID = 'cloud-x'
 beforeAll(async () => {
   mediaServer = http.createServer((req, res) => {
     mediaAuthHeader = req.headers.authorization ?? null
+    if (req.url?.startsWith('/blob/stall')) {
+      // headers arrive (fetch resolves), one partial chunk is written, then the
+      // response hangs forever — exercises the idle timeout + partial-file cleanup.
+      res.writeHead(200, { 'content-type': 'application/octet-stream' })
+      res.write(Buffer.from('PARTIAL'))
+      return // intentionally never res.end()
+    }
+    if (req.url?.startsWith('/blob/big')) {
+      // two separate chunks so the per-chunk idle bump is exercised
+      res.writeHead(200, { 'content-type': 'application/octet-stream' })
+      res.write(Buffer.from('CHUNK-ONE;'))
+      res.end(Buffer.from('CHUNK-TWO'))
+      return
+    }
     res.writeHead(200, { 'content-type': 'application/octet-stream' })
     res.end(Buffer.from('BINLOG-BYTES'))
   })
@@ -84,6 +98,12 @@ beforeAll(async () => {
     } else if (req.url?.includes('/rest/api/3/issue/SECRET-1')) {
       res.writeHead(401, { 'content-type': 'application/json' })
       res.end('{}')
+    } else if (req.url?.includes('/rest/api/3/attachment/content/10008')) {
+      res.writeHead(303, { location: `${mediaBase}/blob/big` })
+      res.end()
+    } else if (req.url?.includes('/rest/api/3/attachment/content/10009')) {
+      res.writeHead(303, { location: `${mediaBase}/blob/stall` })
+      res.end()
     } else if (req.url?.includes('/rest/api/3/attachment/content/10001')) {
       // Jira answers the content endpoint with a redirect to the media host
       res.writeHead(303, { location: `${mediaBase}/blob/10001` })
@@ -224,6 +244,20 @@ describe('AtlassianClient', () => {
     await client().downloadAttachment('10001', dest)
     expect(fs.readFileSync(dest, 'utf8')).toBe('BINLOG-BYTES')
     expect(mediaAuthHeader).toBeNull() // undici strips Authorization on cross-origin redirect
+  })
+
+  it('streams a multi-chunk body to disk', async () => {
+    const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-att-')), 'big.bin')
+    await client().downloadAttachment('10008', dest)
+    expect(fs.readFileSync(dest, 'utf8')).toBe('CHUNK-ONE;CHUNK-TWO')
+  })
+
+  it('aborts on an idle stall and leaves no partial file', { timeout: 2000 }, async () => {
+    const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-att-')), 'stalled.bin')
+    // 4th arg = downloadIdleMs: abort after 50ms of no progress
+    const c = new AtlassianClient(oauthFixture, gatewayFetch(), 15000, 50)
+    await expect(c.downloadAttachment('10009', dest)).rejects.toMatchObject({ code: 'network' })
+    expect(fs.existsSync(dest)).toBe(false)
   })
 
   it('maps 401 → auth (with instanceId) and 404 → not-found', async () => {
