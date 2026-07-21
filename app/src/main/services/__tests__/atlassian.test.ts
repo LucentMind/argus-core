@@ -76,6 +76,18 @@ beforeAll(async () => {
       res.end(Buffer.from('CHUNK-TWO'))
       return
     }
+    if (req.url?.startsWith('/blob/slow')) {
+      // three chunks with real gaps between them: each individual gap is under
+      // the idle window, but the summed gaps exceed it — proves bump() re-arms
+      // per chunk rather than the abort being a fixed total deadline.
+      res.writeHead(200, { 'content-type': 'application/octet-stream' })
+      res.write(Buffer.from('SLOW-ONE;'))
+      setTimeout(() => {
+        res.write(Buffer.from('SLOW-TWO;'))
+        setTimeout(() => res.end(Buffer.from('SLOW-THREE')), 120)
+      }, 120)
+      return
+    }
     res.writeHead(200, { 'content-type': 'application/octet-stream' })
     res.end(Buffer.from('BINLOG-BYTES'))
   })
@@ -103,6 +115,9 @@ beforeAll(async () => {
       res.end()
     } else if (req.url?.includes('/rest/api/3/attachment/content/10009')) {
       res.writeHead(303, { location: `${mediaBase}/blob/stall` })
+      res.end()
+    } else if (req.url?.includes('/rest/api/3/attachment/content/10007')) {
+      res.writeHead(303, { location: `${mediaBase}/blob/slow` })
       res.end()
     } else if (req.url?.includes('/rest/api/3/attachment/content/10001')) {
       // Jira answers the content endpoint with a redirect to the media host
@@ -251,6 +266,20 @@ describe('AtlassianClient', () => {
     await client().downloadAttachment('10008', dest)
     expect(fs.readFileSync(dest, 'utf8')).toBe('CHUNK-ONE;CHUNK-TWO')
   })
+
+  it(
+    're-arms the idle timer between chunks (slow but progressing download succeeds)',
+    { timeout: 2000 },
+    async () => {
+      const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-att-')), 'slow.bin')
+      // downloadIdleMs = 200ms: each ~120ms gap is under 200ms and re-arms, but the
+      // summed gaps (~240ms) exceed it, so this passes only if the timer re-arms per
+      // chunk rather than being a fixed total deadline.
+      const c = new AtlassianClient(oauthFixture, gatewayFetch(), 15000, 200)
+      await c.downloadAttachment('10007', dest)
+      expect(fs.readFileSync(dest, 'utf8')).toBe('SLOW-ONE;SLOW-TWO;SLOW-THREE')
+    }
+  )
 
   it('aborts on an idle stall and leaves no partial file', { timeout: 2000 }, async () => {
     const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-att-')), 'stalled.bin')

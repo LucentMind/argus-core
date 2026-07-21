@@ -399,13 +399,15 @@ export class AtlassianClient {
    *  host). Uses an idle timeout — aborts only after downloadIdleMs of no
    *  progress — so large but healthy downloads are not cut off. */
   async downloadAttachment(id: string, destPath: string): Promise<void> {
+    const instanceId = this.creds().instanceId
     const { signal, bump, clear } = idleAbort(this.downloadIdleMs)
     try {
       const res = await this.request(
         `/rest/api/3/attachment/content/${encodeURIComponent(id)}`,
         { signal, accept: '*/*' }
       )
-      if (!res.body) throw new AtlassianError('network', 'Attachment response had no body')
+      if (!res.body)
+        throw new AtlassianError('network', 'Attachment response had no body', instanceId)
       const tick = new Transform({
         transform(chunk, _enc, cb) {
           bump()
@@ -414,9 +416,17 @@ export class AtlassianClient {
       })
       await pipeline(Readable.fromWeb(res.body as never), tick, fs.createWriteStream(destPath))
     } catch (err) {
-      fs.rmSync(destPath, { force: true }) // never leave a partial file behind
+      try {
+        fs.rmSync(destPath, { force: true }) // never leave a partial file behind
+      } catch {
+        /* best-effort: never let cleanup mask the original download error */
+      }
       if (err instanceof AtlassianError) throw err
-      throw new AtlassianError('network', `Attachment download failed: ${(err as Error).message}`)
+      throw new AtlassianError(
+        'network',
+        `Attachment download failed: ${(err as Error).message}`,
+        instanceId
+      )
     } finally {
       clear()
     }
