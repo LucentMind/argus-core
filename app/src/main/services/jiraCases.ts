@@ -181,6 +181,8 @@ export class JiraCases {
     try {
       for (const a of attachments) {
         const base = { caseSlug, attachmentId: a.id, filename: a.filename }
+        // size is always present on Jira attachment metadata; a missing/0 size fails
+        // open to download (then bounded by the streaming idle timeout).
         if (a.size > MAX_ATTACHMENT_BYTES) {
           const mb = Math.round(a.size / (1024 * 1024))
           const failed: JiraAttachmentProgress = {
