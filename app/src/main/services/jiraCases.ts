@@ -91,6 +91,8 @@ function commentsMarkdown(key: string, comments: JiraCommentInfo[]): string {
   return `# ${key}: comments\n\n${COMMENTS_BANNER}\n\n${sections.join('\n\n') || '_(no comments)_'}\n`
 }
 
+const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024 // 500 MB per-attachment cap
+
 export class JiraCases {
   constructor(private deps: JiraCasesDeps) {}
 
@@ -179,6 +181,17 @@ export class JiraCases {
     try {
       for (const a of attachments) {
         const base = { caseSlug, attachmentId: a.id, filename: a.filename }
+        if (a.size > MAX_ATTACHMENT_BYTES) {
+          const mb = Math.round(a.size / (1024 * 1024))
+          const failed: JiraAttachmentProgress = {
+            ...base,
+            status: 'error',
+            error: `Attachment is ${mb} MB; exceeds the 500 MB limit`
+          }
+          this.deps.emitProgress(failed)
+          results.push(failed)
+          continue
+        }
         this.deps.emitProgress({ ...base, status: 'downloading' })
         try {
           const tmpFile = path.join(tmpDir, sanitizeFilename(a.filename))
