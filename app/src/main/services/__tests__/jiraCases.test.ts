@@ -173,6 +173,28 @@ describe('JiraCases.ingestAttachments', () => {
     expect(results[1]).toMatchObject({ attachmentId: '10002', status: 'done' })
   })
 
+  it('rejects an oversized attachment early without downloading it', async () => {
+    const client = fakeClient(() => issue())
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
+    const huge = { ...att('10009', 'huge.bin'), size: 600 * 1024 * 1024 } // 600 MB
+    const results = await svc.ingestAttachments('NAV-7', [huge])
+    expect(results[0]).toMatchObject({ attachmentId: '10009', status: 'error' })
+    expect(results[0].error).toContain('exceeds the 500 MB limit')
+    expect(client.downloadAttachment).not.toHaveBeenCalled()
+  })
+
+  it('rejects the oversized file but still ingests a normal one in the same batch', async () => {
+    const client = fakeClient(() => issue())
+    const svc = service(client)
+    await svc.createFromTicket({ slug: 'NAV-7', title: 't', key: 'NAV-7' })
+    const huge = { ...att('10009', 'huge.bin'), size: 600 * 1024 * 1024 }
+    const results = await svc.ingestAttachments('NAV-7', [huge, att('10001', 'ok.txt')])
+    expect(results[0]).toMatchObject({ attachmentId: '10009', status: 'error' })
+    expect(results[1]).toMatchObject({ attachmentId: '10001', status: 'done' })
+    expect(client.downloadAttachment).toHaveBeenCalledTimes(1)
+  })
+
   // extraction is fire-and-forget: flush pending microtasks/timers before asserting
   const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 
