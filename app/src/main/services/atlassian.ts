@@ -1,6 +1,8 @@
 // Jira Cloud REST client — UI-native flows only (New Case / Refresh / Health).
 // The agent never calls this; its Jira access is the Rovo MCP connector.
 import fs from 'node:fs'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import {
   connectorConfig,
   type ConnectorMap,
@@ -162,6 +164,28 @@ export interface JiraIssueData {
 }
 
 const REST_TIMEOUT_MS = 15000
+
+const DOWNLOAD_IDLE_MS = 60000 // default 60s of no progress → abort
+
+/** AbortController whose deadline re-arms on every bump(); fires only after
+ *  idleMs elapses with no progress. clear() stops the timer. */
+function idleAbort(idleMs: number): { signal: AbortSignal; bump: () => void; clear: () => void } {
+  const ctrl = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = (): void => {
+    timer = setTimeout(() => ctrl.abort(new Error(`no data for ${idleMs}ms`)), idleMs)
+  }
+  const bump = (): void => {
+    if (timer) clearTimeout(timer)
+    arm()
+  }
+  const clear = (): void => {
+    if (timer) clearTimeout(timer)
+  }
+  arm()
+  return { signal: ctrl.signal, bump, clear }
+}
+
 const ISSUE_FIELDS =
   'summary,description,status,priority,labels,reporter,created,updated,attachment'
 
@@ -171,7 +195,8 @@ export class AtlassianClient {
   constructor(
     private creds: () => AtlassianAuth,
     private fetchImpl: typeof fetch = fetch,
-    private timeoutMs = REST_TIMEOUT_MS
+    private timeoutMs = REST_TIMEOUT_MS,
+    private downloadIdleMs = DOWNLOAD_IDLE_MS
   ) {}
 
   /** Maps a non-OK gateway response to the right AtlassianError code. */
@@ -190,13 +215,14 @@ export class AtlassianClient {
   private async fetchWith(
     url: string,
     authorization: string,
-    instanceId: string
+    instanceId: string,
+    opts?: { signal?: AbortSignal; accept?: string }
   ): Promise<Response> {
     try {
       return await this.fetchImpl(url, {
-        headers: { Authorization: authorization, Accept: 'application/json' },
+        headers: { Authorization: authorization, Accept: opts?.accept ?? 'application/json' },
         redirect: 'follow', // undici drops Authorization on cross-origin redirects (attachment CDN)
-        signal: AbortSignal.timeout(this.timeoutMs)
+        signal: opts?.signal ?? AbortSignal.timeout(this.timeoutMs)
       })
     } catch (err) {
       throw new AtlassianError(
@@ -213,7 +239,10 @@ export class AtlassianClient {
    * (`/ex/{product}/{cloudId}`) and the discovery scope. No legacy siteUrl/token
    * fallback — Task 4 removes those fields from AtlassianAuth entirely.
    */
-  private async request(pathAndQuery: string): Promise<Response> {
+  private async request(
+    pathAndQuery: string,
+    opts?: { signal?: AbortSignal; accept?: string }
+  ): Promise<Response> {
     const auth = this.creds()
     const product: AtlassianProduct = pathAndQuery.startsWith('/wiki/') ? 'confluence' : 'jira'
     if (!auth.oauth)
@@ -235,11 +264,11 @@ export class AtlassianClient {
       )
     const cloud = await this.resolveCloud(auth.instanceId, token, product)
     const url = `${GATEWAY}/ex/${product}/${cloud.cloudId}${pathAndQuery}`
-    let res = await this.fetchWith(url, `Bearer ${token}`, auth.instanceId)
+    let res = await this.fetchWith(url, `Bearer ${token}`, auth.instanceId, opts)
     if (res.status === 401 || res.status === 403) {
       await auth.oauth.refresh()
       token = auth.oauth.accessToken()
-      if (token) res = await this.fetchWith(url, `Bearer ${token}`, auth.instanceId)
+      if (token) res = await this.fetchWith(url, `Bearer ${token}`, auth.instanceId, opts)
       if (!token || res.status === 401 || res.status === 403)
         throw new AtlassianError(
           'auth',
@@ -366,10 +395,31 @@ export class AtlassianClient {
     }
   }
 
-  /** Downloads attachment bytes to destPath (follows Jira's redirect to the media host). */
+  /** Streams attachment bytes to destPath (follows Jira's redirect to the media
+   *  host). Uses an idle timeout — aborts only after downloadIdleMs of no
+   *  progress — so large but healthy downloads are not cut off. */
   async downloadAttachment(id: string, destPath: string): Promise<void> {
-    const res = await this.request(`/rest/api/3/attachment/content/${encodeURIComponent(id)}`)
-    fs.writeFileSync(destPath, Buffer.from(await res.arrayBuffer()))
+    const { signal, bump, clear } = idleAbort(this.downloadIdleMs)
+    try {
+      const res = await this.request(
+        `/rest/api/3/attachment/content/${encodeURIComponent(id)}`,
+        { signal, accept: '*/*' }
+      )
+      if (!res.body) throw new AtlassianError('network', 'Attachment response had no body')
+      const tick = new Transform({
+        transform(chunk, _enc, cb) {
+          bump()
+          cb(null, chunk)
+        }
+      })
+      await pipeline(Readable.fromWeb(res.body as never), tick, fs.createWriteStream(destPath))
+    } catch (err) {
+      fs.rmSync(destPath, { force: true }) // never leave a partial file behind
+      if (err instanceof AtlassianError) throw err
+      throw new AtlassianError('network', `Attachment download failed: ${(err as Error).message}`)
+    } finally {
+      clear()
+    }
   }
 
   /** Cheap reachability probe for the Health page — covered by read:jira-work. */
