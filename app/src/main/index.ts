@@ -389,7 +389,11 @@ function registerIpc(): void {
   // chat instance (see the 2026-07-19 "model (auto)" failure).
   const headlessRun = createHeadlessRunner({
     settings: () => settingsService.get(),
-    argusHome
+    argusHome,
+    // Batch distillation/refSync prompts inline the full current skill/reference bodies and
+    // ask the model to return complete files — far heavier than an interactive turn — so the
+    // 180s driver default is too tight. Give background jobs a 10-minute budget.
+    timeoutMs: 600_000
   })
   const refSync = new RefSyncService({
     argusHome,

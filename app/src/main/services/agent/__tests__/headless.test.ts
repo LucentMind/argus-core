@@ -53,6 +53,18 @@ describe('createHeadlessRunner', () => {
     expect(rec.opts?.argusHome).toBe('/tmp/argus')
   })
 
+  it('forwards a configured batch timeout to the driver (distill prompts run long)', async () => {
+    const rec: { prompt?: string; opts?: HeadlessOpts } = {}
+    const run = createHeadlessRunner({
+      settings: copilotActive,
+      argusHome: '/tmp/argus',
+      timeoutMs: 600_000,
+      driverForKind: () => stubDriver(rec)
+    })
+    await run('p')
+    expect(rec.opts?.timeoutMs).toBe(600_000)
+  })
+
   it('throws the resolver reason when nothing can distill', async () => {
     const settings = (): AppSettings =>
       settingsSchema.parse({

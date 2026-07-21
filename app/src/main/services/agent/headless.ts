@@ -7,6 +7,10 @@ export interface HeadlessRunnerDeps {
   /** Read live on every call — a settings change takes effect on the next job, no restart. */
   settings: () => AppSettings
   argusHome: string
+  /** Per-run wall-clock budget passed to the driver. Distillation prompts inline the full
+   *  current skill/reference bodies and ask the model to return complete files, so they run
+   *  well past the interactive 180s default; leave undefined to keep the driver default. */
+  timeoutMs?: number
   /** Injection seam for tests; defaults to the real driver registry. */
   driverForKind?: (kind: string) => AgentDriver
 }
@@ -31,7 +35,8 @@ export function createHeadlessRunner(
     return driver.runHeadless(prompt, {
       model: r.model,
       cliPath: r.cliPath,
-      argusHome: deps.argusHome
+      argusHome: deps.argusHome,
+      timeoutMs: deps.timeoutMs
     })
   }
 }
