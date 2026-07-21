@@ -21,8 +21,16 @@ const INPUT: CaseDistillInput = {
   evidence: [{ relPath: 'evidence/a.log', artifactType: 'text', size: 10 }],
   sessionTitles: ['First look'],
   memoryIndex: '- [dlt-timing](dlt-timing.md) — entry',
-  skillsIndex: [{ name: 'analyze-dlt', description: 'd' }],
-  referencesIndex: [{ name: 'runbook', summary: 's' }],
+  skillsIndex: [
+    {
+      name: 'analyze-dlt',
+      description: 'd',
+      content: '---\nname: analyze-dlt\n---\n# Analyze DLT\nEXISTING_SKILL_STEP'
+    }
+  ],
+  referencesIndex: [
+    { name: 'runbook', summary: 's', content: '---\ntitle: Runbook\n---\nEXISTING_REF_LINE' }
+  ],
   alreadyCaptured: {
     proposals: [{ type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }],
     memoryWrites: [{ topic: 'dlt-timing', indexEntry: 'entry' }]
@@ -37,6 +45,19 @@ describe('prompt builder', () => {
     expect(p).toContain('Knowledge already captured')
     expect(p).toContain('dlt-cmds')
     expect(p).toContain('dlt-timing')
+  })
+
+  it('embeds the full current skill and reference bodies so edits can be merged in', () => {
+    const p = buildCaseDistillPrompt(INPUT)
+    // an edit must return the WHOLE file with its change merged in, so the distiller
+    // needs the current body verbatim in the prompt — not just name/description.
+    expect(p).toContain('EXISTING_SKILL_STEP')
+    expect(p).toContain('EXISTING_REF_LINE')
+  })
+
+  it('contract requires edit content to be the complete post-edit file', () => {
+    expect(CASE_DISTILL_CONTRACT.toLowerCase()).toContain('complete')
+    expect(CASE_DISTILL_CONTRACT.toLowerCase()).toMatch(/never a (diff|fragment)/)
   })
 })
 

@@ -14,7 +14,8 @@ Rules — follow every one:
 5. TARGET REAL NAMES: skill-edit / reference-edit targets and memory topics must come from the provided indexes; invent names only for skill-new / recipe.
 6. AN EMPTY RESULT IS A VALID RESULT: for duplicate / rejected / not-reproducible closes with nothing generalizable, return {}.
 7. NO DUPLICATE LEARNINGS: the "Knowledge already captured from this case" section lists what was already proposed or recorded during the case. Never re-propose or re-record anything listed there. If everything was already captured, return {}.
-8. OUTPUT: exactly one fenced \`\`\`json block containing one JSON object with optional keys "summary" ({signature, symptoms, rootCause, fix, keywords[]}, all required inside), "memoryAppends" ([{"topic" (lowercase letters, digits, hyphens), content, indexEntry? — the description ONLY, never restating the topic name}]), "proposals" ([{type: skill-new|skill-edit|reference-edit|recipe, target, title, content}]). No other keys. "signature" is ONE line. No commentary inside the block.`
+8. PROPOSAL CONTENT IS A COMPLETE FILE: every proposal's "content" is the entire file to save, ready as-is, frontmatter included — never a diff and never a fragment. For skill-edit / reference-edit, take the current file (shown verbatim under "Installed skills" / "References" below), merge your change into it, and return the WHOLE resulting file with every unchanged line preserved exactly. For skill-new / recipe, write the complete new file from scratch.
+9. OUTPUT: exactly one fenced \`\`\`json block containing one JSON object with optional keys "summary" ({signature, symptoms, rootCause, fix, keywords[]}, all required inside), "memoryAppends" ([{"topic" (lowercase letters, digits, hyphens), content, indexEntry? — the description ONLY, never restating the topic name}]), "proposals" ([{type: skill-new|skill-edit|reference-edit|recipe, target, title, content}]). No other keys. "signature" is ONE line. No commentary inside the block.`
 
 export function buildCaseDistillPrompt(input: CaseDistillInput): string {
   const m = input.caseMeta
@@ -37,8 +38,16 @@ export function buildCaseDistillPrompt(input: CaseDistillInput): string {
     `# Evidence inventory\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
     `# Chat sessions\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,
     `# Memory index (topics that already exist)\n${input.memoryIndex || '(empty)'}`,
-    `# Installed skills\n${input.skillsIndex.map((s) => `- ${s.name} — ${s.description}`).join('\n') || '(none)'}`,
-    `# References\n${input.referencesIndex.map((r) => `- ${r.name} — ${r.summary}`).join('\n') || '(none)'}`,
+    `# Installed skills (full current content — a skill-edit must return the whole file with its change merged in)\n${
+      input.skillsIndex
+        .map((s) => `## ${s.name} — ${s.description}\n\n${s.content}`)
+        .join('\n\n---\n\n') || '(none)'
+    }`,
+    `# References (full current content — a reference-edit must return the whole file with its change merged in)\n${
+      input.referencesIndex
+        .map((r) => `## ${r.name} — ${r.summary}\n\n${r.content}`)
+        .join('\n\n---\n\n') || '(none)'
+    }`,
     `# Knowledge already captured from this case (do NOT repeat)\n${captured}`,
     `Return exactly one fenced \`\`\`json block now.`
   ].join('\n\n')
