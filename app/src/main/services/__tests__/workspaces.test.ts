@@ -99,6 +99,27 @@ describe('workspace service', () => {
     expect(await listWorkspaces(db, argusHome, 'NAV-1')).toHaveLength(0)
   })
 
+  it('surfaces the ref name for a detached worktree instead of "HEAD"', async () => {
+    git(repo, 'tag', 'v3.16.0') // tag c1
+    // a PR-style ref at a unique commit, reachable only via refs/pull/*
+    git(repo, 'commit', '--allow-empty', '-m', 'pr-only')
+    const prSha = git(repo, 'rev-parse', 'HEAD').trim()
+    git(repo, 'update-ref', 'refs/pull/123/head', prSha)
+    git(repo, 'reset', '--hard', 'HEAD~1') // move main back off the PR commit
+    await linkWorkspace(db, argusHome, 'NAV-1', repo)
+
+    // tag checkout → detached; chip should read "v3.16.0", not "HEAD"
+    await ensureWorktree(argusHome, 'NAV-1', repo, 'v3.16.0')
+    let [ws] = await listWorkspaces(db, argusHome, 'NAV-1')
+    expect(ws.worktreePath).not.toBeNull()
+    expect(ws.currentRef).toBe('v3.16.0')
+
+    // PR-ref checkout → detached; chip should read "pull/123/head"
+    await ensureWorktree(argusHome, 'NAV-1', repo, 'refs/pull/123/head')
+    ;[ws] = await listWorkspaces(db, argusHome, 'NAV-1')
+    expect(ws.currentRef).toBe('pull/123/head')
+  })
+
   it('ensureWorktree stays on branch ref when called twice', async () => {
     await linkWorkspace(db, argusHome, 'NAV-1', repo)
     const wt = await ensureWorktree(argusHome, 'NAV-1', repo, 'feature/x')

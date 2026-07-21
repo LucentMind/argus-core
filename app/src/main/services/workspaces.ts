@@ -81,9 +81,22 @@ async function describeWorkspace(
   const wt = caseWorktreeDir(argusHome, caseSlug, stored.path)
   const worktreePath = fs.existsSync(wt) ? wt : null
   const tree = worktreePath ?? stored.path
-  const currentRef = await git(tree, 'rev-parse', '--abbrev-ref', 'HEAD')
+  const currentRef = await friendlyRef(tree)
   const porcelain = await git(tree, 'status', '--porcelain')
   return { ...stored, currentRef, dirty: porcelain.length > 0, worktreePath }
+}
+
+/** Human-readable ref for the chip. On a named branch this is the branch; a
+ *  detached tree (the common worktree case — tags/PRs/already-checked-out
+ *  branches all detach) otherwise reports the bare string "HEAD", so resolve
+ *  the exact ref (tag → "v3.16.0", PR → "pull/123/head", branch → "feature/x")
+ *  and fall back to a short SHA when nothing points at the commit. */
+async function friendlyRef(tree: string): Promise<string> {
+  const ref = await git(tree, 'rev-parse', '--abbrev-ref', 'HEAD')
+  if (ref !== 'HEAD') return ref
+  const exact = await git(tree, 'describe', '--all', '--exact-match', 'HEAD').catch(() => '')
+  if (exact) return exact.replace(/^(heads|tags|remotes)\//, '')
+  return git(tree, 'rev-parse', '--short', 'HEAD')
 }
 
 export async function linkWorkspace(
