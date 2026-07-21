@@ -45,7 +45,11 @@ describe('assembleDistillInput', () => {
     setCaseStatus(db, home, 'case-a', 'closed', 'solved')
 
     const input = assembleDistillInput(db, home, 'case-a', [
-      { name: 'analyze-dlt', description: 'DLT skill' }
+      {
+        name: 'analyze-dlt',
+        description: 'DLT skill',
+        content: '---\nname: analyze-dlt\n---\nbody'
+      }
     ])
     expect(input.caseMeta).toMatchObject({ slug: 'case-a', jiraKey: 'AB-1', resolution: 'solved' })
     expect(input.findings).toEqual([
@@ -55,7 +59,13 @@ describe('assembleDistillInput', () => {
         body: expect.stringContaining('Clock resync.')
       }
     ])
-    expect(input.skillsIndex).toEqual([{ name: 'analyze-dlt', description: 'DLT skill' }])
+    expect(input.skillsIndex).toEqual([
+      {
+        name: 'analyze-dlt',
+        description: 'DLT skill',
+        content: '---\nname: analyze-dlt\n---\nbody'
+      }
+    ])
     expect(input.alreadyCaptured.memoryWrites).toEqual([
       { topic: 'dlt-timing', indexEntry: 'entry' }
     ])
@@ -95,10 +105,26 @@ describe('buildReferencesIndex', () => {
     const index = buildReferencesIndex(home)
     expect(index).toEqual(
       expect.arrayContaining([
-        { name: 'titled', summary: 'Run the resync script before escalating.' },
-        { name: 'heading-first', summary: 'The actual useful summary line.' },
-        { name: 'only-heading', summary: 'Only Heading Title' }
+        expect.objectContaining({
+          name: 'titled',
+          summary: 'Run the resync script before escalating.'
+        }),
+        expect.objectContaining({
+          name: 'heading-first',
+          summary: 'The actual useful summary line.'
+        }),
+        expect.objectContaining({ name: 'only-heading', summary: 'Only Heading Title' })
       ])
     )
+  })
+
+  it('carries the full reference file content so a reference-edit can merge into it', () => {
+    const dir = sharedReferencesDir(home)
+    fs.mkdirSync(dir, { recursive: true })
+    const raw = '---\ntitle: DLT Drift Runbook\ntrust_tier: team-knowledge\n---\n\nResync first.\n'
+    fs.writeFileSync(path.join(dir, 'titled.md'), raw)
+
+    const entry = buildReferencesIndex(home).find((r) => r.name === 'titled')
+    expect(entry?.content).toBe(raw)
   })
 })

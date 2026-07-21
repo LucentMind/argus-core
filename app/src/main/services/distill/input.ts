@@ -11,10 +11,14 @@ import { listProposals, listArchivedProposals } from '../proposals'
 import { refTitle, refBody } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
 
-/** Reference name/summary pairs for the shared references/ dir — summary is the first
- *  trimmed, non-blank, non-heading line of the body (matching generateReferencesIndex in
- *  refSync/engine.ts), falling back to the frontmatter title when no such line exists. */
-export function buildReferencesIndex(argusHome: string): { name: string; summary: string }[] {
+/** Reference name/summary/content triples for the shared references/ dir — summary is the
+ *  first trimmed, non-blank, non-heading line of the body (matching generateReferencesIndex in
+ *  refSync/engine.ts), falling back to the frontmatter title when no such line exists; content
+ *  is the full raw file (frontmatter + body) a reference-edit must return with its change
+ *  merged in. */
+export function buildReferencesIndex(
+  argusHome: string
+): { name: string; summary: string; content: string }[] {
   const dir = sharedReferencesDir(argusHome)
   if (!fs.existsSync(dir)) return []
   return fs
@@ -28,7 +32,8 @@ export function buildReferencesIndex(argusHome: string): { name: string; summary
         .find((l) => l && !l.startsWith('#'))
       return {
         name: f.replace(/\.md$/, ''),
-        summary: bodyLine ?? refTitle(raw) ?? ''
+        summary: bodyLine ?? refTitle(raw) ?? '',
+        content: raw
       }
     })
 }
@@ -46,7 +51,7 @@ export function assembleDistillInput(
   db: DatabaseSync,
   argusHome: string,
   slug: string,
-  skillsIndex: { name: string; description: string }[] = []
+  skillsIndex: { name: string; description: string; content: string }[] = []
 ): CaseDistillInput {
   const c = getCase(db, slug)
   if (!c) throw new Error(`Unknown case: ${slug}`)

@@ -28,8 +28,11 @@ export interface CaseDistillInput {
   evidence: { relPath: string; artifactType: string; size: number }[]
   sessionTitles: string[]
   memoryIndex: string
-  skillsIndex: { name: string; description: string }[]
-  referencesIndex: { name: string; summary: string }[]
+  /** `content` is the full current SKILL.md (frontmatter + body) — a skill-edit must
+   *  return the whole file with its change merged in, so the distiller needs it verbatim. */
+  skillsIndex: { name: string; description: string; content: string }[]
+  /** `content` is the full current reference file (frontmatter + body), for the same reason. */
+  referencesIndex: { name: string; summary: string; content: string }[]
   alreadyCaptured: {
     proposals: {
       type: string

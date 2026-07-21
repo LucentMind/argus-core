@@ -400,12 +400,22 @@ function registerIpc(): void {
   refSyncStore.subscribe(() => broadcast(IPC.refsyncChanged, refSync.payload()))
 
   // — case-close distillation (part 3a): mirrors the resolveSkills(...) call used by
-  // skillsPayload() below, filtered to enabled and mapped to the {name, description}
-  // shape the distiller's prompt expects.
-  const skillsIndexForDistill = (): { name: string; description: string }[] =>
+  // skillsPayload() below, filtered to enabled and mapped to the {name, description, content}
+  // shape the distiller's prompt expects. `content` is the tier-winning SKILL.md verbatim —
+  // the same file currentContent() diffs a skill-edit against — so the distiller can return
+  // the whole file with its change merged in (a skill-edit's content is the complete file).
+  const skillsIndexForDistill = (): { name: string; description: string; content: string }[] =>
     resolveSkills(argusHome, agentAccessStore.get())
       .filter((s) => s.enabled)
-      .map((s) => ({ name: s.name, description: s.description }))
+      .map((s) => {
+        let content = ''
+        try {
+          content = fs.readFileSync(path.join(s.dir, 'SKILL.md'), 'utf8')
+        } catch {
+          /* a skill dir with no readable SKILL.md can't be edited; leave content empty */
+        }
+        return { name: s.name, description: s.description, content }
+      })
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
