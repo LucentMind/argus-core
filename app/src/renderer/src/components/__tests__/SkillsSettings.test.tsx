@@ -28,7 +28,6 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => {})
     },
     skills: { list: vi.fn(async () => skills) },
-    proposals: { list: vi.fn(async () => ({ proposals: [] })) },
     usage: {
       stats: vi.fn(async () => ({
         hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '' },
@@ -51,6 +50,11 @@ describe('InstalledSkills', () => {
       'ariaChecked',
       'false'
     )
+    // wiring: each row renders a TierBadge for its tier (chip title = tier explanation)
+    expect(screen.getByTitle('Shipped by a pack.')).toHaveTextContent('bundled')
+    expect(
+      screen.getByTitle('Authored or accepted by you. Can be shared to the HiveMind.')
+    ).toHaveTextContent('user')
   })
 
   it('toggle patches tier-qualified access key and refetches with the flipped state', async () => {
