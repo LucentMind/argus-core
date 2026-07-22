@@ -14,6 +14,7 @@ import type {
   HivemindPushResult,
   PushableItem
 } from '../../shared/hivemind'
+import { PUSHABLE_TIERS } from '../../shared/trustTiers'
 
 const execFileAsync = promisify(execFile)
 
@@ -263,7 +264,7 @@ export class HivemindService {
       const prior = referenceTier(dest)
       const tier = name.startsWith('confluence/')
         ? 'confluence'
-        : prior === 'user' || prior === 'team-knowledge'
+        : (PUSHABLE_TIERS as readonly string[]).includes(prior)
           ? prior
           : 'hivemind'
       const stamped = withFrontmatter(fs.readFileSync(src, 'utf8'), {
@@ -346,7 +347,7 @@ export class HivemindService {
         if (!ent.isFile() || !ent.name.endsWith('.md')) continue
         const block = fmBlock(fs.readFileSync(path.join(rroot, ent.name), 'utf8'))
         const tier = block ? fmField(block.fm, 'trust_tier') : ''
-        if (tier === 'team-knowledge' || tier === 'user')
+        if ((PUSHABLE_TIERS as readonly string[]).includes(tier))
           out.push({ kind: 'reference', name: ent.name })
       }
     }

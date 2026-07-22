@@ -10,16 +10,20 @@ import {
   BookMarked,
   Gauge,
   Package,
+  Inbox,
   type LucideIcon
 } from 'lucide-react'
 import { useSettingsPayload } from '../../lib/settingsStore'
+import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
+import type { ProposalType } from '../../../../shared/proposals'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
 import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
 import { MemorySettings } from './MemorySettings'
 import { SkillsSettings } from './SkillsSettings'
+import { ProposalsPage } from './ProposalsPage'
 import { ReferencesSettings } from './ReferencesSettings'
 import { HivemindSettings } from './HivemindSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
@@ -29,10 +33,11 @@ const PAGES = [
   { id: 'general', label: 'General', enabled: true, Icon: Settings2 },
   { id: 'agent', label: 'Agent', enabled: true, Icon: BrainCog },
   { id: 'connectors', label: 'Connectors', enabled: true, Icon: Cable },
-  { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
+  { id: 'proposals', label: 'Proposals', enabled: true, Icon: Inbox },
   { id: 'skills', label: 'Skills', enabled: true, Icon: Workflow },
   { id: 'memory', label: 'Memory', enabled: true, Icon: HardDrive },
   { id: 'references', label: 'References', enabled: true, Icon: BookMarked },
+  { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
   { id: 'packs', label: 'Packs', enabled: true, Icon: Package },
   { id: 'health', label: 'Health', enabled: true, Icon: HeartPulse },
   { id: 'observability', label: 'Observability', enabled: true, Icon: Gauge }
@@ -48,7 +53,8 @@ const ANCHOR: Partial<Record<PageId, string>> = {
   memory: 'settings-memory',
   skills: 'settings-skills',
   references: 'settings-references',
-  hivemind: 'settings-hivemind'
+  hivemind: 'settings-hivemind',
+  proposals: 'settings-proposals'
 }
 
 export function SettingsView({
@@ -61,9 +67,16 @@ export function SettingsView({
   const [page, setPage] = useState<PageId>(
     initialPage && PAGES.some((p) => p.id === initialPage) ? initialPage : 'general'
   )
+  const [proposalTypes, setProposalTypes] = useState<readonly ProposalType[] | undefined>(undefined)
   const payload = useSettingsPayload()
+  const counts = useProposalCounts()
 
   useEscapeLayer({ onEscape: onClose })
+
+  function openProposals(types: readonly ProposalType[]): void {
+    setProposalTypes(types)
+    setPage('proposals')
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -83,10 +96,21 @@ export function SettingsView({
                   ? 'text-dim hover:bg-hair hover:text-ink'
                   : 'text-faint'
             }`}
-            onClick={() => setPage(p.id)}
+            onClick={() => {
+              setProposalTypes(undefined)
+              setPage(p.id)
+            }}
           >
             <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
             <span className="flex-1">{p.label}</span>
+            {p.id === 'proposals' && (counts?.pendingCount ?? 0) > 0 && (
+              <span
+                aria-hidden="true"
+                className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal"
+              >
+                {counts!.pendingCount}
+              </span>
+            )}
             {!p.enabled && (
               <span className="font-mono text-[9px] uppercase tracking-wide text-faint">soon</span>
             )}
@@ -120,11 +144,21 @@ export function SettingsView({
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
-          {page === 'skills' && <SkillsSettings />}
+          {page === 'proposals' && (
+            <ProposalsPage
+              // Remount on preset change: forces a fresh, unfiltered ProposalsPage whenever a
+              // sidebar/banner navigation changes the type preset, deliberately wiping its
+              // transient state (accepted rows, edit drafts) rather than carrying it forward.
+              key={proposalTypes?.join(',') ?? 'all'}
+              initialTypes={proposalTypes}
+              onOpenHivemind={() => setPage('hivemind')}
+            />
+          )}
+          {page === 'skills' && <SkillsSettings onReviewProposals={openProposals} />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
           {payload && page === 'packs' && <PacksSettings settings={payload} />}
-          {page === 'memory' && <MemorySettings />}
-          {page === 'references' && <ReferencesSettings />}
+          {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
+          {page === 'references' && <ReferencesSettings onReviewProposals={openProposals} />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
         </div>
       </div>

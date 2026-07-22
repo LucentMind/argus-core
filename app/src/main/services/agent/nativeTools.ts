@@ -264,7 +264,7 @@ export function argusToolHandlers(
       })
       return (
         `Proposal drafted: proposals/${file}. It is inert — nothing changes until the user ` +
-        `accepts it on the Skills page (Proposals tab). Do not apply the change yourself.`
+        `accepts it on the Settings → Proposals page. Do not apply the change yourself.`
       )
     },
 
@@ -401,7 +401,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'write_proposal',
     description:
-      'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Skills page. Provide the FULL proposed file content, not a diff.',
+      'Draft a contribute-back proposal (new/edited skill, reference edit, or recipe) as an inert file the user reviews on the Settings → Proposals page. Provide the FULL proposed file content, not a diff.',
     schema: {
       type: z.enum(['skill-new', 'skill-edit', 'reference-edit', 'recipe']),
       target: z.string(),

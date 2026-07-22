@@ -42,7 +42,7 @@ import type {
   BundleWorkspaceRef
 } from '../shared/bundle'
 import type { HivemindCheckResult, HivemindPayload, HivemindPushResult } from '../shared/hivemind'
-import type { ProposalsPayload } from '../shared/proposals'
+import type { AcceptedTarget, ProposalCounts, ProposalsPayload } from '../shared/proposals'
 import type {
   RefSyncPayload,
   SyncReport,
@@ -414,10 +414,18 @@ const argus = {
   },
   proposals: {
     list: (): Promise<ProposalsPayload> => ipcRenderer.invoke(IPC.proposalsList),
-    accept: (file: string, editedContent?: string): Promise<ProposalsPayload> =>
+    accept: (
+      file: string,
+      editedContent?: string
+    ): Promise<ProposalsPayload & { accepted: AcceptedTarget }> =>
       ipcRenderer.invoke(IPC.proposalsAccept, file, editedContent),
     reject: (file: string): Promise<ProposalsPayload> =>
-      ipcRenderer.invoke(IPC.proposalsReject, file)
+      ipcRenderer.invoke(IPC.proposalsReject, file),
+    onChanged: (cb: (c: ProposalCounts) => void): (() => void) => {
+      const listener = (_e: unknown, c: ProposalCounts): void => cb(c)
+      ipcRenderer.on(IPC.proposalsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.proposalsChanged, listener)
+    }
   },
   access: {
     get: (): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessGet),

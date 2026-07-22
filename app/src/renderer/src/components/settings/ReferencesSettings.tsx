@@ -2,15 +2,20 @@ import { useEffect, useState } from 'react'
 import { RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
+import { TierBadge } from './TierBadge'
 import { ModalShell } from '../ModalShell'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
+import { ProposalsBanner } from './ProposalsBanner'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import { useConnectorsPayload } from '../../lib/connectorsStore'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
 import type { ReferenceUsageRow } from '../../../../shared/observability'
+import type { ProposalType } from '../../../../shared/proposals'
+
+const REFERENCE_TYPES: readonly ProposalType[] = ['reference-edit', 'recipe']
 
 /** Atlassian (Rovo preset) OAuth state, checked client-side before the user hits Sync. */
 function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayload>): string | null {
@@ -32,7 +37,11 @@ function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayloa
  * manage selection, remove) plus a searchable reference-file list showing
  * per-file staleness; rows open the in-app markdown viewer.
  */
-export function ReferencesSettings(): React.JSX.Element {
+export function ReferencesSettings({
+  onReviewProposals
+}: {
+  onReviewProposals?: (types: readonly ProposalType[]) => void
+} = {}): React.JSX.Element {
   const payload = useRefSyncPayload()
   const connectors = useConnectorsPayload()
   const tokenWarning = atlassianTokenWarning(connectors)
@@ -94,6 +103,13 @@ export function ReferencesSettings(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
+      {onReviewProposals && (
+        <ProposalsBanner
+          types={REFERENCE_TYPES}
+          noun="references"
+          onReview={() => onReviewProposals(REFERENCE_TYPES)}
+        />
+      )}
       {payload?.loadError && (
         <div
           role="alert"
@@ -228,13 +244,15 @@ export function ReferencesSettings(): React.JSX.Element {
                 )}
               </span>
             </div>
-            {r.tier && <Chip tone="neutral">{r.tier}</Chip>}
+            {r.tier && <TierBadge tier={r.tier} />}
             {r.stale && <Chip tone="danger">stale</Chip>}
           </button>
         ))}
         {references.length === 0 && (
           <div className="px-3 py-2 text-xs text-faint">
-            {activeMatches === null ? 'No reference files yet.' : 'No matches.'}
+            {activeMatches === null
+              ? "No reference files yet — references arrive from Confluence sync, your team's HiveMind, or accepted agent proposals."
+              : 'No matches.'}
           </div>
         )}
       </SettingsSection>

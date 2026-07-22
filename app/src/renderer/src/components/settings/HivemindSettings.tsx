@@ -2,6 +2,8 @@ import { Fragment, useEffect, useState } from 'react'
 import { BookUp, ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
+import { TierBadge } from './TierBadge'
+import { SharePushDialog } from './SharePushDialog'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
@@ -10,7 +12,6 @@ import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
 
 type UpdateConfirm = { kind: 'skill' | 'reference'; name: string; diff: string }
-type PushConfirm = { item: PushableItem; preview: string; title: string }
 
 /** One Browse-tab row plus its inline update-diff panel, expanded directly beneath the row when active. */
 function BrowseRow({
@@ -40,7 +41,12 @@ function BrowseRow({
       <SettingRow
         label={it.name}
         description={it.description || undefined}
-        badge={it.updateAvailable ? <Chip tone="review">update available</Chip> : undefined}
+        badge={
+          <>
+            {it.localTier && <TierBadge tier={it.localTier} />}
+            {it.updateAvailable ? <Chip tone="review">update available</Chip> : undefined}
+          </>
+        }
       >
         {it.updateAvailable ? (
           <Btn
@@ -157,8 +163,7 @@ export function HivemindSettings({
   const [tab, setTab] = useState<HivemindTabId>('browse')
   const [filter, setFilter] = useState('')
   const [updateConfirm, setUpdateConfirm] = useState<UpdateConfirm | null>(null)
-  const [pushConfirm, setPushConfirm] = useState<PushConfirm | null>(null)
-  const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [share, setShare] = useState<PushableItem | null>(null)
   const [check, setCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [checkError, setCheckError] = useState<string | null>(null)
 
@@ -217,44 +222,6 @@ export function HivemindSettings({
     try {
       const diff = await window.argus.hivemind.diff(kind, name)
       setUpdateConfirm({ kind, name, diff })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function openPush(item: PushableItem): Promise<void> {
-    if (busy) return
-    setPrUrl(null)
-    setBusy(true)
-    setError(null)
-    try {
-      const preview = await window.argus.hivemind.pushPreview(item.kind, item.name)
-      setPushConfirm({ item, preview, title: `Add ${item.name}` })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function doPush(): Promise<void> {
-    if (!pushConfirm || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      const r = await window.argus.hivemind.push(
-        pushConfirm.item.kind,
-        pushConfirm.item.name,
-        pushConfirm.title
-      )
-      if (!r.ok) {
-        setError(r.error)
-        return
-      }
-      setPushConfirm(null)
-      setPrUrl(r.prUrl)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -468,15 +435,6 @@ export function HivemindSettings({
 
       {tab === 'share' && (
         <div className="flex flex-col gap-4">
-          {prUrl && (
-            <div className="flex items-center gap-2 text-sm">
-              <Chip tone="signal">PR opened</Chip>
-              <Btn variant="ghost" onClick={() => void window.argus.openExternal(prUrl)}>
-                {prUrl}
-              </Btn>
-            </div>
-          )}
-
           {payload.pushable.length > 0 && (
             <SettingsSection title="Share to HiveMind">
               {payload.pushable.map((it) => (
@@ -486,47 +444,14 @@ export function HivemindSettings({
                       aria-label={`Push ${it.name}`}
                       title="Push to HiveMind…"
                       disabled={busy}
-                      onClick={() => void openPush(it)}
+                      onClick={() => setShare(it)}
                     >
                       <BookUp size={14} />
                     </IconBtn>
                   </SettingRow>
-                  {pushConfirm &&
-                    pushConfirm.item.kind === it.kind &&
-                    pushConfirm.item.name === it.name && (
-                      <div className="flex flex-col gap-2 px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-dim">PR title</span>
-                          <input
-                            aria-label="PR title"
-                            className="h-7 min-w-0 flex-1 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink"
-                            value={pushConfirm.title}
-                            onChange={(e) =>
-                              setPushConfirm({ ...pushConfirm, title: e.target.value })
-                            }
-                          />
-                        </div>
-                        <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs text-dim">
-                          {pushConfirm.preview}
-                        </pre>
-                        <div className="flex items-center gap-2">
-                          <Btn
-                            variant="primary"
-                            disabled={busy || !pushConfirm.title.trim()}
-                            onClick={() => void doPush()}
-                          >
-                            {busy ? 'Pushing…' : 'Open pull request'}
-                          </Btn>
-                          <IconBtn
-                            aria-label="Cancel"
-                            title="Cancel"
-                            onClick={() => setPushConfirm(null)}
-                          >
-                            <X size={14} />
-                          </IconBtn>
-                        </div>
-                      </div>
-                    )}
+                  {share && share.kind === it.kind && share.name === it.name && (
+                    <SharePushDialog kind={it.kind} name={it.name} onClose={() => setShare(null)} />
+                  )}
                 </Fragment>
               ))}
             </SettingsSection>

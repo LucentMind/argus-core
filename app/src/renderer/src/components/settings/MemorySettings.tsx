@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { Archive, ArchiveRestore, Check, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch, TEXTAREA_FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
+import { ProposalsBanner } from './ProposalsBanner'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
 import type { UsageStatsPayload, MemoryUsageRow } from '../../../../shared/observability'
+import type { ProposalType } from '../../../../shared/proposals'
+
+const MEMORY_TYPES: readonly ProposalType[] = ['memory-append']
 
 /**
  * A readable summary for an audit row. The audit stores two `indexEntry` shapes: an agent
@@ -105,7 +109,11 @@ function MemoryEditor({
   )
 }
 
-export function MemorySettings(): React.JSX.Element {
+export function MemorySettings({
+  onReviewProposals
+}: {
+  onReviewProposals?: (types: readonly ProposalType[]) => void
+} = {}): React.JSX.Element {
   const access = useAccessPayload() // keeps enablement live via access:changed
   const [payload, setPayload] = useState<MemoryTopicsPayload | null>(null)
   const [audit, setAudit] = useState<MemoryAuditEntry[]>([])
@@ -202,6 +210,13 @@ export function MemorySettings(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
+      {onReviewProposals && (
+        <ProposalsBanner
+          types={MEMORY_TYPES}
+          noun="memory"
+          onReview={() => onReviewProposals(MEMORY_TYPES)}
+        />
+      )}
       {error && (
         <div
           role="alert"

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { SettingsView } from '../settings/SettingsView'
 import { SetupWizard } from '../onboarding/SetupWizard'
 import { settingsStore } from '../../lib/settingsStore'
+import { proposalsStore } from '../../lib/proposalsStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
@@ -56,6 +58,10 @@ beforeEach(() => {
   // test's fresh <SettingsView/> mount refetches against this test's mocked payload
   // instead of reusing whatever an earlier test in this file already cached.
   settingsStore.reset()
+  // Same story for the proposals badge count store — reset so each test's mount
+  // refetches against this test's mocked proposals.list instead of reusing an
+  // earlier test's cached count.
+  proposalsStore.reset()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),
@@ -116,6 +122,17 @@ beforeEach(() => {
         login: 'jiawiehan',
         detail: 'Logged in to github.com account jiawiehan'
       })
+    },
+    proposals: {
+      list: vi.fn(async () => ({ proposals: [] })),
+      onChanged: vi.fn(() => () => {})
+    },
+    skills: {
+      list: vi.fn(async () => ({ skills: [] })),
+      deleteUser: vi.fn()
+    },
+    usage: {
+      stats: vi.fn(async () => ({ hygiene: null, skills: [] }))
     }
   } as never
 })
@@ -149,10 +166,11 @@ describe('SettingsView', () => {
       'General',
       'Agent',
       'Connectors',
-      'HiveMind',
+      'Proposals',
       'Skills',
       'Memory',
       'References',
+      'HiveMind',
       'Packs',
       'Health',
       'Observability'
@@ -255,5 +273,57 @@ describe('SettingsView', () => {
     const alert = await screen.findByRole('alert')
     expect(screen.queryByText(/could not be parsed/)).toBeNull()
     expect(alert.textContent).toContain('settings save failed: EACCES')
+  })
+
+  it('sidebar shows Proposals with a pending-count badge', async () => {
+    window.argus.proposals = {
+      list: vi.fn(async () => ({ proposals: [{ type: 'skill-new' }, { type: 'recipe' }] })),
+      onChanged: vi.fn(() => () => {})
+    } as never
+    render(<SettingsView onClose={vi.fn()} />)
+    const btn = await screen.findByRole('button', { name: /Proposals/ })
+    await waitFor(() => expect(btn).toHaveTextContent('2'))
+  })
+
+  it('visiting Proposals via the sidebar after a banner preset clears the stale filter', async () => {
+    // Regression: ProposalsPage seeded its chip-filter state from initialTypes in a
+    // useState initializer only. Clicking the sidebar's own "Proposals" entry while
+    // already on the (preset-filtered) Proposals page called setProposalTypes(undefined)
+    // without remounting the page, so the stale filter chip stayed pressed. The fix keys
+    // <ProposalsPage> on the preset so a changed preset forces a remount.
+    window.argus.proposals = {
+      list: vi.fn(async () => ({
+        proposals: [
+          {
+            file: 'p1.json',
+            caseSlug: 'case-1',
+            date: '2026-07-20T00:00:00.000Z',
+            type: 'skill-new',
+            target: 'some-skill',
+            title: 'New skill proposal',
+            current: null,
+            previouslyReviewed: false,
+            content: 'content'
+          }
+        ]
+      })),
+      onChanged: vi.fn(() => () => {})
+    } as never
+    render(<SettingsView onClose={vi.fn()} />)
+    await screen.findByRole('button', { name: /General/ })
+
+    // Go to Skills and use the banner's "Review ->" to open Proposals pre-filtered.
+    fireEvent.click(screen.getByRole('button', { name: /^Skills$/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Review/ }))
+
+    const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+
+    // Now click the sidebar's own Proposals entry while already on the Proposals page.
+    // (The pending-count badge is aria-hidden, so the accessible name stays exactly "Proposals".)
+    fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
+
+    const chipAfter = await screen.findByRole('button', { name: 'Filter Skill · new' })
+    expect(chipAfter).toHaveAttribute('aria-pressed', 'false')
   })
 })
