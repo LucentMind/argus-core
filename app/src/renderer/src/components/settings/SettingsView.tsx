@@ -89,6 +89,19 @@ export function SettingsView({
 
   useEscapeLayer({ onEscape: onClose })
 
+  // App mounts this view without a key, so a deep link fired while Settings is
+  // already open only changes `initialPage` — the state seeded above must follow
+  // it (viewReducer's "switch pages instead of closing" contract). Adjust-state-
+  // during-render, per react.dev's "you might not need an effect".
+  const [lastDeepLink, setLastDeepLink] = useState(initialPage)
+  if (initialPage !== lastDeepLink) {
+    setLastDeepLink(initialPage)
+    const next = resolveDeepLink(initialPage)
+    setProposalTypes(undefined)
+    setLibraryKind(next.kind)
+    setPage(next.page)
+  }
+
   /** All internal navigation funnels through here so page presets never leak across pages. */
   function goTo(p: PageId): void {
     setProposalTypes(undefined)

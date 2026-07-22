@@ -397,6 +397,36 @@ describe('SettingsView', () => {
     expect(await screen.findByText('Installed Packs')).toBeInTheDocument()
   })
 
+  it('a deep link arriving while Settings is already open switches the visible page', async () => {
+    // App.tsx mounts <SettingsView initialPage={view.page}/> without a key, so a
+    // deep link fired while Settings is open (onboarding "configure in Settings",
+    // tour, gotoSettings) only changes the prop — the view must follow it.
+    const onClose = vi.fn()
+    const { rerender } = render(<SettingsView onClose={onClose} />)
+    await screen.findByRole('button', { name: /General/ })
+    rerender(<SettingsView onClose={onClose} initialPage={'health'} />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^Health$/ }).className).toContain('bg-hi')
+    )
+    expect(await screen.findByText('Health checks')).toBeInTheDocument()
+  })
+
+  it('a legacy-alias deep link while open lands on Library with the kind preset', async () => {
+    const onClose = vi.fn()
+    const { rerender } = render(<SettingsView onClose={onClose} />)
+    await screen.findByRole('button', { name: /General/ })
+    rerender(<SettingsView onClose={onClose} initialPage={'skills'} />)
+    // Scoped to the nav: the knowledge-flow strip on the Library page also says "Library".
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    expect((await within(nav).findByRole('button', { name: 'Library' })).className).toContain(
+      'bg-hi'
+    )
+    expect(await screen.findByRole('button', { name: 'Filter kind · skill' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
   it('knowledge strip shows on Library and Proposals and its terms navigate', async () => {
     render(<SettingsView onClose={vi.fn()} initialPage={'library'} />)
     await userEvent.click(await screen.findByRole('button', { name: 'share back to the team' }))
