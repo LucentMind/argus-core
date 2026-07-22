@@ -57,7 +57,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: 'settings-library',
     view: 'settings',
     narration:
-      'References sync docs from Confluence so the agent can cite your teams knowledge. Synced references live in the Library beside your skills.',
+      "References sync docs from Confluence so the agent can cite your team's knowledge. Synced references live in the Library beside your skills.",
     requiresIntegration: 'confluence',
     explain:
       'References sync documentation from Confluence for the agent to cite. Connect Confluence in Settings > Connectors to enable it.'
@@ -68,7 +68,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: 'settings-team',
     view: 'settings',
     narration:
-      'HiveMind shares skills and reference docs with your team via a git repo. Browse and install your teams shared content here, or share your own from the Library — nothing is pushed without your confirmation.',
+      "HiveMind shares skills and reference docs with your team via a git repo. Browse and install your team's shared content here, or share your own from the Library — nothing is pushed without your confirmation.",
     requiresIntegration: 'hive',
     explain:
       'HiveMind shares skills and reference docs with your team through a git repo. Set a repo in Settings > Team to enable it.'
