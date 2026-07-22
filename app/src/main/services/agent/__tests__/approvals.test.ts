@@ -61,3 +61,43 @@ describe('SessionGrants', () => {
     expect(g.has('ws:repo')).toBe(true)
   })
 })
+
+import { PendingDialogs, type DialogOutcome } from '../approvals'
+
+describe('PendingDialogs', () => {
+  const done = (answers: Record<string, string>): DialogOutcome => ({
+    behavior: 'completed',
+    result: { answers }
+  })
+
+  it('resolves an open dialog with the operator answer', async () => {
+    const pd = new PendingDialogs()
+    const p = pd.open('d1')
+    expect(pd.size).toBe(1)
+    expect(pd.resolve('d1', done({ Q: 'A' }))).toBe(true)
+    await expect(p).resolves.toEqual({ behavior: 'completed', result: { answers: { Q: 'A' } } })
+    expect(pd.size).toBe(0)
+  })
+
+  it('returns false for unknown dialogIds', () => {
+    expect(new PendingDialogs().resolve('nope', done({}))).toBe(false)
+  })
+
+  it('cancels on abort signal', async () => {
+    const pd = new PendingDialogs()
+    const ac = new AbortController()
+    const p = pd.open('d2', ac.signal)
+    ac.abort()
+    await expect(p).resolves.toEqual({ behavior: 'cancelled' })
+    expect(pd.size).toBe(0)
+  })
+
+  it('drain cancels everything pending and reports ids', async () => {
+    const pd = new PendingDialogs()
+    const p1 = pd.open('a')
+    const p2 = pd.open('b')
+    expect(pd.drain().sort()).toEqual(['a', 'b'])
+    await expect(p1).resolves.toEqual({ behavior: 'cancelled' })
+    await expect(p2).resolves.toEqual({ behavior: 'cancelled' })
+  })
+})
