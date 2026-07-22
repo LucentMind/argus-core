@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, Fragment } from 'react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
-import { Btn, Chip, IconBtn } from '../ui'
+import { Btn, Chip } from '../ui'
 import { TierBadge } from './TierBadge'
-import { BookUp } from 'lucide-react'
+import { Share2 } from 'lucide-react'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
@@ -130,7 +130,8 @@ export function InstalledSkills(): React.JSX.Element {
                   >
                     {s.tier === 'user' && (
                       <>
-                        <IconBtn
+                        <Btn
+                          variant="outline"
                           aria-label={`Share ${s.name} to HiveMind`}
                           title={shareTip}
                           // sharePushing: opening another row's dialog would unmount an
@@ -138,8 +139,9 @@ export function InstalledSkills(): React.JSX.Element {
                           disabled={!shareReady || sharePushing}
                           onClick={() => setSharing(sharing === s.name ? null : s.name)}
                         >
-                          <BookUp size={14} />
-                        </IconBtn>
+                          <Share2 size={13} aria-hidden="true" />
+                          Share
+                        </Btn>
                         <Btn
                           variant={adopt ? 'outline' : 'danger'}
                           aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
