@@ -60,6 +60,7 @@ function BrowseRow({
           <Btn
             variant="outline"
             aria-label={`Download ${it.name}`}
+            className="w-28 justify-center"
             disabled={busy}
             onClick={onInstall}
           >
@@ -92,6 +93,7 @@ function BrowseRow({
           <Btn
             variant="dangerSolid"
             aria-label={`Remove ${it.name}`}
+            className="w-28 justify-center"
             disabled={busy}
             onClick={() => {
               void askConfirm({
