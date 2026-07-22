@@ -384,7 +384,9 @@ const argus = {
   skills: {
     list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList),
     deleteUser: (name: string): Promise<SkillsPayload> =>
-      ipcRenderer.invoke(IPC.skillsDeleteUser, name)
+      ipcRenderer.invoke(IPC.skillsDeleteUser, name),
+    read: (name: string): Promise<{ name: string; content: string }> =>
+      ipcRenderer.invoke(IPC.skillsRead, name)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
