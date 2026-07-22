@@ -288,7 +288,7 @@ export class AgentService {
     caseSlug: string,
     sessionId: number,
     input: { source: { url: string } | { bytes: Buffer }; filename: string }
-  ): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }> {
+  ): Promise<{ ok: true; evidenceId: string; relPath: string } | { ok: false; reason: string }> {
     const s = await this.getOrCreate(caseSlug, sessionId)
     return s.ingestPanelEvidence(input)
   }

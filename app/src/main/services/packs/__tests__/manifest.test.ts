@@ -295,15 +295,16 @@ describe('windows[] schema', () => {
 })
 
 describe('packWindowSchema · 3b write permissions', () => {
-  it('accepts the write verbs cite/emitFinding/sendToAgent', () => {
+  it('accepts the write verbs cite/emitFinding/sendToAgent/sendImageToAgent', () => {
     const parsed = packWindowSchema.parse({
       id: 'pg',
       kind: 'webPanel',
       title: 'PG',
       entry: 'pg/index.html',
-      permissions: ['getCaseContext', 'cite', 'emitFinding', 'sendToAgent']
+      permissions: ['getCaseContext', 'cite', 'emitFinding', 'sendToAgent', 'sendImageToAgent']
     })
     expect(parsed.permissions).toContain('emitFinding')
+    expect(parsed.permissions).toContain('sendImageToAgent')
   })
 
   it('rejects an unknown permission verb', () => {

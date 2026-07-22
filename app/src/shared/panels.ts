@@ -7,6 +7,7 @@ export type PanelPermission =
   | 'cite'
   | 'emitFinding'
   | 'sendToAgent'
+  | 'sendImageToAgent'
   | 'readCaseFiles'
   | 'ingestEvidence'
   | 'listCaseEvidence'
@@ -29,6 +30,7 @@ export const PANEL_BRIDGE_CHANNELS = {
   cite: 'panels:cite',
   emitFinding: 'panels:emit-finding',
   sendToAgent: 'panels:send-to-agent',
+  sendImageToAgent: 'panels:send-image-to-agent',
   ingestEvidence: 'panels:ingest-evidence',
   theme: 'panels:theme',
   command: 'panels:command',
@@ -97,6 +99,13 @@ export function buildPanelApi(permissions: string[], invoke: PanelInvoke): Recor
   if (permissions.includes('sendToAgent')) {
     api.sendToAgent = (text: string): Promise<unknown> =>
       invoke(PANEL_BRIDGE_CHANNELS.sendToAgent, text)
+  }
+  if (permissions.includes('sendImageToAgent')) {
+    api.sendImageToAgent = (input: {
+      bytes: ArrayBuffer | Uint8Array
+      filename: string
+      caption?: string
+    }): Promise<unknown> => invoke(PANEL_BRIDGE_CHANNELS.sendImageToAgent, input)
   }
   if (permissions.includes('ingestEvidence')) {
     api.ingestEvidence = (input: {

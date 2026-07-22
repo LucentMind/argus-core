@@ -68,7 +68,12 @@ it('raises a MEDIUM editable card and, on approve, ingests the (edited) filename
   })
   const res = await p
   expect(res.ok).toBe(true)
-  if (res.ok) expect(Number(res.evidenceId)).toBeGreaterThan(0)
+  if (res.ok) {
+    expect(Number(res.evidenceId)).toBeGreaterThan(0)
+    // relPath reflects the operator-EDITED name (not the panel's original), so a caller
+    // composing a "Read this" hint points at the real on-disk file.
+    expect(res.relPath).toBe('evidence/renamed.txt')
+  }
   expect(
     fs.readFileSync(path.join(caseDir(home, 'NAV-1'), 'evidence', 'renamed.txt'), 'utf8')
   ).toBe('hello from panel')
@@ -176,7 +181,11 @@ describe('url source', () => {
     const opened = events.find((e) => e.type === 'request.opened')!
     svc.respond('NAV-1', s.id, { requestId: opened.payload.requestId, kind: 'allow' })
     const res = await p
-    expect(res).toEqual({ ok: true, evidenceId: expect.any(String) })
+    expect(res).toEqual({
+      ok: true,
+      evidenceId: expect.any(String),
+      relPath: 'evidence/remote.bin'
+    })
     expect(
       fs.readFileSync(path.join(caseDir(home, 'NAV-1'), 'evidence', 'remote.bin'), 'utf8')
     ).toBe('remote bytes')
