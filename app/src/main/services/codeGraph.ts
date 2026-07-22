@@ -356,7 +356,7 @@ export class CodeGraphService {
     if (await has('pipx')) return attempt('pipx', ['install', '--force', 'graphifyy'])
     return {
       ok: false,
-      log: 'Neither uv nor pipx found. Install manually: uv tool install graphifyy (or pipx install graphifyy), then set the path in Settings → Packs.'
+      log: 'Neither uv nor pipx found. Install manually: uv tool install graphifyy (or pipx install graphifyy), then set the path in Settings → Sources.'
     }
   }
 }

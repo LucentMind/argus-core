@@ -1,12 +1,12 @@
-import type { PageId } from '../components/settings/SettingsView'
+import type { SettingsDeepLink } from '../components/settings/SettingsView'
 
 export type View =
   | { kind: 'home' }
   | { kind: 'case'; slug: string }
-  | { kind: 'settings'; page?: PageId }
+  | { kind: 'settings'; page?: SettingsDeepLink }
   | { kind: 'observability' }
 
-export type ViewAction = { kind: 'settings'; page?: PageId } | { kind: 'observability' }
+export type ViewAction = { kind: 'settings'; page?: SettingsDeepLink } | { kind: 'observability' }
 
 /**
  * Pure view-transition logic shared by the Settings and Observability toolbar

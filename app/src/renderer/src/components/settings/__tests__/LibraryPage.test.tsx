@@ -2,9 +2,11 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { InstalledSkills } from '../InstalledSkills'
+import { LibraryPage } from '../LibraryPage'
 import { confirm } from '../../../lib/confirmStore'
+import { referenceSyncStore } from '../../../lib/referenceSyncStore'
 import type { SkillsPayload } from '../../../../../shared/memoryIpc'
+import type { RefSyncPayload } from '../../../../../shared/referenceSync'
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -56,15 +58,38 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
   }
 }
 
+const refPayload: RefSyncPayload = {
+  config: { spaces: [] } as unknown as RefSyncPayload['config'],
+  loadError: null,
+  cards: [],
+  references: [
+    { file: 'team-tips.md', tier: 'user', lastSynced: null, sourceCount: 0, stale: false },
+    {
+      file: 'nav-runbook.md',
+      tier: 'confluence',
+      lastSynced: '2026-07-20T00:00:00.000Z',
+      sourceCount: 3,
+      stale: true
+    }
+  ]
+}
+
 function mockArgus(): {
   skills: { list: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> }
   usage: { stats: ReturnType<typeof vi.fn> }
+  access: { patch: ReturnType<typeof vi.fn> }
   hivemind: {
     get: ReturnType<typeof vi.fn>
     pushPreview: ReturnType<typeof vi.fn>
     push: ReturnType<typeof vi.fn>
   }
   sourceControl: { status: ReturnType<typeof vi.fn> }
+  refsync: {
+    get: ReturnType<typeof vi.fn>
+    onChanged: ReturnType<typeof vi.fn>
+    searchRefs: ReturnType<typeof vi.fn>
+    readRef: ReturnType<typeof vi.fn>
+  }
   openExternal: ReturnType<typeof vi.fn>
 } {
   return {
@@ -92,7 +117,9 @@ function mockArgus(): {
           }
         ],
         memory: [],
-        references: [],
+        references: [
+          { relPath: 'team-tips.md', readCount: 4, lastReadAt: '2026-07-21T00:00:00.000Z' }
+        ],
         archived: []
       })
     },
@@ -111,6 +138,15 @@ function mockArgus(): {
         .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/12' })
     },
     sourceControl: { status: vi.fn().mockResolvedValue(ghOk) },
+    access: {
+      patch: vi.fn().mockResolvedValue({ access: { skills: {}, memory: {} }, loadError: null })
+    },
+    refsync: {
+      get: vi.fn().mockResolvedValue(refPayload),
+      onChanged: vi.fn(() => () => {}),
+      searchRefs: vi.fn().mockResolvedValue([]),
+      readRef: vi.fn().mockResolvedValue({ file: 'team-tips.md', content: '# Team tips\n' })
+    },
     openExternal: vi.fn()
   }
 }
@@ -118,14 +154,15 @@ function mockArgus(): {
 let argus: ReturnType<typeof mockArgus>
 
 beforeEach(() => {
+  referenceSyncStore.reset()
   argus = mockArgus()
   ;(window as unknown as { argus: unknown }).argus = argus
   vi.mocked(confirm).mockResolvedValue(true)
 })
 
-describe('InstalledSkills delete/adopt actions', () => {
+describe('LibraryPage delete/adopt actions', () => {
   it('user skill shadowing hivemind gets "Adopt upstream"; confirm deletes and refreshes', async () => {
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Adopt upstream · rca' }))
     expect(confirm).toHaveBeenCalled()
     await waitFor(() => expect(argus.skills.deleteUser).toHaveBeenCalledWith('rca'))
@@ -135,21 +172,21 @@ describe('InstalledSkills delete/adopt actions', () => {
   })
 
   it('plain user skill gets a Delete action', async () => {
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Delete · my-notes' }))
     await waitFor(() => expect(argus.skills.deleteUser).toHaveBeenCalledWith('my-notes'))
   })
 
   it('cancelling the confirm leaves the skill alone', async () => {
     vi.mocked(confirm).mockResolvedValue(false)
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Adopt upstream · rca' }))
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(argus.skills.deleteUser).not.toHaveBeenCalled()
   })
 
   it('hivemind and bundled rows offer no delete action', async () => {
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     await screen.findByText('hive-probe')
     expect(screen.queryByRole('button', { name: /hive-probe/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /analyze-applog/ })).not.toBeInTheDocument()
@@ -157,7 +194,7 @@ describe('InstalledSkills delete/adopt actions', () => {
 
   it('a rejected delete surfaces an error and keeps the list', async () => {
     argus.skills.deleteUser = vi.fn().mockRejectedValue(new Error('EPERM: locked'))
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Adopt upstream · rca' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/EPERM: locked/)
@@ -165,102 +202,108 @@ describe('InstalledSkills delete/adopt actions', () => {
   })
 })
 
-describe('InstalledSkills usage stats', () => {
+describe('LibraryPage usage stats', () => {
   it('shows activation count and last-used date per skill', async () => {
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     expect(await screen.findByText(/12× · last 2026-07-18/)).toBeInTheDocument()
   })
   it('flags never-activated skills', async () => {
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     expect(await screen.findByText('never activated')).toBeInTheDocument()
   })
   it('renders normally when usage stats fail', async () => {
     argus.usage.stats = vi.fn().mockRejectedValue(new Error('boom'))
-    render(<InstalledSkills />)
+    render(<LibraryPage />)
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
     expect(screen.queryByText('never activated')).not.toBeInTheDocument()
   })
 })
 
-describe('InstalledSkills share-in-place', () => {
-  it('user-tier rows get a Share button (enabled when repo + gh are ready); other tiers do not', async () => {
-    render(<InstalledSkills />)
-    const share = await screen.findByRole('button', { name: 'Share rca to HiveMind' })
-    await waitFor(() => expect(share).not.toBeDisabled())
-    expect(screen.getByRole('button', { name: 'Share my-notes to HiveMind' })).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Share hive-probe to HiveMind' })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Share analyze-applog to HiveMind' })
-    ).not.toBeInTheDocument()
-  })
-
-  it('Share is disabled with a HiveMind pointer when gh is not authenticated', async () => {
-    argus.sourceControl.status = vi
+describe('LibraryPage toggle', () => {
+  it('toggle patches tier-qualified access key and refetches with the flipped state', async () => {
+    const list = vi
       .fn()
-      .mockResolvedValue({ ...ghOk, installed: false, authenticated: false })
-    render(<InstalledSkills />)
-    const share = await screen.findByRole('button', { name: 'Share rca to HiveMind' })
-    expect(share).toBeDisabled()
-    expect(share).toHaveAttribute('title', expect.stringMatching(/Settings → HiveMind/))
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce({
+        skills: initial.skills.map((s) => (s.name === 'rca' ? { ...s, enabled: false } : s))
+      })
+    argus.skills.list = list
+
+    render(<LibraryPage />)
+    const toggle = await screen.findByRole('switch', { name: 'enabled · user/rca' })
+    expect(toggle).toHaveProperty('ariaChecked', 'true')
+
+    fireEvent.click(toggle)
+    await waitFor(() =>
+      expect(window.argus.access.patch).toHaveBeenCalledWith({ skills: { 'user/rca': false } })
+    )
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'enabled · user/rca' })).toHaveProperty(
+        'ariaChecked',
+        'false'
+      )
+    )
+  })
+})
+
+describe('LibraryPage merged list', () => {
+  it('groups both kinds by tier, kind mixed within a group', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    // user group holds user skills AND the user-tier reference
+    const userSection = screen.getByText('User').closest('section') ?? document.body
+    expect(await screen.findByText('team-tips.md')).toBeInTheDocument()
+    expect(screen.getByText('my-notes')).toBeInTheDocument()
+    // confluence-tier reference lands in its own group
+    expect(screen.getByText('Confluence')).toBeInTheDocument()
+    expect(screen.getByText('nav-runbook.md')).toBeInTheDocument()
+    // bundled skill grouped under Bundled
+    expect(screen.getByText('Bundled')).toBeInTheDocument()
+    expect(userSection).toBeTruthy()
   })
 
-  it('Share is disabled when no HiveMind repo is configured', async () => {
-    argus.hivemind.get = vi.fn().mockResolvedValue({
-      repo: '',
-      state: 'dormant',
-      error: null,
-      headCommit: null,
-      lastSynced: null,
-      items: [],
-      pushable: [],
-      pushes: {}
+  it('every row carries a kind chip', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    expect(screen.getAllByText('skill').length).toBeGreaterThanOrEqual(4)
+    expect(screen.getAllByText('reference').length).toBe(2)
+  })
+
+  it('clicking a reference row opens the markdown viewer', async () => {
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'open · team-tips.md' }))
+    expect(await screen.findByRole('dialog', { name: /team-tips\.md/ })).toBeInTheDocument()
+  })
+
+  it('reference rows show stale chip and read-count usage', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('nav-runbook.md')
+    expect(screen.getByText('stale')).toBeInTheDocument()
+    expect(await screen.findByText(/4 reads/)).toBeInTheDocument()
+  })
+
+  it('flags never-read reference files (present zero-count usage entry)', async () => {
+    argus.usage.stats = vi.fn().mockResolvedValue({
+      hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
+      skills: [],
+      memory: [],
+      references: [{ relPath: 'nav-runbook.md', readCount: 0, lastReadAt: null }],
+      archived: []
     })
-    render(<InstalledSkills />)
-    const share = await screen.findByRole('button', { name: 'Share rca to HiveMind' })
-    expect(share).toBeDisabled()
+    render(<LibraryPage />)
+    await screen.findByText('nav-runbook.md')
+    expect(await screen.findByText(/never read/)).toBeInTheDocument()
   })
 
-  it('Share opens the push dialog inline; push links the PR; closing refetches receipts', async () => {
-    render(<InstalledSkills />)
-    const share = await screen.findByRole('button', { name: 'Share rca to HiveMind' })
-    await waitFor(() => expect(share).not.toBeDisabled())
-    fireEvent.click(share)
-    expect(await screen.findByText('# rca')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
-    await waitFor(() => expect(argus.hivemind.push).toHaveBeenCalledWith('skill', 'rca', 'Add rca'))
-    expect(await screen.findByRole('button', { name: /pull\/12/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-    await waitFor(() => expect(argus.hivemind.get).toHaveBeenCalledTimes(2))
-  })
-
-  it('a push receipt renders a PR chip that opens externally', async () => {
-    render(<InstalledSkills />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Open PR · my-notes' }))
-    expect(argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/hivemind/pull/9')
-    expect(screen.queryByRole('button', { name: 'Open PR · rca' })).not.toBeInTheDocument()
-  })
-
-  it('Share buttons disable while any push is in flight; re-enable when it settles', async () => {
-    let pushResolve: (v: unknown) => void
-    const pushPromise = new Promise((resolve) => {
-      pushResolve = resolve
-    })
-    argus.hivemind.push = vi.fn().mockReturnValue(pushPromise)
-    render(<InstalledSkills />)
-    const shareRca = await screen.findByRole('button', { name: 'Share rca to HiveMind' })
-    const shareNotes = screen.getByRole('button', { name: 'Share my-notes to HiveMind' })
-    await waitFor(() => expect(shareRca).not.toBeDisabled())
-    // Click Share on rca and start the push
-    fireEvent.click(shareRca)
-    expect(await screen.findByText('# rca')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
-    // While push is in flight, my-notes Share button should be disabled
-    await waitFor(() => expect(shareNotes).toBeDisabled())
-    // Resolve the push
-    pushResolve!({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/12' })
-    // After push settles, my-notes Share button should re-enable
-    await waitFor(() => expect(shareNotes).not.toBeDisabled())
+  it('empty user group teaches where content comes from', async () => {
+    argus.skills.list.mockResolvedValue({ skills: [] })
+    argus.refsync.get.mockResolvedValue({ ...refPayload, references: [] })
+    render(<LibraryPage />)
+    expect(
+      await screen.findByText(
+        'Nothing here yet — skills and references you accept from agent proposals land here.'
+      )
+    ).toBeInTheDocument()
   })
 })

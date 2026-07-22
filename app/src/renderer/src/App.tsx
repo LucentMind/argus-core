@@ -8,7 +8,7 @@ import { NewCaseDialog } from './components/NewCaseDialog'
 import { OnboardingProvider } from './components/onboarding/OnboardingProvider'
 import { ObservabilityView } from './components/observability/ObservabilityView'
 import { SearchBar } from './components/SearchBar'
-import { SettingsView, type PageId } from './components/settings/SettingsView'
+import { SettingsView, type SettingsDeepLink } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
 import { citationsTray } from './lib/citationsTray'
@@ -120,7 +120,7 @@ function App(): React.JSX.Element {
     if (view.kind === 'home' || view.kind === 'case') setPrevView(view)
   }
 
-  function openSettings(page?: PageId): void {
+  function openSettings(page?: SettingsDeepLink): void {
     // The TopBar gear calls this with no page, so a second click toggles shut
     // (nextView returns to prevView). A page argument is a deep link and must
     // switch pages instead, even while already on Settings -- see
@@ -133,7 +133,7 @@ function App(): React.JSX.Element {
   // deep-links and the feature tour's settings steps) can't accidentally invoke
   // the gear's close-on-repeat behavior. openSettings stays the toggle for the
   // gear itself.
-  function gotoSettings(page?: PageId): void {
+  function gotoSettings(page?: SettingsDeepLink): void {
     recordPrevView()
     setView({ kind: 'settings', page })
   }
@@ -254,7 +254,7 @@ function App(): React.JSX.Element {
       )}
       <OnboardingProvider
         onNavigate={(view, target) => {
-          if (view === 'settings') gotoSettings(target as PageId | undefined)
+          if (view === 'settings') gotoSettings(target as SettingsDeepLink | undefined)
           else if (target) openCase(target)
         }}
       />
