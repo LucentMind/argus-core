@@ -132,6 +132,7 @@ export const IPC = {
   refsyncApplyDrafts: 'refsync:apply-drafts',
   refsyncReadRef: 'refsync:read-ref',
   refsyncSearchRefs: 'refsync:search-refs',
+  refsyncDeleteRef: 'refsync:delete-ref',
   refsyncChanged: 'refsync:changed',
   refsyncProgress: 'refsync:progress',
   metricsGlobal: 'metrics:global',

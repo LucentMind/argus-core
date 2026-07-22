@@ -470,6 +470,7 @@ const argus = {
       ipcRenderer.invoke(IPC.refsyncReadRef, file),
     searchRefs: (query: string): Promise<string[]> =>
       ipcRenderer.invoke(IPC.refsyncSearchRefs, query),
+    deleteRef: (file: string): Promise<void> => ipcRenderer.invoke(IPC.refsyncDeleteRef, file),
     onChanged: (cb: (p: RefSyncPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: RefSyncPayload): void => cb(p)
       ipcRenderer.on(IPC.refsyncChanged, listener)
