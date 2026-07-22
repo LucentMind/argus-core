@@ -76,7 +76,7 @@ beforeEach(() => {
 })
 
 describe('MemorySettings', () => {
-  it('lists topics with enablement and the audit feed', async () => {
+  it('lists topics with enablement, and the audit feed lives on its own tab', async () => {
     render(<MemorySettings />)
     expect(await screen.findByText('tile-blocks')).toBeTruthy()
     expect(screen.getByRole('switch', { name: 'enabled · binder' })).toHaveProperty(
@@ -84,6 +84,9 @@ describe('MemorySettings', () => {
       'false'
     )
     expect(screen.getByText(/2 \/ 200/)).toBeTruthy() // index line budget
+    expect(screen.queryByText('NAV-1')).toBeNull() // audit is on its own tab, not shown by default
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Audit' }))
     expect(await screen.findByText('NAV-1')).toBeTruthy() // audit case chip
   })
 

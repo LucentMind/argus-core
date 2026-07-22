@@ -12,6 +12,12 @@ import type { ProposalType } from '../../../../shared/proposals'
 
 const MEMORY_TYPES: readonly ProposalType[] = ['memory-append']
 
+const TABS = [
+  { id: 'topics', label: 'Topics' },
+  { id: 'audit', label: 'Audit' }
+] as const
+type MemoryTabId = (typeof TABS)[number]['id']
+
 /**
  * A readable summary for an audit row. The audit stores two `indexEntry` shapes: an agent
  * write keeps the bare description, while archive/restore save the whole
@@ -121,6 +127,7 @@ export function MemorySettings({
   const [editing, setEditing] = useState<string | null>(null) // topic name or '_index'
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<MemoryTabId>('topics')
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.memory.topics())
@@ -225,136 +232,159 @@ export function MemorySettings({
           {error}
         </div>
       )}
-      <SettingsSection title="Memory index">
-        <SettingRow
-          label="_index.md"
-          description="Always injected into every session. Line budget guards context size."
-          stacked={editing === '_index'}
-        >
-          <Chip tone={payload.indexLines >= payload.capLines ? 'danger' : 'neutral'}>
-            {payload.indexLines} / {payload.capLines} lines
-          </Chip>
-          <EditToggle
-            name="_index"
-            open={editing === '_index'}
-            onOpen={() => void openEditor('_index')}
-            onSave={() => void save('_index')}
-          />
-        </SettingRow>
-        {editing === '_index' && (
-          <MemoryEditor
-            name="_index"
-            value={draft}
-            onChange={setDraft}
-            onSave={() => void save('_index')}
-            onCancel={cancel}
-          />
-        )}
-      </SettingsSection>
 
-      <SettingsSection title="Topics">
-        {payload.topics.length === 0 && (
-          <div className="px-3 py-2 text-xs text-dim">
-            No topics yet — the agent records lessons here after an RCA (via write_memory).
-          </div>
-        )}
-        {payload.topics.map((t) => {
-          const u = usage?.memory.find((m) => m.topic === t.name)
-          return (
-            <div key={t.name}>
-              <SettingRow
-                label={t.name}
-                description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
-              >
-                {u?.staleCandidate && (
-                  <Chip tone="review">
-                    <span
-                      title={`No recall in ${usage!.hygiene.staleDays}+ days and fewer than ${usage!.hygiene.minRecalls} recalls since ${usage!.hygiene.trackingStartedAt.slice(0, 10)} — candidate to archive`}
-                    >
-                      stale
-                    </span>
-                  </Chip>
-                )}
-                <EditToggle
-                  name={t.name}
-                  open={editing === t.name}
-                  onOpen={() => void openEditor(t.name)}
-                  onSave={() => void save(t.name)}
-                />
-                <IconBtn
-                  aria-label={`Archive ${t.name}`}
-                  title="Archive (recoverable)"
-                  onClick={() => void archive(t.name)}
-                >
-                  <Archive size={14} />
-                </IconBtn>
-                <IconBtn
-                  aria-label={`Delete ${t.name}`}
-                  title="Delete"
-                  className="hover:text-danger"
-                  onClick={() => void remove(t.name)}
-                >
-                  <Trash2 size={14} />
-                </IconBtn>
-                <Switch
-                  checked={access ? topicEnabled(access.access, t.name) : t.enabled}
-                  onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
-                  aria-label={`enabled · ${t.name}`}
-                />
-              </SettingRow>
-              {editing === t.name && (
-                <MemoryEditor
-                  name={t.name}
-                  value={draft}
-                  onChange={setDraft}
-                  onSave={() => void save(t.name)}
-                  onCancel={cancel}
-                />
-              )}
-            </div>
-          )
-        })}
-      </SettingsSection>
+      <div role="tablist" className="flex items-center gap-1 border-b border-hair">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`-mb-px border-b px-3 py-1.5 text-sm transition-colors ${
+              tab === t.id ? 'border-signal text-ink' : 'border-transparent text-dim hover:text-ink'
+            }`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {usage && usage.archived.length > 0 && (
-        <SettingsSection title="Archived topics">
-          {usage.archived.map((a) => (
+      {tab === 'topics' && (
+        <div className="flex flex-col gap-6">
+          <SettingsSection title="Memory index">
             <SettingRow
-              key={a.topic}
-              label={a.topic}
-              description={`${(a.sizeBytes / 1024).toFixed(1)} KB${a.archivedAt ? ` · archived ${a.archivedAt.slice(0, 10)}` : ''}`}
+              label="_index.md"
+              description="Always injected into every session. Line budget guards context size."
+              stacked={editing === '_index'}
             >
-              <Btn aria-label={`Restore ${a.topic}`} onClick={() => void restore(a.topic)}>
-                <ArchiveRestore size={14} /> Restore
-              </Btn>
+              <Chip tone={payload.indexLines >= payload.capLines ? 'danger' : 'neutral'}>
+                {payload.indexLines} / {payload.capLines} lines
+              </Chip>
+              <EditToggle
+                name="_index"
+                open={editing === '_index'}
+                onOpen={() => void openEditor('_index')}
+                onSave={() => void save('_index')}
+              />
             </SettingRow>
-          ))}
-        </SettingsSection>
+            {editing === '_index' && (
+              <MemoryEditor
+                name="_index"
+                value={draft}
+                onChange={setDraft}
+                onSave={() => void save('_index')}
+                onCancel={cancel}
+              />
+            )}
+          </SettingsSection>
+
+          <SettingsSection title="Topics">
+            {payload.topics.length === 0 && (
+              <div className="px-3 py-2 text-xs text-dim">
+                No topics yet — the agent records lessons here after an RCA (via write_memory).
+              </div>
+            )}
+            {payload.topics.map((t) => {
+              const u = usage?.memory.find((m) => m.topic === t.name)
+              return (
+                <div key={t.name}>
+                  <SettingRow
+                    label={t.name}
+                    description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
+                  >
+                    {u?.staleCandidate && (
+                      <Chip tone="review">
+                        <span
+                          title={`No recall in ${usage!.hygiene.staleDays}+ days and fewer than ${usage!.hygiene.minRecalls} recalls since ${usage!.hygiene.trackingStartedAt.slice(0, 10)} — candidate to archive`}
+                        >
+                          stale
+                        </span>
+                      </Chip>
+                    )}
+                    <EditToggle
+                      name={t.name}
+                      open={editing === t.name}
+                      onOpen={() => void openEditor(t.name)}
+                      onSave={() => void save(t.name)}
+                    />
+                    <IconBtn
+                      aria-label={`Archive ${t.name}`}
+                      title="Archive (recoverable)"
+                      onClick={() => void archive(t.name)}
+                    >
+                      <Archive size={14} />
+                    </IconBtn>
+                    <IconBtn
+                      aria-label={`Delete ${t.name}`}
+                      title="Delete"
+                      className="hover:text-danger"
+                      onClick={() => void remove(t.name)}
+                    >
+                      <Trash2 size={14} />
+                    </IconBtn>
+                    <Switch
+                      checked={access ? topicEnabled(access.access, t.name) : t.enabled}
+                      onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}
+                      aria-label={`enabled · ${t.name}`}
+                    />
+                  </SettingRow>
+                  {editing === t.name && (
+                    <MemoryEditor
+                      name={t.name}
+                      value={draft}
+                      onChange={setDraft}
+                      onSave={() => void save(t.name)}
+                      onCancel={cancel}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </SettingsSection>
+
+          {usage && usage.archived.length > 0 && (
+            <SettingsSection title="Archived topics">
+              {usage.archived.map((a) => (
+                <SettingRow
+                  key={a.topic}
+                  label={a.topic}
+                  description={`${(a.sizeBytes / 1024).toFixed(1)} KB${a.archivedAt ? ` · archived ${a.archivedAt.slice(0, 10)}` : ''}`}
+                >
+                  <Btn aria-label={`Restore ${a.topic}`} onClick={() => void restore(a.topic)}>
+                    <ArchiveRestore size={14} /> Restore
+                  </Btn>
+                </SettingRow>
+              ))}
+            </SettingsSection>
+          )}
+        </div>
       )}
 
-      <SettingsSection title="Audit — recent memory activity">
-        {audit.length === 0 && (
-          <div className="px-3 py-2 text-xs text-dim">No memory activity recorded yet.</div>
-        )}
-        {audit.map((a, i) => {
-          const summary = a.indexEntry ? auditSummary(a.topic, a.indexEntry) : null
-          return (
-            <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-              <span className="font-mono text-mute">{a.ts.slice(0, 16).replace('T', ' ')}</span>
-              <Chip tone="defect">{a.caseSlug}</Chip>
-              {a.action && (
-                <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
-                  {a.action === 'restore' ? 'restored' : 'archived'}
-                </Chip>
-              )}
-              <span className="font-mono text-ink">{a.topic}</span>
-              {summary && <span className="truncate text-dim">— {summary}</span>}
-              {/* bytes are meaningful only for content writes; archive/restore carry none */}
-              {!a.action && <span className="ml-auto text-faint">{a.bytes} B</span>}
-            </div>
-          )
-        })}
-      </SettingsSection>
+      {tab === 'audit' && (
+        <SettingsSection title="Recent memory activity">
+          {audit.length === 0 && (
+            <div className="px-3 py-2 text-xs text-dim">No memory activity recorded yet.</div>
+          )}
+          {audit.map((a, i) => {
+            const summary = a.indexEntry ? auditSummary(a.topic, a.indexEntry) : null
+            return (
+              <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                <span className="font-mono text-mute">{a.ts.slice(0, 16).replace('T', ' ')}</span>
+                <Chip tone="defect">{a.caseSlug}</Chip>
+                {a.action && (
+                  <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
+                    {a.action === 'restore' ? 'restored' : 'archived'}
+                  </Chip>
+                )}
+                <span className="font-mono text-ink">{a.topic}</span>
+                {summary && <span className="truncate text-dim">— {summary}</span>}
+                {/* bytes are meaningful only for content writes; archive/restore carry none */}
+                {!a.action && <span className="ml-auto text-faint">{a.bytes} B</span>}
+              </div>
+            )
+          })}
+        </SettingsSection>
+      )}
     </div>
   )
 }

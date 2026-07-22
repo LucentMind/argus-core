@@ -139,6 +139,7 @@ describe('MemorySettings usage + hygiene', () => {
       }
     ])
     render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Audit' }))
     expect(await screen.findByText('archived')).toBeInTheDocument()
     expect(await screen.findByText('restored')).toBeInTheDocument()
   })
@@ -154,6 +155,7 @@ describe('MemorySettings usage + hygiene', () => {
       }
     ])
     render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Audit' }))
     expect(await screen.findByText('128 B')).toBeInTheDocument()
     expect(screen.queryByText('archived')).not.toBeInTheDocument()
     expect(screen.queryByText('restored')).not.toBeInTheDocument()
@@ -174,6 +176,7 @@ describe('MemorySettings usage + hygiene', () => {
       }
     ])
     render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Audit' }))
     // the description collapses to just the summary
     expect(await screen.findByText('— bearing errors follow an IMU warning')).toBeInTheDocument()
     // the markdown-link boilerplate (a second + third copy of the slug) is gone
@@ -193,7 +196,35 @@ describe('MemorySettings usage + hygiene', () => {
       }
     ])
     render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Audit' }))
     expect(await screen.findByText('— bearing errors follow an IMU warning')).toBeInTheDocument()
+  })
+
+  it('the Audit tab shows audit rows and hides Topics content; switching back restores Topics', async () => {
+    argus.memory.audit.mockResolvedValue([
+      {
+        ts: '2026-07-20T22:04:10.000Z',
+        caseSlug: 'ui',
+        topic: 'nav-drift',
+        indexEntry: '- [nav-drift](nav-drift.md) — bearing errors follow an IMU warning',
+        bytes: 0,
+        action: 'archive'
+      }
+    ])
+    render(<MemorySettings />)
+    // Topics tab is the default: topic rows visible, audit rows are not
+    expect(await screen.findByText('hot-topic')).toBeInTheDocument()
+    expect(screen.queryByText('archived')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Audit' }))
+    expect(await screen.findByText('archived')).toBeInTheDocument()
+    expect(screen.getByText('Recent memory activity')).toBeInTheDocument()
+    // Topics content is gone while on the Audit tab
+    expect(screen.queryByText('hot-topic')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Topics' }))
+    expect(await screen.findByText('hot-topic')).toBeInTheDocument()
+    expect(screen.queryByText('archived')).not.toBeInTheDocument()
   })
 
   it('surfaces a restore failure (e.g. live namesake collision) as an alert', async () => {
