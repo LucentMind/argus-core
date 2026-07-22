@@ -95,10 +95,6 @@ beforeEach(() => {
   vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined as never)
 })
 
-function openShareTab(): void {
-  fireEvent.click(screen.getByRole('tab', { name: 'Share to HiveMind' }))
-}
-
 describe('HivemindSettings', () => {
   it('dormant state shows the repo input, not a pointer to General', async () => {
     ;(window as unknown as { argus: unknown }).argus = mockArgus({
@@ -206,46 +202,13 @@ describe('HivemindSettings', () => {
     expect(screen.getByText('hive-note.md')).toBeInTheDocument()
   })
 
-  it('push confirm shows the preview and links the PR afterwards', async () => {
+  it('renders Browse content directly — the tab strip and Share tab are gone', async () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    await screen.findByText('hive-probe')
-    openShareTab()
-    fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
-    expect(await screen.findByText('# my-skill')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /pull\/7/ })).toBeInTheDocument())
-  })
-
-  it('other rows cannot open a dialog while a push is in flight, and the PR link survives', async () => {
-    let resolvePush: (r: { ok: true; prUrl: string }) => void = () => undefined
-    const argus = mockArgus({
-      ...ready,
-      pushable: [
-        { kind: 'skill', name: 'my-skill' },
-        { kind: 'reference', name: 'other.md' }
-      ]
-    })
-    ;(argus.hivemind as { push: ReturnType<typeof vi.fn> }).push = vi.fn(
-      () =>
-        new Promise((resolve) => {
-          resolvePush = resolve as typeof resolvePush
-        })
-    )
-    ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    await screen.findByText('hive-probe')
-    openShareTab()
-    fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
-    expect(await screen.findByText('# my-skill')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
-
-    // mid-push: the other row's Push icon is gated so it cannot unmount this dialog
-    expect(await screen.findByRole('button', { name: 'Pushing…' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Push other.md' })).toBeDisabled()
-
-    resolvePush({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/9' })
-    await waitFor(() => expect(screen.getByRole('button', { name: /pull\/9/ })).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Push other.md' })).toBeEnabled()
+    expect(await screen.findByText('hive-probe')).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByText('Share to HiveMind')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Filter HiveMind content')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sync' })).toBeInTheDocument()
   })
 
   it('surfaces an initial-load error from a bad hivemind.get payload', async () => {
@@ -291,23 +254,6 @@ describe('HivemindSettings', () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText(/GitHub CLI/)).toBeInTheDocument()
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
-  })
-
-  it('rejected push clears busy and surfaces error, keeping Sync enabled', async () => {
-    const argus = mockArgus(ready)
-    ;(argus.hivemind as { push: ReturnType<typeof vi.fn> }).push = vi
-      .fn()
-      .mockRejectedValue(new Error('push exploded'))
-    ;(window as unknown as { argus: unknown }).argus = argus
-    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    await screen.findByText('hive-probe')
-    openShareTab()
-    fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
-    expect(await screen.findByText('# my-skill')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/push exploded/)
-    expect(screen.getByRole('button', { name: 'Sync' })).not.toBeDisabled()
   })
 
   it('refetches the hivemind payload when the repo setting changes', async () => {
