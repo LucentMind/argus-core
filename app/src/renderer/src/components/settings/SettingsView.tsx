@@ -142,7 +142,11 @@ export function SettingsView({
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'proposals' && (
-            <ProposalsPage key={proposalTypes?.join(',') ?? 'all'} initialTypes={proposalTypes} />
+            <ProposalsPage
+              key={proposalTypes?.join(',') ?? 'all'}
+              initialTypes={proposalTypes}
+              onOpenHivemind={() => setPage('hivemind')}
+            />
           )}
           {page === 'skills' && <SkillsSettings onReviewProposals={openProposals} />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
