@@ -54,7 +54,7 @@ const packsListed: PacksListPayload = {
   ]
 }
 
-// ReferencesSettings.test.tsx's refsync/connectors fixtures
+// refsync/connectors fixtures matching the ConfluenceSpaces harness
 const refPayload: RefSyncPayload = {
   config: {
     spaces: [
