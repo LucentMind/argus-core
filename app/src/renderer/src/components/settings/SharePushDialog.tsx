@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, ExternalLink } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { Btn, Chip } from '../ui'
 import type { PushReceipt } from '../../../../shared/hivemind'
 
@@ -113,8 +113,8 @@ export function SharePushDialog({
             Retry preview
           </Btn>
         )}
-        <Btn variant="danger" aria-label="Cancel" title="Cancel" onClick={onClose}>
-          <X size={14} aria-hidden="true" />
+        <Btn variant="dangerSolid" onClick={onClose}>
+          Cancel
         </Btn>
       </div>
     </div>
