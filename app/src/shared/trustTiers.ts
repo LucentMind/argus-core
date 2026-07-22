@@ -14,7 +14,12 @@ export const PUSHABLE_TIERS: readonly TrustTier[] = ['user', 'team-knowledge']
 export const HIVE_MANAGED_TIERS: readonly TrustTier[] = ['hivemind', 'confluence']
 
 /** Tiers a pack re-seed must never clobber (written after seeding: synced/authored). */
-export const NON_PACK_TIERS: readonly TrustTier[] = ['confluence', 'user', 'team-knowledge', 'hivemind']
+export const NON_PACK_TIERS: readonly TrustTier[] = [
+  'confluence',
+  'user',
+  'team-knowledge',
+  'hivemind'
+]
 
 export const TIER_LABELS: Record<TrustTier, string> = {
   bundled: 'bundled',

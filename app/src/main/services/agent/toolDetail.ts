@@ -27,7 +27,10 @@ export function extractToolDetail(
     if (toolName === 'Skill') {
       const s = input.skill
       if (typeof s !== 'string' || !s.trim()) return null
-      return s.trim().replace(/^argus:/, '').slice(0, MAX_DETAIL)
+      return s
+        .trim()
+        .replace(/^argus:/, '')
+        .slice(0, MAX_DETAIL)
     }
     if (toolName === 'mcp__argus__read_memory' || toolName === 'mcp__argus__write_memory') {
       const t = input.topic
