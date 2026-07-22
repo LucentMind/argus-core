@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalsPage } from '../ProposalsPage'
 import { settingsStore } from '../../../lib/settingsStore'
+import { proposalsStore } from '../../../lib/proposalsStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -45,6 +46,7 @@ const payload: ProposalsPayload = {
 let accept: ReturnType<typeof vi.fn>
 beforeEach(() => {
   settingsStore.reset()
+  proposalsStore.reset()
   accept = vi
     .fn()
     .mockResolvedValue({ proposals: [], accepted: { kind: 'memory', name: 'dlt-timing' } })
@@ -52,7 +54,8 @@ beforeEach(() => {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
       accept,
-      reject: vi.fn().mockResolvedValue({ proposals: [] })
+      reject: vi.fn().mockResolvedValue({ proposals: [] }),
+      onChanged: vi.fn(() => () => {})
     },
     settings: {
       get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),

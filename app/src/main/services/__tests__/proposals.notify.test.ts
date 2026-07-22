@@ -8,7 +8,8 @@ import {
   rejectProposal,
   removePendingProposal,
   setProposalsChangedNotifier,
-  proposalCounts
+  proposalCounts,
+  batchProposalChanges
 } from '../proposals'
 
 let home: string
@@ -53,6 +54,41 @@ describe('proposals changed notifier', () => {
     })
     removePendingProposal(home, f3)
     expect(cb).toHaveBeenCalledTimes(6)
+  })
+
+  it('batchProposalChanges coalesces a burst of changes into one notification', () => {
+    const cb = vi.fn()
+    setProposalsChangedNotifier(cb)
+    const result = batchProposalChanges(() => {
+      writeProposal(home, 'c', { type: 'recipe', target: 'a', title: 't', content: 'x' })
+      writeProposal(home, 'c', { type: 'recipe', target: 'b', title: 't', content: 'x' })
+      const f = writeProposal(home, 'c', { type: 'recipe', target: 'd', title: 't', content: 'x' })
+      removePendingProposal(home, f)
+      expect(cb).not.toHaveBeenCalled()
+      return 'done'
+    })
+    expect(result).toBe('done')
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  it('batchProposalChanges with no changes inside does not notify', () => {
+    const cb = vi.fn()
+    setProposalsChangedNotifier(cb)
+    batchProposalChanges(() => {})
+    expect(cb).not.toHaveBeenCalled()
+  })
+
+  it('batchProposalChanges still notifies once when the batch throws mid-way', () => {
+    const cb = vi.fn()
+    setProposalsChangedNotifier(cb)
+    expect(() =>
+      batchProposalChanges(() => {
+        writeProposal(home, 'c', { type: 'recipe', target: 'a', title: 't', content: 'x' })
+        throw new Error('boom')
+      })
+    ).toThrow('boom')
+    // the write above landed on disk — listeners must still hear about it
+    expect(cb).toHaveBeenCalledTimes(1)
   })
 
   it('proposalCounts aggregates pending by type', () => {
