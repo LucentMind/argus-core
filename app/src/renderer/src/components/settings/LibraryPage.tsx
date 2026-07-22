@@ -51,6 +51,14 @@ const GROUP_EMPTY: Partial<Record<GroupId, string>> = {
   hivemind: "No HiveMind content downloaded — browse your team's HiveMind under Settings → Team."
 }
 
+function errorAlert(message: string): React.JSX.Element {
+  return (
+    <div role="alert" className="rounded-r2 border border-danger/30 px-3 py-2 text-xs text-danger">
+      {message}
+    </div>
+  )
+}
+
 function groupOf(tier: string | null): GroupId {
   return tier !== null && (GROUP_ORDER as readonly string[]).includes(tier)
     ? (tier as GroupId)
@@ -102,9 +110,14 @@ export function LibraryPage({
 
   useEffect(() => {
     let mounted = true
-    void window.argus.skills.list().then((p) => {
-      if (mounted) setSkills(p.skills)
-    })
+    void window.argus.skills
+      .list()
+      .then((p) => {
+        if (mounted) setSkills(p.skills)
+      })
+      .catch((err) => {
+        if (mounted) setError((err as Error).message)
+      })
     void window.argus.usage
       .stats()
       .then((u) => {
@@ -147,7 +160,11 @@ export function LibraryPage({
     }
   }
 
-  if (!skills || !refPayload) return <div className="text-dim">loading…</div>
+  if (!skills || !refPayload) {
+    // a failed initial load would otherwise leave the page on "loading…" forever
+    if (error) return errorAlert(error)
+    return <div className="text-dim">loading…</div>
+  }
   const references = refPayload.references
 
   const q = query.trim().toLowerCase()
@@ -309,14 +326,7 @@ export function LibraryPage({
           onReview={() => onReviewProposals(LIBRARY_TYPES)}
         />
       )}
-      {error && (
-        <div
-          role="alert"
-          className="rounded-r2 border border-danger/30 px-3 py-2 text-xs text-danger"
-        >
-          {error}
-        </div>
-      )}
+      {error && errorAlert(error)}
       <div className="flex flex-wrap items-center gap-2">
         {(['all', 'skill', 'reference'] as const).map((k) => (
           <button

@@ -202,6 +202,16 @@ describe('LibraryPage delete/adopt actions', () => {
   })
 })
 
+describe('LibraryPage load failure', () => {
+  it('a rejected skills.list surfaces an error instead of loading forever', async () => {
+    argus.skills.list = vi.fn().mockRejectedValue(new Error('ipc dead'))
+    render(<LibraryPage />)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/ipc dead/)
+    expect(screen.queryByText('loading…')).not.toBeInTheDocument()
+  })
+})
+
 describe('LibraryPage usage stats', () => {
   it('shows activation count and last-used date per skill', async () => {
     render(<LibraryPage />)
@@ -261,6 +271,14 @@ describe('LibraryPage merged list', () => {
     // bundled skill grouped under Bundled
     expect(screen.getByText('Bundled')).toBeInTheDocument()
     expect(userSection).toBeTruthy()
+  })
+
+  it('user skill shadowing lower tiers carries an overrides chip', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    expect(screen.getByText('overrides hivemind, bundled')).toBeInTheDocument()
+    // non-shadowing rows get no such chip
+    expect(screen.getAllByText(/^overrides /)).toHaveLength(1)
   })
 
   it('every row carries a kind chip', async () => {

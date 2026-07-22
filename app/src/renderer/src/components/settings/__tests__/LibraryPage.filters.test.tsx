@@ -160,6 +160,24 @@ describe('LibraryPage filters', () => {
     expect(await screen.findByText('rca')).toBeInTheDocument()
   })
 
+  it('clearing the search restores the unfiltered list without another IPC call', async () => {
+    argus.refsync.searchRefs.mockResolvedValue(['nav-runbook.md'])
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    fireEvent.change(screen.getByLabelText('search library'), { target: { value: 'nav' } })
+    await waitFor(() => expect(argus.refsync.searchRefs).toHaveBeenCalledWith('nav'))
+    expect(await screen.findByText('nav-runbook.md')).toBeInTheDocument()
+    expect(screen.queryByText('rca')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('search library'), { target: { value: '' } })
+    expect(await screen.findByText('rca')).toBeInTheDocument()
+    expect(screen.getByText('team-tips.md')).toBeInTheDocument()
+    expect(screen.getByText('my-notes')).toBeInTheDocument()
+    // let the 200ms debounce window elapse — a regression would fire searchRefs('')
+    await new Promise((r) => setTimeout(r, 250))
+    expect(argus.refsync.searchRefs).toHaveBeenCalledTimes(1)
+  })
+
   it('everything filtered out shows a no-matches line', async () => {
     argus.refsync.searchRefs.mockResolvedValue([])
     render(<LibraryPage />)
