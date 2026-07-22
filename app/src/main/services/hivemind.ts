@@ -379,7 +379,7 @@ export class HivemindService {
     title: string
   ): Promise<HivemindPushResult> {
     const repo = this.deps.repo().trim()
-    if (!repo) return { ok: false, error: 'No HiveMind repo configured (Settings → HiveMind).' }
+    if (!repo) return { ok: false, error: 'No HiveMind repo configured (Settings → Team).' }
     const clone = this.clone()
     if (!fs.existsSync(path.join(clone, '.git')))
       return { ok: false, error: 'HiveMind clone missing — Sync first.' }
