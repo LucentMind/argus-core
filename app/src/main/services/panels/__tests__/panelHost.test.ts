@@ -313,7 +313,8 @@ it('threads the window network allowlist into the bridge for ingestEvidence', as
     sendToAgent: () => {},
     emitFinding: async () => ({ ok: true }),
     cite: () => {},
-    ingestEvidence: async () => ({ ok: true, evidenceId: '1' })
+    ingestEvidence: async () => ({ ok: true, evidenceId: '1' }),
+    sendImageToAgent: async () => ({ ok: true, evidenceId: '1' })
   }
   const host = new PanelHost({ db: {} as never, argusHome: '/x', factory, writeSink: sink })
   host.open({

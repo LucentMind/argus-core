@@ -114,6 +114,37 @@ row(
   (els) => window.argus.sendToAgent(els[0].value)
 )
 
+// sendImageToAgent: the user-push image flow. Mirrors the real use case — render an
+// element to a <canvas> (uPlot charts already do) and hand its PNG to the agent. Core
+// ingests it as `screenshot` evidence and stages a composer draft with a Read hint.
+// canvas.toBlob is CSP-safe (no eval, no external fetch).
+row(
+  'sendImageToAgent',
+  'sendImageToAgent',
+  [
+    { placeholder: 'filename (e.g. chart.png)', value: 'playground-chart.png' },
+    { placeholder: 'caption (optional)', value: 'Here is the demo chart — what stands out?' }
+  ],
+  async (els) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 240
+    canvas.height = 120
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#0f172a'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#38bdf8'
+    ;[40, 78, 52, 96, 30, 64].forEach((h, i) => ctx.fillRect(14 + i * 38, 110 - h, 24, h))
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'))
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const caption = els[1].value.trim()
+    return window.argus.sendImageToAgent({
+      bytes,
+      filename: els[0].value,
+      ...(caption ? { caption } : {})
+    })
+  }
+)
+
 row(
   'ingestEvidence',
   'ingestEvidence',
