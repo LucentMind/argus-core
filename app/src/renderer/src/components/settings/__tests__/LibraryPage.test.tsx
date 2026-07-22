@@ -283,6 +283,19 @@ describe('LibraryPage merged list', () => {
     expect(await screen.findByText(/4 reads/)).toBeInTheDocument()
   })
 
+  it('flags never-read reference files (present zero-count usage entry)', async () => {
+    argus.usage.stats = vi.fn().mockResolvedValue({
+      hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
+      skills: [],
+      memory: [],
+      references: [{ relPath: 'nav-runbook.md', readCount: 0, lastReadAt: null }],
+      archived: []
+    })
+    render(<LibraryPage />)
+    await screen.findByText('nav-runbook.md')
+    expect(await screen.findByText(/never read/)).toBeInTheDocument()
+  })
+
   it('empty user group teaches where content comes from', async () => {
     argus.skills.list.mockResolvedValue({ skills: [] })
     argus.refsync.get.mockResolvedValue({ ...refPayload, references: [] })

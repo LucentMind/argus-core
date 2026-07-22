@@ -264,4 +264,13 @@ describe('LibraryPage reference share-in-place', () => {
       )
     )
   })
+
+  it('a push receipt renders a PR chip that opens externally; the row still opens the viewer', async () => {
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open PR · glossary.md' }))
+    expect(argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/hivemind/pull/21')
+    expect(argus.refsync.readRef).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'open · glossary.md' }))
+    await waitFor(() => expect(argus.refsync.readRef).toHaveBeenCalledWith('glossary.md'))
+  })
 })
