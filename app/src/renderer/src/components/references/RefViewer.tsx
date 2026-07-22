@@ -4,12 +4,16 @@ import remarkGfm from 'remark-gfm'
 import { Btn } from '../ui'
 import { ModalShell } from '../ModalShell'
 
-/** Modal markdown viewer for a reference file (FileViewer idiom, refsync-served). */
-export function RefViewer({
-  file,
+/** Generic modal markdown viewer (FileViewer idiom) — refs and skills share it. */
+export function MarkdownViewer({
+  title,
+  ariaLabel,
+  load,
   onClose
 }: {
-  file: string
+  title: string
+  ariaLabel: string
+  load: () => Promise<string>
   onClose: () => void
 }): React.JSX.Element {
   const [content, setContent] = useState<string | null>(null)
@@ -17,17 +21,16 @@ export function RefViewer({
   const [raw, setRaw] = useState(false)
 
   useEffect(() => {
-    window.argus.refsync.readRef(file).then(
-      (r) => setContent(r.content),
-      () => setError(true)
-    )
-  }, [file])
+    load().then(setContent, () => setError(true))
+    // load is mount-stable: callers remount (key/conditional render) per file
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <ModalShell
-      title={`references / ${file}`}
+      title={title}
       onClose={onClose}
-      ariaLabel={`reference · ${file}`}
+      ariaLabel={ariaLabel}
       className="h-[80vh] w-[80vw] max-w-4xl"
       actions={
         content != null ? (
@@ -55,5 +58,24 @@ export function RefViewer({
         </pre>
       )}
     </ModalShell>
+  )
+}
+
+/** Modal markdown viewer for a reference file (refsync-served). */
+export function RefViewer({
+  file,
+  onClose
+}: {
+  file: string
+  onClose: () => void
+}): React.JSX.Element {
+  return (
+    <MarkdownViewer
+      key={file}
+      title={`references / ${file}`}
+      ariaLabel={`reference · ${file}`}
+      load={() => window.argus.refsync.readRef(file).then((r) => r.content)}
+      onClose={onClose}
+    />
   )
 }
