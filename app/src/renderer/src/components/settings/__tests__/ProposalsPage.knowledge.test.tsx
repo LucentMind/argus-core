@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalsPage } from '../ProposalsPage'
+import { settingsStore } from '../../../lib/settingsStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -43,6 +44,7 @@ const payload: ProposalsPayload = {
 
 let accept: ReturnType<typeof vi.fn>
 beforeEach(() => {
+  settingsStore.reset()
   accept = vi
     .fn()
     .mockResolvedValue({ proposals: [], accepted: { kind: 'memory', name: 'dlt-timing' } })
