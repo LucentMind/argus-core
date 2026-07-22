@@ -2,6 +2,10 @@ appId: com.argus.core
 productName: Argus
 directories:
   buildResources: build
+# Ad-hoc signs the macOS bundle after packing (we have no Developer ID, and electron-builder
+# skips signing rather than ad-hoc signing). Without this the DMG reads as "damaged" on
+# Apple Silicon. See build/afterPack.cjs for the full rationale.
+afterPack: build/afterPack.cjs
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -49,12 +53,13 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  # No Apple Developer ID yet, so we cannot Developer-ID-sign or notarize. Ad-hoc sign
-  # instead (identity: null): on Apple Silicon an unsigned app + download quarantine is
-  # reported as "damaged, move to Trash", whereas an ad-hoc signature downgrades that to
-  # the ordinary "unidentified developer" prompt users can clear with right-click -> Open.
-  # This is not notarization — it removes the scary wording, not the Gatekeeper prompt.
-  identity: null
+  # No Apple Developer ID yet, so we cannot Developer-ID-sign or notarize. We rely on
+  # electron-builder 26's default ad-hoc signing (no `identity` key = ad-hoc when no cert
+  # is present), which produces a VALID bundle signature. Do NOT set `identity: null` here:
+  # that disables signing entirely, leaving the bundle with only the linker's stub sig and
+  # no _CodeSignature/CodeResources — which macOS reports as "damaged, move to Trash" on a
+  # quarantined download. A valid ad-hoc signature instead yields the ordinary "unidentified
+  # developer" prompt users clear with right-click -> Open. This is not notarization.
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
