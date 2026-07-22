@@ -1,3 +1,4 @@
+import os from 'node:os'
 import { describe, it, expect } from 'vitest'
 import { probeAuth } from '../probe'
 import { AsyncQueue } from '../../../asyncQueue'
@@ -172,6 +173,16 @@ describe('probeAuth', () => {
     }
     await probeAuth(spy)
     expect(captured?.pathToClaudeCodeExecutable).toBeUndefined()
+  })
+
+  it('pins cwd to the OS temp dir — an unset cwd inherits the packaged app cwd ("/" on macOS) and the CLI boot walk triggers TCC prompts attributed to Argus', async () => {
+    let captured: Record<string, unknown> | undefined
+    const spy: CreateQueryFn = (args) => {
+      captured = args.options as Record<string, unknown>
+      return fake([{ type: 'system', subtype: 'init', model: 'claude-sonnet-5' }])(args)
+    }
+    await probeAuth(spy)
+    expect(captured?.cwd).toBe(os.tmpdir())
   })
 
   it('a successful init reports verified:false — init proves the CLI booted, not that credentials work', async () => {

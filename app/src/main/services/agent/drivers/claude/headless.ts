@@ -1,3 +1,4 @@
+import os from 'node:os'
 import type { HeadlessOpts } from '../../driver'
 import type { CreateQueryFn } from '.'
 import { resolveClaudeCliPath } from './cliPath'
@@ -58,6 +59,10 @@ export async function runClaudeHeadless(
     q = createQuery({
       prompt: oneMessage(prompt),
       options: {
+        // Without an explicit cwd the CLI inherits the app's — "/" for a Finder-launched
+        // packaged build — and its boot-time discovery walks into TCC-protected folders,
+        // prompting as Argus. Same containment as the auth probe (probe.ts).
+        cwd: os.tmpdir(),
         maxTurns: 1,
         allowedTools: [],
         ...(opts.model ? { model: opts.model } : {}),

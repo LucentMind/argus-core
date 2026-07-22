@@ -1,3 +1,4 @@
+import os from 'node:os'
 import type { AuthStatus } from '../../../../../shared/types'
 import type { CreateQueryFn } from './index'
 import { resolveClaudeCliPath } from './cliPath'
@@ -59,6 +60,10 @@ export async function probeAuth(
     q = createQuery({
       prompt: onePing(),
       options: {
+        // Without an explicit cwd the CLI inherits the app's — "/" for a Finder-launched
+        // packaged build — and its boot-time discovery walks into TCC-protected folders,
+        // prompting as Argus. Same containment as the copilot probe's workingDirectory.
+        cwd: os.tmpdir(),
         maxTurns: 0,
         allowedTools: [],
         ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
