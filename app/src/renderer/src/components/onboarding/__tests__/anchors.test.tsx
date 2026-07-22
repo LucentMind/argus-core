@@ -15,6 +15,10 @@ beforeEach(() => {
         loadError: null
       })),
       onChanged: vi.fn(() => () => {})
+    },
+    proposals: {
+      list: vi.fn(async () => ({ proposals: [] })),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
   settingsStore.reset()
@@ -27,7 +31,8 @@ describe('settings tab anchors', () => {
       'settings-memory',
       'settings-skills',
       'settings-references',
-      'settings-hivemind'
+      'settings-hivemind',
+      'settings-proposals'
     ]) {
       expect(container.querySelector(`[data-onboarding-anchor="${id}"]`)).toBeTruthy()
     }

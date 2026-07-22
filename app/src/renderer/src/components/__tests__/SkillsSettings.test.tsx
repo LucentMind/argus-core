@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { InstalledSkills } from '../settings/InstalledSkills'
@@ -79,11 +80,9 @@ describe('InstalledSkills', () => {
   })
 })
 
-describe('SkillsSettings tabs', () => {
-  it('offers only Installed and Proposals — HiveMind moved to its own settings page', async () => {
+describe('SkillsSettings', () => {
+  it('renders installed skills without a tab strip', async () => {
     render(<SkillsSettings />)
-    await screen.findByRole('tab', { name: 'Installed' })
-    expect(screen.getByRole('tab', { name: 'Proposals' })).toBeTruthy()
-    expect(screen.queryByRole('tab', { name: /HiveMind/ })).toBeNull()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
   })
 })

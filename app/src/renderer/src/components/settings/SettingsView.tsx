@@ -10,9 +10,11 @@ import {
   BookMarked,
   Gauge,
   Package,
+  Inbox,
   type LucideIcon
 } from 'lucide-react'
 import { useSettingsPayload } from '../../lib/settingsStore'
+import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
@@ -20,6 +22,7 @@ import { ConnectorsSettings } from './ConnectorsSettings'
 import { HealthSettings } from './HealthSettings'
 import { MemorySettings } from './MemorySettings'
 import { SkillsSettings } from './SkillsSettings'
+import { ProposalsPage } from './ProposalsPage'
 import { ReferencesSettings } from './ReferencesSettings'
 import { HivemindSettings } from './HivemindSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
@@ -29,10 +32,11 @@ const PAGES = [
   { id: 'general', label: 'General', enabled: true, Icon: Settings2 },
   { id: 'agent', label: 'Agent', enabled: true, Icon: BrainCog },
   { id: 'connectors', label: 'Connectors', enabled: true, Icon: Cable },
-  { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
+  { id: 'proposals', label: 'Proposals', enabled: true, Icon: Inbox },
   { id: 'skills', label: 'Skills', enabled: true, Icon: Workflow },
   { id: 'memory', label: 'Memory', enabled: true, Icon: HardDrive },
   { id: 'references', label: 'References', enabled: true, Icon: BookMarked },
+  { id: 'hivemind', label: 'HiveMind', enabled: true, Icon: CloudSync },
   { id: 'packs', label: 'Packs', enabled: true, Icon: Package },
   { id: 'health', label: 'Health', enabled: true, Icon: HeartPulse },
   { id: 'observability', label: 'Observability', enabled: true, Icon: Gauge }
@@ -48,7 +52,8 @@ const ANCHOR: Partial<Record<PageId, string>> = {
   memory: 'settings-memory',
   skills: 'settings-skills',
   references: 'settings-references',
-  hivemind: 'settings-hivemind'
+  hivemind: 'settings-hivemind',
+  proposals: 'settings-proposals'
 }
 
 export function SettingsView({
@@ -62,6 +67,7 @@ export function SettingsView({
     initialPage && PAGES.some((p) => p.id === initialPage) ? initialPage : 'general'
   )
   const payload = useSettingsPayload()
+  const counts = useProposalCounts()
 
   useEscapeLayer({ onEscape: onClose })
 
@@ -87,6 +93,11 @@ export function SettingsView({
           >
             <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
             <span className="flex-1">{p.label}</span>
+            {p.id === 'proposals' && (counts?.pendingCount ?? 0) > 0 && (
+              <span className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal">
+                {counts!.pendingCount}
+              </span>
+            )}
             {!p.enabled && (
               <span className="font-mono text-[9px] uppercase tracking-wide text-faint">soon</span>
             )}
@@ -120,6 +131,7 @@ export function SettingsView({
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
+          {page === 'proposals' && <ProposalsPage />}
           {page === 'skills' && <SkillsSettings />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
           {payload && page === 'packs' && <PacksSettings settings={payload} />}
