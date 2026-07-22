@@ -64,8 +64,10 @@ function groupOf(tier: string | null): GroupId {
  * pushable rows (Tier 2 machinery).
  */
 export function LibraryPage({
+  initialKind,
   onReviewProposals
 }: {
+  initialKind?: LibraryKind
   onReviewProposals?: (types: readonly ProposalType[]) => void
 } = {}): React.JSX.Element {
   const [skills, setSkills] = useState<SkillListItem[] | null>(null)
@@ -78,6 +80,25 @@ export function LibraryPage({
   const [sharing, setSharing] = useState<string | null>(null)
   const [sharePushing, setSharePushing] = useState(false)
   const { shareReady, shareTip, pushes, refresh: refreshShare } = useSharePush()
+  const [kind, setKind] = useState<'all' | LibraryKind>(initialKind ?? 'all')
+  const [tierFilter, setTierFilter] = useState<'all' | GroupId>('all')
+  const [query, setQuery] = useState('')
+  // null = no active search; otherwise the set of reference files matching name/content
+  const [matches, setMatches] = useState<Set<string> | null>(null)
+
+  useEffect(() => {
+    if (!query.trim()) return
+    let cancelled = false
+    const t = setTimeout(() => {
+      void window.argus.refsync.searchRefs(query).then((names) => {
+        if (!cancelled) setMatches(new Set(names))
+      })
+    }, 200)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [query])
 
   useEffect(() => {
     let mounted = true
@@ -128,6 +149,24 @@ export function LibraryPage({
 
   if (!skills || !refPayload) return <div className="text-dim">loading…</div>
   const references = refPayload.references
+
+  const q = query.trim().toLowerCase()
+  const activeMatches = q ? matches : null
+  const filtering = kind !== 'all' || tierFilter !== 'all' || q !== ''
+
+  function skillVisible(s: SkillListItem): boolean {
+    if (kind === 'reference') return false
+    if (tierFilter !== 'all' && groupOf(s.tier) !== tierFilter) return false
+    if (q && !s.name.toLowerCase().includes(q) && !s.description.toLowerCase().includes(q))
+      return false
+    return true
+  }
+  function refVisible(r: ReferenceStatus): boolean {
+    if (kind === 'skill') return false
+    if (tierFilter !== 'all' && groupOf(r.tier) !== tierFilter) return false
+    if (q && !(activeMatches?.has(r.file) ?? false)) return false
+    return true
+  }
 
   function skillRow(s: SkillListItem): React.JSX.Element {
     const adopt = s.tier === 'user' && s.shadows.includes('hivemind')
@@ -277,11 +316,58 @@ export function LibraryPage({
           {error}
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-2">
+        {(['all', 'skill', 'reference'] as const).map((k) => (
+          <button
+            key={k}
+            aria-label={`Filter kind · ${k}`}
+            aria-pressed={kind === k}
+            className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+              kind === k
+                ? 'border-signal/50 bg-signal/10 text-ink'
+                : 'border-hair text-dim hover:text-ink'
+            }`}
+            onClick={() => setKind(k)}
+          >
+            {k === 'all' ? 'All' : k === 'skill' ? 'Skills' : 'References'}
+          </button>
+        ))}
+        <span aria-hidden="true" className="mx-1 h-4 w-px bg-hair" />
+        {(['all', ...GROUP_ORDER] as const)
+          .filter(
+            (g) =>
+              g === 'all' ||
+              skills.some((s) => groupOf(s.tier) === g) ||
+              references.some((r) => groupOf(r.tier) === g)
+          )
+          .map((g) => (
+            <button
+              key={g}
+              aria-label={`Filter tier · ${g}`}
+              aria-pressed={tierFilter === g}
+              className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+                tierFilter === g
+                  ? 'border-signal/50 bg-signal/10 text-ink'
+                  : 'border-hair text-dim hover:text-ink'
+              }`}
+              onClick={() => setTierFilter(g)}
+            >
+              {g === 'all' ? 'All tiers' : GROUP_TITLE[g].toLowerCase()}
+            </button>
+          ))}
+      </div>
+      <input
+        aria-label="search library"
+        placeholder="Search names and reference content…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="w-full rounded-r2 bg-black/20 px-2 py-1 text-sm outline-none placeholder:text-faint"
+      />
       {GROUP_ORDER.map((g) => {
-        const groupSkills = skills.filter((s) => groupOf(s.tier) === g)
-        const groupRefs = references.filter((r) => groupOf(r.tier) === g)
+        const groupSkills = skills.filter((s) => groupOf(s.tier) === g && skillVisible(s))
+        const groupRefs = references.filter((r) => groupOf(r.tier) === g && refVisible(r))
         const empty = groupSkills.length === 0 && groupRefs.length === 0
-        if (empty && !GROUP_EMPTY[g]) return null
+        if (empty && (filtering || !GROUP_EMPTY[g])) return null
         return (
           <SettingsSection key={g} title={GROUP_TITLE[g]}>
             {empty && <div className="px-3 py-2 text-xs text-dim">{GROUP_EMPTY[g]}</div>}
@@ -290,6 +376,11 @@ export function LibraryPage({
           </SettingsSection>
         )
       })}
+      {filtering &&
+        skills.every((s) => !skillVisible(s)) &&
+        references.every((r) => !refVisible(r)) && (
+          <div className="px-3 py-2 text-xs text-faint">No matches.</div>
+        )}
       {viewer && <RefViewer file={viewer} onClose={() => setViewer(null)} />}
     </div>
   )
