@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { deleteUserSkill, materializeSessionSkills, readSkill, resolveSkills } from '../skillsResolver'
+import {
+  deleteUserSkill,
+  materializeSessionSkills,
+  readSkill,
+  resolveSkills
+} from '../skillsResolver'
 import { caseDir } from '../../paths'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
 
