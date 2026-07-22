@@ -22,7 +22,7 @@ function stubArgus(records: Array<{ type: string }>): {
 beforeEach(() => {
   // Reset the store between tests
   if (window.argus) {
-    delete (window as any).argus
+    delete (window as never as { argus: unknown }).argus
   }
 })
 
