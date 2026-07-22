@@ -12,7 +12,8 @@ import type {
   HivemindItem,
   HivemindPayload,
   HivemindPushResult,
-  PushableItem
+  PushableItem,
+  PushReceipt
 } from '../../shared/hivemind'
 import { PUSHABLE_TIERS } from '../../shared/trustTiers'
 
@@ -53,11 +54,12 @@ function validReferenceName(name: string): boolean {
   return base.endsWith('.md') && !/[/\\]/.test(base) && !base.startsWith('.')
 }
 
-/** Pinned installs + last sync stamp — app-managed, not user-edited. */
+/** Pinned installs + last sync stamp + push receipts — app-managed, not user-edited. */
 interface HivemindStateFile {
   lastSynced: string | null
   skills: Record<string, string>
   references: Record<string, string>
+  pushes: Record<string, PushReceipt>
 }
 
 export interface HivemindDeps {
@@ -92,7 +94,8 @@ export class HivemindService {
     return {
       lastSynced: d.lastSynced ?? null,
       skills: d.skills ?? {},
-      references: d.references ?? {}
+      references: d.references ?? {},
+      pushes: d.pushes ?? {}
     }
   }
 
@@ -118,13 +121,15 @@ export class HivemindService {
 
   async payload(): Promise<HivemindPayload> {
     const repo = this.deps.repo().trim()
+    const st = this.state()
     const base = {
       repo,
       error: null as string | null,
       headCommit: null as string | null,
-      lastSynced: this.state().lastSynced,
+      lastSynced: st.lastSynced,
       items: [] as HivemindItem[],
-      pushable: this.pushable()
+      pushable: this.pushable(),
+      pushes: st.pushes
     }
     if (!repo) return { ...base, state: 'dormant' }
     if (!fs.existsSync(path.join(this.clone(), '.git'))) return { ...base, state: 'not-cloned' }
@@ -414,6 +419,9 @@ export class HivemindService {
         clone
       )
       const prUrl = out.split(/\s+/).find((t) => t.startsWith('https://')) ?? out
+      const state = this.state()
+      state.pushes[`${kind}/${name}`] = { prUrl, pushedAt: new Date().toISOString() }
+      this.store.write(state)
       return { ok: true, prUrl }
     } catch (err) {
       return { ok: false, error: (err as Error).message }

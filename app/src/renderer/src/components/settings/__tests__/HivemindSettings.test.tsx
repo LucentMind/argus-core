@@ -53,7 +53,8 @@ const ready: HivemindPayload = {
       updateAvailable: false
     }
   ],
-  pushable: [{ kind: 'skill', name: 'my-skill' }]
+  pushable: [{ kind: 'skill', name: 'my-skill' }],
+  pushes: {}
 }
 
 function mockArgus(payload: HivemindPayload): Record<string, unknown> {

@@ -14,6 +14,11 @@ export interface PushableItem {
   kind: 'skill' | 'reference'
   name: string
 }
+/** One successful HiveMind push (Tier 2.3) — last push wins; absent key = never pushed. */
+export interface PushReceipt {
+  prUrl: string
+  pushedAt: string
+}
 export interface HivemindPayload {
   repo: string
   state: HivemindState
@@ -22,6 +27,8 @@ export interface HivemindPayload {
   lastSynced: string | null
   items: HivemindItem[]
   pushable: PushableItem[]
+  /** Push receipts keyed 'skill/<name>' | 'reference/<name>'. */
+  pushes: Record<string, PushReceipt>
 }
 export type HivemindPushResult = { ok: true; prUrl: string } | { ok: false; error: string }
 export type HivemindCheckResult = { ok: true } | { ok: false; error: string }
