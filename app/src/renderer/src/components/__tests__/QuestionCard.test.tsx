@@ -80,12 +80,17 @@ describe('QuestionCard', () => {
 
   it('free-text alone satisfies a question and maps to both the answer and response', () => {
     render(<QuestionCard slug="NAV-1" sessionId={1} dialog={single} />)
-    fireEvent.change(screen.getByPlaceholderText(/other/i), { target: { value: 'both, in parallel' } })
+    fireEvent.change(screen.getByPlaceholderText(/other/i), {
+      target: { value: 'both, in parallel' }
+    })
     fireEvent.click(screen.getByRole('button', { name: /submit/i }))
     expect(window.argus.agent.answerDialog).toHaveBeenCalledWith('NAV-1', 1, {
       dialogId: 'd1',
       behavior: 'completed',
-      result: { answers: { 'Which log first?': 'both, in parallel' }, response: 'both, in parallel' }
+      result: {
+        answers: { 'Which log first?': 'both, in parallel' },
+        response: 'both, in parallel'
+      }
     })
   })
 

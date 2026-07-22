@@ -77,7 +77,12 @@ export class AgentStore {
   hydrate(caseSlug: string, sessionId: number, events: AgentEvent[]): void {
     if (this.byCase.get(keyOf(caseSlug, sessionId))?.items.length) return
     for (const e of events) this.applyToState(e)
-    this.update(caseSlug, sessionId, (s) => ({ ...s, pending: [], pendingDialogs: [], running: false }))
+    this.update(caseSlug, sessionId, (s) => ({
+      ...s,
+      pending: [],
+      pendingDialogs: [],
+      running: false
+    }))
   }
 
   private applyToState(e: AgentEvent): void {
