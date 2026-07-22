@@ -312,9 +312,7 @@ it('Share opens the push dialog inline and pushes kind reference', async () => {
 it('a push receipt renders a PR chip that opens externally; the row still opens the viewer', async () => {
   render(<ReferencesSettings />)
   fireEvent.click(await screen.findByRole('button', { name: 'Open PR · glossary.md' }))
-  expect(window.argus.openExternal).toHaveBeenCalledWith(
-    'https://github.com/acme/hivemind/pull/21'
-  )
+  expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/hivemind/pull/21')
   expect(window.argus.refsync.readRef).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'open · glossary.md' }))
   await waitFor(() => expect(window.argus.refsync.readRef).toHaveBeenCalledWith('glossary.md'))
