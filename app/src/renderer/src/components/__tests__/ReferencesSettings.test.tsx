@@ -111,7 +111,7 @@ it('renders space cards with staleness and reference statuses', async () => {
   expect(await screen.findByText('Nav Native')).toBeTruthy()
   expect(screen.getAllByText('stale').length).toBeGreaterThan(0)
   expect(screen.getByText('glossary.md')).toBeTruthy()
-  expect(screen.getByText('team-knowledge')).toBeTruthy()
+  expect(screen.getByText('team knowledge')).toBeTruthy()
 })
 
 it('Sync now surfaces a REST auth failure inline', async () => {

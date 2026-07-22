@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip } from '../ui'
+import { TierBadge } from './TierBadge'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import type { SkillsPayload, SkillListItem } from '../../../../shared/memoryIpc'
@@ -102,6 +103,7 @@ export function InstalledSkills(): React.JSX.Element {
                   description={s.description}
                   badge={
                     <>
+                      <TierBadge tier={s.tier} />
                       {s.shadows.length > 0 && (
                         <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>
                       )}
