@@ -32,7 +32,13 @@ import {
 import { archiveTopic, restoreTopic } from './services/memoryHygiene'
 import { deleteUserSkill, resolveSkills } from './services/agent/skillsResolver'
 import { HivemindService } from './services/hivemind'
-import { listProposals, acceptProposal, rejectProposal } from './services/proposals'
+import {
+  listProposals,
+  acceptProposal,
+  rejectProposal,
+  setProposalsChangedNotifier,
+  proposalCounts
+} from './services/proposals'
 import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
@@ -1271,6 +1277,7 @@ function registerIpc(): void {
     rejectProposal(argusHome, file)
     return { proposals: listProposals(argusHome) }
   })
+  setProposalsChangedNotifier(() => broadcast(IPC.proposalsChanged, proposalCounts(argusHome)))
 
   // — agent access + memory —
   ipcMain.handle(IPC.accessGet, () => agentAccessStore.payload())

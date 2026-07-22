@@ -6,11 +6,36 @@ import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
-import { PROPOSAL_TYPES, type ProposalRecord, type ProposalType } from '../../shared/proposals'
+import {
+  PROPOSAL_TYPES,
+  type ProposalCounts,
+  type ProposalRecord,
+  type ProposalType
+} from '../../shared/proposals'
 import type { TrustTier } from '../../shared/trustTiers'
 import { applyMemoryWrite } from './memory'
 import { upsertCaseSummary } from './distill/summaries'
 import type { CaseDistillSummary } from '../../shared/distill'
+
+/**
+ * Every producer of proposal-set changes routes through this module (agent
+ * write_proposal, distill staging, accept/reject/supersede), so one hook here
+ * is the single announcement point. index.ts wires it to a renderer broadcast.
+ */
+let notifyChanged: () => void = () => {}
+export function setProposalsChangedNotifier(cb: () => void): void {
+  notifyChanged = cb
+}
+
+export function proposalCounts(argusHome: string): ProposalCounts {
+  const byType: ProposalCounts['byType'] = {}
+  let pendingCount = 0
+  for (const p of listProposals(argusHome)) {
+    pendingCount++
+    byType[p.type] = (byType[p.type] ?? 0) + 1
+  }
+  return { pendingCount, byType }
+}
 
 /** Target names: a skill dir name or a reference file name. Same shape as case slugs. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -70,6 +95,7 @@ export function writeProposal(
     ''
   ].join('\n')
   fs.writeFileSync(path.join(dir, file), fm + input.content)
+  notifyChanged()
   return file
 }
 
@@ -160,7 +186,10 @@ export function listArchivedProposals(argusHome: string): {
 /** Delete a pending proposal outright — used by supersede flows; the file is NOT archived. */
 export function removePendingProposal(argusHome: string, file: string): void {
   const p = path.join(proposalsDir(argusHome), path.basename(file))
-  if (fs.existsSync(p)) fs.rmSync(p)
+  if (fs.existsSync(p)) {
+    fs.rmSync(p)
+    notifyChanged()
+  }
 }
 
 function archive(argusHome: string, file: string, status: 'accepted' | 'rejected'): void {
@@ -215,10 +244,12 @@ export function acceptProposal(
     )
   }
   archive(argusHome, file, 'accepted')
+  notifyChanged()
 }
 
 export function rejectProposal(argusHome: string, file: string): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
   archive(argusHome, p.file, 'rejected')
+  notifyChanged()
 }

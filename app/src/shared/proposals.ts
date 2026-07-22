@@ -34,3 +34,9 @@ export interface ProposalRecord {
 export interface ProposalsPayload {
   proposals: ProposalRecord[]
 }
+
+/** Pending-set summary carried on the proposals:changed broadcast. */
+export interface ProposalCounts {
+  pendingCount: number
+  byType: Partial<Record<ProposalType, number>>
+}
