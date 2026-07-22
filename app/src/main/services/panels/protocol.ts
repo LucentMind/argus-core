@@ -84,7 +84,17 @@ function parseCaseUrl(url: string): CaseUrlParts | null {
   }
   if (u.protocol !== 'argus-case:') return null
   const caseSlug = u.hostname
-  let relpath = u.pathname
+  // Percent-decode the path so the on-disk name is found: fetch()/WHATWG-URL encodes a
+  // space to %20 (and #/?/% likewise) on the wire, but the evidence file has the literal
+  // name — reading u.pathname verbatim 404s those. Decode PER SEGMENT (not the whole
+  // string) and let resolveCaseAsset's containment guard re-check the decoded relpath, so
+  // an encoded separator (%2F) or dot-segment (%2e%2e) still cannot escape evidence/.
+  let relpath: string
+  try {
+    relpath = u.pathname.split('/').map(decodeURIComponent).join('/')
+  } catch {
+    return null // malformed percent-escape (e.g. a stray '%' as in "50%off.txt") → treat as not-found
+  }
   if (relpath.startsWith('/')) relpath = relpath.slice(1)
   if (!caseSlug || !relpath || relpath.startsWith('/')) return null
   return { caseSlug, relpath }

@@ -164,6 +164,39 @@ describe('resolveCaseAsset', () => {
       path.join(home, 'cases', 'CASE-A', 'evidence', 'photo.png')
     )
   })
+
+  it('percent-decodes a filename with a space back to the real on-disk name', () => {
+    // fetch()/WHATWG-URL encodes a space to %20 on the wire; Core must decode it so the
+    // literal on-disk file "name with space.pbf.gz" is found (was a 404 before the decode).
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/name%20with%20space.pbf.gz')).toBe(
+      path.join(evidenceDir, 'name with space.pbf.gz')
+    )
+  })
+
+  it('percent-decodes # ? % in a nested filename', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/sub/rec%23a%3fb%25c.pbf')).toBe(
+      path.join(evidenceDir, 'sub', 'rec#a?b%c.pbf')
+    )
+  })
+
+  it('rejects percent-encoded traversal (%2e%2e%2f) after decoding', () => {
+    // The raw-URL '..' guard does not catch encoded dots; the post-decode containment
+    // check is load-bearing here.
+    expect(
+      resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/%2e%2e%2f%2e%2e%2fsecret')
+    ).toBeNull()
+  })
+
+  it('rejects an encoded path separator (%2F) that would inject a segment', () => {
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/a%2f%2e%2e%2fsecret')).toBeNull()
+  })
+
+  it('returns null (not a throw) for a malformed percent sequence', () => {
+    // decodeURIComponent throws on a stray '%'; a filename like "50%discount.txt" must
+    // resolve to null, not crash the protocol handler.
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/50%discount.txt')).toBeNull()
+    expect(resolveCaseAsset(home, 'CASE-A', 'argus-case://CASE-A/bad%zz.txt')).toBeNull()
+  })
 })
 
 describe('computeRange', () => {
