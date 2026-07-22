@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { RefreshCw, Pencil, Trash2 } from 'lucide-react'
+import { useEffect, useState, Fragment } from 'react'
+import { RefreshCw, Pencil, Trash2, BookUp } from 'lucide-react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
@@ -8,9 +8,11 @@ import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
 import { ProposalsBanner } from './ProposalsBanner'
+import { SharePushDialog, useSharePush, PushReceiptChip } from './SharePushDialog'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import { useConnectorsPayload } from '../../lib/connectorsStore'
+import { PUSHABLE_TIERS } from '../../../../shared/trustTiers'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
 import type { ReferenceUsageRow } from '../../../../shared/observability'
 import type { ProposalType } from '../../../../shared/proposals'
@@ -54,6 +56,9 @@ export function ReferencesSettings({
   // null = no active search (show all); otherwise the set of matching file names
   const [matches, setMatches] = useState<Set<string> | null>(null)
   const [usage, setUsage] = useState<Map<string, ReferenceUsageRow> | null>(null)
+  const [sharing, setSharing] = useState<string | null>(null)
+  const [sharePushing, setSharePushing] = useState(false)
+  const { shareReady, shareTip, pushes, refresh: refreshShare } = useSharePush()
 
   useEffect(() => {
     let mounted = true
@@ -223,31 +228,60 @@ export function ReferencesSettings({
             className="w-full rounded-r2 bg-black/20 px-2 py-1 text-sm outline-none placeholder:text-faint"
           />
         </div>
-        {references.map((r) => (
-          <button
-            key={r.file}
-            aria-label={`open · ${r.file}`}
-            onClick={() => setViewer(r.file)}
-            className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-hair"
-          >
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="text-sm text-ink">{r.file}</span>
-              <span className="text-xs text-dim">
-                {r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
-                {usage?.get(r.file) && (
-                  <>
-                    {' · '}
-                    {usage.get(r.file)!.readCount === 0
-                      ? 'never read'
-                      : `${usage.get(r.file)!.readCount} reads · last ${usage.get(r.file)!.lastReadAt!.slice(0, 10)}`}
-                  </>
+        {references.map((r) => {
+          const receipt = pushes[`reference/${r.file}`]
+          const canShare = r.tier !== null && (PUSHABLE_TIERS as readonly string[]).includes(r.tier)
+          return (
+            <Fragment key={r.file}>
+              <div className="flex w-full items-center gap-3 px-3 py-2 transition-colors hover:bg-hair">
+                <button
+                  aria-label={`open · ${r.file}`}
+                  onClick={() => setViewer(r.file)}
+                  className="flex min-w-0 flex-1 flex-col text-left"
+                >
+                  <span className="text-sm text-ink">{r.file}</span>
+                  <span className="text-xs text-dim">
+                    {r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
+                    {usage?.get(r.file) && (
+                      <>
+                        {' · '}
+                        {usage.get(r.file)!.readCount === 0
+                          ? 'never read'
+                          : `${usage.get(r.file)!.readCount} reads · last ${usage.get(r.file)!.lastReadAt!.slice(0, 10)}`}
+                      </>
+                    )}
+                  </span>
+                </button>
+                {r.tier && <TierBadge tier={r.tier} />}
+                {r.stale && <Chip tone="danger">stale</Chip>}
+                {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
+                {canShare && (
+                  <IconBtn
+                    aria-label={`Share ${r.file} to HiveMind`}
+                    title={shareTip}
+                    // sharePushing: opening another row's dialog would unmount an
+                    // in-flight push and its PR URL would never be shown
+                    disabled={!shareReady || sharePushing}
+                    onClick={() => setSharing(sharing === r.file ? null : r.file)}
+                  >
+                    <BookUp size={14} />
+                  </IconBtn>
                 )}
-              </span>
-            </div>
-            {r.tier && <TierBadge tier={r.tier} />}
-            {r.stale && <Chip tone="danger">stale</Chip>}
-          </button>
-        ))}
+              </div>
+              {sharing === r.file && (
+                <SharePushDialog
+                  kind="reference"
+                  name={r.file}
+                  onClose={() => {
+                    setSharing(null)
+                    refreshShare()
+                  }}
+                  onBusyChange={setSharePushing}
+                />
+              )}
+            </Fragment>
+          )
+        })}
         {references.length === 0 && (
           <div className="px-3 py-2 text-xs text-faint">
             {activeMatches === null
