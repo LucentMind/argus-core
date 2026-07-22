@@ -47,7 +47,7 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__ingest_artifact: { action: 'allow', risk: 'LOW' },
   mcp__argus__append_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
-  // Inert until accepted on the Skills page (spec §2.4) — writing a proposal steers nothing.
+  // Inert until accepted on the Proposals page (spec §2.4) — writing a proposal steers nothing.
   mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },
   mcp__argus__open_panel: { action: 'allow', risk: 'LOW' },
   mcp__argus__capture_panel: { action: 'allow', risk: 'LOW' },
