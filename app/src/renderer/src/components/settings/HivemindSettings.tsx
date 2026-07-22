@@ -164,6 +164,7 @@ export function HivemindSettings({
   const [filter, setFilter] = useState('')
   const [updateConfirm, setUpdateConfirm] = useState<UpdateConfirm | null>(null)
   const [share, setShare] = useState<PushableItem | null>(null)
+  const [sharePushing, setSharePushing] = useState(false)
   const [check, setCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [checkError, setCheckError] = useState<string | null>(null)
 
@@ -443,14 +444,21 @@ export function HivemindSettings({
                     <IconBtn
                       aria-label={`Push ${it.name}`}
                       title="Push to HiveMind…"
-                      disabled={busy}
+                      // sharePushing: opening another row's dialog would unmount an
+                      // in-flight push and its PR URL would never be shown
+                      disabled={busy || sharePushing}
                       onClick={() => setShare(it)}
                     >
                       <BookUp size={14} />
                     </IconBtn>
                   </SettingRow>
                   {share && share.kind === it.kind && share.name === it.name && (
-                    <SharePushDialog kind={it.kind} name={it.name} onClose={() => setShare(null)} />
+                    <SharePushDialog
+                      kind={it.kind}
+                      name={it.name}
+                      onClose={() => setShare(null)}
+                      onBusyChange={setSharePushing}
+                    />
                   )}
                 </Fragment>
               ))}
