@@ -446,18 +446,39 @@ describe('pushable + push', () => {
     )
   })
 
-  it('a failed push writes no receipt', async () => {
+  it('a failed push writes no receipt and preserves existing ones', async () => {
     seedClone()
     seedUserAssets()
-    const git: Runner = async (_c, args) => {
+    // First: successful push to seed a receipt
+    const successGit: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'rev-parse') return 'headsha'
+      return ''
+    }
+    const successGh: Runner = async () => 'https://github.com/acme/hivemind/pull/7'
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: successGit,
+      gh: successGh
+    })
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    const receipt = (await svc.payload()).pushes['skill/my-skill']
+    expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/7')
+
+    // Then: failed push with a different service instance over the same argusHome
+    const failGit: Runner = async (_c, args) => {
       if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
       if (args[0] === 'push') throw new Error('remote rejected')
       return ''
     }
-    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
-    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    const svc2 = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: failGit })
+    const r = await svc2.push('skill', 'my-skill', 'Update my-skill')
     expect(r.ok).toBe(false)
-    expect((await svc.payload()).pushes).toEqual({})
+    // Receipt from first push must still be there
+    expect((await svc2.payload()).pushes['skill/my-skill'].prUrl).toBe(
+      'https://github.com/acme/hivemind/pull/7'
+    )
   })
 })
 
