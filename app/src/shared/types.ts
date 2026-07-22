@@ -232,6 +232,17 @@ export interface ApprovalDecision {
   updatedInput?: Record<string, unknown>
 }
 
+/** Operator's answer to an AskUserQuestion Question card, sent renderer → main. `answers` maps
+ *  each question's text to the chosen option label (multiSelect comma-joined); `response` is a
+ *  freeform reply. Becomes canUseTool's updatedInput.answers. */
+export type DialogAnswer =
+  | {
+      dialogId: string
+      behavior: 'completed'
+      result: { answers: Record<string, string>; response?: string }
+    }
+  | { dialogId: string; behavior: 'cancelled' }
+
 export interface AuthStatus {
   ok: boolean
   detail: string // "logged in as x@y (subscription)" | "not logged in" | error text

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
-import type { ApprovalDecision, CaseRecord } from '../../../shared/types'
+import type { ApprovalDecision, CaseRecord, DialogAnswer } from '../../../shared/types'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import {
   activeInstanceConfig,
@@ -295,6 +295,10 @@ export class AgentService {
 
   respond(caseSlug: string, sessionId: number, d: ApprovalDecision): boolean {
     return this.sessions.get(this.keyOf(caseSlug, sessionId))?.respond(d) ?? false
+  }
+
+  answerDialog(caseSlug: string, sessionId: number, a: DialogAnswer): boolean {
+    return this.sessions.get(this.keyOf(caseSlug, sessionId))?.answerDialog(a) ?? false
   }
 
   async interrupt(caseSlug: string, sessionId: number): Promise<void> {

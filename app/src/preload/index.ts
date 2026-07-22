@@ -7,6 +7,7 @@ import type {
   CaseRecord,
   CaseResolution,
   CaseStatus,
+  DialogAnswer,
   FileNode,
   FileReadResult,
   ProviderStatus,
@@ -279,6 +280,8 @@ const argus = {
       ipcRenderer.invoke(IPC.agentInterrupt, caseSlug, sessionId),
     respond: (caseSlug: string, sessionId: number, d: ApprovalDecision) =>
       ipcRenderer.invoke(IPC.agentRespond, caseSlug, sessionId, d),
+    answerDialog: (caseSlug: string, sessionId: number, a: DialogAnswer) =>
+      ipcRenderer.invoke(IPC.agentAnswerDialog, caseSlug, sessionId, a),
     authStatus: (force?: boolean) => ipcRenderer.invoke(IPC.agentAuthStatus, force),
     onAuthChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
