@@ -241,4 +241,26 @@ describe('InstalledSkills share-in-place', () => {
     expect(argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/hivemind/pull/9')
     expect(screen.queryByRole('button', { name: 'Open PR · rca' })).not.toBeInTheDocument()
   })
+
+  it('Share buttons disable while any push is in flight; re-enable when it settles', async () => {
+    let pushResolve: (v: unknown) => void
+    const pushPromise = new Promise((resolve) => {
+      pushResolve = resolve
+    })
+    argus.hivemind.push = vi.fn().mockReturnValue(pushPromise)
+    render(<InstalledSkills />)
+    const shareRca = await screen.findByRole('button', { name: 'Share rca to HiveMind' })
+    const shareNotes = screen.getByRole('button', { name: 'Share my-notes to HiveMind' })
+    await waitFor(() => expect(shareRca).not.toBeDisabled())
+    // Click Share on rca and start the push
+    fireEvent.click(shareRca)
+    expect(await screen.findByText('# rca')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
+    // While push is in flight, my-notes Share button should be disabled
+    await waitFor(() => expect(shareNotes).toBeDisabled())
+    // Resolve the push
+    pushResolve!({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/12' })
+    // After push settles, my-notes Share button should re-enable
+    await waitFor(() => expect(shareNotes).not.toBeDisabled())
+  })
 })

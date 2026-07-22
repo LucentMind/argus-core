@@ -25,6 +25,7 @@ export function InstalledSkills(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [usage, setUsage] = useState<Map<string, SkillUsageRow> | null>(null)
   const [sharing, setSharing] = useState<string | null>(null)
+  const [sharePushing, setSharePushing] = useState(false)
   const { shareReady, shareTip, pushes, refresh: refreshShare } = useSharePush()
 
   const refresh = useCallback(async () => {
@@ -131,7 +132,9 @@ export function InstalledSkills(): React.JSX.Element {
                         <IconBtn
                           aria-label={`Share ${s.name} to HiveMind`}
                           title={shareTip}
-                          disabled={!shareReady}
+                          // sharePushing: opening another row's dialog would unmount an
+                          // in-flight push and its PR URL would never be shown
+                          disabled={!shareReady || sharePushing}
                           onClick={() => setSharing(sharing === s.name ? null : s.name)}
                         >
                           <BookUp size={14} />
@@ -159,6 +162,7 @@ export function InstalledSkills(): React.JSX.Element {
                         setSharing(null)
                         refreshShare()
                       }}
+                      onBusyChange={setSharePushing}
                     />
                   )}
                 </Fragment>
