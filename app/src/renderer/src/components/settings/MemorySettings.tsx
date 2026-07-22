@@ -314,14 +314,14 @@ export function MemorySettings({
                     >
                       <Archive size={14} />
                     </IconBtn>
-                    <IconBtn
+                    <Btn
+                      variant="dangerSolid"
                       aria-label={`Delete ${t.name}`}
                       title="Delete"
-                      className="hover:text-danger"
                       onClick={() => void remove(t.name)}
                     >
-                      <Trash2 size={14} />
-                    </IconBtn>
+                      <Trash2 size={13} aria-hidden="true" />
+                    </Btn>
                     <Switch
                       checked={access ? topicEnabled(access.access, t.name) : t.enabled}
                       onChange={(v) => void accessStore.patch({ memory: { [t.name]: v } })}

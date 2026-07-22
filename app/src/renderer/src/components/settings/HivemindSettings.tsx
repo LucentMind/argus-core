@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { ExternalLink, RefreshCw, X } from 'lucide-react'
+import { Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
@@ -57,39 +57,41 @@ function BrowseRow({
             Update
           </Btn>
         ) : it.installed ? (
-          <Chip tone="signal">installed</Chip>
+          <Chip tone="signal">downloaded</Chip>
         ) : (
           <Btn
             variant="outline"
-            aria-label={`Install ${it.name}`}
+            aria-label={`Download ${it.name}`}
             disabled={busy}
             onClick={onInstall}
           >
-            Install
+            <Download size={13} aria-hidden="true" />
+            Download
           </Btn>
         )}
         {(it.kind === 'skill'
           ? it.installed
           : it.localTier === 'hivemind' || it.localTier === 'confluence') && (
           <Btn
-            variant="danger"
-            aria-label={`Uninstall ${it.name}`}
+            variant="dangerSolid"
+            aria-label={`Remove ${it.name}`}
             disabled={busy}
             onClick={() => {
               void askConfirm({
-                title: `Uninstall ${it.name}?`,
+                title: `Remove ${it.name}?`,
                 message:
                   it.kind === 'skill'
-                    ? 'Its skills-hivemind folder is removed; it stays installable from Browse.'
-                    : 'Its local references copy is removed; it stays installable from Browse.',
-                confirmLabel: 'Uninstall',
+                    ? 'Its skills-hivemind folder is removed; it stays available in Browse.'
+                    : 'Its local references copy is removed; it stays available in Browse.',
+                confirmLabel: 'Remove',
                 danger: true
               }).then((ok) => {
                 if (ok) onUninstall()
               })
             }}
           >
-            Uninstall
+            <Trash2 size={13} aria-hidden="true" />
+            Remove
           </Btn>
         )}
         {it.kind === 'reference' && it.localTier === 'hivemind' && (
@@ -122,11 +124,12 @@ function BrowseRow({
           <div className="flex items-center gap-2">
             <Btn
               variant="primary"
-              aria-label={`Re-install ${it.name}`}
+              aria-label={`Re-download ${it.name}`}
               disabled={busy}
               onClick={onReinstall}
             >
-              Re-install
+              <Download size={13} aria-hidden="true" />
+              Re-download
             </Btn>
             <IconBtn aria-label="Cancel" title="Cancel" onClick={onCancel}>
               <X size={14} />

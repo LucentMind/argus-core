@@ -135,7 +135,7 @@ describe('HivemindSettings', () => {
     expect(screen.getByText('Skills')).toBeInTheDocument()
     expect(screen.getByText('References')).toBeInTheDocument()
     expect(screen.getByText('update available')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Install hive-note.md' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Download hive-note.md' }))
     await waitFor(() =>
       expect(
         (window as unknown as { argus: { hivemind: { install: ReturnType<typeof vi.fn> } } }).argus
@@ -154,7 +154,7 @@ describe('HivemindSettings', () => {
     expect(await screen.findByText('new')).toBeInTheDocument()
     // inline placement: the diff panel follows the item's row in DOM order
     expect(row.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Re-install hive-probe' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Re-download hive-probe' }))
     await waitFor(() =>
       expect(
         (window as unknown as { argus: { hivemind: { install: ReturnType<typeof vi.fn> } } }).argus
@@ -293,7 +293,7 @@ describe('uninstall skill', () => {
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.mocked(confirm).mockResolvedValue(true)
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall hive-probe' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove hive-probe' }))
     await waitFor(() =>
       expect(
         (argus.hivemind as { uninstallSkill: ReturnType<typeof vi.fn> }).uninstallSkill
@@ -306,21 +306,21 @@ describe('uninstall skill', () => {
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.mocked(confirm).mockResolvedValue(false)
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall hive-probe' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove hive-probe' }))
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(
       (argus.hivemind as { uninstallSkill: ReturnType<typeof vi.fn> }).uninstallSkill
     ).not.toHaveBeenCalled()
   })
 
-  it('offers Uninstall only for installed skills, never references', async () => {
+  it('offers Remove only for downloaded skills, never references', async () => {
     const argus = mockArgus(installed)
     ;(window as unknown as { argus: unknown }).argus = argus
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText('hive-probe')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Uninstall hive-probe' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Uninstall hive-extra' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Uninstall hive-note.md' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove hive-probe' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove hive-extra' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove hive-note.md' })).not.toBeInTheDocument()
   })
 
   it('a rejected uninstall surfaces in the alert banner', async () => {
@@ -331,7 +331,7 @@ describe('uninstall skill', () => {
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.mocked(confirm).mockResolvedValue(true)
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall hive-probe' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove hive-probe' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/uninstall exploded/)
   })
@@ -361,7 +361,7 @@ describe('uninstall reference', () => {
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.mocked(confirm).mockResolvedValue(true)
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall hive-note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove hive-note.md' }))
     await waitFor(() =>
       expect(
         (argus.hivemind as { uninstallReference: ReturnType<typeof vi.fn> }).uninstallReference
@@ -369,16 +369,14 @@ describe('uninstall reference', () => {
     )
   })
 
-  it('offers Uninstall for confluence-tier but never user-tier or uninstalled refs', async () => {
+  it('offers Remove for confluence-tier but never user-tier or undownloaded refs', async () => {
     const argus = mockArgus(withRefs)
     ;(window as unknown as { argus: unknown }).argus = argus
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     expect(await screen.findByText('hive-note.md')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Uninstall confluence/adasis.md' })
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Uninstall mine.md' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Uninstall ghost.md' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove confluence/adasis.md' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove mine.md' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove ghost.md' })).not.toBeInTheDocument()
   })
 
   it('confirm-cancel is a no-op', async () => {
@@ -386,7 +384,7 @@ describe('uninstall reference', () => {
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.mocked(confirm).mockResolvedValue(false)
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall hive-note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove hive-note.md' }))
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(
       (argus.hivemind as { uninstallReference: ReturnType<typeof vi.fn> }).uninstallReference
@@ -401,7 +399,7 @@ describe('uninstall reference', () => {
     ;(window as unknown as { argus: unknown }).argus = argus
     vi.mocked(confirm).mockResolvedValue(true)
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Uninstall hive-note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove hive-note.md' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/ref uninstall exploded/)
   })

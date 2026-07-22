@@ -298,7 +298,7 @@ export function ProposalsPage({
                       Accept
                     </Btn>
                     <Btn
-                      variant="danger"
+                      variant="dangerSolid"
                       aria-label={`Reject ${p.title}`}
                       disabled={busy}
                       onClick={() => void act(() => window.argus.proposals.reject(p.file))}
