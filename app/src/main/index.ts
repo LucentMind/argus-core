@@ -133,6 +133,7 @@ import type {
   CaseRecord,
   CaseResolution,
   CaseStatus,
+  DialogAnswer,
   NewCaseInput,
   SearchFilters,
   UnifiedHit
@@ -949,6 +950,12 @@ function registerIpc(): void {
     IPC.agentRespond,
     (_e, caseSlug: string, sessionId: number, d: ApprovalDecision) => {
       return agentService!.respond(caseSlug, sessionId, d)
+    }
+  )
+  ipcMain.handle(
+    IPC.agentAnswerDialog,
+    (_e, caseSlug: string, sessionId: number, a: DialogAnswer) => {
+      return agentService!.answerDialog(caseSlug, sessionId, a)
     }
   )
   ipcMain.handle(IPC.agentAuthStatus, (_e, force?: boolean) => authCache.get(force ?? false))
