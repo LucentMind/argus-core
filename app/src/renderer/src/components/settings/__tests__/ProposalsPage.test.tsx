@@ -69,6 +69,13 @@ describe('ProposalsPage', () => {
     expect(screen.getByText('+ new line')).toBeInTheDocument()
   })
 
+  it('renders a prominent case header with the slug and a filtered proposal count', async () => {
+    render(<ProposalsPage />)
+    expect(await screen.findByText('NAV-100')).toBeInTheDocument()
+    expect(screen.getByText('Case')).toBeInTheDocument()
+    expect(screen.getByText('3 proposals')).toBeInTheDocument()
+  })
+
   it('accept invokes the IPC, refreshes and clears the proposal', async () => {
     render(<ProposalsPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Accept Sharpen step 4' }))

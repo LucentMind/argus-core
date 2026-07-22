@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { SettingsSection } from './settingsLayout'
-import { Btn, Chip, SectionLabel } from '../ui'
+import { Btn, Chip } from '../ui'
 import { diffLines } from '../../lib/lineDiff'
 import { MessageView } from '../MessageView'
 import { SharePushDialog } from './SharePushDialog'
@@ -18,6 +18,39 @@ const noop = (): void => undefined
 
 const KIND_PREFIX = { same: '  ', add: '+ ', del: '- ' } as const
 const KIND_CLASS = { same: 'text-dim', add: 'text-signal', del: 'text-danger' } as const
+
+/**
+ * Splits the (case-sorted) proposal list into per-case groups: a strong header row —
+ * "Case" label + prominent mono slug + a filtered-count on the right — separates each case
+ * from the last, with a top border/space so cases read as distinct sections rather than the
+ * previous barely-visible {@link SectionLabel}. The first group skips the border since it
+ * already sits below the filter/banner chrome above it.
+ */
+function ProposalCaseHeader({
+  caseSlug,
+  count,
+  isFirst
+}: {
+  caseSlug: string
+  count: number
+  isFirst: boolean
+}): React.JSX.Element {
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 px-1 pb-1 ${
+        isFirst ? '' : 'mt-2 border-t border-hair pt-4'
+      }`}
+    >
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-xs text-mute">Case</span>
+        <span className="font-mono text-sm font-medium text-ink">{caseSlug}</span>
+      </span>
+      <span className="text-xs text-mute">
+        {count} proposal{count === 1 ? '' : 's'}
+      </span>
+    </div>
+  )
+}
 
 function ProposalDiff({ p }: { p: ProposalRecord }): React.JSX.Element {
   const lines = diffLines(p.current ?? '', p.content)
@@ -117,6 +150,16 @@ export function ProposalsPage({
   const sorted = [...filtered].sort(
     (a, b) => a.caseSlug.localeCompare(b.caseSlug) || b.date.localeCompare(a.date)
   )
+  // Case-sorted list → consecutive-run groups, each rendered under one ProposalCaseHeader.
+  const caseGroups: { caseSlug: string; items: ProposalRecord[] }[] = []
+  for (const p of sorted) {
+    const lastGroup = caseGroups[caseGroups.length - 1]
+    if (lastGroup && lastGroup.caseSlug === p.caseSlug) {
+      lastGroup.items.push(p)
+    } else {
+      caseGroups.push({ caseSlug: p.caseSlug, items: [p] })
+    }
+  }
 
   function toggleEdit(p: ProposalRecord): void {
     setEditing((prev) => {
@@ -129,8 +172,6 @@ export function ProposalsPage({
       return next
     })
   }
-
-  let lastCaseSlug: string | null = null
 
   return (
     <div className="flex flex-col gap-4">
@@ -200,77 +241,83 @@ export function ProposalsPage({
           /contribute-back) and after case distillation.
         </div>
       ) : (
-        sorted.map((p) => {
-          const showCaseHeader = p.caseSlug !== lastCaseSlug
-          lastCaseSlug = p.caseSlug
-          const isEditing = p.file in editing
-          const isMarkdown = p.type === 'memory-append' || p.type === 'case-summary'
-          return (
-            <div key={p.file} className="flex flex-col gap-2">
-              {showCaseHeader && <SectionLabel>Case: {p.caseSlug}</SectionLabel>}
-              <SettingsSection title={p.title}>
-                <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
-                  <Chip tone="neutral">{PROPOSAL_TYPE_LABELS[p.type]}</Chip>
-                  {p.type !== 'case-summary' && <Chip tone="neutral">→ {p.target}</Chip>}
-                  <span className="text-xs text-mute">{new Date(p.date).toLocaleString()}</span>
-                  {p.current === null && <Chip tone="review">new file</Chip>}
-                  {p.previouslyReviewed && <Chip tone="review">previously reviewed</Chip>}
-                </div>
-                {isEditing ? (
-                  <textarea
-                    aria-label="Edit proposal content"
-                    className="max-h-64 w-full overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-xs"
-                    rows={8}
-                    value={editing[p.file]}
-                    onChange={(e) => setEditing((prev) => ({ ...prev, [p.file]: e.target.value }))}
-                  />
-                ) : isMarkdown ? (
-                  <div className="px-4 py-3">
-                    <MessageView markdown={p.content} onCite={noop} />
+        caseGroups.map((group, gi) => (
+          <div key={group.caseSlug} className="flex flex-col gap-2">
+            <ProposalCaseHeader
+              caseSlug={group.caseSlug}
+              count={group.items.length}
+              isFirst={gi === 0}
+            />
+            {group.items.map((p) => {
+              const isEditing = p.file in editing
+              const isMarkdown = p.type === 'memory-append' || p.type === 'case-summary'
+              return (
+                <SettingsSection key={p.file} title={p.title}>
+                  <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+                    <Chip tone="neutral">{PROPOSAL_TYPE_LABELS[p.type]}</Chip>
+                    {p.type !== 'case-summary' && <Chip tone="neutral">→ {p.target}</Chip>}
+                    <span className="text-xs text-mute">{new Date(p.date).toLocaleString()}</span>
+                    {p.current === null && <Chip tone="review">new file</Chip>}
+                    {p.previouslyReviewed && <Chip tone="review">previously reviewed</Chip>}
                   </div>
-                ) : (
-                  <ProposalDiff p={p} />
-                )}
-                <div className="flex items-center gap-2 px-4 py-3">
-                  <Btn
-                    variant="primary"
-                    aria-label={`Accept ${p.title}`}
-                    disabled={busy}
-                    onClick={() =>
-                      void act(async () => {
-                        const r = await (isEditing
-                          ? window.argus.proposals.accept(p.file, editing[p.file])
-                          : window.argus.proposals.accept(p.file))
-                        setJustAccepted((prev) => [
-                          ...prev,
-                          { file: p.file, title: p.title, target: r.accepted }
-                        ])
-                        return r
-                      })
-                    }
-                  >
-                    Accept
-                  </Btn>
-                  <Btn
-                    variant="danger"
-                    aria-label={`Reject ${p.title}`}
-                    disabled={busy}
-                    onClick={() => void act(() => window.argus.proposals.reject(p.file))}
-                  >
-                    Reject
-                  </Btn>
-                  <Btn
-                    variant="outline"
-                    aria-label={`Edit ${p.title}`}
-                    onClick={() => toggleEdit(p)}
-                  >
-                    Edit
-                  </Btn>
-                </div>
-              </SettingsSection>
-            </div>
-          )
-        })
+                  {isEditing ? (
+                    <textarea
+                      aria-label="Edit proposal content"
+                      className="max-h-64 w-full overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-xs"
+                      rows={8}
+                      value={editing[p.file]}
+                      onChange={(e) =>
+                        setEditing((prev) => ({ ...prev, [p.file]: e.target.value }))
+                      }
+                    />
+                  ) : isMarkdown ? (
+                    <div className="px-4 py-3">
+                      <MessageView markdown={p.content} onCite={noop} />
+                    </div>
+                  ) : (
+                    <ProposalDiff p={p} />
+                  )}
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    <Btn
+                      variant="primary"
+                      aria-label={`Accept ${p.title}`}
+                      disabled={busy}
+                      onClick={() =>
+                        void act(async () => {
+                          const r = await (isEditing
+                            ? window.argus.proposals.accept(p.file, editing[p.file])
+                            : window.argus.proposals.accept(p.file))
+                          setJustAccepted((prev) => [
+                            ...prev,
+                            { file: p.file, title: p.title, target: r.accepted }
+                          ])
+                          return r
+                        })
+                      }
+                    >
+                      Accept
+                    </Btn>
+                    <Btn
+                      variant="danger"
+                      aria-label={`Reject ${p.title}`}
+                      disabled={busy}
+                      onClick={() => void act(() => window.argus.proposals.reject(p.file))}
+                    >
+                      Reject
+                    </Btn>
+                    <Btn
+                      variant="outline"
+                      aria-label={`Edit ${p.title}`}
+                      onClick={() => toggleEdit(p)}
+                    >
+                      Edit
+                    </Btn>
+                  </div>
+                </SettingsSection>
+              )
+            })}
+          </div>
+        ))
       )}
     </div>
   )
