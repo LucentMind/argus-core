@@ -28,10 +28,44 @@ export function setProposalsChangedNotifier(cb: () => void): void {
   notifyChanged = cb
 }
 
+let batchDepth = 0
+let batchDirty = false
+function announceChanged(): void {
+  if (batchDepth > 0) {
+    batchDirty = true
+    return
+  }
+  notifyChanged()
+}
+
+/**
+ * Coalesce every proposal-set change inside fn into at most one announcement,
+ * fired when the outermost batch ends — even if fn throws after some writes
+ * already landed on disk. Distill staging writes one file per staged item;
+ * without this each write broadcasts (and recounts) separately.
+ */
+export function batchProposalChanges<T>(fn: () => T): T {
+  batchDepth++
+  try {
+    return fn()
+  } finally {
+    batchDepth--
+    if (batchDepth === 0 && batchDirty) {
+      batchDirty = false
+      notifyChanged()
+    }
+  }
+}
+
+/**
+ * Counting runs on every proposals:changed broadcast, so it must stay
+ * frontmatter-cheap — no current-content resolution (resolveSkills scans the
+ * skill tiers per skill proposal, which made counting O(N²) during staging).
+ */
 export function proposalCounts(argusHome: string): ProposalCounts {
   const byType: ProposalCounts['byType'] = {}
   let pendingCount = 0
-  for (const p of listProposals(argusHome)) {
+  for (const p of pendingProposalFiles(argusHome)) {
     pendingCount++
     byType[p.type] = (byType[p.type] ?? 0) + 1
   }
@@ -96,7 +130,7 @@ export function writeProposal(
     ''
   ].join('\n')
   fs.writeFileSync(path.join(dir, file), fm + input.content)
-  notifyChanged()
+  announceChanged()
   return file
 }
 
@@ -124,34 +158,44 @@ function currentContent(argusHome: string, type: ProposalType, target: string): 
   }
 }
 
-export function listProposals(argusHome: string): ProposalRecord[] {
+/** Every well-formed pending file (valid frontmatter block + known type), frontmatter only. */
+function pendingProposalFiles(
+  argusHome: string
+): { file: string; type: ProposalType; fm: string; body: string }[] {
   const dir = proposalsDir(argusHome)
   if (!fs.existsSync(dir)) return []
-  const out: ProposalRecord[] = []
+  const out: { file: string; type: ProposalType; fm: string; body: string }[] = []
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!ent.isFile() || !ent.name.endsWith('.md')) continue
-    const raw = fs.readFileSync(path.join(dir, ent.name), 'utf8')
-    const block = fmBlock(raw)
+    const block = fmBlock(fs.readFileSync(path.join(dir, ent.name), 'utf8'))
     if (!block) continue
     const type = fmField(block.fm, 'type') as ProposalType
     if (!PROPOSAL_TYPES.includes(type)) continue
-    const target = fmField(block.fm, 'target')
-    const previouslyReviewed = fmField(block.fm, 'previously_reviewed') === 'true'
-    const job = fmField(block.fm, 'job')
-    out.push({
-      file: ent.name,
-      type,
-      target,
-      caseSlug: fmField(block.fm, 'case'),
-      date: fmField(block.fm, 'date'),
-      title: fmField(block.fm, 'title'),
-      content: block.body,
-      current: currentContent(argusHome, type, target),
-      ...(previouslyReviewed ? { previouslyReviewed: true } : {}),
-      ...(job ? { jobId: job } : {})
-    })
+    out.push({ file: ent.name, type, fm: block.fm, body: block.body })
   }
-  return out.sort((a, b) => b.date.localeCompare(a.date))
+  return out
+}
+
+export function listProposals(argusHome: string): ProposalRecord[] {
+  return pendingProposalFiles(argusHome)
+    .map(({ file, type, fm, body }) => {
+      const target = fmField(fm, 'target')
+      const previouslyReviewed = fmField(fm, 'previously_reviewed') === 'true'
+      const job = fmField(fm, 'job')
+      return {
+        file,
+        type,
+        target,
+        caseSlug: fmField(fm, 'case'),
+        date: fmField(fm, 'date'),
+        title: fmField(fm, 'title'),
+        content: body,
+        current: currentContent(argusHome, type, target),
+        ...(previouslyReviewed ? { previouslyReviewed: true } : {}),
+        ...(job ? { jobId: job } : {})
+      }
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
 }
 
 /** Type/target/title/status of every archived (accepted or rejected) proposal, across all cases. */
@@ -189,7 +233,7 @@ export function removePendingProposal(argusHome: string, file: string): void {
   const p = path.join(proposalsDir(argusHome), path.basename(file))
   if (fs.existsSync(p)) {
     fs.rmSync(p)
-    notifyChanged()
+    announceChanged()
   }
 }
 
@@ -250,7 +294,7 @@ export function acceptProposal(
     accepted = { kind: 'reference', name: refFileName(p.target) }
   }
   archive(argusHome, file, 'accepted')
-  notifyChanged()
+  announceChanged()
   return accepted
 }
 
@@ -258,5 +302,5 @@ export function rejectProposal(argusHome: string, file: string): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
   archive(argusHome, p.file, 'rejected')
-  notifyChanged()
+  announceChanged()
 }

@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import type { ProposalCounts, ProposalType } from '../../../shared/proposals'
+import type { ProposalCounts } from '../../../shared/proposals'
 
 /**
  * Renderer mirror of the pending-proposal counts. Primed from proposals.list()
@@ -20,12 +20,15 @@ export class ProposalsStore {
       .then((p) => {
         const byType: ProposalCounts['byType'] = {}
         for (const r of p.proposals) {
-          const t = r.type as ProposalType
-          byType[t] = (byType[t] ?? 0) + 1
+          byType[r.type] = (byType[r.type] ?? 0) + 1
         }
         this.set({ pendingCount: p.proposals.length, byType })
       })
-      .catch(() => undefined)
+      .catch((e) => {
+        // priming is best-effort (the badge just stays empty), but a dead IPC
+        // channel should at least leave a trace in the console
+        console.warn('proposalsStore: priming from proposals.list() failed', e)
+      })
     window.argus.proposals.onChanged((c) => this.set(c))
   }
 
