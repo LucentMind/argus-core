@@ -16,6 +16,26 @@ const payload: ProposalsPayload = {
       title: 'Sharpen step 4',
       content: '# rca\nnew line\n',
       current: '# rca\nold line\n'
+    },
+    {
+      file: '2026-07-11-NAV-100-skill.md',
+      type: 'skill-new',
+      target: 'new-skill',
+      caseSlug: 'NAV-100',
+      date: '2026-07-11T12:00:00.000Z',
+      title: 'New skill proposal',
+      content: '# new skill\n',
+      current: null
+    },
+    {
+      file: '2026-07-12-NAV-100-ref.md',
+      type: 'reference-edit',
+      target: 'ref-doc',
+      caseSlug: 'NAV-100',
+      date: '2026-07-12T12:00:00.000Z',
+      title: 'Reference edit proposal',
+      content: '# ref\nnew\n',
+      current: '# ref\nold\n'
     }
   ]
 }
@@ -73,5 +93,23 @@ describe('ProposalsPage', () => {
       expect(screen.queryByText('loading…')).not.toBeInTheDocument()
     })
     expect(await screen.findByRole('alert')).toHaveTextContent(/ipc dead/)
+  })
+
+  it('filters via multi-select type chips', async () => {
+    render(<ProposalsPage />)
+    const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })
+    expect(chip).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+    // only skill-new proposals remain visible
+    expect(screen.queryByText('Reference')).not.toBeInTheDocument()
+    fireEvent.click(chip) // toggle off → all visible again
+    expect(await screen.findByText('Reference')).toBeInTheDocument()
+  })
+
+  it('initialTypes pre-activates chips', async () => {
+    render(<ProposalsPage initialTypes={['skill-new']} />)
+    const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
   })
 })

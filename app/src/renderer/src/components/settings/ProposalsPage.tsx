@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Chip, SectionLabel } from '../ui'
 import { diffLines } from '../../lib/lineDiff'
-import { blurOnEscape } from '../../lib/escapeLayer'
 import { MessageView } from '../MessageView'
 import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
-import type { ProposalRecord, ProposalsPayload } from '../../../../shared/proposals'
+import type { ProposalRecord, ProposalsPayload, ProposalType } from '../../../../shared/proposals'
 
 const noop = (): void => undefined
 
@@ -26,12 +25,25 @@ function ProposalDiff({ p }: { p: ProposalRecord }): React.JSX.Element {
   )
 }
 
-export function ProposalsPage(): React.JSX.Element {
+export function ProposalsPage({
+  initialTypes
+}: {
+  initialTypes?: readonly ProposalType[]
+} = {}): React.JSX.Element {
   const [payload, setPayload] = useState<ProposalsPayload | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('all')
+  const [active, setActive] = useState<ReadonlySet<ProposalType>>(new Set(initialTypes ?? []))
   const [editing, setEditing] = useState<Record<string, string>>({})
+
+  function toggleType(t: ProposalType): void {
+    setActive((prev) => {
+      const next = new Set(prev)
+      if (next.has(t)) next.delete(t)
+      else next.add(t)
+      return next
+    })
+  }
 
   function apply(p: ProposalsPayload): void {
     setPayload(p)
@@ -74,7 +86,7 @@ export function ProposalsPage(): React.JSX.Element {
 
   const typesPresent = Array.from(new Set(payload.proposals.map((p) => p.type)))
   const filtered =
-    filter === 'all' ? payload.proposals : payload.proposals.filter((p) => p.type === filter)
+    active.size === 0 ? payload.proposals : payload.proposals.filter((p) => active.has(p.type))
   const sorted = [...filtered].sort(
     (a, b) => a.caseSlug.localeCompare(b.caseSlug) || b.date.localeCompare(a.date)
   )
@@ -103,26 +115,22 @@ export function ProposalsPage(): React.JSX.Element {
           {error}
         </div>
       )}
-      <div className="flex items-center gap-2 px-1">
-        <label className="text-xs text-mute" htmlFor="proposals-type-filter">
-          Type
-        </label>
-        <select
-          id="proposals-type-filter"
-          aria-label="Filter by type"
-          className="h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          onKeyDown={blurOnEscape}
-        >
-          <option value="all">all</option>
+      {typesPresent.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1">
+          <span className="text-xs text-mute">Filter</span>
           {typesPresent.map((t) => (
-            <option key={t} value={t}>
-              {PROPOSAL_TYPE_LABELS[t]}
-            </option>
+            <button
+              key={t}
+              aria-pressed={active.has(t)}
+              aria-label={`Filter ${PROPOSAL_TYPE_LABELS[t]}`}
+              onClick={() => toggleType(t)}
+              className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${active.has(t) ? 'border-signal text-ink' : 'border-hair text-dim hover:text-ink'}`}
+            >
+              {PROPOSAL_TYPE_LABELS[t]} · {payload.proposals.filter((p) => p.type === t).length}
+            </button>
           ))}
-        </select>
-      </div>
+        </div>
+      )}
       {payload.proposals.length === 0 ? (
         <div className="px-1 py-2 text-sm text-dim">
           No pending proposals — the agent drafts them via /contribute-back (write_proposal).

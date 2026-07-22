@@ -66,7 +66,7 @@ describe('Knowledge inbox', () => {
   it('filters by type', async () => {
     render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'case-summary' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Case summary' }))
     expect(screen.queryByText('DLT drift')).not.toBeInTheDocument()
     expect(screen.getByText('Case summary: sig')).toBeInTheDocument()
   })
@@ -74,10 +74,10 @@ describe('Knowledge inbox', () => {
   it('edit-then-accept passes edited content', async () => {
     render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    fireEvent.click(screen.getAllByRole('button', { name: /edit/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Edit DLT drift' }))
     const ta = screen.getByLabelText('Edit proposal content')
     fireEvent.change(ta, { target: { value: 'edited fact' } })
-    fireEvent.click(screen.getAllByRole('button', { name: /accept/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Accept DLT drift' }))
     await waitFor(() => expect(accept).toHaveBeenCalledWith('a.md', 'edited fact'))
   })
 
@@ -89,11 +89,10 @@ describe('Knowledge inbox', () => {
     expect(within(summaryCard).queryByText(/^→/)).not.toBeInTheDocument()
   })
 
-  it('filter select options show human-readable type labels', async () => {
+  it('filter chips show human-readable type labels', async () => {
     render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    const select = within(screen.getByLabelText('Filter by type'))
-    expect(select.getByRole('option', { name: 'Lesson' })).toBeInTheDocument()
-    expect(select.getByRole('option', { name: 'Case summary' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter Lesson' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter Case summary' })).toBeInTheDocument()
   })
 })
