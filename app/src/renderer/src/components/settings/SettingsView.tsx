@@ -141,7 +141,9 @@ export function SettingsView({
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
-          {page === 'proposals' && <ProposalsPage initialTypes={proposalTypes} />}
+          {page === 'proposals' && (
+            <ProposalsPage key={proposalTypes?.join(',') ?? 'all'} initialTypes={proposalTypes} />
+          )}
           {page === 'skills' && <SkillsSettings onReviewProposals={openProposals} />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
           {payload && page === 'packs' && <PacksSettings settings={payload} />}
