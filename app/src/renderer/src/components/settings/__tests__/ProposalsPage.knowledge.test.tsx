@@ -43,12 +43,18 @@ const payload: ProposalsPayload = {
 
 let accept: ReturnType<typeof vi.fn>
 beforeEach(() => {
-  accept = vi.fn().mockResolvedValue({ proposals: [] })
+  accept = vi
+    .fn()
+    .mockResolvedValue({ proposals: [], accepted: { kind: 'memory', name: 'dlt-timing' } })
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
       accept,
       reject: vi.fn().mockResolvedValue({ proposals: [] })
+    },
+    settings: {
+      get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),
+      onChanged: vi.fn(() => () => {})
     }
   }
 })

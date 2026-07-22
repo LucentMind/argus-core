@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalsPage } from '../ProposalsPage'
+import { settingsStore } from '../../../lib/settingsStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -41,11 +42,18 @@ const payload: ProposalsPayload = {
 }
 
 beforeEach(() => {
+  settingsStore.reset()
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
-      accept: vi.fn().mockResolvedValue({ proposals: [] }),
+      accept: vi
+        .fn()
+        .mockResolvedValue({ proposals: [], accepted: { kind: 'skill', name: 'my-skill' } }),
       reject: vi.fn().mockResolvedValue({ proposals: [] })
+    },
+    settings: {
+      get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),
+      onChanged: vi.fn(() => () => {})
     }
   }
 })
@@ -85,6 +93,10 @@ describe('ProposalsPage', () => {
         list: vi.fn().mockRejectedValue(new Error('ipc dead')),
         accept: vi.fn().mockResolvedValue({ proposals: [] }),
         reject: vi.fn().mockResolvedValue({ proposals: [] })
+      },
+      settings: {
+        get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),
+        onChanged: vi.fn(() => () => {})
       }
     }
     render(<ProposalsPage />)
@@ -111,5 +123,29 @@ describe('ProposalsPage', () => {
     render(<ProposalsPage initialTypes={['skill-new']} />)
     const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })
     expect(chip).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('accepting a skill proposal offers Share to HiveMind', async () => {
+    render(<ProposalsPage />)
+    const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
+    fireEvent.click(acceptButtons[0])
+    expect(await screen.findByText(/accepted into your library/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Share .* to HiveMind/ })).toBeInTheDocument()
+  })
+
+  it('without a hive repo the row links to HiveMind setup instead', async () => {
+    ;(
+      window as never as { argus: { settings: { get: ReturnType<typeof vi.fn> } } }
+    ).argus.settings.get.mockResolvedValue({
+      settings: { hivemind: { repo: '' } },
+      loadError: null
+    })
+    const onOpenHivemind = vi.fn()
+    render(<ProposalsPage onOpenHivemind={onOpenHivemind} />)
+    const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
+    fireEvent.click(acceptButtons[0])
+    const link = await screen.findByRole('button', { name: 'Set up HiveMind to share →' })
+    fireEvent.click(link)
+    expect(onOpenHivemind).toHaveBeenCalledTimes(1)
   })
 })

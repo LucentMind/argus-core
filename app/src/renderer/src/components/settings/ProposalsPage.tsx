@@ -3,8 +3,15 @@ import { SettingsSection } from './settingsLayout'
 import { Btn, Chip, SectionLabel } from '../ui'
 import { diffLines } from '../../lib/lineDiff'
 import { MessageView } from '../MessageView'
+import { SharePushDialog } from './SharePushDialog'
+import { useSettingsPayload } from '../../lib/settingsStore'
 import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
-import type { ProposalRecord, ProposalsPayload, ProposalType } from '../../../../shared/proposals'
+import type {
+  AcceptedTarget,
+  ProposalRecord,
+  ProposalsPayload,
+  ProposalType
+} from '../../../../shared/proposals'
 
 const noop = (): void => undefined
 
@@ -26,15 +33,22 @@ function ProposalDiff({ p }: { p: ProposalRecord }): React.JSX.Element {
 }
 
 export function ProposalsPage({
-  initialTypes
+  initialTypes,
+  onOpenHivemind
 }: {
   initialTypes?: readonly ProposalType[]
+  onOpenHivemind?: () => void
 } = {}): React.JSX.Element {
   const [payload, setPayload] = useState<ProposalsPayload | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState<ReadonlySet<ProposalType>>(new Set(initialTypes ?? []))
   const [editing, setEditing] = useState<Record<string, string>>({})
+  type Accepted = { file: string; title: string; target: AcceptedTarget }
+  const [justAccepted, setJustAccepted] = useState<Accepted[]>([])
+  const [sharing, setSharing] = useState<string | null>(null)
+  const settings = useSettingsPayload()
+  const repoSet = (settings?.settings.hivemind.repo ?? '').trim() !== ''
 
   function toggleType(t: ProposalType): void {
     setActive((prev) => {
@@ -131,6 +145,42 @@ export function ProposalsPage({
           ))}
         </div>
       )}
+      {justAccepted.map((a) => {
+        const pushKind =
+          a.target.kind === 'skill' || a.target.kind === 'reference' ? a.target.kind : null
+        return (
+          <div
+            key={a.file}
+            className="flex flex-col rounded-r2 border border-signal/30 bg-signal/5"
+          >
+            <div className="flex items-center gap-2 px-3 py-2 text-xs">
+              <Chip tone="signal">accepted</Chip>
+              <span className="flex-1 text-ink">“{a.title}” accepted into your library.</span>
+              {pushKind && repoSet && (
+                <Btn
+                  variant="outline"
+                  aria-label={`Share ${a.target.name} to HiveMind`}
+                  onClick={() => setSharing(sharing === a.file ? null : a.file)}
+                >
+                  Share to HiveMind
+                </Btn>
+              )}
+              {pushKind && !repoSet && onOpenHivemind && (
+                <Btn variant="ghost" onClick={onOpenHivemind}>
+                  Set up HiveMind to share →
+                </Btn>
+              )}
+            </div>
+            {pushKind && sharing === a.file && (
+              <SharePushDialog
+                kind={pushKind}
+                name={a.target.name}
+                onClose={() => setSharing(null)}
+              />
+            )}
+          </div>
+        )
+      })}
       {payload.proposals.length === 0 ? (
         <div className="px-1 py-2 text-sm text-dim">
           No pending proposals — the agent drafts them via /contribute-back (write_proposal).
@@ -173,11 +223,16 @@ export function ProposalsPage({
                     aria-label={`Accept ${p.title}`}
                     disabled={busy}
                     onClick={() =>
-                      void act(() =>
-                        isEditing
+                      void act(async () => {
+                        const r = await (isEditing
                           ? window.argus.proposals.accept(p.file, editing[p.file])
-                          : window.argus.proposals.accept(p.file)
-                      )
+                          : window.argus.proposals.accept(p.file))
+                        setJustAccepted((prev) => [
+                          ...prev,
+                          { file: p.file, title: p.title, target: r.accepted }
+                        ])
+                        return r
+                      })
                     }
                   >
                     Accept
