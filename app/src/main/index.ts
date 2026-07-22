@@ -1256,9 +1256,11 @@ function registerIpc(): void {
     agentAccessStore.patch({ skills: { [`hivemind/${name}`]: null } })
     return p
   })
-  ipcMain.handle(IPC.hivemindUninstallReference, (_e, name: string) =>
-    hivemind.uninstallReference(name)
-  )
+  ipcMain.handle(IPC.hivemindUninstallReference, async (_e, name: string) => {
+    const p = await hivemind.uninstallReference(name)
+    broadcast(IPC.refsyncChanged, refSync.payload())
+    return p
+  })
   ipcMain.handle(IPC.hivemindClaimReference, (_e, name: string) => hivemind.claimReference(name))
   ipcMain.handle(IPC.hivemindDiff, (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.diff(kind, name)
@@ -1585,6 +1587,10 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.refsyncReadRef, (_e, file: string) => refSync.readReference(file))
   ipcMain.handle(IPC.refsyncSearchRefs, (_e, query: string) => refSync.searchReferences(query))
+  ipcMain.handle(IPC.refsyncDeleteRef, (_e, file: string) => {
+    refSync.deleteReference(file)
+    broadcast(IPC.refsyncChanged, refSync.payload())
+  })
 }
 
 function createWindow(): void {
