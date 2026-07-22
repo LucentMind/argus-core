@@ -75,6 +75,7 @@ import { ingestArtifact, ingestBytes, listEvidence, deleteEvidence } from './ser
 import { extractDerivedText } from './services/extraction'
 import { listCaseFiles, readCaseFile, resolveCasePath, assertSlug } from './services/caseFiles'
 import { createCaseWatchHub } from './services/caseWatch'
+import { createProposalsWatch } from './services/proposalsWatch'
 import { scanEvidence } from './services/scan'
 import { searchEvidence, readEvidenceText, readEvidenceSnippet } from './services/search'
 import { openTextDoc, readTextDocLines } from './services/textdoc'
@@ -1278,7 +1279,16 @@ function registerIpc(): void {
     rejectProposal(argusHome, file)
     return { proposals: listProposals(argusHome) }
   })
-  setProposalsChangedNotifier(() => broadcast(IPC.proposalsChanged, proposalCounts(argusHome)))
+  const announceProposals = (): void => broadcast(IPC.proposalsChanged, proposalCounts(argusHome))
+  setProposalsChangedNotifier(announceProposals)
+  // Files dropped into proposals/ externally (manual seeding, external tools) never
+  // route through the in-process notifier above, so badge/banners/page would go stale
+  // until restart — watch the dir too. Using the same callback means an in-app write can
+  // announce twice (notifier + watcher), but that's harmless: identical counts, and the
+  // renderer coalesces naturally.
+  // Not closed on quit: nothing in this file's shutdown path closes caseWatch either
+  // (process exit tears down fs.watch handles), so this follows the existing convention.
+  createProposalsWatch(argusHome, announceProposals)
 
   // — agent access + memory —
   ipcMain.handle(IPC.accessGet, () => agentAccessStore.payload())
