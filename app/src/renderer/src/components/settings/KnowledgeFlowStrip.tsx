@@ -31,8 +31,7 @@ export function KnowledgeFlowStrip({
       <span className="flex-1 leading-relaxed">
         {link('sources', 'Sources')} (packs · Confluence · your team&apos;s hive) →{' '}
         {link('library', 'Library')} (what the agent can use) → the agent distills sessions into{' '}
-        {link('proposals', 'Proposals')} → you accept →{' '}
-        {link('team', 'share back to the team')}.
+        {link('proposals', 'Proposals')} → you accept → {link('team', 'share back to the team')}.
       </span>
       <IconBtn
         aria-label="Dismiss knowledge flow strip"

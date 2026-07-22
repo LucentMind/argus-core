@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { SettingsView } from '../settings/SettingsView'
 import { SetupWizard } from '../onboarding/SetupWizard'
 import { settingsStore } from '../../lib/settingsStore'
 import { proposalsStore } from '../../lib/proposalsStore'
+import { referenceSyncStore } from '../../lib/referenceSyncStore'
+import { connectorsStore } from '../../lib/connectorsStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
 import type { PacksListPayload } from '../../../../shared/packs'
+import type { RefSyncPayload } from '../../../../shared/referenceSync'
 
 function payload(overrides: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -50,6 +53,13 @@ const packsListed: PacksListPayload = {
   ]
 }
 
+const refPayload: RefSyncPayload = {
+  config: { spaces: [], outdatedWindowMonths: 12, mustKeep: {} },
+  loadError: null,
+  cards: [],
+  references: []
+}
+
 let currentPayload: SettingsPayload
 
 beforeEach(() => {
@@ -62,6 +72,10 @@ beforeEach(() => {
   // refetches against this test's mocked proposals.list instead of reusing an
   // earlier test's cached count.
   proposalsStore.reset()
+  // Library/Sources now mount as ordinary pages (Task 7), so their backing stores
+  // need the same fresh-mount treatment as settings/proposals above.
+  referenceSyncStore.reset()
+  connectorsStore.reset()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),
@@ -132,7 +146,29 @@ beforeEach(() => {
       deleteUser: vi.fn()
     },
     usage: {
-      stats: vi.fn(async () => ({ hygiene: null, skills: [] }))
+      stats: vi.fn(async () => ({ hygiene: null, skills: [], references: [] }))
+    },
+    refsync: {
+      get: vi.fn(async () => refPayload),
+      onChanged: vi.fn(() => () => {}),
+      onProgress: vi.fn(() => () => {}),
+      sync: vi.fn(async () => ({ ok: false, code: 'auth', message: 'PAT rejected' })),
+      removeSpace: vi.fn(async () => refPayload),
+      searchRefs: vi.fn(async () => []),
+      readRef: vi.fn(async () => ({ file: 'glossary.md', content: '# Glossary\n' }))
+    },
+    hivemind: {
+      get: vi.fn(async () => ({
+        repo: '',
+        state: 'dormant',
+        error: null,
+        headCommit: null,
+        lastSynced: null,
+        items: [],
+        pushable: [],
+        pushes: {}
+      })),
+      check: vi.fn(async () => ({ ok: true }))
     }
   } as never
 })
@@ -148,8 +184,8 @@ describe('SettingsView', () => {
       'Agent',
       'Health',
       'Connectors',
-      'Skills',
-      'HiveMind',
+      'Library',
+      'Team',
       'Memory',
       'Observability'
     ])
@@ -167,15 +203,20 @@ describe('SettingsView', () => {
       'Agent',
       'Connectors',
       'Proposals',
-      'Skills',
+      'Library',
       'Memory',
-      'References',
-      'HiveMind',
-      'Packs',
+      'Team',
+      'Sources',
       'Health',
       'Observability'
     ])
     expect(screen.queryByText('Analysis Tools')).toBeNull()
+  })
+
+  it('sidebar renders three labeled groups', () => {
+    render(<SettingsView onClose={() => {}} />)
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    for (const g of ['App', 'Knowledge', 'System']) expect(nav).toHaveTextContent(g)
   })
 
   it('falls back to General for an unrecognised initialPage', () => {
@@ -202,10 +243,10 @@ describe('SettingsView', () => {
     expect(await screen.findByRole('button', { name: /add connector/i })).toBeTruthy()
   })
 
-  it('clicking Packs renders PacksSettings', async () => {
+  it('clicking Sources renders SourcesPage', async () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
-    fireEvent.click(screen.getByRole('button', { name: /^Packs$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Sources$/ }))
     expect(await screen.findByText('Installed Packs')).toBeTruthy()
     expect(await screen.findByText('Navigation')).toBeTruthy()
   })
@@ -312,18 +353,53 @@ describe('SettingsView', () => {
     render(<SettingsView onClose={vi.fn()} />)
     await screen.findByRole('button', { name: /General/ })
 
-    // Go to Skills and use the banner's "Review ->" to open Proposals pre-filtered.
-    fireEvent.click(screen.getByRole('button', { name: /^Skills$/ }))
+    // Go to Library and use the banner's "Review ->" to open Proposals pre-filtered.
+    fireEvent.click(screen.getByRole('button', { name: /^Library$/ }))
     fireEvent.click(await screen.findByRole('button', { name: /Review/ }))
 
     const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })
     expect(chip).toHaveAttribute('aria-pressed', 'true')
 
     // Now click the sidebar's own Proposals entry while already on the Proposals page.
-    // (The pending-count badge is aria-hidden, so the accessible name stays exactly "Proposals".)
-    fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
+    // (The pending-count badge is aria-hidden, so the accessible name stays exactly "Proposals".
+    // Scoped to the nav: the knowledge-flow strip on this same page also links to "Proposals".)
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    fireEvent.click(within(nav).getByRole('button', { name: 'Proposals' }))
 
     const chipAfter = await screen.findByRole('button', { name: 'Filter Skill · new' })
     expect(chipAfter).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it("alias: initialPage 'skills' lands on Library filtered to skills", async () => {
+    render(<SettingsView onClose={vi.fn()} initialPage={'skills'} />)
+    const lib = await screen.findByRole('button', { name: 'Library' })
+    expect(lib.className).toContain('bg-hi')
+    expect(await screen.findByRole('button', { name: 'Filter kind · skill' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it("alias: initialPage 'references' lands on Library filtered to references", async () => {
+    render(<SettingsView onClose={vi.fn()} initialPage={'references'} />)
+    expect(await screen.findByRole('button', { name: 'Filter kind · reference' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it("alias: 'hivemind' → Team and 'packs' → Sources", async () => {
+    const { unmount } = render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} />)
+    expect((await screen.findByRole('button', { name: 'Team' })).className).toContain('bg-hi')
+    unmount()
+    render(<SettingsView onClose={vi.fn()} initialPage={'packs'} />)
+    expect((await screen.findByRole('button', { name: 'Sources' })).className).toContain('bg-hi')
+    expect(await screen.findByText('Installed Packs')).toBeInTheDocument()
+  })
+
+  it('knowledge strip shows on Library and Proposals and its terms navigate', async () => {
+    render(<SettingsView onClose={vi.fn()} initialPage={'library'} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'share back to the team' }))
+    expect((await screen.findByRole('button', { name: 'Team' })).className).toContain('bg-hi')
   })
 })
