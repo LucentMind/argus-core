@@ -91,6 +91,11 @@ const memoryHygieneSchema = z.looseObject({
   trackingStartedAt: z.string().default('')
 })
 
+const uiSchema = z.looseObject({
+  /** "How knowledge flows" strip on the Library/Proposals pages — once dismissed it never returns. */
+  knowledgeStripDismissed: z.boolean().default(false)
+})
+
 const onboardingSchema = z.looseObject({
   /** ISO time onboarding finished/was dismissed; null = never → treat as first-run. */
   completedAt: z.string().nullable().default(null),
@@ -115,7 +120,8 @@ export const settingsSchema = z.looseObject({
   hivemind: hivemindSchema.default(() => hivemindSchema.parse({})),
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
   onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
-  memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({}))
+  memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
+  ui: uiSchema.default(() => uiSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>
