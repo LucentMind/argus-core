@@ -49,6 +49,12 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  # No Apple Developer ID yet, so we cannot Developer-ID-sign or notarize. Ad-hoc sign
+  # instead (identity: null): on Apple Silicon an unsigned app + download quarantine is
+  # reported as "damaged, move to Trash", whereas an ad-hoc signature downgrades that to
+  # the ordinary "unidentified developer" prompt users can clear with right-click -> Open.
+  # This is not notarization — it removes the scary wording, not the Gatekeeper prompt.
+  identity: null
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.

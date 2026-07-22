@@ -86,4 +86,18 @@ jobs:
             --title "${{ github.ref_name }}" \
             --draft \
             --generate-notes \
+            --notes "$(cat <<'EOF'
+          ### macOS install
+
+          The macOS build is ad-hoc signed (not notarized), so Gatekeeper will not let you open it on first launch by double-clicking. After dragging **Argus** to Applications:
+
+          - **Right-click the app → Open**, then confirm in the dialog. You only need to do this once.
+          - If macOS still reports the app as *"damaged"*, clear the download quarantine flag in Terminal:
+            ```
+            xattr -cr /Applications/Argus.app
+            ```
+
+          ---
+          EOF
+          )" \
             artifacts/*
