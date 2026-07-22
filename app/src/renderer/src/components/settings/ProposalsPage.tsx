@@ -5,6 +5,7 @@ import { diffLines } from '../../lib/lineDiff'
 import { MessageView } from '../MessageView'
 import { SharePushDialog } from './SharePushDialog'
 import { useSettingsPayload } from '../../lib/settingsStore'
+import { useProposalCounts } from '../../lib/proposalsStore'
 import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
 import type {
   AcceptedTarget,
@@ -49,6 +50,7 @@ export function ProposalsPage({
   const [sharing, setSharing] = useState<string | null>(null)
   const settings = useSettingsPayload()
   const repoSet = (settings?.settings.hivemind.repo ?? '').trim() !== ''
+  const counts = useProposalCounts()
 
   function toggleType(t: ProposalType): void {
     setActive((prev) => {
@@ -63,25 +65,31 @@ export function ProposalsPage({
     setPayload(p)
   }
 
+  // Fetches on mount, then refetches whenever the pending-set counts change —
+  // the same proposals:changed broadcast that moves the sidebar badge, so the
+  // badge and this page can't drift apart while it's open. `editing` and
+  // `justAccepted` are separate state keyed by proposal file, so a background
+  // refetch never clobbers an in-flight draft or an accepted-row banner.
   useEffect(() => {
-    let mounted = true
+    let stale = false
     void window.argus.proposals
       .list()
       .then((p) => {
-        if (mounted) {
+        if (!stale) {
           setPayload(p)
         }
       })
       .catch((e) => {
-        if (mounted) {
-          setPayload({ proposals: [] })
+        if (!stale) {
+          // first load: show the empty state; background refetch: keep what we have
+          setPayload((prev) => prev ?? { proposals: [] })
           setError(e instanceof Error ? e.message : String(e))
         }
       })
     return () => {
-      mounted = false
+      stale = true
     }
-  }, [])
+  }, [counts])
 
   async function act(fn: () => Promise<ProposalsPayload>): Promise<void> {
     if (busy) return

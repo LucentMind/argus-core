@@ -1,11 +1,16 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { writeProposal, listProposals, rejectProposal } from '../../proposals'
+import {
+  writeProposal,
+  listProposals,
+  rejectProposal,
+  setProposalsChangedNotifier
+} from '../../proposals'
 import { stageDistillOutput } from '../staging'
 
 let home: string
@@ -14,6 +19,9 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-home-'))
   db = openDb(path.join(home, 'argus.db'))
   createCase(db, home, { slug: 'case-a', title: 'A' })
+})
+afterEach(() => {
+  setProposalsChangedNotifier(() => {})
 })
 
 describe('stageDistillOutput', () => {
@@ -32,6 +40,29 @@ describe('stageDistillOutput', () => {
     )
     expect(raw).toContain('job: 7')
     expect(raw).toContain('summary_json:')
+  })
+
+  it('fires a single change notification for the whole staged batch', () => {
+    // one broadcast per staged file meant proposalCounts ran N times per distill run;
+    // the whole run (supersede removals + writes) must announce exactly once.
+    writeProposal(
+      home,
+      'case-a',
+      { type: 'memory-append', target: 'old-topic', title: 'old', content: 'x' },
+      { job: '3' }
+    )
+    const cb = vi.fn()
+    setProposalsChangedNotifier(cb)
+    stageDistillOutput(db, home, 'case-a', 8, {
+      summary: { signature: 'sig', symptoms: 'sy', rootCause: 'rc', fix: 'fx', keywords: ['k'] },
+      memoryAppends: [
+        { topic: 'topic-one', content: 'fact 1' },
+        { topic: 'topic-two', content: 'fact 2' }
+      ],
+      proposals: [{ type: 'recipe', target: 'dlt-cmds', title: 'Cmds', content: 'x' }]
+    })
+    expect(cb).toHaveBeenCalledTimes(1)
+    expect(listProposals(home)).toHaveLength(4)
   })
 
   it('supersedes only distiller-produced pending items; drops exact pending duplicates', () => {

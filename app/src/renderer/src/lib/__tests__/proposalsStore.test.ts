@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ProposalCounts } from '../../../../shared/proposals'
 import { ProposalsStore } from '../proposalsStore'
 
@@ -19,13 +19,6 @@ function stubArgus(records: Array<{ type: string }>): {
   return { fire: (c) => cb?.(c) }
 }
 
-beforeEach(() => {
-  // Reset the store between tests
-  if (window.argus) {
-    delete (window as never as { argus: unknown }).argus
-  }
-})
-
 describe('ProposalsStore', () => {
   it('primes counts from list() and updates from the broadcast', async () => {
     const { fire } = stubArgus([
@@ -41,6 +34,24 @@ describe('ProposalsStore', () => {
 
     fire({ pendingCount: 1, byType: { recipe: 1 } })
     expect(store.get()).toEqual({ pendingCount: 1, byType: { recipe: 1 } })
+  })
+
+  it('warns (not silently swallows) when priming fails, and stays null', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    ;(window as never as { argus: unknown }).argus = {
+      proposals: {
+        list: vi.fn(async () => {
+          throw new Error('ipc dead')
+        }),
+        onChanged: (): (() => void) => () => {}
+      }
+    }
+    const store = new ProposalsStore()
+    store.start()
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+    expect(String(warn.mock.calls[0])).toContain('ipc dead')
+    expect(store.get()).toBeNull()
+    warn.mockRestore()
   })
 
   it('start() is idempotent', async () => {

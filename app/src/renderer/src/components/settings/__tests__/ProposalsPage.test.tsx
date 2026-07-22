@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ProposalsPage } from '../ProposalsPage'
 import { settingsStore } from '../../../lib/settingsStore'
+import { proposalsStore } from '../../../lib/proposalsStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -43,13 +44,15 @@ const payload: ProposalsPayload = {
 
 beforeEach(() => {
   settingsStore.reset()
+  proposalsStore.reset()
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
       accept: vi
         .fn()
         .mockResolvedValue({ proposals: [], accepted: { kind: 'skill', name: 'my-skill' } }),
-      reject: vi.fn().mockResolvedValue({ proposals: [] })
+      reject: vi.fn().mockResolvedValue({ proposals: [] }),
+      onChanged: vi.fn(() => () => {})
     },
     settings: {
       get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),
@@ -88,11 +91,14 @@ describe('ProposalsPage', () => {
   })
 
   it('mount fetch error surfaces in alert banner instead of hanging', async () => {
+    // the proposals store's priming shares the rejecting list() and warns — keep output clean
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     ;(window as unknown as { argus: unknown }).argus = {
       proposals: {
         list: vi.fn().mockRejectedValue(new Error('ipc dead')),
         accept: vi.fn().mockResolvedValue({ proposals: [] }),
-        reject: vi.fn().mockResolvedValue({ proposals: [] })
+        reject: vi.fn().mockResolvedValue({ proposals: [] }),
+        onChanged: vi.fn(() => () => {})
       },
       settings: {
         get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),
@@ -105,6 +111,7 @@ describe('ProposalsPage', () => {
       expect(screen.queryByText('loading…')).not.toBeInTheDocument()
     })
     expect(await screen.findByRole('alert')).toHaveTextContent(/ipc dead/)
+    warn.mockRestore()
   })
 
   it('filters via multi-select type chips', async () => {

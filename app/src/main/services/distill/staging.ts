@@ -5,7 +5,8 @@ import {
   listProposals,
   listArchivedProposals,
   removePendingProposal,
-  isValidProposalTarget
+  isValidProposalTarget,
+  batchProposalChanges
 } from '../proposals'
 import { isValidMemoryTopic } from '../memory'
 import { renderSummaryMarkdown } from './summaries'
@@ -73,84 +74,88 @@ export function stageDistillOutput(
     )
   }
 
-  let supersededRemoved = 0
-  for (const p of listProposals(argusHome)) {
-    if (p.caseSlug === caseSlug && p.jobId !== undefined) {
-      removePendingProposal(argusHome, p.file)
-      supersededRemoved++
+  // One announcement for the whole batch — each removal/write below would
+  // otherwise broadcast (and recount the pending set) individually.
+  return batchProposalChanges(() => {
+    let supersededRemoved = 0
+    for (const p of listProposals(argusHome)) {
+      if (p.caseSlug === caseSlug && p.jobId !== undefined) {
+        removePendingProposal(argusHome, p.file)
+        supersededRemoved++
+      }
     }
-  }
 
-  const pendingKeys = new Set(
-    listProposals(argusHome)
-      .filter((p) => p.caseSlug === caseSlug)
-      .map((p) => key(p.type, p.target))
-  )
-  const reviewedKeys = new Set(
-    listArchivedProposals(argusHome)
-      .filter((p) => p.caseSlug === caseSlug)
-      .map((p) => key(p.type, p.target))
-  )
+    const pendingKeys = new Set(
+      listProposals(argusHome)
+        .filter((p) => p.caseSlug === caseSlug)
+        .map((p) => key(p.type, p.target))
+    )
+    const reviewedKeys = new Set(
+      listArchivedProposals(argusHome)
+        .filter((p) => p.caseSlug === caseSlug)
+        .map((p) => key(p.type, p.target))
+    )
 
-  let staged = 0
-  let droppedDuplicates = 0
-  const job = String(jobId)
+    let staged = 0
+    let droppedDuplicates = 0
+    const job = String(jobId)
 
-  const stage = (
-    type: string,
-    target: string,
-    title: string,
-    content: string,
-    extra: Record<string, string>
-  ): void => {
-    const k = key(type, target)
-    if (pendingKeys.has(k)) {
-      droppedDuplicates++
-      return
+    const stage = (
+      type: string,
+      target: string,
+      title: string,
+      content: string,
+      extra: Record<string, string>
+    ): void => {
+      const k = key(type, target)
+      if (pendingKeys.has(k)) {
+        droppedDuplicates++
+        return
+      }
+      const prevReviewedFm: Record<string, string> = reviewedKeys.has(k)
+        ? { previously_reviewed: 'true' }
+        : {}
+      writeProposal(
+        argusHome,
+        caseSlug,
+        { type, target, title, content },
+        { job, ...extra, ...prevReviewedFm }
+      )
+      pendingKeys.add(k)
+      staged++
     }
-    const prevReviewedFm: Record<string, string> = reviewedKeys.has(k)
-      ? { previously_reviewed: 'true' }
-      : {}
-    writeProposal(
-      argusHome,
-      caseSlug,
-      { type, target, title, content },
-      { job, ...extra, ...prevReviewedFm }
-    )
-    pendingKeys.add(k)
-    staged++
-  }
 
-  for (const m of memoryAppends) {
-    stage(
-      'memory-append',
-      m.topic,
-      m.indexEntry ?? firstLine(m.content),
-      m.content,
-      m.indexEntry ? { index_entry: m.indexEntry } : {}
-    )
-  }
+    for (const m of memoryAppends) {
+      stage(
+        'memory-append',
+        m.topic,
+        m.indexEntry ?? firstLine(m.content),
+        m.content,
+        m.indexEntry ? { index_entry: m.indexEntry } : {}
+      )
+    }
 
-  for (const p of output.proposals ?? []) {
-    stage(p.type, p.target, p.title, p.content, {})
-  }
+    for (const p of output.proposals ?? []) {
+      stage(p.type, p.target, p.title, p.content, {})
+    }
 
-  if (output.summary) {
-    const c = getCase(db, caseSlug)
-    const resolution = c?.resolution ?? 'solved'
-    stage(
-      'case-summary',
-      caseSlug,
-      `Case summary: ${output.summary.signature}`,
-      renderSummaryMarkdown(output.summary, {
-        slug: caseSlug,
-        title: c?.title ?? caseSlug,
-        jiraKey: c?.jiraKey ?? null,
-        resolution
-      }),
-      { summary_json: JSON.stringify(output.summary), resolution }
-    )
-  }
+    if (output.summary) {
+      const c = getCase(db, caseSlug)
+      const resolution = c?.resolution ?? 'solved'
+      stage(
+        'case-summary',
+        caseSlug,
+        `Case summary: ${output.summary.signature}`,
+        renderSummaryMarkdown(output.summary, {
+          slug: caseSlug,
+          title: c?.title ?? caseSlug,
+          jiraKey: c?.jiraKey ?? null,
+          resolution
+        }),
+        { summary_json: JSON.stringify(output.summary), resolution }
+      )
+    }
 
-  return { staged, droppedDuplicates, supersededRemoved }
+    return { staged, droppedDuplicates, supersededRemoved }
+  })
 }
