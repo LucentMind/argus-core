@@ -53,4 +53,20 @@ export type AgentEvent = AgentEventBase &
     | { type: 'case.finding.added'; payload: { markdown: string } }
     | { type: 'case.evidence.ingested'; payload: { evidenceId: number; relPath: string } }
     | { type: 'session.mcp.skipped'; payload: { instanceId: string; reason: string } }
+    | {
+        type: 'dialog.opened'
+        payload: {
+          dialogId: string
+          questions: Array<{
+            question: string
+            header: string
+            multiSelect: boolean
+            options: Array<{ label: string; description: string }>
+          }>
+        }
+      }
+    | {
+        type: 'dialog.resolved'
+        payload: { dialogId: string; behavior: 'completed' | 'cancelled' }
+      }
   )

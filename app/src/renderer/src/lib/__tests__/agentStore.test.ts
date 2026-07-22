@@ -159,3 +159,29 @@ describe('AgentStore', () => {
     expect(store.get('NAV-1', 2).items).toHaveLength(1)
   })
 })
+
+describe('AgentStore Question dialogs', () => {
+  const q = [
+    {
+      question: 'Which?',
+      header: 'H',
+      multiSelect: false,
+      options: [{ label: 'A', description: 'a' }]
+    }
+  ]
+
+  it('appends on dialog.opened and removes on dialog.resolved', () => {
+    store.apply(ev('dialog.opened', { dialogId: 'd1', questions: q }))
+    expect(store.get('NAV-1', 1).pendingDialogs).toHaveLength(1)
+    expect(store.get('NAV-1', 1).pendingDialogs[0]).toMatchObject({ dialogId: 'd1', questions: q })
+    store.apply(ev('dialog.resolved', { dialogId: 'd1', behavior: 'completed' }))
+    expect(store.get('NAV-1', 1).pendingDialogs).toHaveLength(0)
+  })
+
+  it('hydrate drops stale pending dialogs (unanswerable after restart)', () => {
+    store.hydrate('NAV-1', 1, [
+      { ...base, type: 'dialog.opened', payload: { dialogId: 'd9', questions: q } } as AgentEvent
+    ])
+    expect(store.get('NAV-1', 1).pendingDialogs).toEqual([])
+  })
+})

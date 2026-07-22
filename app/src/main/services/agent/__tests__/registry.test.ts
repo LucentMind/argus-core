@@ -64,7 +64,28 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
+const mkService = (): AgentService =>
+  new AgentService({
+    db,
+    argusHome,
+    detection,
+    skillsRoots: [],
+    agentAccess: () => defaultAgentAccess(),
+    onEvent: (e) => events.push(e),
+    createQuery: fakeCreateQuery().createQuery
+  })
+
 describe('AgentService', () => {
+  it('answerDialog routes to the session; false for unknown dialog/session', async () => {
+    const svc = mkService()
+    const s = createSession(db, 'NAV-1', 'claude-agent-sdk')
+    // no dialog open → resolve finds nothing → false, but the call must reach a live session
+    expect(svc.answerDialog('NAV-1', s.id, { dialogId: 'nope', behavior: 'cancelled' })).toBe(false)
+    // and false (not throw) for a session that was never created
+    expect(svc.answerDialog('NAV-1', 999999, { dialogId: 'x', behavior: 'cancelled' })).toBe(false)
+    await svc.stopAll()
+  })
+
   it('runs two live sessions of the same case independently', async () => {
     const { createQuery } = fakeCreateQuery()
     const svc = new AgentService({
