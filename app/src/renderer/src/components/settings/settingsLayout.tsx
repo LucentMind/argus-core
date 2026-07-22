@@ -76,10 +76,11 @@ export function SettingRow({
   hint,
   stacked,
   trailing,
+  onOpen,
   children
 }: {
   label: string
-  description?: string
+  description?: ReactNode
   isDefault?: boolean
   onReset?: () => void
   badge?: ReactNode
@@ -89,16 +90,35 @@ export function SettingRow({
   stacked?: boolean
   /** Rendered at the far right of line 1 (after reset), stacked variant only — e.g. a status chip that shouldn't crowd the control row. */
   trailing?: ReactNode
+  /** When set, renders the label as a clickable button with aria-label. */
+  onOpen?: () => void
   children: ReactNode
 }): React.JSX.Element {
   const labelClass = `flex items-center gap-2 text-sm text-ink${hint ? ' cursor-help underline decoration-dotted decoration-mute underline-offset-2' : ''}`
+  const labelContent = onOpen ? (
+    <>
+      <button
+        type="button"
+        aria-label={`open · ${label}`}
+        onClick={onOpen}
+        className="cursor-pointer text-left hover:underline hover:underline-offset-2"
+      >
+        {label}
+      </button>
+      {badge}
+    </>
+  ) : (
+    <>
+      {label}
+      {badge}
+    </>
+  )
   if (stacked) {
     return (
-      <div className="flex flex-col gap-0.5 px-4 py-3">
+      <div className="group/row flex flex-col gap-0.5 px-4 py-3">
         <div className="flex items-center gap-4">
           <span className={`min-w-0 flex-1 ${labelClass}`} title={hint}>
-            {label}
-            {badge}
+            {labelContent}
           </span>
           {!isDefault && onReset && (
             <IconBtn aria-label={`Reset ${label}`} title="Reset to default" onClick={onReset}>
@@ -113,11 +133,10 @@ export function SettingRow({
     )
   }
   return (
-    <div className="flex items-center gap-4 px-4 py-3">
+    <div className="group/row flex items-center gap-4 px-4 py-3">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className={labelClass} title={hint}>
-          {label}
-          {badge}
+          {labelContent}
         </span>
         {description && <span className="text-xs text-mute">{description}</span>}
       </div>
