@@ -14,8 +14,8 @@ const TIER_TITLE: Record<(typeof TIER_ORDER)[number], string> = {
   bundled: 'Bundled skills'
 }
 const TIER_EMPTY: Partial<Record<(typeof TIER_ORDER)[number], string>> = {
-  user: 'No user skills yet — accepted contribute-back proposals land here (Wave 3 Part 2).',
-  hivemind: 'No HiveMind skills installed — configure hivemind.repo in Wave 3 Part 2.'
+  user: 'No user skills yet — skills you accept from agent proposals land here.',
+  hivemind: "No HiveMind skills installed — browse your team's HiveMind under Settings → HiveMind."
 }
 
 export function InstalledSkills(): React.JSX.Element {
