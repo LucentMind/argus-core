@@ -50,6 +50,15 @@ const GROUP_EMPTY: Partial<Record<GroupId, string>> = {
   hivemind: "No HiveMind content downloaded — browse your team's HiveMind under Settings → Team."
 }
 
+/** Collapses its destructive child to 0 width until the row is hovered or focused (spec §3). */
+function Reveal({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span className="-mr-2 flex w-0 items-center overflow-hidden opacity-0 transition-opacity group-hover/row:mr-0 group-hover/row:w-auto group-hover/row:opacity-100 group-focus-within/row:mr-0 group-focus-within/row:w-auto group-focus-within/row:opacity-100">
+      {children}
+    </span>
+  )
+}
+
 function errorAlert(message: string): React.JSX.Element {
   return (
     <div role="alert" className="rounded-r2 border border-danger/30 px-3 py-2 text-xs text-danger">
@@ -159,6 +168,52 @@ export function LibraryPage({
     }
   }
 
+  async function removeHiveSkill(s: SkillListItem): Promise<void> {
+    const ok = await confirm({
+      title: `Remove ${s.name}?`,
+      message: 'Its skills-hivemind folder is removed; it stays available in Browse.',
+      confirmLabel: 'Remove',
+      danger: true
+    })
+    if (!ok) return
+    setError(null)
+    try {
+      await window.argus.hivemind.uninstallSkill(s.name)
+      setSkills((await window.argus.skills.list()).skills)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  /** Hand-owned tiers are permanently deleted; hive-managed tiers uninstall (Browse keeps them). */
+  async function removeReference(r: ReferenceStatus): Promise<void> {
+    const handOwned = r.tier !== 'hivemind' && r.tier !== 'confluence'
+    const ok = await confirm(
+      handOwned
+        ? {
+            title: `Delete reference "${r.file}"?`,
+            message: 'Its references copy is permanently deleted.',
+            confirmLabel: 'Delete',
+            danger: true
+          }
+        : {
+            title: `Remove ${r.file}?`,
+            message: 'Its local references copy is removed; it stays available in Browse.',
+            confirmLabel: 'Remove',
+            danger: true
+          }
+    )
+    if (!ok) return
+    setError(null)
+    try {
+      if (handOwned) await window.argus.refsync.deleteRef(r.file)
+      else await window.argus.hivemind.uninstallReference(r.file)
+      // list refresh arrives via the refsync:changed broadcast (main-side, Task 2)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   if (!skills || !refPayload) {
     // a failed initial load would otherwise leave the page on "loading…" forever
     if (error) return errorAlert(error)
@@ -212,6 +267,16 @@ export function LibraryPage({
         >
           {s.tier === 'user' && (
             <>
+              <Reveal>
+                <Btn
+                  variant={adopt ? 'outline' : 'dangerSolid'}
+                  aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
+                  onClick={() => void removeUserSkill(s, adopt)}
+                >
+                  {!adopt && <Trash2 size={13} aria-hidden="true" />}
+                  {adopt ? 'Adopt upstream' : 'Delete'}
+                </Btn>
+              </Reveal>
               <Btn
                 variant="outline"
                 aria-label={`Share ${s.name} to HiveMind`}
@@ -224,15 +289,19 @@ export function LibraryPage({
                 <Share2 size={13} aria-hidden="true" />
                 Share
               </Btn>
-              <Btn
-                variant={adopt ? 'outline' : 'dangerSolid'}
-                aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
-                onClick={() => void removeUserSkill(s, adopt)}
-              >
-                {!adopt && <Trash2 size={13} aria-hidden="true" />}
-                {adopt ? 'Adopt upstream' : 'Delete'}
-              </Btn>
             </>
+          )}
+          {s.tier === 'hivemind' && (
+            <Reveal>
+              <Btn
+                variant="dangerSolid"
+                aria-label={`Remove · ${s.name}`}
+                onClick={() => void removeHiveSkill(s)}
+              >
+                <Trash2 size={13} aria-hidden="true" />
+                Remove
+              </Btn>
+            </Reveal>
           )}
           <Switch
             checked={s.enabled}
@@ -285,6 +354,18 @@ export function LibraryPage({
             </>
           }
         >
+          {groupOf(r.tier) !== 'bundled' && groupOf(r.tier) !== 'untiered' && (
+            <Reveal>
+              <Btn
+                variant="dangerSolid"
+                aria-label={`${r.tier !== 'hivemind' && r.tier !== 'confluence' ? 'Delete' : 'Remove'} · ${r.file}`}
+                onClick={() => void removeReference(r)}
+              >
+                <Trash2 size={13} aria-hidden="true" />
+                {r.tier !== 'hivemind' && r.tier !== 'confluence' ? 'Delete' : 'Remove'}
+              </Btn>
+            </Reveal>
+          )}
           {canShare && (
             <Btn
               variant="outline"
