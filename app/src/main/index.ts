@@ -38,6 +38,7 @@ import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
 import { McpOAuth } from './services/oauth'
 import { HealthService } from './services/health'
+import { hydratePathFromLoginShell } from './services/shellPath'
 import { ghStatus } from './services/sourceControl'
 import {
   AtlassianClient,
@@ -1611,6 +1612,10 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  // Packaged apps launched from Finder/Dock inherit the minimal launchd PATH; merge in
+  // the login shell's PATH before anything spawns a child process (gh detection, drivers).
+  await hydratePathFromLoginShell()
+
   // Packaged-build smoke check (npm run smoke:packaged): probe every driver, print the
   // verdicts, exit. Runs before any IPC/window setup so it never touches user state.
   if (process.argv.includes('--smoke-providers')) {
