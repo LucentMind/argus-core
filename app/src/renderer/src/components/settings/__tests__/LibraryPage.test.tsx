@@ -364,7 +364,7 @@ describe('LibraryPage merged list', () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
     // TIER_LABELS text ('user', 'hivemind', 'team knowledge'…) must not render as row chips —
-    // scoped to <span> since the tier-filter toolbar legitimately has buttons with this text
+    // scoped to <span> since group headers legitimately render this text (as a heading, not a span)
     expect(screen.queryByText('user', { selector: 'span' })).toBeNull()
     expect(screen.queryByText('hivemind', { selector: 'span' })).toBeNull()
     expect(screen.queryByText('confluence', { selector: 'span' })).toBeNull()

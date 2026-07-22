@@ -137,13 +137,28 @@ describe('LibraryPage filters', () => {
     expect(await screen.findByText('team-tips.md')).toBeInTheDocument()
   })
 
-  it('tier filter shows only that group', async () => {
+  it('collapsing a group hides its rows; an active filter overrides collapse', async () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
-    fireEvent.click(screen.getByRole('button', { name: 'Filter tier · confluence' }))
-    expect(screen.getByText('nav-runbook.md')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle section · User' }))
     expect(screen.queryByText('rca')).toBeNull()
-    expect(screen.queryByText('User')).toBeNull() // teaching empties hidden while filtered
+    expect(screen.getByText('hive-probe')).toBeInTheDocument() // other groups untouched
+    // search overrides collapse so matches can't hide
+    fireEvent.change(screen.getByLabelText('search library'), { target: { value: 'rca' } })
+    expect(await screen.findByText('rca')).toBeInTheDocument()
+    // clearing restores the collapsed state
+    fireEvent.change(screen.getByLabelText('search library'), { target: { value: '' } })
+    await waitFor(() => expect(screen.queryByText('rca')).toBeNull())
+    // a kind filter also overrides
+    fireEvent.click(screen.getByRole('button', { name: 'Filter kind · skill' }))
+    expect(await screen.findByText('rca')).toBeInTheDocument()
+  })
+
+  it('tier chip row is gone', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    expect(screen.queryByRole('button', { name: 'Filter tier · confluence' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Filter tier · all' })).toBeNull()
   })
 
   it('search matches skills by name client-side and references via refsync search IPC', async () => {
