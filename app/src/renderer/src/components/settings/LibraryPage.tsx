@@ -2,11 +2,10 @@ import { useEffect, useState, Fragment } from 'react'
 import { Share2, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip } from '../ui'
-import { TierBadge } from './TierBadge'
 import { ProposalsBanner } from './ProposalsBanner'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
-import { RefViewer } from '../references/RefViewer'
+import { RefViewer, MarkdownViewer } from '../references/RefViewer'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
@@ -83,7 +82,7 @@ export function LibraryPage({
   const [error, setError] = useState<string | null>(null)
   const [skillUsage, setSkillUsage] = useState<Map<string, SkillUsageRow> | null>(null)
   const [refUsage, setRefUsage] = useState<Map<string, ReferenceUsageRow> | null>(null)
-  const [viewer, setViewer] = useState<string | null>(null)
+  const [viewer, setViewer] = useState<{ kind: LibraryKind; name: string } | null>(null)
   // one dialog serves both kinds — keyed `${kind}/${name}` like push receipts
   const [sharing, setSharing] = useState<string | null>(null)
   const [sharePushing, setSharePushing] = useState(false)
@@ -193,11 +192,11 @@ export function LibraryPage({
       <Fragment key={`skill/${s.name}`}>
         <SettingRow
           label={s.name}
+          onOpen={() => setViewer({ kind: 'skill', name: s.name })}
           description={s.description}
           badge={
             <>
               <Chip tone="neutral">skill</Chip>
-              <TierBadge tier={s.tier} />
               {s.shadows.length > 0 && <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>}
               {u &&
                 (u.activationCount > 0 ? (
@@ -262,14 +261,11 @@ export function LibraryPage({
     const u = refUsage?.get(r.file)
     return (
       <Fragment key={`reference/${r.file}`}>
-        <div className="flex w-full items-center gap-3 px-3 py-2 transition-colors hover:bg-hair">
-          <button
-            aria-label={`open · ${r.file}`}
-            onClick={() => setViewer(r.file)}
-            className="flex min-w-0 flex-1 flex-col text-left"
-          >
-            <span className="text-sm text-ink">{r.file}</span>
-            <span className="text-xs text-dim">
+        <SettingRow
+          label={r.file}
+          onOpen={() => setViewer({ kind: 'reference', name: r.file })}
+          description={
+            <>
               {r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
               {u && (
                 <>
@@ -279,12 +275,16 @@ export function LibraryPage({
                     : `${u.readCount} reads · last ${u.lastReadAt!.slice(0, 10)}`}
                 </>
               )}
-            </span>
-          </button>
-          <Chip tone="neutral">reference</Chip>
-          {r.tier && <TierBadge tier={r.tier} />}
-          {r.stale && <Chip tone="danger">stale</Chip>}
-          {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
+            </>
+          }
+          badge={
+            <>
+              <Chip tone="neutral">reference</Chip>
+              {r.stale && <Chip tone="danger">stale</Chip>}
+              {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
+            </>
+          }
+        >
           {canShare && (
             <Btn
               variant="outline"
@@ -301,7 +301,7 @@ export function LibraryPage({
               Share
             </Btn>
           )}
-        </div>
+        </SettingRow>
         {sharing === `reference/${r.file}` && (
           <SharePushDialog
             kind="reference"
@@ -392,7 +392,18 @@ export function LibraryPage({
         references.every((r) => !refVisible(r)) && (
           <div className="px-3 py-2 text-xs text-faint">No matches.</div>
         )}
-      {viewer && <RefViewer file={viewer} onClose={() => setViewer(null)} />}
+      {viewer?.kind === 'reference' && (
+        <RefViewer file={viewer.name} onClose={() => setViewer(null)} />
+      )}
+      {viewer?.kind === 'skill' && (
+        <MarkdownViewer
+          key={viewer.name}
+          title={`skills / ${viewer.name}`}
+          ariaLabel={`skill · ${viewer.name}`}
+          load={() => window.argus.skills.read(viewer.name).then((r) => r.content)}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   )
 }

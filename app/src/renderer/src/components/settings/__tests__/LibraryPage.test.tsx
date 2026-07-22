@@ -75,7 +75,11 @@ const refPayload: RefSyncPayload = {
 }
 
 function mockArgus(): {
-  skills: { list: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> }
+  skills: {
+    list: ReturnType<typeof vi.fn>
+    deleteUser: ReturnType<typeof vi.fn>
+    read: ReturnType<typeof vi.fn>
+  }
   usage: { stats: ReturnType<typeof vi.fn> }
   access: { patch: ReturnType<typeof vi.fn> }
   hivemind: {
@@ -95,7 +99,8 @@ function mockArgus(): {
   return {
     skills: {
       list: vi.fn().mockResolvedValue(initial),
-      deleteUser: vi.fn().mockResolvedValue(afterAdopt)
+      deleteUser: vi.fn().mockResolvedValue(afterAdopt),
+      read: vi.fn().mockResolvedValue({ name: 'rca', content: '# rca skill body\n' })
     },
     usage: {
       stats: vi.fn().mockResolvedValue({
@@ -188,8 +193,13 @@ describe('LibraryPage delete/adopt actions', () => {
   it('hivemind and bundled rows offer no delete action', async () => {
     render(<LibraryPage />)
     await screen.findByText('hive-probe')
-    expect(screen.queryByRole('button', { name: /hive-probe/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /analyze-applog/ })).not.toBeInTheDocument()
+    // rows are openable regardless of tier now — only Delete/Adopt is tier-gated
+    expect(
+      screen.queryByRole('button', { name: /^(Delete|Adopt upstream) · hive-probe$/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^(Delete|Adopt upstream) · analyze-applog$/ })
+    ).not.toBeInTheDocument()
   })
 
   it('a rejected delete surfaces an error and keeps the list', async () => {
@@ -323,5 +333,28 @@ describe('LibraryPage merged list', () => {
         'Nothing here yet — skills and references you accept from agent proposals land here.'
       )
     ).toBeInTheDocument()
+  })
+
+  it('rows carry no tier badge — the group header names the tier', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    // TIER_LABELS text ('user', 'hivemind', 'team knowledge'…) must not render as row chips —
+    // scoped to <span> since the tier-filter toolbar legitimately has buttons with this text
+    expect(screen.queryByText('user', { selector: 'span' })).toBeNull()
+    expect(screen.queryByText('hivemind', { selector: 'span' })).toBeNull()
+    expect(screen.queryByText('confluence', { selector: 'span' })).toBeNull()
+  })
+
+  it('clicking a skill name opens the skill viewer with SKILL.md content', async () => {
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'open · rca' }))
+    await waitFor(() => expect(argus.skills.read).toHaveBeenCalledWith('rca'))
+    expect(await screen.findByText('rca skill body')).toBeInTheDocument()
+  })
+
+  it('reference rows keep their meta line and stay openable', async () => {
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'open · team-tips.md' }))
+    expect(await screen.findByText('Team tips')).toBeInTheDocument()
   })
 })
