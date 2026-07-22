@@ -63,7 +63,9 @@ const BTN_VARIANTS = {
   primary: 'border-transparent bg-signal text-void transition-all hover:brightness-110',
   ghost: 'border-transparent text-dim hover:bg-hair hover:text-ink',
   outline: 'border-hair2 text-ink hover:border-faint hover:bg-hair',
-  danger: 'border-danger/40 text-danger hover:bg-danger/10'
+  danger: 'border-danger/40 text-danger hover:bg-danger/10',
+  /* Filled counterpart to `primary` for destructive/dismiss actions beside it. */
+  dangerSolid: 'border-transparent bg-danger text-void transition-all hover:brightness-110'
 } as const
 
 export function Btn({
