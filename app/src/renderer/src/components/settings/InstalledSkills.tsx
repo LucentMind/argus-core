@@ -18,7 +18,7 @@ const TIER_TITLE: Record<(typeof TIER_ORDER)[number], string> = {
 }
 const TIER_EMPTY: Partial<Record<(typeof TIER_ORDER)[number], string>> = {
   user: 'No user skills yet — skills you accept from agent proposals land here.',
-  hivemind: "No HiveMind skills installed — browse your team's HiveMind under Settings → HiveMind."
+  hivemind: "No HiveMind skills downloaded — browse your team's HiveMind under Settings → HiveMind."
 }
 
 export function InstalledSkills(): React.JSX.Element {
@@ -62,7 +62,7 @@ export function InstalledSkills(): React.JSX.Element {
       ? {
           title: `Adopt the HiveMind version of "${s.name}"?`,
           message:
-            'Your local copy in skills-user is deleted and the installed HiveMind skill takes over.',
+            'Your local copy in skills-user is deleted and the downloaded HiveMind skill takes over.',
           confirmLabel: 'Adopt'
         }
       : {

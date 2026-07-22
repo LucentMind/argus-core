@@ -32,7 +32,7 @@ export const TIER_LABELS: Record<TrustTier, string> = {
 export const TIER_EXPLANATIONS: Record<TrustTier, string> = {
   bundled: 'Shipped by a pack.',
   confluence: 'Synced from Confluence. Owned by reference sync.',
-  hivemind: "Installed from your team's HiveMind, pinned to a commit. Claim it to make it yours.",
+  hivemind: "Downloaded from your team's HiveMind, pinned to a commit. Claim it to make it yours.",
   'team-knowledge': 'Accepted from an agent proposal. Can be shared to the HiveMind.',
   user: 'Authored or accepted by you. Can be shared to the HiveMind.'
 }

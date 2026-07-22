@@ -56,9 +56,7 @@ function BrowseRow({
           >
             Update
           </Btn>
-        ) : it.installed ? (
-          <Chip tone="signal">downloaded</Chip>
-        ) : (
+        ) : it.installed ? null : (
           <Btn
             variant="outline"
             aria-label={`Download ${it.name}`}
@@ -67,6 +65,25 @@ function BrowseRow({
           >
             <Download size={13} aria-hidden="true" />
             Download
+          </Btn>
+        )}
+        {it.kind === 'reference' && it.localTier === 'hivemind' && (
+          <Btn
+            variant="outline"
+            aria-label={`Keep ${it.name} as mine`}
+            disabled={busy}
+            onClick={() => {
+              void askConfirm({
+                title: `Keep ${it.name} as yours?`,
+                message:
+                  'It becomes pushable to the HiveMind and future updates keep your authorship.',
+                confirmLabel: 'Keep as mine'
+              }).then((ok) => {
+                if (ok) onClaim()
+              })
+            }}
+          >
+            Keep as mine
           </Btn>
         )}
         {(it.kind === 'skill'
@@ -92,25 +109,6 @@ function BrowseRow({
           >
             <Trash2 size={13} aria-hidden="true" />
             Remove
-          </Btn>
-        )}
-        {it.kind === 'reference' && it.localTier === 'hivemind' && (
-          <Btn
-            variant="outline"
-            aria-label={`Keep ${it.name} as mine`}
-            disabled={busy}
-            onClick={() => {
-              void askConfirm({
-                title: `Keep ${it.name} as yours?`,
-                message:
-                  'It becomes pushable to the HiveMind and future updates keep your authorship.',
-                confirmLabel: 'Keep as mine'
-              }).then((ok) => {
-                if (ok) onClaim()
-              })
-            }}
-          >
-            Keep as mine
           </Btn>
         )}
       </SettingRow>
