@@ -1270,8 +1270,8 @@ function registerIpc(): void {
   // — proposals (spec §2.4) —
   ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
   ipcMain.handle(IPC.proposalsAccept, (_e, file: string, editedContent?: string) => {
-    acceptProposal(argusHome, file, { db, editedContent })
-    return { proposals: listProposals(argusHome) }
+    const accepted = acceptProposal(argusHome, file, { db, editedContent })
+    return { proposals: listProposals(argusHome), accepted }
   })
   ipcMain.handle(IPC.proposalsReject, (_e, file: string) => {
     rejectProposal(argusHome, file)

@@ -8,6 +8,7 @@ import { defaultAgentAccess } from '../../shared/agentAccess'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
 import {
   PROPOSAL_TYPES,
+  type AcceptedTarget,
   type ProposalCounts,
   type ProposalRecord,
   type ProposalType
@@ -206,7 +207,7 @@ export function acceptProposal(
   argusHome: string,
   file: string,
   opts: { db?: DatabaseSync; editedContent?: string } = {}
-): void {
+): AcceptedTarget {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
   // defense-in-depth: p.target came from on-disk frontmatter (trusted only because
@@ -218,11 +219,13 @@ export function acceptProposal(
   const raw = fs.readFileSync(path.join(proposalsDir(argusHome), file), 'utf8')
   const fm = fmBlock(raw)?.fm ?? ''
 
+  let accepted: AcceptedTarget
   if (p.type === 'memory-append') {
     const indexEntry = fmField(fm, 'index_entry') || undefined
     // Index-cap errors from applyMemoryWrite propagate to the caller — the renderer
     // surfaces them in the accept banner instead of silently discarding the write.
     applyMemoryWrite(argusHome, p.caseSlug, { topic: p.target, content: body, indexEntry })
+    accepted = { kind: 'memory', name: p.target }
   } else if (p.type === 'case-summary') {
     if (!opts.db) throw new Error('case-summary accept requires db')
     const sj = fmField(fm, 'summary_json')
@@ -230,10 +233,12 @@ export function acceptProposal(
     const summary = JSON.parse(sj) as CaseDistillSummary
     const resolution = fmField(fm, 'resolution') || 'solved'
     upsertCaseSummary(opts.db, argusHome, p.target, summary, resolution, body)
+    accepted = { kind: 'case-summary', name: p.target }
   } else if (p.type === 'skill-new' || p.type === 'skill-edit') {
     const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
     fs.writeFileSync(path.join(dest, 'SKILL.md'), body)
+    accepted = { kind: 'skill', name: p.target }
   } else {
     // reference-edit + recipe land in the references dir; accepting = human curation
     const dir = sharedReferencesDir(argusHome)
@@ -242,9 +247,11 @@ export function acceptProposal(
       path.join(dir, refFileName(p.target)),
       withFrontmatter(body, { trust_tier: 'team-knowledge' satisfies TrustTier })
     )
+    accepted = { kind: 'reference', name: refFileName(p.target) }
   }
   archive(argusHome, file, 'accepted')
   notifyChanged()
+  return accepted
 }
 
 export function rejectProposal(argusHome: string, file: string): void {

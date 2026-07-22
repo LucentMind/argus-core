@@ -40,3 +40,9 @@ export interface ProposalCounts {
   pendingCount: number
   byType: Partial<Record<ProposalType, number>>
 }
+
+/** What acceptProposal wrote, so the UI can offer the next step (e.g. share). */
+export interface AcceptedTarget {
+  kind: 'skill' | 'reference' | 'memory' | 'case-summary'
+  name: string
+}
