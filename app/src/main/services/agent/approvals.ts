@@ -66,3 +66,44 @@ export class SessionGrants {
     this.keys.add(key)
   }
 }
+
+export type DialogOutcome =
+  | { behavior: 'completed'; result: { answers: Record<string, string>; response?: string } }
+  | { behavior: 'cancelled' }
+
+interface PendingDialog {
+  settle: (outcome: DialogOutcome) => void
+}
+
+/** Twin of PendingApprovals for the AskUserQuestion pipeline. Keyed by a harness dialogId. */
+export class PendingDialogs {
+  private pending = new Map<string, PendingDialog>()
+
+  get size(): number {
+    return this.pending.size
+  }
+
+  open(dialogId: string, signal?: AbortSignal): Promise<DialogOutcome> {
+    return new Promise((resolve) => {
+      const settle = (outcome: DialogOutcome): void => {
+        if (!this.pending.delete(dialogId)) return
+        resolve(outcome)
+      }
+      this.pending.set(dialogId, { settle })
+      signal?.addEventListener('abort', () => settle({ behavior: 'cancelled' }), { once: true })
+    })
+  }
+
+  resolve(dialogId: string, outcome: DialogOutcome): boolean {
+    const p = this.pending.get(dialogId)
+    if (!p) return false
+    p.settle(outcome)
+    return true
+  }
+
+  drain(): string[] {
+    const ids = [...this.pending.keys()]
+    for (const p of [...this.pending.values()]) p.settle({ behavior: 'cancelled' })
+    return ids
+  }
+}
