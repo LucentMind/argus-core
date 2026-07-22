@@ -6,6 +6,7 @@ import { ProposalsBanner } from './ProposalsBanner'
 import { accessStore, useAccessPayload } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { topicEnabled } from '../../../../shared/agentAccess'
+import { SAMPLE_CASE_SLUG } from '../../../../shared/onboarding'
 import type { MemoryAuditEntry, MemoryTopicsPayload } from '../../../../shared/memoryIpc'
 import type { UsageStatsPayload, MemoryUsageRow } from '../../../../shared/observability'
 import type { ProposalType } from '../../../../shared/proposals'
@@ -32,6 +33,18 @@ function auditSummary(topic: string, indexEntry: string): string {
   const deEchoed = afterLink.replace(new RegExp(`^${slug}\\s*[—–\\-:]+\\s*`, 'i'), '').trim()
   // never collapse to nothing — a slightly redundant line beats a blank one
   return deEchoed || afterLink || indexEntry.trim()
+}
+
+/**
+ * Human-readable provenance for an audit row's dim secondary line. An agent write names the
+ * case it happened in; UI-driven archive/restore use the reserved `ui` slug and are the
+ * user's own doing, so they read as "by you" — the action chip already says which. The
+ * onboarding seed's slug gets a friendly label so it doesn't look like a stray case id.
+ */
+function auditProvenance(a: MemoryAuditEntry): string {
+  if (a.action) return 'by you'
+  const who = a.caseSlug === SAMPLE_CASE_SLUG ? 'onboarding sample' : a.caseSlug
+  return `written by ${who}`
 }
 
 /** ` · N recalls[, last YYYY-MM-DD]` — appended to a topic row's description. */
@@ -290,7 +303,7 @@ export function MemorySettings({
                 <div key={t.name}>
                   <SettingRow
                     label={t.name}
-                    description={`${(t.sizeBytes / 1024).toFixed(1)} KB · last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
+                    description={`last written ${t.lastWritten.slice(0, 10)}${usageLine(u)}`}
                   >
                     {u?.staleCandidate && (
                       <Chip tone="review">
@@ -348,7 +361,7 @@ export function MemorySettings({
                 <SettingRow
                   key={a.topic}
                   label={a.topic}
-                  description={`${(a.sizeBytes / 1024).toFixed(1)} KB${a.archivedAt ? ` · archived ${a.archivedAt.slice(0, 10)}` : ''}`}
+                  description={a.archivedAt ? `archived ${a.archivedAt.slice(0, 10)}` : 'archived'}
                 >
                   <Btn aria-label={`Restore ${a.topic}`} onClick={() => void restore(a.topic)}>
                     <ArchiveRestore size={14} /> Restore
@@ -368,18 +381,27 @@ export function MemorySettings({
           {audit.map((a, i) => {
             const summary = a.indexEntry ? auditSummary(a.topic, a.indexEntry) : null
             return (
-              <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-                <span className="font-mono text-mute">{a.ts.slice(0, 16).replace('T', ' ')}</span>
-                <Chip tone="defect">{a.caseSlug}</Chip>
-                {a.action && (
-                  <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
-                    {a.action === 'restore' ? 'restored' : 'archived'}
-                  </Chip>
-                )}
-                <span className="font-mono text-ink">{a.topic}</span>
-                {summary && <span className="truncate text-dim">— {summary}</span>}
-                {/* bytes are meaningful only for content writes; archive/restore carry none */}
-                {!a.action && <span className="ml-auto text-faint">{a.bytes} B</span>}
+              // Two lines so nothing has to compete for one row's width: the topic (+ what
+              // happened) on top, provenance and summary dimmed below. Only the summary flexes
+              // and truncates; the date is pinned right and never wraps.
+              <div key={i} className="flex items-start gap-3 px-3 py-1.5 text-xs">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 truncate font-mono text-ink">{a.topic}</span>
+                    {a.action && (
+                      <Chip tone={a.action === 'restore' ? 'signal' : 'neutral'}>
+                        {a.action === 'restore' ? 'restored' : 'archived'}
+                      </Chip>
+                    )}
+                  </div>
+                  <div className="flex min-w-0 items-baseline gap-1.5 text-dim">
+                    <span className="shrink-0 text-faint">{auditProvenance(a)}</span>
+                    {summary && <span className="min-w-0 truncate">— {summary}</span>}
+                  </div>
+                </div>
+                <span className="shrink-0 whitespace-nowrap font-mono text-faint">
+                  {a.ts.slice(0, 16).replace('T', ' ')}
+                </span>
               </div>
             )
           })}
