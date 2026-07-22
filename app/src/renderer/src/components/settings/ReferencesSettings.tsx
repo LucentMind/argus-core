@@ -1,5 +1,5 @@
 import { useEffect, useState, Fragment } from 'react'
-import { RefreshCw, Pencil, Trash2, BookUp } from 'lucide-react'
+import { RefreshCw, Pencil, Trash2, Share2 } from 'lucide-react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
@@ -257,7 +257,8 @@ export function ReferencesSettings({
                 {r.stale && <Chip tone="danger">stale</Chip>}
                 {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
                 {canShare && (
-                  <IconBtn
+                  <Btn
+                    variant="outline"
                     aria-label={`Share ${r.file} to HiveMind`}
                     title={shareTip}
                     // sharePushing: opening another row's dialog would unmount an
@@ -265,8 +266,9 @@ export function ReferencesSettings({
                     disabled={!shareReady || sharePushing}
                     onClick={() => setSharing(sharing === r.file ? null : r.file)}
                   >
-                    <BookUp size={14} />
-                  </IconBtn>
+                    <Share2 size={13} aria-hidden="true" />
+                    Share
+                  </Btn>
                 )}
               </div>
               {sharing === r.file && (
