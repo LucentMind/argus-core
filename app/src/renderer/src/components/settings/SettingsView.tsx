@@ -16,6 +16,7 @@ import {
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
+import type { ProposalType } from '../../../../shared/proposals'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
 import { ConnectorsSettings } from './ConnectorsSettings'
@@ -66,10 +67,16 @@ export function SettingsView({
   const [page, setPage] = useState<PageId>(
     initialPage && PAGES.some((p) => p.id === initialPage) ? initialPage : 'general'
   )
+  const [proposalTypes, setProposalTypes] = useState<readonly ProposalType[] | undefined>(undefined)
   const payload = useSettingsPayload()
   const counts = useProposalCounts()
 
   useEscapeLayer({ onEscape: onClose })
+
+  function openProposals(types: readonly ProposalType[]): void {
+    setProposalTypes(types)
+    setPage('proposals')
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -89,7 +96,10 @@ export function SettingsView({
                   ? 'text-dim hover:bg-hair hover:text-ink'
                   : 'text-faint'
             }`}
-            onClick={() => setPage(p.id)}
+            onClick={() => {
+              setProposalTypes(undefined)
+              setPage(p.id)
+            }}
           >
             <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
             <span className="flex-1">{p.label}</span>
@@ -131,12 +141,12 @@ export function SettingsView({
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
           {page === 'health' && <HealthSettings />}
           {page === 'connectors' && <ConnectorsSettings />}
-          {page === 'proposals' && <ProposalsPage />}
-          {page === 'skills' && <SkillsSettings />}
+          {page === 'proposals' && <ProposalsPage initialTypes={proposalTypes} />}
+          {page === 'skills' && <SkillsSettings onReviewProposals={openProposals} />}
           {payload && page === 'hivemind' && <HivemindSettings payload={payload} />}
           {payload && page === 'packs' && <PacksSettings settings={payload} />}
-          {page === 'memory' && <MemorySettings />}
-          {page === 'references' && <ReferencesSettings />}
+          {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
+          {page === 'references' && <ReferencesSettings onReviewProposals={openProposals} />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
         </div>
       </div>

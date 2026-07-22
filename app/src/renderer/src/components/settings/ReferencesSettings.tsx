@@ -7,11 +7,15 @@ import { ModalShell } from '../ModalShell'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
 import { RefViewer } from '../references/RefViewer'
+import { ProposalsBanner } from './ProposalsBanner'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload, referenceSyncStore } from '../../lib/referenceSyncStore'
 import { useConnectorsPayload } from '../../lib/connectorsStore'
 import type { SpaceConfig, SyncReport } from '../../../../shared/referenceSync'
 import type { ReferenceUsageRow } from '../../../../shared/observability'
+import type { ProposalType } from '../../../../shared/proposals'
+
+const REFERENCE_TYPES: readonly ProposalType[] = ['reference-edit', 'recipe']
 
 /** Atlassian (Rovo preset) OAuth state, checked client-side before the user hits Sync. */
 function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayload>): string | null {
@@ -33,7 +37,11 @@ function atlassianTokenWarning(connectors: ReturnType<typeof useConnectorsPayloa
  * manage selection, remove) plus a searchable reference-file list showing
  * per-file staleness; rows open the in-app markdown viewer.
  */
-export function ReferencesSettings(): React.JSX.Element {
+export function ReferencesSettings({
+  onReviewProposals
+}: {
+  onReviewProposals?: (types: readonly ProposalType[]) => void
+} = {}): React.JSX.Element {
   const payload = useRefSyncPayload()
   const connectors = useConnectorsPayload()
   const tokenWarning = atlassianTokenWarning(connectors)
@@ -95,6 +103,13 @@ export function ReferencesSettings(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-6">
+      {onReviewProposals && (
+        <ProposalsBanner
+          types={REFERENCE_TYPES}
+          noun="references"
+          onReview={() => onReviewProposals(REFERENCE_TYPES)}
+        />
+      )}
       {payload?.loadError && (
         <div
           role="alert"
