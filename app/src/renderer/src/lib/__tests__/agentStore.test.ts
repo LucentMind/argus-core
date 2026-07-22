@@ -162,7 +162,12 @@ describe('AgentStore', () => {
 
 describe('AgentStore Question dialogs', () => {
   const q = [
-    { question: 'Which?', header: 'H', multiSelect: false, options: [{ label: 'A', description: 'a' }] }
+    {
+      question: 'Which?',
+      header: 'H',
+      multiSelect: false,
+      options: [{ label: 'A', description: 'a' }]
+    }
   ]
 
   it('appends on dialog.opened and removes on dialog.resolved', () => {
