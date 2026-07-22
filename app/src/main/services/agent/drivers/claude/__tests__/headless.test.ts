@@ -1,3 +1,4 @@
+import os from 'node:os'
 import { describe, it, expect, vi } from 'vitest'
 import { createClaudeDriver, type CreateQueryFn } from '..'
 import { runClaudeHeadless } from '../headless'
@@ -99,6 +100,13 @@ describe('claude runHeadless', () => {
     const q = scriptedQuery(['ok'])
     await runClaudeHeadless('prompt', { argusHome: '/tmp/argus' }, q.fn, () => null)
     expect(q.opts()).not.toHaveProperty('pathToClaudeCodeExecutable')
+  })
+
+  it('pins cwd to the OS temp dir — an unset cwd inherits the packaged app cwd ("/" on macOS) and the CLI boot walk triggers TCC prompts attributed to Argus', async () => {
+    const q = scriptedQuery(['ok'])
+    const d = createClaudeDriver(q.fn)
+    await d.runHeadless!('prompt', { argusHome: '/tmp/argus' })
+    expect(q.opts()).toMatchObject({ cwd: os.tmpdir() })
   })
 
   it('rejects when the timeout elapses first', async () => {
