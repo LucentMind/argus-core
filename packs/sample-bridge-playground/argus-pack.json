@@ -20,6 +20,7 @@
         "cite",
         "emitFinding",
         "sendToAgent",
+        "sendImageToAgent",
         "ingestEvidence"
       ],
       "commands": [
