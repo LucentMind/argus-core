@@ -314,7 +314,7 @@ export function IntegrationsStep(): React.JSX.Element {
       />
       <IntegrationCard
         name="HiveMind repo"
-        hint="Share skills and memory with your team."
+        hint="Share skills and reference docs with your team."
         ok={hive}
         action={
           <DraftInput

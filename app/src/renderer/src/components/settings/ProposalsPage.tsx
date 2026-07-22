@@ -183,7 +183,8 @@ export function ProposalsPage({
       })}
       {payload.proposals.length === 0 ? (
         <div className="px-1 py-2 text-sm text-dim">
-          No pending proposals — the agent drafts them via /contribute-back (write_proposal).
+          No pending proposals — the agent drafts them during sessions (write_proposal /
+          /contribute-back) and after case distillation.
         </div>
       ) : (
         sorted.map((p) => {

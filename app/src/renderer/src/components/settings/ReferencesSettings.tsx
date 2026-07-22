@@ -250,7 +250,9 @@ export function ReferencesSettings({
         ))}
         {references.length === 0 && (
           <div className="px-3 py-2 text-xs text-faint">
-            {activeMatches === null ? 'No reference files yet.' : 'No matches.'}
+            {activeMatches === null
+              ? "No reference files yet — references arrive from Confluence sync, your team's HiveMind, or accepted agent proposals."
+              : 'No matches.'}
           </div>
         )}
       </SettingsSection>
