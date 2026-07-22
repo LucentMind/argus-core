@@ -84,10 +84,10 @@ describe('MemorySettings', () => {
       'false'
     )
     expect(screen.getByText(/2 \/ 200/)).toBeTruthy() // index line budget
-    expect(screen.queryByText('NAV-1')).toBeNull() // audit is on its own tab, not shown by default
+    expect(screen.queryByText(/NAV-1/)).toBeNull() // audit is on its own tab, not shown by default
 
     fireEvent.click(screen.getByRole('tab', { name: 'Audit' }))
-    expect(await screen.findByText('NAV-1')).toBeTruthy() // audit case chip
+    expect(await screen.findByText(/written by NAV-1/)).toBeTruthy() // audit case attribution
   })
 
   it('toggle patches agent-access memory map', async () => {
