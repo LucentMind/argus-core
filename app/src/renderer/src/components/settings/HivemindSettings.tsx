@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { BookUp, ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
+import { TierBadge } from './TierBadge'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
@@ -40,7 +41,12 @@ function BrowseRow({
       <SettingRow
         label={it.name}
         description={it.description || undefined}
-        badge={it.updateAvailable ? <Chip tone="review">update available</Chip> : undefined}
+        badge={
+          <>
+            {it.localTier && <TierBadge tier={it.localTier} />}
+            {it.updateAvailable ? <Chip tone="review">update available</Chip> : undefined}
+          </>
+        }
       >
         {it.updateAvailable ? (
           <Btn

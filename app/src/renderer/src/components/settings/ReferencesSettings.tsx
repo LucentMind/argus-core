@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { RefreshCw, Pencil, Trash2 } from 'lucide-react'
 import { SettingsSection } from './settingsLayout'
 import { Btn, Card, Chip, IconBtn } from '../ui'
+import { TierBadge } from './TierBadge'
 import { ModalShell } from '../ModalShell'
 import { SpaceDialog } from '../references/SpaceDialog'
 import { SyncReportView } from '../references/SyncReportView'
@@ -228,7 +229,7 @@ export function ReferencesSettings(): React.JSX.Element {
                 )}
               </span>
             </div>
-            {r.tier && <Chip tone="neutral">{r.tier}</Chip>}
+            {r.tier && <TierBadge tier={r.tier} />}
             {r.stale && <Chip tone="danger">stale</Chip>}
           </button>
         ))}
