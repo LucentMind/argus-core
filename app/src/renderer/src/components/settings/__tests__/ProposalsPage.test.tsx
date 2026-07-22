@@ -150,7 +150,8 @@ describe('ProposalsPage', () => {
     const acceptButtons = await screen.findAllByRole('button', { name: /^Accept / })
     fireEvent.click(acceptButtons[0])
     expect(await screen.findByText(/accepted into your library/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Share .* to HiveMind/ })).toBeInTheDocument()
+    // label-in-name: the accessible name must contain the visible text "Share to HiveMind"
+    expect(screen.getByRole('button', { name: /^Share to HiveMind: / })).toBeInTheDocument()
   })
 
   it('without a hive repo the row links to HiveMind setup instead', async () => {

@@ -10,17 +10,21 @@ import { Btn, Chip, IconBtn } from '../ui'
 export function SharePushDialog({
   kind,
   name,
-  onClose
+  onClose,
+  onBusyChange
 }: {
   kind: 'skill' | 'reference'
   name: string
   onClose: () => void
+  /** Fires while a push is in flight so the host can gate actions that would unmount the dialog. */
+  onBusyChange?: (busy: boolean) => void
 }): React.JSX.Element {
   const [preview, setPreview] = useState<string | null>(null)
   const [title, setTitle] = useState(`Add ${name}`)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [previewAttempt, setPreviewAttempt] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -31,11 +35,15 @@ export function SharePushDialog({
     return () => {
       mounted = false
     }
-  }, [kind, name])
+  }, [kind, name, previewAttempt])
+
+  // If the host unmounts the dialog mid-push anyway (e.g. tab switch), don't leave it gated.
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange])
 
   async function doPush(): Promise<void> {
     if (busy) return
     setBusy(true)
+    onBusyChange?.(true)
     setError(null)
     try {
       const r = await window.argus.hivemind.push(kind, name, title)
@@ -45,6 +53,7 @@ export function SharePushDialog({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
+      onBusyChange?.(false)
     }
   }
 
@@ -92,6 +101,17 @@ export function SharePushDialog({
         >
           {busy ? 'Pushing…' : 'Open pull request'}
         </Btn>
+        {preview === null && error !== null && (
+          <Btn
+            variant="outline"
+            onClick={() => {
+              setError(null)
+              setPreviewAttempt((a) => a + 1)
+            }}
+          >
+            Retry preview
+          </Btn>
+        )}
         <IconBtn aria-label="Cancel" title="Cancel" onClick={onClose}>
           <X size={14} />
         </IconBtn>

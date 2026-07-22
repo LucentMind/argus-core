@@ -164,7 +164,7 @@ export function ProposalsPage({
               {pushKind && repoSet && (
                 <Btn
                   variant="outline"
-                  aria-label={`Share ${a.target.name} to HiveMind`}
+                  aria-label={`Share to HiveMind: ${a.target.name}`}
                   onClick={() => setSharing(sharing === a.file ? null : a.file)}
                 >
                   Share to HiveMind
