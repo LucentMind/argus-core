@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, Fragment } from 'react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { TierBadge } from './TierBadge'
-import { Share2 } from 'lucide-react'
+import { Share2, Trash2 } from 'lucide-react'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
@@ -143,10 +143,11 @@ export function InstalledSkills(): React.JSX.Element {
                           Share
                         </Btn>
                         <Btn
-                          variant={adopt ? 'outline' : 'danger'}
+                          variant={adopt ? 'outline' : 'dangerSolid'}
                           aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
                           onClick={() => void removeUserSkill(s, adopt)}
                         >
+                          {!adopt && <Trash2 size={13} aria-hidden="true" />}
                           {adopt ? 'Adopt upstream' : 'Delete'}
                         </Btn>
                       </>
