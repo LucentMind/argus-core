@@ -29,9 +29,8 @@ describe('settings tab anchors', () => {
     const { container } = render(<SettingsView onClose={vi.fn()} />)
     for (const id of [
       'settings-memory',
-      'settings-skills',
-      'settings-references',
-      'settings-hivemind',
+      'settings-library',
+      'settings-team',
       'settings-proposals'
     ]) {
       expect(container.querySelector(`[data-onboarding-anchor="${id}"]`)).toBeTruthy()
