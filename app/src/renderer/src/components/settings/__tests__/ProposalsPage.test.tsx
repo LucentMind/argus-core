@@ -119,6 +119,26 @@ describe('ProposalsPage', () => {
     expect(await screen.findByText('Reference')).toBeInTheDocument()
   })
 
+  it('accepting the only proposal of an active filter type does not hide the remaining proposals', async () => {
+    // Regression: `active` (the chip-filter state) kept the now-gone type after its last
+    // proposal was accepted, so `filtered` stayed empty and the reference-edit proposal
+    // vanished with no empty-state cue (payload.proposals was non-empty).
+    ;(
+      window as unknown as { argus: { proposals: { accept: ReturnType<typeof vi.fn> } } }
+    ).argus.proposals.accept = vi.fn().mockResolvedValue({
+      proposals: [payload.proposals[2]], // only the reference-edit proposal remains
+      accepted: { kind: 'skill', name: 'rca' }
+    })
+    render(<ProposalsPage />)
+    const chip = await screen.findByRole('button', { name: 'Filter Skill · edit' })
+    fireEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept Sharpen step 4' }))
+
+    expect(await screen.findByText('Reference edit proposal')).toBeInTheDocument()
+  })
+
   it('initialTypes pre-activates chips', async () => {
     render(<ProposalsPage initialTypes={['skill-new']} />)
     const chip = await screen.findByRole('button', { name: 'Filter Skill · new' })

@@ -104,7 +104,10 @@ export function SettingsView({
             <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
             <span className="flex-1">{p.label}</span>
             {p.id === 'proposals' && (counts?.pendingCount ?? 0) > 0 && (
-              <span className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal">
+              <span
+                aria-hidden="true"
+                className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal"
+              >
                 {counts!.pendingCount}
               </span>
             )}
@@ -143,6 +146,9 @@ export function SettingsView({
           {page === 'connectors' && <ConnectorsSettings />}
           {page === 'proposals' && (
             <ProposalsPage
+              // Remount on preset change: forces a fresh, unfiltered ProposalsPage whenever a
+              // sidebar/banner navigation changes the type preset, deliberately wiping its
+              // transient state (accepted rows, edit drafts) rather than carrying it forward.
               key={proposalTypes?.join(',') ?? 'all'}
               initialTypes={proposalTypes}
               onOpenHivemind={() => setPage('hivemind')}

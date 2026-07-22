@@ -99,8 +99,13 @@ export function ProposalsPage({
   if (!payload) return <div className="text-dim">loading…</div>
 
   const typesPresent = Array.from(new Set(payload.proposals.map((p) => p.type)))
+  // active may contain types no longer present (e.g. the last proposal of that type was just
+  // accepted/rejected) — intersect with what's actually here so a stale chip can't hide everything.
+  const effective = new Set([...active].filter((t) => typesPresent.includes(t)))
   const filtered =
-    active.size === 0 ? payload.proposals : payload.proposals.filter((p) => active.has(p.type))
+    effective.size === 0
+      ? payload.proposals
+      : payload.proposals.filter((p) => effective.has(p.type))
   const sorted = [...filtered].sort(
     (a, b) => a.caseSlug.localeCompare(b.caseSlug) || b.date.localeCompare(a.date)
   )

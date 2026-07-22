@@ -320,9 +320,8 @@ describe('SettingsView', () => {
     expect(chip).toHaveAttribute('aria-pressed', 'true')
 
     // Now click the sidebar's own Proposals entry while already on the Proposals page.
-    // (The sidebar row's accessible name is "Proposals" plus a pending-count badge digit,
-    // e.g. "Proposals1", since there's one skill-new proposal in this test's stub.)
-    fireEvent.click(screen.getByRole('button', { name: /^Proposals/ }))
+    // (The pending-count badge is aria-hidden, so the accessible name stays exactly "Proposals".)
+    fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
 
     const chipAfter = await screen.findByRole('button', { name: 'Filter Skill · new' })
     expect(chipAfter).toHaveAttribute('aria-pressed', 'false')
