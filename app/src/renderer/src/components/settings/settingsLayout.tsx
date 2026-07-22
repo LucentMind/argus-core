@@ -49,20 +49,52 @@ export function DisclosureBtn({
 export function SettingsSection({
   title,
   action,
+  count,
+  collapsed,
+  onToggle,
   children
 }: {
   title: string
   /** Controls rendered on the section header line, right-aligned (e.g. a refresh button). */
   action?: ReactNode
+  /** Item count shown beside the title in collapsible mode. */
+  count?: number
+  collapsed?: boolean
+  /** When set, the header becomes a toggle button and `collapsed` hides the children. */
+  onToggle?: () => void
   children: ReactNode
 }): React.JSX.Element {
+  const heading = (
+    <SectionLabel>
+      {title}
+      {count !== undefined && <span className="ml-1.5 normal-case text-faint">· {count}</span>}
+    </SectionLabel>
+  )
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <SectionLabel>{title}</SectionLabel>
+        {onToggle ? (
+          <button
+            type="button"
+            aria-label={`Toggle section · ${title}`}
+            aria-expanded={!collapsed}
+            onClick={onToggle}
+            className="flex items-center gap-1.5 text-left"
+          >
+            <ChevronDown
+              size={12}
+              strokeWidth={1.5}
+              className={`text-mute transition-transform ${collapsed ? '-rotate-90' : ''}`}
+              aria-hidden="true"
+            />
+            {heading}
+          </button>
+        ) : (
+          heading
+        )}
         {action}
       </div>
-      <Card className="flex flex-col divide-y divide-hair">{children}</Card>
+      {!collapsed && <Card className="flex flex-col divide-y divide-hair">{children}</Card>}
     </section>
   )
 }

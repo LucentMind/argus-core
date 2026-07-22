@@ -2,7 +2,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { SettingRow } from '../settingsLayout'
+import { SettingRow, SettingsSection } from '../settingsLayout'
 
 describe('SettingRow onOpen', () => {
   it('renders the label as an open button when onOpen is set', () => {
@@ -25,5 +25,28 @@ describe('SettingRow onOpen', () => {
     )
     expect(screen.queryByRole('button', { name: 'open · plain' })).toBeNull()
     expect(screen.getByText('plain')).toBeInTheDocument()
+  })
+})
+
+describe('SettingsSection collapse', () => {
+  it('toggle button hides children and flips aria-expanded', () => {
+    const onToggle = vi.fn()
+    const { rerender } = render(
+      <SettingsSection title="HiveMind" count={2} collapsed={false} onToggle={onToggle}>
+        <span>row content</span>
+      </SettingsSection>
+    )
+    const btn = screen.getByRole('button', { name: 'Toggle section · HiveMind' })
+    expect(btn).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('row content')).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(onToggle).toHaveBeenCalledOnce()
+    rerender(
+      <SettingsSection title="HiveMind" count={2} collapsed onToggle={onToggle}>
+        <span>row content</span>
+      </SettingsSection>
+    )
+    expect(screen.queryByText('row content')).toBeNull()
+    expect(btn).toHaveAttribute('aria-expanded', 'false')
   })
 })

@@ -97,8 +97,8 @@ export function LibraryPage({
   const [sharePushing, setSharePushing] = useState(false)
   const { shareReady, shareTip, pushes, refresh: refreshShare } = useSharePush()
   const [kind, setKind] = useState<'all' | LibraryKind>(initialKind ?? 'all')
-  const [tierFilter, setTierFilter] = useState<'all' | GroupId>('all')
   const [query, setQuery] = useState('')
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<GroupId>>(new Set())
   // null = no active search; otherwise the set of reference files matching name/content
   const [matches, setMatches] = useState<Set<string> | null>(null)
 
@@ -223,18 +223,16 @@ export function LibraryPage({
 
   const q = query.trim().toLowerCase()
   const activeMatches = q ? matches : null
-  const filtering = kind !== 'all' || tierFilter !== 'all' || q !== ''
+  const filtering = kind !== 'all' || q !== ''
 
   function skillVisible(s: SkillListItem): boolean {
     if (kind === 'reference') return false
-    if (tierFilter !== 'all' && groupOf(s.tier) !== tierFilter) return false
     if (q && !s.name.toLowerCase().includes(q) && !s.description.toLowerCase().includes(q))
       return false
     return true
   }
   function refVisible(r: ReferenceStatus): boolean {
     if (kind === 'skill') return false
-    if (tierFilter !== 'all' && groupOf(r.tier) !== tierFilter) return false
     if (q && !(activeMatches?.has(r.file) ?? false)) return false
     return true
   }
@@ -408,60 +406,55 @@ export function LibraryPage({
         />
       )}
       {error && errorAlert(error)}
-      <div className="flex flex-wrap items-center gap-2">
-        {(['all', 'skill', 'reference'] as const).map((k) => (
-          <button
-            key={k}
-            aria-label={`Filter kind · ${k}`}
-            aria-pressed={kind === k}
-            className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-              kind === k
-                ? 'border-signal/50 bg-signal/10 text-ink'
-                : 'border-hair text-dim hover:text-ink'
-            }`}
-            onClick={() => setKind(k)}
-          >
-            {k === 'all' ? 'All' : k === 'skill' ? 'Skills' : 'References'}
-          </button>
-        ))}
-        <span aria-hidden="true" className="mx-1 h-4 w-px bg-hair" />
-        {(['all', ...GROUP_ORDER] as const)
-          .filter(
-            (g) =>
-              g === 'all' ||
-              skills.some((s) => groupOf(s.tier) === g) ||
-              references.some((r) => groupOf(r.tier) === g)
-          )
-          .map((g) => (
+      <div className="flex items-center gap-2">
+        <input
+          aria-label="search library"
+          placeholder="Search names and reference content…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-sm outline-none placeholder:text-faint"
+        />
+        <div
+          role="group"
+          aria-label="Filter kind"
+          className="flex shrink-0 overflow-hidden rounded-r2 border border-hair"
+        >
+          {(['all', 'skill', 'reference'] as const).map((k) => (
             <button
-              key={g}
-              aria-label={`Filter tier · ${g}`}
-              aria-pressed={tierFilter === g}
-              className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
-                tierFilter === g
-                  ? 'border-signal/50 bg-signal/10 text-ink'
-                  : 'border-hair text-dim hover:text-ink'
-              }`}
-              onClick={() => setTierFilter(g)}
+              key={k}
+              aria-label={`Filter kind · ${k}`}
+              aria-pressed={kind === k}
+              className={`px-2.5 py-1 text-xs transition-colors ${
+                kind === k ? 'bg-signal/10 text-ink' : 'text-dim hover:text-ink'
+              } ${k !== 'reference' ? 'border-r border-hair' : ''}`}
+              onClick={() => setKind(k)}
             >
-              {g === 'all' ? 'All tiers' : GROUP_TITLE[g].toLowerCase()}
+              {k === 'all' ? 'All' : k === 'skill' ? 'Skills' : 'References'}
             </button>
           ))}
+        </div>
       </div>
-      <input
-        aria-label="search library"
-        placeholder="Search names and reference content…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="w-full rounded-r2 bg-black/20 px-2 py-1 text-sm outline-none placeholder:text-faint"
-      />
       {GROUP_ORDER.map((g) => {
         const groupSkills = skills.filter((s) => groupOf(s.tier) === g && skillVisible(s))
         const groupRefs = references.filter((r) => groupOf(r.tier) === g && refVisible(r))
         const empty = groupSkills.length === 0 && groupRefs.length === 0
         if (empty && (filtering || !GROUP_EMPTY[g])) return null
+        const isCollapsed = !filtering && collapsedGroups.has(g)
         return (
-          <SettingsSection key={g} title={GROUP_TITLE[g]}>
+          <SettingsSection
+            key={g}
+            title={GROUP_TITLE[g]}
+            count={groupSkills.length + groupRefs.length}
+            collapsed={isCollapsed}
+            onToggle={() =>
+              setCollapsedGroups((prev) => {
+                const next = new Set(prev)
+                if (next.has(g)) next.delete(g)
+                else next.add(g)
+                return next
+              })
+            }
+          >
             {empty && <div className="px-3 py-2 text-xs text-dim">{GROUP_EMPTY[g]}</div>}
             {groupSkills.map(skillRow)}
             {groupRefs.map(refRow)}
