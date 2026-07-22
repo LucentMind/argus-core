@@ -7,6 +7,7 @@ import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
 import { PROPOSAL_TYPES, type ProposalRecord, type ProposalType } from '../../shared/proposals'
+import type { TrustTier } from '../../shared/trustTiers'
 import { applyMemoryWrite } from './memory'
 import { upsertCaseSummary } from './distill/summaries'
 import type { CaseDistillSummary } from '../../shared/distill'
@@ -210,7 +211,7 @@ export function acceptProposal(
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, refFileName(p.target)),
-      withFrontmatter(body, { trust_tier: 'team-knowledge' })
+      withFrontmatter(body, { trust_tier: 'team-knowledge' satisfies TrustTier })
     )
   }
   archive(argusHome, file, 'accepted')
