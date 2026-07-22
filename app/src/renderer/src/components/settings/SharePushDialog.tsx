@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { X, ExternalLink } from 'lucide-react'
 import { Btn, Chip, IconBtn } from '../ui'
+import type { PushReceipt } from '../../../../shared/hivemind'
 
 /**
  * Preview → PR-title → push flow for sharing one user-tier asset to the
@@ -117,5 +118,26 @@ export function SharePushDialog({
         </IconBtn>
       </div>
     </div>
+  )
+}
+
+/** "PR ↗" chip linking the last successful HiveMind push for one asset. */
+export function PushReceiptChip({
+  name,
+  receipt
+}: {
+  name: string
+  receipt: PushReceipt
+}): React.JSX.Element {
+  return (
+    <button
+      aria-label={`Open PR · ${name}`}
+      title={`${receipt.prUrl} — pushed ${receipt.pushedAt.slice(0, 10)}`}
+      className="inline-flex items-center gap-1 rounded-full border border-hair px-2 py-0.5 text-xs text-dim transition-colors hover:text-signal"
+      onClick={() => void window.argus.openExternal(receipt.prUrl)}
+    >
+      PR
+      <ExternalLink size={10} aria-hidden="true" />
+    </button>
   )
 }
