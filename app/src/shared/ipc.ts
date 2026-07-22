@@ -105,6 +105,7 @@ export const IPC = {
   proposalsList: 'proposals:list',
   proposalsAccept: 'proposals:accept',
   proposalsReject: 'proposals:reject',
+  proposalsChanged: 'proposals:changed',
   filesList: 'files:list',
   filesRead: 'files:read',
   filesOpen: 'files:open',

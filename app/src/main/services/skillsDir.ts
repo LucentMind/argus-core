@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { refTier } from './refSync/refFrontmatter'
+import { NON_PACK_TIERS } from '../../shared/trustTiers'
 
 export function sharedSkillsDir(argusHome: string): string {
   return path.join(argusHome, 'skills')
@@ -72,7 +73,7 @@ export function detectSkillCollisions(sources: string[]): SkillCollision[] {
 }
 
 /** Tiers whose files were written after seeding (synced/authored) — never clobbered by a pack copy. */
-const nonPackTiers = new Set(['confluence', 'user', 'team-knowledge', 'hivemind'])
+const nonPackTiers = new Set<string>(NON_PACK_TIERS)
 
 export function isNonPackTiered(destFile: string): boolean {
   let stat: fs.Stats

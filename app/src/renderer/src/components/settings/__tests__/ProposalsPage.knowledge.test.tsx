@@ -2,7 +2,8 @@
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { ProposalsTab } from '../ProposalsTab'
+import { ProposalsPage } from '../ProposalsPage'
+import { settingsStore } from '../../../lib/settingsStore'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -43,19 +44,26 @@ const payload: ProposalsPayload = {
 
 let accept: ReturnType<typeof vi.fn>
 beforeEach(() => {
-  accept = vi.fn().mockResolvedValue({ proposals: [] })
+  settingsStore.reset()
+  accept = vi
+    .fn()
+    .mockResolvedValue({ proposals: [], accepted: { kind: 'memory', name: 'dlt-timing' } })
   ;(window as unknown as { argus: unknown }).argus = {
     proposals: {
       list: vi.fn().mockResolvedValue(payload),
       accept,
       reject: vi.fn().mockResolvedValue({ proposals: [] })
+    },
+    settings: {
+      get: vi.fn(async () => ({ settings: { hivemind: { repo: 'org/hive' } }, loadError: null })),
+      onChanged: vi.fn(() => () => {})
     }
   }
 })
 
 describe('Knowledge inbox', () => {
   it('shows Lesson / Case summary labels, previously-reviewed badge, and case groups', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     expect(await screen.findByText('Lesson', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText('Case summary', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText(/previously reviewed/i)).toBeInTheDocument()
@@ -64,36 +72,35 @@ describe('Knowledge inbox', () => {
   })
 
   it('filters by type', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'case-summary' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Case summary' }))
     expect(screen.queryByText('DLT drift')).not.toBeInTheDocument()
     expect(screen.getByText('Case summary: sig')).toBeInTheDocument()
   })
 
   it('edit-then-accept passes edited content', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    fireEvent.click(screen.getAllByRole('button', { name: /edit/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Edit DLT drift' }))
     const ta = screen.getByLabelText('Edit proposal content')
     fireEvent.change(ta, { target: { value: 'edited fact' } })
-    fireEvent.click(screen.getAllByRole('button', { name: /accept/i })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Accept DLT drift' }))
     await waitFor(() => expect(accept).toHaveBeenCalledWith('a.md', 'edited fact'))
   })
 
   it('shows the memory-append target topic chip but not one for case-summary', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
     expect(screen.getByText('→ dlt-timing')).toBeInTheDocument()
     const summaryCard = screen.getByText('Case summary: sig').closest('section') as HTMLElement
     expect(within(summaryCard).queryByText(/^→/)).not.toBeInTheDocument()
   })
 
-  it('filter select options show human-readable type labels', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+  it('filter chips show human-readable type labels', async () => {
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
-    const select = within(screen.getByLabelText('Filter by type'))
-    expect(select.getByRole('option', { name: 'Lesson' })).toBeInTheDocument()
-    expect(select.getByRole('option', { name: 'Case summary' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter Lesson' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filter Case summary' })).toBeInTheDocument()
   })
 })

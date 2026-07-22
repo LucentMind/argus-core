@@ -50,7 +50,8 @@ beforeEach(() => {
       onDraft: vi.fn(() => () => {})
     },
     proposals: {
-      list: vi.fn(async () => ({ proposals: [] }))
+      list: vi.fn(async () => ({ proposals: [] })),
+      onChanged: vi.fn(() => () => {})
     },
     settings: {
       get: vi.fn(async () => settingsPayload()),

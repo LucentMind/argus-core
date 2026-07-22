@@ -1,49 +1,24 @@
-import { useEffect, useState } from 'react'
 import { InstalledSkills } from './InstalledSkills'
-import { ProposalsTab } from './ProposalsTab'
+import { ProposalsBanner } from './ProposalsBanner'
+import type { ProposalType } from '../../../../shared/proposals'
 
-const TABS = [
-  { id: 'installed', label: 'Installed' },
-  { id: 'proposals', label: 'Proposals' }
-] as const
-type SkillsTab = (typeof TABS)[number]['id']
+const SKILL_TYPES: readonly ProposalType[] = ['skill-new', 'skill-edit']
 
-export function SkillsSettings(): React.JSX.Element {
-  const [tab, setTab] = useState<SkillsTab>('installed')
-  const [pending, setPending] = useState(0)
-  useEffect(() => {
-    let mounted = true
-    void window.argus.proposals
-      .list()
-      .then((p) => {
-        if (mounted) setPending(p.proposals.length)
-      })
-      .catch(() => undefined)
-    return () => {
-      mounted = false
-    }
-  }, [])
-
+export function SkillsSettings({
+  onReviewProposals
+}: {
+  onReviewProposals?: (types: readonly ProposalType[]) => void
+} = {}): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4">
-      <div role="tablist" className="flex items-center gap-1 border-b border-hair">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`-mb-px border-b px-3 py-1.5 text-sm transition-colors ${
-              tab === t.id ? 'border-signal text-ink' : 'border-transparent text-dim hover:text-ink'
-            }`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-            {t.id === 'proposals' && pending > 0 ? ` (${pending})` : ''}
-          </button>
-        ))}
-      </div>
-      {tab === 'installed' && <InstalledSkills />}
-      {tab === 'proposals' && <ProposalsTab onCountChange={setPending} />}
+      {onReviewProposals && (
+        <ProposalsBanner
+          types={SKILL_TYPES}
+          noun="skills"
+          onReview={() => onReviewProposals(SKILL_TYPES)}
+        />
+      )}
+      <InstalledSkills />
     </div>
   )
 }
