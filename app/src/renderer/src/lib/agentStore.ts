@@ -12,6 +12,8 @@ export type TranscriptItem =
       isError: boolean
     }
 
+export type PendingDialog = Extract<AgentEvent, { type: 'dialog.opened' }>['payload']
+
 export interface CaseAgentState {
   items: TranscriptItem[]
   pending: {
@@ -22,6 +24,7 @@ export interface CaseAgentState {
     argsPreview: string
     input?: Record<string, unknown>
   }[]
+  pendingDialogs: PendingDialog[]
   running: boolean
   cost: { inputTokens: number; outputTokens: number; costUsd: number }
   sessionNote: string | null
@@ -31,6 +34,7 @@ export interface CaseAgentState {
 export const EMPTY_CASE_AGENT_STATE: CaseAgentState = {
   items: [],
   pending: [],
+  pendingDialogs: [],
   running: false,
   cost: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
   sessionNote: null,
@@ -73,7 +77,7 @@ export class AgentStore {
   hydrate(caseSlug: string, sessionId: number, events: AgentEvent[]): void {
     if (this.byCase.get(keyOf(caseSlug, sessionId))?.items.length) return
     for (const e of events) this.applyToState(e)
-    this.update(caseSlug, sessionId, (s) => ({ ...s, pending: [], running: false }))
+    this.update(caseSlug, sessionId, (s) => ({ ...s, pending: [], pendingDialogs: [], running: false }))
   }
 
   private applyToState(e: AgentEvent): void {
@@ -161,6 +165,13 @@ export class AgentStore {
           return { ...s, pending: [...s.pending, e.payload] }
         case 'request.resolved':
           return { ...s, pending: s.pending.filter((p) => p.requestId !== e.payload.requestId) }
+        case 'dialog.opened':
+          return { ...s, pendingDialogs: [...s.pendingDialogs, e.payload] }
+        case 'dialog.resolved':
+          return {
+            ...s,
+            pendingDialogs: s.pendingDialogs.filter((d) => d.dialogId !== e.payload.dialogId)
+          }
         case 'turn.completed':
           return {
             ...s,
