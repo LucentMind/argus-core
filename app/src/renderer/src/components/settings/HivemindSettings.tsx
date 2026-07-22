@@ -1,13 +1,12 @@
 import { Fragment, useEffect, useState } from 'react'
-import { BookUp, ExternalLink, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, RefreshCw, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
-import { SharePushDialog } from './SharePushDialog'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
-import type { HivemindItem, HivemindPayload, PushableItem } from '../../../../shared/hivemind'
+import type { HivemindItem, HivemindPayload } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
 
@@ -139,12 +138,6 @@ function BrowseRow({
   )
 }
 
-const TABS = [
-  { id: 'browse', label: 'Browse' },
-  { id: 'share', label: 'Share to HiveMind' }
-] as const
-type HivemindTabId = (typeof TABS)[number]['id']
-
 function matchesFilter(it: { name: string; description: string }, filter: string): boolean {
   if (!filter) return true
   const q = filter.toLowerCase()
@@ -160,11 +153,8 @@ export function HivemindSettings({
   const [gh, setGh] = useState<SourceControlStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<HivemindTabId>('browse')
   const [filter, setFilter] = useState('')
   const [updateConfirm, setUpdateConfirm] = useState<UpdateConfirm | null>(null)
-  const [share, setShare] = useState<PushableItem | null>(null)
-  const [sharePushing, setSharePushing] = useState(false)
   const [check, setCheck] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle')
   const [checkError, setCheckError] = useState<string | null>(null)
 
@@ -346,126 +336,75 @@ export function HivemindSettings({
         <div className="text-sm text-dim">Not cloned yet — Sync to fetch the HiveMind.</div>
       )}
 
-      <div role="tablist" className="flex items-center gap-1 border-b border-hair">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`-mb-px border-b px-3 py-1.5 text-sm transition-colors ${
-              tab === t.id ? 'border-signal text-ink' : 'border-transparent text-dim hover:text-ink'
-            }`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="flex flex-col gap-4">
+        <input
+          aria-label="Filter HiveMind content"
+          className={`${FIELD} w-full`}
+          placeholder="Filter by name or description…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+
+        {filter && skills.length === 0 && references.length === 0 ? (
+          <div className="px-1 py-2 text-sm text-dim">
+            No HiveMind content matches &quot;{filter}&quot;.
+          </div>
+        ) : (
+          <>
+            {skills.length > 0 && (
+              <SettingsSection title="Skills">
+                {skills.map((it) => (
+                  <BrowseRow
+                    key={`${it.kind}/${it.name}`}
+                    it={it}
+                    busy={busy}
+                    confirm={updateConfirm}
+                    onInstall={() =>
+                      void run(() => window.argus.hivemind.install(it.kind, it.name))
+                    }
+                    onOpenUpdate={() => void openUpdate(it.kind, it.name)}
+                    onReinstall={() => {
+                      setUpdateConfirm(null)
+                      void run(() => window.argus.hivemind.install(it.kind, it.name))
+                    }}
+                    onCancel={() => setUpdateConfirm(null)}
+                    onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
+                    onUninstall={() =>
+                      void run(() => window.argus.hivemind.uninstallSkill(it.name))
+                    }
+                  />
+                ))}
+              </SettingsSection>
+            )}
+
+            {references.length > 0 && (
+              <SettingsSection title="References">
+                {references.map((it) => (
+                  <BrowseRow
+                    key={`${it.kind}/${it.name}`}
+                    it={it}
+                    busy={busy}
+                    confirm={updateConfirm}
+                    onInstall={() =>
+                      void run(() => window.argus.hivemind.install(it.kind, it.name))
+                    }
+                    onOpenUpdate={() => void openUpdate(it.kind, it.name)}
+                    onReinstall={() => {
+                      setUpdateConfirm(null)
+                      void run(() => window.argus.hivemind.install(it.kind, it.name))
+                    }}
+                    onCancel={() => setUpdateConfirm(null)}
+                    onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
+                    onUninstall={() =>
+                      void run(() => window.argus.hivemind.uninstallReference(it.name))
+                    }
+                  />
+                ))}
+              </SettingsSection>
+            )}
+          </>
+        )}
       </div>
-
-      {tab === 'browse' && (
-        <div className="flex flex-col gap-4">
-          <input
-            aria-label="Filter HiveMind content"
-            className={`${FIELD} w-full`}
-            placeholder="Filter by name or description…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-
-          {filter && skills.length === 0 && references.length === 0 ? (
-            <div className="px-1 py-2 text-sm text-dim">
-              No HiveMind content matches &quot;{filter}&quot;.
-            </div>
-          ) : (
-            <>
-              {skills.length > 0 && (
-                <SettingsSection title="Skills">
-                  {skills.map((it) => (
-                    <BrowseRow
-                      key={`${it.kind}/${it.name}`}
-                      it={it}
-                      busy={busy}
-                      confirm={updateConfirm}
-                      onInstall={() =>
-                        void run(() => window.argus.hivemind.install(it.kind, it.name))
-                      }
-                      onOpenUpdate={() => void openUpdate(it.kind, it.name)}
-                      onReinstall={() => {
-                        setUpdateConfirm(null)
-                        void run(() => window.argus.hivemind.install(it.kind, it.name))
-                      }}
-                      onCancel={() => setUpdateConfirm(null)}
-                      onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
-                      onUninstall={() =>
-                        void run(() => window.argus.hivemind.uninstallSkill(it.name))
-                      }
-                    />
-                  ))}
-                </SettingsSection>
-              )}
-
-              {references.length > 0 && (
-                <SettingsSection title="References">
-                  {references.map((it) => (
-                    <BrowseRow
-                      key={`${it.kind}/${it.name}`}
-                      it={it}
-                      busy={busy}
-                      confirm={updateConfirm}
-                      onInstall={() =>
-                        void run(() => window.argus.hivemind.install(it.kind, it.name))
-                      }
-                      onOpenUpdate={() => void openUpdate(it.kind, it.name)}
-                      onReinstall={() => {
-                        setUpdateConfirm(null)
-                        void run(() => window.argus.hivemind.install(it.kind, it.name))
-                      }}
-                      onCancel={() => setUpdateConfirm(null)}
-                      onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
-                      onUninstall={() =>
-                        void run(() => window.argus.hivemind.uninstallReference(it.name))
-                      }
-                    />
-                  ))}
-                </SettingsSection>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {tab === 'share' && (
-        <div className="flex flex-col gap-4">
-          {payload.pushable.length > 0 && (
-            <SettingsSection title="Share to HiveMind">
-              {payload.pushable.map((it) => (
-                <Fragment key={`${it.kind}/${it.name}`}>
-                  <SettingRow label={it.name} badge={<Chip tone="neutral">{it.kind}</Chip>}>
-                    <IconBtn
-                      aria-label={`Push ${it.name}`}
-                      title="Push to HiveMind…"
-                      // sharePushing: opening another row's dialog would unmount an
-                      // in-flight push and its PR URL would never be shown
-                      disabled={busy || sharePushing}
-                      onClick={() => setShare(it)}
-                    >
-                      <BookUp size={14} />
-                    </IconBtn>
-                  </SettingRow>
-                  {share && share.kind === it.kind && share.name === it.name && (
-                    <SharePushDialog
-                      kind={it.kind}
-                      name={it.name}
-                      onClose={() => setShare(null)}
-                      onBusyChange={setSharePushing}
-                    />
-                  )}
-                </Fragment>
-              ))}
-            </SettingsSection>
-          )}
-        </div>
-      )}
     </div>
   )
 }
