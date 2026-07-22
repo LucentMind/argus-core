@@ -128,6 +128,15 @@ function App(): React.JSX.Element {
     recordPrevView()
     setView(nextView(view, prevView, { kind: 'settings', page }))
   }
+  // Idempotent "ensure Settings is showing" -- forces the view, never toggling
+  // shut, so callers whose intent is "be on Settings" (the onboarding wizard
+  // deep-links and the feature tour's settings steps) can't accidentally invoke
+  // the gear's close-on-repeat behavior. openSettings stays the toggle for the
+  // gear itself.
+  function gotoSettings(page?: PageId): void {
+    recordPrevView()
+    setView({ kind: 'settings', page })
+  }
   function closeSettings(): void {
     setView(prevView)
   }
@@ -245,7 +254,7 @@ function App(): React.JSX.Element {
       )}
       <OnboardingProvider
         onNavigate={(view, target) => {
-          if (view === 'settings') openSettings(target as PageId | undefined)
+          if (view === 'settings') gotoSettings(target as PageId | undefined)
           else if (target) openCase(target)
         }}
       />

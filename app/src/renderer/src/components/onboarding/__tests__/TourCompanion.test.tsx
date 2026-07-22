@@ -132,6 +132,37 @@ describe('TourCompanion', () => {
     expect(screen.getByText(/synced references/i)).toBeTruthy()
   })
 
+  it('navigates a settings step exactly once even as onNavigate identity churns (flicker regression)', () => {
+    // Repro of the case<->settings flicker: OnboardingProvider passes a fresh
+    // inline onNavigate every render, so the nav effect saw a new dependency on
+    // each render and re-fired. On a settings step that re-fire hit the
+    // openSettings(undefined) toggle, oscillating case<->settings forever. The
+    // effect must navigate only when the effective view actually CHANGES.
+    const spy = vi.fn()
+    act(() => tourStore.goto(1)) // skills = a settings-view step
+    const { rerender } = render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={(v) => spy(v)}
+        onExit={vi.fn()}
+      />
+    )
+    // Simulate the parent re-rendering repeatedly with a brand-new onNavigate
+    // identity each time (as the real render loop did).
+    for (let i = 0; i < 5; i++) {
+      rerender(
+        <TourCompanion
+          sampleSlug="sample-onboarding"
+          settings={defaultSettings()}
+          onNavigate={(v) => spy(v)}
+          onExit={vi.fn()}
+        />
+      )
+    }
+    expect(spy.mock.calls.filter((c) => c[0] === 'settings')).toHaveLength(1)
+  })
+
   it('exit marks the tour done', async () => {
     const onExit = vi.fn()
     render(
