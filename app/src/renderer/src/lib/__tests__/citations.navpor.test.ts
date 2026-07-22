@@ -42,13 +42,17 @@ describe('NAVPOR-9917 citation grammar', () => {
     const s = '[navigation-native/src/foo/route_alternative_internal.hpp:43,56]'
     const seg = splitCitations(s, REPO)
     expect(seg).toEqual([
-      { type: 'cite', relPath: 'navigation-native/src/foo/route_alternative_internal.hpp', start: 43, end: 56 }
+      {
+        type: 'cite',
+        relPath: 'navigation-native/src/foo/route_alternative_internal.hpp',
+        start: 43,
+        end: 56
+      }
     ])
   })
 
   it('supports mixed range + comma line-lists', () => {
-    const s =
-      '[evidence/.derived/2026-07-15_13.00.31_[20210311-015]_x.txt:11123-11124,11139]'
+    const s = '[evidence/.derived/2026-07-15_13.00.31_[20210311-015]_x.txt:11123-11124,11139]'
     const seg = splitCitations(s, REPO)
     expect(seg[0]).toMatchObject({ type: 'cite', start: 11123, end: 11139 })
   })
@@ -59,7 +63,9 @@ describe('NAVPOR-9917 citation grammar', () => {
   })
 
   it('still linkifies a fully-qualified repo code citation', () => {
-    expect(isCite('[navigation-native/src/navsdk/navigation/navigator_status_util.cpp:268-273]')).toBe(true)
+    expect(
+      isCite('[navigation-native/src/navsdk/navigation/navigator_status_util.cpp:268-273]')
+    ).toBe(true)
   })
 
   // --- guards: prose brackets must NOT become citations, and must NOT swallow
