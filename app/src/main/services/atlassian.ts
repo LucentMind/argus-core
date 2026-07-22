@@ -402,10 +402,10 @@ export class AtlassianClient {
     const instanceId = this.creds().instanceId
     const { signal, bump, clear } = idleAbort(this.downloadIdleMs)
     try {
-      const res = await this.request(
-        `/rest/api/3/attachment/content/${encodeURIComponent(id)}`,
-        { signal, accept: '*/*' }
-      )
+      const res = await this.request(`/rest/api/3/attachment/content/${encodeURIComponent(id)}`, {
+        signal,
+        accept: '*/*'
+      })
       if (!res.body)
         throw new AtlassianError('network', 'Attachment response had no body', instanceId)
       const tick = new Transform({

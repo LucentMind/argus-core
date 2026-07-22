@@ -31,5 +31,13 @@ export default defineConfig(
       ...eslintPluginReactRefresh.configs.vite.rules
     }
   },
+  // electron-builder hooks (build/*.cjs) are loaded with require() by
+  // electron-builder itself and must stay CommonJS.
+  {
+    files: ['build/**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off'
+    }
+  },
   eslintConfigPrettier
 )
