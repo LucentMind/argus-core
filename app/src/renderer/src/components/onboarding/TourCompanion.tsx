@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTour, tourStore, buildTourSteps } from '../../lib/tourStore'
 import { markTourDone } from '../../lib/onboardingStore'
 import { composerDraft } from '../../lib/composerDraft'
@@ -47,9 +47,18 @@ export function TourCompanion({
   const effTarget = showReveal && reveal ? reveal.target : step?.target
   const effNarration = showReveal && reveal ? reveal.narration : step?.narration
 
-  // Navigate to the effective view whenever it changes.
+  // Navigate to the effective view whenever it CHANGES — keyed on the view we
+  // last drove to, not on render/dependency churn. onNavigate identity is
+  // unstable (the provider passes a fresh inline arrow each render), so firing
+  // on every render would loop: navigate -> parent setView -> re-render -> new
+  // onNavigate -> fire again. On a settings step that loop crossed the
+  // openSettings toggle and oscillated case<->settings (the tour flicker).
+  const lastNavView = useRef<'case' | 'settings' | null>(null)
   useEffect(() => {
-    if (open && step && effView) onNavigate(effView)
+    if (!open || !step || !effView) return
+    if (lastNavView.current === effView) return
+    lastNavView.current = effView
+    onNavigate(effView)
   }, [open, step, effView, onNavigate])
 
   if (!open || !step) return null
