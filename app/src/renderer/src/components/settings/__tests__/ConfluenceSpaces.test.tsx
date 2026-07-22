@@ -2,15 +2,15 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { ReferencesSettings } from '../settings/ReferencesSettings'
-import { referenceSyncStore } from '../../lib/referenceSyncStore'
-import { connectorsStore } from '../../lib/connectorsStore'
-import { confirm } from '../../lib/confirmStore'
-import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
-import type { RefSyncPayload, SyncReport } from '../../../../shared/referenceSync'
-import type { ConnectorsPayload } from '../../../../shared/connectors'
+import { ConfluenceSpaces } from '../ConfluenceSpaces'
+import { referenceSyncStore } from '../../../lib/referenceSyncStore'
+import { connectorsStore } from '../../../lib/connectorsStore'
+import { confirm } from '../../../lib/confirmStore'
+import { __resetEscapeLayersForTest } from '../../../lib/escapeLayer'
+import type { RefSyncPayload, SyncReport } from '../../../../../shared/referenceSync'
+import type { ConnectorsPayload } from '../../../../../shared/connectors'
 
-vi.mock('../../lib/confirmStore', () => ({
+vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
   alert: vi.fn(() => Promise.resolve())
 }))
@@ -92,43 +92,6 @@ beforeEach(() => {
       oauth: vi.fn().mockResolvedValue({ ok: true }),
       onChanged: vi.fn(() => () => undefined)
     },
-    usage: {
-      stats: vi.fn(async () => ({
-        hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '' },
-        skills: [],
-        memory: [],
-        references: [],
-        archived: []
-      }))
-    },
-    hivemind: {
-      get: vi.fn(async () => ({
-        repo: 'acme/hivemind',
-        state: 'ready',
-        error: null,
-        headCommit: null,
-        lastSynced: null,
-        items: [],
-        pushable: [],
-        pushes: {
-          'reference/glossary.md': {
-            prUrl: 'https://github.com/acme/hivemind/pull/21',
-            pushedAt: '2026-07-22T10:00:00.000Z'
-          }
-        }
-      })),
-      pushPreview: vi.fn(async () => '# glossary'),
-      push: vi.fn(async () => ({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/22' }))
-    },
-    sourceControl: {
-      status: vi.fn(async () => ({
-        installed: true,
-        version: '2.62',
-        authenticated: true,
-        login: 'me',
-        detail: ''
-      }))
-    },
     openExternal: vi.fn()
   }
 })
@@ -136,15 +99,13 @@ beforeEach(() => {
 afterEach(() => __resetEscapeLayersForTest())
 
 it('renders space cards with staleness and reference statuses', async () => {
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   expect(await screen.findByText('Nav Native')).toBeTruthy()
   expect(screen.getAllByText('stale').length).toBeGreaterThan(0)
-  expect(screen.getByText('glossary.md')).toBeTruthy()
-  expect(screen.getByText('team knowledge')).toBeTruthy()
 })
 
 it('Sync now surfaces a REST auth failure inline', async () => {
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   fireEvent.click(await screen.findByRole('button', { name: 'sync · NAVNATIVE' }))
   await waitFor(() => expect(window.argus.refsync.sync).toHaveBeenCalledWith('NAVNATIVE'))
   expect(await screen.findByText(/PAT rejected/)).toBeTruthy()
@@ -155,7 +116,7 @@ it('an OAuth-only rovo connector that is not yet authorized disables Sync with a
     ...connectorsPayload,
     oauth: {}
   })
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   expect(
     await screen.findByText(
       'Authorize the Atlassian connector (Settings → Connectors) before syncing.'
@@ -173,7 +134,7 @@ it('no rovo connector configured shows a distinct warning and disables Sync', as
     connectors: {},
     oauth: {}
   })
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   expect(await screen.findByText(/No Atlassian connector configured/)).toBeTruthy()
   const syncBtn = (await screen.findByRole('button', {
     name: 'sync · NAVNATIVE'
@@ -186,7 +147,7 @@ it('a REST auth error on the connector reports an authorization problem, not a s
     ...connectorsPayload,
     rest: { rovo: 'token expired' }
   })
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   expect(await screen.findByText('Atlassian authorization problem: token expired')).toBeTruthy()
 })
 
@@ -195,37 +156,13 @@ it('shows the broken-config banner from loadError', async () => {
     ...payload,
     loadError: 'Unexpected token'
   })
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   expect(await screen.findByRole('alert')).toBeTruthy()
-})
-
-it('search filters the reference list via refsync:search-refs (name + content)', async () => {
-  render(<ReferencesSettings />)
-  expect(await screen.findByText('glossary.md')).toBeTruthy()
-  fireEvent.change(screen.getByRole('textbox', { name: 'search references' }), {
-    target: { value: 'scheduler' }
-  })
-  await waitFor(() => expect(window.argus.refsync.searchRefs).toHaveBeenCalledWith('scheduler'))
-  await waitFor(() => expect(screen.queryByText('glossary.md')).toBeNull())
-  expect(screen.getByText('routing-flow.md')).toBeTruthy()
-  // clearing the query restores the unfiltered list without another IPC call
-  fireEvent.change(screen.getByRole('textbox', { name: 'search references' }), {
-    target: { value: '' }
-  })
-  expect(await screen.findByText('glossary.md')).toBeTruthy()
-})
-
-it('clicking a reference row opens the markdown viewer', async () => {
-  render(<ReferencesSettings />)
-  fireEvent.click(await screen.findByRole('button', { name: 'open · glossary.md' }))
-  await waitFor(() => expect(window.argus.refsync.readRef).toHaveBeenCalledWith('glossary.md'))
-  expect(await screen.findByRole('dialog', { name: 'reference · glossary.md' })).toBeTruthy()
-  expect(await screen.findByText('terms')).toBeTruthy()
 })
 
 it('manage and remove are icon buttons; remove confirms before calling', async () => {
   vi.mocked(confirm).mockResolvedValue(true)
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   expect(await screen.findByRole('button', { name: 'manage · NAVNATIVE' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'remove · NAVNATIVE' }))
   expect(confirm).toHaveBeenCalled()
@@ -248,7 +185,7 @@ it('a successful sync opens the sync report modal with a single close control', 
     ok: true,
     value: syncReport
   })
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   fireEvent.click(await screen.findByRole('button', { name: 'sync · NAVNATIVE' }))
   expect(await screen.findByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeTruthy()
   // ModalShell's own X is labelled "Close" too — assert there's exactly one,
@@ -261,59 +198,11 @@ it('closes the sync report modal on Escape', async () => {
     ok: true,
     value: syncReport
   })
-  render(<ReferencesSettings />)
+  render(<ConfluenceSpaces />)
   fireEvent.click(await screen.findByRole('button', { name: 'sync · NAVNATIVE' }))
   expect(await screen.findByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeTruthy()
   await userEvent.keyboard('{Escape}')
   await waitFor(() =>
     expect(screen.queryByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeNull()
   )
-})
-
-it('pushable-tier reference rows get a Share button; hive-managed tiers do not', async () => {
-  render(<ReferencesSettings />)
-  const share = await screen.findByRole('button', { name: 'Share glossary.md to HiveMind' })
-  await waitFor(() => expect((share as HTMLButtonElement).disabled).toBe(false))
-  expect(screen.queryByRole('button', { name: 'Share routing-flow.md to HiveMind' })).toBeNull()
-})
-
-it('Share is disabled with a HiveMind pointer when gh is missing', async () => {
-  ;(window.argus.sourceControl.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-    installed: false,
-    version: null,
-    authenticated: false,
-    login: null,
-    detail: ''
-  })
-  render(<ReferencesSettings />)
-  const share = (await screen.findByRole('button', {
-    name: 'Share glossary.md to HiveMind'
-  })) as HTMLButtonElement
-  expect(share.disabled).toBe(true)
-  expect(share.title).toMatch(/Settings → HiveMind/)
-})
-
-it('Share opens the push dialog inline and pushes kind reference', async () => {
-  render(<ReferencesSettings />)
-  const share = await screen.findByRole('button', { name: 'Share glossary.md to HiveMind' })
-  await waitFor(() => expect((share as HTMLButtonElement).disabled).toBe(false))
-  fireEvent.click(share)
-  expect(await screen.findByText('# glossary')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
-  await waitFor(() =>
-    expect(window.argus.hivemind.push).toHaveBeenCalledWith(
-      'reference',
-      'glossary.md',
-      'Add glossary.md'
-    )
-  )
-})
-
-it('a push receipt renders a PR chip that opens externally; the row still opens the viewer', async () => {
-  render(<ReferencesSettings />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Open PR · glossary.md' }))
-  expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/hivemind/pull/21')
-  expect(window.argus.refsync.readRef).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'open · glossary.md' }))
-  await waitFor(() => expect(window.argus.refsync.readRef).toHaveBeenCalledWith('glossary.md'))
 })

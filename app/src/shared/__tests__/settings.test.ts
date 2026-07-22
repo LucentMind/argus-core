@@ -201,4 +201,13 @@ describe('settings schema', () => {
     const s2 = settingsSchema.parse({ general: { defaultRepo: 'C:/code/navigator' } })
     expect(s2.general.defaultRepo).toBe('C:/code/navigator')
   })
+
+  it('ui.knowledgeStripDismissed defaults false and survives strip + re-parse when set', () => {
+    expect(defaultSettings().ui.knowledgeStripDismissed).toBe(false)
+    const set = settingsSchema.parse({ ui: { knowledgeStripDismissed: true } })
+    expect(set.ui.knowledgeStripDismissed).toBe(true)
+    const stripped = stripDefaults(set, defaultSettings())
+    expect(stripped).toEqual({ ui: { knowledgeStripDismissed: true } })
+    expect(settingsSchema.parse(stripped).ui.knowledgeStripDismissed).toBe(true)
+  })
 })

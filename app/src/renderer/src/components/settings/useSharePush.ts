@@ -38,7 +38,7 @@ export function useSharePush(): {
     shareReady,
     shareTip: shareReady
       ? 'Share to HiveMind…'
-      : 'Sharing needs a configured HiveMind repo and an authenticated GitHub CLI — see Settings → HiveMind.',
+      : 'Sharing needs a configured HiveMind repo and an authenticated GitHub CLI — see Settings → Team.',
     pushes,
     refresh
   }

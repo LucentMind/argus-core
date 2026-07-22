@@ -1,5 +1,4 @@
-export type TourTarget =
-  'composer' | 'settings-memory' | 'settings-skills' | 'settings-references' | 'settings-hivemind'
+export type TourTarget = 'composer' | 'settings-memory' | 'settings-library' | 'settings-team'
 
 export interface TourStep {
   key: 'memory' | 'skills' | 'references' | 'hivemind'
@@ -46,19 +45,19 @@ export const TOUR_STEPS: TourStep[] = [
   {
     key: 'skills',
     title: 'Skills',
-    target: 'settings-skills',
+    target: 'settings-library',
     view: 'settings',
     narration:
-      'Packs bring versioned skills the agent runs on your evidence. These are the skills available for this case.',
+      'Packs bring versioned skills the agent runs on your evidence. The Library lists every skill and reference the agent can use.',
     explain: ''
   },
   {
     key: 'references',
     title: 'References',
-    target: 'settings-references',
+    target: 'settings-library',
     view: 'settings',
     narration:
-      'References sync docs from Confluence so the agent can cite your teams knowledge. Here are your synced references.',
+      "References sync docs from Confluence so the agent can cite your team's knowledge. Synced references live in the Library beside your skills.",
     requiresIntegration: 'confluence',
     explain:
       'References sync documentation from Confluence for the agent to cite. Connect Confluence in Settings > Connectors to enable it.'
@@ -66,12 +65,12 @@ export const TOUR_STEPS: TourStep[] = [
   {
     key: 'hivemind',
     title: 'HiveMind',
-    target: 'settings-hivemind',
+    target: 'settings-team',
     view: 'settings',
     narration:
-      'HiveMind shares skills and references with your team via a git repo. Browse and download your teams shared skills and references here, or share your own from the Skills and References pages — nothing is pushed without your confirmation.',
+      "HiveMind shares skills and reference docs with your team via a git repo. Browse and download your team's shared content here, or share your own from the Library — nothing is pushed without your confirmation.",
     requiresIntegration: 'hive',
     explain:
-      'HiveMind shares skills and memory with your team through a git repo. Set a repo in Settings > HiveMind to enable it.'
+      'HiveMind shares skills and reference docs with your team through a git repo. Set a repo in Settings > Team to enable it.'
   }
 ]

@@ -71,7 +71,7 @@ export function OnboardingProvider({
         case 'provider':
           return <ProviderStep setGate={api.setGate} />
         case 'pack':
-          return <PackStep onOpenSettings={() => openSettingsFromWizard('packs')} />
+          return <PackStep onOpenSettings={() => openSettingsFromWizard('sources')} />
         case 'integrations':
           return <IntegrationsStep />
         case 'seed':
