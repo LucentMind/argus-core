@@ -78,7 +78,7 @@ describe('QuestionCard', () => {
     })
   })
 
-  it('free-text alone satisfies a question and maps to both the answer and response', () => {
+  it('free-text alone maps to the answer value', () => {
     render(<QuestionCard slug="NAV-1" sessionId={1} dialog={single} />)
     fireEvent.change(screen.getByPlaceholderText(/other/i), {
       target: { value: 'both, in parallel' }
@@ -88,10 +88,26 @@ describe('QuestionCard', () => {
       dialogId: 'd1',
       behavior: 'completed',
       result: {
-        answers: { 'Which log first?': 'both, in parallel' },
-        response: 'both, in parallel'
+        answers: { 'Which log first?': 'both, in parallel' }
       }
     })
+  })
+
+  it('picked options plus free text fold into answers only, with no top-level response', () => {
+    render(<QuestionCard slug="NAV-1" sessionId={1} dialog={multi} />)
+    fireEvent.click(screen.getByText('Logs'))
+    fireEvent.click(screen.getByText('Network'))
+    fireEvent.change(screen.getByPlaceholderText(/other/i), {
+      target: { value: 'and traces' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /submit/i }))
+    expect(window.argus.agent.answerDialog).toHaveBeenCalledWith('NAV-1', 1, {
+      dialogId: 'd2',
+      behavior: 'completed',
+      result: { answers: { 'Which artifacts matter?': 'Logs, Network, and traces' } }
+    })
+    const call = (window.argus.agent.answerDialog as ReturnType<typeof vi.fn>).mock.calls[0][2]
+    expect(call.result).not.toHaveProperty('response')
   })
 
   it('Skip sends cancelled', () => {

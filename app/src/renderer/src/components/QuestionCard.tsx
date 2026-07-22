@@ -51,13 +51,10 @@ export function QuestionCard({
     dialog.questions.forEach((q, qi) => {
       answers[q.question] = answerFor(qi)
     })
-    const response = dialog.questions
-      .map((_, qi) => (other[qi] ?? '').trim())
-      .find((t) => t.length > 0)
     void window.argus.agent.answerDialog(slug, sessionId, {
       dialogId: dialog.dialogId,
       behavior: 'completed',
-      result: { answers, ...(response ? { response } : {}) }
+      result: { answers }
     })
   }
 
