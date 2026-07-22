@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, Fragment } from 'react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
+import { BookUp } from 'lucide-react'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
+import { SharePushDialog, useSharePush, PushReceiptChip } from './SharePushDialog'
 import type { SkillsPayload, SkillListItem } from '../../../../shared/memoryIpc'
 import type { SkillUsageRow } from '../../../../shared/observability'
 
@@ -22,6 +24,8 @@ export function InstalledSkills(): React.JSX.Element {
   const [payload, setPayload] = useState<SkillsPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [usage, setUsage] = useState<Map<string, SkillUsageRow> | null>(null)
+  const [sharing, setSharing] = useState<string | null>(null)
+  const { shareReady, shareTip, pushes, refresh: refreshShare } = useSharePush()
 
   const refresh = useCallback(async () => {
     setPayload(await window.argus.skills.list())
@@ -96,45 +100,68 @@ export function InstalledSkills(): React.JSX.Element {
             )}
             {items.map((s) => {
               const adopt = s.tier === 'user' && s.shadows.includes('hivemind')
+              const receipt = pushes[`skill/${s.name}`]
               return (
-                <SettingRow
-                  key={s.name}
-                  label={s.name}
-                  description={s.description}
-                  badge={
-                    <>
-                      <TierBadge tier={s.tier} />
-                      {s.shadows.length > 0 && (
-                        <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>
-                      )}
-                      {usage?.get(s.name) &&
-                        (usage.get(s.name)!.activationCount > 0 ? (
-                          <Chip tone="neutral">
-                            {`${usage.get(s.name)!.activationCount}× · last ${usage
-                              .get(s.name)!
-                              .lastActivatedAt!.slice(0, 10)}`}
-                          </Chip>
-                        ) : (
-                          <Chip tone="neutral">never activated</Chip>
-                        ))}
-                    </>
-                  }
-                >
-                  {s.tier === 'user' && (
-                    <Btn
-                      variant={adopt ? 'outline' : 'danger'}
-                      aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
-                      onClick={() => void removeUserSkill(s, adopt)}
-                    >
-                      {adopt ? 'Adopt upstream' : 'Delete'}
-                    </Btn>
+                <Fragment key={s.name}>
+                  <SettingRow
+                    label={s.name}
+                    description={s.description}
+                    badge={
+                      <>
+                        <TierBadge tier={s.tier} />
+                        {s.shadows.length > 0 && (
+                          <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>
+                        )}
+                        {usage?.get(s.name) &&
+                          (usage.get(s.name)!.activationCount > 0 ? (
+                            <Chip tone="neutral">
+                              {`${usage.get(s.name)!.activationCount}× · last ${usage
+                                .get(s.name)!
+                                .lastActivatedAt!.slice(0, 10)}`}
+                            </Chip>
+                          ) : (
+                            <Chip tone="neutral">never activated</Chip>
+                          ))}
+                        {receipt && <PushReceiptChip name={s.name} receipt={receipt} />}
+                      </>
+                    }
+                  >
+                    {s.tier === 'user' && (
+                      <>
+                        <IconBtn
+                          aria-label={`Share ${s.name} to HiveMind`}
+                          title={shareTip}
+                          disabled={!shareReady}
+                          onClick={() => setSharing(sharing === s.name ? null : s.name)}
+                        >
+                          <BookUp size={14} />
+                        </IconBtn>
+                        <Btn
+                          variant={adopt ? 'outline' : 'danger'}
+                          aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
+                          onClick={() => void removeUserSkill(s, adopt)}
+                        >
+                          {adopt ? 'Adopt upstream' : 'Delete'}
+                        </Btn>
+                      </>
+                    )}
+                    <Switch
+                      checked={s.enabled}
+                      onChange={(v) => void toggle(s, v)}
+                      aria-label={`enabled · ${s.tier}/${s.name}`}
+                    />
+                  </SettingRow>
+                  {sharing === s.name && (
+                    <SharePushDialog
+                      kind="skill"
+                      name={s.name}
+                      onClose={() => {
+                        setSharing(null)
+                        refreshShare()
+                      }}
+                    />
                   )}
-                  <Switch
-                    checked={s.enabled}
-                    onChange={(v) => void toggle(s, v)}
-                    aria-label={`enabled · ${s.tier}/${s.name}`}
-                  />
-                </SettingRow>
+                </Fragment>
               )
             })}
           </SettingsSection>
