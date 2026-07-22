@@ -2,7 +2,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { ProposalsTab } from '../ProposalsTab'
+import { ProposalsPage } from '../ProposalsPage'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -30,19 +30,17 @@ beforeEach(() => {
   }
 })
 
-describe('ProposalsTab', () => {
+describe('ProposalsPage', () => {
   it('renders pending proposals with a line diff', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     expect(await screen.findByText('Sharpen step 4')).toBeInTheDocument()
     expect(screen.getByText('- old line')).toBeInTheDocument()
     expect(screen.getByText('+ new line')).toBeInTheDocument()
   })
 
-  it('accept invokes the IPC, refreshes and reports the count', async () => {
-    const onCountChange = vi.fn()
-    render(<ProposalsTab onCountChange={onCountChange} />)
+  it('accept invokes the IPC, refreshes and clears the proposal', async () => {
+    render(<ProposalsPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Accept Sharpen step 4' }))
-    await waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(0))
     expect(
       (window as unknown as { argus: { proposals: { accept: ReturnType<typeof vi.fn> } } }).argus
         .proposals.accept
@@ -51,7 +49,7 @@ describe('ProposalsTab', () => {
   })
 
   it('reject archives without applying', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
     await waitFor(() =>
       expect(
@@ -69,8 +67,7 @@ describe('ProposalsTab', () => {
         reject: vi.fn().mockResolvedValue({ proposals: [] })
       }
     }
-    const onCountChange = vi.fn()
-    render(<ProposalsTab onCountChange={onCountChange} />)
+    render(<ProposalsPage />)
     // Assert loading text is gone and error banner appears
     await waitFor(() => {
       expect(screen.queryByText('loading…')).not.toBeInTheDocument()

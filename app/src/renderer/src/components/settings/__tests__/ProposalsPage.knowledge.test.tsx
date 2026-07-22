@@ -2,7 +2,7 @@
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { ProposalsTab } from '../ProposalsTab'
+import { ProposalsPage } from '../ProposalsPage'
 import type { ProposalsPayload } from '../../../../../shared/proposals'
 
 const payload: ProposalsPayload = {
@@ -55,7 +55,7 @@ beforeEach(() => {
 
 describe('Knowledge inbox', () => {
   it('shows Lesson / Case summary labels, previously-reviewed badge, and case groups', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     expect(await screen.findByText('Lesson', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText('Case summary', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText(/previously reviewed/i)).toBeInTheDocument()
@@ -64,7 +64,7 @@ describe('Knowledge inbox', () => {
   })
 
   it('filters by type', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
     fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'case-summary' } })
     expect(screen.queryByText('DLT drift')).not.toBeInTheDocument()
@@ -72,7 +72,7 @@ describe('Knowledge inbox', () => {
   })
 
   it('edit-then-accept passes edited content', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
     fireEvent.click(screen.getAllByRole('button', { name: /edit/i })[0])
     const ta = screen.getByLabelText('Edit proposal content')
@@ -82,7 +82,7 @@ describe('Knowledge inbox', () => {
   })
 
   it('shows the memory-append target topic chip but not one for case-summary', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
     expect(screen.getByText('→ dlt-timing')).toBeInTheDocument()
     const summaryCard = screen.getByText('Case summary: sig').closest('section') as HTMLElement
@@ -90,7 +90,7 @@ describe('Knowledge inbox', () => {
   })
 
   it('filter select options show human-readable type labels', async () => {
-    render(<ProposalsTab onCountChange={() => undefined} />)
+    render(<ProposalsPage />)
     await screen.findByText('DLT drift')
     const select = within(screen.getByLabelText('Filter by type'))
     expect(select.getByRole('option', { name: 'Lesson' })).toBeInTheDocument()

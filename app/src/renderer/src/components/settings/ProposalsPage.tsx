@@ -26,11 +26,7 @@ function ProposalDiff({ p }: { p: ProposalRecord }): React.JSX.Element {
   )
 }
 
-export function ProposalsTab({
-  onCountChange
-}: {
-  onCountChange: (n: number) => void
-}): React.JSX.Element {
+export function ProposalsPage(): React.JSX.Element {
   const [payload, setPayload] = useState<ProposalsPayload | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -39,7 +35,6 @@ export function ProposalsTab({
 
   function apply(p: ProposalsPayload): void {
     setPayload(p)
-    onCountChange(p.proposals.length)
   }
 
   useEffect(() => {
@@ -49,7 +44,6 @@ export function ProposalsTab({
       .then((p) => {
         if (mounted) {
           setPayload(p)
-          onCountChange(p.proposals.length)
         }
       })
       .catch((e) => {
@@ -61,7 +55,6 @@ export function ProposalsTab({
     return () => {
       mounted = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch once on mount
   }, [])
 
   async function act(fn: () => Promise<ProposalsPayload>): Promise<void> {

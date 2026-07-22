@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { SettingsView } from '../settings/SettingsView'
 import { SetupWizard } from '../onboarding/SetupWizard'
 import { settingsStore } from '../../lib/settingsStore'
+import { proposalsStore } from '../../lib/proposalsStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
@@ -56,6 +58,10 @@ beforeEach(() => {
   // test's fresh <SettingsView/> mount refetches against this test's mocked payload
   // instead of reusing whatever an earlier test in this file already cached.
   settingsStore.reset()
+  // Same story for the proposals badge count store — reset so each test's mount
+  // refetches against this test's mocked proposals.list instead of reusing an
+  // earlier test's cached count.
+  proposalsStore.reset()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),
@@ -116,6 +122,10 @@ beforeEach(() => {
         login: 'jiawiehan',
         detail: 'Logged in to github.com account jiawiehan'
       })
+    },
+    proposals: {
+      list: vi.fn(async () => ({ proposals: [] })),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })
@@ -149,10 +159,11 @@ describe('SettingsView', () => {
       'General',
       'Agent',
       'Connectors',
-      'HiveMind',
+      'Proposals',
       'Skills',
       'Memory',
       'References',
+      'HiveMind',
       'Packs',
       'Health',
       'Observability'
@@ -255,5 +266,15 @@ describe('SettingsView', () => {
     const alert = await screen.findByRole('alert')
     expect(screen.queryByText(/could not be parsed/)).toBeNull()
     expect(alert.textContent).toContain('settings save failed: EACCES')
+  })
+
+  it('sidebar shows Proposals with a pending-count badge', async () => {
+    window.argus.proposals = {
+      list: vi.fn(async () => ({ proposals: [{ type: 'skill-new' }, { type: 'recipe' }] })),
+      onChanged: vi.fn(() => () => {})
+    } as never
+    render(<SettingsView onClose={vi.fn()} />)
+    const btn = await screen.findByRole('button', { name: /Proposals/ })
+    await waitFor(() => expect(btn).toHaveTextContent('2'))
   })
 })
