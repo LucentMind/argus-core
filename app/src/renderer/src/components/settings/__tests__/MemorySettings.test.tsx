@@ -144,7 +144,7 @@ describe('MemorySettings usage + hygiene', () => {
     expect(await screen.findByText('restored')).toBeInTheDocument()
   })
 
-  it('shows the byte size for an agent write but not its action label', async () => {
+  it('shows provenance for an agent write, with no byte size or action label', async () => {
     argus.memory.audit.mockResolvedValue([
       {
         ts: '2026-07-20T09:00:00.000Z',
@@ -156,9 +156,37 @@ describe('MemorySettings usage + hygiene', () => {
     ])
     render(<MemorySettings />)
     fireEvent.click(await screen.findByRole('tab', { name: 'Audit' }))
-    expect(await screen.findByText('128 B')).toBeInTheDocument()
+    expect(await screen.findByText('written by NAV-1')).toBeInTheDocument()
+    // size is no longer surfaced anywhere in the audit
+    expect(screen.queryByText('128 B')).not.toBeInTheDocument()
     expect(screen.queryByText('archived')).not.toBeInTheDocument()
     expect(screen.queryByText('restored')).not.toBeInTheDocument()
+  })
+
+  it('labels UI-driven rows "by you" and gives the onboarding seed a friendly name', async () => {
+    argus.memory.audit.mockResolvedValue([
+      {
+        ts: '2026-07-20T22:04:30.000Z',
+        caseSlug: 'ui',
+        topic: 'nav-drift',
+        indexEntry: null,
+        bytes: 0,
+        action: 'archive'
+      },
+      {
+        ts: '2026-07-16T07:19:00.000Z',
+        caseSlug: 'sample-onboarding',
+        topic: 'nav-fusion-bearing-discontinuity',
+        indexEntry: 'bearing errors follow an IMU warning',
+        bytes: 240
+      }
+    ])
+    render(<MemorySettings />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Audit' }))
+    // 'ui' slug reads as the user's own action; the raw slug never appears
+    expect(await screen.findByText('by you')).toBeInTheDocument()
+    expect(screen.getByText('written by onboarding sample')).toBeInTheDocument()
+    expect(screen.queryByText('sample-onboarding')).not.toBeInTheDocument()
   })
 
   it('collapses the repeated topic name in an archive/restore audit row', async () => {
