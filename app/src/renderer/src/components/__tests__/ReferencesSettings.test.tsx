@@ -100,7 +100,36 @@ beforeEach(() => {
         references: [],
         archived: []
       }))
-    }
+    },
+    hivemind: {
+      get: vi.fn(async () => ({
+        repo: 'acme/hivemind',
+        state: 'ready',
+        error: null,
+        headCommit: null,
+        lastSynced: null,
+        items: [],
+        pushable: [],
+        pushes: {
+          'reference/glossary.md': {
+            prUrl: 'https://github.com/acme/hivemind/pull/21',
+            pushedAt: '2026-07-22T10:00:00.000Z'
+          }
+        }
+      })),
+      pushPreview: vi.fn(async () => '# glossary'),
+      push: vi.fn(async () => ({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/22' }))
+    },
+    sourceControl: {
+      status: vi.fn(async () => ({
+        installed: true,
+        version: '2.62',
+        authenticated: true,
+        login: 'me',
+        detail: ''
+      }))
+    },
+    openExternal: vi.fn()
   }
 })
 
@@ -239,4 +268,52 @@ it('closes the sync report modal on Escape', async () => {
   await waitFor(() =>
     expect(screen.queryByRole('dialog', { name: 'sync report · NAVNATIVE' })).toBeNull()
   )
+})
+
+it('pushable-tier reference rows get a Share button; hive-managed tiers do not', async () => {
+  render(<ReferencesSettings />)
+  const share = await screen.findByRole('button', { name: 'Share glossary.md to HiveMind' })
+  await waitFor(() => expect((share as HTMLButtonElement).disabled).toBe(false))
+  expect(screen.queryByRole('button', { name: 'Share routing-flow.md to HiveMind' })).toBeNull()
+})
+
+it('Share is disabled with a HiveMind pointer when gh is missing', async () => {
+  ;(window.argus.sourceControl.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+    installed: false,
+    version: null,
+    authenticated: false,
+    login: null,
+    detail: ''
+  })
+  render(<ReferencesSettings />)
+  const share = (await screen.findByRole('button', {
+    name: 'Share glossary.md to HiveMind'
+  })) as HTMLButtonElement
+  expect(share.disabled).toBe(true)
+  expect(share.title).toMatch(/Settings → HiveMind/)
+})
+
+it('Share opens the push dialog inline and pushes kind reference', async () => {
+  render(<ReferencesSettings />)
+  const share = await screen.findByRole('button', { name: 'Share glossary.md to HiveMind' })
+  await waitFor(() => expect((share as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(share)
+  expect(await screen.findByText('# glossary')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
+  await waitFor(() =>
+    expect(window.argus.hivemind.push).toHaveBeenCalledWith(
+      'reference',
+      'glossary.md',
+      'Add glossary.md'
+    )
+  )
+})
+
+it('a push receipt renders a PR chip that opens externally; the row still opens the viewer', async () => {
+  render(<ReferencesSettings />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Open PR · glossary.md' }))
+  expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/hivemind/pull/21')
+  expect(window.argus.refsync.readRef).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'open · glossary.md' }))
+  await waitFor(() => expect(window.argus.refsync.readRef).toHaveBeenCalledWith('glossary.md'))
 })

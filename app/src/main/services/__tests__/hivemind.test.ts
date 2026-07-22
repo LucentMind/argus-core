@@ -401,6 +401,85 @@ describe('pushable + push', () => {
     expect(svc.pushPreview('skill', 'my-skill')).toContain('# my-skill')
     expect(svc.pushPreview('reference', 'team-tips.md')).toContain('tips')
   })
+
+  it('a successful push persists a receipt exposed via payload(); re-push overwrites', async () => {
+    seedClone()
+    seedUserAssets()
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'rev-parse') return 'headsha'
+      return ''
+    }
+    let pr = 'https://github.com/acme/hivemind/pull/7'
+    const gh: Runner = async () => pr
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    let receipt = (await svc.payload()).pushes['skill/my-skill']
+    expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/7')
+    expect(Date.parse(receipt.pushedAt)).not.toBeNaN()
+
+    // persisted on disk: a fresh service over the same argusHome sees it
+    const svc2 = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    expect((await svc2.payload()).pushes['skill/my-skill'].prUrl).toBe(receipt.prUrl)
+
+    // last push wins
+    pr = 'https://github.com/acme/hivemind/pull/8'
+    await svc.push('skill', 'my-skill', 'Update my-skill')
+    receipt = (await svc.payload()).pushes['skill/my-skill']
+    expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/8')
+  })
+
+  it('reference receipts key as reference/<name>', async () => {
+    seedClone()
+    seedUserAssets()
+    const git: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'rev-parse') return 'headsha'
+      return ''
+    }
+    const gh: Runner = async () => 'https://github.com/acme/hivemind/pull/9'
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    await svc.push('reference', 'team-tips.md', 'Add team-tips')
+    expect((await svc.payload()).pushes['reference/team-tips.md'].prUrl).toBe(
+      'https://github.com/acme/hivemind/pull/9'
+    )
+  })
+
+  it('a failed push writes no receipt and preserves existing ones', async () => {
+    seedClone()
+    seedUserAssets()
+    // First: successful push to seed a receipt
+    const successGit: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'rev-parse') return 'headsha'
+      return ''
+    }
+    const successGh: Runner = async () => 'https://github.com/acme/hivemind/pull/7'
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: successGit,
+      gh: successGh
+    })
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    const receipt = (await svc.payload()).pushes['skill/my-skill']
+    expect(receipt.prUrl).toBe('https://github.com/acme/hivemind/pull/7')
+
+    // Then: failed push with a different service instance over the same argusHome
+    const failGit: Runner = async (_c, args) => {
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      if (args[0] === 'push') throw new Error('remote rejected')
+      return ''
+    }
+    const svc2 = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: failGit })
+    const r = await svc2.push('skill', 'my-skill', 'Update my-skill')
+    expect(r.ok).toBe(false)
+    // Receipt from first push must still be there
+    expect((await svc2.payload()).pushes['skill/my-skill'].prUrl).toBe(
+      'https://github.com/acme/hivemind/pull/7'
+    )
+  })
 })
 
 describe('reference keep-authorship', () => {

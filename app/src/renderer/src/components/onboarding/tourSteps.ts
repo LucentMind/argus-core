@@ -69,7 +69,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: 'settings-hivemind',
     view: 'settings',
     narration:
-      'HiveMind shares skills and memory with your team via a git repo. You can preview a share here - nothing is pushed without your confirmation.',
+      'HiveMind shares skills and memory with your team via a git repo. Browse and install your teams shared skills and references here, or share your own from the Skills and References pages — nothing is pushed without your confirmation.',
     requiresIntegration: 'hive',
     explain:
       'HiveMind shares skills and memory with your team through a git repo. Set a repo in Settings > HiveMind to enable it.'
