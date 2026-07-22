@@ -13,6 +13,7 @@ import { MessageView } from './MessageView'
 import { ToolCallCard } from './ToolCallCard'
 import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
+import { QuestionCard } from './QuestionCard'
 import { SessionSwitcher } from './SessionSwitcher'
 import { ChatFind } from './ChatFind'
 
@@ -130,7 +131,7 @@ export function ChatPane({
   const paneRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
-  }, [state.items.length, state.pending.length])
+  }, [state.items.length, state.pending.length, state.pendingDialogs.length])
 
   // in-chat find (Ctrl/Cmd+F): the overlay is a pure component (ChatFind)
   // that owns the query text; ChatPane owns opening/closing, the scroll to
@@ -281,6 +282,9 @@ export function ChatPane({
             instanceId={session?.instanceId ?? null}
             request={p}
           />
+        ))}
+        {state.pendingDialogs.map((d) => (
+          <QuestionCard key={d.dialogId} slug={slug} sessionId={sessionId} dialog={d} />
         ))}
         {state.sessionNote && <div className="text-xs text-danger">{state.sessionNote}</div>}
         <div ref={bottom} />

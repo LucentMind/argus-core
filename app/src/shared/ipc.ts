@@ -24,6 +24,7 @@ export const IPC = {
   agentSend: 'agent:send',
   agentInterrupt: 'agent:interrupt',
   agentRespond: 'agent:respond',
+  agentAnswerDialog: 'agent:answerDialog',
   agentAuthStatus: 'agent:auth-status',
   agentAuthChanged: 'agent:auth-changed',
   providerStatuses: 'providers:statuses',

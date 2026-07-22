@@ -8,7 +8,7 @@ import { classifyToolCall, type RiskContext } from './risk'
 import type { AgentDriver, DriverSession, DriverSessionContext, TurnResult } from './driver'
 import { isAuthFailure } from './drivers/claude'
 import type { RiskLevel } from '../../../shared/connectors'
-import { PendingApprovals, SessionGrants } from './approvals'
+import { PendingApprovals, PendingDialogs, SessionGrants } from './approvals'
 import { appendFinding, type NativeToolDeps } from './nativeTools'
 import { panelCommandRiskMap, type PanelCommandDecl } from './panelCommands'
 import type { Detection } from '../packs/detection'
@@ -101,6 +101,30 @@ export const PANEL_FINDING_TOOL = 'mcp__argus__panel_emit_finding'
 /** Tool name for the panel-initiated evidence-ingest approval card (MEDIUM, editable). */
 export const PANEL_INGEST_TOOL = 'mcp__argus__panel_ingest_evidence'
 
+/** Map the AskUserQuestion tool input to the renderer's question shape (defensive coercion:
+ *  the tool input is typed Record<string, unknown>). Field names verified live 2026-07-22. */
+function normalizeQuestions(input: Record<string, unknown>): Array<{
+  question: string
+  header: string
+  multiSelect: boolean
+  options: Array<{ label: string; description: string }>
+}> {
+  const raw = Array.isArray(input.questions) ? input.questions : []
+  return raw.map((q) => {
+    const qq = (q ?? {}) as Record<string, unknown>
+    const opts = Array.isArray(qq.options) ? qq.options : []
+    return {
+      question: String(qq.question ?? ''),
+      header: String(qq.header ?? ''),
+      multiSelect: Boolean(qq.multiSelect),
+      options: opts.map((o) => {
+        const oo = (o ?? {}) as Record<string, unknown>
+        return { label: String(oo.label ?? ''), description: String(oo.description ?? '') }
+      })
+    }
+  })
+}
+
 export class CaseSession {
   readonly sessionId: number
   readonly mcpFingerprint: string
@@ -112,6 +136,7 @@ export class CaseSession {
   private deps: SessionDeps
   private driverSession: DriverSession
   private approvals = new PendingApprovals()
+  private dialogs = new PendingDialogs()
   private grants = new SessionGrants()
   private riskCtx: RiskContext
   private detailCtx: ToolDetailCtx
@@ -405,6 +430,9 @@ export class CaseSession {
     for (const id of this.approvals.drain()) {
       this.emit(makeEvent(this.ctx(), 'request.resolved', { requestId: id, decision: 'cancelled' }))
     }
+    for (const id of this.dialogs.drain()) {
+      this.emit(makeEvent(this.ctx(), 'dialog.resolved', { dialogId: id, behavior: 'cancelled' }))
+    }
     this.driverSession.end()
     await this.interrupt()
     this.emit(makeEvent(this.ctx(), 'session.exited', { reason }))
@@ -478,6 +506,11 @@ export class CaseSession {
     | { behavior: 'allow'; updatedInput: Record<string, unknown> }
     | { behavior: 'deny'; message: string }
   > {
+    // AskUserQuestion is answered THROUGH canUseTool (verified live 2026-07-22): open a
+    // Question dialog and return allow + updatedInput.answers. Never reaches the classifier
+    // /approval-card path below, so no JSON-dump card appears.
+    if (toolName === 'AskUserQuestion') return this.handleUserQuestion(input, opts)
+
     const started = Date.now()
     const verdict = classifyToolCall(toolName, input, {
       ...this.riskCtx,
@@ -544,6 +577,59 @@ export class CaseSession {
       message:
         outcome.comment ?? (outcome.decision === 'cancelled' ? 'Cancelled' : 'Denied by user')
     }
+  }
+
+  // --- AskUserQuestion dialog: normalize → emit → await → allow(updatedInput.answers) ---
+  private async handleUserQuestion(
+    input: Record<string, unknown>,
+    opts: { signal: AbortSignal }
+  ): Promise<
+    | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+    | { behavior: 'deny'; message: string }
+  > {
+    const started = Date.now()
+    const dialogId = crypto.randomUUID()
+    const questions = normalizeQuestions(input)
+    const passthroughQuestions = Array.isArray(input.questions) ? input.questions : []
+    this.emit(makeEvent(this.ctx(), 'dialog.opened', { dialogId, questions }))
+    const outcome = await this.dialogs.open(dialogId, opts.signal)
+    this.emit(makeEvent(this.ctx(), 'dialog.resolved', { dialogId, behavior: outcome.behavior }))
+
+    if (outcome.behavior === 'completed') {
+      this.logToolCall('AskUserQuestion', input, 'LOW', 'answered', Date.now() - started)
+      const updatedInput: Record<string, unknown> = {
+        questions: passthroughQuestions,
+        answers: outcome.result.answers
+      }
+      if (outcome.result.response) updatedInput.response = outcome.result.response
+      return { behavior: 'allow', updatedInput }
+    }
+    // Skip / cancel / drain: return a CLEAN allow carrying a freeform response, not a deny.
+    // A deny surfaces as an is_error tool_result and can make the agent retry the question;
+    // an allow with `response` yields "The user responded: …" and the agent moves on.
+    this.logToolCall('AskUserQuestion', input, 'LOW', 'cancelled', Date.now() - started)
+    return {
+      behavior: 'allow',
+      updatedInput: {
+        questions: passthroughQuestions,
+        answers: {},
+        response: 'The user dismissed the question without selecting an answer.'
+      }
+    }
+  }
+
+  /** Resolve a pending Question dialog from the renderer (mirrors respond → approvals.resolve). */
+  answerDialog(a: {
+    dialogId: string
+    behavior: 'completed' | 'cancelled'
+    result?: { answers: Record<string, string>; response?: string }
+  }): boolean {
+    return this.dialogs.resolve(
+      a.dialogId,
+      a.behavior === 'completed'
+        ? { behavior: 'completed', result: a.result ?? { answers: {} } }
+        : { behavior: 'cancelled' }
+    )
   }
 
   // --- turn result + stream consumption --------------------------------------
