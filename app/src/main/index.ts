@@ -1626,9 +1626,8 @@ app.whenReady().then(async () => {
   // Packaged-build smoke check (npm run smoke:packaged): probe every driver, print the
   // verdicts, exit. Runs before any IPC/window setup so it never touches user state.
   if (process.argv.includes('--smoke-providers')) {
-    const { checkDriverBinaries, runProviderSmoke } = await import(
-      './services/agent/smokeProviders'
-    )
+    const { checkDriverBinaries, runProviderSmoke } =
+      await import('./services/agent/smokeProviders')
     // The gate: every bundled CLI must launch. No credentials required.
     const { ok, results } = checkDriverBinaries()
     for (const r of results) {

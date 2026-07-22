@@ -115,7 +115,14 @@ describe('ensureIndex', () => {
       drain(searchLines(idx, p, '[', { regex: true, fromLine: 10, toLine: 5 }))
     ).rejects.toThrow()
     await expect(
-      drain(searchLines(idx, p, 'x', { regex: true, filter: { query: '[', regex: true }, fromLine: 10, toLine: 5 }))
+      drain(
+        searchLines(idx, p, 'x', {
+          regex: true,
+          filter: { query: '[', regex: true },
+          fromLine: 10,
+          toLine: 5
+        })
+      )
     ).rejects.toThrow()
   })
 

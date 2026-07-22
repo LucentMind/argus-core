@@ -20,8 +20,12 @@ describe('extractToolDetail', () => {
     expect(extractToolDetail('Skill', { skill: 42 }, ctx)).toBeNull()
   })
   it('memory tools: returns the topic', () => {
-    expect(extractToolDetail('mcp__argus__read_memory', { topic: 'nav-drift' }, ctx)).toBe('nav-drift')
-    expect(extractToolDetail('mcp__argus__write_memory', { topic: 'tiles', content: 'x' }, ctx)).toBe('tiles')
+    expect(extractToolDetail('mcp__argus__read_memory', { topic: 'nav-drift' }, ctx)).toBe(
+      'nav-drift'
+    )
+    expect(
+      extractToolDetail('mcp__argus__write_memory', { topic: 'tiles', content: 'x' }, ctx)
+    ).toBe('tiles')
     expect(extractToolDetail('mcp__argus__read_memory', {}, ctx)).toBeNull()
   })
   it('fs-read inside references root → ref:<relpath> with forward slashes', () => {

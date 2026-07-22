@@ -30,9 +30,7 @@ export function resolveClaudeCliPath(
  * must not depend on auth state, and asking the binary its version is the whole question.
  * Null when the platform package is not installed.
  */
-export function claudeBinaryPath(
-  resolve: (id: string) => string = require.resolve
-): string | null {
+export function claudeBinaryPath(resolve: (id: string) => string = require.resolve): string | null {
   const manifest = resolveManifest(resolve)
   if (!manifest) return null
   const bin = path.join(
