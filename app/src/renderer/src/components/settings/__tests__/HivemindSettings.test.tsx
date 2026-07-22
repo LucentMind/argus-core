@@ -215,6 +215,38 @@ describe('HivemindSettings', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /pull\/7/ })).toBeInTheDocument())
   })
 
+  it('other rows cannot open a dialog while a push is in flight, and the PR link survives', async () => {
+    let resolvePush: (r: { ok: true; prUrl: string }) => void = () => undefined
+    const argus = mockArgus({
+      ...ready,
+      pushable: [
+        { kind: 'skill', name: 'my-skill' },
+        { kind: 'reference', name: 'other.md' }
+      ]
+    })
+    ;(argus.hivemind as { push: ReturnType<typeof vi.fn> }).push = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolvePush = resolve as typeof resolvePush
+        })
+    )
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    await screen.findByText('hive-probe')
+    openShareTab()
+    fireEvent.click(await screen.findByRole('button', { name: 'Push my-skill' }))
+    expect(await screen.findByText('# my-skill')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }))
+
+    // mid-push: the other row's Push icon is gated so it cannot unmount this dialog
+    expect(await screen.findByRole('button', { name: 'Pushing…' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Push other.md' })).toBeDisabled()
+
+    resolvePush({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/9' })
+    await waitFor(() => expect(screen.getByRole('button', { name: /pull\/9/ })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Push other.md' })).toBeEnabled()
+  })
+
   it('surfaces an initial-load error from a bad hivemind.get payload', async () => {
     const argus = mockArgus(ready)
     ;(argus.hivemind as { get: ReturnType<typeof vi.fn> }).get = vi.fn().mockResolvedValue({

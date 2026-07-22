@@ -5,18 +5,23 @@ import '@testing-library/jest-dom/vitest'
 import { SharePushDialog } from '../SharePushDialog'
 
 function stubArgus(
-  push: ReturnType<typeof vi.fn> = vi.fn(async () => ({ ok: true as const, prUrl: 'https://pr/1' }))
+  push: ReturnType<typeof vi.fn> = vi.fn(async () => ({
+    ok: true as const,
+    prUrl: 'https://pr/1'
+  })),
+  pushPreview: ReturnType<typeof vi.fn> = vi.fn(async () => 'PREVIEW BODY')
 ): {
   push: ReturnType<typeof vi.fn>
+  pushPreview: ReturnType<typeof vi.fn>
 } {
   ;(window as never as { argus: unknown }).argus = {
     hivemind: {
-      pushPreview: vi.fn(async () => 'PREVIEW BODY'),
+      pushPreview,
       push
     },
     openExternal: vi.fn()
   }
-  return { push }
+  return { push, pushPreview }
 }
 
 describe('SharePushDialog', () => {
@@ -33,6 +38,26 @@ describe('SharePushDialog', () => {
     expect(await screen.findByText('PR opened')).toBeInTheDocument()
     expect(push).toHaveBeenCalledWith('skill', 'my-skill', 'Add my-skill v2')
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
+  })
+
+  it('a failed preview surfaces the error and Retry refetches it in place', async () => {
+    const { pushPreview } = stubArgus(
+      undefined,
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error('preview exploded'))
+        .mockResolvedValueOnce('PREVIEW BODY')
+    )
+    render(<SharePushDialog kind="skill" name="my-skill" onClose={vi.fn()} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('preview exploded')
+    expect(screen.getByRole('button', { name: 'Open pull request' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }))
+
+    expect(await screen.findByText('PREVIEW BODY')).toBeInTheDocument()
+    expect(pushPreview).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open pull request' })).toBeEnabled()
   })
 
   it('surfaces a push error and stays open', async () => {
