@@ -24,6 +24,9 @@ export type ViewAction = { kind: 'settings'; page?: SettingsDeepLink } | { kind:
  *    etc.); when a `page` is given and the view is already Settings, this
  *    must switch pages instead of closing, or a deep link into an
  *    already-open Settings view would slam it shut instead of navigating.
+ *    (SettingsView stays mounted across this transition -- App renders it
+ *    unkeyed, and it syncs its visible page from the changed `initialPage`
+ *    prop itself.)
  *
  * `prevView` bookkeeping (recording the view being left, and not overwriting
  * it when re-entering a view already active) stays the caller's job -- this
