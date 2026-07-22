@@ -14,6 +14,21 @@ it('exposes granted write verbs and omits ungranted ones', () => {
   expect(seen).toContain(PANEL_BRIDGE_CHANNELS.cite)
 })
 
+it('exposes sendImageToAgent when granted', () => {
+  const seen: string[] = []
+  const api = buildPanelApi(['sendImageToAgent'], async (ch) => {
+    seen.push(ch)
+    return undefined
+  })
+  expect(typeof api.sendImageToAgent).toBe('function')
+  ;(api.sendImageToAgent as (i: unknown) => Promise<unknown>)({
+    bytes: new Uint8Array([1]),
+    filename: 'chart.png',
+    caption: 'note'
+  })
+  expect(seen).toContain(PANEL_BRIDGE_CHANNELS.sendImageToAgent)
+})
+
 it('exposes ingestEvidence when granted', () => {
   const seen: string[] = []
   const api = buildPanelApi(['ingestEvidence'], async (ch) => {

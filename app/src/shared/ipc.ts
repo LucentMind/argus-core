@@ -173,6 +173,9 @@ export const IPC = {
   panelsCite: 'panels:cite',
   panelsEmitFinding: 'panels:emit-finding',
   panelsSendToAgent: 'panels:send-to-agent',
+  /** panel → main: capture bytes (a chart PNG) as `screenshot` evidence AND stage a composer
+   *  draft pointing the agent at it (3d-2 image push). One approval-gated ingest + one draft. */
+  panelsSendImageToAgent: 'panels:send-image-to-agent',
   /** main → main-renderer broadcast: a panel cited evidence; the citations tray adds a chip. */
   panelsCiteAdded: 'panels:cite-added',
   /** main → main-renderer broadcast: a panel staged text via sendToAgent; the composer draft is set. */

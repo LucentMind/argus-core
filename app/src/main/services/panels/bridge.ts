@@ -8,6 +8,18 @@ import { listEvidence } from '../ingest'
 /** Practical ceiling for `bytes`-source ingests over IPC (spec §7); larger files should use `url`. */
 const MAX_INGEST_BYTES = 25 * 1024 * 1024
 
+/** Max length of a sendImageToAgent caption. Bounds the composer draft the sink stages. */
+const MAX_CAPTION_CHARS = 2000
+
+/**
+ * A panel-supplied filename is joined under the case evidence dir downstream with no
+ * basename/.. guard (ingest.ts), so only a bare name is safe: no path separator and not
+ * '', '.', or '..'. Blocks '/' and '\' regardless of platform.
+ */
+function isBareFilename(name: string): boolean {
+  return !/[\\/]/.test(name) && name !== '' && name !== '.' && name !== '..'
+}
+
 function originOf(url: string): string | null {
   try {
     return new URL(url).origin
@@ -76,6 +88,14 @@ export interface PanelWriteSink {
     sessionId: number,
     input: { source: { url: string } | { bytes: Buffer }; filename: string }
   ): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }>
+  /** Ingest image bytes as `screenshot` evidence AND stage a composer draft that points the
+   *  agent at the saved file (user-push image → agent). Filename/size are pre-validated by the
+   *  bridge; the sink owns the ingest + draft. */
+  sendImageToAgent(
+    caseSlug: string,
+    sessionId: number,
+    input: { bytes: Buffer; filename: string; caption?: string }
+  ): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }>
 }
 
 /** The (partial) bridge exposed to a panel; only granted verbs are present. */
@@ -86,6 +106,11 @@ export interface PanelBridge {
   /** 3d-3: enumerate the bound case's evidence registry metadata (read-only, no bytes). */
   listCaseEvidence?(): EvidenceSummary[]
   sendToAgent?(text: string): { ok: true }
+  sendImageToAgent?(input: {
+    bytes: ArrayBuffer | Uint8Array
+    filename: string
+    caption?: string
+  }): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }>
   emitFinding?(input: {
     title: string
     markdown: string
@@ -120,6 +145,7 @@ const ALL: PanelPermission[] = [
   'cite',
   'emitFinding',
   'sendToAgent',
+  'sendImageToAgent',
   'readCaseFiles',
   'ingestEvidence',
   'listCaseEvidence'
@@ -193,6 +219,22 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
     }
   }
 
+  if (sink && granted.has('sendImageToAgent')) {
+    bridge.sendImageToAgent = async (input) => {
+      const sid = requireSession()
+      if (!isBareFilename(input.filename)) return { ok: false, reason: 'invalid-filename' }
+      if (input.caption !== undefined && input.caption.length > MAX_CAPTION_CHARS) {
+        return { ok: false, reason: 'caption-too-long' }
+      }
+      if (input.bytes.byteLength > MAX_INGEST_BYTES) return { ok: false, reason: 'bytes-too-large' }
+      return sink.sendImageToAgent(caseSlug, sid, {
+        bytes: Buffer.from(input.bytes as ArrayBuffer),
+        filename: input.filename,
+        caption: input.caption
+      })
+    }
+  }
+
   if (sink && granted.has('emitFinding')) {
     bridge.emitFinding = (input: { title: string; markdown: string }) =>
       sink.emitFinding(caseSlug, requireSession(), input)
@@ -208,17 +250,7 @@ export function createPanelBridge(binding: PanelBridgeBinding): PanelBridge {
   if (sink && granted.has('ingestEvidence')) {
     bridge.ingestEvidence = async (input) => {
       const sid = requireSession()
-      // Reject any path separator or traversal in the panel-supplied filename — it is joined
-      // under the case evidence dir downstream with no basename/.. guard (ingest.ts). A bare
-      // name only. Blocks '/', '\', '', '.', '..' regardless of platform.
-      if (
-        /[\\/]/.test(input.filename) ||
-        input.filename === '' ||
-        input.filename === '.' ||
-        input.filename === '..'
-      ) {
-        return { ok: false, reason: 'invalid-filename' }
-      }
+      if (!isBareFilename(input.filename)) return { ok: false, reason: 'invalid-filename' }
       if ('url' in input.source) {
         const reqOrigin = originOf(input.source.url)
         const allowed =

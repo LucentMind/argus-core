@@ -140,6 +140,7 @@ export const packWindowSchema = z
           'cite',
           'emitFinding',
           'sendToAgent',
+          'sendImageToAgent',
           'readCaseFiles',
           'ingestEvidence',
           'listCaseEvidence'

@@ -22,6 +22,12 @@ const sink: PanelWriteSink = {
   async ingestEvidence(cs, sid, input) {
     calls.push(`ingest:${cs}:${sid}:${input.filename}`)
     return { ok: true, evidenceId: '42' }
+  },
+  async sendImageToAgent(cs, sid, input) {
+    calls.push(
+      `image:${cs}:${sid}:${input.filename}:${input.bytes.byteLength}:${input.caption ?? ''}`
+    )
+    return { ok: true, evidenceId: '77' }
   }
 }
 
@@ -151,4 +157,77 @@ it('ingestEvidence: rejects filenames containing a path separator or bare ".."',
   })
   expect(dotdot).toEqual({ ok: false, reason: 'invalid-filename' })
   expect(calls).toEqual([])
+})
+
+it('sendImageToAgent: is present only when granted', () => {
+  expect(bind(['ingestEvidence'], 4).sendImageToAgent).toBeUndefined()
+  expect(typeof bind(['sendImageToAgent'], 4).sendImageToAgent).toBe('function')
+})
+
+it('sendImageToAgent: routes bytes + filename + caption to the sink with bound case+session', async () => {
+  const b = bind(['sendImageToAgent'], 4)
+  const res = await b.sendImageToAgent!({
+    bytes: new Uint8Array([1, 2, 3, 4]),
+    filename: 'chart.png',
+    caption: 'accuracy spikes'
+  })
+  expect(res).toEqual({ ok: true, evidenceId: '77' })
+  expect(calls).toEqual(['image:CASE-A:4:chart.png:4:accuracy spikes'])
+})
+
+it('sendImageToAgent: caption is optional', async () => {
+  const b = bind(['sendImageToAgent'], 4)
+  const res = await b.sendImageToAgent!({ bytes: new Uint8Array([9]), filename: 'x.png' })
+  expect(res).toEqual({ ok: true, evidenceId: '77' })
+  expect(calls).toEqual(['image:CASE-A:4:x.png:1:'])
+})
+
+it('sendImageToAgent: rejects an oversized image without calling the sink', async () => {
+  const b = bind(['sendImageToAgent'], 4)
+  const big = new Uint8Array(25 * 1024 * 1024 + 1)
+  const res = await b.sendImageToAgent!({ bytes: big, filename: 'big.png' })
+  expect(res).toEqual({ ok: false, reason: 'bytes-too-large' })
+  expect(calls).toEqual([])
+})
+
+it('sendImageToAgent: rejects a path-separator/traversal filename without calling the sink', async () => {
+  const b = bind(['sendImageToAgent'], 4)
+  expect(await b.sendImageToAgent!({ bytes: new Uint8Array([1]), filename: 'a/b.png' })).toEqual({
+    ok: false,
+    reason: 'invalid-filename'
+  })
+  expect(await b.sendImageToAgent!({ bytes: new Uint8Array([1]), filename: '..' })).toEqual({
+    ok: false,
+    reason: 'invalid-filename'
+  })
+  expect(calls).toEqual([])
+})
+
+it('sendImageToAgent: rejects an over-long caption without calling the sink', async () => {
+  const b = bind(['sendImageToAgent'], 4)
+  const res = await b.sendImageToAgent!({
+    bytes: new Uint8Array([1]),
+    filename: 'x.png',
+    caption: 'z'.repeat(2001)
+  })
+  expect(res).toEqual({ ok: false, reason: 'caption-too-long' })
+  expect(calls).toEqual([])
+})
+
+it('sendImageToAgent: throws when used with no bound session', async () => {
+  const b = bind(['sendImageToAgent'], null)
+  await expect(
+    b.sendImageToAgent!({ bytes: new Uint8Array([1]), filename: 'x.png' })
+  ).rejects.toThrow(/no bound session/)
+})
+
+it('sendImageToAgent: omitted when no sink is supplied even if granted', () => {
+  const b = createPanelBridge({
+    db,
+    argusHome: home,
+    caseSlug: 'CASE-A',
+    permissions: ['sendImageToAgent'] as never,
+    sessionId: 1
+  })
+  expect(b.sendImageToAgent).toBeUndefined()
 })

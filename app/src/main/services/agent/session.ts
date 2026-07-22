@@ -315,7 +315,7 @@ export class CaseSession {
   async ingestPanelEvidence(input: {
     source: { url: string } | { bytes: Buffer }
     filename: string
-  }): Promise<{ ok: true; evidenceId: string } | { ok: false; reason: string }> {
+  }): Promise<{ ok: true; evidenceId: string; relPath: string } | { ok: false; reason: string }> {
     if (this.state === 'dead') return { ok: false, reason: 'session-dead' }
     const requestId = crypto.randomUUID()
     const sourcePreview =
@@ -384,7 +384,7 @@ export class CaseSession {
     this.emit(
       makeEvent(this.ctx(), 'case.evidence.ingested', { evidenceId: rec.id, relPath: rec.relPath })
     )
-    return { ok: true, evidenceId: String(rec.id) }
+    return { ok: true, evidenceId: String(rec.id), relPath: rec.relPath }
   }
 
   respond(d: ApprovalDecision): boolean {

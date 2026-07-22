@@ -253,6 +253,23 @@ function registerIpc(): void {
       const res = await agentService!.ingestPanelEvidence(caseSlug, sessionId, input)
       if (res.ok) broadcast(IPC.panelsEvidenceIngested, { caseSlug, evidenceId: res.evidenceId })
       return res
+    },
+    sendImageToAgent: async (caseSlug, sessionId, input) => {
+      caseWatch.suppress(caseSlug) // pre-write: the ingest lands inside the watched evidence dir
+      // Reuse the approval-gated PNG→screenshot ingest, then stage a composer draft that
+      // points the agent at the saved file (the proven capture_panel evidence+Read route).
+      const res = await agentService!.ingestPanelEvidence(caseSlug, sessionId, {
+        source: { bytes: input.bytes },
+        filename: input.filename
+      })
+      if (!res.ok) return res
+      broadcast(IPC.panelsEvidenceIngested, { caseSlug, evidenceId: res.evidenceId })
+      const caption = input.caption?.trim()
+      const text =
+        (caption ? `${caption}\n\n` : '') +
+        `I captured this from a panel and saved it as ${res.relPath} — use Read on that path to view the image.`
+      broadcast(IPC.panelsDraft, { caseSlug, sessionId, text })
+      return { ok: true, evidenceId: res.evidenceId }
     }
   }
 
@@ -882,6 +899,14 @@ function registerIpc(): void {
       const b = panelHost!.bridgeForWebContents(e.sender.id)
       if (!b?.ingestEvidence) throw new Error('panel bridge: ingestEvidence not granted')
       return b.ingestEvidence(input)
+    }
+  )
+  ipcMain.handle(
+    IPC.panelsSendImageToAgent,
+    (e, input: { bytes: ArrayBuffer | Uint8Array; filename: string; caption?: string }) => {
+      const b = panelHost!.bridgeForWebContents(e.sender.id)
+      if (!b?.sendImageToAgent) throw new Error('panel bridge: sendImageToAgent not granted')
+      return b.sendImageToAgent(input)
     }
   )
   ipcMain.on(
