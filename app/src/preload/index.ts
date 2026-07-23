@@ -384,7 +384,9 @@ const argus = {
   skills: {
     list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList),
     deleteUser: (name: string): Promise<SkillsPayload> =>
-      ipcRenderer.invoke(IPC.skillsDeleteUser, name)
+      ipcRenderer.invoke(IPC.skillsDeleteUser, name),
+    read: (name: string): Promise<{ name: string; content: string }> =>
+      ipcRenderer.invoke(IPC.skillsRead, name)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
@@ -468,6 +470,7 @@ const argus = {
       ipcRenderer.invoke(IPC.refsyncReadRef, file),
     searchRefs: (query: string): Promise<string[]> =>
       ipcRenderer.invoke(IPC.refsyncSearchRefs, query),
+    deleteRef: (file: string): Promise<void> => ipcRenderer.invoke(IPC.refsyncDeleteRef, file),
     onChanged: (cb: (p: RefSyncPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: RefSyncPayload): void => cb(p)
       ipcRenderer.on(IPC.refsyncChanged, listener)

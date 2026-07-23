@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { RefViewer } from '../RefViewer'
+import { RefViewer, MarkdownViewer } from '../RefViewer'
 import { __resetEscapeLayersForTest } from '../../../lib/escapeLayer'
 
 afterEach(() => __resetEscapeLayersForTest())
@@ -48,5 +48,33 @@ describe('RefViewer', () => {
     await waitFor(() =>
       expect(screen.getByRole('dialog', { name: 'reference · glossary.md' })).toBeTruthy()
     )
+  })
+})
+
+describe('MarkdownViewer', () => {
+  it('renders loaded markdown with a Raw toggle', async () => {
+    render(
+      <MarkdownViewer
+        title="skills / rca"
+        ariaLabel="skill · rca"
+        load={() => Promise.resolve('# Heading\n\nbody text')}
+        onClose={vi.fn()}
+      />
+    )
+    expect(await screen.findByText('Heading')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByText(/# Heading/)).toBeInTheDocument()
+  })
+
+  it('shows the error state when the loader rejects', async () => {
+    render(
+      <MarkdownViewer
+        title="skills / gone"
+        ariaLabel="skill · gone"
+        load={() => Promise.reject(new Error('nope'))}
+        onClose={vi.fn()}
+      />
+    )
+    expect(await screen.findByText('File could not be read.')).toBeInTheDocument()
   })
 })

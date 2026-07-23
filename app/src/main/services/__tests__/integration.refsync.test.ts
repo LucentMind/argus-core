@@ -338,3 +338,27 @@ describe('upstream deletions', () => {
     expect(() => svc.prune('nope', [])).toThrow(/expired/)
   })
 })
+
+it('deleteReference removes hand-owned files, refuses hive-managed tiers', () => {
+  const dir = sharedReferencesDir(home)
+  fs.writeFileSync(path.join(dir, 'mine.md'), '---\ntrust_tier: team-knowledge\n---\n# mine\n')
+  fs.writeFileSync(path.join(dir, 'untagged.md'), '# no frontmatter\n')
+  fs.writeFileSync(path.join(dir, 'synced.md'), '---\ntrust_tier: confluence\n---\n# synced\n')
+  fs.writeFileSync(path.join(dir, 'hive.md'), '---\ntrust_tier: hivemind\n---\n# hive\n')
+
+  svc.deleteReference('mine.md')
+  svc.deleteReference('untagged.md') // no tier ⇒ hand-owned by convention (tier ?? team-knowledge)
+  expect(fs.existsSync(path.join(dir, 'mine.md'))).toBe(false)
+  expect(fs.existsSync(path.join(dir, 'untagged.md'))).toBe(false)
+
+  expect(() => svc.deleteReference('synced.md')).toThrow(/not a hand-owned reference/)
+  expect(() => svc.deleteReference('hive.md')).toThrow(/not a hand-owned reference/)
+  expect(fs.existsSync(path.join(dir, 'synced.md'))).toBe(true)
+  expect(fs.existsSync(path.join(dir, 'hive.md'))).toBe(true)
+})
+
+it('deleteReference rejects invalid names and the generated index', () => {
+  for (const evil of ['../evil.md', 'no-md-suffix', 'INDEX.md', '']) {
+    expect(() => svc.deleteReference(evil)).toThrow(/invalid reference name/)
+  }
+})

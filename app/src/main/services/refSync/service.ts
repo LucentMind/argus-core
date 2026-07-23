@@ -125,6 +125,23 @@ export class RefSyncService {
     return { file, content: fs.readFileSync(path.join(this.refsDir(), file), 'utf8') }
   }
 
+  /**
+   * Permanently delete a hand-owned reference (user/team-knowledge/untagged).
+   * Hive-managed tiers must go through hivemind.uninstallReference — mirror
+   * image of its guard, which refuses hand-owned tiers.
+   */
+  deleteReference(file: string): void {
+    if (!REF_TARGET_RE.test(file) || file === REFERENCES_INDEX) {
+      throw new Error(`invalid reference name: ${file}`)
+    }
+    const p = path.join(this.refsDir(), file)
+    const tier = refTier(fs.readFileSync(p, 'utf8')) ?? 'team-knowledge'
+    if (tier === 'hivemind' || tier === 'confluence' || tier === 'bundled') {
+      throw new Error(`not a hand-owned reference: ${file} (${tier})`)
+    }
+    fs.rmSync(p, { force: true })
+  }
+
   /** Case-insensitive search over reference file names AND bodies; INDEX.md excluded. */
   searchReferences(query: string): string[] {
     const q = query.trim().toLowerCase()
