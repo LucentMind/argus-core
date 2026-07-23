@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { Sun, Moon, Settings, Gauge } from 'lucide-react'
+import { Sun, Moon, Settings, Gauge, Home } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
-import wordmarkDark from '../assets/argus-wordmark.svg'
-import wordmarkLight from '../assets/argus-wordmark-light.svg'
 
 const ACTION_BTN =
   'inline-flex h-10 w-10 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink'
@@ -32,17 +30,8 @@ export function TopBar({
 
   return (
     <header className="flex h-16 items-center gap-1.5 border-b border-hair bg-deep px-3">
-      <button
-        className="flex items-center rounded-r2 px-2 py-1 transition-colors hover:bg-hair"
-        onClick={onHome}
-        aria-label="All cases"
-        title="All cases"
-      >
-        <img
-          src={ui.theme === 'dark' ? wordmarkDark : wordmarkLight}
-          alt="Argus"
-          className="h-8 w-auto"
-        />
+      <button className={ACTION_BTN} onClick={onHome} aria-label="All cases" title="All cases">
+        <Home size={21} strokeWidth={1.5} />
       </button>
       <div className="mx-1 h-6 w-px bg-hair" />
       <nav
