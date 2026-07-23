@@ -76,12 +76,20 @@ export function Coachmark({
   // it below would push the panel, and its Exit control, off-screen. In that
   // case dock it above the anchor via `bottom` so it grows upward and stays
   // visible regardless of the panel's own height.
+  //
+  // When docking above such a wide bottom anchor we also RIGHT-align to the
+  // anchor's right edge instead of left. The composer's pending-approval card
+  // renders just above it with Approve/Deny at its bottom-LEFT; a left-aligned
+  // callout landed straight on those buttons (the "covering the approval"
+  // bug). Right-aligning tucks the panel into the emptier right side, leaving
+  // the action buttons reachable.
   const GAP = 8
   const spaceBelow = window.innerHeight - (rect.top + rect.height)
+  const rightInset = Math.max(GAP, window.innerWidth - (rect.left + rect.width))
   const calloutStyle: React.CSSProperties =
     spaceBelow >= 200
       ? { top: rect.top + rect.height + GAP, left: rect.left }
-      : { bottom: window.innerHeight - rect.top + GAP, left: rect.left }
+      : { bottom: window.innerHeight - rect.top + GAP, right: rightInset }
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[60]">

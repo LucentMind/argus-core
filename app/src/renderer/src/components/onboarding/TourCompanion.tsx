@@ -138,9 +138,9 @@ export function TourCompanion({
     </div>
   )
 
-  // Live steps spotlight the real control; explain/unmet steps dock bottom-right without a ring.
-  if (unmet) {
-    return <div className="pointer-events-none fixed bottom-6 right-6 z-[60]">{panel}</div>
-  }
+  // Every step now anchors its callout to a real control — including an
+  // unmet/explain step (e.g. HiveMind with no repo), whose settings page still
+  // opens, so we spotlight its tab and dock the explain callout beside it
+  // rather than orphaning it in the bottom-right corner far from the content.
   return <Coachmark anchor={effTarget ?? step.target}>{panel}</Coachmark>
 }
