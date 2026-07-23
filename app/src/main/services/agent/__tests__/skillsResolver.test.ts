@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { deleteUserSkill, materializeSessionSkills, resolveSkills } from '../skillsResolver'
+import {
+  deleteUserSkill,
+  materializeSessionSkills,
+  readSkill,
+  resolveSkills
+} from '../skillsResolver'
 import { caseDir } from '../../paths'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
 
@@ -120,5 +125,19 @@ describe('materializeSessionSkills', () => {
     const resolved = materializeSessionSkills(argusHome, 'NAV-3', defaultAgentAccess())
     expect(resolved.map((s) => s.name).sort()).toEqual(['analyze-applog', 'rca'])
     expect(resolved.find((s) => s.name === 'rca')!.tier).toBe('user')
+  })
+})
+
+describe('readSkill', () => {
+  it('returns the tier-winning SKILL.md content', () => {
+    expect(readSkill(argusHome, 'rca').content).toContain('user override rca')
+    expect(readSkill(argusHome, 'analyze-applog').content).toContain('bundled applog')
+  })
+
+  it('throws on unknown names and traversal attempts', () => {
+    expect(() => readSkill(argusHome, 'nope')).toThrow(/No such skill/)
+    for (const evil of ['../skills/rca', '..\\skills\\rca', '..', '.', '']) {
+      expect(() => readSkill(argusHome, evil)).toThrow(/Invalid skill name/)
+    }
   })
 })

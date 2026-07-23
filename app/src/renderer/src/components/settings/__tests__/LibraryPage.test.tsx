@@ -75,13 +75,19 @@ const refPayload: RefSyncPayload = {
 }
 
 function mockArgus(): {
-  skills: { list: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> }
+  skills: {
+    list: ReturnType<typeof vi.fn>
+    deleteUser: ReturnType<typeof vi.fn>
+    read: ReturnType<typeof vi.fn>
+  }
   usage: { stats: ReturnType<typeof vi.fn> }
   access: { patch: ReturnType<typeof vi.fn> }
   hivemind: {
     get: ReturnType<typeof vi.fn>
     pushPreview: ReturnType<typeof vi.fn>
     push: ReturnType<typeof vi.fn>
+    uninstallSkill: ReturnType<typeof vi.fn>
+    uninstallReference: ReturnType<typeof vi.fn>
   }
   sourceControl: { status: ReturnType<typeof vi.fn> }
   refsync: {
@@ -89,13 +95,15 @@ function mockArgus(): {
     onChanged: ReturnType<typeof vi.fn>
     searchRefs: ReturnType<typeof vi.fn>
     readRef: ReturnType<typeof vi.fn>
+    deleteRef: ReturnType<typeof vi.fn>
   }
   openExternal: ReturnType<typeof vi.fn>
 } {
   return {
     skills: {
       list: vi.fn().mockResolvedValue(initial),
-      deleteUser: vi.fn().mockResolvedValue(afterAdopt)
+      deleteUser: vi.fn().mockResolvedValue(afterAdopt),
+      read: vi.fn().mockResolvedValue({ name: 'rca', content: '# rca skill body\n' })
     },
     usage: {
       stats: vi.fn().mockResolvedValue({
@@ -135,7 +143,9 @@ function mockArgus(): {
       pushPreview: vi.fn().mockResolvedValue('# rca'),
       push: vi
         .fn()
-        .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/12' })
+        .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/12' }),
+      uninstallSkill: vi.fn().mockResolvedValue(hivePayload({})),
+      uninstallReference: vi.fn().mockResolvedValue(hivePayload({}))
     },
     sourceControl: { status: vi.fn().mockResolvedValue(ghOk) },
     access: {
@@ -145,7 +155,8 @@ function mockArgus(): {
       get: vi.fn().mockResolvedValue(refPayload),
       onChanged: vi.fn(() => () => {}),
       searchRefs: vi.fn().mockResolvedValue([]),
-      readRef: vi.fn().mockResolvedValue({ file: 'team-tips.md', content: '# Team tips\n' })
+      readRef: vi.fn().mockResolvedValue({ file: 'team-tips.md', content: '# Team tips\n' }),
+      deleteRef: vi.fn().mockResolvedValue(undefined)
     },
     openExternal: vi.fn()
   }
@@ -185,11 +196,35 @@ describe('LibraryPage delete/adopt actions', () => {
     expect(argus.skills.deleteUser).not.toHaveBeenCalled()
   })
 
-  it('hivemind and bundled rows offer no delete action', async () => {
+  it('hivemind skill Remove uninstalls after confirm and refreshes the list', async () => {
     render(<LibraryPage />)
     await screen.findByText('hive-probe')
-    expect(screen.queryByRole('button', { name: /hive-probe/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /analyze-applog/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove · hive-probe' }))
+    await waitFor(() => expect(argus.hivemind.uninstallSkill).toHaveBeenCalledWith('hive-probe'))
+    expect(argus.skills.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('hand-owned reference Delete calls refsync.deleteRef; hive-managed gets uninstall', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('team-tips.md')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete · team-tips.md' }))
+    await waitFor(() => expect(argus.refsync.deleteRef).toHaveBeenCalledWith('team-tips.md'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove · nav-runbook.md' }))
+    await waitFor(() =>
+      expect(argus.hivemind.uninstallReference).toHaveBeenCalledWith('nav-runbook.md')
+    )
+  })
+
+  it('declined confirm is a no-op; bundled rows offer no removal', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    render(<LibraryPage />)
+    await screen.findByText('hive-probe')
+    fireEvent.click(screen.getByRole('button', { name: 'Remove · hive-probe' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(argus.hivemind.uninstallSkill).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Remove · analyze-applog' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete · analyze-applog' })).toBeNull()
   })
 
   it('a rejected delete surfaces an error and keeps the list', async () => {
@@ -323,5 +358,28 @@ describe('LibraryPage merged list', () => {
         'Nothing here yet — skills and references you accept from agent proposals land here.'
       )
     ).toBeInTheDocument()
+  })
+
+  it('rows carry no tier badge — the group header names the tier', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    // TIER_LABELS text ('user', 'hivemind', 'team knowledge'…) must not render as row chips —
+    // scoped to <span> since group headers legitimately render this text (as a heading, not a span)
+    expect(screen.queryByText('user', { selector: 'span' })).toBeNull()
+    expect(screen.queryByText('hivemind', { selector: 'span' })).toBeNull()
+    expect(screen.queryByText('confluence', { selector: 'span' })).toBeNull()
+  })
+
+  it('clicking a skill name opens the skill viewer with SKILL.md content', async () => {
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'open · rca' }))
+    await waitFor(() => expect(argus.skills.read).toHaveBeenCalledWith('rca'))
+    expect(await screen.findByText('rca skill body')).toBeInTheDocument()
+  })
+
+  it('reference rows keep their meta line and stay openable', async () => {
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'open · team-tips.md' }))
+    expect(await screen.findByText('Team tips')).toBeInTheDocument()
   })
 })

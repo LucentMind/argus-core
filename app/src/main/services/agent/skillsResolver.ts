@@ -106,6 +106,18 @@ export function deleteUserSkill(argusHome: string, name: string): void {
   fs.rmSync(dir, { recursive: true, force: true })
 }
 
+/** Read the tier-winning SKILL.md for the in-app viewer (same precedence as resolveSkills). */
+export function readSkill(argusHome: string, name: string): { name: string; content: string } {
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) {
+    throw new Error(`Invalid skill name: ${name}`)
+  }
+  for (const { root } of TIERS) {
+    const file = path.join(root(argusHome), name, 'SKILL.md')
+    if (fs.existsSync(file)) return { name, content: fs.readFileSync(file, 'utf8') }
+  }
+  throw new Error(`No such skill: ${name}`)
+}
+
 /**
  * Rebuild <caseDir>/.claude/skills as per-skill junctions filtered by access, and write the
  * `.claude-plugin/plugin.json` that turns `<caseDir>/.claude` into a local plugin root.

@@ -104,7 +104,7 @@ describe('SettingRow stacked variant', () => {
       </SettingRow>
     )
     const outer = screen.getByText('Max sessions').closest('div')?.parentElement
-    expect(outer?.className).toBe('flex items-center gap-4 px-4 py-3')
+    expect(outer?.className).toBe('group/row flex items-center gap-4 px-4 py-3')
   })
 })
 

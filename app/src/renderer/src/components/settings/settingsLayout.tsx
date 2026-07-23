@@ -49,20 +49,52 @@ export function DisclosureBtn({
 export function SettingsSection({
   title,
   action,
+  count,
+  collapsed,
+  onToggle,
   children
 }: {
   title: string
   /** Controls rendered on the section header line, right-aligned (e.g. a refresh button). */
   action?: ReactNode
+  /** Item count shown beside the title in collapsible mode. */
+  count?: number
+  collapsed?: boolean
+  /** When set, the header becomes a toggle button and `collapsed` hides the children. */
+  onToggle?: () => void
   children: ReactNode
 }): React.JSX.Element {
+  const heading = (
+    <SectionLabel>
+      {title}
+      {count !== undefined && <span className="ml-1.5 normal-case text-faint">· {count}</span>}
+    </SectionLabel>
+  )
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <SectionLabel>{title}</SectionLabel>
+        {onToggle ? (
+          <button
+            type="button"
+            aria-label={`Toggle section · ${title}`}
+            aria-expanded={!collapsed}
+            onClick={onToggle}
+            className="flex items-center gap-1.5 text-left"
+          >
+            <ChevronDown
+              size={12}
+              strokeWidth={1.5}
+              className={`text-mute transition-transform ${collapsed ? '-rotate-90' : ''}`}
+              aria-hidden="true"
+            />
+            {heading}
+          </button>
+        ) : (
+          heading
+        )}
         {action}
       </div>
-      <Card className="flex flex-col divide-y divide-hair">{children}</Card>
+      {!collapsed && <Card className="flex flex-col divide-y divide-hair">{children}</Card>}
     </section>
   )
 }
@@ -76,10 +108,11 @@ export function SettingRow({
   hint,
   stacked,
   trailing,
+  onOpen,
   children
 }: {
   label: string
-  description?: string
+  description?: ReactNode
   isDefault?: boolean
   onReset?: () => void
   badge?: ReactNode
@@ -89,16 +122,35 @@ export function SettingRow({
   stacked?: boolean
   /** Rendered at the far right of line 1 (after reset), stacked variant only — e.g. a status chip that shouldn't crowd the control row. */
   trailing?: ReactNode
+  /** When set, renders the label as a clickable button with aria-label. */
+  onOpen?: () => void
   children: ReactNode
 }): React.JSX.Element {
   const labelClass = `flex items-center gap-2 text-sm text-ink${hint ? ' cursor-help underline decoration-dotted decoration-mute underline-offset-2' : ''}`
+  const labelContent = onOpen ? (
+    <>
+      <button
+        type="button"
+        aria-label={`open · ${label}`}
+        onClick={onOpen}
+        className="cursor-pointer text-left hover:underline hover:underline-offset-2"
+      >
+        {label}
+      </button>
+      {badge}
+    </>
+  ) : (
+    <>
+      {label}
+      {badge}
+    </>
+  )
   if (stacked) {
     return (
-      <div className="flex flex-col gap-0.5 px-4 py-3">
+      <div className="group/row flex flex-col gap-0.5 px-4 py-3">
         <div className="flex items-center gap-4">
           <span className={`min-w-0 flex-1 ${labelClass}`} title={hint}>
-            {label}
-            {badge}
+            {labelContent}
           </span>
           {!isDefault && onReset && (
             <IconBtn aria-label={`Reset ${label}`} title="Reset to default" onClick={onReset}>
@@ -113,11 +165,10 @@ export function SettingRow({
     )
   }
   return (
-    <div className="flex items-center gap-4 px-4 py-3">
+    <div className="group/row flex items-center gap-4 px-4 py-3">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className={labelClass} title={hint}>
-          {label}
-          {badge}
+          {labelContent}
         </span>
         {description && <span className="text-xs text-mute">{description}</span>}
       </div>
