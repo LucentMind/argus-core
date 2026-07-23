@@ -27,6 +27,7 @@ import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } fr
 import { extractDerivedText } from './extraction'
 import type { Detection } from './packs/detection'
 import type { Extractors } from './packs/extractors'
+import { extractZipToTemp, ArchiveLimitError, type ArchiveLimits } from './archiveExtract'
 
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
@@ -44,6 +45,8 @@ export interface JiraCasesDeps {
   emitProgress: (p: JiraAttachmentProgress) => void
   evidenceChanged: (caseSlug: string) => void
   parsing: (caseSlug: string, evidenceId: number, active: boolean) => void
+  /** Overridable in tests; production uses ARCHIVE_LIMITS. */
+  archiveLimits?: Partial<ArchiveLimits>
 }
 
 interface JiraEvidenceMeta {
@@ -92,6 +95,29 @@ function commentsMarkdown(key: string, comments: JiraCommentInfo[]): string {
 }
 
 const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024 // 500 MB per-attachment cap
+
+const ARCHIVE_LIMITS: ArchiveLimits = {
+  maxDepth: 3,
+  maxEntries: 1000,
+  maxTotalBytes: 5 * 1024 * 1024 * 1024, // 5 GB uncompressed
+  maxEntryBytes: MAX_ATTACHMENT_BYTES, // 500 MB per inner file
+  maxRatio: 100
+}
+
+// Zip local-file-header magic: 'PK\x03\x04'.
+function isZipFile(filePath: string): boolean {
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(filePath, 'r')
+    const buf = Buffer.alloc(4)
+    fs.readSync(fd, buf, 0, 4, 0)
+    return buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
+  }
+}
 
 export class JiraCases {
   constructor(private deps: JiraCasesDeps) {}
@@ -216,6 +242,21 @@ export class JiraCases {
             .finally(() => this.deps.parsing(caseSlug, rec.id, false))
           this.deps.evidenceChanged(caseSlug)
           const done: JiraAttachmentProgress = { ...base, status: 'done', evidenceId: rec.id }
+          if (isZipFile(tmpFile)) {
+            try {
+              done.extractedCount = await this.ingestArchiveContents(caseSlug, a, tmpFile, tmpDir)
+            } catch (err) {
+              // The archive itself ingested fine; only extraction failed. Keep the
+              // archive, surface the reason, leave status 'done'.
+              done.extractError =
+                err instanceof ArchiveLimitError
+                  ? `Archive not expanded (${err.kind}): ${err.message}`
+                  : `Archive not expanded: ${(err as Error).message}`
+              console.warn(
+                `[jira] archive extraction failed for ${a.filename}: ${(err as Error).message}`
+              )
+            }
+          }
           this.deps.emitProgress(done)
           results.push(done)
         } catch (err) {
@@ -232,6 +273,51 @@ export class JiraCases {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
     return results
+  }
+
+  /** Expand a zip attachment: stage inner files under caps, then ingest each as
+   *  its own evidence record. All-or-nothing — a cap breach throws and ingests
+   *  nothing (the caller keeps the archive and surfaces the error). Returns the
+   *  number of inner files ingested. */
+  private async ingestArchiveContents(
+    caseSlug: string,
+    attachment: JiraAttachmentInfo,
+    zipPath: string,
+    tmpDir: string
+  ): Promise<number> {
+    const { db, argusHome, detection } = this.deps
+    const limits: ArchiveLimits = { ...ARCHIVE_LIMITS, ...(this.deps.archiveLimits ?? {}) }
+    const stageDir = fs.mkdtempSync(path.join(tmpDir, 'x-'))
+    try {
+      // Phase 1: validate + stage (throws on any breach — nothing ingested yet).
+      const { entries } = await extractZipToTemp(zipPath, stageDir, limits)
+      // Phase 2: ingest every staged inner file.
+      for (const e of entries) {
+        // Preserve the archive-relative name so collision-free naming + display read well.
+        const named = path.join(stageDir, sanitizeFilename(path.basename(e.innerPath)))
+        if (named !== e.tempPath) fs.renameSync(e.tempPath, named)
+        const rec = ingestArtifact(db, argusHome, detection, caseSlug, named, 'jira', {
+          extractedFrom: {
+            attachmentId: attachment.id,
+            archiveName: attachment.filename,
+            innerPath: e.innerPath
+          }
+        })
+        this.deps.parsing(caseSlug, rec.id, true)
+        void extractDerivedText(db, argusHome, rec, this.deps.extractors)
+          .then((derived) => {
+            if (derived) this.deps.evidenceChanged(caseSlug)
+          })
+          .catch((err) =>
+            console.warn(`[jira] extraction failed for ${rec.relPath}: ${(err as Error).message}`)
+          )
+          .finally(() => this.deps.parsing(caseSlug, rec.id, false))
+      }
+      if (entries.length) this.deps.evidenceChanged(caseSlug)
+      return entries.length
+    } finally {
+      fs.rmSync(stageDir, { recursive: true, force: true })
+    }
   }
 
   async refresh(caseSlug: string): Promise<JiraRefreshSummary> {
