@@ -104,6 +104,47 @@ describe('extractZipToTemp', () => {
   })
 })
 
+// Build a zip whose single entry is another zip (built by makeZip). zip-lib is not
+// a dependency of this test file (removed in Task 1) — we build the inner zip on
+// disk with makeZip, then embed its raw bytes as a single entry body via
+// makeZipRaw (widened to accept Buffer bodies in Task 2). yazl deflates the
+// already-compressed inner zip ~1:1, well under LIMITS.maxRatio.
+async function nestZip(
+  outerPath: string,
+  innerName: string,
+  innerFiles: Record<string, string>
+): Promise<void> {
+  const innerPath = path.join(tmp, `inner-${path.basename(outerPath)}`)
+  await makeZip(innerPath, innerFiles)
+  const innerBytes = fs.readFileSync(innerPath)
+  await makeZipRaw(outerPath, [{ name: innerName, body: innerBytes }])
+}
+
+describe('extractZipToTemp recursion', () => {
+  it('recurses into a nested zip and flattens inner files with a path prefix', async () => {
+    const outer = path.join(tmp, 'outer.zip')
+    await nestZip(outer, 'bundle.zip', { 'crash.txt': 'boom' })
+    const out = path.join(tmp, 'orc')
+    fs.mkdirSync(out)
+    const { entries } = await extractZipToTemp(outer, out, LIMITS)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].innerPath).toBe('bundle.zip/crash.txt')
+    expect(entries[0].depth).toBe(1)
+    expect(fs.readFileSync(entries[0].tempPath, 'utf8')).toBe('boom')
+  })
+
+  it('does NOT recurse past maxDepth — a deeper zip is kept as an opaque entry', async () => {
+    const outer = path.join(tmp, 'outer2.zip')
+    await nestZip(outer, 'bundle.zip', { 'crash.txt': 'boom' })
+    const out = path.join(tmp, 'od0')
+    fs.mkdirSync(out)
+    const { entries } = await extractZipToTemp(outer, out, { ...LIMITS, maxDepth: 0 })
+    expect(entries).toHaveLength(1)
+    expect(entries[0].innerPath).toBe('bundle.zip') // opaque — the inner zip itself
+    expect(entries[0].depth).toBe(0)
+  })
+})
+
 describe('extractZipToTemp caps', () => {
   it('throws entry-bytes when a single entry exceeds the per-entry cap', async () => {
     const zipPath = path.join(tmp, 'big.zip')
