@@ -128,18 +128,22 @@ export function CaseDashboard({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
             <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">Argus</h1>
-            <p className="text-sm text-dim">Defect analysis workbench</p>
+            <h1
+              className="font-brand font-normal leading-[1.2] text-brand"
+              style={{ fontSize: 32, letterSpacing: 11 }}
+            >
+              ARGUS
+            </h1>
             {pendingKnowledge > 0 && (
               <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Btn onClick={onNew}>
-              <Plus size={14} aria-hidden="true" /> New case
+            <Btn variant="primary" className="h-9 px-4 text-sm" onClick={onNew}>
+              <Plus size={16} aria-hidden="true" /> New case
             </Btn>
-            <Btn onClick={onImport}>
-              <FolderInput size={14} aria-hidden="true" /> Import case…
+            <Btn variant="outline" className="h-9 px-4 text-sm" onClick={onImport}>
+              <FolderInput size={16} aria-hidden="true" /> Import case…
             </Btn>
           </div>
         </div>

@@ -26,6 +26,10 @@
   --analytics: #c2a6fa;
   --danger: #f27a6b;
 
+  /* Brand wordmark — pale ice on the dark surface; swaps to a deep navy
+     below so it doesn't wash out on paper */
+  --brand: #e2f4ff;
+
   /* Motion */
   --mo-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
   --mo: 200ms cubic-bezier(0.2, 0, 0.2, 1);
@@ -50,6 +54,7 @@
 
   --signal: #1567b3;
   --defect: #9a6700;
+  --brand: #16232e;
 }
 
 @theme inline {
@@ -69,11 +74,13 @@
   --color-signal: var(--signal);
   --color-review: var(--review);
   --color-analytics: var(--analytics);
+  --color-brand: var(--brand);
 }
 
 @theme {
   --font-sans: 'Geist Sans', 'Geist', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+  --font-brand: 'Michroma', sans-serif;
   --radius-r1: 5px;
   --radius-r2: 6px;
   --radius-r3: 10px;
