@@ -31,10 +31,9 @@ describe('tourStore', () => {
     expect(typeof arg.onboarding.completedAt).toBe('string')
   })
 
-  it('buildTourSteps returns the four features in order', () => {
+  it('buildTourSteps returns the contribute-back loop in order', () => {
     const steps = buildTourSteps(defaultSettings())
-    expect(steps.map((s) => s.key)).toEqual(['memory', 'skills', 'references', 'hivemind'])
-    expect(steps.find((s) => s.key === 'references')?.requiresIntegration).toBe('confluence')
+    expect(steps.map((s) => s.key)).toEqual(['memory', 'proposals', 'skills', 'hivemind'])
     expect(steps.find((s) => s.key === 'hivemind')?.requiresIntegration).toBe('hive')
   })
 })

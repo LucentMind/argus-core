@@ -93,7 +93,7 @@ export function OnboardingProvider({
       <TourCompanion
         sampleSlug={slug}
         settings={payload.settings}
-        onNavigate={(view) => onNavigate(view, view === 'case' ? slug : undefined)}
+        onNavigate={(view, page) => onNavigate(view, view === 'case' ? slug : page)}
         onExit={() => onNavigate('case', slug)}
       />
     )
