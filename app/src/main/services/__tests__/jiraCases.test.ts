@@ -18,6 +18,7 @@ import type {
 } from '../../../shared/jira'
 import type { JiraIssueData } from '../atlassian'
 import type { EvidenceRecord } from '../../../shared/types'
+import { Zip } from 'zip-lib'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 let progress: JiraAttachmentProgress[]
@@ -63,9 +64,36 @@ function fakeClient(
   }
 }
 
+// Writes a real .zip to `dest` for the given attachment id.
+function zipClient(
+  data: () => JiraIssueData,
+  zipFor: Record<string, Record<string, string>>
+): AtlassianClientLike {
+  return {
+    getIssue: vi.fn(async () => data()),
+    getComments: vi.fn(async () => []),
+    downloadAttachment: vi.fn(async (id: string, dest: string) => {
+      const files = zipFor[id]
+      if (!files) {
+        fs.writeFileSync(dest, `bytes-of-${id}`)
+        return
+      }
+      const zip = new Zip()
+      const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zsrc-'))
+      for (const [name, body] of Object.entries(files)) {
+        const p = path.join(srcDir, path.basename(name))
+        fs.writeFileSync(p, body)
+        zip.addFile(p, name)
+      }
+      await zip.archive(dest)
+    })
+  }
+}
+
 function service(
   client: AtlassianClientLike,
-  onParsing?: (evidenceId: number, active: boolean) => void
+  onParsing?: (evidenceId: number, active: boolean) => void,
+  limitsOverride?: Partial<import('../archiveExtract').ArchiveLimits>
 ): JiraCases {
   return new JiraCases({
     db,
@@ -78,7 +106,8 @@ function service(
     extractors: stubExtractors('binlog'),
     emitProgress: (p) => progress.push(p),
     evidenceChanged: (slug) => changed.push(slug),
-    parsing: (_slug, evidenceId, active) => onParsing?.(evidenceId, active)
+    parsing: (_slug, evidenceId, active) => onParsing?.(evidenceId, active),
+    archiveLimits: limitsOverride
   })
 }
 
@@ -238,6 +267,91 @@ describe('JiraCases.ingestAttachments', () => {
     const ev = listEvidence(db, 'NAV-7').map((e) => e.relPath)
     expect(ev.some((p) => p.includes('evil_.txt') || p.includes('evil'))).toBe(true)
     expect(ev.every((p) => p.startsWith('evidence/'))).toBe(true)
+  })
+})
+
+describe('zip attachment extraction', () => {
+  it('ingests inner files as evidence with extractedFrom meta and keeps the archive', async () => {
+    const preview: Partial<JiraIssuePreview> = {
+      attachments: [
+        {
+          id: '20001',
+          filename: 'bundle.zip',
+          size: 9,
+          mimeType: 'application/zip',
+          createdAt: 'c'
+        }
+      ]
+    }
+    const client = zipClient(() => issue(preview), {
+      '20001': { 'logs/app.log': 'hello', 'notes.txt': 'world' }
+    })
+    const svc = service(client)
+    createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
+    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    // archive attachment reports done with an extracted count
+    expect(results[0]).toMatchObject({ attachmentId: '20001', status: 'done', extractedCount: 2 })
+    const ev = listEvidence(db, 'nav-7')
+    // 1 archive + 2 inner files
+    const archive = ev.find(
+      (e) => (e.meta.jira as { attachmentId?: string })?.attachmentId === '20001'
+    )
+    expect(archive?.artifactType).toBe('archive')
+    const inner = ev.filter((e) => e.meta.extractedFrom)
+    expect(inner).toHaveLength(2)
+    // inner files carry extractedFrom, NOT meta.jira.attachmentId
+    for (const e of inner) {
+      expect((e.meta.extractedFrom as { attachmentId: string }).attachmentId).toBe('20001')
+      expect((e.meta.jira as { attachmentId?: string })?.attachmentId).toBeUndefined()
+    }
+  })
+
+  it('a subsequent refresh still diffs the archive correctly (inner files do not pollute the diff)', async () => {
+    const preview: Partial<JiraIssuePreview> = {
+      attachments: [
+        {
+          id: '20001',
+          filename: 'bundle.zip',
+          size: 9,
+          mimeType: 'application/zip',
+          createdAt: 'c'
+        }
+      ]
+    }
+    const client = zipClient(() => issue(preview), { '20001': { 'a.txt': 'a', 'b.txt': 'b' } })
+    const svc = service(client)
+    createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
+    await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    const summary = await svc.refresh('nav-7')
+    expect(summary.ingestedAttachments.map((a) => a.id)).toEqual(['20001'])
+    expect(summary.newAttachments).toEqual([])
+    expect(summary.deletedOnJira).toEqual([])
+  })
+
+  it('on a cap breach: archive is kept, zero inner files, extractError surfaced', async () => {
+    const preview: Partial<JiraIssuePreview> = {
+      attachments: [
+        {
+          id: '20002',
+          filename: 'toomany.zip',
+          size: 9,
+          mimeType: 'application/zip',
+          createdAt: 'c'
+        }
+      ]
+    }
+    // Force a breach via a tiny override injected through the service (see Step 4 note).
+    const client = zipClient(() => issue(preview), {
+      '20002': { 'a.txt': 'a', 'b.txt': 'b', 'c.txt': 'c' }
+    })
+    const svc = service(client, undefined, { maxEntries: 2 }) // limits override
+    createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
+    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    expect(results[0]).toMatchObject({ attachmentId: '20002', status: 'done' })
+    expect(results[0].extractError).toBeTruthy()
+    const ev = listEvidence(db, 'nav-7')
+    expect(ev.filter((e) => e.meta.extractedFrom)).toHaveLength(0)
+    expect(ev.some((e) => e.artifactType === 'archive')).toBe(true)
   })
 })
 
