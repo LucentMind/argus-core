@@ -4,13 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TourCompanion } from '../TourCompanion'
 import { tourStore } from '../../../lib/tourStore'
 import { composerDraft } from '../../../lib/composerDraft'
-import { defaultSettings, type AppSettings } from '../../../../../shared/settings'
-
-function withIntegrations(mut: (s: AppSettings) => void): AppSettings {
-  const s = defaultSettings()
-  mut(s)
-  return s
-}
+import { defaultSettings } from '../../../../../shared/settings'
 
 let emitAgentEvent: ((e: unknown) => void) | null = null
 
@@ -80,8 +74,9 @@ describe('TourCompanion', () => {
     // The agent finishes writing the memory on the sample case.
     act(() => writeMemoryDone('sample-onboarding'))
 
-    // Phase B: navigate to Settings and drop the stage-prompt affordance.
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('settings'))
+    // Phase B: navigate to the Memory settings PAGE (not just "settings") and
+    // drop the stage-prompt affordance.
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('settings', 'memory'))
     expect(screen.getByText(/just stored/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /stage prompt/i })).toBeNull()
   })
@@ -98,11 +93,56 @@ describe('TourCompanion', () => {
     )
     act(() => writeMemoryDone('some-other-case'))
     // Still on the case view (phase A); no settings navigation triggered.
-    expect(onNavigate).not.toHaveBeenCalledWith('settings')
+    expect(onNavigate.mock.calls.some((c) => c[0] === 'settings')).toBe(false)
     expect(screen.getByRole('button', { name: /stage prompt/i })).toBeTruthy()
   })
 
-  it('references step shows the explain card when Confluence is not configured', () => {
+  it('the Proposals step opens the Proposals settings page (not just "settings")', () => {
+    const onNavigate = vi.fn()
+    act(() => tourStore.goto(1)) // proposals = second step
+    render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={onNavigate}
+        onExit={vi.fn()}
+      />
+    )
+    // The bug: a settings step used to land on the default (General) page,
+    // ringing the right tab but showing the wrong pane. It must open the
+    // named page.
+    expect(onNavigate).toHaveBeenCalledWith('settings', 'proposals')
+  })
+
+  it('re-navigates to each page when stepping between two settings steps', () => {
+    const onNavigate = vi.fn()
+    act(() => tourStore.goto(1)) // proposals
+    const { rerender } = render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={onNavigate}
+        onExit={vi.fn()}
+      />
+    )
+    expect(onNavigate).toHaveBeenCalledWith('settings', 'proposals')
+
+    // Advance to the Library step — still a settings step, but a DIFFERENT page.
+    // The anti-flicker guard must not swallow this: keying on view alone left
+    // every later settings step stranded on the first page.
+    act(() => tourStore.goto(2)) // skills -> Library page
+    rerender(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={onNavigate}
+        onExit={vi.fn()}
+      />
+    )
+    expect(onNavigate).toHaveBeenCalledWith('settings', 'library')
+  })
+
+  it('HiveMind step shows the explain card when no repo is configured', () => {
     render(
       <TourCompanion
         sampleSlug="sample-onboarding"
@@ -111,40 +151,22 @@ describe('TourCompanion', () => {
         onExit={vi.fn()}
       />
     )
-    // advance to references (index 2)
-    act(() => tourStore.goto(2))
-    expect(screen.getByText(/Connect Confluence/i)).toBeTruthy()
-  })
-
-  it('references step shows live narration when Confluence IS configured', () => {
-    const s = withIntegrations((x) => {
-      x.onboarding.integrations.confluence = true
-    })
-    render(
-      <TourCompanion
-        sampleSlug="sample-onboarding"
-        settings={s}
-        onNavigate={vi.fn()}
-        onExit={vi.fn()}
-      />
-    )
-    act(() => tourStore.goto(2))
-    expect(screen.getByText(/synced references/i)).toBeTruthy()
+    act(() => tourStore.goto(3)) // hivemind = last step
+    expect(screen.getByText(/Settings > Team/i)).toBeTruthy()
   })
 
   it('navigates a settings step exactly once even as onNavigate identity churns (flicker regression)', () => {
     // Repro of the case<->settings flicker: OnboardingProvider passes a fresh
     // inline onNavigate every render, so the nav effect saw a new dependency on
-    // each render and re-fired. On a settings step that re-fire hit the
-    // openSettings(undefined) toggle, oscillating case<->settings forever. The
-    // effect must navigate only when the effective view actually CHANGES.
+    // each render and re-fired. The effect must navigate only when the effective
+    // destination (view + page) actually CHANGES.
     const spy = vi.fn()
-    act(() => tourStore.goto(1)) // skills = a settings-view step
+    act(() => tourStore.goto(1)) // proposals = a settings-view step
     const { rerender } = render(
       <TourCompanion
         sampleSlug="sample-onboarding"
         settings={defaultSettings()}
-        onNavigate={(v) => spy(v)}
+        onNavigate={(v, p) => spy(v, p)}
         onExit={vi.fn()}
       />
     )
@@ -155,7 +177,7 @@ describe('TourCompanion', () => {
         <TourCompanion
           sampleSlug="sample-onboarding"
           settings={defaultSettings()}
-          onNavigate={(v) => spy(v)}
+          onNavigate={(v, p) => spy(v, p)}
           onExit={vi.fn()}
         />
       )

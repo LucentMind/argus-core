@@ -4,7 +4,19 @@ import { markTourDone } from '../../lib/onboardingStore'
 import { composerDraft } from '../../lib/composerDraft'
 import { Coachmark } from './Coachmark'
 import type { AppSettings } from '../../../../shared/settings'
-import type { TourStep } from './tourSteps'
+import type { TourStep, TourTarget } from './tourSteps'
+import type { SettingsDeepLink } from '../settings/SettingsView'
+
+// Each settings-view step spotlights a specific page. Threading this id through
+// onNavigate is what actually OPENS the page — without it a settings step lands
+// on the default (General) pane, ringing the right tab but showing the wrong
+// content (the "marked but not opened" bug).
+const SETTINGS_PAGE: Partial<Record<TourTarget, SettingsDeepLink>> = {
+  'settings-memory': 'memory',
+  'settings-proposals': 'proposals',
+  'settings-library': 'library',
+  'settings-team': 'team'
+}
 
 export function TourCompanion({
   sampleSlug,
@@ -14,7 +26,7 @@ export function TourCompanion({
 }: {
   sampleSlug: string
   settings: AppSettings
-  onNavigate: (view: 'case' | 'settings') => void
+  onNavigate: (view: 'case' | 'settings', page?: SettingsDeepLink) => void
   onExit: () => void
 }): React.JSX.Element | null {
   const { open, index } = useTour()
@@ -46,20 +58,23 @@ export function TourCompanion({
   const effView = showReveal && reveal ? reveal.view : step?.view
   const effTarget = showReveal && reveal ? reveal.target : step?.target
   const effNarration = showReveal && reveal ? reveal.narration : step?.narration
+  const effPage = effView === 'settings' && effTarget ? SETTINGS_PAGE[effTarget] : undefined
 
-  // Navigate to the effective view whenever it CHANGES — keyed on the view we
-  // last drove to, not on render/dependency churn. onNavigate identity is
-  // unstable (the provider passes a fresh inline arrow each render), so firing
-  // on every render would loop: navigate -> parent setView -> re-render -> new
-  // onNavigate -> fire again. On a settings step that loop crossed the
-  // openSettings toggle and oscillated case<->settings (the tour flicker).
-  const lastNavView = useRef<'case' | 'settings' | null>(null)
+  // Navigate to the effective destination whenever it CHANGES — keyed on the
+  // view+page we last drove to, not on render/dependency churn. onNavigate
+  // identity is unstable (the provider passes a fresh inline arrow each render),
+  // so firing every render would loop: navigate -> parent setView -> re-render
+  // -> new onNavigate -> fire again (the case<->settings flicker). Keying on
+  // page as well as view is what lets consecutive settings steps re-navigate:
+  // keying on view alone stranded every step after the first on one page.
+  const navKey = effView ? `${effView}:${effPage ?? ''}` : null
+  const lastNavKey = useRef<string | null>(null)
   useEffect(() => {
-    if (!open || !step || !effView) return
-    if (lastNavView.current === effView) return
-    lastNavView.current = effView
-    onNavigate(effView)
-  }, [open, step, effView, onNavigate])
+    if (!open || !step || !effView || !navKey) return
+    if (lastNavKey.current === navKey) return
+    lastNavKey.current = navKey
+    onNavigate(effView, effPage)
+  }, [open, step, effView, effPage, navKey, onNavigate])
 
   if (!open || !step) return null
 
