@@ -30,13 +30,6 @@ export class ArchiveLimitError extends Error {
 
 const RATIO_FLOOR = 1_000_000 // only enforce ratio once an entry exceeds ~1 MB out
 
-// True if the archive-relative name would escape the extraction root.
-function isTraversal(name: string): boolean {
-  if (name.startsWith('/') || name.startsWith('\\')) return true
-  if (/^[a-zA-Z]:/.test(name)) return true
-  return name.split(/[/\\]/).some((seg) => seg === '..')
-}
-
 // Unix symlink bit lives in the top 16 bits of externalFileAttributes.
 function isSymlink(entry: yauzl.Entry): boolean {
   const mode = (entry.externalFileAttributes >>> 16) & 0o170000
@@ -81,8 +74,14 @@ async function streamEntry(zipfile: yauzl.ZipFile, entry: yauzl.Entry, ctx: Ctx)
 
 // Walk one zip file; recurse into nested zips until depth === maxDepth.
 async function walk(zipPath: string, depth: number, prefix: string, ctx: Ctx): Promise<void> {
+  // decodeStrings:true (yauzl's default, pinned explicitly) makes yauzl run
+  // validateFileName on every entry, which rejects path-traversal / absolute /
+  // drive-letter names before an 'entry' event fires; the 'error' handler below
+  // translates that into ArchiveLimitError('traversal'). Do NOT set
+  // decodeStrings:false without restoring an explicit pre-parse traversal check
+  // — raw Buffer names skip validation.
   const zipfile = await new Promise<yauzl.ZipFile>((res, rej) =>
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zf) =>
+    yauzl.open(zipPath, { lazyEntries: true, decodeStrings: true }, (err, zf) =>
       err || !zf ? rej(err ?? new Error('open failed')) : res(zf)
     )
   )
@@ -93,10 +92,6 @@ async function walk(zipPath: string, depth: number, prefix: string, ctx: Ctx): P
         void (async () => {
           if (/\/$/.test(entry.fileName)) return zipfile.readEntry() // directory
           if (isSymlink(entry)) return zipfile.readEntry()
-          if (isTraversal(entry.fileName))
-            return reject(
-              new ArchiveLimitError('traversal', `illegal entry name: ${entry.fileName}`)
-            )
           if (++ctx.count > ctx.limits.maxEntries)
             return reject(new ArchiveLimitError('entries', 'archive exceeds entry-count cap'))
           const inner = prefix ? `${prefix}/${entry.fileName}` : entry.fileName
@@ -117,10 +112,8 @@ async function walk(zipPath: string, depth: number, prefix: string, ctx: Ctx): P
       })
       zipfile.on('end', resolve)
       zipfile.on('error', (err: Error) => {
-        // yauzl validates entry names itself (decodeStrings defaults to true) and
-        // rejects traversal/absolute paths before ever emitting 'entry', so the
-        // isTraversal() check above never runs for those cases. Recognize yauzl's
-        // own validation errors and surface them as ArchiveLimitError too.
+        // Translate yauzl's own validateFileName errors (see the comment on the
+        // yauzl.open call above) into our ArchiveLimitError('traversal').
         if (/^(invalid relative path|absolute path):/.test(err.message))
           return reject(new ArchiveLimitError('traversal', err.message))
         reject(err)

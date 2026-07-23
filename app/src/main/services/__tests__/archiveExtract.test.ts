@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Zip } from 'zip-lib'
 import { ZipFile } from 'yazl'
 import { extractZipToTemp, type ArchiveLimits } from '../archiveExtract'
 
@@ -22,19 +21,8 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-// Build a zip at `zipPath` from {archivePath: contents} using zip-lib.
-async function makeZip(zipPath: string, files: Record<string, string | Buffer>): Promise<void> {
-  const zip = new Zip()
-  const srcDir = fs.mkdtempSync(path.join(tmp, 'src-'))
-  for (const [name, body] of Object.entries(files)) {
-    const p = path.join(srcDir, path.basename(name))
-    fs.writeFileSync(p, body)
-    zip.addFile(p, name) // second arg = path inside the archive
-  }
-  await zip.archive(zipPath)
-}
-
-// Minimal raw-zip writer for adversarial entry names zip-lib won't produce.
+// Minimal raw-zip writer, used both for ordinary fixtures (files + directory
+// entries) and for adversarial entry names an ordinary zip library won't produce.
 // Note: yazl 3.3.1's own `validateMetadataPath` rejects '..' path segments
 // (verified against node_modules/yazl/index.js), so we can't pass the evil
 // name straight to addBuffer. Instead we write a same-length placeholder
@@ -51,7 +39,8 @@ function toPlaceholderName(name: string): string {
 
 async function makeZipRaw(
   zipPath: string,
-  entries: Array<{ name: string; body: string }>
+  entries: Array<{ name: string; body: string }>,
+  directories: string[] = []
 ): Promise<void> {
   const zf = new ZipFile()
   const swaps = entries.map((e) => {
@@ -60,6 +49,7 @@ async function makeZipRaw(
     zf.addBuffer(Buffer.from(e.body), placeholder)
     return { placeholder, real: e.name }
   })
+  for (const dir of directories) zf.addEmptyDirectory(dir)
   const chunks: Buffer[] = []
   await new Promise<void>((res, rej) => {
     zf.outputStream.on('data', (c: Buffer) => chunks.push(c))
@@ -75,18 +65,29 @@ async function makeZipRaw(
 describe('extractZipToTemp', () => {
   it('stages every file entry, skipping directory entries', async () => {
     const zipPath = path.join(tmp, 'a.zip')
-    await makeZip(zipPath, { 'logs/app.log': 'hello', 'notes.txt': 'world' })
+    // Include a standalone empty-directory entry (via yazl's addEmptyDirectory)
+    // so the 'entry' handler's directory-skip branch is actually exercised —
+    // zip-lib-built archives never emit one on their own.
+    await makeZipRaw(
+      zipPath,
+      [
+        { name: 'logs/app.log', body: 'hello' },
+        { name: 'notes.txt', body: 'world' }
+      ],
+      ['logs/']
+    )
     const out = path.join(tmp, 'out')
     fs.mkdirSync(out)
     const { entries } = await extractZipToTemp(zipPath, out, LIMITS)
     const byInner = Object.fromEntries(entries.map((e) => [e.innerPath, e]))
     expect(Object.keys(byInner).sort()).toEqual(['logs/app.log', 'notes.txt'])
+    expect(byInner['logs/']).toBeUndefined()
     expect(fs.readFileSync(byInner['logs/app.log'].tempPath, 'utf8')).toBe('hello')
     expect(entries.every((e) => e.depth === 0)).toBe(true)
   })
 
   it('rejects an entry whose name escapes the output dir', async () => {
-    // zip-lib refuses '../' names, so write a hand-crafted entry name via yazl.
+    // A hand-crafted entry name via yazl (see makeZipRaw above).
     const evil = path.join(tmp, 'evil2.zip')
     await makeZipRaw(evil, [{ name: '../escape.txt', body: 'pwned' }])
     const out = path.join(tmp, 'o2')
