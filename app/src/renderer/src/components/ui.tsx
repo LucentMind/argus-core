@@ -205,26 +205,34 @@ export function MenuButton({
                   </span>
                 </button>
                 {openSub === i && (
-                  <div
-                    role="menu"
-                    className="absolute left-full top-0 z-40 ml-1 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
-                  >
-                    {it.children.map((sub, j) => (
-                      <button
-                        key={`${j}-${sub.label}`}
-                        role="menuitem"
-                        disabled={sub.disabled}
-                        className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
-                          sub.tone === 'danger' ? 'text-danger' : 'text-ink'
-                        }`}
-                        onClick={() => {
-                          setOpen(false)
-                          sub.onSelect?.()
-                        }}
-                      >
-                        {sub.label}
-                      </button>
-                    ))}
+                  // Outer wrapper abuts the parent button (left-full, no margin) and
+                  // carries the 4px offset as transparent left padding, so the gap
+                  // between row and panel is a *hoverable* strip that keeps the pointer
+                  // inside this DOM subtree. A bare `ml-1` margin leaves the pointer
+                  // over neither element mid-cross, firing the parent's onMouseLeave
+                  // and closing the submenu before it can be reached.
+                  <div className="absolute left-full top-0 z-40 pl-1">
+                    <div
+                      role="menu"
+                      className="min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
+                    >
+                      {it.children.map((sub, j) => (
+                        <button
+                          key={`${j}-${sub.label}`}
+                          role="menuitem"
+                          disabled={sub.disabled}
+                          className={`${MENU_ITEM_BASE} disabled:opacity-50 ${
+                            sub.tone === 'danger' ? 'text-danger' : 'text-ink'
+                          }`}
+                          onClick={() => {
+                            setOpen(false)
+                            sub.onSelect?.()
+                          }}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
