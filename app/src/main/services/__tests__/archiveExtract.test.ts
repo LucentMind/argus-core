@@ -39,7 +39,7 @@ function toPlaceholderName(name: string): string {
 
 async function makeZipRaw(
   zipPath: string,
-  entries: Array<{ name: string; body: string }>,
+  entries: Array<{ name: string; body: string | Buffer }>,
   directories: string[] = []
 ): Promise<void> {
   const zf = new ZipFile()
@@ -60,6 +60,14 @@ async function makeZipRaw(
   let raw = Buffer.concat(chunks).toString('binary')
   for (const { placeholder, real } of swaps) raw = raw.split(placeholder).join(real)
   fs.writeFileSync(zipPath, Buffer.from(raw, 'binary'))
+}
+
+// Object-map convenience over makeZipRaw; supports Buffer bodies for size/ratio fixtures.
+async function makeZip(zipPath: string, files: Record<string, string | Buffer>): Promise<void> {
+  await makeZipRaw(
+    zipPath,
+    Object.entries(files).map(([name, body]) => ({ name, body }))
+  )
 }
 
 describe('extractZipToTemp', () => {
@@ -93,5 +101,47 @@ describe('extractZipToTemp', () => {
     const out = path.join(tmp, 'o2')
     fs.mkdirSync(out)
     await expect(extractZipToTemp(evil, out, LIMITS)).rejects.toMatchObject({ kind: 'traversal' })
+  })
+})
+
+describe('extractZipToTemp caps', () => {
+  it('throws entry-bytes when a single entry exceeds the per-entry cap', async () => {
+    const zipPath = path.join(tmp, 'big.zip')
+    await makeZip(zipPath, { 'big.bin': Buffer.alloc(2048, 0x41) }) // 2 KB of 'A'
+    const out = path.join(tmp, 'ob')
+    fs.mkdirSync(out)
+    await expect(
+      extractZipToTemp(zipPath, out, { ...LIMITS, maxEntryBytes: 1024 })
+    ).rejects.toMatchObject({ kind: 'entry-bytes' })
+  })
+
+  it('throws total-bytes when the sum across entries exceeds the total cap', async () => {
+    const zipPath = path.join(tmp, 'sum.zip')
+    await makeZip(zipPath, { 'a.bin': Buffer.alloc(800, 1), 'b.bin': Buffer.alloc(800, 2) })
+    const out = path.join(tmp, 'os')
+    fs.mkdirSync(out)
+    await expect(
+      extractZipToTemp(zipPath, out, { ...LIMITS, maxTotalBytes: 1000 })
+    ).rejects.toMatchObject({ kind: 'total-bytes' })
+  })
+
+  it('throws entries when the file-count cap is exceeded', async () => {
+    const zipPath = path.join(tmp, 'many.zip')
+    await makeZip(zipPath, { 'a.txt': 'a', 'b.txt': 'b', 'c.txt': 'c' })
+    const out = path.join(tmp, 'om')
+    fs.mkdirSync(out)
+    await expect(
+      extractZipToTemp(zipPath, out, { ...LIMITS, maxEntries: 2 })
+    ).rejects.toMatchObject({ kind: 'entries' })
+  })
+
+  it('throws ratio for a highly compressible entry above the ratio floor', async () => {
+    const zipPath = path.join(tmp, 'bomb.zip')
+    await makeZip(zipPath, { 'zeros.bin': Buffer.alloc(2 * 1024 * 1024, 0) }) // 2 MB zeros
+    const out = path.join(tmp, 'or')
+    fs.mkdirSync(out)
+    await expect(extractZipToTemp(zipPath, out, { ...LIMITS, maxRatio: 5 })).rejects.toMatchObject({
+      kind: 'ratio'
+    })
   })
 })
