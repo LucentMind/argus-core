@@ -446,13 +446,16 @@ export function LibraryPage({
             title={GROUP_TITLE[g]}
             count={groupSkills.length + groupRefs.length}
             collapsed={isCollapsed}
-            onToggle={() =>
-              setCollapsedGroups((prev) => {
-                const next = new Set(prev)
-                if (next.has(g)) next.delete(g)
-                else next.add(g)
-                return next
-              })
+            onToggle={
+              filtering
+                ? undefined
+                : () =>
+                    setCollapsedGroups((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(g)) next.delete(g)
+                      else next.add(g)
+                      return next
+                    })
             }
           >
             {empty && <div className="px-3 py-2 text-xs text-dim">{GROUP_EMPTY[g]}</div>}

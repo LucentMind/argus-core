@@ -200,4 +200,17 @@ describe('LibraryPage filters', () => {
     fireEvent.change(screen.getByLabelText('search library'), { target: { value: 'zzz' } })
     expect(await screen.findByText('No matches.')).toBeInTheDocument()
   })
+
+  it('group toggle is inert while filtering — no silent collapse for later', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    fireEvent.change(screen.getByLabelText('search library'), { target: { value: 'rca' } })
+    await screen.findByText('rca')
+    // while filtering, the section header is not a toggle button
+    expect(screen.queryByRole('button', { name: 'Toggle section · User' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('search library'), { target: { value: '' } })
+    // after clearing, the group is still expanded and the toggle is back
+    expect(await screen.findByText('rca')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle section · User' })).toBeInTheDocument()
+  })
 })
