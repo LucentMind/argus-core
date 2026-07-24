@@ -56,6 +56,16 @@ function withCopilot(p: SettingsPayload): void {
   }
 }
 
+/** Adds Copilot- and Codex-backed instances so every registered driver is present. */
+function withEveryDriver(p: SettingsPayload): void {
+  withCopilot(p)
+  p.settings.agent.providerInstances['codex-1'] = {
+    driver: 'codex',
+    enabled: true,
+    config: {}
+  }
+}
+
 describe('AgentSettings provider list', () => {
   it('renders one row per instance in a single section — no separate detail card', async () => {
     render(<AgentSettings payload={payload(withCopilot)} />)
@@ -274,8 +284,8 @@ describe('AgentSettings add provider', () => {
   })
 
   it('hides the add affordance once every driver is present', async () => {
-    render(<AgentSettings payload={payload(withCopilot)} />)
-    await screen.findByTestId('provider-label-copilot-1')
+    render(<AgentSettings payload={payload(withEveryDriver)} />)
+    await screen.findByTestId('provider-label-codex-1')
     expect(screen.queryByLabelText('Add provider')).toBeNull()
   })
 })
