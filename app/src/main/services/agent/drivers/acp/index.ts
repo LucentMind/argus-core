@@ -278,6 +278,16 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
             if (isFatal(item)) throw item.__fatal
             const raw = item
 
+            // A synthesized signal that the underlying session has ended — not a real ACP
+            // `session/update` variant (none of the 8 documented variants carries this;
+            // EVIDENCE.md gap). Mirrors Copilot's `session.shutdown` handling: end the
+            // stream cleanly rather than hang forever awaiting a `session/update` that will
+            // never arrive. Nothing in production emits this today (client.ts has no
+            // child-process-exit wiring yet — flagged follow-up); reserved for a caller
+            // (a future exit-signal wire-up, or a scripted transport) that pushes it via the
+            // per-session `onUpdate` callback once it knows no more updates are coming.
+            if (raw?.type === 'session.ended') return
+
             // A typed auth error drives the auth verdict; the stream continues (mirrors
             // Copilot's non-fatal session.error+authFailure path).
             const authResult = norm.authErrorResult(raw)
