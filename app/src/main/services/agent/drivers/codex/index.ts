@@ -109,7 +109,7 @@ export function createCodexDriver(
     kind: 'codex',
     toolTaxonomy: CODEX_TOOL_TAXONOMY,
     authFixHint:
-      'Sign in to Codex with `codex login` (an OpenAI/ChatGPT account with Codex access).',
+      'Sign in to Codex with `codex login` (an OpenAI/ChatGPT account with Codex access), or set OPENAI_API_KEY.',
     npmPackage: '@openai/codex',
     updateCommand: 'npm install -g @openai/codex@latest',
     capabilities: {
@@ -217,13 +217,17 @@ export function createCodexDriver(
       // Async session bootstrap. Any init failure (bad runtime, resume rejection that isn't
       // recoverable) propagates out of events() as a fatal item.
       const ready: Promise<void> = (async () => {
+        // No override ⇒ leave CODEX_HOME unset so `codex` falls back to its own default
+        // (`~/.codex`, where a plain `codex login` writes auth.json) — see home.ts. Only an
+        // opt-in per-instance override pins CODEX_HOME to a separate dir.
+        const home = codexHome(codexHomeOverride)
         client = clientFactory({
           spawn: {
             command: config.cliPath ?? 'codex',
             args: ['app-server'],
             env: {
               ...process.env,
-              CODEX_HOME: codexHome(ctx.nativeToolDeps.argusHome, codexHomeOverride)
+              ...(home ? { CODEX_HOME: home } : {})
             }
           }
         })
@@ -373,27 +377,19 @@ export function createCodexDriver(
       let timer: ReturnType<typeof setTimeout> | undefined
       let timedOut = false
       try {
-        // Codex auth (`auth.json`) is CODEX_HOME-scoped, so the probe must resolve the SAME
-        // CODEX_HOME a real session would use — `codexHome(argusHome, codexHomeOverride)` —
-        // or it reports "not authenticated" even when the instance is signed in. But
-        // `argusHome` genuinely isn't reachable here: probeAuth's own config is
-        // `{cliPath?, timeoutMs?}` (driver.ts), and `createCodexDriver`'s config/deps carry
-        // no argusHome either — every call site (driverRegistry.ts, providerStatus.ts)
-        // constructs/invokes the driver without one. So the only thing this probe CAN honor
-        // is a per-instance `codexHome` override (matches a session's override); absent that,
-        // leave CODEX_HOME exactly as inherited from process.env (i.e. force nothing) so
+        // Codex auth (`auth.json`) is CODEX_HOME-scoped, so the probe must resolve CODEX_HOME
+        // identically to a real session/headless run — via the same `codexHome()` helper — or
+        // the three could disagree on auth state. No override ⇒ leave CODEX_HOME unset so
         // `codex` falls back to ITS OWN default (`~/.codex`, where a plain `codex login`
-        // writes) — never a scratch dir like `os.tmpdir()`, which would always read as
-        // signed-out regardless of real auth state.
-        // LIMITATION: a per-instance CODEX_HOME override configured via `codexHomeOverride`
-        // (not `argusHome`-derived) is the only case this probe can match precisely; a
-        // session's default (argusHome-derived) CODEX_HOME cannot be reproduced from here
-        // until probeAuth's contract threads argusHome through.
+        // writes) — never a scratch dir, which would always read as signed-out regardless of
+        // real auth state. An override ⇒ CODEX_HOME pinned to that dir, matching the session
+        // path for the same instance.
+        const home = codexHome(codexHomeOverride)
         client = clientFactory({
           spawn: {
             command: config2.cliPath ?? config.cliPath ?? 'codex',
             args: ['app-server'],
-            env: { ...process.env, ...(codexHomeOverride ? { CODEX_HOME: codexHomeOverride } : {}) }
+            env: { ...process.env, ...(home ? { CODEX_HOME: home } : {}) }
           }
         })
         const c = client

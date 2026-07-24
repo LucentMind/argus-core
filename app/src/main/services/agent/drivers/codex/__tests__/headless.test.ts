@@ -84,14 +84,14 @@ describe('codex runCodexHeadless', () => {
     expect(c.forceStop).not.toHaveBeenCalled()
   })
 
-  it('spawns codex app-server with CODEX_HOME derived from argusHome, and declines current-gen server requests', async () => {
+  it("spawns codex app-server with CODEX_HOME left unset (falls back to codex's own ~/.codex default), and declines current-gen server requests", async () => {
     const c = scriptedClient()
     driveHappyPath(c, ['ok'])
     await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
     const spawn = c.spawnArgs()
     expect(spawn?.command).toBe('codex')
     expect(spawn?.args).toEqual(['app-server'])
-    expect(spawn?.env.CODEX_HOME).toMatch(/codex-home$/)
+    expect(spawn?.env).not.toHaveProperty('CODEX_HOME')
 
     const decision = await c.serverRequest()?.({
       id: 7,
