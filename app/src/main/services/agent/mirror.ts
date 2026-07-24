@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { SessionMirrorLike } from './session'
+import { insertMessageFts } from '../ftsIndex'
 
 /** Replay a single session's mirror JSONL file (transcript history) in write order. */
 export function readSessionEvents(caseDir: string, sessionId: number): AgentEvent[] {
@@ -55,11 +56,7 @@ export class SessionMirror implements SessionMirrorLike {
 
   indexText(role: string, content: string, turnId: number | null): void {
     if (!content.trim()) return
-    this.db
-      .prepare(
-        `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES (?, ?, ?, ?, ?)`
-      )
-      .run(content, this.ids.caseId, this.ids.sessionId, turnId, role)
+    insertMessageFts(this.db, content, this.ids.caseId, this.ids.sessionId, turnId, role)
   }
 
   close(): void {

@@ -12,6 +12,7 @@ import type {
 import { deriveActionItems, triageRank } from '../../shared/triage'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
+import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -466,9 +467,10 @@ export function maybeAdvanceToAnalyzing(db: DatabaseSync, argusHome: string, cas
 }
 
 /**
- * Hard-delete a case. Order: FTS rows (evidence_fts has no case_id — clean it
- * via the evidence subquery BEFORE the cascade destroys those rows) → cases
- * row (FK cascade takes evidence/sessions/turns/tool_calls/findings) → distill
+ * Hard-delete a case. Order: FTS rows (evidence_fts/messages_fts have no FK — the
+ * evidence map lookup joins evidence rows, so clean it BEFORE the cascade destroys
+ * those rows) → cases row (FK cascade takes evidence/sessions/turns/tool_calls/
+ * findings; their case_id columns are now indexed) → distill
  * tables (case_summaries, case_summaries_fts, distill_jobs — keyed by
  * case_slug, not case_id, so the cascade above doesn't touch them) → audit →
  * case directory. Callers must first stop live sessions
@@ -495,10 +497,10 @@ export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): v
   }
   db.exec('BEGIN')
   try {
-    db.prepare(
-      `DELETE FROM evidence_fts WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
-    ).run(rec.id)
-    db.prepare(`DELETE FROM messages_fts WHERE case_id = ?`).run(rec.id)
+    // FTS rows resolve through the map by rowid (ftsIndex.ts) — must run BEFORE the
+    // cascade below deletes the evidence rows the evidence map lookup joins against.
+    deleteEvidenceFtsForCase(db, rec.id)
+    deleteMessagesFtsForCase(db, rec.id)
     db.prepare(`DELETE FROM cases WHERE id = ?`).run(rec.id)
     db.prepare(`DELETE FROM case_summaries WHERE case_slug = ?`).run(slug)
     db.prepare(`DELETE FROM case_summaries_fts WHERE case_slug = ?`).run(slug)

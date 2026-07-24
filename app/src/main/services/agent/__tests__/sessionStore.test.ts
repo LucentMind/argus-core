@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
+import { insertMessageFts } from '../../ftsIndex'
 import {
   listSessions,
   createSession,
@@ -122,12 +123,8 @@ describe('sessionStore', () => {
       `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, risk, decision, created_at)
        VALUES (?, ?, 'Read', 'h', 'low', 'allow', ?)`
     ).run(caseId, s.id, now)
-    db.prepare(
-      `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES ('hello', ?, ?, 1, 'user')`
-    ).run(caseId, s.id)
-    db.prepare(
-      `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES ('other', ?, ?, 1, 'user')`
-    ).run(caseId, keep.id)
+    insertMessageFts(db, 'hello', caseId, s.id, 1, 'user')
+    insertMessageFts(db, 'other', caseId, keep.id, 1, 'user')
     const jsonl = path.join(argusHome, 'cases', 'NAV-1', 'sessions', `${s.id}.jsonl`)
     fs.mkdirSync(path.dirname(jsonl), { recursive: true })
     fs.writeFileSync(jsonl, '{"type":"x"}\n')

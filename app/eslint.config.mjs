@@ -9,7 +9,15 @@ export default defineConfig(
   // Plain Node .mjs spike scripts (Phase-2 Copilot SDK capture harness) live
   // outside the TS project and are not built; exclude them from the
   // TypeScript-oriented lint rules (e.g. explicit-function-return-type).
-  { ignores: ['**/node_modules', '**/dist', '**/out', 'scripts/spike-copilot/**'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      'scripts/spike-copilot/**',
+      'scripts/testscript/**'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],

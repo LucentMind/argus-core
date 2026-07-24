@@ -5,6 +5,7 @@ import type { SessionSummary } from '../../../shared/types'
 import { getCase } from '../caseService'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
+import { deleteMessagesFtsForSession } from '../ftsIndex'
 
 const TITLE_MAX = 40
 
@@ -205,7 +206,7 @@ export function deleteSession(
   }
   db.exec('BEGIN')
   try {
-    db.prepare(`DELETE FROM messages_fts WHERE session_id = ?`).run(sessionId)
+    deleteMessagesFtsForSession(db, sessionId)
     db.prepare(`DELETE FROM tool_calls WHERE session_id = ?`).run(sessionId)
     db.prepare(`DELETE FROM turns WHERE session_id = ?`).run(sessionId)
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId)

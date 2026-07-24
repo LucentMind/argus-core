@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { backfillFtsMaps } from './ftsIndex'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS cases (
@@ -113,6 +114,33 @@ CREATE TABLE IF NOT EXISTS case_summaries (
 CREATE VIRTUAL TABLE IF NOT EXISTS case_summaries_fts USING fts5(
   signature, symptoms, root_cause, fix, keywords, case_slug UNINDEXED
 );
+-- Foreign-key indexes. With PRAGMA foreign_keys=ON, an ON DELETE CASCADE on the
+-- parent (cases) forces SQLite to find matching child rows; without an index on
+-- the child's FK column that is a FULL TABLE SCAN per cascade, so deleting one
+-- case scanned all of tool_calls/turns/sessions/findings. evidence(case_id) is
+-- already covered by its UNIQUE(case_id, rel_path). session_id indexes serve the
+-- per-session deletes/lookups (deleteSession, chat search).
+CREATE INDEX IF NOT EXISTS idx_sessions_case_id      ON sessions(case_id);
+CREATE INDEX IF NOT EXISTS idx_turns_case_id         ON turns(case_id);
+CREATE INDEX IF NOT EXISTS idx_turns_session_id      ON turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_case_id    ON tool_calls(case_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id);
+CREATE INDEX IF NOT EXISTS idx_findings_case_id      ON findings(case_id);
+-- key -> fts rowid side tables (see ftsIndex.ts): the FTS key columns are
+-- UNINDEXED, so deleting by them scanned the whole index. These let deletes
+-- resolve rowids by index and delete each by rowid.
+CREATE TABLE IF NOT EXISTS evidence_fts_map (
+  fts_rowid INTEGER PRIMARY KEY,
+  evidence_id INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_fts_map_evidence_id ON evidence_fts_map(evidence_id);
+CREATE TABLE IF NOT EXISTS messages_fts_map (
+  fts_rowid INTEGER PRIMARY KEY,
+  case_id INTEGER NOT NULL,
+  session_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_messages_fts_map_case_id    ON messages_fts_map(case_id);
+CREATE INDEX IF NOT EXISTS idx_messages_fts_map_session_id ON messages_fts_map(session_id);
 `
 
 export function openDb(file: string): DatabaseSync {
@@ -214,5 +242,8 @@ export function openDb(file: string): DatabaseSync {
     // have one (see agent/toolDetail.ts); NULL for everything else.
     db.exec(`ALTER TABLE tool_calls ADD COLUMN detail TEXT`)
   }
+  // Populate the FTS map tables for DBs that already held FTS rows before the
+  // side-table fix landed (one-time; gated on the maps being empty).
+  backfillFtsMaps(db)
   return db
 }
