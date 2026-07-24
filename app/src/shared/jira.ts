@@ -37,6 +37,10 @@ export interface JiraAttachmentProgress {
   status: 'downloading' | 'done' | 'error'
   evidenceId?: number
   error?: string
+  /** For a zip archive: number of inner files extracted and ingested. */
+  extractedCount?: number
+  /** For a zip archive: set when extraction was aborted (cap breach / corrupt). */
+  extractError?: string
 }
 
 export interface JiraRefreshSummary {
