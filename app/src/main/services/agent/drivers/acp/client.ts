@@ -95,10 +95,12 @@ export interface AcpSessionLike {
    *  forwarded (same shape as the factory-level `onUpdate` below), scoped to this session's
    *  `sessionId`. */
   onUpdate(cb: (update: AcpSessionUpdate) => void): void
-  /** Send a raw `session/set_model` request. OPTIONAL: Task 6's driver calls it only when
+  /** Select a model post-init. OPTIONAL: Task 6's driver calls it only when
    *  `profile.selectModelAfterStart` is set and no-ops (via optional chaining) when absent.
-   *  Task 7 implements the real request in `defaultAcpClientFactory`; leaving it unimplemented
-   *  here is a safe no-op, not a broken contract. */
+   *  `defaultAcpClientFactory` provides a DOCUMENTED NO-OP impl: the real `session/set_model`
+   *  request is unsendable in `@zed…@0.4.5` (the lib's `setSessionModel` mis-sends
+   *  `session/set_mode` and there is no public `sendRequest`) — see the impl's comment for the
+   *  full rationale and re-enable path. So this is intentionally inert, not a broken contract. */
   setModel?(model: string): Promise<void>
 }
 
