@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import { openDb } from '../db'
 import {
   insertMessageFts,
@@ -14,9 +14,9 @@ import {
 } from '../ftsIndex'
 
 let tmp: string, db: DatabaseSync
-const n = (sql: string, ...p: unknown[]): number =>
+const n = (sql: string, ...p: SQLInputValue[]): number =>
   Number((db.prepare(sql).get(...p) as { n: number }).n)
-const plan = (sql: string, ...p: unknown[]): string =>
+const plan = (sql: string, ...p: SQLInputValue[]): string =>
   (db.prepare('EXPLAIN QUERY PLAN ' + sql).all(...p) as { detail: string }[])
     .map((r) => r.detail)
     .join(' | ')
