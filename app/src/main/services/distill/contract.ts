@@ -4,18 +4,8 @@ import type {
   CaseDistillSummary
 } from '../../../shared/distill'
 
-export const CASE_DISTILL_CONTRACT = `You are distilling a CLOSED root-cause-analysis case into durable knowledge for an RCA toolkit. You produce candidates only — a human reviews every item before anything is applied.
-
-Rules — follow every one:
-1. SUMMARY ONLY IF RECURRENCE-RELEVANT: emit "summary" only when this case could recur or attract near-duplicate defects in the future. Otherwise omit the key entirely.
-2. WEIGHT BY REVIEW STATE: findings marked [accepted] are confirmed; [rejected] means ruled out — usable only as "what turned out to be wrong"; [pending] is unreviewed.
-3. GENERALIZE memory and proposal content: no ticket numbers, customer names, secrets, or case paths. The summary is case-scoped and MAY keep identifiers.
-4. MEMORY = durable cross-case FACTS ("what is true"). PROPOSALS = reusable PROCEDURES ("what to do"). Do not mix them.
-5. TARGET REAL NAMES: skill-edit / reference-edit targets and memory topics must come from the provided indexes; invent names only for skill-new / recipe.
-6. AN EMPTY RESULT IS A VALID RESULT: for duplicate / rejected / not-reproducible closes with nothing generalizable, return {}.
-7. NO DUPLICATE LEARNINGS: the "Knowledge already captured from this case" section lists what was already proposed or recorded during the case. Never re-propose or re-record anything listed there. If everything was already captured, return {}.
-8. PROPOSAL CONTENT IS A COMPLETE FILE: every proposal's "content" is the entire file to save, ready as-is, frontmatter included — never a diff and never a fragment. For skill-edit / reference-edit, take the current file (shown verbatim under "Installed skills" / "References" below), merge your change into it, and return the WHOLE resulting file with every unchanged line preserved exactly. For skill-new / recipe, write the complete new file from scratch.
-9. OUTPUT: exactly one fenced \`\`\`json block containing one JSON object with optional keys "summary" ({signature, symptoms, rootCause, fix, keywords[]}, all required inside), "memoryAppends" ([{"topic" (lowercase letters, digits, hyphens), content, indexEntry? — the description ONLY, never restating the topic name}]), "proposals" ([{type: skill-new|skill-edit|reference-edit|recipe, target, title, content}]). No other keys. "signature" is ONE line. No commentary inside the block.`
+export { CASE_DISTILL_CONTRACT } from './caseDistillContract'
+import { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 
 export function buildCaseDistillPrompt(input: CaseDistillInput): string {
   const m = input.caseMeta
@@ -43,9 +33,11 @@ export function buildCaseDistillPrompt(input: CaseDistillInput): string {
         .map((s) => `## ${s.name} — ${s.description}\n\n${s.content}`)
         .join('\n\n---\n\n') || '(none)'
     }`,
-    `# References (full current content — a reference-edit must return the whole file with its change merged in)\n${
+    `# References (full current content — a reference-edit must return the whole file with its change merged in; NEVER edit a [tier: confluence] reference — see rule 7)\n${
       input.referencesIndex
-        .map((r) => `## ${r.name} — ${r.summary}\n\n${r.content}`)
+        .map(
+          (r) => `## ${r.name} [tier: ${r.tier ?? 'team-knowledge'}] — ${r.summary}\n\n${r.content}`
+        )
         .join('\n\n---\n\n') || '(none)'
     }`,
     `# Knowledge already captured from this case (do NOT repeat)\n${captured}`,

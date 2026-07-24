@@ -31,8 +31,10 @@ export interface CaseDistillInput {
   /** `content` is the full current SKILL.md (frontmatter + body) — a skill-edit must
    *  return the whole file with its change merged in, so the distiller needs it verbatim. */
   skillsIndex: { name: string; description: string; content: string }[]
-  /** `content` is the full current reference file (frontmatter + body), for the same reason. */
-  referencesIndex: { name: string; summary: string; content: string }[]
+  /** `content` is the full current reference file (frontmatter + body), for the same reason.
+   *  `tier` is the reference's trust_tier ('confluence' = auto-synced/overwritten, so never an
+   *  edit target; 'team-knowledge'/null = hand-owned). null when the file has no frontmatter. */
+  referencesIndex: { name: string; summary: string; content: string; tier: string | null }[]
   alreadyCaptured: {
     proposals: {
       type: string
