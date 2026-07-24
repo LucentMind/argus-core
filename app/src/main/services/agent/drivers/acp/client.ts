@@ -250,7 +250,30 @@ export const defaultAcpClientFactory: AcpClientFactory = (opts) => {
       },
       onUpdate(cb: (update: AcpSessionUpdate) => void): void {
         sessionUpdateCallbacks.set(sessionId, cb)
-      }
+      },
+      // DELIBERATE NO-OP, verified against the installed `@zed-industries/agent-client-
+      // protocol@0.4.5` `dist/acp.js` (not guessed from the `.d.ts`): `ClientSideConnection
+      // .setSessionModel(params)` is BUGGY — it calls `sendRequest(AGENT_METHODS
+      // .session_set_mode, params)`, i.e. it sends the wrong wire method (`session/set_mode`
+      // instead of `session/set_model`) carrying a `{sessionId, modelId}` body the `set_mode`
+      // schema would reject. There is no workaround: `sendRequest` lives on the internal,
+      // non-exported `Connection` class (not on the public `ClientSideConnection`), and
+      // `NewSessionRequest` has no model field to smuggle a model choice through at session
+      // creation instead. So in this library version there is NO safe, correct way to send a
+      // real `session/set_model` request — calling `conn.setSessionModel` here would make every
+      // `profile.selectModelAfterStart` agent (Task 7's Cursor, Task 8's Grok) send a malformed
+      // request the agent likely rejects, on every turn start.
+      //
+      // This method intentionally does nothing rather than call the buggy path. The model the
+      // user picked is still reported correctly throughout the UI — `createAcpNormalizer` is
+      // seeded with the resolved model up front (index.ts) — only the *agent-side* selection
+      // request is unavailable. Re-enable with a real `session/set_model` request either when
+      // upstream fixes `setSessionModel`, or on migration to the successor
+      // `@agentclientprotocol/sdk` package (deprecation note at the top of this file).
+      // Deliberate no-op — see the block comment above explaining why calling the library's
+      // buggy setSessionModel would be worse than doing nothing.
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      async setModel(): Promise<void> {}
     }
   }
 
