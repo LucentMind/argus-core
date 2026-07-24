@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AgentSettings } from '../settings/AgentSettings'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
+import { DRIVERS } from '../../../../shared/drivers'
 import type { ProviderStatus } from '../../../../shared/types'
 
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
@@ -274,8 +275,22 @@ describe('AgentSettings add provider', () => {
   })
 
   it('hides the add affordance once every driver is present', async () => {
-    render(<AgentSettings payload={payload(withCopilot)} />)
-    await screen.findByTestId('provider-label-copilot-1')
+    // Derive the "all drivers present" state from the DRIVERS catalog so this stays correct as
+    // new driver kinds are added (e.g. the ACP cursor/grok drivers) rather than hard-coding a set.
+    render(
+      <AgentSettings
+        payload={payload((p) => {
+          for (const kind of Object.keys(DRIVERS)) {
+            p.settings.agent.providerInstances[`${kind}-inst`] = {
+              driver: kind,
+              enabled: true,
+              config: {}
+            }
+          }
+        })}
+      />
+    )
+    await screen.findByText('Providers')
     expect(screen.queryByLabelText('Add provider')).toBeNull()
   })
 })

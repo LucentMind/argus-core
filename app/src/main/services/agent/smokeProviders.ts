@@ -87,7 +87,11 @@ const AUTHENTICATION_VERDICT = [
   /not logged in/i,
   /\blog ?in\b/i,
   /\/login\b/i,
-  /ANTHROPIC_API_KEY/i,
+  // A missing API-key env var is a "needs credentials, but the provider is wired" state, not a
+  // launch failure — same verdict as Claude's ANTHROPIC_API_KEY. `_API_KEY` generalizes to the
+  // ACP agents' hints too (Cursor's CURSOR_API_KEY, Grok's XAI_API_KEY): Grok's hint carries no
+  // "login" phrase, so without this it would wrongly score as "did not launch".
+  /_API_KEY/i,
   /invalid api key/i
 ]
 
