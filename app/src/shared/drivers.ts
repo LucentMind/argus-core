@@ -88,6 +88,18 @@ const CLAUDE_MODELS: readonly CatalogModel[] = [
  */
 export const COPILOT_MODELS: readonly CatalogModel[] = [{ slug: 'auto', name: 'Auto' }]
 
+/** Cursor CLI (`cursor-agent`) ACP model catalog — slugs per the ACP driver plan (Task 1),
+ *  pending live verification against the real CLI. */
+export const CURSOR_MODELS: readonly CatalogModel[] = [
+  { slug: 'auto', name: 'Auto' },
+  { slug: 'composer-2', name: 'Composer 2' },
+  { slug: 'composer-1.5', name: 'Composer 1.5' }
+]
+
+/** Grok (xAI) ACP model catalog — slug per the ACP driver plan (Task 1), pending live
+ *  verification against the real CLI. */
+export const GROK_MODELS: readonly CatalogModel[] = [{ slug: 'grok-build', name: 'Grok Build' }]
+
 export const DRIVERS: Record<string, DriverDefinition> = {
   'claude-agent-sdk': {
     kind: 'claude-agent-sdk',
@@ -128,6 +140,40 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       planMode: true,
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
       headlessOneShot: true
+    }
+  },
+  cursor: {
+    kind: 'cursor',
+    label: 'Cursor',
+    shortLabel: 'Cursor',
+    configSchema: agentConfigSchema,
+    formAnnotations: {
+      cliPath: { control: 'text', label: 'Cursor agent path', placeholder: 'cursor-agent', order: 2 }
+    },
+    models: CURSOR_MODELS,
+    capabilities: {
+      permissionModes: PERMISSION_MODES,
+      editableApprovals: false,
+      costReporting: false,
+      planMode: true,
+      headlessOneShot: false
+    }
+  },
+  grok: {
+    kind: 'grok',
+    label: 'Grok (xAI)',
+    shortLabel: 'Grok',
+    configSchema: agentConfigSchema,
+    formAnnotations: {
+      cliPath: { control: 'text', label: 'Grok CLI path', placeholder: 'grok', order: 2 }
+    },
+    models: GROK_MODELS,
+    capabilities: {
+      permissionModes: PERMISSION_MODES,
+      editableApprovals: false,
+      costReporting: false,
+      planMode: true,
+      headlessOneShot: false
     }
   }
 }
