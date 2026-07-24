@@ -22,21 +22,3 @@ export function synthesizeAcpPermission(
       return { name: `acp:${kind}`, input: { ...args } } // no taxonomy entry → HIGH ask
   }
 }
-
-export type AcpToolLifecycleKind =
-  'command_execution' | 'file_change' | 'web_search' | 'dynamic_tool_call'
-export function acpToolCallKind(kind: string | undefined): AcpToolLifecycleKind {
-  switch (kind) {
-    case 'execute':
-      return 'command_execution'
-    case 'edit':
-    case 'delete':
-    case 'move':
-      return 'file_change'
-    case 'search':
-    case 'fetch':
-      return 'web_search'
-    default:
-      return 'dynamic_tool_call'
-  }
-}

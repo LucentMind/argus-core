@@ -140,6 +140,7 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
       editableApprovals: false,
       costReporting: false,
       planMode: true,
+      mcpConnectors: false,
       headlessOneShot: false
     })
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])
@@ -150,6 +151,48 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
     expect(isAcpAuthErrorMessage('Unauthorized: invalid API key')).toBe(true)
     expect(createAcpDriver(PROFILE).isAuthErrorMessage?.('unauthorized')).toBe(true)
     expect(isAcpAuthErrorMessage('disk full')).toBe(false)
+  })
+})
+
+describe('mcpConnectors:false degradation — session.mcp.skipped', () => {
+  it('emits one session.mcp.skipped per composed connector at session start', async () => {
+    const fake = makeFake()
+    const driver = createAcpDriver(PROFILE, { clientFactory: fake.factory })
+    const session = driver.createSession(
+      makeCtx({ extraMcpServers: { atlassian: {}, github: {} } })
+    )
+    const seen: AgentEvent[] = []
+    const drained = (async () => {
+      for await (const e of session.events()) seen.push(e)
+    })()
+    await tick()
+    session.end()
+    await drained
+
+    const skips = seen.filter((e) => e.type === 'session.mcp.skipped')
+    expect(
+      skips.map((s) => (s.type === 'session.mcp.skipped' ? s.payload.instanceId : null)).sort()
+    ).toEqual(['atlassian', 'github'])
+    for (const s of skips) {
+      if (s.type === 'session.mcp.skipped') {
+        expect(s.payload.reason).toBe('ACP driver does not yet forward MCP connectors')
+      }
+    }
+  })
+
+  it('emits no session.mcp.skipped events when extraMcpServers is empty', async () => {
+    const fake = makeFake()
+    const driver = createAcpDriver(PROFILE, { clientFactory: fake.factory })
+    const session = driver.createSession(makeCtx())
+    const seen: AgentEvent[] = []
+    const drained = (async () => {
+      for await (const e of session.events()) seen.push(e)
+    })()
+    await tick()
+    session.end()
+    await drained
+
+    expect(seen.filter((e) => e.type === 'session.mcp.skipped')).toEqual([])
   })
 })
 
