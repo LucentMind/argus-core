@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-empty-function -- fake AcpClientLike/AcpSessionLike
  * implementations below stub the interface's methods intentionally with empty bodies. */
+import type { SessionNotification } from '@zed-industries/agent-client-protocol'
 import { describe, expect, it } from 'vitest'
-import type { AcpClientFactory } from '../client'
+import { defaultAcpClientFactory, routeSessionUpdate, type AcpClientFactory } from '../client'
 
 /**
  * Step-1 contract test (brief §Task 5): the REAL `defaultAcpClientFactory` needs a live ACP
@@ -58,4 +59,94 @@ describe('AcpClientFactory (fake)', () => {
     await loaded.cancel()
     await c.stop()
   })
+})
+
+/**
+ * Fix (review): `Client.sessionUpdate` used to fire BOTH the factory-level `opts.onUpdate` AND
+ * any per-session `AcpSessionLike.onUpdate` callback for the same notification, which would
+ * double-deliver every event once Task 6's driver registers a per-session callback (duplicated
+ * transcript entries). `routeSessionUpdate` is the extracted, exported routing function
+ * `defaultAcpClientFactory`'s real `Client.sessionUpdate` delegates to — testing it directly
+ * exercises the actual precedence logic without needing a live ACP agent subprocess (which
+ * `defaultAcpClientFactory` as a whole still requires — see the Step-1 comment above).
+ */
+describe('routeSessionUpdate (single authoritative delivery path)', () => {
+  it('delivers ONLY to the per-session callback when one is registered — no double delivery', () => {
+    const perSessionSeen: unknown[] = []
+    const factorySeen: unknown[] = []
+    const callbacks = new Map<string, (update: unknown) => void>([
+      ['s1', (u) => perSessionSeen.push(u)]
+    ])
+    const params = {
+      sessionId: 's1',
+      update: { sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }
+    } as SessionNotification
+
+    routeSessionUpdate(params, callbacks, (u) => factorySeen.push(u))
+
+    expect(perSessionSeen).toEqual([
+      { sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }
+    ])
+    expect(factorySeen).toEqual([])
+  })
+
+  it('falls back to the factory-level callback when no per-session callback is registered', () => {
+    const factorySeen: unknown[] = []
+    const callbacks = new Map<string, (update: unknown) => void>()
+    const params = {
+      sessionId: 'unregistered',
+      update: { sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }
+    } as SessionNotification
+
+    routeSessionUpdate(params, callbacks, (u) => factorySeen.push(u))
+
+    expect(factorySeen).toEqual([{ sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }])
+  })
+
+  it("doesn't leak updates across sessions: a callback registered for a different sessionId doesn't fire", () => {
+    const otherSessionSeen: unknown[] = []
+    const factorySeen: unknown[] = []
+    const callbacks = new Map<string, (update: unknown) => void>([
+      ['s-other', (u) => otherSessionSeen.push(u)]
+    ])
+    const params = {
+      sessionId: 's-target',
+      update: { sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }
+    } as SessionNotification
+
+    routeSessionUpdate(params, callbacks, (u) => factorySeen.push(u))
+
+    expect(otherSessionSeen).toEqual([])
+    expect(factorySeen).toEqual([{ sessionUpdate: 'agent_message_chunk', content: { text: 'hi' } }])
+  })
+})
+
+/**
+ * Fix (review): `stop()` used to send SIGTERM and resolve immediately without confirming the
+ * child actually exited. These exercise the REAL `defaultAcpClientFactory`'s `stop()` against a
+ * real (non-ACP) child process — `stop()` only touches child-process lifecycle, not the ACP
+ * protocol, so this doesn't need a live ACP agent binary (unlike `start()`/`newSession()`,
+ * which remain smoke-tested only, per the Step-1 comment above).
+ */
+describe('defaultAcpClientFactory stop() (real child process)', () => {
+  it('resolves once the real spawned child has actually exited', async () => {
+    const c = defaultAcpClientFactory({
+      spawn: { command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], env: {} },
+      onPermission: async () => ({ cancelled: true }),
+      onUpdate: () => {}
+    })
+    await c.stop()
+    // A second stop() must be a no-op (exitCode/signalCode already set) rather than erroring.
+    await c.stop()
+  }, 10000)
+
+  it('is a no-op when the child has already exited on its own', async () => {
+    const c = defaultAcpClientFactory({
+      spawn: { command: process.execPath, args: ['-e', 'process.exit(0)'], env: {} },
+      onPermission: async () => ({ cancelled: true }),
+      onUpdate: () => {}
+    })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    await c.stop()
+  }, 10000)
 })
