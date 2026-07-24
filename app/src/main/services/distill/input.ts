@@ -8,17 +8,18 @@ import { listEvidence } from '../ingest'
 import { listSessions } from '../agent/sessionStore'
 import { readIndex, readAudit } from '../memory'
 import { listProposals, listArchivedProposals } from '../proposals'
-import { refTitle, refBody } from '../refSync/refFrontmatter'
+import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
 
-/** Reference name/summary/content triples for the shared references/ dir — summary is the
+/** Reference name/summary/content/tier records for the shared references/ dir — summary is the
  *  first trimmed, non-blank, non-heading line of the body (matching generateReferencesIndex in
  *  refSync/engine.ts), falling back to the frontmatter title when no such line exists; content
  *  is the full raw file (frontmatter + body) a reference-edit must return with its change
- *  merged in. */
+ *  merged in; tier is the trust_tier ('confluence' files are auto-synced and must never be an
+ *  edit target — the distiller is told so via rule 7). */
 export function buildReferencesIndex(
   argusHome: string
-): { name: string; summary: string; content: string }[] {
+): { name: string; summary: string; content: string; tier: string | null }[] {
   const dir = sharedReferencesDir(argusHome)
   if (!fs.existsSync(dir)) return []
   return fs
@@ -33,7 +34,8 @@ export function buildReferencesIndex(
       return {
         name: f.replace(/\.md$/, ''),
         summary: bodyLine ?? refTitle(raw) ?? '',
-        content: raw
+        content: raw,
+        tier: refTier(raw)
       }
     })
 }

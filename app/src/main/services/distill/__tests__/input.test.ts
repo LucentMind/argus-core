@@ -118,6 +118,29 @@ describe('buildReferencesIndex', () => {
     )
   })
 
+  it('carries each reference trust_tier (confluence vs team-knowledge vs null)', () => {
+    const dir = sharedReferencesDir(home)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'synced.md'),
+      '---\ntitle: Synced\ntrust_tier: confluence\n---\n\nFrom Confluence.\n'
+    )
+    fs.writeFileSync(
+      path.join(dir, 'owned.md'),
+      '---\ntitle: Owned\ntrust_tier: team-knowledge\n---\n\nHand written.\n'
+    )
+    fs.writeFileSync(path.join(dir, 'bare.md'), 'No frontmatter here.\n')
+
+    const index = buildReferencesIndex(home)
+    expect(index).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'synced', tier: 'confluence' }),
+        expect.objectContaining({ name: 'owned', tier: 'team-knowledge' }),
+        expect.objectContaining({ name: 'bare', tier: null })
+      ])
+    )
+  })
+
   it('carries the full reference file content so a reference-edit can merge into it', () => {
     const dir = sharedReferencesDir(home)
     fs.mkdirSync(dir, { recursive: true })
