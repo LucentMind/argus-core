@@ -308,12 +308,103 @@ describe('createAcpDriver — session lifecycle + event normalization', () => {
     expect(seen.map((e) => e.type)).toEqual([
       'content.delta',
       'tool.call.started',
-      'tool.call.completed'
+      'tool.call.completed',
+      'turn.completed'
     ])
     expect((seen[0].payload as { text: string }).text).toBe('hello')
     expect(onTurnResult).toHaveBeenCalledTimes(1)
     expect(onTurnResult.mock.calls[0][0].authFailure).toBe(false)
+    const turnCompleted = seen[seen.length - 1] as Extract<AgentEvent, { type: 'turn.completed' }>
+    expect(turnCompleted.payload.status).toBe('success')
     expect(fake.stop).toHaveBeenCalledTimes(1) // no orphaned runtime
+  })
+
+  it('an interrupted turn yields turn.completed with status "interrupted"', async () => {
+    const fake = makeFake()
+    const driver = createAcpDriver(PROFILE, { clientFactory: fake.factory })
+    const session = driver.createSession(makeCtx())
+    await tick()
+
+    const seen: AgentEvent[] = []
+    const drained = (async () => {
+      for await (const e of session.events()) seen.push(e)
+    })()
+
+    session.send('do the thing')
+    await tick()
+    await session.interrupt()
+    fake.resolvePrompt() // ACP signals turn end via the prompt promise settling, even on cancel
+    await tick()
+
+    session.end()
+    await drained
+
+    const turnCompleted = seen.find((e) => e.type === 'turn.completed') as
+      Extract<AgentEvent, { type: 'turn.completed' }> | undefined
+    expect(turnCompleted?.payload.status).toBe('interrupted')
+  })
+
+  it('a pending approval interrupted mid-turn resolves to cancelled', async () => {
+    const fake = makeFake()
+    const driver = createAcpDriver(PROFILE, { clientFactory: fake.factory })
+    // Mirrors the real harness pipeline's contract: onToolRequest rejects when its signal
+    // aborts (rather than hanging forever), which is what lets the driver's onPermission
+    // catch block map the rejection to `{ cancelled: true }`.
+    const onToolRequest = (
+      _name: string,
+      _input: Record<string, unknown>,
+      opts: { signal: AbortSignal }
+    ): Promise<never> =>
+      new Promise((_resolve, reject) => {
+        opts.signal.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    const session = driver.createSession(makeCtx({ onToolRequest }))
+    await tick()
+
+    session.send('do the thing')
+    await tick()
+
+    const handler = fake.getPermissionHandler()
+    const decisionPromise = handler({
+      sessionId: 'sess-1',
+      toolCall: { toolCallId: 't1', kind: 'execute', rawInput: { command: 'ls' } },
+      options: ALLOW_REJECT_OPTIONS
+    })
+
+    await session.interrupt()
+    await expect(decisionPromise).resolves.toEqual({ cancelled: true })
+    session.end()
+  })
+
+  it('after interrupting turn 1, a turn-2 permission request still calls onToolRequest and maps the decision', async () => {
+    const onToolRequest = vi.fn(async () => ({ behavior: 'allow' as const, updatedInput: {} }))
+    const fake = makeFake()
+    const driver = createAcpDriver(PROFILE, { clientFactory: fake.factory })
+    const session = driver.createSession(makeCtx({ onToolRequest }))
+    await tick()
+
+    // Turn 1: interrupt it.
+    session.send('turn one')
+    await tick()
+    await session.interrupt()
+    fake.resolvePrompt()
+    await tick()
+
+    // Turn 2: a fresh prompt dispatch must reset the per-turn abort scope.
+    session.send('turn two')
+    await tick()
+
+    const handler = fake.getPermissionHandler()
+    const decision = await handler({
+      sessionId: 'sess-1',
+      toolCall: { toolCallId: 't2', kind: 'execute', rawInput: { command: 'ls -la' } },
+      options: ALLOW_REJECT_OPTIONS
+    })
+
+    expect(onToolRequest).toHaveBeenCalledTimes(1)
+    expect(onToolRequest).toHaveBeenCalledWith('shell', { command: 'ls -la' }, expect.any(Object))
+    expect(decision).toEqual({ optionId: 'allow-once' })
+    session.end()
   })
 
   it('loadSession is used when ctx.resumeCursor is set', async () => {
