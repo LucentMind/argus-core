@@ -90,10 +90,13 @@ async function walk(zipPath: string, depth: number, prefix: string, ctx: Ctx): P
       zipfile.readEntry()
       zipfile.on('entry', (entry: yauzl.Entry) => {
         void (async () => {
-          if (/\/$/.test(entry.fileName)) return zipfile.readEntry() // directory
-          if (isSymlink(entry)) return zipfile.readEntry()
+          // Count every entry toward the cap before any type-based skip, so an
+          // archive of directory-only or symlink-only records (which are cheap
+          // to enumerate but can number in the millions) can't bypass maxEntries.
           if (++ctx.count > ctx.limits.maxEntries)
             return reject(new ArchiveLimitError('entries', 'archive exceeds entry-count cap'))
+          if (/\/$/.test(entry.fileName)) return zipfile.readEntry() // directory
+          if (isSymlink(entry)) return zipfile.readEntry()
           const inner = prefix ? `${prefix}/${entry.fileName}` : entry.fileName
           try {
             const staged = await streamEntry(zipfile, entry, ctx)
@@ -114,6 +117,10 @@ async function walk(zipPath: string, depth: number, prefix: string, ctx: Ctx): P
       zipfile.on('error', (err: Error) => {
         // Translate yauzl's own validateFileName errors (see the comment on the
         // yauzl.open call above) into our ArchiveLimitError('traversal').
+        // SAFE fallback: if yauzl ever changes this message wording, the regex
+        // stops matching and we fall through to the generic `reject(err)` below
+        // — extraction still aborts and the archive is still kept (not deleted);
+        // only the error *kind* label degrades to generic. Security is unaffected.
         if (/^(invalid relative path|absolute path):/.test(err.message))
           return reject(new ArchiveLimitError('traversal', err.message))
         reject(err)

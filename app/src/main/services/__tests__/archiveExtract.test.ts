@@ -176,6 +176,20 @@ describe('extractZipToTemp caps', () => {
     ).rejects.toMatchObject({ kind: 'entries' })
   })
 
+  it('throws entries when a directory-only archive exceeds the file-count cap', async () => {
+    // Regression test: the entry-count check used to sit AFTER the
+    // directory-skip/symlink-skip `return zipfile.readEntry()` lines, so an
+    // archive containing only directory records never incremented ctx.count
+    // and bypassed maxEntries entirely. 3 empty-directory entries, cap of 2.
+    const zipPath = path.join(tmp, 'dirs-only.zip')
+    await makeZipRaw(zipPath, [], ['a/', 'b/', 'c/'])
+    const out = path.join(tmp, 'odir')
+    fs.mkdirSync(out)
+    await expect(
+      extractZipToTemp(zipPath, out, { ...LIMITS, maxEntries: 2 })
+    ).rejects.toMatchObject({ kind: 'entries' })
+  })
+
   it('throws ratio for a highly compressible entry above the ratio floor', async () => {
     const zipPath = path.join(tmp, 'bomb.zip')
     await makeZip(zipPath, { 'zeros.bin': Buffer.alloc(2 * 1024 * 1024, 0) }) // 2 MB zeros
