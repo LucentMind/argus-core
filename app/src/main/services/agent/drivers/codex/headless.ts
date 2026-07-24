@@ -1,6 +1,7 @@
 import type { HeadlessOpts } from '../../driver'
 import { codexHome } from './home'
 import type { CodexClientFactory, CodexClientLike } from './client'
+import { codexApprovalGen, mapCodexDecision } from './mapping'
 
 /** clientInfo.version sent on `initialize` — kept a static constant (mirrors index.ts) so
  *  this module stays free of an electron import. Informational only on the wire. */
@@ -76,10 +77,16 @@ function collectOneTurn(client: CodexClientLike): Promise<string> {
  * No tools/approvals: `thread/start` uses `approvalPolicy: 'never'` (the server decides
  * exec/patch outcomes itself rather than asking) with `sandbox: 'read-only'` (the
  * conservative floor — nothing destructive can happen even if the model tries). On top of
- * that, `onServerRequest` unconditionally declines every server-initiated request as a
- * backstop for any request kind the policy doesn't already suppress (e.g. `item/tool/call`,
- * user-input, attestation) — a headless distillation run has no human to consult and no
- * case to act on, so it must never gate on or hang waiting for an approval.
+ * that, `onServerRequest` unconditionally declines every approval-request server request as a
+ * backstop for any request kind the policy doesn't already suppress — a headless distillation
+ * run has no human to consult and no case to act on, so it must never gate on or hang waiting
+ * for an approval. The decline is generation-aware (mirrors `index.ts`'s `onServerRequest`):
+ * `execCommandApproval`/`applyPatchApproval` (legacy) require `'denied'`, while the current
+ * generation's `item/commandExecution|fileChange/requestApproval` methods require `'decline'` —
+ * replying with the wrong generation's vocabulary would leave Codex unable to parse the
+ * decision. Any other
+ * server-initiated request (user-input, dynamic tool, auth refresh, ...) fails closed by
+ * throwing, since a headless run has no channel to service it.
  */
 export async function runCodexHeadless(
   prompt: string,
@@ -108,7 +115,15 @@ export async function runCodexHeadless(
       // Register inbound channels BEFORE opening the thread so no early notification is
       // missed (mirrors index.ts's createSession ordering).
       const collected = collectOneTurn(c)
-      c.onServerRequest(async () => ({ decision: 'decline' }))
+      c.onServerRequest(async (req: { method: string }) => {
+        const gen = codexApprovalGen(req.method)
+        if (gen === null) {
+          // Non-approval server request (user-input, dynamic tool, auth refresh, ...) —
+          // a headless run has no channel to service it, so fail closed instead of hanging.
+          throw new Error(`codex headless: unsupported server request ${req.method}`)
+        }
+        return mapCodexDecision({ behavior: 'deny', message: 'headless run: no approvals' }, gen)
+      })
 
       const startParams = {
         approvalPolicy: 'never',

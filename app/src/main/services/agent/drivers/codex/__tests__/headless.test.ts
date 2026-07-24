@@ -84,7 +84,7 @@ describe('codex runCodexHeadless', () => {
     expect(c.forceStop).not.toHaveBeenCalled()
   })
 
-  it('spawns codex app-server with CODEX_HOME derived from argusHome, and declines all server requests', async () => {
+  it('spawns codex app-server with CODEX_HOME derived from argusHome, and declines current-gen server requests', async () => {
     const c = scriptedClient()
     driveHappyPath(c, ['ok'])
     await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
@@ -99,6 +99,33 @@ describe('codex runCodexHeadless', () => {
       params: {}
     })
     expect(decision).toEqual({ decision: 'decline' })
+  })
+
+  it('denies legacy-gen server requests with the legacy vocabulary ("denied", not "decline")', async () => {
+    const c = scriptedClient()
+    driveHappyPath(c, ['ok'])
+    await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
+
+    const decision = await c.serverRequest()?.({
+      id: 8,
+      method: 'execCommandApproval',
+      params: {}
+    })
+    expect(decision).toEqual({ decision: 'denied' })
+  })
+
+  it('fails closed (rejects) on a non-approval server request', async () => {
+    const c = scriptedClient()
+    driveHappyPath(c, ['ok'])
+    await runCodexHeadless('prompt', { argusHome: '/tmp/argus' }, c.factory)
+
+    await expect(
+      c.serverRequest()?.({
+        id: 9,
+        method: 'item/tool/requestUserInput',
+        params: {}
+      })
+    ).rejects.toThrow(/unsupported server request/)
   })
 
   it('uses cliPath override when supplied', async () => {
