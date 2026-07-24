@@ -260,7 +260,12 @@ export function createCodexDriver(
           cwd: ctx.caseDir,
           approvalPolicy: 'untrusted',
           sandbox: 'read-only',
-          ...(ctx.model ? { model: ctx.model } : {})
+          ...(ctx.model ? { model: ctx.model } : {}),
+          // Persona + memory-index text (driver.ts DriverSessionContext.systemAppend), forwarded
+          // as the wire's developerInstructions (contract §?) — mirrors copilot's
+          // systemMessage:{mode:'append'} forwarding. Omit the key entirely when empty/undefined
+          // rather than sending an empty string.
+          ...(ctx.systemAppend ? { developerInstructions: ctx.systemAppend } : {})
         }
 
         let result: unknown

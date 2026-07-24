@@ -210,6 +210,69 @@ describe('createCodexDriver — scripted session', () => {
   })
 })
 
+describe('createCodexDriver — developerInstructions (systemAppend)', () => {
+  it('forwards a non-empty systemAppend as developerInstructions on thread/start', async () => {
+    const { factory, requests } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx({ systemAppend: 'PERSONA TEXT' }))
+    void (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick()
+
+    const start = requests.find((r) => r.method === 'thread/start')
+    expect((start?.params as Record<string, unknown> | undefined)?.developerInstructions).toBe(
+      'PERSONA TEXT'
+    )
+    session.end()
+  })
+
+  it('omits developerInstructions entirely when systemAppend is empty', async () => {
+    const { factory, requests } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx({ systemAppend: '' }))
+    void (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick()
+
+    const start = requests.find((r) => r.method === 'thread/start')
+    expect(start?.params).not.toHaveProperty('developerInstructions')
+    session.end()
+  })
+})
+
+describe('createCodexDriver — failed turn boundary', () => {
+  it('fires onTurnResult (isError: true) before the terminal turn.completed for a FAILED turn', async () => {
+    const { factory, notify } = makeFake({ noDrive: true })
+    const onTurnResult = vi.fn()
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx({ onTurnResult }))
+
+    const seen: AgentEvent[] = []
+    const drained = (async () => {
+      for await (const e of session.events()) seen.push(e)
+    })()
+
+    await tick() // handshake + thread/start resolve
+
+    notify({
+      method: 'turn/completed',
+      params: { threadId: 'thread-xyz', turn: { id: 'turn-1', status: 'failed', durationMs: 3 } }
+    })
+    await tick()
+
+    expect(onTurnResult).toHaveBeenCalledTimes(1)
+    expect(onTurnResult.mock.calls[0][0].isError).toBe(true)
+
+    expect(seen.map((e) => e.type)).toEqual(['turn.completed'])
+    expect(seen[0]).toMatchObject({ type: 'turn.completed', payload: { status: 'error' } })
+
+    session.end()
+    await drained
+  })
+})
+
 describe('createCodexDriver — resume fallback', () => {
   it('falls back to thread/start when thread/resume rejects with a recoverable error', async () => {
     const { factory, calls } = makeFake({ resumeError: 'unknown thread: no such thread id' })
