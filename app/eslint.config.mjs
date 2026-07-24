@@ -15,7 +15,8 @@ export default defineConfig(
       '**/dist',
       '**/out',
       'scripts/spike-copilot/**',
-      'scripts/testscript/**'
+      'scripts/testscript/**',
+      'scripts/acp-spike.mjs'
     ]
   },
   tseslint.configs.recommended,
