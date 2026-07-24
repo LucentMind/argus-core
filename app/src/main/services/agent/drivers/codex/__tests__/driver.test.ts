@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest'
-import path from 'node:path'
 import { createCodexDriver } from '../index'
 import { codexHome } from '../home'
 import type { CodexClientFactory, CodexClientLike } from '../client'
@@ -31,6 +30,8 @@ interface Fake {
   serverRequest: () => ServerRequestCb | undefined
   /** Push a raw notification through the driver's onNotification channel. */
   notify: (msg: Notification) => void
+  /** `env` passed to the most recently spawned client — asserts CODEX_HOME derivation. */
+  lastSpawnEnv: () => NodeJS.ProcessEnv | undefined
 }
 
 function makeFake(opts: FakeOpts = {}): Fake {
@@ -39,6 +40,7 @@ function makeFake(opts: FakeOpts = {}): Fake {
   const stop = vi.fn(async () => undefined)
   const forceStop = vi.fn(async () => undefined)
   const threadId = opts.threadId ?? 'thread-xyz'
+  let lastEnv: NodeJS.ProcessEnv | undefined
 
   let notificationCb: ((msg: Notification) => void) | undefined
   let serverRequestCb: ServerRequestCb | undefined
@@ -86,7 +88,8 @@ function makeFake(opts: FakeOpts = {}): Fake {
     })
   }
 
-  const factory: CodexClientFactory = () => {
+  const factory: CodexClientFactory = (factoryOpts) => {
+    lastEnv = factoryOpts.spawn.env
     const client: CodexClientLike = {
       start: async () => {
         calls.push('start')
@@ -123,7 +126,16 @@ function makeFake(opts: FakeOpts = {}): Fake {
     return client
   }
 
-  return { factory, calls, requests, stop, forceStop, serverRequest: () => serverRequestCb, notify }
+  return {
+    factory,
+    calls,
+    requests,
+    stop,
+    forceStop,
+    serverRequest: () => serverRequestCb,
+    notify,
+    lastSpawnEnv: () => lastEnv
+  }
 }
 
 function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionContext {
@@ -362,9 +374,43 @@ describe('createCodexDriver — approval bridge edge cases', () => {
 })
 
 describe('codexHome', () => {
-  it('derives a stable dir under argusHome, or uses the override when set', () => {
-    expect(codexHome('/tmp/argus-home')).toBe(path.join('/tmp/argus-home', 'codex-home'))
-    expect(codexHome('/tmp/argus-home', '/custom/codex')).toBe('/custom/codex')
-    expect(codexHome('/tmp/argus-home', '   ')).toBe(path.join('/tmp/argus-home', 'codex-home'))
+  it('returns undefined (no override) so CODEX_HOME is left unset — codex falls back to ~/.codex', () => {
+    expect(codexHome()).toBeUndefined()
+    expect(codexHome(undefined)).toBeUndefined()
+    expect(codexHome('')).toBeUndefined()
+    expect(codexHome('   ')).toBeUndefined()
+  })
+
+  it('returns the trimmed override when set (opt-in multi-account CODEX_HOME separation)', () => {
+    expect(codexHome('/custom/codex')).toBe('/custom/codex')
+    expect(codexHome('  /custom/codex  ')).toBe('/custom/codex')
+  })
+})
+
+describe('createCodexDriver — session CODEX_HOME resolution', () => {
+  it('leaves CODEX_HOME unset on the spawn env when no codexHome override is configured', async () => {
+    const { factory, lastSpawnEnv } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx())
+    void (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick()
+    expect(lastSpawnEnv()).not.toHaveProperty('CODEX_HOME')
+    session.end()
+  })
+
+  it('sets CODEX_HOME to the configured override on the spawn env', async () => {
+    const { factory, lastSpawnEnv } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({ codexHome: 'C:/argus-home/codex-home' } as never, {
+      clientFactory: factory
+    })
+    const session = driver.createSession(makeCtx())
+    void (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick()
+    expect(lastSpawnEnv()?.CODEX_HOME).toBe('C:/argus-home/codex-home')
+    session.end()
   })
 })

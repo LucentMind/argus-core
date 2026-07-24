@@ -71,8 +71,8 @@ function collectOneTurn(client: CodexClientLike): Promise<string> {
  * Headless one-shot on the Codex `app-server` runtime: no case, no session row, no
  * mirror, no tools. Throws on failure. Mirrors `runClaudeHeadless`'s structure (accumulate
  * text, race against a timeout, throw on empty/failed, reap in `finally`) and
- * `runCopilotHeadless`'s app-server-style client lifecycle (boot a scratch-home client,
- * always tear it down).
+ * `runCopilotHeadless`'s app-server-style client lifecycle (boot a client against the
+ * global `~/.codex` auth home, always tear it down).
  *
  * No tools/approvals: `thread/start` uses `approvalPolicy: 'never'` (the server decides
  * exec/patch outcomes itself rather than asking) with `sandbox: 'read-only'` (the
@@ -99,11 +99,15 @@ export async function runCodexHeadless(
   let timer: NodeJS.Timeout | null = null
   let timedOut = false
   try {
+    // No per-instance override is threaded into HeadlessOpts, so CODEX_HOME is left unset
+    // here — `codex` falls back to its own default (`~/.codex`), matching the session and
+    // probe paths' no-override behavior (see home.ts).
+    const home = codexHome()
     client = clientFactory({
       spawn: {
         command: opts.cliPath ?? cliPath ?? 'codex',
         args: ['app-server'],
-        env: { ...process.env, CODEX_HOME: codexHome(opts.argusHome) }
+        env: { ...process.env, ...(home ? { CODEX_HOME: home } : {}) }
       }
     })
     const c = client
