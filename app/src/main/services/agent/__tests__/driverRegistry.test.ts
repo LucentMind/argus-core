@@ -7,13 +7,14 @@ function agentSettings(overrides: Partial<AgentSettings> = {}): AgentSettings {
 }
 
 describe('driverRegistry', () => {
-  it('registers both the Claude and Copilot drivers (Task 9A)', () => {
-    expect(Object.keys(DRIVERS).sort()).toEqual(['claude-agent-sdk', 'github-copilot'])
+  it('registers the Claude, Copilot, and Codex drivers (Tasks 9A, 9)', () => {
+    expect(Object.keys(DRIVERS).sort()).toEqual(['claude-agent-sdk', 'codex', 'github-copilot'])
   })
 
   it('getDriverByKind resolves registered kinds and falls back to Claude for the rest', () => {
     expect(getDriverByKind('github-copilot').kind).toBe('github-copilot')
     expect(getDriverByKind('claude-agent-sdk').kind).toBe('claude-agent-sdk')
+    expect(getDriverByKind('codex').kind).toBe('codex')
     expect(getDriverByKind('zzz-future-driver').kind).toBe('claude-agent-sdk')
   })
 
