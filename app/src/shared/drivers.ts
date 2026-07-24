@@ -163,7 +163,7 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     capabilities: {
       permissionModes: PERMISSION_MODES,
       editableApprovals: false,
-      costReporting: true,
+      costReporting: false, // no dollar cost on the wire (contract §7) — matches main's driver
       planMode: true,
       headlessOneShot: true
     }

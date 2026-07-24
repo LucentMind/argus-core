@@ -468,10 +468,10 @@ describe('activeInstanceConfig with multiple providers', () => {
 })
 
 describe('codex driver', () => {
-  it('registers the codex driver with cost + headless capabilities', () => {
+  it('registers the codex driver with headless capabilities and no cost reporting', () => {
     const d = DRIVERS['codex']
     expect(d).toBeDefined()
-    expect(d.capabilities.costReporting).toBe(true)
+    expect(d.capabilities.costReporting).toBe(false)
     expect(d.capabilities.headlessOneShot).toBe(true)
     expect(d.capabilities.editableApprovals).toBe(false)
     expect(d.models.map((m) => m.slug)).toContain('gpt-5.4')
@@ -511,7 +511,7 @@ describe('codex driver', () => {
     })
   })
 
-  it('codex capabilities: all four permission modes, plan mode, no editable approvals, cost reporting on', () => {
+  it('codex capabilities: all four permission modes, plan mode, no editable approvals', () => {
     const d = getDriver('codex')!
     expect(d.capabilities.permissionModes).toEqual([
       'default',
