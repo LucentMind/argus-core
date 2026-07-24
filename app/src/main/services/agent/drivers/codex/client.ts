@@ -33,6 +33,15 @@ export interface CodexClientLike {
   onServerRequest(
     cb: (req: { id: number; method: string; params?: unknown }) => Promise<unknown>
   ): void
+  /**
+   * Subscribe to child/transport exit. The transport does NOT reject in-flight requests
+   * on exit, so without this signal a session whose child dies mid-turn (after `turn/start`
+   * has resolved and the notification stream goes silent) would block `events()` forever.
+   * The codex driver wires this to end/crash the stream — the analog of copilot's
+   * `session.shutdown` event. Optional so factories/tests that never spawn a real child can
+   * omit it (their exit is signalled through `stop()`/`forceStop()` instead).
+   */
+  onExit?(cb: (info?: { code: number | null; signal: string | null }) => void): void
   /** Graceful shutdown: end stdin, give the child a chance to exit, escalate to SIGKILL. */
   stop(): Promise<void>
   /** Forceful shutdown for the error path — never leave an orphaned runtime. */
@@ -176,6 +185,13 @@ const STOP_GRACE_MS = 5000
 export const defaultCodexClientFactory: CodexClientFactory = (opts) => {
   let child: ChildProcessWithoutNullStreams | null = null
   let dataCallback: ((chunk: string) => void) | undefined
+  let exitCb: ((info?: { code: number | null; signal: string | null }) => void) | undefined
+  let exitFired = false
+  const fireExit = (info?: { code: number | null; signal: string | null }): void => {
+    if (exitFired) return
+    exitFired = true
+    exitCb?.(info)
+  }
 
   const io: ClientIo = {
     write(line) {
@@ -203,6 +219,11 @@ export const defaultCodexClientFactory: CodexClientFactory = (opts) => {
       child.stdout.on('error', () => {})
       child.stderr.on('error', () => {})
       child.stdout.on('data', (chunk: string) => dataCallback?.(chunk))
+      // Surface an unexpected death so the driver can end/crash a hung session rather than
+      // block forever on the (now-silent) notification stream. `error` (e.g. ENOENT) and
+      // `exit` are collapsed to a single fire.
+      child.on('error', () => fireExit({ code: null, signal: null }))
+      child.on('exit', (code, signal) => fireExit({ code, signal }))
     },
     stop: async () => {
       if (!child || child.exitCode !== null) return
@@ -228,7 +249,12 @@ export const defaultCodexClientFactory: CodexClientFactory = (opts) => {
     }
   }
 
-  return createRpcClient(io, lifecycle)
+  return {
+    ...createRpcClient(io, lifecycle),
+    onExit(cb) {
+      exitCb = cb
+    }
+  }
 }
 
 /**
@@ -267,6 +293,16 @@ export function createCodexClientOverStreams(): {
     }
   })
 
+  let exitCb: ((info?: { code: number | null; signal: string | null }) => void) | undefined
+  let exitFired = false
+  const fireExit = (): void => {
+    if (exitFired) return
+    exitFired = true
+    exitCb?.({ code: null, signal: null })
+  }
+  // The "server" end going away (destroyed transport) is this seam's death signal.
+  toClient.on('close', fireExit)
+
   const io: ClientIo = {
     write(line) {
       toServer.write(line)
@@ -288,7 +324,12 @@ export function createCodexClientOverStreams(): {
   }
 
   return {
-    client: createRpcClient(io, lifecycle),
+    client: {
+      ...createRpcClient(io, lifecycle),
+      onExit(cb) {
+        exitCb = cb
+      }
+    },
     serverWrite(msg) {
       toClient.write(typeof msg === 'string' ? msg : `${JSON.stringify(msg)}\n`)
     },
