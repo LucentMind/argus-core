@@ -4,7 +4,7 @@ import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
 
-export type DriverKind = 'claude-agent-sdk' | 'github-copilot'
+export type DriverKind = 'claude-agent-sdk' | 'github-copilot' | 'cursor' | 'grok'
 
 export interface EventCtx {
   caseId: number
@@ -111,6 +111,10 @@ export interface DriverCapabilities {
   /** Mirrors the shared DriverDefinition flag; each driver's contract test file asserts
    *  this flag, the shared flag, and `runHeadless` method presence all agree. */
   headlessOneShot: boolean
+  /** Mirrors the shared DriverDefinition flag (`shared/drivers.ts`): whether the driver
+   *  supports a plan-then-approve mode. Optional/absent where irrelevant (Claude enforces
+   *  `acceptEdits`/`plan` internally without a distinct capability flag). */
+  planMode?: boolean
 }
 
 /** Inputs for a tool-less one-shot run with no case and no session (distillation).

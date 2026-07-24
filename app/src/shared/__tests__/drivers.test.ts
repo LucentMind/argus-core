@@ -187,6 +187,17 @@ describe('driver registry', () => {
       expect(parsed.success).toBe(true)
     }
   })
+
+  it('registers cursor and grok ACP drivers with approval-parity capabilities', () => {
+    for (const kind of ['cursor', 'grok'] as const) {
+      const d = DRIVERS[kind]
+      expect(d).toBeDefined()
+      expect(d.capabilities.editableApprovals).toBe(false)
+      expect(d.capabilities.headlessOneShot).toBe(false)
+      expect(d.capabilities.planMode).toBe(true)
+      expect(d.models.length).toBeGreaterThan(0)
+    }
+  })
 })
 
 describe('github-copilot activeInstanceConfig', () => {
