@@ -242,7 +242,16 @@ export class JiraCases {
             .finally(() => this.deps.parsing(caseSlug, rec.id, false))
           this.deps.evidenceChanged(caseSlug)
           const done: JiraAttachmentProgress = { ...base, status: 'done', evidenceId: rec.id }
-          if (isZipFile(tmpFile)) {
+          // Explode ONLY genuine .zip archives, not merely zip-structured files:
+          //  - rec.artifactType === 'archive' — the generic archive type; excludes
+          //    files a pack detector already claimed (e.g. .bintrace.zip -> type
+          //    'bintrace'), which have their own extractor and must not be
+          //    double-processed.
+          //  - /\.zip$/i — excludes Office docs (.docx/.xlsx/.pptx) and .jar/.apk,
+          //    which are ZIP-structured but not .zip-named.
+          //  - isZipFile(tmpFile) — magic-byte confirmation; excludes a .zip-named
+          //    gzip/tar (our extractor only reads zip).
+          if (rec.artifactType === 'archive' && /\.zip$/i.test(a.filename) && isZipFile(tmpFile)) {
             try {
               done.extractedCount = await this.ingestArchiveContents(caseSlug, a, tmpFile, tmpDir)
             } catch (err) {

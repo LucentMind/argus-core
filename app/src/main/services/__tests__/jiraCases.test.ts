@@ -353,6 +353,66 @@ describe('zip attachment extraction', () => {
     expect(ev.filter((e) => e.meta.extractedFrom)).toHaveLength(0)
     expect(ev.some((e) => e.artifactType === 'archive')).toBe(true)
   })
+
+  it('does NOT explode a zip-structured file that is not named .zip (e.g. a .docx)', async () => {
+    // report.docx is a real zip (Office docs are ZIP containers) so it detects
+    // as artifactType 'archive' by magic bytes, but the extension gate must
+    // exclude it — only genuine .zip-named files get exploded.
+    const preview: Partial<JiraIssuePreview> = {
+      attachments: [
+        {
+          id: '20003',
+          filename: 'report.docx',
+          size: 9,
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          createdAt: 'c'
+        }
+      ]
+    }
+    const client = zipClient(() => issue(preview), {
+      '20003': { 'word/document.xml': '<doc/>' }
+    })
+    const svc = service(client)
+    createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
+    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    expect(results[0]).toMatchObject({ attachmentId: '20003', status: 'done' })
+    expect(results[0].extractedCount).toBeUndefined()
+    const ev = listEvidence(db, 'nav-7')
+    expect(ev.filter((e) => e.meta.extractedFrom)).toHaveLength(0)
+    expect(ev).toHaveLength(1)
+  })
+
+  it('does NOT explode a .bintrace.zip already claimed by the bintrace pack detector', async () => {
+    // The sample pack registry's bintrace detector claims .bintrace.zip before
+    // the generic archive detector gets a chance, so artifactType is 'bintrace'
+    // (not 'archive') — the artifactType gate must exclude it, since bintrace
+    // has its own extractor and must not be double-processed as a zip archive.
+    const preview: Partial<JiraIssuePreview> = {
+      attachments: [
+        {
+          id: '20004',
+          filename: 'bundle.bintrace.zip',
+          size: 9,
+          mimeType: 'application/zip',
+          createdAt: 'c'
+        }
+      ]
+    }
+    const client = zipClient(() => issue(preview), {
+      '20004': { 'trace.bin': 'binarydata' }
+    })
+    const svc = service(client)
+    createCase(db, argusHome, { slug: 'nav-7', title: 'T', jiraKey: 'NAV-7' })
+    const results = await svc.ingestAttachments('nav-7', issue(preview).preview.attachments)
+    expect(results[0]).toMatchObject({ attachmentId: '20004', status: 'done' })
+    expect(results[0].extractedCount).toBeUndefined()
+    const ev = listEvidence(db, 'nav-7')
+    expect(ev.filter((e) => e.meta.extractedFrom)).toHaveLength(0)
+    const archive = ev.find(
+      (e) => (e.meta.jira as { attachmentId?: string })?.attachmentId === '20004'
+    )
+    expect(archive?.artifactType).toBe('bintrace')
+  })
 })
 
 describe('JiraCases.refresh', () => {
