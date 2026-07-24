@@ -245,10 +245,25 @@ export function createCodexDriver(
         })
         client.onServerRequest(onServerRequest)
         client.onExit?.((info) => {
+          // We initiated the shutdown (session.end() set `ended`, or stopClient() set
+          // `stopped`) — just drain the queue to completion.
           if (stopped || ended) {
             queue.end()
             return
           }
+          // A CLEAN server-side close — exit code 0 with no killing signal — is a graceful
+          // "session over" the server chose. events() should end NORMALLY (return, not throw).
+          // This is the codex analog of copilot's in-band `session.shutdown`: the persistent
+          // multi-turn connection has no wire "turn/session done" notification, so the
+          // contract suite's single-turn model relies on a clean exit to terminate events()
+          // after one turn without anyone calling end().
+          if (info?.code === 0 && info?.signal == null) {
+            queue.end()
+            return
+          }
+          // Otherwise a real CRASH — a non-zero exit code, a killing signal, or `code == null`
+          // from a spawn error — must surface as fatal so events() throws instead of hanging
+          // on a now-silent notification stream (anti-hang, preserved for genuine deaths).
           const code = info?.code
           queue.push({
             __fatal: new Error(

@@ -30,6 +30,8 @@ interface Fake {
   serverRequest: () => ServerRequestCb | undefined
   /** Push a raw notification through the driver's onNotification channel. */
   notify: (msg: Notification) => void
+  /** Fire the driver's onExit handler — models the app-server child exiting. */
+  fireExit: (info?: { code: number | null; signal: string | null }) => void
   /** `env` passed to the most recently spawned client — asserts CODEX_HOME derivation. */
   lastSpawnEnv: () => NodeJS.ProcessEnv | undefined
 }
@@ -44,8 +46,10 @@ function makeFake(opts: FakeOpts = {}): Fake {
 
   let notificationCb: ((msg: Notification) => void) | undefined
   let serverRequestCb: ServerRequestCb | undefined
+  let exitCb: ((info?: { code: number | null; signal: string | null }) => void) | undefined
 
   const notify = (msg: Notification): void => notificationCb?.(msg)
+  const fireExit = (info?: { code: number | null; signal: string | null }): void => exitCb?.(info)
 
   async function drive(): Promise<void> {
     const turnId = 'turn-1'
@@ -120,6 +124,9 @@ function makeFake(opts: FakeOpts = {}): Fake {
       onServerRequest: (cb) => {
         serverRequestCb = cb
       },
+      onExit: (cb) => {
+        exitCb = cb
+      },
       stop,
       forceStop
     }
@@ -134,6 +141,7 @@ function makeFake(opts: FakeOpts = {}): Fake {
     forceStop,
     serverRequest: () => serverRequestCb,
     notify,
+    fireExit,
     lastSpawnEnv: () => lastEnv
   }
 }
@@ -282,6 +290,59 @@ describe('createCodexDriver — failed turn boundary', () => {
 
     session.end()
     await drained
+  })
+})
+
+describe('createCodexDriver — onExit classification', () => {
+  // A real crash (non-zero exit, a killing signal, or a spawn error with code null) must
+  // surface as a fatal so events() throws rather than hanging on the now-silent stream.
+  it('a CRASH exit (non-zero code) makes events() throw (anti-hang)', async () => {
+    const { factory, fireExit } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx())
+    const drained = (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick() // handshake + thread/start resolve; onExit registered
+    fireExit({ code: 1, signal: null })
+    await expect(drained).rejects.toThrow(/Codex app-server exited/)
+  })
+
+  it('a signal-kill exit also makes events() throw', async () => {
+    const { factory, fireExit } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx())
+    const drained = (async () => {
+      for await (const _e of session.events()) void _e
+    })()
+    await tick()
+    fireExit({ code: null, signal: 'SIGKILL' })
+    await expect(drained).rejects.toThrow()
+  })
+
+  // A CLEAN exit (code 0, no signal) is a graceful server-side close — the codex analog of
+  // copilot's session.shutdown. events() must END NORMALLY (loop completes, no throw).
+  it('a CLEAN exit (code 0, no signal) ends events() WITHOUT throwing', async () => {
+    const { factory, notify, fireExit } = makeFake({ noDrive: true })
+    const driver = createCodexDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx())
+    const seen: AgentEvent[] = []
+    const drained = (async () => {
+      for await (const e of session.events()) seen.push(e)
+    })()
+    await tick() // handshake + thread/start resolve; onExit registered
+
+    // A completed turn, then a graceful close.
+    notify({
+      method: 'turn/completed',
+      params: { threadId: 'thread-xyz', turn: { id: 'turn-1', status: 'completed', durationMs: 4 } }
+    })
+    await tick()
+    fireExit({ code: 0, signal: null })
+
+    // The loop terminates without throwing — asserted by the await resolving.
+    await expect(drained).resolves.toBeUndefined()
+    expect(seen.map((e) => e.type)).toContain('turn.completed')
   })
 })
 

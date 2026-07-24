@@ -3,14 +3,18 @@ import { defaultInstanceId } from '../../../shared/drivers'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver } from './drivers/claude'
 import { createCopilotDriver } from './drivers/copilot'
+import { createCodexDriver } from './drivers/codex'
 
 /** Constructed drivers, keyed by the open `driver` slug stored on a provider instance
  *  (`ProviderInstance.driver` — an open string so unknown/future driver kinds still
  *  round-trip through settings). Phase 1 has only the Claude driver; Phase 3 adds
- *  `'github-copilot'`. */
+ *  `'github-copilot'`; Task 9 adds `'codex'`. `createCodexDriver()` with no config uses
+ *  `defaultCodexClientFactory`, which lazily spawns the real `codex` binary only at
+ *  session time — registration itself spawns nothing. */
 export const DRIVERS: Record<string, AgentDriver> = {
   'claude-agent-sdk': createClaudeDriver(),
-  'github-copilot': createCopilotDriver()
+  'github-copilot': createCopilotDriver(),
+  codex: createCodexDriver()
 }
 
 const fallbackDriver = DRIVERS['claude-agent-sdk']
