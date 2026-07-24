@@ -161,6 +161,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       editableApprovals: false,
       costReporting: false,
       planMode: true,
+      // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
+      mcpConnectors: false,
       headlessOneShot: false
     }
   },
@@ -178,6 +180,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       editableApprovals: false,
       costReporting: false,
       planMode: true,
+      // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
+      mcpConnectors: false,
       headlessOneShot: false
     }
   }

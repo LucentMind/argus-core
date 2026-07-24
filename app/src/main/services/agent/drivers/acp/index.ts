@@ -110,6 +110,8 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       editableApprovals: false,
       costReporting: false,
       planMode: true,
+      // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
+      mcpConnectors: false,
       headlessOneShot: false
     },
 
@@ -172,6 +174,11 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
             // Mirrors Copilot's session.error channel: an auth-shaped rejection is non-fatal
             // (the normalizer extracts a TurnResult with authFailure and the stream
             // continues); anything else is fatal and propagates out of events().
+            // Safe to treat non-auth rejections as fatal ONLY because ACP `session/cancel`
+            // makes the agent RESOLVE the prompt with `stopReason:'cancelled'` (handled in
+            // the `.then` above), not reject it — UNVERIFIED assumption, no live cancel
+            // capture yet; if a real agent rejects on cancel instead, a user interrupt would
+            // misreport here as a crash.
             const message = err instanceof Error ? err.message : String(err)
             queue.push({ type: 'error', message })
           })
@@ -274,6 +281,17 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
 
       async function* events(): AsyncIterable<AgentEvent> {
         try {
+          // Declared degradation: connectors composed for this session cannot be exposed to
+          // the ACP agent (capabilities.mcpConnectors:false — toAcpMcpServers unconditionally
+          // returns []), so surface each as skipped up front — the UI shows the loss honestly
+          // rather than silently dropping connector tools. Mirrors the Copilot driver's
+          // (now-superseded) `copilot-driver-no-mcp` degradation path.
+          for (const instanceId of Object.keys(ctx.extraMcpServers ?? {})) {
+            yield makeEvent(ctx.eventCtx(), 'session.mcp.skipped', {
+              instanceId,
+              reason: 'ACP driver does not yet forward MCP connectors'
+            })
+          }
           for await (const item of queue) {
             if (isFatal(item)) throw item.__fatal
             const raw = item
@@ -282,9 +300,11 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
             // `session/update` variant (none of the 8 documented variants carries this;
             // EVIDENCE.md gap). Mirrors Copilot's `session.shutdown` handling: end the
             // stream cleanly rather than hang forever awaiting a `session/update` that will
-            // never arrive. Nothing in production emits this today (client.ts has no
-            // child-process-exit wiring yet — flagged follow-up); reserved for a caller
-            // (a future exit-signal wire-up, or a scripted transport) that pushes it via the
+            // never arrive. An unexpected child-process exit is handled via the error path
+            // instead (client.ts's `child.on('exit')` pushes a `{type:'error'}` item, which
+            // the block below throws as fatal) — NOT this branch. This `session.ended` branch
+            // is correct but only exercised by tests today; nothing in production emits it,
+            // reserved for a future caller (e.g. a scripted transport) that pushes it via the
             // per-session `onUpdate` callback once it knows no more updates are coming.
             if (raw?.type === 'session.ended') return
 
