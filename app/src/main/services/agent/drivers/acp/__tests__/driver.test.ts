@@ -456,28 +456,8 @@ describe('createAcpDriver — session lifecycle + event normalization', () => {
   })
 })
 
-describe('createAcpDriver — probeAuth (minimal, Task 6 scope)', () => {
-  it('fails when the profile auth env var is unset', async () => {
-    const prior = process.env.CURSOR_API_KEY
-    delete process.env.CURSOR_API_KEY
-    try {
-      const res = await createAcpDriver(PROFILE).probeAuth({})
-      expect(res.ok).toBe(false)
-      expect(res.detail).toBe('Run `cursor-agent login`.')
-    } finally {
-      if (prior !== undefined) process.env.CURSOR_API_KEY = prior
-    }
-  })
-
-  it('reports ok when the profile auth env var is set', async () => {
-    const prior = process.env.CURSOR_API_KEY
-    process.env.CURSOR_API_KEY = 'sk-test'
-    try {
-      const res = await createAcpDriver(PROFILE).probeAuth({})
-      expect(res.ok).toBe(true)
-    } finally {
-      if (prior === undefined) delete process.env.CURSOR_API_KEY
-      else process.env.CURSOR_API_KEY = prior
-    }
-  })
-})
+// probeAuth coverage (env-var precondition + bounded live handshake + timeout + teardown +
+// error classification) lives in `__tests__/probe.test.ts` (Task 10), which injects a scripted
+// `clientFactory` per case. A driver-level `probeAuth({})` call with the DEFAULT clientFactory
+// (as this suite's `PROFILE`/`createAcpDriver(PROFILE)` would exercise) now performs a real
+// bounded spawn of `cursor-agent`, which doesn't exist in this environment — out of scope here.

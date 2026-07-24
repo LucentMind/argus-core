@@ -356,17 +356,62 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
     },
 
     /**
-     * MINIMAL probe (Task 6 scope only — Task 10 hardens this into a bounded live handshake).
-     * Without a spawned-and-verified round trip we can only check the precondition the profile
-     * itself declares: its auth env var is set. A profile with no `auth.envVar` (no known
-     * static precondition) reports ok optimistically rather than failing closed on nothing.
+     * Bounded live probe (Task 10; supersedes Task 6's env-var-only check). Two layers:
+     *  1. Cheap precondition: a profile-declared auth env var that's absent fails fast with the
+     *     login hint — no spawn. A profile with no `auth.envVar` (no known static precondition)
+     *     skips straight to the live handshake.
+     *  2. Bounded live handshake via the same `clientFactory` seam `createSession` uses (DI-
+     *     testable — a real agent binary is only exercised under Task 11 smoke): `client.start()`
+     *     (the ACP `initialize` round trip) raced against `timeoutMs`, with the client always
+     *     torn down in `finally` so a wedged/hung child can never leak. Mirrors
+     *     `copilot/index.ts::probeAuth`'s structure, adapted to the ACP seam (`start`/`stop`
+     *     only — there is no `getAuthStatus()`).
+     *
+     *  `initialize`'s response carries no documented account-identity field (EVIDENCE gap, no
+     *  live fixture) so `detail` deliberately stays a plain readiness string rather than
+     *  inventing an identity surface; real identity surfacing is a deferred best-effort.
      */
-    async probeAuth(): Promise<ProbeAuthResult> {
+    async probeAuth(config2: { cliPath?: string; timeoutMs?: number }): Promise<ProbeAuthResult> {
       const envVar = profile.auth.envVar
       if (envVar && !process.env[envVar]) {
         return { ok: false, detail: profile.auth.loginHint }
       }
-      return { ok: true, detail: `${profile.displayName} ready` }
+
+      const timeoutMs = config2.timeoutMs ?? 10000
+      let client: AcpClientLike | null = null
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const spawn = profile.spawn({ cliPath: config2.cliPath })
+        client = clientFactory({
+          spawn: { command: spawn.command, args: spawn.args, env: toEnvRecord(spawn.env) },
+          onPermission: async () => ({ cancelled: true }),
+          onUpdate: () => {}
+        })
+        const c = client
+        const probe = c.start()
+        probe.catch(() => undefined) // never leak an unhandled rejection if it settles post-timeout
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('acp-probe-timeout')), timeoutMs)
+          timer.unref?.()
+        })
+        await Promise.race([probe, timeout])
+        return { ok: true, detail: `${profile.displayName} ready` }
+      } catch (err) {
+        // Timeout or a failed initialize handshake -> not authenticated / not reachable. Prefer
+        // the actionable login hint; if the error looks spawn-shaped (ENOENT), say the CLI
+        // wasn't found instead.
+        const e = err as NodeJS.ErrnoException
+        const spawnShaped = e?.code === 'ENOENT' || /ENOENT|spawn/i.test(e?.message ?? '')
+        return {
+          ok: false,
+          detail: spawnShaped
+            ? `${profile.displayName} CLI not found — check the path or install it.`
+            : profile.auth.loginHint
+        }
+      } finally {
+        if (timer) clearTimeout(timer)
+        await client?.stop().catch(() => undefined)
+      }
     }
   }
 }
