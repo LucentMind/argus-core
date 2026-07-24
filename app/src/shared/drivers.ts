@@ -88,6 +88,13 @@ const CLAUDE_MODELS: readonly CatalogModel[] = [
  */
 export const COPILOT_MODELS: readonly CatalogModel[] = [{ slug: 'auto', name: 'Auto' }]
 
+/** Codex static built-in catalog (spec §6 / t3code BUILT_IN_MODELS port). `gpt-5.4` is the default. */
+export const CODEX_MODELS: readonly CatalogModel[] = [
+  { slug: 'gpt-5.4', name: 'GPT-5.4 (Codex)' },
+  { slug: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
+  { slug: 'gpt-5.3-codex-spark', name: 'GPT-5.3 Codex Spark' }
+]
+
 /** Cursor CLI (`cursor-agent`) ACP model catalog — slugs per the ACP driver plan (Task 1),
  *  pending live verification against the real CLI. */
 export const CURSOR_MODELS: readonly CatalogModel[] = [
@@ -139,6 +146,37 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       costReporting: false,
       planMode: true,
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
+      headlessOneShot: true
+    }
+  },
+  codex: {
+    kind: 'codex',
+    label: 'OpenAI Codex',
+    shortLabel: 'Codex',
+    // model is rendered by the dedicated Models section (ProviderModels), not the generic form
+    configSchema: agentConfigSchema,
+    formAnnotations: {
+      cliPath: {
+        control: 'text',
+        label: 'Codex CLI path',
+        placeholder: 'codex',
+        order: 2,
+        help: 'Path to the codex binary; leave empty to auto-detect / use PATH.'
+      },
+      codexHome: {
+        control: 'text',
+        label: 'CODEX_HOME path',
+        placeholder: '~/.codex',
+        order: 3,
+        help: 'Per-instance Codex home (keeps auth.json separate for multi-account).'
+      }
+    },
+    models: CODEX_MODELS,
+    capabilities: {
+      permissionModes: PERMISSION_MODES,
+      editableApprovals: false,
+      costReporting: false, // no dollar cost on the wire (contract §7) — matches main's driver
+      planMode: true,
       headlessOneShot: true
     }
   },

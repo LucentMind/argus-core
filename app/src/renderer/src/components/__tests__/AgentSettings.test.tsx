@@ -276,7 +276,7 @@ describe('AgentSettings add provider', () => {
 
   it('hides the add affordance once every driver is present', async () => {
     // Derive the "all drivers present" state from the DRIVERS catalog so this stays correct as
-    // new driver kinds are added (e.g. the ACP cursor/grok drivers) rather than hard-coding a set.
+    // new driver kinds are added (codex + the ACP cursor/grok drivers) rather than hard-coding a set.
     render(
       <AgentSettings
         payload={payload((p) => {
