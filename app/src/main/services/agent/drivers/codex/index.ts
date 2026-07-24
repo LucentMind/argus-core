@@ -1,4 +1,3 @@
-import os from 'node:os'
 import { AsyncQueue } from '../../asyncQueue'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import type { AgentEvent } from '../../../../../shared/agent-events'
@@ -13,6 +12,7 @@ import { createCodexNormalizer, type RawCodexNotification } from './normalize'
 import { codexApprovalGen, synthesizeCodexApproval, mapCodexDecision } from './mapping'
 import { codexHome } from './home'
 import { defaultCodexClientFactory, type CodexClientFactory, type CodexClientLike } from './client'
+import { runCodexHeadless } from './headless'
 
 /** clientInfo.version sent on `initialize`. Kept a static constant rather than reading
  *  `electron.app.getVersion()` so this module stays free of an electron import (main-process
@@ -116,8 +116,10 @@ export function createCodexDriver(
       permissionModes: PERMISSION_MODES,
       editableApprovals: false, // the approval decision reply carries no edited input
       costReporting: false, // no cost field anywhere on this wire (contract §7) — token counts only
-      headlessOneShot: false // runHeadless is out of scope for this task; no runHeadless method
+      headlessOneShot: true // runHeadless is present, below
     },
+
+    runHeadless: (prompt, opts) => runCodexHeadless(prompt, opts, clientFactory, config.cliPath),
 
     createSession(ctx: DriverSessionContext): DriverSession {
       const queue = new AsyncQueue<QueueItem>()
@@ -371,12 +373,27 @@ export function createCodexDriver(
       let timer: ReturnType<typeof setTimeout> | undefined
       let timedOut = false
       try {
+        // Codex auth (`auth.json`) is CODEX_HOME-scoped, so the probe must resolve the SAME
+        // CODEX_HOME a real session would use — `codexHome(argusHome, codexHomeOverride)` —
+        // or it reports "not authenticated" even when the instance is signed in. But
+        // `argusHome` genuinely isn't reachable here: probeAuth's own config is
+        // `{cliPath?, timeoutMs?}` (driver.ts), and `createCodexDriver`'s config/deps carry
+        // no argusHome either — every call site (driverRegistry.ts, providerStatus.ts)
+        // constructs/invokes the driver without one. So the only thing this probe CAN honor
+        // is a per-instance `codexHome` override (matches a session's override); absent that,
+        // leave CODEX_HOME exactly as inherited from process.env (i.e. force nothing) so
+        // `codex` falls back to ITS OWN default (`~/.codex`, where a plain `codex login`
+        // writes) — never a scratch dir like `os.tmpdir()`, which would always read as
+        // signed-out regardless of real auth state.
+        // LIMITATION: a per-instance CODEX_HOME override configured via `codexHomeOverride`
+        // (not `argusHome`-derived) is the only case this probe can match precisely; a
+        // session's default (argusHome-derived) CODEX_HOME cannot be reproduced from here
+        // until probeAuth's contract threads argusHome through.
         client = clientFactory({
           spawn: {
             command: config2.cliPath ?? config.cliPath ?? 'codex',
             args: ['app-server'],
-            // Probe with a scratch home so it never pollutes a session's CODEX_HOME.
-            env: { ...process.env, CODEX_HOME: codexHome(os.tmpdir(), codexHomeOverride) }
+            env: { ...process.env, ...(codexHomeOverride ? { CODEX_HOME: codexHomeOverride } : {}) }
           }
         })
         const c = client
