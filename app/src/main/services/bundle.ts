@@ -25,6 +25,7 @@ import { getCase } from './caseService'
 import { sha256File } from './ingest'
 import { SLUG_RE, scaffoldCaseLinks } from './caseService'
 import { indexEvidenceFile } from './indexer'
+import { deleteEvidenceFtsForCase } from './ftsIndex'
 
 const execFileAsync = promisify(execFile)
 
@@ -429,9 +430,8 @@ export async function importCase(
       // the rename may have already landed the dir on disk, and reindex may have
       // written evidence_fts rows that the evidence->cases FK cascade won't touch
       // (FTS5 virtual tables don't support foreign keys) — clean up both explicitly.
-      db.prepare(
-        `DELETE FROM evidence_fts WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
-      ).run(caseId)
+      // Must run before the cascade deletes the evidence rows the map lookup joins.
+      deleteEvidenceFtsForCase(db, caseId)
       db.prepare('DELETE FROM cases WHERE id = ?').run(caseId)
       fs.rmSync(dir, { recursive: true, force: true })
       throw err

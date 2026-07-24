@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { LineSplitter } from './lineScan'
 import { sidecarPath, CHECKPOINT_LINES, CHECKPOINT_BYTES } from './lineIndex'
 import { MAX_READ_BYTES } from './search'
+import { deleteEvidenceFtsForEvidence } from './ftsIndex'
 
 const READ_CHUNK_BYTES = 1024 * 1024
 
@@ -29,6 +30,8 @@ export function indexEvidenceFile(
     `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
      VALUES (?, ?, ?, ?, ?)`
   )
+  // side table for O(deleted-rows) FTS deletes — see ftsIndex.ts
+  const insMap = db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`)
   const stat = fs.statSync(absPath)
   const wantSidecar = argusHome !== undefined && stat.size > MAX_READ_BYTES
   const checkpoints: Array<[number, number]> = [[1, 0]]
@@ -47,13 +50,14 @@ export function indexEvidenceFile(
 
     const flush = (): void => {
       if (pending.length === 0) return
-      ins.run(
+      const rowid = ins.run(
         pending.join('\n'),
         evidenceId,
         chunkIndex,
         chunkStart,
         chunkStart + pending.length - 1
-      )
+      ).lastInsertRowid
+      insMap.run(rowid, evidenceId)
       chunkIndex++
       chunkStart = lineNo + 1
       pending = []
@@ -114,15 +118,23 @@ export function indexEvidenceText(
     `INSERT INTO evidence_fts (content, evidence_id, chunk_index, start_line, end_line)
      VALUES (?, ?, ?, ?, ?)`
   )
+  const insMap = db.prepare(`INSERT INTO evidence_fts_map (fts_rowid, evidence_id) VALUES (?, ?)`)
   let chunkIndex = 0
   for (let start = 0; start < lines.length; start += chunkLines) {
     const chunk = lines.slice(start, start + chunkLines)
-    ins.run(chunk.join('\n'), evidenceId, chunkIndex, start + 1, start + chunk.length)
+    const rowid = ins.run(
+      chunk.join('\n'),
+      evidenceId,
+      chunkIndex,
+      start + 1,
+      start + chunk.length
+    ).lastInsertRowid
+    insMap.run(rowid, evidenceId)
     chunkIndex++
   }
   return chunkIndex
 }
 
 export function deleteEvidenceIndex(db: DatabaseSync, evidenceId: number): void {
-  db.prepare(`DELETE FROM evidence_fts WHERE evidence_id = ?`).run(evidenceId)
+  deleteEvidenceFtsForEvidence(db, evidenceId)
 }

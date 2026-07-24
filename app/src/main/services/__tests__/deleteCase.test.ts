@@ -8,6 +8,7 @@ import { createCase, deleteCase, getCase, listCases } from '../caseService'
 import { ingestContent } from '../ingest'
 import { createSession } from '../agent/sessionStore'
 import { readDeletionAudit } from '../deletionAudit'
+import { insertMessageFts } from '../ftsIndex'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
@@ -60,9 +61,7 @@ describe('deleteCase', () => {
       `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, risk, decision, created_at)
        VALUES (?, ?, 'Read', 'h', 'low', 'allow', ?)`
     ).run(rec.id, s.id, now)
-    db.prepare(
-      `INSERT INTO messages_fts (content, case_id, session_id, turn_id, role) VALUES ('hi', ?, ?, 1, 'user')`
-    ).run(rec.id, s.id)
+    insertMessageFts(db, 'hi', rec.id, s.id, 1, 'user')
     db.prepare(
       `INSERT INTO findings (case_id, summary, review_state, created_at) VALUES (?, 'root cause', 'pending', ?)`
     ).run(rec.id, now)
