@@ -466,3 +466,59 @@ describe('activeInstanceConfig with multiple providers', () => {
     expect(activeDriver(s)?.kind).toBe('github-copilot')
   })
 })
+
+describe('codex driver', () => {
+  it('registers the codex driver with cost + headless capabilities', () => {
+    const d = DRIVERS['codex']
+    expect(d).toBeDefined()
+    expect(d.capabilities.costReporting).toBe(true)
+    expect(d.capabilities.headlessOneShot).toBe(true)
+    expect(d.capabilities.editableApprovals).toBe(false)
+    expect(d.models.map((m) => m.slug)).toContain('gpt-5.4')
+  })
+
+  it('has label/shortLabel and the gpt-5.4 default plus codex catalog', () => {
+    const d = getDriver('codex')!
+    expect(d.label).toBe('OpenAI Codex')
+    expect(d.shortLabel).toBe('Codex')
+    expect(d.models.map((m) => m.slug)).toEqual([
+      'gpt-5.4',
+      'gpt-5.3-codex',
+      'gpt-5.3-codex-spark'
+    ])
+  })
+
+  it('exposes ordered form annotations for cliPath and codexHome', () => {
+    const d = getDriver('codex')!
+    expect(d.formAnnotations.cliPath).toBeTruthy()
+    expect(d.formAnnotations.codexHome).toBeTruthy()
+    const orders = Object.values(d.formAnnotations).map((a) => a.order)
+    expect(orders).toEqual([...orders].sort((a, b) => a - b))
+  })
+
+  it('config schema round-trips the per-instance codexHome setting alongside model/cliPath', () => {
+    const d = getDriver('codex')!
+    const parsed = d.configSchema.safeParse({
+      model: 'gpt-5.4',
+      cliPath: '/usr/local/bin/codex',
+      codexHome: '~/.codex-work'
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data).toMatchObject({
+      model: 'gpt-5.4',
+      cliPath: '/usr/local/bin/codex',
+      codexHome: '~/.codex-work'
+    })
+  })
+
+  it('codex capabilities: all four permission modes, plan mode, no editable approvals, cost reporting on', () => {
+    const d = getDriver('codex')!
+    expect(d.capabilities.permissionModes).toEqual([
+      'default',
+      'acceptEdits',
+      'plan',
+      'bypassPermissions'
+    ])
+    expect(d.capabilities.planMode).toBe(true)
+  })
+})

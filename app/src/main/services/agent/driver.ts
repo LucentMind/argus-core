@@ -4,7 +4,7 @@ import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
 
-export type DriverKind = 'claude-agent-sdk' | 'github-copilot'
+export type DriverKind = 'claude-agent-sdk' | 'github-copilot' | 'codex'
 
 export interface EventCtx {
   caseId: number
