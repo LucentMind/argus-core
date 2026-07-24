@@ -5,7 +5,7 @@ export function synthesizeAcpPermission(
   args: Record<string, unknown> = {}
 ): SynthesizedAcpRequest {
   switch (kind) {
-    case 'execute': return { name: 'shell', input: { command: args.command ?? args.fullCommandText, ...args } }
+    case 'execute': return { name: 'shell', input: { command: args.command ?? args.fullCommandText } }
     case 'read':    return { name: 'read',  input: { file_path: args.path ?? args.file_path } }
     case 'edit':
     case 'delete':
