@@ -63,6 +63,12 @@ export interface AcpPermissionRequest {
      *  switch_mode|other`), not the 4-value `AcpPermissionOption.kind` above. */
     kind?: string | null
     title?: string | null
+    /** Structural widening (Task 6): the real `RequestPermissionRequest.toolCall` (a
+     *  `ToolCallUpdate`) carries `rawInput?: Record<string,unknown>` — the tool's actual
+     *  arguments, which `synthesizeAcpPermission` needs to build an informative approval
+     *  card. Declared here (not imported from the library) so this stays a structural type
+     *  only; the real request object is structurally assignable to it unchanged. */
+    rawInput?: Record<string, unknown> | null
   }
   options: AcpPermissionOption[]
 }
@@ -89,6 +95,11 @@ export interface AcpSessionLike {
    *  forwarded (same shape as the factory-level `onUpdate` below), scoped to this session's
    *  `sessionId`. */
   onUpdate(cb: (update: AcpSessionUpdate) => void): void
+  /** Send a raw `session/set_model` request. OPTIONAL: Task 6's driver calls it only when
+   *  `profile.selectModelAfterStart` is set and no-ops (via optional chaining) when absent.
+   *  Task 7 implements the real request in `defaultAcpClientFactory`; leaving it unimplemented
+   *  here is a safe no-op, not a broken contract. */
+  setModel?(model: string): Promise<void>
 }
 
 export interface AcpClientLike {
