@@ -3,14 +3,19 @@ import { defaultInstanceId } from '../../../shared/drivers'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver } from './drivers/claude'
 import { createCopilotDriver } from './drivers/copilot'
+import { createAcpDriver } from './drivers/acp'
+import { CURSOR_PROFILE } from './drivers/acp/profiles/cursor'
+import { GROK_PROFILE } from './drivers/acp/profiles/grok'
 
 /** Constructed drivers, keyed by the open `driver` slug stored on a provider instance
  *  (`ProviderInstance.driver` — an open string so unknown/future driver kinds still
  *  round-trip through settings). Phase 1 has only the Claude driver; Phase 3 adds
- *  `'github-copilot'`. */
+ *  `'github-copilot'`; this ACP multi-agent driver project adds `'cursor'`/`'grok'`. */
 export const DRIVERS: Record<string, AgentDriver> = {
   'claude-agent-sdk': createClaudeDriver(),
-  'github-copilot': createCopilotDriver()
+  'github-copilot': createCopilotDriver(),
+  cursor: createAcpDriver(CURSOR_PROFILE),
+  grok: createAcpDriver(GROK_PROFILE)
 }
 
 const fallbackDriver = DRIVERS['claude-agent-sdk']
