@@ -72,6 +72,15 @@ describe('classifyProbe', () => {
         .launched
     ).toBe(true)
     expect(classifyProbe({ ok: false, detail: 'Log in with `claude login`.' }).launched).toBe(true)
+    // ACP agents (Cursor/Grok): a missing API-key env var is "needs credentials", not a launch
+    // failure. Cursor's hint carries "login"; Grok's carries only the `_API_KEY` env-var name.
+    expect(
+      classifyProbe({ ok: false, detail: 'Run `cursor-agent login` or set CURSOR_API_KEY.' })
+        .launched
+    ).toBe(true)
+    expect(classifyProbe({ ok: false, detail: 'Set XAI_API_KEY (xAI API key).' }).launched).toBe(
+      true
+    )
   })
 
   it('fails the exact messages both asar bugs produced', () => {

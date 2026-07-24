@@ -150,3 +150,55 @@ describe('defaultAcpClientFactory stop() (real child process)', () => {
     await c.stop()
   }, 10000)
 })
+
+/**
+ * Fix (review of Task 9): `defaultAcpClientFactory` spawned the agent child with no
+ * `child.on('exit', ...)` wiring at all — if the agent process crashed or exited mid-session,
+ * nothing ever terminated the driver's `events()` stream (no fatal item, no clean end): it just
+ * hung forever awaiting a `session/update` that would never arrive. These exercise the REAL
+ * `defaultAcpClientFactory` against a real (non-ACP) child process that exits on its own after a
+ * short, fixed delay — deliberately NOT awaiting `start()` (the dummy child never completes the
+ * ACP handshake) since only child-process lifecycle is under test here, same rationale as the
+ * `stop()` describe block above.
+ */
+describe('defaultAcpClientFactory child-exit hardening', () => {
+  it('an unexpected child exit delivers a synthetic {type:"error"} item to onUpdate', async () => {
+    const updates: unknown[] = []
+    defaultAcpClientFactory({
+      spawn: {
+        command: process.execPath,
+        args: ['-e', 'setTimeout(() => process.exit(1), 50)'],
+        env: {}
+      },
+      onPermission: async () => ({ cancelled: true }),
+      onUpdate: (u) => updates.push(u)
+    })
+    // start() is deliberately not awaited/called — the dummy child never speaks ACP. Wait
+    // comfortably longer than the fixed 50ms exit delay so this stays deterministic.
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(updates).toHaveLength(1)
+    const item = updates[0] as { type: string; message: string }
+    expect(item.type).toBe('error')
+    expect(item.message).toMatch(/exited unexpectedly/i)
+    expect(item.message).toMatch(/code=1/)
+  })
+
+  it('a child exit after stop() delivers NO error item (expected teardown, not a crash)', async () => {
+    const updates: unknown[] = []
+    const c = defaultAcpClientFactory({
+      spawn: {
+        command: process.execPath,
+        args: ['-e', 'setTimeout(() => process.exit(1), 50)'],
+        env: {}
+      },
+      onPermission: async () => ({ cancelled: true }),
+      onUpdate: (u) => updates.push(u)
+    })
+    await c.stop() // sets `stopping` before signaling the child, then confirms exit
+    // Give any (incorrect) late delivery a chance to land before asserting nothing arrived.
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(updates).toEqual([])
+  }, 10000)
+})

@@ -148,7 +148,12 @@ export const DRIVERS: Record<string, DriverDefinition> = {
     shortLabel: 'Cursor',
     configSchema: agentConfigSchema,
     formAnnotations: {
-      cliPath: { control: 'text', label: 'Cursor agent path', placeholder: 'cursor-agent', order: 2 }
+      cliPath: {
+        control: 'text',
+        label: 'Cursor agent path',
+        placeholder: 'cursor-agent',
+        order: 2
+      }
     },
     models: CURSOR_MODELS,
     capabilities: {

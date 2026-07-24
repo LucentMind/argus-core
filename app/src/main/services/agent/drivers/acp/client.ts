@@ -206,6 +206,13 @@ export const defaultAcpClientFactory: AcpClientFactory = (opts) => {
   // `withStderrContext`) so a spawn/protocol failure carries the agent's own diagnostics.
   const getStderrTail = child.stderr ? attachStderrDrain(child.stderr) : () => ''
 
+  // Set true at the start of `stop()`, before the child is signaled, so the `exit` handler
+  // below can tell an EXPECTED teardown (this flag) from an UNEXPECTED crash (flag still
+  // false). Without this distinction, `stop()`'s own SIGTERM/SIGKILL would be indistinguishable
+  // from the agent dying on its own, and every clean shutdown would wrongly synthesize a fatal
+  // error item.
+  let stopping = false
+
   /** Re-throws `fn`'s rejection with the current stderr tail appended, when there is one —
    *  the agent's own stderr output is often the actual explanation for an `initialize`/
    *  `newSession`/`loadSession` failure (bad auth, missing config, crash on startup). */
@@ -221,6 +228,31 @@ export const defaultAcpClientFactory: AcpClientFactory = (opts) => {
   }
 
   const sessionUpdateCallbacks = new Map<string, (update: AcpSessionUpdate) => void>()
+
+  // Production gap (review of Task 9): without this handler, an agent process that
+  // crashes/exits mid-session leaves nothing to terminate the driver's `events()` stream — no
+  // fatal item is ever pushed, so it just hangs forever awaiting a `session/update` that will
+  // never arrive. A `stopping` exit (this factory's own `stop()`) is expected teardown and a
+  // no-op here. Any OTHER exit is a crash: synthesize a terminal `{type:'error'}` item (the
+  // same shape `index.ts`'s `doPrompt` catch pushes) carrying the bounded stderr tail when
+  // there is one, and deliver it to every registered per-session callback — a real mid-session
+  // crash always has at least one subscribed driver session by then. Fall back to the
+  // factory-level `opts.onUpdate` only when no session has subscribed yet (e.g. a crash during
+  // `start()`/`newSession()`, before `AcpSessionLike.onUpdate` is ever called) so the failure is
+  // still observable somewhere rather than silently dropped.
+  child.on('exit', (code, signal) => {
+    if (stopping) return
+    const tail = getStderrTail()
+    const message =
+      `ACP agent process exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'null'})` +
+      (tail ? `\n--- agent stderr (tail) ---\n${tail}` : '')
+    const item = { type: 'error', message }
+    if (sessionUpdateCallbacks.size > 0) {
+      for (const cb of sessionUpdateCallbacks.values()) cb(item)
+    } else {
+      opts.onUpdate(item)
+    }
+  })
 
   const clientImpl: Client = {
     async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -310,6 +342,7 @@ export const defaultAcpClientFactory: AcpClientFactory = (opts) => {
      *  process still alive (the original version resolved immediately after `child.kill()`
      *  without ever confirming exit). Resolves once the child is actually gone. */
     async stop(): Promise<void> {
+      stopping = true
       if (child.exitCode !== null || child.signalCode !== null) return
       await new Promise<void>((resolve) => {
         const killTimer = setTimeout(() => {
