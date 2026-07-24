@@ -29,7 +29,12 @@ const INPUT: CaseDistillInput = {
     }
   ],
   referencesIndex: [
-    { name: 'runbook', summary: 's', content: '---\ntitle: Runbook\n---\nEXISTING_REF_LINE' }
+    {
+      name: 'runbook',
+      summary: 's',
+      content: '---\ntitle: Runbook\n---\nEXISTING_REF_LINE',
+      tier: 'confluence'
+    }
   ],
   alreadyCaptured: {
     proposals: [{ type: 'recipe', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }],
@@ -58,6 +63,25 @@ describe('prompt builder', () => {
   it('contract requires edit content to be the complete post-edit file', () => {
     expect(CASE_DISTILL_CONTRACT.toLowerCase()).toContain('complete')
     expect(CASE_DISTILL_CONTRACT.toLowerCase()).toMatch(/never a (diff|fragment)/)
+  })
+
+  it('contract gives per-resolution guidance for how a case was closed', () => {
+    const c = CASE_DISTILL_CONTRACT.toLowerCase()
+    expect(c).toContain('resolution')
+    // the two previously-unhandled closes must now have explicit handling
+    expect(c).toContain('wont-fix')
+    expect(c).toContain('forwarded')
+  })
+
+  it('contract forbids editing a confluence-tier reference', () => {
+    const c = CASE_DISTILL_CONTRACT.toLowerCase()
+    expect(c).toContain('confluence')
+    expect(c).toMatch(/never edit|reference-edit only|only for a "team-knowledge"/)
+  })
+
+  it('surfaces each reference tier so the distiller can skip synced ones', () => {
+    const p = buildCaseDistillPrompt(INPUT)
+    expect(p).toContain('[tier: confluence]')
   })
 })
 
