@@ -1,6 +1,7 @@
 import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
+import { makeEvent } from '../../events'
 import type {
   AgentDriver,
   DriverSession,
@@ -131,9 +132,14 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       // a chatty `plan` stream must not spam duplicate approval cards.
       let planApprovalRaised = false
 
-      // Aborts pending approval promises when the session ends/interrupts, so a card left
-      // open at teardown rejects instead of dangling.
+      // Session-lifetime: aborts pending approval promises at teardown (end()) so a card left
+      // open rejects instead of dangling. NOT reset per-turn — see `turnAbort` below.
       const abort = new AbortController()
+      // Per-turn: freshly created each time a prompt is actually dispatched (doPrompt) so an
+      // interrupt() only cancels approvals belonging to the CURRENTLY in-flight turn. Without
+      // this, a single interrupt() would permanently abort every future permission request
+      // (a single session-lifetime controller aborted once and never reset).
+      let turnAbort = new AbortController()
 
       const stopClient = (): void => {
         if (stopped) return
@@ -148,6 +154,7 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
         if (!session) return
         planApprovalRaised = false
         cancelRequested = false
+        turnAbort = new AbortController() // fresh per-turn scope for this dispatch
         session
           .prompt(text)
           .then(() => {
@@ -196,10 +203,19 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
 
         const rawInput = req.toolCall.rawInput ?? {}
         const { name, input } = synthesizeAcpPermission(kind, rawInput)
-        if (abort.signal.aborted) return { cancelled: true }
-        const decision = await ctx.onToolRequest(name, input, { signal: abort.signal })
-        if (abort.signal.aborted) return { cancelled: true }
-        return decisionToOptionId(decision, req.options)
+        // Combine session-lifetime + current-turn signals: NO pre-check short-circuit here —
+        // that pre-check was the bug (a stale, permanently-aborted session-level `abort` made
+        // every future permission request short-circuit to cancelled without ever calling
+        // onToolRequest). Always call onToolRequest; only an actual abort of THIS turn's
+        // signal downgrades the outcome to cancelled.
+        const signal = AbortSignal.any([abort.signal, turnAbort.signal])
+        try {
+          const decision = await ctx.onToolRequest(name, input, { signal })
+          return decisionToOptionId(decision, req.options)
+        } catch (err) {
+          if (signal.aborted) return { cancelled: true }
+          throw err
+        }
       }
 
       // Async session bootstrap. Init failures here (spawn/initialize/newSession) propagate
@@ -274,8 +290,24 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
             }
 
             // Contract invariant 7: onTurnResult MUST fire before turn.completed is yielded.
+            // ACP has no session/update variant that signals turn-end (`normalize()` switches
+            // on `u.sessionUpdate`, so the synthetic boundary item always falls to its
+            // `default -> []`) — the driver itself must synthesize and yield the
+            // `turn.completed` AgentEvent here, mirroring Copilot's normalize.ts-level
+            // `assistant.turn_end`/`abort` cases.
             const boundary = norm.turnBoundary(raw)
-            if (boundary) ctx.onTurnResult(norm.turnResult())
+            if (boundary) {
+              const tr = norm.turnResult()
+              ctx.onTurnResult(tr)
+              yield makeEvent(ctx.eventCtx(), 'turn.completed', {
+                status:
+                  boundary === 'interrupted' ? 'interrupted' : tr.isError ? 'error' : 'success',
+                inputTokens: tr.inputTokens,
+                outputTokens: tr.outputTokens,
+                costUsd: tr.costUsd,
+                durationMs: tr.durationMs
+              })
+            }
 
             for (const ev of norm.normalize(raw, ctx.eventCtx())) yield ev
           }
@@ -296,13 +328,17 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
         async interrupt(): Promise<void> {
           await ready.catch(() => undefined)
           cancelRequested = true
-          abort.abort()
+          // Scoped to the CURRENT turn only — NOT the session-level `abort` — so a fresh turn
+          // dispatched afterward (doPrompt creates a new `turnAbort`) gets a non-aborted signal
+          // and permission requests resume working normally (Critical 2 fix).
+          turnAbort.abort()
           await session?.cancel().catch(() => undefined)
         },
         end(): void {
           if (ended) return
           ended = true
           abort.abort() // reject any approval card still pending at teardown
+          turnAbort.abort()
           queue.end()
           stopClient() // never leave an orphaned runtime
         }

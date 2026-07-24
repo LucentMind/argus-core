@@ -149,8 +149,12 @@ export function createAcpNormalizer(init: { resumed: boolean; model: string }): 
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function turnBoundary(u: any): 'success' | 'interrupted' | null {
-    if (u?.stopReason === 'end_turn' || u?.type === 'turn.completed') return 'success'
+    // `cancelled` MUST be checked before the synthetic `type==='turn.completed'` item — the
+    // synthetic boundary item's `stopReason` is what actually distinguishes an interrupted
+    // turn from a clean one; checking `type==='turn.completed'` first would make it always
+    // win and misreport every interrupted turn as 'success'.
     if (u?.stopReason === 'cancelled') return 'interrupted'
+    if (u?.stopReason === 'end_turn' || u?.type === 'turn.completed') return 'success'
     return null
   }
 
