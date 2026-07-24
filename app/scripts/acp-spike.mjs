@@ -133,7 +133,9 @@ function makeClient(rec) {
         options.find((o) => o.kind === 'allow_once') ??
         options.find((o) => o.kind === 'allow_always') ??
         options[0]
-      const outcome = chosen ? { outcome: 'selected', optionId: chosen.optionId } : { outcome: 'cancelled' }
+      const outcome = chosen
+        ? { outcome: 'selected', optionId: chosen.optionId }
+        : { outcome: 'cancelled' }
       rec('outbound-response', { method: 'session/request_permission', outcome })
       return { outcome }
     },
@@ -197,7 +199,10 @@ async function runScenario(name, { withAuth = true } = {}) {
 
     // Exercise cancel as its own recorded path (best-effort — the turn above
     // may already be complete by the time this fires).
-    rec('outbound-notification', { method: 'session/cancel', params: { sessionId: session.sessionId } })
+    rec('outbound-notification', {
+      method: 'session/cancel',
+      params: { sessionId: session.sessionId }
+    })
     await connection.cancel({ sessionId: session.sessionId })
   } catch (err) {
     rec('error', { message: String(err?.message ?? err), code: err?.code })
