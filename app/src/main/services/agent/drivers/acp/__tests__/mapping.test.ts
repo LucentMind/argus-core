@@ -1,3 +1,4 @@
+import { it, expect } from 'vitest'
 import { synthesizeAcpPermission } from '../mapping'
 import { ACP_TOOL_TAXONOMY } from '../taxonomy'
 import { classifyToolCall } from '../../../risk'
