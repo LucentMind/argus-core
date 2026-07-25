@@ -29,11 +29,6 @@ Non-negotiable working rules:
   already name the root cause; tell the user about relevant matches.
 `.trim()
 
-/** @deprecated Derived alias for legacy consumers/tests that still expect a single
- *  monolithic string. Prefer composing TRIAGE_FRAGMENT / NEUTRAL_PERSONA (or another
- *  mode's personaFragment) via assembleMode + composePersona instead. */
-export const BASE_PERSONA = [TRIAGE_FRAGMENT, NEUTRAL_PERSONA].join('\n\n')
-
 /**
  * Appended as a persona fragment only when a skill named `contribute-back`
  * resolves enabled at session construction (registry.ts) — disabling the skill

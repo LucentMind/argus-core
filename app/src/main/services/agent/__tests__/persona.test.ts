@@ -1,19 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
-import { BASE_PERSONA, NEUTRAL_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
+import { NEUTRAL_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
 import { CaseSession } from '../session'
 import { createClaudeDriver, type CreateQueryFn } from '../drivers/claude'
 import { createDetection } from '../../packs/detection'
 
-describe('BASE_PERSONA', () => {
+describe('NEUTRAL_PERSONA', () => {
   it('is domain-neutral (no navigation/DLT wording)', () => {
-    expect(BASE_PERSONA).not.toMatch(/navigation|DLT|logcat|argus-parse|argus-trace/i)
+    expect(NEUTRAL_PERSONA).not.toMatch(/navigation|DLT|logcat|argus-parse|argus-trace/i)
   })
   it('keeps the generic working rules', () => {
-    expect(BASE_PERSONA).toMatch(/CITATIONS/)
-    expect(BASE_PERSONA).toMatch(/FINDINGS/)
-    expect(BASE_PERSONA).toMatch(/WORKSPACES/)
-    expect(BASE_PERSONA).toMatch(/HITL/)
+    expect(NEUTRAL_PERSONA).toMatch(/CITATIONS/)
+    expect(NEUTRAL_PERSONA).toMatch(/FINDINGS/)
+    expect(NEUTRAL_PERSONA).toMatch(/WORKSPACES/)
+    expect(NEUTRAL_PERSONA).toMatch(/HITL/)
   })
 })
 
