@@ -18,6 +18,7 @@ import { panelsStore } from './lib/panelsStore'
 import { uiStore } from './lib/uiStore'
 import { nextView, type View } from './lib/viewReducer'
 import type { CaseRecord, NewCaseInput, UnifiedHit } from '../../shared/types'
+import { DEFAULT_MODE } from '../../shared/modes'
 
 type Viewer =
   | { kind: 'evidence'; evidenceId: number; focusStart: number; focusEnd: number }
@@ -187,6 +188,7 @@ function App(): React.JSX.Element {
             jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
             status={cases.find((c) => c.slug === view.slug)?.status ?? 'open'}
             resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
+            activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
             onStatusChanged={() => void reload()}
             onOpenHit={handleOpenHit}
             onOpenCitation={(id, start, end) =>

@@ -3,15 +3,15 @@ import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 
 export function ModeSwitcher({
   slug,
-  sessionId,
   activeMode,
   onModeChanged,
   onError
 }: {
   slug: string
-  sessionId: number
   activeMode: ModeId
-  onModeChanged: (mode: ModeId) => void
+  /** The parent switches the active chat to `sessionId` — the mode's existing chat, or a
+   *  freshly created one (`cases:set-mode`'s contract). */
+  onModeChanged: (mode: ModeId, sessionId: number) => void
   /** Surfaces a load or switch failure to the caller (CaseWorkspace shows it as the
    *  chat-header error line). Keeps this component from failing silently — see the
    *  unhandled rejection this replaced. */
@@ -38,8 +38,8 @@ export function ModeSwitcher({
   async function pick(mode: ModeId): Promise<void> {
     if (mode === activeMode) return
     try {
-      await window.argus.sessions.setMode(slug, sessionId, mode)
-      onModeChanged(mode)
+      const result = await window.argus.cases.setMode(slug, mode)
+      onModeChanged(mode, result.sessionId)
     } catch {
       onError('Could not switch mode for this chat.')
     }

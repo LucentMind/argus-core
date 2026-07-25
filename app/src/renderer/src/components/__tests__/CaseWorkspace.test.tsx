@@ -6,6 +6,7 @@ import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus } from '../../../../shared/types'
+import { DEFAULT_MODE } from '../../../../shared/modes'
 
 // jsdom has no runtime ResizeObserver; DOM lib types already declare it globally.
 /* eslint-disable @typescript-eslint/no-empty-function */
@@ -44,13 +45,16 @@ beforeEach(() => {
       onAuthChanged: vi.fn(() => () => {})
     },
     sessions: {
-      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }]),
-      setMode: vi.fn(async () => true)
+      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
     },
     modes: {
       available: vi.fn(async () => ['investigation'])
     },
-    cases: { readFindings: vi.fn(async () => ''), setStatus: vi.fn(async () => undefined) },
+    cases: {
+      readFindings: vi.fn(async () => ''),
+      setStatus: vi.fn(async () => undefined),
+      setMode: vi.fn(async () => ({ sessionId: 1 }))
+    },
     distill: {
       status: vi.fn(async () => null),
       retry: vi.fn(),
@@ -158,6 +162,7 @@ function workspace(
       jiraSyncedAt={null}
       status={overrides?.status ?? 'open'}
       resolution={overrides?.resolution ?? null}
+      activeMode={DEFAULT_MODE}
       onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}

@@ -4,6 +4,7 @@ export const IPC = {
   caseCost: 'cases:cost',
   caseReadFindings: 'cases:read-findings',
   casesSetStatus: 'cases:set-status',
+  casesSetMode: 'cases:set-mode',
   evidenceIngest: 'evidence:ingest',
   /** renderer → main: ingest in-memory bytes (pasted screenshot, dropped file). */
   evidenceIngestContent: 'evidence:ingest-content',
@@ -37,7 +38,6 @@ export const IPC = {
   sessionsCreate: 'sessions:create',
   sessionsRename: 'sessions:rename',
   sessionsSetModel: 'sessions:set-model',
-  sessionsSetMode: 'sessions:set-mode',
   modesAvailable: 'modes:available',
   workspacesPick: 'workspaces:pick',
   workspacesLink: 'workspaces:link',

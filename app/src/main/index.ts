@@ -68,6 +68,7 @@ import {
   deleteCase,
   setCaseStatus,
   setCaseJiraDeselected,
+  setCaseMode,
   getCase
 } from './services/caseService'
 import { OnboardingService, resolveSampleAssetsDir } from './services/onboarding'
@@ -88,7 +89,6 @@ import {
   listSessions,
   createSession,
   setSessionModel,
-  setSessionMode,
   renameSession,
   deleteSession
 } from './services/agent/sessionStore'
@@ -1059,22 +1059,21 @@ function registerIpc(): void {
     await agentService!.stopSession(caseSlug, sessionId)
     deleteSession(db, argusHome, caseSlug, sessionId)
   })
-  ipcMain.handle(IPC.sessionsSetMode, (_e, caseSlug: string, sessionId: number, mode: ModeId) => {
+  ipcMain.handle(IPC.casesSetMode, (_e, caseSlug: string, mode: ModeId) => {
     assertSlug(caseSlug)
-    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     // Reject a mode that isn't a real MODES key rather than persisting it: an arbitrary
     // string in the mode column makes MODES[mode] undefined, which throws on every later
     // send (assembleMode) and on every render (ModeSwitcher) — and it's persisted, so it
     // would survive a restart with no recovery path.
     if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
     // Reject a mode the case cannot run right now: the switcher only ever offers available
-    // modes, so this is a malformed request, and pinning a session to a mode that cannot
+    // modes, so this is a malformed request, and pinning a case to a mode that cannot
     // run would strand the chat — same rationale as the sessionsSetModel guard above.
     const available = availableModes(modeContextForCase(db, caseSlug))
     if (!available.includes(mode)) {
       throw new Error(`Mode not available for this case: ${mode}`)
     }
-    return setSessionMode(db, sessionId, mode)
+    return setCaseMode(db, argusHome, caseSlug, mode)
   })
 
   // — modes —
