@@ -22,6 +22,7 @@ import { touchSession, setTitleIfEmpty } from './sessionStore'
 import { maybeAdvanceToAnalyzing } from '../caseService'
 import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
 import { sharedReferencesDir } from '../skillsDir'
+import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -71,6 +72,11 @@ export interface SessionDeps {
    *  send exactly like `mcpFingerprint`, because the model is likewise frozen at query()
    *  construction — re-pinning a chat to another provider/model must rebuild it. */
   modelKey?: string
+  /** The mode (`ModeId`) this session was constructed for; AgentService compares it per
+   *  send exactly like `modelKey`, because the persona fragments and skill allowlist are
+   *  likewise frozen at query() construction — re-pinning a chat to another mode must
+   *  rebuild it. */
+  mode?: ModeId
   /** Fired when a turn fails auth-shaped (spec §5); index.ts calls authCache.onAuthFailure(). */
   onAuthFailure?: () => void
   /** Fired when a turn completes normally — the only real proof the credentials work. */
@@ -129,6 +135,7 @@ export class CaseSession {
   readonly sessionId: number
   readonly mcpFingerprint: string
   readonly modelKey: string
+  readonly mode: ModeId
   state: 'running' | 'dead' = 'running'
   activeTurn = false
   lastActivity = Date.now()
@@ -148,6 +155,7 @@ export class CaseSession {
     this.sessionId = deps.sessionId
     this.mcpFingerprint = deps.mcpFingerprint ?? ''
     this.modelKey = deps.modelKey ?? ''
+    this.mode = deps.mode ?? DEFAULT_MODE
     touchSession(deps.db, deps.sessionId)
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()

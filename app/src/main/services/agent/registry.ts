@@ -150,15 +150,24 @@ export class AgentService {
     // which keep resolving from settings exactly as before).
     const pinned = sessionProvider(this.deps.db, sessionId)
     const modelKey = `${pinned?.instanceId ?? ''}::${pinned?.model ?? ''}`
+    // Read BEFORE the early-return guard below — mode must participate in the rebuild
+    // decision exactly like modelKey and mcpFingerprint do.
+    const mode = sessionMode(this.deps.db, sessionId)
 
     const existing = this.sessions.get(key)
     if (existing && existing.state === 'running') {
       // Never tear down a turn in flight; the rebuild happens on the next idle send.
       if (existing.activeTurn) return existing
-      // A live session's mcpServers map AND its model are frozen at query() construction,
-      // so either changing under it requires a rebuild. The resume cursor below preserves
-      // history (and is invalidated by sessionCursor's guard if the driver kind changed).
-      if (existing.mcpFingerprint === fingerprint && existing.modelKey === modelKey) return existing
+      // A live session's mcpServers map, its model, AND its mode (persona + skill
+      // allowlist) are frozen at query() construction, so any of them changing under it
+      // requires a rebuild. The resume cursor below preserves history (and is invalidated
+      // by sessionCursor's guard if the driver kind changed).
+      if (
+        existing.mcpFingerprint === fingerprint &&
+        existing.modelKey === modelKey &&
+        existing.mode === mode
+      )
+        return existing
       await existing.stop('reconfigured')
       this.sessions.delete(key)
     } else if (existing) {
@@ -191,7 +200,6 @@ export class AgentService {
     // Nudge follows the resolution winner (a user-tier shadow's enabled state
     // governs), so one Skills-page toggle silences both skill and nudge.
     const contributeBack = resolvedSkills.some((s) => s.name === 'contribute-back' && s.enabled)
-    const mode = sessionMode(this.deps.db, sessionId)
     const assembled = assembleMode({
       mode,
       resolvedSkills,
@@ -238,6 +246,7 @@ export class AgentService {
             this.deps.dispatchPanelCommand!(caseSlug, packId, windowId, cmd, args)
         : undefined,
       modelKey,
+      mode,
       agentOptions: as
         ? (() => {
             const parsed = settingsSchema.parse({ agent: as })
