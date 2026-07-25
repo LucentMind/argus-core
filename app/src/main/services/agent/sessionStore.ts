@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { SessionSummary } from '../../../shared/types'
+import type { ModeId } from '../../../shared/modes'
 import { getCase } from '../caseService'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
@@ -23,9 +24,10 @@ interface SessionRow {
   driver_kind: string
   instance_id: string | null
   model: string | null
+  mode: string
 }
 
-const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model`
+const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode`
 
 function rowToSummary(r: SessionRow): SessionSummary {
   return {
@@ -35,16 +37,19 @@ function rowToSummary(r: SessionRow): SessionSummary {
     updatedAt: r.updated_at,
     driverKind: r.driver_kind,
     instanceId: r.instance_id,
-    model: r.model
+    model: r.model,
+    mode: r.mode as ModeId
   }
 }
 
 /** What a new session runs on. Both optional: omitting them reproduces the pre-multi-provider
- *  behaviour of resolving the provider and model from settings at send time. */
+ *  behaviour of resolving the provider and model from settings at send time. `mode` pins the
+ *  session to the mode axis (Task 1's `ModeId`) — a review is a session pinned to 'review'. */
 export interface SessionProvider {
   driverKind: string
   instanceId?: string | null
   model?: string | null
+  mode?: ModeId
 }
 
 /** `driverKind` is stamped at creation (Task 7 evidence: `driver_kind` gates cursor
@@ -61,9 +66,9 @@ export function createSession(
   const now = new Date().toISOString()
   const res = db
     .prepare(
-      `INSERT INTO sessions (case_id, turn_count, created_at, updated_at, driver_kind, instance_id, model) VALUES (?, 0, ?, ?, ?, ?, ?)`
+      `INSERT INTO sessions (case_id, turn_count, created_at, updated_at, driver_kind, instance_id, model, mode) VALUES (?, 0, ?, ?, ?, ?, ?, ?)`
     )
-    .run(caseId, now, now, p.driverKind, p.instanceId ?? null, p.model ?? null)
+    .run(caseId, now, now, p.driverKind, p.instanceId ?? null, p.model ?? null, p.mode ?? 'investigation')
   return {
     id: Number(res.lastInsertRowid),
     title: '',
@@ -71,7 +76,8 @@ export function createSession(
     updatedAt: now,
     driverKind: p.driverKind,
     instanceId: p.instanceId ?? null,
-    model: p.model ?? null
+    model: p.model ?? null,
+    mode: p.mode ?? 'investigation'
   }
 }
 
@@ -133,6 +139,22 @@ export function setSessionModel(
   db.prepare(
     `UPDATE sessions SET driver_kind = ?, instance_id = ?, model = ?${kindChanged ? ', driver_cursor = NULL' : ''} WHERE id = ?`
   ).run(provider.driverKind, instanceId, model, sessionId)
+  return true
+}
+
+/** The mode a session is pinned to (defaults to 'investigation' for rows that predate the
+ *  mode axis, matching the column's DEFAULT). */
+export function sessionMode(db: DatabaseSync, sessionId: number): ModeId {
+  const row = db.prepare(`SELECT mode FROM sessions WHERE id = ?`).get(sessionId) as
+    | { mode: string }
+    | undefined
+  return (row?.mode as ModeId) ?? 'investigation'
+}
+
+/** Re-pin a session's mode. Returns true when the mode actually changed. */
+export function setSessionMode(db: DatabaseSync, sessionId: number, mode: ModeId): boolean {
+  if (sessionMode(db, sessionId) === mode) return false
+  db.prepare(`UPDATE sessions SET mode = ? WHERE id = ?`).run(mode, sessionId)
   return true
 }
 

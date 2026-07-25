@@ -1,4 +1,5 @@
 import type { ActionItem } from './triage'
+import type { ModeId } from './modes'
 
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
@@ -95,6 +96,9 @@ export interface SessionSummary {
   instanceId: string | null
   /** Model chosen for this chat. Null means "the instance's default at send time". */
   model: string | null
+  /** The mode axis this session is pinned to (e.g. `'investigation'`, `'review'`) —
+   *  stamped at creation (sessions.mode), same pattern as driverKind/instanceId/model. */
+  mode: ModeId
 }
 
 /** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */
