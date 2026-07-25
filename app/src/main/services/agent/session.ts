@@ -50,6 +50,10 @@ export interface SessionDeps {
   enabledSkills?: string[]
   /** Pack-contributed persona fragments (from PackRegistry), injected after the base persona. */
   personaFragments?: string[]
+  /** Mode-scoped skill index (registry.ts, via assembleMode); appended to the system prompt
+   *  after the persona. The driver allowlist (`enabledSkills`) is unaffected — advertising is
+   *  scoped, availability is not. */
+  skillIndex?: string
   /** Pack-declared CLI binary names (from PackRegistry), auto-allowlisted as LOW risk. */
   packCliNames?: string[]
   emit: (e: AgentEvent) => void
@@ -163,6 +167,13 @@ export class CaseSession {
     const memoryAppend = memIndex.trim()
       ? `\n\n## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.\n\n${memIndex.trim()}`
       : ''
+    // Mode-scoped skill advertising (assembleMode via registry.ts). The driver allowlist
+    // (deps.enabledSkills below) is never filtered by this — a skill missing from the index
+    // is still loadable. buildSkillIndex already supplies its own lead line, so no extra
+    // header is added here, just the same blank-line separator memoryAppend uses.
+    const skillIndexAppend = (deps.skillIndex ?? '').trim()
+      ? `\n\n${(deps.skillIndex ?? '').trim()}`
+      : ''
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,
@@ -188,7 +199,10 @@ export class CaseSession {
       model: ao.model,
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',
-      systemAppend: composePersona(deps.personaFragments ?? [], ao.personaAppend) + memoryAppend,
+      systemAppend:
+        composePersona(deps.personaFragments ?? [], ao.personaAppend) +
+        skillIndexAppend +
+        memoryAppend,
       extraMcpServers: deps.extraMcpServers ?? {},
       nativeToolDeps: {
         db: deps.db,
