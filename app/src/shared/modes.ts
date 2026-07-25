@@ -17,9 +17,11 @@ export interface ModeDefinition {
 
 const REVIEW_PERSONA = `
 You are in CODE REVIEW mode. Review the linked pull request's diff for correctness,
-security, test coverage, and conformance to the ticket's acceptance criteria. Record each
-issue as a finding with a [<path>:<line>] citation into the diff. Do not change code unless
-the user explicitly accepts a finding and asks you to apply it.
+security, test coverage, and conformance to the ticket's acceptance criteria. A PR diff is
+code in a linked workspace repo, so cite each issue the same way: record it as a finding
+with a [<repo-name>/<repo-relative-path>:<line>] citation into the diff, where repo-name is
+the repo directory's basename — that is what renders as a clickable link. Do not change code
+unless the user explicitly accepts a finding and asks you to apply it.
 `.trim()
 
 export const MODES: Record<ModeId, ModeDefinition> = {
@@ -41,7 +43,11 @@ export const MODES: Record<ModeId, ModeDefinition> = {
 
 export const DEFAULT_MODE: ModeId = 'investigation'
 
-const MODE_ORDER: ModeId[] = ['investigation', 'review']
+// Derived from MODES' own key order rather than listed separately: MODES is an object
+// literal, so its key order is insertion order (investigation, review) — the same order
+// we want for display/priority. Deriving means a third mode only needs adding to MODES;
+// forgetting to also extend a hand-maintained list here can't happen.
+const MODE_ORDER: ModeId[] = Object.keys(MODES) as ModeId[]
 
 export function availableModes(ctx: ModeContext): ModeId[] {
   return MODE_ORDER.filter((id) => MODES[id].available(ctx))
