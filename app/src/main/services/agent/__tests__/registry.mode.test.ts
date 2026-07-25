@@ -5,7 +5,7 @@ import path from 'node:path'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { AgentService } from '../registry'
-import { createSession, setSessionMode } from '../sessionStore'
+import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { defaultAgentAccess } from '../../../../shared/agentAccess'
 import { createDetection } from '../../packs/detection'
@@ -72,8 +72,12 @@ describe('AgentService — mode participates in the live-session rebuild decisio
       'CODE REVIEW mode'
     )
 
-    // the user (or renderer) switches this existing, live session's mode
-    setSessionMode(db, s.id, 'review')
+    // A session's mode is immutable through the app's own API (setSessionMode was
+    // removed — Plan 1b makes mode a case-level axis, sessions just bind to it at
+    // creation). AgentService's rebuild-on-mode-change guard must still hold for
+    // whatever row is actually in the DB, so mutate it directly here, same as
+    // sessionMode.test.ts's "direct DB edit / version downgrade" case.
+    db.prepare(`UPDATE sessions SET mode = ? WHERE id = ?`).run('review', s.id)
     await svc.send('NAV-1', s.id, 'second')
 
     // must NOT be the stale cached session answering under the old persona
@@ -120,7 +124,7 @@ describe('AgentService — mode participates in the live-session rebuild decisio
     })
     const s = createSession(db, 'NAV-1', { driverKind: 'claude-agent-sdk', mode: 'investigation' })
     await svc.send('NAV-1', s.id, 'first') // turn still in flight
-    setSessionMode(db, s.id, 'review')
+    db.prepare(`UPDATE sessions SET mode = ? WHERE id = ?`).run('review', s.id)
     await svc.send('NAV-1', s.id, 'second')
     expect(optionsLog).toHaveLength(1) // rebuild deferred to the next idle send
     expect(events.some((e) => e.type === 'session.exited')).toBe(false)

@@ -10,9 +10,13 @@ import type {
   SyncError
 } from '../../shared/types'
 import { deriveActionItems, triageRank } from '../../shared/triage'
+import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
+import { activeDriver, defaultModelRef } from '../../shared/drivers'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
+import { SettingsService } from './settings'
+import { createSession, latestSessionForMode, type SessionProvider } from './agent/sessionStore'
 
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -56,6 +60,7 @@ interface CaseRow {
   last_sync_error: string | null
   status: string
   resolution: string | null
+  active_mode: string
   tags: string
   created_at: string
   updated_at: string
@@ -77,6 +82,7 @@ function rowToCase(r: CaseRow): CaseRecord {
     lastSyncError: r.last_sync_error ? (JSON.parse(r.last_sync_error) as SyncError) : null,
     status: r.status as CaseStatus,
     resolution: (r.resolution ?? null) as CaseResolution | null,
+    activeMode: r.active_mode as ModeId,
     tags: JSON.parse(r.tags) as string[],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -138,6 +144,7 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       lastSyncError: null,
       status: 'open',
       resolution: null,
+      activeMode: DEFAULT_MODE,
       tags: [],
       createdAt: now,
       updatedAt: now,
@@ -445,6 +452,82 @@ export function setCaseStatus(
     }
   }
   return updated
+}
+
+/**
+ * Resolves what a brand-new chat should run on the same way the sessions:create IPC
+ * handler does (see main/index.ts's `newSessionProvider`): the default provider
+ * instance and its default model, so a mode-switch-created chat is pinned exactly like
+ * one a user creates by hand. Opens a one-off SettingsService to read the on-disk
+ * settings and closes it immediately — this is a single read, not a live subscription.
+ *
+ * Uses shared/drivers.ts's `activeDriver` (a static catalog lookup) rather than
+ * main/services/agent/driverRegistry's `getActiveDriver` — the latter eagerly
+ * constructs every real driver at import time, and driver construction transitively
+ * imports nativeTools.ts, which imports this module (setCaseStatus), creating a
+ * module-init cycle. `activeDriver` resolves the same driver *kind* string from the
+ * same settings without ever constructing a driver, so the fallback below
+ * ('claude-agent-sdk' for a missing/disabled/unknown instance) matches
+ * `getActiveDriver`'s fallback exactly.
+ */
+function resolveDefaultProvider(argusHome: string): {
+  driverKind: string
+  instanceId: string | null
+  model: string | null
+} {
+  const settingsService = new SettingsService(argusHome)
+  try {
+    const settings = settingsService.get()
+    const ref = defaultModelRef(settings)
+    return {
+      driverKind: activeDriver(settings)?.kind ?? 'claude-agent-sdk',
+      instanceId: ref?.instanceId ?? null,
+      model: ref?.slug ?? null
+    }
+  } finally {
+    settingsService.close()
+  }
+}
+
+/**
+ * The single writer for which mode (see shared/modes.ts) a case is currently switched
+ * to. Mirrors setCaseStatus's pattern: validate, update the DB row, mirror into
+ * case.json, return the fresh record's session to switch to.
+ *
+ * A session's mode is pinned at creation and immutable thereafter (setSessionMode no
+ * longer exists), so switching a case's mode never mutates any existing chat — it only
+ * decides which chat is active: the mode's most recent session, or a freshly created one
+ * bound to it when none exists yet. This is what lets the other mode's chats sit
+ * untouched until the user switches back to them.
+ */
+export function setCaseMode(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  mode: ModeId
+): { sessionId: number } {
+  if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+  const now = new Date().toISOString()
+  db.prepare(`UPDATE cases SET active_mode = ?, updated_at = ? WHERE slug = ?`).run(mode, now, slug)
+
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    // corrupt/unreadable case.json — rebuild from the DB record (same shape as
+    // createCase: full record minus id) so other fields survive.
+    onDisk = { ...existing, id: undefined }
+  }
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, activeMode: mode, updatedAt: now }, null, 2))
+
+  const target = latestSessionForMode(db, slug, mode)
+  if (target) return { sessionId: target.id }
+  const provider: SessionProvider = { ...resolveDefaultProvider(argusHome), mode }
+  const created = createSession(db, slug, provider)
+  return { sessionId: created.id }
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { createSession, sessionMode, setSessionMode, listSessions } from '../sessionStore'
+import { createSession, sessionMode } from '../sessionStore'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,14 +26,6 @@ describe('session mode persistence', () => {
   it('creates a session pinned to review mode', () => {
     const s = createSession(db, 'c1', { driverKind: 'claude-agent-sdk', mode: 'review' })
     expect(sessionMode(db, s.id)).toBe('review')
-  })
-
-  it('setSessionMode updates and reports change', () => {
-    const s = createSession(db, 'c1', 'claude-agent-sdk')
-    expect(setSessionMode(db, s.id, 'review')).toBe(true)
-    expect(setSessionMode(db, s.id, 'review')).toBe(false)
-    expect(sessionMode(db, s.id)).toBe('review')
-    expect(listSessions(db, 'c1').find((x) => x.id === s.id)?.mode).toBe('review')
   })
 
   it('sessionMode normalises an unrecognised stored value to the default (direct DB edit / version downgrade)', () => {

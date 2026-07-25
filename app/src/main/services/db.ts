@@ -180,6 +180,14 @@ export function openDb(file: string): DatabaseSync {
   if (!caseCols.some((c) => c.name === 'last_sync_error')) {
     db.exec(`ALTER TABLE cases ADD COLUMN last_sync_error TEXT`)
   }
+  // Mode axis: which mode (see shared/modes.ts) a case is currently switched to. Sessions
+  // are bound to the mode they were created under (sessions.mode); this column is what a
+  // case-level mode switch actually flips (see caseService.setCaseMode).
+  if (!caseCols.some((c) => c.name === 'active_mode')) {
+    // SQL can't reference the TS DEFAULT_MODE constant (shared/modes.ts) — this literal
+    // must be kept in sync with it by hand, same caveat as the sessions.mode migration below.
+    db.exec(`ALTER TABLE cases ADD COLUMN active_mode TEXT NOT NULL DEFAULT 'investigation'`)
+  }
   // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
   // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
   const sessionIdx = db.prepare(`PRAGMA index_list(sessions)`).all() as {
