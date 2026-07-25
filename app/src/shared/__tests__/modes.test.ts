@@ -20,4 +20,16 @@ describe('mode registry', () => {
     expect(MODES.review.personaFragment.length).toBeGreaterThan(0)
     expect(MODES.review.role).toBe('review')
   })
+
+  it("review's persona cites diff code the same way BASE_PERSONA cites linked-workspace code", () => {
+    // A [<path>:<line>] citation (no repo prefix) would not render as a clickable link for
+    // code in a linked workspace repo — see persona.ts's BASE_PERSONA citation rule.
+    expect(MODES.review.personaFragment).toContain('[<repo-name>/<repo-relative-path>:<line>]')
+    expect(MODES.review.personaFragment).not.toMatch(/\[<path>:<line>\]/)
+  })
+
+  it('MODE_ORDER (via availableModes) covers every key of MODES', () => {
+    const allAvailable = availableModes({ linkedPrCount: Infinity })
+    expect(new Set(allAvailable)).toEqual(new Set(Object.keys(MODES)))
+  })
 })

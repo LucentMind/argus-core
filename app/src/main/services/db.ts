@@ -211,6 +211,8 @@ export function openDb(file: string): DatabaseSync {
   // snapshot (sessCols) is taken after the legacy UNIQUE(case_id) rebuild above, so the
   // guard is safe to reuse here without re-preparing PRAGMA table_info(sessions).
   if (!sessCols.some((c) => c.name === 'mode')) {
+    // SQL can't reference the TS DEFAULT_MODE constant (shared/modes.ts) — this literal
+    // must be kept in sync with it by hand.
     db.exec(`ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'investigation'`)
   }
   // Driver-typed resume cursor: rename the Claude-specific sdk_session_id column to
