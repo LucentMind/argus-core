@@ -3,6 +3,7 @@ import path from 'node:path'
 import { caseDir, hivemindSkillsDir, userSkillsDir } from '../paths'
 import { sharedSkillsDir } from '../skillsDir'
 import { skillEnabled, type AgentAccess } from '../../../shared/agentAccess'
+import type { ModeRole } from '../../../shared/modes'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -47,34 +48,67 @@ const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
   { tier: 'bundled', root: sharedSkillsDir }
 ]
 
-export function frontmatterDescription(skillDir: string): string {
+/** Read `<skillDir>/SKILL.md` once and return just its `---`-fenced frontmatter body
+ *  (or null if the file is missing/unreadable or has no frontmatter fence). Shared by
+ *  `frontmatterDescription`/`frontmatterRoles` and by `resolveSkills`, which needs both
+ *  fields but must not read the file twice per skill. */
+function readFrontmatter(skillDir: string): string | null {
   try {
     const raw = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
-    const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-    const fmContent = fm?.[1]
-    if (!fmContent) return ''
-    const m = fmContent.match(/^description:\s*(.+)$/m)
-    return m ? m[1].replace(/\r$/, '').trim() : ''
+    return raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? null
   } catch {
-    return ''
+    return null
   }
 }
 
-export function frontmatterRoles(skillDir: string): string[] {
-  try {
-    const raw = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
-    const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1]
-    if (!fm) return []
-    const m = fm.match(/^roles:\s*(.+)$/m)
-    if (!m) return []
-    return m[1]
+function parseDescription(fm: string | null): string {
+  if (!fm) return ''
+  const m = fm.match(/^description:\s*(.+)$/m)
+  return m ? m[1].replace(/\r$/, '').trim() : ''
+}
+
+const stripQuotes = (s: string): string => s.trim().replace(/^["']|["']$/g, '')
+
+/**
+ * Parse the `roles:` frontmatter tag, supporting both YAML forms:
+ *   inline: `roles: [review, triage]` / `roles: review, triage` / `roles: review` /
+ *            `roles: "review"` / `roles: []`
+ *   block:  `roles:\n  - review\n  - triage`
+ *
+ * The previous implementation used `/^roles:\s*(.+)$/m`, but `\s` matches newlines too, so
+ * for the block form it consumed the line break after `roles:` and `(.+)` captured only the
+ * first list item's raw text (`"- review"`) as a single mangled role — silently deranking
+ * the skill in every mode. Scanning line-by-line (no `\s*` crossing a newline) avoids that.
+ */
+function parseRoles(fm: string | null): string[] {
+  if (!fm) return []
+  const lines = fm.split(/\r?\n/)
+  const idx = lines.findIndex((l) => /^roles:\s*/.test(l))
+  if (idx === -1) return []
+  const inline = lines[idx].replace(/^roles:\s*/, '').trim()
+  if (inline) {
+    return inline
       .replace(/^\[|\]$/g, '')
       .split(',')
-      .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+      .map(stripQuotes)
       .filter(Boolean)
-  } catch {
-    return []
   }
+  // Block form: consume subsequent indented `- item` lines until one doesn't match.
+  const items: string[] = []
+  for (let i = idx + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^\s+-\s*(.+)$/)
+    if (!m) break
+    items.push(stripQuotes(m[1]))
+  }
+  return items.filter(Boolean)
+}
+
+export function frontmatterDescription(skillDir: string): string {
+  return parseDescription(readFrontmatter(skillDir))
+}
+
+export function frontmatterRoles(skillDir: string): string[] {
+  return parseRoles(readFrontmatter(skillDir))
 }
 
 function scanTier(root: string): string[] {
@@ -96,14 +130,15 @@ export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedS
         continue
       }
       const dir = path.join(tierRoot, name)
+      const fm = readFrontmatter(dir)
       byName.set(name, {
         name,
         tier,
         dir,
-        description: frontmatterDescription(dir),
+        description: parseDescription(fm),
         enabled: skillEnabled(access, `${tier}/${name}`),
         shadows: [],
-        roles: frontmatterRoles(dir)
+        roles: parseRoles(fm)
       })
     }
   }
@@ -175,7 +210,7 @@ export function materializeSessionSkills(
 
 /** Order skills for a mode's role: role-matched + universal first (input order preserved),
  *  non-matching last. Ranks, never filters — every skill remains in the result. */
-export function rankSkillsForMode(skills: ResolvedSkill[], role: string): ResolvedSkill[] {
+export function rankSkillsForMode(skills: ResolvedSkill[], role: ModeRole): ResolvedSkill[] {
   const applies = (s: ResolvedSkill): boolean => s.roles.length === 0 || s.roles.includes(role)
   return [...skills.filter(applies), ...skills.filter((s) => !applies(s))]
 }
