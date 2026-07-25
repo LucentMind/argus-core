@@ -140,15 +140,18 @@ describe('openDb', () => {
       legacy.close()
       const migrated = openDb(file)
       const row = migrated
-        .prepare(`SELECT id, driver_cursor, driver_kind, turn_count, title FROM sessions`)
+        .prepare(`SELECT id, driver_cursor, driver_kind, turn_count, title, mode FROM sessions`)
         .get() as never
       expect(row).toMatchObject({
         id: 1,
         driver_cursor: 'abc',
         driver_kind: 'claude-agent-sdk',
         turn_count: 5,
-        title: ''
+        title: '',
+        mode: 'investigation'
       })
+      const cols = migrated.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
+      expect(cols.some((c) => c.name === 'mode')).toBe(true)
       migrated
         .prepare(`INSERT INTO sessions (case_id, created_at, updated_at) VALUES (1,'x','x')`)
         .run() // no UNIQUE violation
