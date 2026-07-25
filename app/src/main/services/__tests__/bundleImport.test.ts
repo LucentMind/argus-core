@@ -380,3 +380,27 @@ describe('imported case resolution', () => {
     expect(rec.resolution).toBeNull()
   })
 })
+
+describe('imported case activeMode', () => {
+  // The import INSERT deliberately omits active_mode, so the column takes its default —
+  // the exporting machine's mode is NOT carried over. The mirrored case.json must say the
+  // same thing, because every later writer (setCaseMode) spreads `...onDisk`: a stale
+  // `activeMode` left in the json here would survive every subsequent mirror indefinitely.
+  it('normalizes a stale activeMode from the bundle to what the DB actually holds', async () => {
+    const patched = await bundleWithCaseJson({ activeMode: 'review' })
+    const rec = await importCase(dbB, homeB, patched, 'NAV-100')
+    expect(rec.activeMode).toBe('investigation')
+    const cj = JSON.parse(
+      fs.readFileSync(path.join(homeB, 'cases', 'NAV-100', 'case.json'), 'utf8')
+    )
+    expect(cj.activeMode).toBe(rec.activeMode)
+  })
+
+  it('writes activeMode even when the bundle carries none', async () => {
+    const rec = await importCase(dbB, homeB, bundle, 'NAV-100')
+    const cj = JSON.parse(
+      fs.readFileSync(path.join(homeB, 'cases', 'NAV-100', 'case.json'), 'utf8')
+    )
+    expect(cj.activeMode).toBe(rec.activeMode)
+  })
+})

@@ -407,6 +407,12 @@ export async function importCase(
         now
       )
     const caseId = Number(res.lastInsertRowid)
+    // The INSERT above deliberately omits active_mode, so the column takes its default —
+    // the exporting machine's mode does not travel in a bundle. Read back what the row
+    // actually holds so the mirrored case.json below can be normalized to it; a stale
+    // `activeMode` carried in from the bundle would otherwise be permanent, because every
+    // later mirror (setCaseMode) spreads `...onDisk` and would keep re-writing it.
+    const activeMode = getCase(db, slug)!.activeMode
     const dir = caseDir(argusHome, slug)
     try {
       fs.renameSync(staged, dir)
@@ -418,7 +424,14 @@ export async function importCase(
       fs.writeFileSync(
         path.join(dir, 'case.json'),
         JSON.stringify(
-          { ...onDisk, slug, updatedAt: now, workspaces: [], workspaceRefs: manifest.workspaces },
+          {
+            ...onDisk,
+            slug,
+            activeMode,
+            updatedAt: now,
+            workspaces: [],
+            workspaceRefs: manifest.workspaces
+          },
           null,
           2
         )
