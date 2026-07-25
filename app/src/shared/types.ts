@@ -76,6 +76,10 @@ export interface CaseRecord {
   status: CaseStatus
   /** Why the case was closed; non-null iff status === 'closed'. */
   resolution: CaseResolution | null
+  /** The mode axis (Task 1's `ModeId`) this case is currently switched to. Chats are bound
+   *  to the mode they were created under (sessions.mode); switching this pins which mode's
+   *  chat is active without touching the other mode's chats. */
+  activeMode: ModeId
   tags: string[]
   createdAt: string // ISO 8601
   updatedAt: string

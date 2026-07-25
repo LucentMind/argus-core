@@ -162,11 +162,22 @@ export function sessionMode(db: DatabaseSync, sessionId: number): ModeId {
   return mode && mode in MODES ? (mode as ModeId) : DEFAULT_MODE
 }
 
-/** Re-pin a session's mode. Returns true when the mode actually changed. */
-export function setSessionMode(db: DatabaseSync, sessionId: number, mode: ModeId): boolean {
-  if (sessionMode(db, sessionId) === mode) return false
-  db.prepare(`UPDATE sessions SET mode = ? WHERE id = ?`).run(mode, sessionId)
-  return true
+/** The most recent session pinned to `mode` (see shared/modes.ts), or null when the case
+ *  has none yet. Used by caseService.setCaseMode to find the chat a mode switch should
+ *  land on — creating one bound to `mode` only when this returns null, so the other
+ *  mode's chats are never touched by a switch. */
+export function latestSessionForMode(
+  db: DatabaseSync,
+  caseSlug: string,
+  mode: ModeId
+): SessionSummary | null {
+  const caseId = caseIdOf(db, caseSlug)
+  const row = db
+    .prepare(
+      `SELECT ${SESSION_COLS} FROM sessions WHERE case_id = ? AND mode = ? ORDER BY updated_at DESC, id DESC LIMIT 1`
+    )
+    .get(caseId, mode) as SessionRow | undefined
+  return row ? rowToSummary(row) : null
 }
 
 export function renameSession(db: DatabaseSync, sessionId: number, title: string): void {
