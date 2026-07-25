@@ -71,6 +71,7 @@ import type {
 } from '../shared/panels'
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
+import type { ModeId } from '../shared/modes'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -307,8 +308,16 @@ const argus = {
     /** Re-pin a chat to a provider instance + model. Resolves true when it actually changed. */
     setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
+    /** Re-pin a chat to a mode. Resolves true when it actually changed. */
+    setMode: (sessionId: number, mode: ModeId): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.sessionsSetMode, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
+  },
+  modes: {
+    /** The modes available to a case right now, given its current mode context. */
+    available: (caseSlug: string): Promise<ModeId[]> =>
+      ipcRenderer.invoke(IPC.modesAvailable, caseSlug)
   },
   providers: {
     /** Per-instance provider status for the settings page. */

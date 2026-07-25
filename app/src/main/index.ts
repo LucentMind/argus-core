@@ -88,9 +88,12 @@ import {
   listSessions,
   createSession,
   setSessionModel,
+  setSessionMode,
   renameSession,
   deleteSession
 } from './services/agent/sessionStore'
+import { modeContextForCase } from './services/modeContext'
+import { availableModes, type ModeId } from '../shared/modes'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import {
   getActiveDriver,
@@ -1056,6 +1059,14 @@ function registerIpc(): void {
     await agentService!.stopSession(caseSlug, sessionId)
     deleteSession(db, argusHome, caseSlug, sessionId)
   })
+  ipcMain.handle(IPC.sessionsSetMode, (_e, sessionId: number, mode: ModeId) =>
+    setSessionMode(db, sessionId, mode)
+  )
+
+  // — modes —
+  ipcMain.handle(IPC.modesAvailable, (_e, caseSlug: string) =>
+    availableModes(modeContextForCase(db, caseSlug))
+  )
 
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {
