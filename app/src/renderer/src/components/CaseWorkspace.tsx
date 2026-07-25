@@ -39,6 +39,7 @@ export function CaseWorkspace({
   resolution,
   activeMode,
   onStatusChanged,
+  onModeSwitched,
   onOpenHit,
   onOpenCitation,
   onOpenFile,
@@ -55,6 +56,12 @@ export function CaseWorkspace({
    *  from session-scoped to case-scoped). */
   activeMode: ModeId
   onStatusChanged: () => void
+  /** A mode switch persisted `CaseRecord.activeMode` in the DB (ModeSwitcher already called
+   *  `cases.setMode`); this tells the parent to refetch its `cases` array so the `activeMode`
+   *  prop above stops being stale — same contract as `onStatusChanged`, just for the mode
+   *  axis instead of the status axis. Without this, a remount (e.g. home-and-back) would
+   *  re-render the switcher off the last-fetched (now wrong) mode. */
+  onModeSwitched: () => void
   onOpenHit: (hit: UnifiedHit) => void
   onOpenCitation: (evidenceId: number, start: number, end: number) => void
   onOpenFile: (node: FileNode) => void
@@ -84,12 +91,6 @@ export function CaseWorkspace({
     sessionId: number
     target: ChatJumpTarget
   } | null>(null)
-  // Optimistic mirror of the `activeMode` prop (CaseRecord.activeMode): applied immediately
-  // on a ModeSwitcher click so the highlighted button updates without waiting on the
-  // parent's next `cases:list` refetch (App.tsx only reloads its case list on status
-  // changes today — see handleModeChanged below).
-  const [localActiveMode, setLocalActiveMode] = useState(activeMode)
-
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
   // identical suggestion in the new case isn't a setState no-op, and clear the
   // stale sessionId/error so case A's chat doesn't flash while case B's session
@@ -102,7 +103,6 @@ export function CaseWorkspace({
     setSessionId(null)
     setSessions([])
     setSessionsError(null)
-    setLocalActiveMode(activeMode)
   }
 
   useEffect(() => {
@@ -170,11 +170,12 @@ export function CaseWorkspace({
   /** ModeSwitcher already called cases.setMode itself (switching the case's active mode,
    *  and creating that mode's chat if it didn't exist yet). Follow the user to that chat —
    *  same path a search-hit jump or the session-list picker uses — refresh the session
-   *  list so a newly-created chat appears there, and mirror the new mode locally so the
-   *  switcher's highlighted button updates immediately (see localActiveMode above). */
-  function handleModeChanged(mode: ModeId, newSessionId: number): void {
-    setLocalActiveMode(mode)
+   *  list so a newly-created chat appears there, and tell the parent to refetch its case
+   *  list so the `activeMode` prop this component renders off of stops being stale (see
+   *  the onModeSwitched doc comment above; no local mirror of the mode is kept here). */
+  function handleModeChanged(_mode: ModeId, newSessionId: number): void {
     handleSwitchSession(newSessionId)
+    onModeSwitched()
     void window.argus.sessions
       .list(slug)
       .then((list) => setSessions(list))
@@ -283,7 +284,7 @@ export function CaseWorkspace({
         <DistillChip slug={slug} />
         <ModeSwitcher
           slug={slug}
-          activeMode={localActiveMode}
+          activeMode={activeMode}
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />

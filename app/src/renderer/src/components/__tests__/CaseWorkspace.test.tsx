@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
-import type { CaseResolution, CaseStatus } from '../../../../shared/types'
-import { DEFAULT_MODE } from '../../../../shared/modes'
+import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
+import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
 
 // jsdom has no runtime ResizeObserver; DOM lib types already declare it globally.
 /* eslint-disable @typescript-eslint/no-empty-function */
@@ -153,6 +153,8 @@ function workspace(
     status?: CaseStatus
     resolution?: CaseResolution | null
     onStatusChanged?: () => void
+    activeMode?: ModeId
+    onModeSwitched?: () => void
   }
 ): React.JSX.Element {
   return (
@@ -162,8 +164,9 @@ function workspace(
       jiraSyncedAt={null}
       status={overrides?.status ?? 'open'}
       resolution={overrides?.resolution ?? null}
-      activeMode={DEFAULT_MODE}
+      activeMode={overrides?.activeMode ?? DEFAULT_MODE}
       onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
+      onModeSwitched={overrides?.onModeSwitched ?? vi.fn()}
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
@@ -176,6 +179,8 @@ function renderWorkspace(overrides?: {
   status?: CaseStatus
   resolution?: CaseResolution | null
   onStatusChanged?: () => void
+  activeMode?: ModeId
+  onModeSwitched?: () => void
 }): ReturnType<typeof render> {
   return render(workspace('NAV-1', overrides))
 }
@@ -250,6 +255,99 @@ describe('CaseWorkspace session bootstrap', () => {
     })
     renderWorkspace()
     expect(await screen.findByText('Could not load chat sessions.')).toBeTruthy()
+  })
+})
+
+// Regression coverage for the stale-mirror bug: CaseWorkspace used to keep a
+// `localActiveMode` React state seeded from the `activeMode` prop. Nothing told the parent
+// (App.tsx) to refetch its `cases` array after a mode switch, so a full unmount/remount
+// (e.g. going home and reopening the case) re-seeded that mirror from the now-stale prop,
+// while `sessionId` — resolved from `uiStore`, persisted independently — had already moved
+// on to the new mode's chat. The switcher then highlighted the old mode while the visibly
+// open chat belonged to the new one. The fix deletes the mirror (the switcher renders
+// directly off `activeMode`) and adds `onModeSwitched`, a same-shaped callback to
+// `onStatusChanged` that App.tsx wires to the same `reload()` — that's what keeps the prop
+// from going stale in the first place.
+describe('CaseWorkspace mode switching', () => {
+  // uiStore is a module-level singleton (not reset by beforeEach); these tests move
+  // NAV-1's active session to 7, which would otherwise leak into later tests in this
+  // file that assume the default single session (id 1).
+  afterEach(() => {
+    uiStore.setActiveSession('NAV-1', 1)
+  })
+
+  function stubTwoModeSessions(): void {
+    window.argus.modes.available = vi.fn(async (): Promise<ModeId[]> => ['investigation', 'review'])
+    window.argus.sessions.list = vi.fn(async (): Promise<SessionSummary[]> => [
+      {
+        id: 1,
+        title: '',
+        turnCount: 0,
+        updatedAt: '',
+        driverKind: 'claude-agent-sdk',
+        instanceId: null,
+        model: null,
+        mode: 'investigation'
+      },
+      {
+        id: 7,
+        title: '',
+        turnCount: 0,
+        updatedAt: '',
+        driverKind: 'claude-agent-sdk',
+        instanceId: null,
+        model: null,
+        mode: 'review'
+      }
+    ])
+    window.argus.cases.setMode = vi.fn(async () => ({ sessionId: 7 }))
+  }
+
+  it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
+    stubTwoModeSessions()
+    const onModeSwitched = vi.fn()
+    render(workspace('NAV-1', { activeMode: 'investigation', onModeSwitched }))
+
+    const reviewBtn = await screen.findByRole('button', { name: /review/i })
+    fireEvent.click(reviewBtn)
+
+    await waitFor(() => expect(window.argus.cases.setMode).toHaveBeenCalledWith('NAV-1', 'review'))
+    // this is what actually closes the bug: it's App.tsx's signal to reload() its case
+    // list, so the next time this prop is supplied it carries the real, persisted mode
+    await waitFor(() => expect(onModeSwitched).toHaveBeenCalled())
+    // the mode's chat (session 7, per cases.setMode's result) is now the active session
+    expect(uiStore.get().activeSessions['NAV-1']).toBe(7)
+
+    // Before the parent has actually re-supplied a fresh `activeMode`, the switcher must
+    // not fake an optimistic flip — with the mirror removed, it can only show what the
+    // prop says. (This is the divergence the bug produced: the old mirror flipped
+    // immediately and then re-seeded wrongly from a stale prop on remount.)
+    expect(
+      screen.getByRole('button', { name: /investigation/i }).getAttribute('aria-pressed')
+    ).toBe('true')
+  })
+
+  it('reflects a round trip correctly once the parent responds to onModeSwitched: after a switch, an unmount, and a remount with the refreshed activeMode, the switcher matches the still-open session', async () => {
+    stubTwoModeSessions()
+    const { unmount } = render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    const reviewBtn = await screen.findByRole('button', { name: /review/i })
+    fireEvent.click(reviewBtn)
+    await waitFor(() => expect(uiStore.get().activeSessions['NAV-1']).toBe(7))
+
+    // simulate navigating home (CaseWorkspace fully unmounts — one branch of App.tsx's
+    // view.kind ternary) and back. onModeSwitched fired above, so by the time the case is
+    // reopened App.tsx's cases array — and thus this prop — carries the persisted mode.
+    unmount()
+    render(workspace('NAV-1', { activeMode: 'review' }))
+
+    const reviewAfter = await screen.findByRole('button', { name: /review/i })
+    expect(reviewAfter.getAttribute('aria-pressed')).toBe('true')
+    expect(
+      screen.getByRole('button', { name: /investigation/i }).getAttribute('aria-pressed')
+    ).toBe('false')
+    // the session the switcher now agrees with is the one that's actually open
+    expect(uiStore.get().activeSessions['NAV-1']).toBe(7)
   })
 })
 
