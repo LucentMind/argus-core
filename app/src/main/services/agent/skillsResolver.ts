@@ -36,6 +36,8 @@ export interface ResolvedSkill {
   enabled: boolean
   /** Lower-precedence tiers that also define this skill name. */
   shadows: SkillTier[]
+  /** Mode roles this skill is tagged for (`roles:` frontmatter). Empty = universal. */
+  roles: string[]
 }
 
 /** Precedence order, highest first (spec §1.4). */
@@ -55,6 +57,23 @@ export function frontmatterDescription(skillDir: string): string {
     return m ? m[1].replace(/\r$/, '').trim() : ''
   } catch {
     return ''
+  }
+}
+
+export function frontmatterRoles(skillDir: string): string[] {
+  try {
+    const raw = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
+    const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1]
+    if (!fm) return []
+    const m = fm.match(/^roles:\s*(.+)$/m)
+    if (!m) return []
+    return m[1]
+      .replace(/^\[|\]$/g, '')
+      .split(',')
+      .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+      .filter(Boolean)
+  } catch {
+    return []
   }
 }
 
@@ -83,7 +102,8 @@ export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedS
         dir,
         description: frontmatterDescription(dir),
         enabled: skillEnabled(access, `${tier}/${name}`),
-        shadows: []
+        shadows: [],
+        roles: frontmatterRoles(dir)
       })
     }
   }
@@ -151,4 +171,11 @@ export function materializeSessionSkills(
     fs.symlinkSync(s.dir, path.join(linkDir, s.name), 'junction')
   }
   return resolved
+}
+
+/** Order skills for a mode's role: role-matched + universal first (input order preserved),
+ *  non-matching last. Ranks, never filters — every skill remains in the result. */
+export function rankSkillsForMode(skills: ResolvedSkill[], role: string): ResolvedSkill[] {
+  const applies = (s: ResolvedSkill): boolean => s.roles.length === 0 || s.roles.includes(role)
+  return [...skills.filter(applies), ...skills.filter((s) => !applies(s))]
 }
