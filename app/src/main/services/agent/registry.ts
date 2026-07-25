@@ -159,9 +159,13 @@ export class AgentService {
       // Never tear down a turn in flight; the rebuild happens on the next idle send.
       if (existing.activeTurn) return existing
       // A live session's mcpServers map, its model, AND its mode (persona + skill
-      // allowlist) are frozen at query() construction, so any of them changing under it
-      // requires a rebuild. The resume cursor below preserves history (and is invalidated
-      // by sessionCursor's guard if the driver kind changed).
+      // allowlist) are frozen at query() construction. Mode has no in-app path that
+      // changes it under a live session — a session's mode is written only at INSERT
+      // (setSessionMode was removed; Plan 1b made mode a case-level axis, sessions just
+      // bind to it at creation) — but the guard is kept anyway as free defence-in-depth:
+      // registry.mode.test.ts exercises it via a direct DB UPDATE, standing in for a
+      // future code path or a hand-edited row. The resume cursor below preserves history
+      // (and is invalidated by sessionCursor's guard if the driver kind changed).
       if (
         existing.mcpFingerprint === fingerprint &&
         existing.modelKey === modelKey &&

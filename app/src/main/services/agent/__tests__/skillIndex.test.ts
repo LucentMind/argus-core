@@ -27,6 +27,19 @@ describe('buildSkillIndex', () => {
   it('returns empty string when nothing qualifies', () => {
     expect(buildSkillIndex([skill('rev', ['review'])], 'triage')).toBe('')
   })
+
+  it('omits the trailing colon for a skill with an empty description', () => {
+    const out = buildSkillIndex([skill('bare', [], '')], 'triage')
+    expect(out).toBe('Skills most relevant to this mode:\n- bare')
+  })
+
+  it('truncates a long description to ~200 chars with an ellipsis', () => {
+    const long = 'x'.repeat(280)
+    const out = buildSkillIndex([skill('long', [], long)], 'triage')
+    const line = out.split('\n').find((l) => l.startsWith('- long:'))!
+    expect(line).toBe(`- long: ${'x'.repeat(200)}…`)
+    expect(line.length).toBeLessThan(long.length)
+  })
 })
 
 describe('assembleMode + index', () => {
