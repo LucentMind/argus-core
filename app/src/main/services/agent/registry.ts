@@ -15,11 +15,11 @@ import { CaseSession, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver, type CreateQueryFn } from './drivers/claude'
 import type { PanelCommandDecl } from './panelCommands'
-import { sessionCursor, sessionProvider } from './sessionStore'
+import { sessionCursor, sessionProvider, sessionMode } from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
-import { CONTRIBUTE_BACK_NUDGE } from './persona'
+import { assembleMode } from './modeAssembly'
 import type { Detection } from '../packs/detection'
 
 export interface AgentServiceDeps {
@@ -191,6 +191,13 @@ export class AgentService {
     // Nudge follows the resolution winner (a user-tier shadow's enabled state
     // governs), so one Skills-page toggle silences both skill and nudge.
     const contributeBack = resolvedSkills.some((s) => s.name === 'contribute-back' && s.enabled)
+    const mode = sessionMode(this.deps.db, sessionId)
+    const assembled = assembleMode({
+      mode,
+      resolvedSkills,
+      packFragments: this.deps.personaFragments?.() ?? [],
+      contributeBack
+    })
 
     const session = new CaseSession({
       db: this.deps.db,
@@ -203,11 +210,8 @@ export class AgentService {
       skillsRoots: this.deps.skillsRoots,
       // The same resolution that materialized the junctions also bounds what the driver
       // may load — a linked workspace's own .claude/skills must never enter the session.
-      enabledSkills: resolvedSkills.filter((s) => s.enabled).map((s) => s.name),
-      personaFragments: [
-        ...(this.deps.personaFragments?.() ?? []),
-        ...(contributeBack ? [CONTRIBUTE_BACK_NUDGE] : [])
-      ],
+      enabledSkills: assembled.enabledSkills,
+      personaFragments: assembled.personaFragments,
       packCliNames: this.deps.packCliNames?.() ?? [],
       emit: this.deps.onEvent,
       driver,
