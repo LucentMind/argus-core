@@ -828,6 +828,25 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  it('appends a non-empty skill index to the system prompt', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, {
+      skillIndex: 'Skills most relevant to this mode:\n- foo: does foo'
+    })
+    const sys = sdk.captured.options!.systemPrompt as { append: string }
+    expect(sys.append).toContain('Skills most relevant to this mode:')
+    expect(sys.append).toContain('- foo: does foo')
+    await s.stop('stopped')
+  })
+
+  it('an empty skill index contributes nothing — no stray header or blank lines', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { personaFragments: ['IDENTITY'], skillIndex: '' })
+    const sys = sdk.captured.options!.systemPrompt as { append: string }
+    expect(sys.append).toBe('IDENTITY')
+    await s.stop('stopped')
+  })
+
   it('memory files are not FS-readable — read_memory is the only read path', async () => {
     applyMemoryWrite(argusHome, 'NAV-1', { topic: 'keep', content: 'k', indexEntry: 'kept' })
     const sdk = fakeSdk()

@@ -220,6 +220,7 @@ export class AgentService {
       // may load — a linked workspace's own .claude/skills must never enter the session.
       enabledSkills: assembled.enabledSkills,
       personaFragments: assembled.personaFragments,
+      skillIndex: assembled.skillIndex,
       packCliNames: this.deps.packCliNames?.() ?? [],
       emit: this.deps.onEvent,
       driver,
