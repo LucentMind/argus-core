@@ -68,7 +68,15 @@ export function createSession(
     .prepare(
       `INSERT INTO sessions (case_id, turn_count, created_at, updated_at, driver_kind, instance_id, model, mode) VALUES (?, 0, ?, ?, ?, ?, ?, ?)`
     )
-    .run(caseId, now, now, p.driverKind, p.instanceId ?? null, p.model ?? null, p.mode ?? 'investigation')
+    .run(
+      caseId,
+      now,
+      now,
+      p.driverKind,
+      p.instanceId ?? null,
+      p.model ?? null,
+      p.mode ?? 'investigation'
+    )
   return {
     id: Number(res.lastInsertRowid),
     title: '',
@@ -146,8 +154,7 @@ export function setSessionModel(
  *  mode axis, matching the column's DEFAULT). */
 export function sessionMode(db: DatabaseSync, sessionId: number): ModeId {
   const row = db.prepare(`SELECT mode FROM sessions WHERE id = ?`).get(sessionId) as
-    | { mode: string }
-    | undefined
+    { mode: string } | undefined
   return (row?.mode as ModeId) ?? 'investigation'
 }
 
