@@ -91,6 +91,15 @@ describe('listCases / getCase', () => {
     expect(getCase(db, 'A-1')?.title).toBe('first')
     expect(getCase(db, 'missing')).toBeNull()
   })
+
+  it('getCase normalises an unrecognised stored active_mode to the default (direct DB edit / version downgrade)', () => {
+    // Same defence-in-depth convention as sessionStore.ts's sessionMode: a stored value
+    // that isn't a real MODES key must not survive into activeMode, or MODES[mode] is
+    // undefined and throws on every later render (no ErrorBoundary in this renderer).
+    createCase(db, home, { slug: 'GARBAGE-1', title: 'g' })
+    db.prepare(`UPDATE cases SET active_mode = 'some-future-mode' WHERE slug = 'GARBAGE-1'`).run()
+    expect(getCase(db, 'GARBAGE-1')?.activeMode).toBe('investigation')
+  })
 })
 
 describe('setCaseJira', () => {

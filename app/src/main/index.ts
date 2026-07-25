@@ -1022,10 +1022,13 @@ function registerIpc(): void {
     }
   }
   ipcMain.handle(IPC.sessionsList, (_e, caseSlug: string) =>
-    listSessions(db, caseSlug, newSessionProvider())
+    listSessions(db, caseSlug, newSessionProvider(), getCase(db, caseSlug)?.activeMode)
   )
   ipcMain.handle(IPC.sessionsCreate, (_e, caseSlug: string) =>
-    createSession(db, caseSlug, newSessionProvider())
+    createSession(db, caseSlug, {
+      ...newSessionProvider(),
+      mode: getCase(db, caseSlug)?.activeMode
+    })
   )
   ipcMain.handle(
     IPC.sessionsSetModel,
@@ -1073,7 +1076,7 @@ function registerIpc(): void {
     if (!available.includes(mode)) {
       throw new Error(`Mode not available for this case: ${mode}`)
     }
-    return setCaseMode(db, argusHome, caseSlug, mode)
+    return setCaseMode(db, argusHome, caseSlug, mode, newSessionProvider())
   })
 
   // — modes —

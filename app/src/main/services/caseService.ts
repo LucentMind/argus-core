@@ -11,11 +11,9 @@ import type {
 } from '../../shared/types'
 import { deriveActionItems, triageRank } from '../../shared/triage'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
-import { activeDriver, defaultModelRef } from '../../shared/drivers'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
-import { SettingsService } from './settings'
 import { createSession, latestSessionForMode, type SessionProvider } from './agent/sessionStore'
 
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
@@ -82,7 +80,11 @@ function rowToCase(r: CaseRow): CaseRecord {
     lastSyncError: r.last_sync_error ? (JSON.parse(r.last_sync_error) as SyncError) : null,
     status: r.status as CaseStatus,
     resolution: (r.resolution ?? null) as CaseResolution | null,
-    activeMode: r.active_mode as ModeId,
+    // Defence in depth against a direct DB edit or a downgrade from a version that wrote
+    // a mode this build no longer knows — same convention as sessionStore.ts's
+    // sessionMode, which this mirrors exactly (see its comment for the failure mode this
+    // guards against: MODES[mode] undefined, throwing on every later render).
+    activeMode: r.active_mode in MODES ? (r.active_mode as ModeId) : DEFAULT_MODE,
     tags: JSON.parse(r.tags) as string[],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -455,41 +457,6 @@ export function setCaseStatus(
 }
 
 /**
- * Resolves what a brand-new chat should run on the same way the sessions:create IPC
- * handler does (see main/index.ts's `newSessionProvider`): the default provider
- * instance and its default model, so a mode-switch-created chat is pinned exactly like
- * one a user creates by hand. Opens a one-off SettingsService to read the on-disk
- * settings and closes it immediately — this is a single read, not a live subscription.
- *
- * Uses shared/drivers.ts's `activeDriver` (a static catalog lookup) rather than
- * main/services/agent/driverRegistry's `getActiveDriver` — the latter eagerly
- * constructs every real driver at import time, and driver construction transitively
- * imports nativeTools.ts, which imports this module (setCaseStatus), creating a
- * module-init cycle. `activeDriver` resolves the same driver *kind* string from the
- * same settings without ever constructing a driver, so the fallback below
- * ('claude-agent-sdk' for a missing/disabled/unknown instance) matches
- * `getActiveDriver`'s fallback exactly.
- */
-function resolveDefaultProvider(argusHome: string): {
-  driverKind: string
-  instanceId: string | null
-  model: string | null
-} {
-  const settingsService = new SettingsService(argusHome)
-  try {
-    const settings = settingsService.get()
-    const ref = defaultModelRef(settings)
-    return {
-      driverKind: activeDriver(settings)?.kind ?? 'claude-agent-sdk',
-      instanceId: ref?.instanceId ?? null,
-      model: ref?.slug ?? null
-    }
-  } finally {
-    settingsService.close()
-  }
-}
-
-/**
  * The single writer for which mode (see shared/modes.ts) a case is currently switched
  * to. Mirrors setCaseStatus's pattern: validate, update the DB row, mirror into
  * case.json, return the fresh record's session to switch to.
@@ -499,12 +466,20 @@ function resolveDefaultProvider(argusHome: string): {
  * decides which chat is active: the mode's most recent session, or a freshly created one
  * bound to it when none exists yet. This is what lets the other mode's chats sit
  * untouched until the user switches back to them.
+ *
+ * `provider` is what a freshly created chat should run on — the caller passes the same
+ * thing the sessions:create IPC handler does (main/index.ts's `newSessionProvider()`),
+ * so a mode-switch-created chat is pinned exactly like one a user creates by hand. This
+ * used to be re-resolved in here via a one-off SettingsService (a second file watcher
+ * per mode switch) through a driver catalog that didn't actually agree with
+ * `getActiveDriver`'s fallback; taking it as a parameter removes both problems.
  */
 export function setCaseMode(
   db: DatabaseSync,
   argusHome: string,
   slug: string,
-  mode: ModeId
+  mode: ModeId,
+  provider: SessionProvider
 ): { sessionId: number } {
   if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
   const existing = getCase(db, slug)
@@ -525,8 +500,7 @@ export function setCaseMode(
 
   const target = latestSessionForMode(db, slug, mode)
   if (target) return { sessionId: target.id }
-  const provider: SessionProvider = { ...resolveDefaultProvider(argusHome), mode }
-  const created = createSession(db, slug, provider)
+  const created = createSession(db, slug, { ...provider, mode })
   return { sessionId: created.id }
 }
 
