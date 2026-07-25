@@ -837,20 +837,45 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
-  it('appends a non-empty skill index to the system prompt', async () => {
+  // A driver that advertises nothing about skills on its own (Codex/ACP shape), but keeps
+  // the Claude driver's capture path so the options bag is still inspectable.
+  const nonAdvertising = (sdk: ReturnType<typeof fakeSdk>): AgentDriver => {
+    const d = createClaudeDriver(sdk.createQuery)
+    return { ...d, capabilities: { ...d.capabilities, advertisesSkills: false } }
+  }
+
+  const INDEX = 'Skills most relevant to this mode:\n- foo: does foo'
+
+  it('appends a non-empty skill index for a driver with no skill channel of its own', async () => {
     const sdk = fakeSdk()
-    const s = makeSession(sdk, {
-      skillIndex: 'Skills most relevant to this mode:\n- foo: does foo'
-    })
+    const s = makeSession(sdk, { driver: nonAdvertising(sdk), skillIndex: INDEX })
     const sys = sdk.captured.options!.systemPrompt as { append: string }
     expect(sys.append).toContain('Skills most relevant to this mode:')
     expect(sys.append).toContain('- foo: does foo')
     await s.stop('stopped')
   })
 
+  // The Claude SDK's own `skills` option already injects "The following skills are
+  // available for use with the Skill tool:" listing every allowlisted skill with its FULL
+  // description, ordered by mode relevance (measured 2026-07-25 — see skillIndex.ts).
+  // Appending our own index there would restate all of that on every single turn.
+  it('omits the skill index for a driver that advertises skills itself', async () => {
+    const sdk = fakeSdk()
+    const s = makeSession(sdk, { skillIndex: INDEX }) // plain Claude driver
+    const sys = sdk.captured.options!.systemPrompt as { append: string }
+    expect(sys.append).not.toContain('Skills most relevant to this mode:')
+    expect(sys.append).not.toContain('- foo: does foo')
+    expect(sys.append).toContain('CITATIONS') // the persona itself is untouched
+    await s.stop('stopped')
+  })
+
   it('an empty skill index contributes nothing — no stray header or blank lines', async () => {
     const sdk = fakeSdk()
-    const s = makeSession(sdk, { personaFragments: ['IDENTITY'], skillIndex: '' })
+    const s = makeSession(sdk, {
+      driver: nonAdvertising(sdk),
+      personaFragments: ['IDENTITY'],
+      skillIndex: ''
+    })
     const sys = sdk.captured.options!.systemPrompt as { append: string }
     expect(sys.append).toBe('IDENTITY')
     await s.stop('stopped')

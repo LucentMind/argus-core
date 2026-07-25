@@ -175,9 +175,16 @@ export class CaseSession {
     // (deps.enabledSkills below) is never filtered by this — a skill missing from the index
     // is still loadable. buildSkillIndex already supplies its own lead line, so no extra
     // header is added here, just the same blank-line separator memoryAppend uses.
-    const skillIndexAppend = (deps.skillIndex ?? '').trim()
-      ? `\n\n${(deps.skillIndex ?? '').trim()}`
-      : ''
+    //
+    // Skipped entirely for a driver that advertises skills on its own transport (Claude:
+    // the SDK's `skills` option injects the same name+description list, untruncated and
+    // already ordered by mode relevance). Repeating it in the system prompt would cost
+    // tokens on every turn to say what the model was just told. Drivers with no skill
+    // channel (Codex, ACP) still get it — for them it is the only signal the skills exist.
+    const skillIndexAppend =
+      !deps.driver.capabilities.advertisesSkills && (deps.skillIndex ?? '').trim()
+        ? `\n\n${(deps.skillIndex ?? '').trim()}`
+        : ''
     this.riskCtx = {
       caseDir: dir,
       workspaceRoots: deps.workspaceRoots,

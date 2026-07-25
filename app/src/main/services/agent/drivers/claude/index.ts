@@ -65,7 +65,11 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
       costReporting: true,
-      headlessOneShot: true
+      headlessOneShot: true,
+      // The `skills` option below makes the SDK list every allowlisted skill (name + full
+      // description) for the model, so CaseSession skips Argus's own index. Measured
+      // 2026-07-25, SDK 0.3.205 — see skillIndex.ts for the capture and the reasoning.
+      advertisesSkills: true
     },
 
     runHeadless: (prompt, opts) => runClaudeHeadless(prompt, opts, createQuery),

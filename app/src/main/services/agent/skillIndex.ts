@@ -18,7 +18,9 @@ function truncateDescription(description: string): string {
  * (`assembleMode().enabledSkills`) still carries every enabled skill, so a skill omitted
  * here remains loadable — advertising is scoped, availability is not.
  *
- * WHY THIS IS NOT REDUNDANT WITH THE CLAUDE SDK'S OWN SKILLS CHANNEL
+ * NOT EVERY DRIVER GETS THIS — see the gate at the bottom.
+ *
+ * WHAT THE CLAUDE SDK ALREADY SENDS ON ITS OWN
  * Measured 2026-07-25 against @anthropic-ai/claude-agent-sdk 0.3.205 by pointing
  * ANTHROPIC_BASE_URL at a local proxy and reading the CLI's outbound /v1/messages request:
  *
@@ -33,14 +35,24 @@ function truncateDescription(description: string): string {
  *   - So on Claude every name+description pair below is ALREADY in the model's context, and
  *     this index restates it (truncated, unqualified) on every turn.
  *
- * What it adds that the SDK channel structurally cannot: the allowlist is deliberately not
- * mode-filtered, so the SDK's list is byte-identical in every mode. This index is the only
- * thing that tells the model which of those skills fit the mode it is working in. That
- * relevance signal is the entire justification; the duplicated descriptions are its cost.
+ * Nor does the index carry a mode signal the SDK lacks: `assembleMode` ranks
+ * `enabledSkills` with `rankSkillsForMode` before handing them over, and that order is
+ * preserved on the wire — so mode-relevant skills already sort to the TOP of the SDK's own
+ * list. On Claude this index therefore adds nothing at all, and a pack that wants to steer
+ * the model toward its own skills can say so in its `personaText`, which it authors
+ * alongside them.
  *
- * Copilot duplicates the same way (it loads the identical junction dir via
- * `skillDirectories`). Codex and the ACP drivers never receive `ctx.skills` and advertise
- * nothing on their own, so for them this index is the only signal that the skills exist.
+ * WHO ACTUALLY GETS IT
+ * `CaseSession` appends this only when the driver's `capabilities.advertisesSkills` is not
+ * set:
+ *   - Claude sets it (measured above) — pays nothing.
+ *   - Codex and the ACP drivers receive no skill channel whatsoever: no `ctx.skills`, no
+ *     skill directories, and the case CLAUDE.md never mentions skills. Their session cwd is
+ *     the case dir, so they CAN read `<caseDir>/.claude/skills/<name>/SKILL.md` — but only
+ *     if something tells them it exists. This index is that something, and their only one.
+ *   - Copilot deliberately still receives it. It loads the same junction dir via
+ *     `skillDirectories`, but whether that reaches its MODEL as a name+description list has
+ *     NOT been measured; asserting it on a guess would silently hide every skill.
  */
 export function buildSkillIndex(skills: ResolvedSkill[], role: ModeRole): string {
   // A plain filter, not rankSkillsForMode(...).filter(...): ranking only reorders

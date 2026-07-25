@@ -46,6 +46,10 @@ export interface DriverCapabilities {
   /** Whether this driver can run a tool-less one-shot prompt with no case and no session.
    *  Explicit and required — unlike `mcpConnectors`, absence here means nothing. */
   headlessOneShot: boolean
+  /** Mirrors `main/services/agent/driver.ts` `DriverCapabilities.advertisesSkills`: whether
+   *  the driver's own transport already lists the available skills for the model. Drives
+   *  whether `CaseSession` appends Argus's mode-scoped skill index; see skillIndex.ts. */
+  advertisesSkills?: boolean
 }
 
 export interface DriverDefinition {
@@ -122,7 +126,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
       costReporting: true,
-      headlessOneShot: true
+      headlessOneShot: true,
+      advertisesSkills: true
     }
   },
   'github-copilot': {

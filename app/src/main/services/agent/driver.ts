@@ -115,6 +115,13 @@ export interface DriverCapabilities {
    *  supports a plan-then-approve mode. Optional/absent where irrelevant (Claude enforces
    *  `acceptEdits`/`plan` internally without a distinct capability flag). */
   planMode?: boolean
+  /** Whether the driver's OWN transport already tells the model which skills exist, with
+   *  their descriptions. When true, `CaseSession` suppresses the mode-scoped skill index
+   *  (`skillIndex.ts`) — appending it would restate, every turn, what the driver already
+   *  said. Absent/false means the driver advertises nothing, so the index is the only
+   *  signal the skills exist at all; do not set this without measuring the driver's real
+   *  outbound request. */
+  advertisesSkills?: boolean
 }
 
 /** Inputs for a tool-less one-shot run with no case and no session (distillation).
