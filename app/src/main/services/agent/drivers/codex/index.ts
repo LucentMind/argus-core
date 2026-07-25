@@ -116,6 +116,7 @@ export function createCodexDriver(
       permissionModes: PERMISSION_MODES,
       editableApprovals: false, // the approval decision reply carries no edited input
       costReporting: false, // no cost field anywhere on this wire (contract §7) — token counts only
+      planMode: true, // mirrors the shared DriverDefinition; see driverCatalogParity.test.ts
       headlessOneShot: true // runHeadless is present, below
     },
 
