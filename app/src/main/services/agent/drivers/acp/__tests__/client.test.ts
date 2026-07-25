@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-empty-function -- fake AcpClientLike/AcpSessionLike
  * implementations below stub the interface's methods intentionally with empty bodies. */
 import type { SessionNotification } from '@zed-industries/agent-client-protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { defaultAcpClientFactory, routeSessionUpdate, type AcpClientFactory } from '../client'
 
 /**
@@ -173,16 +173,20 @@ describe('defaultAcpClientFactory child-exit hardening', () => {
       onPermission: async () => ({ cancelled: true }),
       onUpdate: (u) => updates.push(u)
     })
-    // start() is deliberately not awaited/called — the dummy child never speaks ACP. Wait
-    // comfortably longer than the fixed 50ms exit delay so this stays deterministic.
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    // start() is deliberately not awaited/called — the dummy child never speaks ACP.
+    // POLL, don't sleep a fixed budget. The old `setTimeout(250)` had to cover a REAL
+    // node process spawn plus its 50ms timer plus exit delivery; under full-suite parallel
+    // load a cold spawn alone can exceed that, so the test failed for scheduling reasons
+    // rather than behaviour (reproduced on a pristine tree by running this file under CPU
+    // load). Explicit generous bounds, matching the subprocess-poll convention used
+    // elsewhere in the suite — vitest's defaults are what flake here.
+    await vi.waitFor(() => expect(updates).toHaveLength(1), { timeout: 15_000, interval: 25 })
 
-    expect(updates).toHaveLength(1)
     const item = updates[0] as { type: string; message: string }
     expect(item.type).toBe('error')
     expect(item.message).toMatch(/exited unexpectedly/i)
     expect(item.message).toMatch(/code=1/)
-  })
+  }, 30_000)
 
   it('a child exit after stop() delivers NO error item (expected teardown, not a crash)', async () => {
     const updates: unknown[] = []
