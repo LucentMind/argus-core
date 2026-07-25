@@ -44,7 +44,11 @@ beforeEach(() => {
       onAuthChanged: vi.fn(() => () => {})
     },
     sessions: {
-      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }])
+      list: vi.fn(async () => [{ id: 1, title: '', turnCount: 0, updatedAt: '' }]),
+      setMode: vi.fn(async () => true)
+    },
+    modes: {
+      available: vi.fn(async () => ['investigation'])
     },
     cases: { readFindings: vi.fn(async () => ''), setStatus: vi.fn(async () => undefined) },
     distill: {

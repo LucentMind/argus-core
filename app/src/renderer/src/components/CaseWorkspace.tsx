@@ -4,6 +4,7 @@ import { SearchBar } from './SearchBar'
 import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
+import { ModeSwitcher } from './ModeSwitcher'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
 import { DistillChip } from './DistillChip'
@@ -28,6 +29,7 @@ import type {
   UnifiedHit
 } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
+import type { ModeId } from '../../../shared/modes'
 
 export function CaseWorkspace({
   slug,
@@ -154,6 +156,15 @@ export function CaseWorkspace({
     })
   }
 
+  /** Keep the header's session state in sync after a mode switch. ModeSwitcher already
+   *  called sessions.setMode itself (and rebuilt the live agent session on the main side);
+   *  this just applies the same optimistic local update handleModelChange uses so the
+   *  header doesn't lag a round-trip. */
+  function handleModeChanged(mode: ModeId): void {
+    if (sessionId === null) return
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, mode } : s)))
+  }
+
   // a search hit's jump target: switch to its session via the same path as a
   // normal switcher click, then hand ChatPane the message to scroll to + flash
   function handleJumpToTurn(targetSessionId: number, target: ChatJumpTarget): void {
@@ -248,6 +259,14 @@ export function CaseWorkspace({
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
+        {sessionId !== null && (
+          <ModeSwitcher
+            slug={slug}
+            sessionId={sessionId}
+            activeMode={sessions.find((s) => s.id === sessionId)?.mode ?? 'investigation'}
+            onModeChanged={handleModeChanged}
+          />
+        )}
         <div className="ml-auto">
           <HeaderChips
             slug={slug}
