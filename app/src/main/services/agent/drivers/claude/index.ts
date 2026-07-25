@@ -102,6 +102,12 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           // Qualified, because a BARE name matches every skill so named — including a
           // linked workspace's collider (verified: one bare entry loaded two skills).
           //
+          // What the model actually receives from this option (measured 2026-07-25, SDK
+          // 0.3.205, via an ANTHROPIC_BASE_URL capture proxy): a `system`-role message
+          // listing `- <qualified name>: <full description>` for exactly these entries —
+          // no SKILL.md body. See skillIndex.ts for why Argus's own index is still not
+          // redundant with it. Note the PRELOAD remark below is about a DIFFERENT field.
+          //
           // KNOWN GAP — this bounds the MAIN SESSION ONLY. A subagent spawned via Task
           // re-derives its own skill listing and sees everything discovery finds, linked
           // workspaces included (measured 2026-07-19: main 2 skills, subagent 52 with all
