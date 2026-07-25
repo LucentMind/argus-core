@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { SessionSummary } from '../../../shared/types'
-import type { ModeId } from '../../../shared/modes'
+import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 import { getCase } from '../caseService'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
@@ -75,7 +75,7 @@ export function createSession(
       p.driverKind,
       p.instanceId ?? null,
       p.model ?? null,
-      p.mode ?? 'investigation'
+      p.mode ?? DEFAULT_MODE
     )
   return {
     id: Number(res.lastInsertRowid),
@@ -85,7 +85,7 @@ export function createSession(
     driverKind: p.driverKind,
     instanceId: p.instanceId ?? null,
     model: p.model ?? null,
-    mode: p.mode ?? 'investigation'
+    mode: p.mode ?? DEFAULT_MODE
   }
 }
 
@@ -150,12 +150,16 @@ export function setSessionModel(
   return true
 }
 
-/** The mode a session is pinned to (defaults to 'investigation' for rows that predate the
- *  mode axis, matching the column's DEFAULT). */
+/** The mode a session is pinned to. Falls back to DEFAULT_MODE for rows that predate the
+ *  mode axis (matching the column's DEFAULT), AND for a stored value that isn't a real
+ *  MODES key — defence in depth against a direct DB edit or a downgrade from a version
+ *  that wrote a mode this build no longer knows, either of which would otherwise make
+ *  MODES[mode] undefined and throw on every later send/render. */
 export function sessionMode(db: DatabaseSync, sessionId: number): ModeId {
   const row = db.prepare(`SELECT mode FROM sessions WHERE id = ?`).get(sessionId) as
     { mode: string } | undefined
-  return (row?.mode as ModeId) ?? 'investigation'
+  const mode = row?.mode
+  return mode && mode in MODES ? (mode as ModeId) : DEFAULT_MODE
 }
 
 /** Re-pin a session's mode. Returns true when the mode actually changed. */

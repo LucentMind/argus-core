@@ -309,8 +309,8 @@ const argus = {
     setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
     /** Re-pin a chat to a mode. Resolves true when it actually changed. */
-    setMode: (sessionId: number, mode: ModeId): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.sessionsSetMode, sessionId, mode),
+    setMode: (caseSlug: string, sessionId: number, mode: ModeId): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.sessionsSetMode, caseSlug, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
   },
