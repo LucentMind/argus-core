@@ -6,6 +6,7 @@ import { CaseDashboard } from '../CaseDashboard'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseRecord } from '../../../../shared/types'
+import { DEFAULT_MODE } from '../../../../shared/modes'
 
 const cases: CaseRecord[] = [
   {
@@ -23,6 +24,7 @@ const cases: CaseRecord[] = [
     lastSyncError: null,
     status: 'open',
     resolution: null,
+    activeMode: DEFAULT_MODE,
     tags: [],
     createdAt: '2026-07-10T00:00:00.000Z',
     updatedAt: '2026-07-10T00:00:00.000Z',

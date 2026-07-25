@@ -9,10 +9,10 @@ const setMode = vi.fn()
 
 beforeEach(() => {
   available.mockReset()
-  setMode.mockReset().mockResolvedValue(true)
+  setMode.mockReset().mockResolvedValue({ sessionId: 42 })
   ;(globalThis as unknown as { window: { argus: unknown } }).window.argus = {
     modes: { available },
-    sessions: { setMode }
+    cases: { setMode }
   }
 })
 
@@ -24,7 +24,6 @@ describe('ModeSwitcher', () => {
     render(
       <ModeSwitcher
         slug="c1"
-        sessionId={5}
         activeMode="investigation"
         onModeChanged={onModeChanged}
         onError={onError}
@@ -32,8 +31,8 @@ describe('ModeSwitcher', () => {
     )
     const reviewBtn = await screen.findByRole('button', { name: /review/i })
     await userEvent.click(reviewBtn)
-    await waitFor(() => expect(setMode).toHaveBeenCalledWith('c1', 5, 'review'))
-    expect(onModeChanged).toHaveBeenCalledWith('review')
+    await waitFor(() => expect(setMode).toHaveBeenCalledWith('c1', 'review'))
+    expect(onModeChanged).toHaveBeenCalledWith('review', 42)
     expect(onError).not.toHaveBeenCalled()
   })
 
@@ -42,7 +41,6 @@ describe('ModeSwitcher', () => {
     render(
       <ModeSwitcher
         slug="c1"
-        sessionId={5}
         activeMode="investigation"
         onModeChanged={vi.fn()}
         onError={vi.fn()}
@@ -50,6 +48,7 @@ describe('ModeSwitcher', () => {
     )
     await waitFor(() => expect(available).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /review/i })).toBeNull()
+    expect(screen.getByText('Investigation')).toBeTruthy()
   })
 
   it('surfaces a modes.available load failure via onError instead of an unhandled rejection', async () => {
@@ -58,7 +57,6 @@ describe('ModeSwitcher', () => {
     render(
       <ModeSwitcher
         slug="c1"
-        sessionId={5}
         activeMode="investigation"
         onModeChanged={vi.fn()}
         onError={onError}
@@ -77,7 +75,6 @@ describe('ModeSwitcher', () => {
     render(
       <ModeSwitcher
         slug="c1"
-        sessionId={5}
         activeMode="investigation"
         onModeChanged={onModeChanged}
         onError={onError}

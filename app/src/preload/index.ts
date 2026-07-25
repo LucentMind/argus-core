@@ -88,7 +88,10 @@ const argus = {
     readFindings: (caseSlug: string) => ipcRenderer.invoke(IPC.caseReadFindings, caseSlug),
     delete: (slug: string): Promise<void> => ipcRenderer.invoke(IPC.casesDelete, slug),
     setStatus: (slug: string, status: CaseStatus, resolution: CaseResolution | null) =>
-      ipcRenderer.invoke(IPC.casesSetStatus, slug, status, resolution)
+      ipcRenderer.invoke(IPC.casesSetStatus, slug, status, resolution),
+    /** Switch the case's active mode, creating (or resuming) that mode's chat. */
+    setMode: (caseSlug: string, mode: ModeId): Promise<{ sessionId: number }> =>
+      ipcRenderer.invoke(IPC.casesSetMode, caseSlug, mode)
   },
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) =>
@@ -308,9 +311,6 @@ const argus = {
     /** Re-pin a chat to a provider instance + model. Resolves true when it actually changed. */
     setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
-    /** Re-pin a chat to a mode. Resolves true when it actually changed. */
-    setMode: (caseSlug: string, sessionId: number, mode: ModeId): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.sessionsSetMode, caseSlug, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
   },

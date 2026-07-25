@@ -29,7 +29,7 @@ import type {
   UnifiedHit
 } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
-import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
+import type { ModeId } from '../../../shared/modes'
 
 export function CaseWorkspace({
   slug,
@@ -37,6 +37,7 @@ export function CaseWorkspace({
   jiraSyncedAt,
   status,
   resolution,
+  activeMode,
   onStatusChanged,
   onOpenHit,
   onOpenCitation,
@@ -49,6 +50,10 @@ export function CaseWorkspace({
   jiraSyncedAt: string | null
   status: CaseStatus
   resolution: CaseResolution | null
+  /** The mode axis the case is currently switched to (`CaseRecord.activeMode`) — the source
+   *  of truth for which mode's chat is active, not the session row (Task 3/4: mode moved
+   *  from session-scoped to case-scoped). */
+  activeMode: ModeId
   onStatusChanged: () => void
   onOpenHit: (hit: UnifiedHit) => void
   onOpenCitation: (evidenceId: number, start: number, end: number) => void
@@ -79,6 +84,11 @@ export function CaseWorkspace({
     sessionId: number
     target: ChatJumpTarget
   } | null>(null)
+  // Optimistic mirror of the `activeMode` prop (CaseRecord.activeMode): applied immediately
+  // on a ModeSwitcher click so the highlighted button updates without waiting on the
+  // parent's next `cases:list` refetch (App.tsx only reloads its case list on status
+  // changes today — see handleModeChanged below).
+  const [localActiveMode, setLocalActiveMode] = useState(activeMode)
 
   // case switch: drop the previous case's Analyze suggestion so a re-click of an
   // identical suggestion in the new case isn't a setState no-op, and clear the
@@ -92,6 +102,7 @@ export function CaseWorkspace({
     setSessionId(null)
     setSessions([])
     setSessionsError(null)
+    setLocalActiveMode(activeMode)
   }
 
   useEffect(() => {
@@ -156,13 +167,18 @@ export function CaseWorkspace({
     })
   }
 
-  /** Keep the header's session state in sync after a mode switch. ModeSwitcher already
-   *  called sessions.setMode itself (and rebuilt the live agent session on the main side);
-   *  this just applies the same optimistic local update handleModelChange uses so the
-   *  header doesn't lag a round-trip. */
-  function handleModeChanged(mode: ModeId): void {
-    if (sessionId === null) return
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, mode } : s)))
+  /** ModeSwitcher already called cases.setMode itself (switching the case's active mode,
+   *  and creating that mode's chat if it didn't exist yet). Follow the user to that chat —
+   *  same path a search-hit jump or the session-list picker uses — refresh the session
+   *  list so a newly-created chat appears there, and mirror the new mode locally so the
+   *  switcher's highlighted button updates immediately (see localActiveMode above). */
+  function handleModeChanged(mode: ModeId, newSessionId: number): void {
+    setLocalActiveMode(mode)
+    handleSwitchSession(newSessionId)
+    void window.argus.sessions
+      .list(slug)
+      .then((list) => setSessions(list))
+      .catch(() => setSessionsError('Could not load chat sessions.'))
   }
 
   /** ModeSwitcher surfaces its own load/switch failures here rather than swallowing them —
@@ -265,15 +281,12 @@ export function CaseWorkspace({
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
-        {sessionId !== null && (
-          <ModeSwitcher
-            slug={slug}
-            sessionId={sessionId}
-            activeMode={sessions.find((s) => s.id === sessionId)?.mode ?? DEFAULT_MODE}
-            onModeChanged={handleModeChanged}
-            onError={handleModeError}
-          />
-        )}
+        <ModeSwitcher
+          slug={slug}
+          activeMode={localActiveMode}
+          onModeChanged={handleModeChanged}
+          onError={handleModeError}
+        />
         <div className="ml-auto">
           <HeaderChips
             slug={slug}
