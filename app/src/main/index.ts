@@ -1067,7 +1067,7 @@ function registerIpc(): void {
     // would survive a restart with no recovery path.
     if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
     // Reject a mode the case cannot run right now: the switcher only ever offers available
-    // modes, so this is a malformed request, and pinning a case to a mode that cannot
+    // modes, so this is a malformed request, and switching a case into a mode that cannot
     // run would strand the chat — same rationale as the sessionsSetModel guard above.
     const available = availableModes(modeContextForCase(db, caseSlug))
     if (!available.includes(mode)) {

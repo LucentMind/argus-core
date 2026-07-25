@@ -190,6 +190,7 @@ function App(): React.JSX.Element {
             resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
             activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
             onStatusChanged={() => void reload()}
+            onModeSwitched={() => void reload()}
             onOpenHit={handleOpenHit}
             onOpenCitation={(id, start, end) =>
               setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
