@@ -48,8 +48,12 @@ export interface SessionDeps {
   skillsRoots: string[]
   /** Resolved+enabled skill names (registry.ts); becomes the driver's skill allowlist. */
   enabledSkills?: string[]
-  /** Pack-contributed persona fragments (from PackRegistry), injected after the base persona. */
-  personaFragments?: string[]
+  /** The session's WHOLE ordered persona composition (mode identity -> role-neutral core ->
+   *  pack fragments -> contribute-back nudge), as produced by `assembleMode`. Required, not
+   *  optional: composePersona no longer prepends a hardcoded base, so an omitted value would
+   *  silently yield an EMPTY system prompt rather than a degraded one. Build it with
+   *  `assembleMode` — do not hand-assemble a partial list. */
+  personaFragments: string[]
   /** Mode-scoped skill index (registry.ts, via assembleMode); appended to the system prompt
    *  after the persona. The driver allowlist (`enabledSkills`) is unaffected — advertising is
    *  scoped, availability is not. */
@@ -200,9 +204,7 @@ export class CaseSession {
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',
       systemAppend:
-        composePersona(deps.personaFragments ?? [], ao.personaAppend) +
-        skillIndexAppend +
-        memoryAppend,
+        composePersona(deps.personaFragments, ao.personaAppend) + skillIndexAppend + memoryAppend,
       extraMcpServers: deps.extraMcpServers ?? {},
       nativeToolDeps: {
         db: deps.db,

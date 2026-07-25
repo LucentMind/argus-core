@@ -10,6 +10,7 @@ import { createClaudeDriver, type CreateQueryFn } from '../drivers/claude'
 import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { createDetection } from '../../packs/detection'
+import { NEUTRAL_PERSONA, TRIAGE_FRAGMENT } from '../persona'
 import type { AgentEvent } from '../../../../shared/agent-events'
 
 // Captures the options bag so the test can invoke the driver-installed canUseTool directly.
@@ -55,7 +56,9 @@ function makeSession(sdk: ReturnType<typeof fakeSdk>): CaseSession {
     skillsRoots: [],
     emit: (e) => events.push(e),
     driver: createClaudeDriver(sdk.createQuery),
-    resumeCursor: null
+    resumeCursor: null,
+    // What assembleMode('investigation') composes, minus pack fragments.
+    personaFragments: [TRIAGE_FRAGMENT, NEUTRAL_PERSONA]
   })
 }
 

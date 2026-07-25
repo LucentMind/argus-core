@@ -10,6 +10,7 @@ import { createSession } from '../sessionStore'
 import { AsyncQueue } from '../asyncQueue'
 import { applyMemoryWrite } from '../../memory'
 import { createDetection } from '../../packs/detection'
+import { NEUTRAL_PERSONA, TRIAGE_FRAGMENT } from '../persona'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import type { AgentDriver } from '../driver'
@@ -41,6 +42,11 @@ function fakeSdk(): FakeSdk {
 let tmp: string, argusHome: string, db: DatabaseSync
 let events: AgentEvent[]
 
+/** What `assembleMode({mode:'investigation'})` composes for a real session, minus pack
+ *  fragments — the default every CaseSession construction here starts from, so a test
+ *  asserting on the system prompt sees the same shape production does. */
+const INVESTIGATION_FRAGMENTS = [TRIAGE_FRAGMENT, NEUTRAL_PERSONA]
+
 function makeSession(
   sdk: ReturnType<typeof fakeSdk>,
   overrides: Partial<ConstructorParameters<typeof CaseSession>[0]> = {}
@@ -61,6 +67,7 @@ function makeSession(
     emit: (e) => events.push(e),
     driver: createClaudeDriver(sdk.createQuery),
     resumeCursor: null,
+    personaFragments: INVESTIGATION_FRAGMENTS,
     ...overrides
   })
 }
@@ -463,6 +470,7 @@ describe('CaseSession', () => {
       emit: (e) => events.push(e),
       driver: createClaudeDriver(sdk.createQuery),
       resumeCursor: null,
+      personaFragments: INVESTIGATION_FRAGMENTS,
       agentOptions: {
         model: 'claude-sonnet-5',
         cliPath: 'C:\\tools\\claude.exe',
@@ -503,6 +511,7 @@ describe('CaseSession', () => {
       emit: (e) => events.push(e),
       driver: createClaudeDriver(sdk2.createQuery),
       resumeCursor: null,
+      personaFragments: INVESTIGATION_FRAGMENTS,
       agentOptions: { permissionMode: 'default' }
     })
     expect(sdk2.captured.options!.permissionMode).toBeUndefined()
