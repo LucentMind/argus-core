@@ -3,17 +3,21 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { SessionSummary } from '../../../shared/types'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
-import { getCase } from '../caseService'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
 import { deleteMessagesFtsForSession } from '../ftsIndex'
 
 const TITLE_MAX = 40
 
+// A raw id lookup rather than caseService's getCase (which returns the full CaseRecord):
+// this module only ever needs the numeric id, and caseService imports createSession /
+// latestSessionForMode from here, so resolving through getCase would make the two
+// modules import each other for no reason beyond convenience.
 function caseIdOf(db: DatabaseSync, caseSlug: string): number {
-  const rec = getCase(db, caseSlug)
-  if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
-  return rec.id
+  const row = db.prepare(`SELECT id FROM cases WHERE slug = ?`).get(caseSlug) as
+    { id: number } | undefined
+  if (!row) throw new Error(`Unknown case: ${caseSlug}`)
+  return row.id
 }
 
 interface SessionRow {
@@ -92,11 +96,17 @@ export function createSession(
 /** Newest-first summaries; guarantees every case has at least one session. The provider
  *  only matters for the (rare) auto-create path — a case with zero sessions — so it
  *  defaults to the Claude driver (matching the sessions.driver_kind column default);
- *  callers with live provider context (e.g. AgentService) may still pass the default one. */
+ *  callers with live provider context (e.g. AgentService) may still pass the default one.
+ *  `mode` is a separate optional parameter (rather than folded into `provider`) because
+ *  this module has no access to the case record (that would reintroduce the very cycle
+ *  `caseIdOf` avoids by querying the row directly) — callers that already have the case's
+ *  activeMode in scope (e.g. the sessions:list IPC handler) pass it through so an
+ *  auto-created chat binds to the case's current mode instead of silently defaulting. */
 export function listSessions(
   db: DatabaseSync,
   caseSlug: string,
-  provider: string | SessionProvider = 'claude-agent-sdk'
+  provider: string | SessionProvider = 'claude-agent-sdk',
+  mode?: ModeId
 ): SessionSummary[] {
   const caseId = caseIdOf(db, caseSlug)
   const rows = db
@@ -104,7 +114,10 @@ export function listSessions(
       `SELECT ${SESSION_COLS} FROM sessions WHERE case_id = ? ORDER BY updated_at DESC, id DESC`
     )
     .all(caseId) as never[]
-  if (rows.length === 0) return [createSession(db, caseSlug, provider)]
+  if (rows.length === 0) {
+    const p: SessionProvider = typeof provider === 'string' ? { driverKind: provider } : provider
+    return [createSession(db, caseSlug, mode !== undefined ? { ...p, mode } : p)]
+  }
   return (rows as SessionRow[]).map(rowToSummary)
 }
 
