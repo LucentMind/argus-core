@@ -93,7 +93,7 @@ import {
   deleteSession
 } from './services/agent/sessionStore'
 import { modeContextForCase } from './services/modeContext'
-import { availableModes, type ModeId } from '../shared/modes'
+import { availableModes, MODES, type ModeId } from '../shared/modes'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import {
   getActiveDriver,
@@ -1059,14 +1059,29 @@ function registerIpc(): void {
     await agentService!.stopSession(caseSlug, sessionId)
     deleteSession(db, argusHome, caseSlug, sessionId)
   })
-  ipcMain.handle(IPC.sessionsSetMode, (_e, sessionId: number, mode: ModeId) =>
-    setSessionMode(db, sessionId, mode)
-  )
+  ipcMain.handle(IPC.sessionsSetMode, (_e, caseSlug: string, sessionId: number, mode: ModeId) => {
+    assertSlug(caseSlug)
+    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+    // Reject a mode that isn't a real MODES key rather than persisting it: an arbitrary
+    // string in the mode column makes MODES[mode] undefined, which throws on every later
+    // send (assembleMode) and on every render (ModeSwitcher) — and it's persisted, so it
+    // would survive a restart with no recovery path.
+    if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
+    // Reject a mode the case cannot run right now: the switcher only ever offers available
+    // modes, so this is a malformed request, and pinning a session to a mode that cannot
+    // run would strand the chat — same rationale as the sessionsSetModel guard above.
+    const available = availableModes(modeContextForCase(db, caseSlug))
+    if (!available.includes(mode)) {
+      throw new Error(`Mode not available for this case: ${mode}`)
+    }
+    return setSessionMode(db, sessionId, mode)
+  })
 
   // — modes —
-  ipcMain.handle(IPC.modesAvailable, (_e, caseSlug: string) =>
-    availableModes(modeContextForCase(db, caseSlug))
-  )
+  ipcMain.handle(IPC.modesAvailable, (_e, caseSlug: string) => {
+    assertSlug(caseSlug)
+    return availableModes(modeContextForCase(db, caseSlug))
+  })
 
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {

@@ -1,33 +1,48 @@
 import { useEffect, useState } from 'react'
-import { MODES, type ModeId } from '../../../shared/modes'
+import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 
 export function ModeSwitcher({
   slug,
   sessionId,
   activeMode,
-  onModeChanged
+  onModeChanged,
+  onError
 }: {
   slug: string
   sessionId: number
   activeMode: ModeId
   onModeChanged: (mode: ModeId) => void
+  /** Surfaces a load or switch failure to the caller (CaseWorkspace shows it as the
+   *  chat-header error line). Keeps this component from failing silently — see the
+   *  unhandled rejection this replaced. */
+  onError: (message: string) => void
 }): React.JSX.Element {
-  const [modes, setModes] = useState<ModeId[]>(['investigation'])
+  const [modes, setModes] = useState<ModeId[]>([DEFAULT_MODE])
 
   useEffect(() => {
     let live = true
-    void window.argus.modes.available(slug).then((m) => {
-      if (live) setModes(m)
-    })
+    window.argus.modes
+      .available(slug)
+      .then((m) => {
+        if (live) setModes(m)
+      })
+      .catch(() => {
+        if (live) onError('Could not load available modes for this case.')
+      })
     return () => {
       live = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onError is a stable callback prop, not a reactive dep
   }, [slug])
 
   async function pick(mode: ModeId): Promise<void> {
     if (mode === activeMode) return
-    await window.argus.sessions.setMode(sessionId, mode)
-    onModeChanged(mode)
+    try {
+      await window.argus.sessions.setMode(slug, sessionId, mode)
+      onModeChanged(mode)
+    } catch {
+      onError('Could not switch mode for this chat.')
+    }
   }
 
   // Invisible-until-useful: a lone investigation mode shows a static label, no controls —

@@ -29,7 +29,7 @@ import type {
   UnifiedHit
 } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
-import type { ModeId } from '../../../shared/modes'
+import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 
 export function CaseWorkspace({
   slug,
@@ -165,6 +165,12 @@ export function CaseWorkspace({
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, mode } : s)))
   }
 
+  /** ModeSwitcher surfaces its own load/switch failures here rather than swallowing them —
+   *  same error line handleModelChange's .catch uses above. */
+  function handleModeError(message: string): void {
+    setSessionsError(message)
+  }
+
   // a search hit's jump target: switch to its session via the same path as a
   // normal switcher click, then hand ChatPane the message to scroll to + flash
   function handleJumpToTurn(targetSessionId: number, target: ChatJumpTarget): void {
@@ -263,8 +269,9 @@ export function CaseWorkspace({
           <ModeSwitcher
             slug={slug}
             sessionId={sessionId}
-            activeMode={sessions.find((s) => s.id === sessionId)?.mode ?? 'investigation'}
+            activeMode={sessions.find((s) => s.id === sessionId)?.mode ?? DEFAULT_MODE}
             onModeChanged={handleModeChanged}
+            onError={handleModeError}
           />
         )}
         <div className="ml-auto">

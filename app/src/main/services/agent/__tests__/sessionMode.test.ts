@@ -35,4 +35,10 @@ describe('session mode persistence', () => {
     expect(sessionMode(db, s.id)).toBe('review')
     expect(listSessions(db, 'c1').find((x) => x.id === s.id)?.mode).toBe('review')
   })
+
+  it('sessionMode normalises an unrecognised stored value to the default (direct DB edit / version downgrade)', () => {
+    const s = createSession(db, 'c1', 'claude-agent-sdk')
+    db.prepare(`UPDATE sessions SET mode = ? WHERE id = ?`).run('some-future-mode', s.id)
+    expect(sessionMode(db, s.id)).toBe('investigation')
+  })
 })
