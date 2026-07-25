@@ -11,8 +11,9 @@ describe('mode registry', () => {
     expect(availableModes({ linkedPrCount: 2 })).toEqual<ModeId[]>(['investigation', 'review'])
   })
 
-  it('investigation carries an empty persona fragment (behavior-identical to today)', () => {
-    expect(MODES.investigation.personaFragment).toBe('')
+  it('investigation carries the triage identity fragment (composed first, ahead of the neutral core)', () => {
+    expect(MODES.investigation.personaFragment.length).toBeGreaterThan(0)
+    expect(MODES.investigation.personaFragment).toContain('defect-analysis agent')
     expect(MODES.investigation.role).toBe('triage')
   })
 

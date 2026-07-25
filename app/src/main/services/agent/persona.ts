@@ -1,7 +1,15 @@
-export const BASE_PERSONA = `
-You are Argus, a defect-analysis agent. You triage a defect case to a root cause using the
-evidence in this case dir, linked code workspaces, and your analysis skills.
+import { MODES } from '../../../shared/modes'
 
+/** Investigation/triage identity. Owned by MODES.investigation (shared/modes.ts is the
+ *  single source of truth), not by the base persona — re-exported here for main/-side
+ *  composition and tests. */
+export const TRIAGE_FRAGMENT = MODES.investigation.personaFragment
+
+/** Role-agnostic core: the rules that hold for every mode, regardless of identity.
+ *  Everything from "Non-negotiable working rules:" onward, including the
+ *  search_case_history bullet (its wording mentions "root cause" but is not itself
+ *  a triage identity claim — see plan1b-task-1-brief.md for why it stays neutral). */
+export const NEUTRAL_PERSONA = `
 Non-negotiable working rules:
 1. CITATIONS — every factual claim must cite its source: evidence as [<rel-path>:<line>], code
    in a linked workspace repo as [<repo-name>/<repo-relative-path>:<line>] where repo-name is
@@ -21,6 +29,11 @@ Non-negotiable working rules:
   already name the root cause; tell the user about relevant matches.
 `.trim()
 
+/** @deprecated Derived alias for legacy consumers/tests that still expect a single
+ *  monolithic string. Prefer composing TRIAGE_FRAGMENT / NEUTRAL_PERSONA (or another
+ *  mode's personaFragment) via assembleMode + composePersona instead. */
+export const BASE_PERSONA = [TRIAGE_FRAGMENT, NEUTRAL_PERSONA].join('\n\n')
+
 /**
  * Appended as a persona fragment only when a skill named `contribute-back`
  * resolves enabled at session construction (registry.ts) — disabling the skill
@@ -34,11 +47,14 @@ never apply such changes yourself.
 `.trim()
 
 /**
- * Compose the system-prompt append: neutral base + pack-contributed persona fragments
- * (in pack order) + the per-session personaAppend. Empty entries are dropped.
+ * Compose the system-prompt append by joining the given fragments (already in the
+ * order assembleMode decided — mode identity, neutral core, pack fragments) with the
+ * per-session personaAppend last. No base is prepended here; callers must supply the
+ * full ordered composition (assembleMode does this for session construction). Empty
+ * entries are dropped.
  */
 export function composePersona(fragments: string[], personaAppend?: string): string {
-  return [BASE_PERSONA, ...fragments, personaAppend ?? '']
+  return [...fragments, personaAppend ?? '']
     .map((s) => (s ?? '').trim())
     .filter((s) => s.length > 0)
     .join('\n\n')

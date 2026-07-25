@@ -10,10 +10,18 @@ export interface ModeDefinition {
   id: ModeId
   label: string
   role: ModeRole
-  /** Appended as a persona fragment when this mode is active. Empty = no change (investigation). */
+  /** The mode's identity fragment, composed first (before the role-neutral core). */
   personaFragment: string
   available: (ctx: ModeContext) => boolean
 }
+
+// Single source of truth for the triage/investigation identity. Owned here (not by
+// persona.ts's neutral core) because a mode's identity is a mode concern; persona.ts
+// re-exports this as TRIAGE_FRAGMENT for main/-side composition and tests.
+const TRIAGE_PERSONA = `
+You are Argus, a defect-analysis agent. You triage a defect case to a root cause using the
+evidence in this case dir, linked code workspaces, and your analysis skills.
+`.trim()
 
 const REVIEW_PERSONA = `
 You are in CODE REVIEW mode. Review the linked pull request's diff for correctness,
@@ -29,7 +37,7 @@ export const MODES: Record<ModeId, ModeDefinition> = {
     id: 'investigation',
     label: 'Investigation',
     role: 'triage',
-    personaFragment: '',
+    personaFragment: TRIAGE_PERSONA,
     available: () => true
   },
   review: {

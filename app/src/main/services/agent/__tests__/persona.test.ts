@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
-import { BASE_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
+import { BASE_PERSONA, NEUTRAL_PERSONA, composePersona, CONTRIBUTE_BACK_NUDGE } from '../persona'
 import { CaseSession } from '../session'
 import { createClaudeDriver, type CreateQueryFn } from '../drivers/claude'
 import { createDetection } from '../../packs/detection'
@@ -18,18 +18,22 @@ describe('BASE_PERSONA', () => {
 })
 
 describe('composePersona', () => {
-  it('returns base only when there are no fragments or append', () => {
-    expect(composePersona([])).toBe(BASE_PERSONA)
+  // composePersona no longer prepends a hardcoded base — the fragments passed in ARE
+  // the whole ordered composition (assembleMode decides that order for real sessions).
+  // These tests exercise composePersona in isolation with NEUTRAL_PERSONA supplied
+  // explicitly, the way a caller must.
+  it('returns the fragments joined when there is no append', () => {
+    expect(composePersona([NEUTRAL_PERSONA])).toBe(NEUTRAL_PERSONA)
   })
-  it('appends fragments after the base, in order', () => {
+  it('joins fragments in order', () => {
     const out = composePersona(['FRAG-A', 'FRAG-B'])
-    expect(out).toBe(`${BASE_PERSONA}\n\nFRAG-A\n\nFRAG-B`)
+    expect(out).toBe('FRAG-A\n\nFRAG-B')
   })
   it('appends the per-session personaAppend last', () => {
-    expect(composePersona(['FRAG'], 'SESSION')).toBe(`${BASE_PERSONA}\n\nFRAG\n\nSESSION`)
+    expect(composePersona(['FRAG'], 'SESSION')).toBe('FRAG\n\nSESSION')
   })
   it('drops empty fragments and an empty append', () => {
-    expect(composePersona(['', 'FRAG'], '')).toBe(`${BASE_PERSONA}\n\nFRAG`)
+    expect(composePersona(['', 'FRAG'], '')).toBe('FRAG')
   })
 })
 
@@ -68,7 +72,10 @@ describe('CaseSession persona wiring', () => {
       emit: () => undefined,
       driver: createClaudeDriver(fakeQuery),
       resumeCursor: null,
-      personaFragments: ['NAV TRACE RULES']
+      // Real sessions get their fragment order from assembleMode (mode identity, then
+      // NEUTRAL_PERSONA, then packs); include NEUTRAL_PERSONA here to match that shape —
+      // composePersona itself no longer injects it.
+      personaFragments: ['NAV TRACE RULES', NEUTRAL_PERSONA]
     })
     const append = (captured!.options.systemPrompt as { append: string }).append
     expect(append).toContain('NAV TRACE RULES')
