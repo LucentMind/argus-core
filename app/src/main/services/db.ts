@@ -207,6 +207,12 @@ export function openDb(file: string): DatabaseSync {
   if (!sessCols.some((c) => c.name === 'title')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
   }
+  // Mode axis: pins a session to 'investigation' or 'review' (see shared/modes.ts). This
+  // snapshot (sessCols) is taken after the legacy UNIQUE(case_id) rebuild above, so the
+  // guard is safe to reuse here without re-preparing PRAGMA table_info(sessions).
+  if (!sessCols.some((c) => c.name === 'mode')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'investigation'`)
+  }
   // Driver-typed resume cursor: rename the Claude-specific sdk_session_id column to
   // driver_cursor and tag every row with the driver that produced it (defaulting existing
   // rows to 'claude-agent-sdk', the only driver that existed before this migration) so a

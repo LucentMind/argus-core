@@ -99,7 +99,8 @@ describe('Composer', () => {
           updatedAt: '',
           driverKind: 'claude-agent-sdk',
           instanceId: 'claude-default',
-          model: 'claude-haiku-4-5'
+          model: 'claude-haiku-4-5',
+          mode: 'investigation'
         }}
       />
     )
