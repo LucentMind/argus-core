@@ -2,7 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { rankSkillsForMode, type ResolvedSkill } from '../skillsResolver'
 
 function skill(name: string, roles: string[]): ResolvedSkill {
-  return { name, tier: 'user', dir: `/x/${name}`, description: '', enabled: true, shadows: [], roles }
+  return {
+    name,
+    tier: 'user',
+    dir: `/x/${name}`,
+    description: '',
+    enabled: true,
+    shadows: [],
+    roles
+  }
 }
 
 describe('rankSkillsForMode', () => {
@@ -18,7 +26,7 @@ describe('rankSkillsForMode', () => {
     expect(ranked).toEqual(['b-universal', 'c-review', 'd-both', 'a-triage'])
   })
 
-  it('is a no-op ordering when every skill is universal (today\'s skills)', () => {
+  it("is a no-op ordering when every skill is universal (today's skills)", () => {
     const skills = [skill('one', []), skill('two', []), skill('three', [])]
     expect(rankSkillsForMode(skills, 'triage').map((s) => s.name)).toEqual(['one', 'two', 'three'])
   })
