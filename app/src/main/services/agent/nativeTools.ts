@@ -429,12 +429,28 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   }
 ]
 
-export function createArgusMcpServer(deps: NativeToolDeps): ReturnType<typeof createSdkMcpServer> {
+/**
+ * `NATIVE_TOOL_SPECS` with each description resolved through the prompt registry.
+ * Returns a fresh array and fresh objects — the source table is a `readonly` module constant
+ * shared by both drivers and must never be mutated. No resolver = the table verbatim.
+ */
+export function resolveToolSpecs(resolve?: (id: string) => string): NativeToolSpec[] {
+  if (!resolve) return NATIVE_TOOL_SPECS.map((s) => ({ ...s }))
+  return NATIVE_TOOL_SPECS.map((s) => ({
+    ...s,
+    description: resolve(`tool.${s.name}.description`)
+  }))
+}
+
+export function createArgusMcpServer(
+  deps: NativeToolDeps,
+  resolve?: (id: string) => string
+): ReturnType<typeof createSdkMcpServer> {
   const h = argusToolHandlers(deps)
   return createSdkMcpServer({
     name: 'argus',
     version: '1.0.0',
-    tools: NATIVE_TOOL_SPECS.map((s) =>
+    tools: resolveToolSpecs(resolve).map((s) =>
       tool(s.name, s.description, s.schema, async (a) =>
         asText(await h[s.name as keyof typeof h](a))
       )

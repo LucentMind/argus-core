@@ -209,6 +209,7 @@ export class CaseSession {
         composePersona(deps.personaFragments ?? [], ao.personaAppend) +
         skillIndexAppend +
         memoryAppend,
+      resolvePrompt: deps.resolvePrompt,
       extraMcpServers: deps.extraMcpServers ?? {},
       nativeToolDeps: {
         db: deps.db,
