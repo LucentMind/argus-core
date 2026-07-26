@@ -90,6 +90,7 @@ export function CaseWorkspace({
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
+  const [prSearching, setPrSearching] = useState(false)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
     target: ChatJumpTarget
@@ -197,6 +198,9 @@ export function CaseWorkspace({
    *  list so the `activeMode` prop this component renders off of stops being stale (see
    *  the onModeSwitched doc comment above; no local mirror of the mode is kept here). */
   function handleModeChanged(mode: ModeId, newSessionId: number): void {
+    // sessionsError blanks the whole chat, so a stale one from an earlier failed switch
+    // would keep hiding the transcript of the switch that just succeeded.
+    setSessionsError(null)
     handleSwitchSession(newSessionId)
     onModeSwitched()
     void window.argus.sessions
@@ -210,11 +214,17 @@ export function CaseWorkspace({
     if (mode !== 'review') return
     void window.argus.pr
       .list(slug)
-      .then((bound) => (bound.length ? null : window.argus.pr.search(slug)))
+      .then((bound) => {
+        if (bound.length) return null
+        // ~5s of gh with nothing on screen reads as a hang; say what is happening
+        setPrSearching(true)
+        return window.argus.pr.search(slug)
+      })
       .then((r) => {
         if (r) setPrPicker(r)
       })
       .catch(() => undefined)
+      .finally(() => setPrSearching(false))
   }
 
   /** ModeSwitcher surfaces its own load/switch failures here rather than swallowing them —
@@ -466,6 +476,14 @@ export function CaseWorkspace({
           </>
         )}
       </div>
+      {prSearching && (
+        <div
+          role="status"
+          className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 rounded-r2 border border-hair bg-deep px-3 py-1.5 text-xs text-mute shadow"
+        >
+          Searching linked repos for pull requests…
+        </div>
+      )}
       {prPicker && (
         <PrPickerDialog slug={slug} result={prPicker} onClose={() => setPrPicker(null)} />
       )}

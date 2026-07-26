@@ -345,6 +345,40 @@ describe('CaseWorkspace mode switching', () => {
     expect(window.argus.agent.history).not.toHaveBeenCalledWith('NAV-BOOT', 9)
   })
 
+  // sessionsError replaces the whole chat, so a stale one from a rejected switch hides the
+  // transcript indefinitely — including after the retry that succeeded.
+  it('clears a previous switch error once a switch succeeds', async () => {
+    stubTwoModeSessions()
+    window.argus.cases.setMode = vi.fn(async () => {
+      throw new Error('not available')
+    })
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    expect(await screen.findByText('Could not switch mode for this chat.')).toBeTruthy()
+
+    window.argus.cases.setMode = vi.fn(async () => ({ sessionId: 7 }))
+    fireEvent.click(screen.getByRole('button', { name: /review/i }))
+    await waitFor(() =>
+      expect(screen.queryByText('Could not switch mode for this chat.')).toBeNull()
+    )
+  })
+
+  it('says it is searching while the PR search is in flight, instead of showing nothing', async () => {
+    stubTwoModeSessions()
+    let resolve!: (v: unknown) => void
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      () => new Promise((r) => (resolve = r))
+    )
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    expect(await screen.findByText(/searching .* pull requests/i)).toBeTruthy()
+
+    resolve({ candidates: [], error: null, searchedRepos: ['x/y'] })
+    await waitFor(() => expect(screen.queryByText(/searching .* pull requests/i)).toBeNull())
+  })
+
   it('offers the PR picker after switching to review with nothing bound yet', async () => {
     stubTwoModeSessions()
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(

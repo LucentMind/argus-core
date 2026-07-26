@@ -7,12 +7,21 @@ import { ModeSwitcher } from '../ModeSwitcher'
 const available = vi.fn()
 const setMode = vi.fn()
 
+const onWorkspacesChanged = vi.fn()
+let fireWorkspacesChanged: ((slug: string) => void) | undefined
+
 beforeEach(() => {
   available.mockReset()
   setMode.mockReset().mockResolvedValue({ sessionId: 42 })
+  fireWorkspacesChanged = undefined
+  onWorkspacesChanged.mockReset().mockImplementation((cb: (slug: string) => void) => {
+    fireWorkspacesChanged = cb
+    return () => undefined
+  })
   ;(globalThis as unknown as { window: { argus: unknown } }).window.argus = {
     modes: { available },
-    cases: { setMode }
+    cases: { setMode },
+    workspaces: { onChanged: onWorkspacesChanged }
   }
 })
 
@@ -65,6 +74,106 @@ describe('ModeSwitcher', () => {
     await waitFor(() =>
       expect(onError).toHaveBeenCalledWith('Could not load available modes for this case.')
     )
+  })
+
+  // Availability became user-mutable in Plan 2 (it counts linked repos), so a list fetched
+  // once at mount goes stale the moment a repo is linked or unlinked — offering a Review
+  // button that the main process then rejects, or hiding one that is now legitimate.
+  it('refetches availability when the case gains a repo, without a remount', async () => {
+    available.mockResolvedValue(['investigation'])
+    render(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="investigation"
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    await waitFor(() => expect(available).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('button', { name: /review/i })).toBeNull()
+
+    available.mockResolvedValue(['investigation', 'review'])
+    fireWorkspacesChanged!('c1')
+    expect(await screen.findByRole('button', { name: /review/i })).toBeTruthy()
+  })
+
+  it('drops a Review button that a repo unlink just invalidated', async () => {
+    available.mockResolvedValue(['investigation', 'review'])
+    render(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="investigation"
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    await screen.findByRole('button', { name: /review/i })
+
+    available.mockResolvedValue(['investigation'])
+    fireWorkspacesChanged!('c1')
+    await waitFor(() => expect(screen.queryByRole('button', { name: /review/i })).toBeNull())
+  })
+
+  it('ignores a workspaces:changed broadcast for a different case', async () => {
+    available.mockResolvedValue(['investigation', 'review'])
+    render(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="investigation"
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    await waitFor(() => expect(available).toHaveBeenCalledTimes(1))
+    fireWorkspacesChanged!('OTHER')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(available).toHaveBeenCalledTimes(1)
+  })
+
+  // The switch is slow on purpose (review entry fetches PR worktrees, then searches GitHub).
+  // aria-pressed still may NOT flip early — the parent owns that — so busy is the only
+  // honest immediate feedback, and without it the UI reads as frozen.
+  it('marks the pending mode busy while the switch is in flight, without faking pressed', async () => {
+    available.mockResolvedValue(['investigation', 'review'])
+    let resolve!: (v: { sessionId: number }) => void
+    setMode.mockReset().mockReturnValue(
+      new Promise<{ sessionId: number }>((r) => {
+        resolve = r
+      })
+    )
+    render(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="investigation"
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    const reviewBtn = await screen.findByRole('button', { name: /review/i })
+    await userEvent.click(reviewBtn)
+
+    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('true'))
+    expect(reviewBtn.getAttribute('aria-pressed')).toBe('false') // no optimistic mirror
+
+    resolve({ sessionId: 42 })
+    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
+  })
+
+  it('ignores repeat clicks while a switch is already in flight', async () => {
+    available.mockResolvedValue(['investigation', 'review'])
+    setMode.mockReset().mockReturnValue(new Promise(() => {}))
+    render(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="investigation"
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    const reviewBtn = await screen.findByRole('button', { name: /review/i })
+    await userEvent.click(reviewBtn)
+    await userEvent.click(reviewBtn)
+    expect(setMode).toHaveBeenCalledTimes(1)
   })
 
   it('surfaces a rejected setMode via onError instead of a silent no-op click', async () => {
