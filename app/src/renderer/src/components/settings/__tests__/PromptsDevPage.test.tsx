@@ -45,11 +45,22 @@ const catalog: PromptCatalogPayload = {
   ]
 }
 
+const preview = {
+  mode: 'investigation',
+  text: 'IDENTITY\n\nNEUTRAL\n\nDIAGRAM',
+  fragments: [
+    { id: 'persona.mode.investigation', label: 'persona.mode.investigation', start: 0, end: 8 },
+    { id: 'persona.neutral', label: 'persona.neutral', start: 10, end: 17 },
+    { id: null, label: 'Pack persona fragment', start: 19, end: 26 }
+  ],
+  omits: ['Agent memory index — filtered per case', 'Skill index — depends on resolved skills']
+}
+
 beforeEach(() => {
   ;(window as unknown as { argus: unknown }).argus = {
     devPrompts: {
       catalog: vi.fn(async () => catalog),
-      preview: vi.fn(async () => ({ mode: 'investigation', text: '', fragments: [], omits: [] }))
+      preview: vi.fn(async () => preview)
     }
   }
 })
@@ -109,5 +120,48 @@ describe('PromptsDevPage — catalog', () => {
     })
     render(<PromptsDevPage />)
     await waitFor(() => expect(screen.getByText(/dev tools are not enabled/i)).toBeInTheDocument())
+  })
+})
+
+describe('PromptsDevPage — composed preview', () => {
+  it('renders the composed text for the selected mode', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
+    expect(await screen.findByText(/IDENTITY/)).toBeInTheDocument()
+  })
+
+  it('lists fragment boundaries in order with their ids', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
+    const labels = (await screen.findAllByTestId('fragment-label')).map((n) => n.textContent)
+    expect(labels).toEqual([
+      'persona.mode.investigation',
+      'persona.neutral',
+      'Pack persona fragment'
+    ])
+  })
+
+  it('states what the preview omits — it must not look like the whole prompt', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
+    expect(await screen.findByText(/Agent memory index/)).toBeInTheDocument()
+    expect(screen.getByText(/Skill index/)).toBeInTheDocument()
+  })
+
+  it('refetches when the mode changes', async () => {
+    const api = (
+      window as unknown as { argus: { devPrompts: { preview: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
+    await waitFor(() => expect(api.preview).toHaveBeenCalledWith('investigation'))
+    fireEvent.change(screen.getByLabelText(/mode/i), { target: { value: 'review' } })
+    await waitFor(() => expect(api.preview).toHaveBeenCalledWith('review'))
+  })
+
+  it('shows the total size so persona growth is visible', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
+    expect(await screen.findByText(/26 chars/)).toBeInTheDocument()
   })
 })
