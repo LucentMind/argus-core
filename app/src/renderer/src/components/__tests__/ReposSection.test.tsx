@@ -24,6 +24,12 @@ beforeEach(() => {
       link: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined)
     },
+    pr: {
+      list: vi.fn(async () => []),
+      link: vi.fn(async () => undefined),
+      unlink: vi.fn(async () => undefined),
+      search: vi.fn(async () => ({ candidates: [], error: null, searchedRepos: [] }))
+    },
     graph: {
       status: vi.fn(async () => []),
       build: vi.fn(async () => ({ started: true })),
@@ -33,6 +39,57 @@ beforeEach(() => {
       onProgress: vi.fn(() => () => {})
     }
   } as never
+})
+
+const BINDING = {
+  id: 3,
+  caseId: 1,
+  repoPath: 'C:\\repos\\hivemindtest',
+  owner: 'JiaweiHan88',
+  repo: 'hivemindtest',
+  number: 16315,
+  url: 'https://github.com/JiaweiHan88/hivemindtest/pull/16315',
+  source: 'search' as const,
+  detectedAt: '2026-07-26T10:00:00Z'
+}
+
+const prApi = (): Record<string, ReturnType<typeof vi.fn>> =>
+  window.argus.pr as unknown as Record<string, ReturnType<typeof vi.fn>>
+
+describe('ReposSection pull requests', () => {
+  it('renders a bound PR as an owner/repo#N chip', async () => {
+    prApi().list = vi.fn(async () => [BINDING])
+    render(<ReposSection slug="C-1" />)
+    expect(await screen.findByText(/JiaweiHan88\/hivemindtest#16315/)).toBeTruthy()
+  })
+
+  it('renders no PR section at all when nothing is bound', async () => {
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText(/hivemindtest @ main/) // section rendered, PRs empty
+    expect(screen.queryByText(/pull requests/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Unlink PR' })).toBeNull()
+  })
+
+  it('links a typed PR reference', async () => {
+    render(<ReposSection slug="C-1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'JiaweiHan88/hivemindtest#16315' } })
+    fireEvent.submit(box)
+    await waitFor(() =>
+      expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#16315')
+    )
+  })
+
+  it('unlinks a PR by its binding id and refreshes', async () => {
+    prApi().list = vi.fn(async () => [BINDING])
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText(/JiaweiHan88\/hivemindtest#16315/)
+    const before = prApi().list.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink PR' }))
+    await waitFor(() => expect(prApi().unlink).toHaveBeenCalledWith('C-1', 3))
+    await waitFor(() => expect(prApi().list.mock.calls.length).toBeGreaterThan(before))
+  })
 })
 
 describe('ReposSection', () => {

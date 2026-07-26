@@ -100,6 +100,12 @@ beforeEach(() => {
       link: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined)
     },
+    pr: {
+      list: vi.fn(async () => []),
+      link: vi.fn(async () => undefined),
+      unlink: vi.fn(async () => undefined),
+      search: vi.fn(async () => ({ candidates: [], error: null, searchedRepos: [] }))
+    },
     graph: {
       status: vi.fn(async () => []),
       build: vi.fn(async () => ({ started: true })),
