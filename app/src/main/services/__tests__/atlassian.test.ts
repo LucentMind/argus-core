@@ -417,3 +417,63 @@ describe('jiraBrowseUrl', () => {
     )
   })
 })
+
+describe('resolveSiteUrl', () => {
+  const ARES = (): Response =>
+    new Response(
+      JSON.stringify([
+        { id: 'c1', url: 'https://acme.atlassian.net/', scopes: ['read:jira-work'] }
+      ]),
+      { status: 200 }
+    )
+
+  /** Expired-token fixture: accessToken() is null until refresh() rotates it —
+   *  exactly what OAuth.accessToken does inside its 60 s expiry slack. */
+  const expiring = (): { auth: () => AtlassianAuth; refreshes: () => number } => {
+    let fresh = false
+    let refreshes = 0
+    return {
+      auth: () => ({
+        instanceId: 'rovo',
+        oauth: {
+          serverUrl: 'https://mcp',
+          accessToken: () => (fresh ? 'oauth-tok' : null),
+          refresh: async () => {
+            refreshes++
+            fresh = true
+          }
+        }
+      }),
+      refreshes: () => refreshes
+    }
+  }
+
+  it('refreshes an expired token instead of giving up (browse link after idle)', async () => {
+    const { auth, refreshes } = expiring()
+    const c = new AtlassianClient(auth, (async () => ARES()) as unknown as typeof fetch)
+    expect(await c.resolveSiteUrl('rovo')).toBe('https://acme.atlassian.net')
+    expect(refreshes()).toBe(1)
+  })
+
+  it('returns null without discovering when the refresh yields no token', async () => {
+    let discoveries = 0
+    const c = new AtlassianClient(
+      () => ({
+        instanceId: 'rovo',
+        oauth: { serverUrl: 'https://mcp', accessToken: () => null, refresh: async () => undefined }
+      }),
+      (async () => {
+        discoveries++
+        return ARES()
+      }) as unknown as typeof fetch
+    )
+    expect(await c.resolveSiteUrl('rovo')).toBeNull()
+    expect(discoveries).toBe(0)
+  })
+
+  it('returns null when the connector is not OAuth-authorized', async () => {
+    const c = new AtlassianClient(() => ({ instanceId: 'rovo' }), (async () =>
+      ARES()) as unknown as typeof fetch)
+    expect(await c.resolveSiteUrl('rovo')).toBeNull()
+  })
+})

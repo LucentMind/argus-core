@@ -298,6 +298,10 @@ export class AtlassianClient {
    * OAuth-authorized or when discovery fails, since browse-link callers (Task 5)
    * degrade gracefully without a site URL. Discovers with product 'jira' since
    * the cache is shared across products (one cloudId/siteUrl per instance).
+   *
+   * Refreshes on a null token exactly like request() does: accessToken() also
+   * reports null inside its 60 s expiry slack, so without this an idle app makes
+   * the browse link a silent no-op until some other call happens to refresh.
    */
   async resolveSiteUrl(instanceId: string): Promise<string | null> {
     const cached = this.cloudId.get(instanceId)
@@ -305,7 +309,11 @@ export class AtlassianClient {
     try {
       const auth = this.creds()
       if (!auth.oauth) return null
-      const token = auth.oauth.accessToken()
+      let token = auth.oauth.accessToken()
+      if (!token) {
+        await auth.oauth.refresh()
+        token = auth.oauth.accessToken()
+      }
       if (!token) return null
       return (await this.resolveCloud(instanceId, token, 'jira')).siteUrl
     } catch {
