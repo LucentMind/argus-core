@@ -2,7 +2,12 @@
 import { describe, it, expect } from 'vitest'
 import { assembleMode } from '../modeAssembly'
 import type { ResolvedSkill } from '../skillsResolver'
-import { CONTRIBUTE_BACK_NUDGE, DIAGRAM_FRAGMENT, NEUTRAL_PERSONA, TRIAGE_FRAGMENT } from '../persona'
+import {
+  CONTRIBUTE_BACK_NUDGE,
+  DIAGRAM_FRAGMENT,
+  NEUTRAL_PERSONA,
+  TRIAGE_FRAGMENT
+} from '../persona'
 import { MODES } from '../../../../shared/modes'
 
 function skill(name: string, roles: string[], enabled = true): ResolvedSkill {
@@ -17,7 +22,12 @@ describe('assembleMode', () => {
       packFragments: ['PACK'],
       contributeBack: false
     })
-    expect(out.personaFragments).toEqual([TRIAGE_FRAGMENT, NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, 'PACK'])
+    expect(out.personaFragments).toEqual([
+      TRIAGE_FRAGMENT,
+      NEUTRAL_PERSONA,
+      DIAGRAM_FRAGMENT,
+      'PACK'
+    ])
     expect(out.enabledSkills).toEqual(['a', 'b'])
   })
 

@@ -4,7 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // vi.mock factories are hoisted above const declarations — vi.hoisted keeps the
 // mock fns referencable from both the factory and the assertions below.
 const { renderMock, initializeMock } = vi.hoisted(() => ({
-  renderMock: vi.fn(async (_id: string, _src: string) => ({ svg: '<svg>ok</svg>' })),
+  renderMock: vi.fn<(id: string, src: string) => Promise<{ svg: string }>>(async () => ({
+    svg: '<svg>ok</svg>'
+  })),
   initializeMock: vi.fn()
 }))
 vi.mock('mermaid', () => ({
