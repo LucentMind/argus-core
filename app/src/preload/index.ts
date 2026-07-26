@@ -27,6 +27,7 @@ import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
 import type { MemoryTopicsPayload, MemoryAuditEntry, SkillsPayload } from '../shared/memoryIpc'
+import type { PromptCatalogPayload, PromptPreview } from '../shared/promptsIpc'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
@@ -503,6 +504,13 @@ const argus = {
       ipcRenderer.invoke(IPC.memoryArchive, name),
     restore: (name: string): Promise<MemoryTopicsPayload> =>
       ipcRenderer.invoke(IPC.memoryRestore, name)
+  },
+  /** Dev-only prompt surface. Exposed unconditionally — main enforces the gate, so a build
+   *  without it rejects these calls rather than hiding the bridge. */
+  devPrompts: {
+    catalog: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsCatalog),
+    preview: (mode: string): Promise<PromptPreview> =>
+      ipcRenderer.invoke(IPC.devPromptsPreview, mode)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

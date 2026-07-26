@@ -91,6 +91,10 @@ export const IPC = {
   memoryAudit: 'memory:audit',
   memoryArchive: 'memory:archive',
   memoryRestore: 'memory:restore',
+  /** Dev-only prompt surface. Both handlers re-check the dev-tools gate in main — hiding the
+   *  page in the renderer is presentation, not enforcement. */
+  devPromptsCatalog: 'dev-prompts:catalog',
+  devPromptsPreview: 'dev-prompts:preview',
   bundleExport: 'bundle:export',
   bundleInspect: 'bundle:inspect',
   bundleImport: 'bundle:import',

@@ -18,6 +18,9 @@ import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { devToolsEnabled } from './services/prompts/gate'
 import { PromptStore } from './services/prompts/store'
+import { assertDevTools } from './services/prompts/ipcGate'
+import { buildPromptPreview } from './services/prompts/preview'
+import type { PromptCatalogPayload, PromptPreview } from '../shared/promptsIpc'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
@@ -1357,6 +1360,31 @@ function registerIpc(): void {
   ipcMain.handle(IPC.memoryRestore, (_e, name: string) => {
     restoreTopic(argusHome, name)
     return memoryTopicsPayload()
+  })
+
+  // — dev-only prompt surface —
+  // Both handlers re-check the gate: the preload bridge is reachable from the devtools console
+  // regardless of what the renderer chooses to render, so main must refuse rather than trust it.
+  ipcMain.handle(IPC.devPromptsCatalog, (): PromptCatalogPayload => {
+    assertDevTools(devTools)
+    return { entries: promptStore.catalog(), modes: Object.keys(MODES) }
+  })
+
+  ipcMain.handle(IPC.devPromptsPreview, (_e, mode: string): PromptPreview => {
+    assertDevTools(devTools)
+    // `buildPromptPreview` validates the mode itself — IPC arguments are untyped at runtime, so
+    // typecheck cannot police this boundary. Cast only after that guard exists.
+    // Live inputs, so the preview reflects this install's packs and settings rather than
+    // a synthetic default.
+    return buildPromptPreview({
+      mode: mode as ModeId,
+      resolve: resolvePrompt,
+      packFragments: packRegistry.personaFragments(),
+      contributeBack: resolveSkills(argusHome, agentAccessStore.get()).some(
+        (s) => s.name === 'contribute-back' && s.enabled
+      ),
+      personaAppend: settingsService.get().agent.personaAppend || undefined
+    })
   })
 
   // — settings —
