@@ -409,4 +409,23 @@ describe('AgentSettings remove provider', () => {
     expect(btn.disabled).toBe(true)
     expect(screen.getByText("Your only provider can't be removed.")).toBeTruthy()
   })
+
+  it('an unavailable-driver row can still be removed', async () => {
+    // This branch renders no disclosure control, so the danger row inside the expanded panel
+    // is unreachable — without an inline button such a row could never be deleted at all.
+    const p = payload((p) => {
+      withCopilot(p)
+      p.settings.agent.providerInstances['copilot-1'].driver = 'mystery-driver'
+    })
+    render(<AgentSettings payload={p} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove mystery-driver' }))
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        agent: {
+          providerInstances: { 'copilot-1': null },
+          modelPreferences: { 'copilot-1': null }
+        }
+      })
+    )
+  })
 })
