@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { NEUTRAL_PERSONA, TRIAGE_FRAGMENT, composePersona } from '../persona'
+import { DIAGRAM_FRAGMENT, NEUTRAL_PERSONA, TRIAGE_FRAGMENT, composePersona } from '../persona'
 import { MODES } from '../../../../shared/modes'
 import { assembleMode } from '../modeAssembly'
 import type { ResolvedSkill } from '../skillsResolver'
@@ -70,16 +70,22 @@ describe('role-neutral persona split', () => {
     })
     expect(out.personaFragments[0]).toBe(TRIAGE_FRAGMENT)
     expect(out.personaFragments[1]).toBe(NEUTRAL_PERSONA)
-    expect(out.personaFragments[2]).toBe('PACK')
+    expect(out.personaFragments[2]).toBe(DIAGRAM_FRAGMENT)
+    expect(out.personaFragments[3]).toBe('PACK')
   })
 
-  it('an investigation session composes exactly the legacy prompt', () => {
+  it('an investigation session composes the legacy prompt plus the diagram fragment', () => {
     const out = assembleMode({
       mode: 'investigation',
       resolvedSkills: [],
       packFragments: [],
       contributeBack: false
     })
-    expect(composePersona(out.personaFragments)).toBe(LEGACY_BASE)
+    expect(composePersona(out.personaFragments)).toBe([LEGACY_BASE, DIAGRAM_FRAGMENT].join('\n\n'))
+  })
+
+  it('the diagram fragment is role-agnostic and teaches mermaid fences', () => {
+    expect(DIAGRAM_FRAGMENT).toContain('```mermaid')
+    expect(DIAGRAM_FRAGMENT).not.toMatch(/defect-analysis agent|triage/i)
   })
 })
