@@ -1,9 +1,10 @@
 export type ModeId = 'investigation' | 'review'
 export type ModeRole = 'triage' | 'review'
 
-/** Inputs the availability rules read. Extended by later plans (Plan 2 populates linkedPrCount). */
+/** Inputs the availability rules read. */
 export interface ModeContext {
-  linkedPrCount: number
+  /** Repos linked to the case. Review needs ≥1: a PR worktree requires a local clone. */
+  linkedRepoCount: number
 }
 
 export interface ModeDefinition {
@@ -79,7 +80,7 @@ export const MODES: Record<ModeId, ModeDefinition> = {
     label: 'Review',
     role: 'review',
     personaFragment: REVIEW_PERSONA,
-    available: (ctx) => ctx.linkedPrCount > 0
+    available: (ctx) => ctx.linkedRepoCount > 0
   }
 }
 

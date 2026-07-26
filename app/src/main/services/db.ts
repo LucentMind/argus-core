@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS case_summaries (
 CREATE VIRTUAL TABLE IF NOT EXISTS case_summaries_fts USING fts5(
   signature, symptoms, root_cause, fix, keywords, case_slug UNINDEXED
 );
+CREATE TABLE IF NOT EXISTS pr_bindings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  repo_path TEXT,
+  owner TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  url TEXT NOT NULL,
+  source TEXT NOT NULL,
+  detected_at TEXT NOT NULL,
+  UNIQUE(case_id, owner, repo, number)
+);
 -- Foreign-key indexes. With PRAGMA foreign_keys=ON, an ON DELETE CASCADE on the
 -- parent (cases) forces SQLite to find matching child rows; without an index on
 -- the child's FK column that is a FULL TABLE SCAN per cascade, so deleting one
@@ -126,6 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_turns_session_id      ON turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_case_id    ON tool_calls(case_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_findings_case_id      ON findings(case_id);
+CREATE INDEX IF NOT EXISTS idx_pr_bindings_case_id   ON pr_bindings(case_id);
 -- key -> fts rowid side tables (see ftsIndex.ts): the FTS key columns are
 -- UNINDEXED, so deleting by them scanned the whole index. These let deletes
 -- resolve rowids by index and delete each by rowid.

@@ -6,9 +6,9 @@ describe('mode registry', () => {
     expect(DEFAULT_MODE).toBe('investigation')
   })
 
-  it('investigation is always available; review needs a linked PR', () => {
-    expect(availableModes({ linkedPrCount: 0 })).toEqual<ModeId[]>(['investigation'])
-    expect(availableModes({ linkedPrCount: 2 })).toEqual<ModeId[]>(['investigation', 'review'])
+  it('investigation is always available; review needs a linked repo', () => {
+    expect(availableModes({ linkedRepoCount: 0 })).toEqual<ModeId[]>(['investigation'])
+    expect(availableModes({ linkedRepoCount: 2 })).toEqual<ModeId[]>(['investigation', 'review'])
   })
 
   it('investigation carries the triage identity fragment (composed first, ahead of the neutral core)', () => {
@@ -37,7 +37,7 @@ describe('mode registry', () => {
   })
 
   it('MODE_ORDER (via availableModes) covers every key of MODES', () => {
-    const allAvailable = availableModes({ linkedPrCount: Infinity })
+    const allAvailable = availableModes({ linkedRepoCount: Infinity })
     expect(new Set(allAvailable)).toEqual(new Set(Object.keys(MODES)))
   })
 })
