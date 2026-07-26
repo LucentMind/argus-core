@@ -86,6 +86,18 @@ beforeEach(() => {
       onSyncProgress: vi.fn(() => () => {}),
       markReviewed: vi.fn(async () => undefined),
       syncAll: vi.fn(async () => undefined)
+    },
+    // OverrideBanner (Guard 3) subscribes on every Settings mount; the real preload exposes
+    // this bridge unconditionally (main enforces the dev-tools gate), so the test stub must too.
+    devPrompts: {
+      overrides: vi.fn(async () => []),
+      clearAll: vi.fn(async () => ({
+        entries: [],
+        modes: [],
+        activeOverrideIds: [],
+        loadError: null
+      })),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })

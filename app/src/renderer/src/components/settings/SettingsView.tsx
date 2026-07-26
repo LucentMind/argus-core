@@ -16,6 +16,7 @@ import { HivemindSettings } from './HivemindSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
 import { KnowledgeFlowStrip } from './KnowledgeFlowStrip'
 import { PromptsDevPage } from './PromptsDevPage'
+import { OverrideBanner } from './OverrideBanner'
 
 // The nav table and its dev-gate filter live in `settingsPages.ts`; react-refresh requires a
 // component file to export only components, so they cannot be shared from here.
@@ -168,6 +169,7 @@ export function SettingsView({
               </button>
             </div>
           )}
+          <OverrideBanner devTools={devTools} />
           {(page === 'library' || page === 'proposals') && <KnowledgeFlowStrip onNavigate={goTo} />}
           {payload && page === 'general' && <GeneralSettings payload={payload} />}
           {payload && page === 'agent' && <AgentSettings payload={payload} />}
