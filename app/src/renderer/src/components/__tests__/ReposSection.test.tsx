@@ -81,6 +81,18 @@ describe('ReposSection pull requests', () => {
     )
   })
 
+  // The only way to reopen the picker once PRs are bound, and the recovery path for a
+  // search that failed or found nothing.
+  it('re-runs the search on demand and hands the result to the picker', async () => {
+    const onFound = vi.fn()
+    const result = { candidates: [], error: null, searchedRepos: ['JiaweiHan88/hivemindtest'] }
+    prApi().search = vi.fn(async () => result)
+    render(<ReposSection slug="C-1" onPrsFound={onFound} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
+    await waitFor(() => expect(prApi().search).toHaveBeenCalledWith('C-1'))
+    await waitFor(() => expect(onFound).toHaveBeenCalledWith(result))
+  })
+
   it('unlinks a PR by its binding id and refreshes', async () => {
     prApi().list = vi.fn(async () => [BINDING])
     render(<ReposSection slug="C-1" />)

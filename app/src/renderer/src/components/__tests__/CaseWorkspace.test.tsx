@@ -345,6 +345,50 @@ describe('CaseWorkspace mode switching', () => {
     expect(window.argus.agent.history).not.toHaveBeenCalledWith('NAV-BOOT', 9)
   })
 
+  it('offers the PR picker after switching to review with nothing bound yet', async () => {
+    stubTwoModeSessions()
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({
+        candidates: [
+          {
+            owner: 'JiaweiHan88',
+            repo: 'HiveMindTest',
+            number: 16315,
+            url: 'https://github.com/JiaweiHan88/HiveMindTest/pull/16315',
+            title: '[NN-5165] fix the thing',
+            state: 'merged',
+            isDraft: false,
+            createdAt: '2026-07-21T10:00:00Z',
+            isBackport: false,
+            preselected: true
+          }
+        ],
+        error: null,
+        searchedRepos: ['JiaweiHan88/HiveMindTest']
+      })
+    )
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+
+    // the search runs only after the switch resolves, so the chat is never delayed by it
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    expect(await screen.findByRole('checkbox', { name: /16315/ })).toBeTruthy()
+  })
+
+  it('does not offer the picker when the case already has bound PRs', async () => {
+    stubTwoModeSessions()
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(async () => [
+      { id: 1, number: 16315 }
+    ])
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    await waitFor(() => expect(window.argus.cases.setMode).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.argus.pr.search).not.toHaveBeenCalled()
+  })
+
   it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
     stubTwoModeSessions()
     const onModeSwitched = vi.fn()
