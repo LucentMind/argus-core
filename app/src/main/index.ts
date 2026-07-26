@@ -98,7 +98,7 @@ import {
   renameSession,
   deleteSession
 } from './services/agent/sessionStore'
-import { modeContextForCase } from './services/modeContext'
+import { modeContextForCase, demoteIfModeUnavailable } from './services/modeContext'
 import { availableModes, MODES, type ModeId } from '../shared/modes'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import {
@@ -1180,9 +1180,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.workspacesLink, (_e, caseSlug: string, repoPath: string) =>
     linkWorkspace(db, argusHome, caseSlug, repoPath)
   )
-  ipcMain.handle(IPC.workspacesUnlink, (_e, caseSlug: string, repoPath: string) =>
-    unlinkWorkspace(db, argusHome, caseSlug, repoPath)
-  )
+  ipcMain.handle(IPC.workspacesUnlink, async (_e, caseSlug: string, repoPath: string) => {
+    await unlinkWorkspace(db, argusHome, caseSlug, repoPath)
+    // Unlinking the last repo takes review mode away; a case left sitting in it would be
+    // stranded with an unclickable switcher.
+    await demoteIfModeUnavailable(db, argusHome, caseSlug, newSessionProvider())
+  })
   ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) =>
     listWorkspaces(db, argusHome, caseSlug)
   )

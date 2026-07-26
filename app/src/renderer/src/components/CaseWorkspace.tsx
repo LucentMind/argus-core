@@ -115,7 +115,22 @@ export function CaseWorkspace({
       .then((list) => {
         if (stale) return
         setSessions(list)
-        setSessionId(uiStore.get().activeSessions[slug] ?? list[0].id)
+        // Reconcile the chat with the case's mode. `activeSessions` is deliberately not
+        // persisted (uiStore.ts), so after a restart the remembered id is gone and
+        // `list[0]` is the newest chat of ANY mode while `activeMode` comes from the DB.
+        // Opening a triage chat under a Review header is not just cosmetic: ModeSwitcher
+        // early-returns when the clicked mode is already active, so there would be no way
+        // to reach the right chat. Falling back to `list[0]` keeps a case whose mode has
+        // no chat yet from rendering nothing.
+        const remembered = uiStore.get().activeSessions[slug]
+        const matchesMode = (id: number): boolean =>
+          list.find((s) => s.id === id)?.mode === activeMode
+        const forMode = list.find((s) => s.mode === activeMode)?.id
+        setSessionId(
+          remembered !== undefined && matchesMode(remembered)
+            ? remembered
+            : (forMode ?? remembered ?? list[0].id)
+        )
       })
       .catch(() => {
         if (stale) return
@@ -124,6 +139,11 @@ export function CaseWorkspace({
     return () => {
       stale = true
     }
+    // activeMode is read as the bootstrap value for this case, not as a reactive dep: a
+    // later mode switch is owned end-to-end by handleModeChanged (which refetches the
+    // list and selects the session itself), so re-running this would be a duplicate fetch
+    // racing that one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug])
 
   useEffect(() => {

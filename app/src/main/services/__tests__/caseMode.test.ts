@@ -6,6 +6,8 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase, getCase, setCaseMode } from '../caseService'
 import { caseDir } from '../paths'
+import { demoteIfModeUnavailable } from '../modeContext'
+import { addBinding, listBindings, removeBinding } from '../prBindings'
 import { createSession, listSessions, sessionMode } from '../agent/sessionStore'
 import type { SessionProvider } from '../agent/sessionStore'
 
@@ -88,6 +90,64 @@ describe('case-level mode', () => {
 
   it('throws on an unknown case', async () => {
     await expect(setCaseMode(db, home, 'nope', 'review', PROVIDER)).rejects.toThrow(/unknown case/i)
+  })
+})
+
+describe('demotion when a mode stops being available', () => {
+  const setRepos = (n: number): void => {
+    db.prepare(`UPDATE cases SET workspaces = ? WHERE slug = 'c1'`).run(
+      JSON.stringify(
+        Array.from({ length: n }, (_, i) => ({
+          path: `/tmp/repo-${i}`,
+          remote: null,
+          branch: 'main'
+        }))
+      )
+    )
+  }
+
+  const modeOf = (): string =>
+    (db.prepare(`SELECT active_mode AS m FROM cases WHERE slug = 'c1'`).get() as { m: string }).m
+
+  const bindPr = (n: number): void => {
+    addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: n,
+      url: `https://github.com/acme/widget/pull/${n}`,
+      source: 'manual'
+    })
+  }
+
+  it('demotes to investigation when the last repo is unlinked', async () => {
+    setRepos(1)
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
+    expect(modeOf()).toBe('review')
+
+    setRepos(0) // the unlink already happened; the handler then reconciles
+    await demoteIfModeUnavailable(db, home, 'c1', PROVIDER)
+    expect(modeOf()).toBe('investigation')
+  })
+
+  it('stays in review when one of several repos is unlinked', async () => {
+    setRepos(2)
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
+
+    setRepos(1)
+    await demoteIfModeUnavailable(db, home, 'c1', PROVIDER)
+    expect(modeOf()).toBe('review')
+  })
+
+  it('does NOT demote when the last PR binding is removed — bindings never gated the mode', async () => {
+    setRepos(1)
+    bindPr(42)
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
+
+    const [only] = listBindings(db, 'c1')
+    removeBinding(db, 'c1', only.id)
+    await demoteIfModeUnavailable(db, home, 'c1', PROVIDER)
+    expect(modeOf()).toBe('review')
   })
 })
 

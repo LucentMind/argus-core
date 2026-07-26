@@ -303,6 +303,42 @@ describe('CaseWorkspace mode switching', () => {
     window.argus.cases.setMode = vi.fn(async () => ({ sessionId: 7 }))
   }
 
+  // uiStore.activeSessions is deliberately not persisted, so after a restart the bootstrap
+  // falls back to the newest chat of ANY mode while activeMode comes from the DB. That
+  // mismatch strands the user: ModeSwitcher.pick early-returns when the clicked mode is
+  // already the active one, so there is no way to reach the right chat. A fresh slug is
+  // used so no earlier test's activeSessions entry short-circuits the fallback.
+  it('bootstraps to the newest chat of the case’s own mode, not the newest chat overall', async () => {
+    window.argus.modes.available = vi.fn(async (): Promise<ModeId[]> => ['investigation', 'review'])
+    window.argus.sessions.list = vi.fn(async (): Promise<SessionSummary[]> => [
+      {
+        id: 9, // newest overall, but the wrong mode
+        title: '',
+        turnCount: 0,
+        updatedAt: '',
+        driverKind: 'claude-agent-sdk',
+        instanceId: null,
+        model: null,
+        mode: 'investigation'
+      },
+      {
+        id: 7,
+        title: '',
+        turnCount: 0,
+        updatedAt: '',
+        driverKind: 'claude-agent-sdk',
+        instanceId: null,
+        model: null,
+        mode: 'review'
+      }
+    ])
+
+    render(workspace('NAV-BOOT', { activeMode: 'review' }))
+
+    await waitFor(() => expect(window.argus.agent.history).toHaveBeenCalledWith('NAV-BOOT', 7))
+    expect(window.argus.agent.history).not.toHaveBeenCalledWith('NAV-BOOT', 9)
+  })
+
   it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
     stubTwoModeSessions()
     const onModeSwitched = vi.fn()
