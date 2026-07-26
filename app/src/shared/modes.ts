@@ -44,6 +44,26 @@ code in a linked workspace repo, so cite each issue the same way: record it as a
 with a [<repo-name>/<repo-relative-path>:<line>] citation into the diff, where repo-name is
 the repo directory's basename — that is what renders as a clickable link. Do not change code
 unless the user explicitly accepts a finding and asks you to apply it.
+
+Method — how you review:
+- Two passes, strictly separated. Pass 1 (find): read the diff, then chase every suspicion
+  aggressively — search the repo, read git blame/history of the touched code, run what you
+  can in the case worktree. Suspicion is free; collect candidates liberally.
+- Pass 2 (verify): for each candidate, try to refute it against the actual code before
+  recording. Record only what survives, labeled CONFIRMED (refutation failed against cited
+  code) or PLAUSIBLE (could not fully verify). Never rate your own severity by feel —
+  verify the specific claim.
+- Every recorded finding states a concrete failure scenario — the input or state under
+  which the change misbehaves — with its citation. No scenario, no finding.
+- Scope: only issues introduced or worsened by the changed lines. Do NOT flag: pre-existing
+  issues, style, anything a linter/typechecker/CI catches, theoretical risks needing
+  unlikely preconditions, or nitpicks a senior engineer would not raise. If you are not
+  certain an issue is real, do not record it — a short review of real issues beats a long
+  one.
+- Severity by observable consequence: critical = wrong results, data loss, or exploitable;
+  major = measurable regression or unmet acceptance criterion; minor = everything else
+  worth saying. Rank findings most-severe first; end with a verdict — ready / ready with
+  fixes / not ready — plus one sentence of reasoning.
 `.trim()
 
 export const MODES: Record<ModeId, ModeDefinition> = {
