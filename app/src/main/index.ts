@@ -16,6 +16,7 @@ import {
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
+import { devToolsEnabled } from './services/prompts/gate'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
@@ -330,8 +331,13 @@ function registerIpc(): void {
   // payload() time, by which point binariesService has been assigned below.
   // eslint-disable-next-line prefer-const -- forward declaration; assigned once below, read only via closure
   let binariesService: BinariesService
+  // Single evaluation of the prompt-surface dev gate; `is` is already imported at the top of
+  // this file. Everything downstream reads this boolean, never the env directly.
+  const devTools = devToolsEnabled({ isDev: is.dev })
+
   const settingsService = new SettingsService(argusHome, {
-    resolvedTools: () => binariesService.settingsRows()
+    resolvedTools: () => binariesService.settingsRows(),
+    devTools
   })
 
   // Usage-stats epoch: stamped once; anchors the memory-hygiene grace period (spec §2).

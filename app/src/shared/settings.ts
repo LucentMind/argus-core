@@ -275,4 +275,7 @@ export interface SettingsPayload {
   resolvedTools: ResolvedToolRow[]
   dataRoot: { path: string; fromEnv: boolean }
   loadError: string | null
+  /** Dev-tools gate (`main/services/prompts/gate.ts`). Optional so the 34 inline payload
+   *  fixtures in tests keep compiling; absent means OFF, which is the fail-safe default. */
+  devTools?: boolean
 }
