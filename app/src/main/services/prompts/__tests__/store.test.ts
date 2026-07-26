@@ -157,3 +157,74 @@ describe('PromptStore overrides — read path', () => {
     expect(store.catalogPayload().entries.length).toBe(PROMPT_ENTRIES.length)
   })
 })
+
+describe('PromptStore overrides — mutations', () => {
+  it('set then resolve returns the override; clear returns the default', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride('persona.neutral', 'MINE')
+    expect(store.resolve('persona.neutral')).toBe('MINE')
+    store.clearOverride('persona.neutral')
+    expect(store.resolve('persona.neutral')).toBe(NEUTRAL_PERSONA)
+    expect(store.activeOverrideIds()).toEqual([])
+  })
+
+  it('persists across a fresh store reading the same home', () => {
+    // The point of a file rather than memory: an override must survive the restart it takes
+    // for the next session to pick it up.
+    const home = tmpHome()
+    new PromptStore({ devTools: true, argusHome: home }).setOverride('persona.diagram', 'D2')
+    expect(new PromptStore({ devTools: true, argusHome: home }).resolve('persona.diagram')).toBe(
+      'D2'
+    )
+  })
+
+  it('treats an empty string as a real override, not a clear', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride('persona.diagram', '')
+    expect(store.resolve('persona.diagram')).toBe('')
+    expect(store.activeOverrideIds()).toEqual(['persona.diagram'])
+  })
+
+  it('rejects an unknown id', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    expect(() => store.setOverride('nope.not.real', 'x')).toThrow(/unknown prompt id/i)
+  })
+
+  it('rejects a read-only entry', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    expect(() => store.setOverride('external.claude.preset', 'x')).toThrow(/read-only/i)
+  })
+
+  it('throws when the gate is off rather than writing', () => {
+    // Guard 1 again, on the write side: a build without the gate must not create the file at all.
+    const home = tmpHome()
+    const store = new PromptStore({ devTools: false, argusHome: home })
+    expect(() => store.setOverride('persona.neutral', 'x')).toThrow(/dev tools are not enabled/i)
+    expect(fs.existsSync(path.join(home, 'config', 'dev-prompt-overrides.json'))).toBe(false)
+  })
+
+  it('clearAll removes every override in one write', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride('persona.neutral', 'A')
+    store.setOverride('persona.diagram', 'B')
+    store.clearAll()
+    expect(store.activeOverrideIds()).toEqual([])
+    expect(store.resolve('persona.neutral')).toBe(NEUTRAL_PERSONA)
+  })
+
+  it('clearing an id that has no override is a no-op, not an error', () => {
+    // The banner's "clear all" and a double-click on Reset both reach this; throwing would turn
+    // a harmless repeat into an error dialog.
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    expect(() => store.clearOverride('persona.neutral')).not.toThrow()
+  })
+
+  it('a successful write clears a previous load error', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHomeRaw('{ not json') })
+    expect(store.loadError).toBeTruthy()
+    store.setOverride('persona.neutral', 'RECOVERED')
+    // The file is now valid — continuing to report the stale parse failure would send someone
+    // hunting a problem they already fixed.
+    expect(store.loadError).toBeNull()
+  })
+})
