@@ -27,7 +27,8 @@ export const CASE_WORKING_RULES = `## Working rules
 - Record findings with the \`mcp__argus__append_finding\` tool — never edit \`findings.md\` directly.
 - Search evidence with \`mcp__argus__search_evidence\` before grepping files.
 - To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
-- Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.`
+- Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.
+`
 
 function claudeMdTemplate(
   input: NewCaseInput,
@@ -48,8 +49,7 @@ function claudeMdTemplate(
 _No code workspaces linked._
 <!-- /argus:workspaces -->
 
-${rules}
-`
+${rules}`
 }
 
 interface CaseRow {
