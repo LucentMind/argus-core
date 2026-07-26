@@ -210,6 +210,28 @@ describe('PromptsDevPage — editing', () => {
     expect(await screen.findByText(/overridden/i)).toBeInTheDocument()
   })
 
+  it('surfaces a failed save instead of silently discarding the edit', async () => {
+    const api = (
+      window as unknown as {
+        argus: { devPrompts: { setOverride: ReturnType<typeof vi.fn> } }
+      }
+    ).argus.devPrompts
+    api.setOverride = vi.fn(async () => {
+      throw new Error('dev tools are not enabled (set ARGUS_DEV_TOOLS=1)')
+    })
+
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    fireEvent.change(await screen.findByLabelText(/Prompt text/i), {
+      target: { value: 'MY OVERRIDE' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+
+    expect(await screen.findByText(/dev tools are not enabled/i)).toBeInTheDocument()
+    // The catalog must stay on screen — a failed save must not read as a blank page.
+    expect(screen.getByText('Role-neutral core')).toBeInTheDocument()
+  })
+
   it('Save is disabled until the text actually changes', async () => {
     // Without this, a stray click writes an override identical to the default — which then shows
     // as "overridden" forever and is indistinguishable from a real edit in the banner.
