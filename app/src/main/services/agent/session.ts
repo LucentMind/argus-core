@@ -102,6 +102,8 @@ export interface SessionDeps {
     cmd: string,
     args: unknown[]
   ) => Promise<unknown>
+  /** Prompt-registry resolver (`services/prompts/store.ts`). Absent = use the constants. */
+  resolvePrompt?: (id: string) => string
 }
 
 /** Tool name for the panel-initiated finding approval card (MEDIUM, editable). Distinct from the
@@ -169,7 +171,8 @@ export class CaseSession {
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
     const memIndex = filteredIndex(deps.argusHome, access)
-    const memoryAppend = memIndex.trim() ? `\n\n${MEMORY_HEADER}\n\n${memIndex.trim()}` : ''
+    const header = deps.resolvePrompt?.('session.memory-header') ?? MEMORY_HEADER
+    const memoryAppend = memIndex.trim() ? `\n\n${header}\n\n${memIndex.trim()}` : ''
     // Mode-scoped skill advertising (assembleMode via registry.ts). The driver allowlist
     // (deps.enabledSkills below) is never filtered by this — a skill missing from the index
     // is still loadable. buildSkillIndex already supplies its own lead line, so no extra

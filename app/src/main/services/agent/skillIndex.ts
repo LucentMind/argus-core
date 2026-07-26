@@ -21,7 +21,11 @@ export const SKILL_INDEX_LEAD = 'Skills most relevant to this mode:'
  * (`assembleMode().enabledSkills`) still carries every enabled skill, so a skill omitted
  * here remains loadable — advertising is scoped, availability is not.
  */
-export function buildSkillIndex(skills: ResolvedSkill[], role: ModeRole): string {
+export function buildSkillIndex(
+  skills: ResolvedSkill[],
+  role: ModeRole,
+  resolve?: (id: string) => string
+): string {
   // A plain filter, not rankSkillsForMode(...).filter(...): ranking only reorders
   // applying-vs-not, which this filter already isolates, so calling it first was a
   // redundant double-rank that changed nothing about the result.
@@ -30,5 +34,6 @@ export function buildSkillIndex(skills: ResolvedSkill[], role: ModeRole): string
   const lines = relevant.map((s) =>
     s.description ? `- ${s.name}: ${truncateDescription(s.description)}` : `- ${s.name}`
   )
-  return [SKILL_INDEX_LEAD, ...lines].join('\n')
+  const lead = resolve ? resolve('session.skill-index-lead') : SKILL_INDEX_LEAD
+  return [lead, ...lines].join('\n')
 }
