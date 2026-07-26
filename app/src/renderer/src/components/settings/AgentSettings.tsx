@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { settingsStore } from '../../lib/settingsStore'
-import { Chip, IconBtn } from '../ui'
+import { confirm } from '../../lib/confirmStore'
+import { Btn, Chip, IconBtn } from '../ui'
 import {
   SettingsSection,
   SettingRow,
@@ -27,6 +28,11 @@ import type { ProviderStatus } from '../../../../shared/types'
 const MODE_BY_LABEL = Object.fromEntries(
   PERMISSION_MODES.map((m) => [PERMISSION_MODE_LABELS[m], m])
 ) as Record<string, PermissionMode>
+
+/** Used as BOTH the danger row's description and the confirm dialog's body, so the promise
+ *  made before the click and the one made during it cannot drift apart. */
+const REMOVE_MESSAGE =
+  "This deletes the provider's configuration and model preferences. Chats already using it fall back to the default provider."
 
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
@@ -87,6 +93,30 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
     const id = nextInstanceId(a.providerInstances, driverKind)
     patchAgent({ providerInstances: { [id]: { driver: driverKind, enabled: true, config: {} } } })
     setExpandedId(id)
+  }
+
+  /**
+   * Delete an instance outright — additive to disabling it. A provider added by mistake, or
+   * one whose account is gone, should not have to live on as a permanent "Disabled" row.
+   * `null` is the settings delete idiom (see deepMerge) and applies to a whole map entry.
+   */
+  function removeInstance(id: string, label: string): void {
+    void confirm({
+      title: `Remove ${label}?`,
+      message: REMOVE_MESSAGE,
+      confirmLabel: 'Remove',
+      danger: true
+    }).then((ok) => {
+      if (!ok) return
+      if (expandedId === id) setExpandedId(null)
+      patchAgent({
+        providerInstances: { [id]: null },
+        // Emitted unconditionally rather than probed for: deleting an absent key is a no-op,
+        // and this stops a stale hidden/favourite list resurfacing when the same generated id
+        // (`<driverKind>-<n>`, with n reused after a deletion) is handed to a future instance.
+        modelPreferences: { [id]: null }
+      })
+    })
   }
 
   async function refresh(): Promise<void> {
@@ -170,6 +200,15 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
                 onChange={(k, v) => patchInstance(id, { config: { [k]: v } })}
               />
               <ProviderModels settings={payload.settings} instanceId={id} />
+              <SettingRow label="Remove provider" description={REMOVE_MESSAGE}>
+                <Btn
+                  variant="danger"
+                  aria-label={`Remove ${label}`}
+                  onClick={() => removeInstance(id, label)}
+                >
+                  Remove
+                </Btn>
+              </SettingRow>
             </ProviderRow>
           )
         })}
