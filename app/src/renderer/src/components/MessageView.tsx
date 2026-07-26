@@ -56,13 +56,14 @@ export function MessageView({
           // Expanded citation cards are block elements, which can't nest inside
           // <p> — render paragraphs as divs (identical under preflight's zero margins).
           p: ({ children }) => <div>{children}</div>,
-          pre: ({ children, ...rest }) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars -- node prop from react-markdown must be destructured to prevent spreading onto DOM
+          pre: ({ node: _node, children, ...rest }) => {
             const child = Array.isArray(children) ? children[0] : children
             if (isValidElement(child)) {
               const childProps = child.props as { className?: string; children?: unknown }
               if (
                 typeof childProps.className === 'string' &&
-                childProps.className.includes('language-mermaid') &&
+                childProps.className.split(/\s+/).includes('language-mermaid') &&
                 typeof childProps.children === 'string'
               ) {
                 return <MermaidBlock source={childProps.children} streaming={streaming} />

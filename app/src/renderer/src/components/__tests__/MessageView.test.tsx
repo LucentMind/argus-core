@@ -140,5 +140,6 @@ describe('MessageView mermaid fences', () => {
     )
     expect(container.querySelector('pre code')).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Expand diagram' })).toBeNull()
+    expect(container.querySelector('pre')?.getAttribute('node')).toBeNull()
   })
 })
