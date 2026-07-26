@@ -16,9 +16,9 @@ beforeEach(() => {
 })
 
 describe('modeContextForCase', () => {
-  it('reports zero linked PRs until Plan 2 populates them, so only investigation is available', () => {
+  it('reports zero linked repos for a fresh case, so only investigation is available', () => {
     const ctx = modeContextForCase(db, 'c1')
-    expect(ctx.linkedPrCount).toBe(0)
+    expect(ctx.linkedRepoCount).toBe(0)
     expect(availableModes(ctx)).toEqual(['investigation'])
   })
 })
