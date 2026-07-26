@@ -1,17 +1,5 @@
 import { Fragment, useState } from 'react'
-import {
-  Settings2,
-  BrainCog,
-  HeartPulse,
-  Cable,
-  CloudSync,
-  HardDrive,
-  BookMarked,
-  Gauge,
-  Package,
-  Inbox,
-  type LucideIcon
-} from 'lucide-react'
+import { visiblePages, type PageId } from './settingsPages'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
@@ -27,27 +15,11 @@ import { SourcesPage } from './SourcesPage'
 import { HivemindSettings } from './HivemindSettings'
 import { ObservabilitySettings } from './ObservabilitySettings'
 import { KnowledgeFlowStrip } from './KnowledgeFlowStrip'
+import { PromptsDevPage } from './PromptsDevPage'
 
-/** Sidebar pages in three labeled groups (spec §3.1): App / Knowledge / System. */
-const PAGES = [
-  { id: 'general', label: 'General', group: 'App', enabled: true, Icon: Settings2 },
-  { id: 'agent', label: 'Agent', group: 'App', enabled: true, Icon: BrainCog },
-  { id: 'connectors', label: 'Connectors', group: 'App', enabled: true, Icon: Cable },
-  { id: 'proposals', label: 'Proposals', group: 'Knowledge', enabled: true, Icon: Inbox },
-  { id: 'library', label: 'Library', group: 'Knowledge', enabled: true, Icon: BookMarked },
-  { id: 'memory', label: 'Memory', group: 'Knowledge', enabled: true, Icon: HardDrive },
-  { id: 'team', label: 'Team', group: 'Knowledge', enabled: true, Icon: CloudSync },
-  { id: 'sources', label: 'Sources', group: 'Knowledge', enabled: true, Icon: Package },
-  { id: 'health', label: 'Health', group: 'System', enabled: true, Icon: HeartPulse },
-  { id: 'observability', label: 'Observability', group: 'System', enabled: true, Icon: Gauge }
-] as const satisfies ReadonlyArray<{
-  id: string
-  label: string
-  group: 'App' | 'Knowledge' | 'System'
-  enabled: boolean
-  Icon: LucideIcon
-}>
-export type PageId = (typeof PAGES)[number]['id']
+// The nav table and its dev-gate filter live in `settingsPages.ts`; react-refresh requires a
+// component file to export only components, so they cannot be shared from here.
+export type { PageId }
 
 /** Pre-hub page ids stay accepted as deep-link aliases (spec §3.3) — the
  *  onboarding wizard and stale runtime values route through them. */
@@ -60,9 +32,14 @@ const LEGACY_PAGES = {
 export type LegacyPageId = keyof typeof LEGACY_PAGES
 export type SettingsDeepLink = PageId | LegacyPageId
 
-function resolveDeepLink(p?: string): { page: PageId; kind?: LibraryKind } {
+function resolveDeepLink(
+  p: string | undefined,
+  devTools: boolean
+): { page: PageId; kind?: LibraryKind } {
   if (p && p in LEGACY_PAGES) return LEGACY_PAGES[p as LegacyPageId]
-  if (p && PAGES.some((x) => x.id === p)) return { page: p as PageId }
+  // Filtered, not raw PAGES: a dev-only page must stay unreachable by a hand-typed link or a
+  // stale runtime value when the gate is off — hiding it from the nav alone leaves that open.
+  if (p && visiblePages(devTools).some((x) => x.id === p)) return { page: p as PageId }
   return { page: 'general' }
 }
 
@@ -80,12 +57,16 @@ export function SettingsView({
   onClose: () => void
   initialPage?: SettingsDeepLink
 }): React.JSX.Element {
-  const init = resolveDeepLink(initialPage)
+  // Read before the deep link resolves: the dev-tools gate decides which pages a link may
+  // reach, so `payload` has to be in hand first.
+  const payload = useSettingsPayload()
+  const devTools = Boolean(payload?.devTools)
+  const init = resolveDeepLink(initialPage, devTools)
   const [page, setPage] = useState<PageId>(init.page)
   const [proposalTypes, setProposalTypes] = useState<readonly ProposalType[] | undefined>(undefined)
   const [libraryKind, setLibraryKind] = useState<LibraryKind | undefined>(init.kind)
-  const payload = useSettingsPayload()
   const counts = useProposalCounts()
+  const pages = visiblePages(devTools)
 
   useEscapeLayer({ onEscape: onClose })
 
@@ -96,7 +77,7 @@ export function SettingsView({
   const [lastDeepLink, setLastDeepLink] = useState(initialPage)
   if (initialPage !== lastDeepLink) {
     setLastDeepLink(initialPage)
-    const next = resolveDeepLink(initialPage)
+    const next = resolveDeepLink(initialPage, devTools)
     setProposalTypes(undefined)
     setLibraryKind(next.kind)
     setPage(next.page)
@@ -120,9 +101,11 @@ export function SettingsView({
         aria-label="Settings sections"
         className="flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair bg-deep p-3"
       >
-        {PAGES.map((p, i) => (
+        {/* `pages`, not PAGES — the group-header lookup must read the same filtered array, or
+            hiding the last page in a group leaves its heading behind with nothing under it. */}
+        {pages.map((p, i) => (
           <Fragment key={p.id}>
-            {(i === 0 || PAGES[i - 1].group !== p.group) && (
+            {(i === 0 || pages[i - 1].group !== p.group) && (
               <div
                 className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-faint ${
                   i === 0 ? 'pt-1' : 'pt-3'
@@ -210,6 +193,7 @@ export function SettingsView({
           {payload && page === 'sources' && <SourcesPage settings={payload} />}
           {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
           {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
+          {page === 'prompts' && <PromptsDevPage />}
         </div>
       </div>
     </div>
