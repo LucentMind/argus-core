@@ -115,6 +115,42 @@ export function seedSharedAssets(
   }
 }
 
+/**
+ * The bound pull requests, written into their own marker region below the workspaces one.
+ *
+ * A separate region rather than extra lines inside `argus:workspaces`: that region is
+ * rewritten by `writeStored` on every repo link/unlink, which knows nothing about PRs and
+ * would erase them — and teaching it would put workspaces.ts and prBindings.ts in a
+ * module cycle. Independent regions have independent writers.
+ *
+ * Cases created before this region existed have no markers, so the section is appended
+ * on first write.
+ */
+export function updateClaudeMdPrs(
+  argusHome: string,
+  caseSlug: string,
+  prs: { owner: string; repo: string; number: number; url: string; worktreePath: string | null }[]
+): void {
+  const file = path.join(argusHome, 'cases', caseSlug, 'CLAUDE.md')
+  if (!fs.existsSync(file)) return
+  const body =
+    prs.length === 0
+      ? '_No pull requests linked._'
+      : prs
+          .map((p) =>
+            p.worktreePath
+              ? `- \`${p.owner}/${p.repo}#${p.number}\` (${p.url}) — checked out at \`${p.worktreePath}\``
+              : `- \`${p.owner}/${p.repo}#${p.number}\` (${p.url}) — not checked out locally; use \`gh pr diff ${p.number} --repo ${p.owner}/${p.repo}\``
+          )
+          .join('\n')
+  const region = `<!-- argus:prs -->\n${body}\n<!-- /argus:prs -->`
+  const content = fs.readFileSync(file, 'utf8')
+  const replaced = /<!-- argus:prs -->[\s\S]*?<!-- \/argus:prs -->/.test(content)
+    ? content.replace(/<!-- argus:prs -->[\s\S]*?<!-- \/argus:prs -->/, region)
+    : content.replace(/(<!-- \/argus:workspaces -->)/, `$1\n\n## Linked pull requests\n\n${region}`)
+  fs.writeFileSync(file, replaced)
+}
+
 export function updateClaudeMdWorkspaces(
   argusHome: string,
   caseSlug: string,

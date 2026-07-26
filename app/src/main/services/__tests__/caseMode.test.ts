@@ -25,29 +25,29 @@ describe('case-level mode', () => {
     expect(getCase(db, 'c1')?.activeMode).toBe('investigation')
   })
 
-  it('creates a session bound to the mode when none exists', () => {
-    const { sessionId } = setCaseMode(db, home, 'c1', 'review', PROVIDER)
+  it('creates a session bound to the mode when none exists', async () => {
+    const { sessionId } = await setCaseMode(db, home, 'c1', 'review', PROVIDER)
     expect(getCase(db, 'c1')?.activeMode).toBe('review')
     expect(sessionMode(db, sessionId)).toBe('review')
   })
 
-  it("reuses that mode's most recent session instead of creating another", () => {
-    const first = setCaseMode(db, home, 'c1', 'review', PROVIDER).sessionId
-    setCaseMode(db, home, 'c1', 'investigation', PROVIDER)
-    const again = setCaseMode(db, home, 'c1', 'review', PROVIDER).sessionId
+  it("reuses that mode's most recent session instead of creating another", async () => {
+    const first = (await setCaseMode(db, home, 'c1', 'review', PROVIDER)).sessionId
+    await setCaseMode(db, home, 'c1', 'investigation', PROVIDER)
+    const again = (await setCaseMode(db, home, 'c1', 'review', PROVIDER)).sessionId
     expect(again).toBe(first)
   })
 
-  it("leaves the other mode's chats intact when switching back", () => {
+  it("leaves the other mode's chats intact when switching back", async () => {
     const inv = listSessions(db, 'c1')[0]
-    setCaseMode(db, home, 'c1', 'review', PROVIDER)
-    const back = setCaseMode(db, home, 'c1', 'investigation', PROVIDER)
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
+    const back = await setCaseMode(db, home, 'c1', 'investigation', PROVIDER)
     expect(back.sessionId).toBe(inv.id)
     expect(sessionMode(db, inv.id)).toBe('investigation')
   })
 
-  it('passes the given provider through to the freshly created session', () => {
-    const { sessionId } = setCaseMode(db, home, 'c1', 'review', {
+  it('passes the given provider through to the freshly created session', async () => {
+    const { sessionId } = await setCaseMode(db, home, 'c1', 'review', {
       driverKind: 'github-copilot',
       instanceId: 'copilot-1',
       model: 'auto'
@@ -62,17 +62,17 @@ describe('case-level mode', () => {
     })
   })
 
-  it('mirrors activeMode into case.json', () => {
-    setCaseMode(db, home, 'c1', 'review', PROVIDER)
+  it('mirrors activeMode into case.json', async () => {
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
     const onDisk = JSON.parse(fs.readFileSync(path.join(caseDir(home, 'c1'), 'case.json'), 'utf8'))
     expect(onDisk.activeMode).toBe('review')
   })
 
-  it('rebuilds from the DB record when case.json is corrupt, instead of dropping fields', () => {
+  it('rebuilds from the DB record when case.json is corrupt, instead of dropping fields', async () => {
     const file = path.join(caseDir(home, 'c1'), 'case.json')
     fs.writeFileSync(file, '{ not valid json')
 
-    const { sessionId } = setCaseMode(db, home, 'c1', 'review', PROVIDER)
+    const { sessionId } = await setCaseMode(db, home, 'c1', 'review', PROVIDER)
     expect(sessionMode(db, sessionId)).toBe('review')
 
     const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -80,18 +80,20 @@ describe('case-level mode', () => {
     expect(onDisk.activeMode).toBe('review')
   })
 
-  it('rejects an unknown mode', () => {
-    expect(() => setCaseMode(db, home, 'c1', 'bogus' as never, PROVIDER)).toThrow(/unknown mode/i)
+  it('rejects an unknown mode', async () => {
+    await expect(setCaseMode(db, home, 'c1', 'bogus' as never, PROVIDER)).rejects.toThrow(
+      /unknown mode/i
+    )
   })
 
-  it('throws on an unknown case', () => {
-    expect(() => setCaseMode(db, home, 'nope', 'review', PROVIDER)).toThrow(/unknown case/i)
+  it('throws on an unknown case', async () => {
+    await expect(setCaseMode(db, home, 'nope', 'review', PROVIDER)).rejects.toThrow(/unknown case/i)
   })
 })
 
 describe('new sessions bind to the case mode (IMPORTANT 1)', () => {
-  it('a session created directly while the case is in review mode is bound to review, mirroring the sessions:create IPC handler', () => {
-    setCaseMode(db, home, 'c1', 'review', PROVIDER)
+  it('a session created directly while the case is in review mode is bound to review, mirroring the sessions:create IPC handler', async () => {
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER)
     // Mirrors main/index.ts's sessions:create handler:
     // createSession(db, caseSlug, { ...newSessionProvider(), mode: getCase(db, caseSlug)?.activeMode })
     const s = createSession(db, 'c1', { ...PROVIDER, mode: getCase(db, 'c1')?.activeMode })

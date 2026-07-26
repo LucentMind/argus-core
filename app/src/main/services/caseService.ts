@@ -15,6 +15,7 @@ import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
 import { createSession, latestSessionForMode, type SessionProvider } from './agent/sessionStore'
+import { materializePrBindings, type PrMaterializer } from './prBindings'
 
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -487,14 +488,21 @@ export function setCaseStatus(
  * used to be re-resolved in here via a one-off SettingsService (a second file watcher
  * per mode switch) through a driver catalog that didn't actually agree with
  * `getActiveDriver`'s fallback; taking it as a parameter removes both problems.
+ *
+ * Entering `review` also checks out every bound PR that has a local clone, via the
+ * injected `materialize` (main/index.ts supplies the `ensurePrWorktree`-backed one; tests
+ * a fake). It runs for already-bound PRs whose worktree may be absent — a fresh clone,
+ * another machine, a pruned worktree — and shares `materializePrBindings` with the PR
+ * picker's confirm path so the two cannot drift. Failures are logged, never fatal.
  */
-export function setCaseMode(
+export async function setCaseMode(
   db: DatabaseSync,
   argusHome: string,
   slug: string,
   mode: ModeId,
-  provider: SessionProvider
-): { sessionId: number } {
+  provider: SessionProvider,
+  opts?: { materialize?: PrMaterializer }
+): Promise<{ sessionId: number }> {
   if (!(mode in MODES)) throw new Error(`Unknown mode: ${mode}`)
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
@@ -511,6 +519,10 @@ export function setCaseMode(
     onDisk = { ...existing, id: undefined }
   }
   fs.writeFileSync(file, JSON.stringify({ ...onDisk, activeMode: mode, updatedAt: now }, null, 2))
+
+  if (mode === 'review' && opts?.materialize) {
+    await materializePrBindings(db, argusHome, slug, opts.materialize)
+  }
 
   const target = latestSessionForMode(db, slug, mode)
   if (target) return { sessionId: target.id }

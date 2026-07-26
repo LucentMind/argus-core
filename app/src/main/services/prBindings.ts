@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { NewPrBinding, PrBinding } from '../../shared/pr'
+import { updateClaudeMdPrs } from './skillsDir'
 
 // A raw id lookup rather than caseService's getCase: this module only needs the numeric
 // id, and importing getCase would recreate a module cycle that was deliberately removed
@@ -85,4 +86,47 @@ export function bindingCount(db: DatabaseSync, caseSlug: string): number {
   const row = db.prepare(`SELECT COUNT(*) AS n FROM pr_bindings WHERE case_id = ?`).get(caseId) as
     { n: number } | undefined
   return row?.n ?? 0
+}
+
+/** Checks a PR's code out locally; returns its worktree path, or null when it has none. */
+export type PrMaterializer = (binding: PrBinding) => Promise<string | null>
+
+/**
+ * Check out every bound PR that has a local clone, then tell the agent where each one is.
+ *
+ * Two callers share this so they cannot drift: entering review mode (for already-bound
+ * PRs whose worktree may be absent — fresh clone, another machine, pruned worktree) and
+ * confirming the PR picker (for PRs just selected).
+ *
+ * Checkout is lazy and never fatal: a binding with `repoPath === null` is skipped by
+ * design (the agent falls back to `gh pr diff`), and a git failure is logged and stepped
+ * over so it can never block a mode switch.
+ */
+export async function materializePrBindings(
+  db: DatabaseSync,
+  argusHome: string,
+  caseSlug: string,
+  materialize: PrMaterializer
+): Promise<void> {
+  const lines: {
+    owner: string
+    repo: string
+    number: number
+    url: string
+    worktreePath: string | null
+  }[] = []
+  for (const b of listBindings(db, caseSlug)) {
+    let worktreePath: string | null = null
+    if (b.repoPath) {
+      try {
+        worktreePath = await materialize(b)
+      } catch (err) {
+        console.warn(
+          `[pr] worktree for ${b.owner}/${b.repo}#${b.number} failed: ${(err as Error).message}`
+        )
+      }
+    }
+    lines.push({ owner: b.owner, repo: b.repo, number: b.number, url: b.url, worktreePath })
+  }
+  updateClaudeMdPrs(argusHome, caseSlug, lines)
 }
