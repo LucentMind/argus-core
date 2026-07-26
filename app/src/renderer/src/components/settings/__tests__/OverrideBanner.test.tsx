@@ -61,6 +61,20 @@ describe('OverrideBanner', () => {
     await waitFor(() => expect(screen.queryByText(/overrides are active/i)).not.toBeInTheDocument())
   })
 
+  it('surfaces a failed clear-all without losing the override list', async () => {
+    stubBridge(['persona.neutral'])
+    ;(
+      window as unknown as { argus: { devPrompts: { clearAll: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts.clearAll = vi.fn(async () => {
+      throw new Error('EBUSY: file is locked')
+    })
+    render(<OverrideBanner devTools={true} />)
+    fireEvent.click(await screen.findByRole('button', { name: /clear all/i }))
+
+    expect(await screen.findByText(/EBUSY: file is locked/)).toBeInTheDocument()
+    expect(screen.getByText(/persona\.neutral/)).toBeInTheDocument()
+  })
+
   it('lights up when the change broadcast fires, without a Settings remount', async () => {
     // The comment in OverrideBanner.tsx claims "a save on the Prompts page must light the
     // banner without a Settings remount" — this is the only test that exercises that path.
