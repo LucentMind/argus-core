@@ -34,6 +34,9 @@ const MODE_BY_LABEL = Object.fromEntries(
 const REMOVE_MESSAGE =
   "This deletes the provider's configuration and model preferences. Chats already using it fall back to the default provider."
 
+const DISTILL_NOTE =
+  'It is also your distillation provider — distillation will revert to auto-resolve.'
+
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -99,23 +102,40 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
    * Delete an instance outright — additive to disabling it. A provider added by mistake, or
    * one whose account is gone, should not have to live on as a permanent "Disabled" row.
    * `null` is the settings delete idiom (see deepMerge) and applies to a whole map entry.
+   *
+   * One atomic patch, so a partial application cannot leave a dangling reference. Of the keys
+   * touched, only `distillProvider` is a correctness fix: `defaultInstanceId()` and the
+   * modelPreferences lookup both tolerate a dangling id at read time, but
+   * `resolveDistillProvider()` hard-fails on one instead of falling back to auto-resolve.
+   *
+   * The distillation warning is keyed to the EXPLICIT setting, not `resolveDistillProvider()`'s
+   * result, so the dialog promises exactly what the patch delivers. With `distillProvider`
+   * unset, distillation already auto-resolves and there is no setting to clear.
    */
   function removeInstance(id: string, label: string): void {
+    const isDistill = a.distillProvider?.instanceId === id
     void confirm({
       title: `Remove ${label}?`,
-      message: REMOVE_MESSAGE,
+      message: isDistill ? `${REMOVE_MESSAGE} ${DISTILL_NOTE}` : REMOVE_MESSAGE,
       confirmLabel: 'Remove',
       danger: true
     }).then((ok) => {
       if (!ok) return
       if (expandedId === id) setExpandedId(null)
-      patchAgent({
+      const next: Record<string, unknown> = {
         providerInstances: { [id]: null },
         // Emitted unconditionally rather than probed for: deleting an absent key is a no-op,
         // and this stops a stale hidden/favourite list resurfacing when the same generated id
         // (`<driverKind>-<n>`, with n reused after a deletion) is handed to a future instance.
         modelPreferences: { [id]: null }
-      })
+      }
+      if (isDistill) next.distillProvider = null
+      if (a.activeInstanceId === id) {
+        const others = Object.entries(a.providerInstances).filter(([otherId]) => otherId !== id)
+        const fallback = (others.find(([, i]) => i.enabled) ?? others[0])?.[0]
+        if (fallback) next.activeInstanceId = fallback
+      }
+      patchAgent(next)
     })
   }
 
