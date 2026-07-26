@@ -172,6 +172,16 @@ describe('classifyToolCall — Bash', () => {
     if (v.action === 'ask') expect(v.grantKey).toBeNull()
   })
 
+  // `search` is the GROUP token here, not the subcommand, so this is matched on the group
+  // rather than by a GH_READ entry (which is tested against the sub).
+  it.each([
+    'gh search prs NN-5165 --repo acme/widget',
+    'gh search issues NN-5165',
+    'gh search code needle'
+  ])('%s → read-only, auto-allowed', (cmd) => {
+    expect(bash(cmd)).toEqual({ action: 'allow', risk: 'LOW' })
+  })
+
   it('nudges raw grep/cat on evidence files to pack-declared CLIs (MEDIUM ask)', () => {
     for (const cmd of ['grep -c error evidence/applog.txt', 'cat evidence/applog.txt']) {
       const v = classifyToolCall('Bash', { command: cmd }, ctx({ packCliNames: ['tool-x'] }))

@@ -184,6 +184,10 @@ function classifyGh(tokens: string[]): RiskVerdict {
       ? { action: 'ask', risk: 'HIGH', grantKey: null, reason: 'Remote mutation: gh api non-GET' }
       : { action: 'allow', risk: 'LOW' }
   }
+  // Every `gh search <repos|issues|prs|commits|code>` subcommand is read-only. Matched on
+  // the group, not GH_READ: GH_READ is tested against `sub`, and here `search` is the
+  // group ("gh search prs"), so a GH_READ entry would never fire for it.
+  if (group === 'search') return { action: 'allow', risk: 'LOW' }
   if (group === 'pr' && sub === 'checkout')
     return {
       action: 'ask',

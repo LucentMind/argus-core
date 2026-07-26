@@ -87,3 +87,67 @@ export function parsePrRef(input: string, fallbackRemote?: string | null): PrRef
 
   return null
 }
+
+/** One hit from `gh search prs --json …`, exactly as gh emits it. */
+export interface RawPrHit {
+  number: number
+  state: string // 'open' | 'closed' | 'merged' — gh normalizes merged out of closed
+  isDraft: boolean
+  title: string
+  createdAt: string
+  url: string
+  repository: { nameWithOwner: string }
+}
+
+export interface PrCandidate {
+  owner: string
+  repo: string
+  number: number
+  url: string
+  title: string
+  state: 'open' | 'closed' | 'merged'
+  isDraft: boolean
+  createdAt: string
+  /** Title matches the backport prefix — shown, but not pre-selected. */
+  isBackport: boolean
+  /** Default checkbox state the picker renders. Never a binding decision on its own. */
+  preselected: boolean
+}
+
+export interface PrSearchResult {
+  candidates: PrCandidate[]
+  /** Non-null when the search could not run; candidates is then empty. */
+  error: string | null
+  /** `owner/repo` actually searched, so an empty state can name them. */
+  searchedRepos: string[]
+}
+
+// Backport PRs in this codebase's convention prefix the title, e.g.
+// "[Backport release/v0.26] [NN-5165] …". Labels are NOT usable: the primary PR
+// carries `backport release/*` labels (requests to backport) while a real backport
+// may carry none. See specs/2026-07-26-github-pr-detection-design.md.
+const BACKPORT_TITLE = /^\s*\[backport\b/i
+
+export function classifyCandidates(raw: RawPrHit[]): PrCandidate[] {
+  return raw
+    .filter((h) => h.state !== 'closed') // closed-and-never-merged is not reviewable
+    .map((h) => {
+      const [owner, repo] = h.repository.nameWithOwner.split('/')
+      const isBackport = BACKPORT_TITLE.test(h.title)
+      return {
+        owner,
+        repo,
+        number: h.number,
+        url: h.url,
+        title: h.title,
+        state: h.state as PrCandidate['state'],
+        isDraft: h.isDraft,
+        createdAt: h.createdAt,
+        isBackport,
+        // Every non-backport is pre-selected: nothing in gh's available fields ranks
+        // relevance among them (recency is inverted by backports), so over-selecting
+        // something the user can uncheck beats omitting the PR they wanted.
+        preselected: !isBackport
+      }
+    })
+}

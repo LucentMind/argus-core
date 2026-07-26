@@ -51,6 +51,7 @@ export const IPC = {
   prLink: 'pr:link',
   prList: 'pr:list',
   prUnlink: 'pr:unlink',
+  prSearch: 'pr:search',
   skillsList: 'skills:list',
   skillsDeleteUser: 'skills:delete-user',
   skillsRead: 'skills:read',
