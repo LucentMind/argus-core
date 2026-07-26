@@ -59,13 +59,13 @@ export function MessageView({
           pre: ({ children, ...rest }) => {
             const child = Array.isArray(children) ? children[0] : children
             if (isValidElement(child)) {
-              const props = child.props as { className?: string; children?: unknown }
+              const childProps = child.props as { className?: string; children?: unknown }
               if (
-                typeof props.className === 'string' &&
-                props.className.includes('language-mermaid') &&
-                typeof props.children === 'string'
+                typeof childProps.className === 'string' &&
+                childProps.className.includes('language-mermaid') &&
+                typeof childProps.children === 'string'
               ) {
-                return <MermaidBlock source={props.children} streaming={streaming} />
+                return <MermaidBlock source={childProps.children} streaming={streaming} />
               }
             }
             return <pre {...rest}>{children}</pre>

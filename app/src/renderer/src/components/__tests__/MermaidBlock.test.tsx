@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 // vi.hoisted: the vi.mock factory is hoisted above const declarations
 const { renderMermaidMock } = vi.hoisted(() => ({
-  renderMermaidMock: vi.fn(async (_src: string) => ({
+  renderMermaidMock: vi.fn<(src: string) => Promise<{ ok: true; svg: string }>>(async () => ({
     ok: true,
     svg: '<svg data-testid="mmd-svg"></svg>'
   }))
@@ -36,7 +36,9 @@ describe('MermaidBlock', () => {
   it('falls back to the code block with a note when rendering fails', async () => {
     renderMermaidMock.mockResolvedValueOnce({ ok: false } as never)
     render(<MermaidBlock source="broken" />)
-    expect(await screen.findByText(/diagram failed to render/i, undefined, { timeout: 2000 })).toBeTruthy()
+    expect(
+      await screen.findByText(/diagram failed to render/i, undefined, { timeout: 2000 })
+    ).toBeTruthy()
     expect(screen.getByText('broken')).toBeTruthy()
   })
 
