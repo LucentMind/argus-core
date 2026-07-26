@@ -84,6 +84,45 @@ describe('McpOAuth', () => {
     expect(secrets.has('mcp/rovo/tokens')).toBe(true)
   })
 
+  it('authorize: a stale/revoked refresh_token still reaches the browser', async () => {
+    // The SDK's auth() refreshes first whenever the provider yields a
+    // refresh_token, and re-throws a non-ServerError OAuthError (invalid_grant)
+    // instead of falling through to startAuthorization. Interactive authorize
+    // must therefore not present the stale grant at all, or the browser never
+    // opens and the connector is stuck unrecoverably.
+    secrets.set(
+      'mcp/rovo/tokens',
+      JSON.stringify({
+        access_token: 'dead',
+        token_type: 'bearer',
+        refresh_token: 'revoked-by-the-server',
+        obtainedAt: Date.now()
+      })
+    )
+    const opened: string[] = []
+    const authFn: AuthLike = async (provider, opts) => {
+      if (opts.authorizationCode) {
+        await provider.saveTokens({
+          access_token: 'tok-fresh',
+          token_type: 'bearer',
+          expires_in: 3600,
+          refresh_token: 'ref-fresh'
+        })
+        return 'AUTHORIZED'
+      }
+      if ((await provider.tokens())?.refresh_token) throw new Error('refresh_token is invalid') // what Atlassian returns
+      await provider.redirectToAuthorization(new URL('https://auth.atlassian.com/authorize?x=1'))
+      setTimeout(() => void fetch(`${provider.redirectUrl}?code=the-code`), 50)
+      return 'REDIRECT'
+    }
+    const oauth = new McpOAuth(secrets, async (u) => void opened.push(u), authFn)
+    const r = await oauth.authorize('rovo', SERVER)
+    expect(r.ok).toBe(true)
+    expect(opened[0]).toContain('auth.atlassian.com')
+    expect(oauth.status('rovo')).toBe('authorized')
+    expect(oauth.accessToken('rovo')).toBe('tok-fresh')
+  })
+
   it('accessToken: null when absent; null when expired', () => {
     const oauth = new McpOAuth(secrets, async () => {}, vi.fn() as unknown as AuthLike)
     expect(oauth.accessToken('rovo')).toBeNull()
