@@ -45,6 +45,8 @@ export interface JiraCasesDeps {
   emitProgress: (p: JiraAttachmentProgress) => void
   evidenceChanged: (caseSlug: string) => void
   parsing: (caseSlug: string, evidenceId: number, active: boolean) => void
+  /** Prompt-registry resolver, forwarded to createCase for the case's CLAUDE.md. */
+  resolvePrompt?: (id: string) => string
   /** Overridable in tests; production uses ARCHIVE_LIMITS. */
   archiveLimits?: Partial<ArchiveLimits>
 }
@@ -129,7 +131,12 @@ export class JiraCases {
   async createFromTicket(input: { slug: string; title: string; key: string }): Promise<CaseRecord> {
     const { db, argusHome, detection } = this.deps
     const { preview, descriptionMarkdown, raw } = await this.deps.client.getIssue(input.key)
-    createCase(db, argusHome, { slug: input.slug, title: input.title, jiraKey: preview.key })
+    createCase(
+      db,
+      argusHome,
+      { slug: input.slug, title: input.title, jiraKey: preview.key },
+      this.deps.resolvePrompt
+    )
     const now = new Date().toISOString()
     ingestContent(
       db,
