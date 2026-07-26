@@ -71,6 +71,16 @@ describe('prompt registry', () => {
     expect(entryById('headless.ref-distill.contract')?.default()).toBe(DISTILL_CONTRACT)
   })
 
+  it('registers one entry per mode, so a new mode cannot crash session construction', () => {
+    const modeEntries = PROMPT_ENTRIES.filter((e) => e.id.startsWith('persona.mode.'))
+    expect(modeEntries.length).toBe(Object.keys(MODES).length)
+    for (const id of Object.keys(MODES)) {
+      const e = entryById(`persona.mode.${id}`)
+      expect(e, id).toBeDefined()
+      expect(e?.default()).toBe(MODES[id as keyof typeof MODES].personaFragment)
+    }
+  })
+
   it('registers exactly one entry per native tool, with the live description', () => {
     const toolEntries = PROMPT_ENTRIES.filter((e) => e.category === 'tools')
     expect(toolEntries.length).toBe(NATIVE_TOOL_SPECS.length)

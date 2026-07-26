@@ -122,6 +122,16 @@ describe('prompt coverage', () => {
     for (const f of fullyRegistered) expect(deferredFiles.has(f), f).toBe(false)
   })
 
+  it('SCANNED covers every file the registry sources a prompt from', () => {
+    // Without this, adding a prompt in a NEW file and registering it leaves the guard blind to
+    // every later addition in that file, because nothing would ever scan it.
+    const sourceFiles = new Set(
+      PROMPT_ENTRIES.filter((e) => e.category !== 'external').map((e) => e.source.split(':')[0])
+    )
+    const missing = [...sourceFiles].filter((f) => !SCANNED.includes(f))
+    expect(missing, `registry sources not in SCANNED:\n${missing.join('\n')}`).toEqual([])
+  })
+
   it('a deferred file contains exactly the number of unregistered literals it declares', () => {
     const expected = new Map<string, number>()
     for (const d of DEFERRED_PROMPTS) expected.set(d.file, (expected.get(d.file) ?? 0) + d.count)
