@@ -228,3 +228,50 @@ describe('PromptStore overrides — mutations', () => {
     expect(store.loadError).toBeNull()
   })
 })
+
+/** Swaps in a file object whose `write` always throws, simulating a real failure mode (an
+ *  editor holding the override file open makes Windows `renameSync` throw EPERM; a full disk
+ *  or a read-only volume fail the same way). This is a narrow cast onto a private field rather
+ *  than a module mock: `PromptStore` builds its own `JsonFileStore` internally, so there is no
+ *  injection seam, and mocking the `fileStore` module would only prove the mock throws — not
+ *  that the store reacts correctly when a REAL write fails partway through. */
+function breakWrites(store: PromptStore): void {
+  ;(store as unknown as { file: { write: () => void } }).file = {
+    write: () => {
+      throw new Error('EPERM: operation not permitted, rename')
+    }
+  }
+}
+
+describe('PromptStore overrides — a failed write must not be adopted', () => {
+  it('setOverride: the throw propagates and the in-memory override is not adopted', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    breakWrites(store)
+    expect(() => store.setOverride('persona.neutral', 'X')).toThrow(/EPERM/)
+    // Guards 1–3 all read this state. If the failed write were adopted anyway, every guard
+    // would report "no override" while the agent resolved the overridden text for the rest of
+    // the session.
+    expect(store.resolve('persona.neutral')).toBe(NEUTRAL_PERSONA)
+    expect(store.activeOverrideIds()).toEqual([])
+  })
+
+  it('clearOverride: a failed write leaves the existing override in place', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride('persona.neutral', 'MINE')
+    breakWrites(store)
+    expect(() => store.clearOverride('persona.neutral')).toThrow(/EPERM/)
+    // The mirror failure: the store must not claim "cleared" while the file (and now the
+    // in-memory state) still holds the override.
+    expect(store.resolve('persona.neutral')).toBe('MINE')
+    expect(store.activeOverrideIds()).toEqual(['persona.neutral'])
+  })
+
+  it('clearAll: a failed write leaves every existing override in place', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride('persona.neutral', 'A')
+    store.setOverride('persona.diagram', 'B')
+    breakWrites(store)
+    expect(() => store.clearAll()).toThrow(/EPERM/)
+    expect(store.activeOverrideIds()).toEqual(['persona.diagram', 'persona.neutral'])
+  })
+})

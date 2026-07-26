@@ -146,8 +146,7 @@ export class PromptStore {
    *  this instrument exists to answer. Use `clearOverride` to go back to the default. */
   setOverride(id: string, text: string): void {
     this.assertWritable(id)
-    this.overrides = { ...this.overrides, [id]: text }
-    this.persist()
+    this.persist({ ...this.overrides, [id]: text })
   }
 
   clearOverride(id: string): void {
@@ -156,20 +155,20 @@ export class PromptStore {
     // here, and turning a harmless repeat into a dialog helps no one.
     const rest = { ...this.overrides }
     delete rest[id]
-    this.overrides = rest
-    this.persist()
+    this.persist(rest)
   }
 
   clearAll(): void {
     this.assertGateOpen()
-    this.overrides = {}
-    this.persist()
+    this.persist({})
   }
 
-  private persist(): void {
-    // JsonFileStore.write is temp + rename, so a crash cannot leave a half-written file that
-    // would load as "no overrides" and silently discard the edit.
-    this.file!.write(this.overrides)
+  private persist(next: Record<string, string>): void {
+    // Write BEFORE adopting: if the write throws, nothing has changed, so the store, the file,
+    // the banner and the boot log all still agree that no override is active. Adopting first
+    // would leave an override live in memory that every visibility guard reports as absent.
+    this.file!.write(next)
+    this.overrides = next
     // The on-disk state is now known-good, so a stale parse error from boot no longer describes
     // reality.
     this.loadErr = null
