@@ -33,9 +33,11 @@ export function LastChecked({
 }
 
 /**
- * "Add provider", offering only drivers not already present. With no delete affordance a
- * second instance of a driver would be permanent, so the entry is hidden rather than
- * disabled; the whole button disappears once every driver is added.
+ * "Add provider", offering only drivers not already present; the whole button disappears once
+ * every driver is added. Instances CAN now be deleted (see AgentSettings.removeInstance), so
+ * permanence is no longer the reason for the restriction — duplicate instances of one driver
+ * are deliberately out of scope until the row can disambiguate two same-named providers, which
+ * needs the display name to become near-mandatory rather than optional.
  */
 export function AddProviderMenu({
   providerInstances,

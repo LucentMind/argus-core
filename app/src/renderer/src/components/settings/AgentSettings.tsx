@@ -191,8 +191,17 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
           const label = instance.displayName?.trim() || d?.shortLabel || d?.label || instance.driver
           if (!d) {
             return (
-              <div key={id} className="px-4 py-3">
+              <div key={id} className="flex items-center gap-2 px-4 py-3">
                 <Chip tone="danger">unavailable driver: {instance.driver}</Chip>
+                <span className="flex-1" />
+                <Btn
+                  variant="danger"
+                  disabled={!canRemove}
+                  aria-label={`Remove ${label}`}
+                  onClick={() => removeInstance(id, label)}
+                >
+                  Remove
+                </Btn>
               </div>
             )
           }
