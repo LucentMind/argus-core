@@ -146,6 +146,15 @@ export class McpOAuth {
   async authorize(instanceId: string, serverUrl: string): Promise<{ ok: boolean; error?: string }> {
     const lb = await startLoopback()
     try {
+      // Drop any stored grant FIRST. The SDK's auth() refreshes whenever the
+      // provider yields a refresh_token and re-throws a non-ServerError
+      // OAuthError (invalid_grant) rather than falling through to
+      // startAuthorization — so presenting a revoked/expired refresh_token here
+      // fails before the browser ever opens, leaving the connector stuck with no
+      // way back. This path is interactive by definition: a fresh grant is the
+      // whole point. The client registration is deliberately kept — it stays
+      // valid, and clientInformation()'s stale-redirect guard handles the rest.
+      this.secrets.delete(`mcp/${instanceId}/tokens`)
       const provider = new StoreBackedProvider(instanceId, this.secrets, lb.redirectUrl, (url) =>
         this.openExternal(url.toString())
       )
