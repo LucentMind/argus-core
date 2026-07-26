@@ -6,8 +6,9 @@ import {
   type PromptEntryView,
   type PromptPreview
 } from '../../../../shared/promptsIpc'
-import { SettingsSection, SelectField } from './settingsLayout'
+import { SettingsSection, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
+import { confirm } from '../../lib/confirmStore'
 
 /** Fixed display order. Iterating this rather than the PromptCategory union is deliberate:
  *  two categories are empty until Plan 3, and rendering a heading per union member would
@@ -36,9 +37,28 @@ function ReachChips({ reaches }: { reaches: readonly string[] | 'all' }): React.
   )
 }
 
-function EntryRow({ entry }: { entry: PromptEntryView }): React.JSX.Element {
+function EntryRow({
+  entry,
+  onSave,
+  onReset
+}: {
+  entry: PromptEntryView
+  onSave: (id: string, text: string) => Promise<void>
+  onReset: (id: string) => Promise<void>
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const isExternal = entry.category === 'external'
+  const effective = entry.overrideText ?? entry.defaultText
+  const [draft, setDraft] = useState(effective)
+  const [lastEffective, setLastEffective] = useState(effective)
+  // Adjust-state-during-render (react.dev "you might not need an effect"): a save replaces the
+  // catalog, so the draft must follow the new effective text without a setState-in-effect.
+  if (effective !== lastEffective) {
+    setLastEffective(effective)
+    setDraft(effective)
+  }
+  const dirty = draft !== effective
+
   return (
     <div className="border-b border-hair last:border-b-0">
       <button
@@ -49,16 +69,52 @@ function EntryRow({ entry }: { entry: PromptEntryView }): React.JSX.Element {
         <span className="font-mono text-[10px] text-faint">{entry.source}</span>
         <span className="font-mono text-[10px] text-mute">{entry.chars} chars</span>
         <ReachChips reaches={entry.reaches} />
+        {entry.overrideText !== null && <Chip tone="defect">overridden</Chip>}
         {isExternal && <Chip tone="review">read-only</Chip>}
       </button>
       {open && (
-        <div className="px-2 pb-2">
+        <div className="flex flex-col gap-2 px-2 pb-2">
           {isExternal ? (
             <p className="text-xs text-dim">{entry.note}</p>
-          ) : (
+          ) : !entry.editable ? (
             <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-r2 bg-overlay p-2 font-mono text-[11px] text-ink">
-              {entry.overrideText ?? entry.defaultText}
+              {effective}
             </pre>
+          ) : (
+            <>
+              <textarea
+                aria-label={`Prompt text · ${entry.title}`}
+                className={`${TEXTAREA_FIELD} min-h-64`}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink disabled:text-faint"
+                  disabled={!dirty}
+                  onClick={() => void onSave(entry.id, draft)}
+                >
+                  Save
+                </button>
+                <button
+                  className="rounded-r2 border border-hair px-2 py-1 text-xs text-dim disabled:text-faint"
+                  disabled={!dirty}
+                  onClick={() => setDraft(effective)}
+                >
+                  Revert
+                </button>
+                <button
+                  className="rounded-r2 border border-hair px-2 py-1 text-xs text-dim disabled:text-faint"
+                  disabled={entry.overrideText === null}
+                  onClick={() => void onReset(entry.id)}
+                >
+                  Reset to default
+                </button>
+                <span className="font-mono text-[10px] text-faint">
+                  default {entry.defaultText.length} chars
+                </span>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -66,9 +122,25 @@ function EntryRow({ entry }: { entry: PromptEntryView }): React.JSX.Element {
   )
 }
 
-function CatalogTab({ catalog }: { catalog: PromptCatalogPayload }): React.JSX.Element {
+function CatalogTab({
+  catalog,
+  onSave,
+  onReset
+}: {
+  catalog: PromptCatalogPayload
+  onSave: (id: string, text: string) => Promise<void>
+  onReset: (id: string) => Promise<void>
+}): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
+      {catalog.loadError && (
+        <p
+          role="alert"
+          className="rounded-r2 border border-danger/40 bg-danger/10 p-2 text-xs text-danger"
+        >
+          The override file could not be parsed — running on defaults. ({catalog.loadError})
+        </p>
+      )}
       {DISPLAY_ORDER.map((cat) => {
         const entries = catalog.entries.filter((e) => e.category === cat)
         if (entries.length === 0) return null
@@ -76,7 +148,7 @@ function CatalogTab({ catalog }: { catalog: PromptCatalogPayload }): React.JSX.E
           <SettingsSection key={cat} title={PROMPT_CATEGORY_LABELS[cat]} count={entries.length}>
             <div className="rounded-r2 border border-hair">
               {entries.map((e) => (
-                <EntryRow key={e.id} entry={e} />
+                <EntryRow key={e.id} entry={e} onSave={onSave} onReset={onReset} />
               ))}
             </div>
           </SettingsSection>
@@ -176,6 +248,21 @@ export function PromptsDevPage(): React.JSX.Element {
       .catch((e: Error) => setError(e.message))
   }, [])
 
+  const save = async (id: string, text: string): Promise<void> => {
+    setCatalog(await window.argus.devPrompts.setOverride(id, text))
+  }
+
+  const reset = async (id: string): Promise<void> => {
+    const ok = await confirm({
+      title: 'Reset this prompt to its default?',
+      message: 'The override is deleted. This takes effect on the next session.',
+      confirmLabel: 'Reset',
+      danger: true
+    })
+    if (!ok) return
+    setCatalog(await window.argus.devPrompts.clearOverride(id))
+  }
+
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
   if (!catalog) return <p className="p-3 text-xs text-mute">Loading…</p>
 
@@ -199,7 +286,11 @@ export function PromptsDevPage(): React.JSX.Element {
           </button>
         ))}
       </div>
-      {tab === 'catalog' ? <CatalogTab catalog={catalog} /> : <PreviewTab modes={catalog.modes} />}
+      {tab === 'catalog' ? (
+        <CatalogTab catalog={catalog} onSave={save} onReset={reset} />
+      ) : (
+        <PreviewTab modes={catalog.modes} />
+      )}
     </div>
   )
 }

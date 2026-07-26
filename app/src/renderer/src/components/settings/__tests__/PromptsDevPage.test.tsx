@@ -5,6 +5,11 @@ import '@testing-library/jest-dom/vitest'
 import { PromptsDevPage } from '../PromptsDevPage'
 import type { PromptCatalogPayload } from '../../../../../shared/promptsIpc'
 
+vi.mock('../../../lib/confirmStore', async (orig) => ({
+  ...(await orig<typeof import('../../../lib/confirmStore')>()),
+  confirm: vi.fn(async () => true)
+}))
+
 const catalog: PromptCatalogPayload = {
   modes: ['investigation', 'review'],
   activeOverrideIds: [],
@@ -62,7 +67,12 @@ beforeEach(() => {
   ;(window as unknown as { argus: unknown }).argus = {
     devPrompts: {
       catalog: vi.fn(async () => catalog),
-      preview: vi.fn(async () => preview)
+      preview: vi.fn(async () => preview),
+      setOverride: vi.fn(async () => catalog),
+      clearOverride: vi.fn(async () => catalog),
+      clearAll: vi.fn(async () => catalog),
+      overrides: vi.fn(async () => []),
+      onChanged: vi.fn(() => () => {})
     }
   }
 })
@@ -165,5 +175,99 @@ describe('PromptsDevPage — composed preview', () => {
     render(<PromptsDevPage />)
     fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
     expect(await screen.findByText(/26 chars/)).toBeInTheDocument()
+  })
+})
+
+const overriddenCatalog: PromptCatalogPayload = {
+  ...catalog,
+  activeOverrideIds: ['persona.neutral'],
+  entries: catalog.entries.map((e) =>
+    e.id === 'persona.neutral'
+      ? { ...e, overrideText: 'MY OVERRIDE', chars: 'MY OVERRIDE'.length }
+      : e
+  )
+}
+
+describe('PromptsDevPage — editing', () => {
+  it('saves an edited entry and shows the overridden chip', async () => {
+    const api = (
+      window as unknown as {
+        argus: { devPrompts: { setOverride: ReturnType<typeof vi.fn> } }
+      }
+    ).argus.devPrompts
+    api.setOverride = vi.fn(async () => overriddenCatalog)
+
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    fireEvent.change(await screen.findByLabelText(/Prompt text/i), {
+      target: { value: 'MY OVERRIDE' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+
+    await waitFor(() =>
+      expect(api.setOverride).toHaveBeenCalledWith('persona.neutral', 'MY OVERRIDE')
+    )
+    expect(await screen.findByText(/overridden/i)).toBeInTheDocument()
+  })
+
+  it('Save is disabled until the text actually changes', async () => {
+    // Without this, a stray click writes an override identical to the default — which then shows
+    // as "overridden" forever and is indistinguishable from a real edit in the banner.
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    expect(screen.getByRole('button', { name: /^Save$/ })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/Prompt text/i), { target: { value: 'CHANGED' } })
+    expect(screen.getByRole('button', { name: /^Save$/ })).toBeEnabled()
+  })
+
+  it('Revert restores the textarea without calling IPC', async () => {
+    const api = (
+      window as unknown as { argus: { devPrompts: { setOverride: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts
+    api.setOverride = vi.fn(async () => overriddenCatalog)
+
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    const box = screen.getByLabelText(/Prompt text/i)
+    fireEvent.change(box, { target: { value: 'SCRATCH' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Revert$/ }))
+    expect((box as HTMLTextAreaElement).value).toContain('Non-negotiable working rules')
+    expect(api.setOverride).not.toHaveBeenCalled()
+  })
+
+  it('Reset to default clears the override after confirmation', async () => {
+    const api = (
+      window as unknown as {
+        argus: { devPrompts: { clearOverride: ReturnType<typeof vi.fn>; catalog: unknown } }
+      }
+    ).argus.devPrompts
+    api.clearOverride = vi.fn(async () => catalog)
+    api.catalog = vi.fn(async () => overriddenCatalog)
+
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }))
+    // confirmStore renders <ConfirmHost/> at the app root, which is not mounted here — the
+    // dialog is stubbed in beforeEach, so this resolves immediately.
+    await waitFor(() => expect(api.clearOverride).toHaveBeenCalledWith('persona.neutral'))
+  })
+
+  it('does not offer editing for a read-only entry', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /claude_code preset/ }))
+    expect(screen.queryByLabelText(/Prompt text/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Save$/ })).not.toBeInTheDocument()
+  })
+
+  it('surfaces a malformed override file instead of silently showing defaults', async () => {
+    const api = (window as unknown as { argus: { devPrompts: { catalog: unknown } } }).argus
+      .devPrompts
+    api.catalog = vi.fn(async () => ({
+      ...catalog,
+      loadError: 'Unexpected token n in JSON at position 2'
+    }))
+    render(<PromptsDevPage />)
+    expect(await screen.findByText(/override file/i)).toBeInTheDocument()
+    expect(screen.getByText(/Unexpected token/)).toBeInTheDocument()
   })
 })
