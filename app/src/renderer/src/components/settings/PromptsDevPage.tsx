@@ -238,6 +238,10 @@ function PreviewTab({ modes }: { modes: string[] }): React.JSX.Element {
 export function PromptsDevPage(): React.JSX.Element {
   const [catalog, setCatalog] = useState<PromptCatalogPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Separate from `error`: that state fully replaces the page (see below), which would blank
+  // the catalog the user was just editing. A failed save/reset must stay visible without
+  // hiding the entries they're looking at.
+  const [mutationError, setMutationError] = useState<string | null>(null)
   const [tab, setTab] = useState<'catalog' | 'preview'>('catalog')
 
   useEffect(() => {
@@ -249,7 +253,12 @@ export function PromptsDevPage(): React.JSX.Element {
   }, [])
 
   const save = async (id: string, text: string): Promise<void> => {
-    setCatalog(await window.argus.devPrompts.setOverride(id, text))
+    try {
+      setCatalog(await window.argus.devPrompts.setOverride(id, text))
+      setMutationError(null)
+    } catch (e) {
+      setMutationError((e as Error).message)
+    }
   }
 
   const reset = async (id: string): Promise<void> => {
@@ -260,7 +269,12 @@ export function PromptsDevPage(): React.JSX.Element {
       danger: true
     })
     if (!ok) return
-    setCatalog(await window.argus.devPrompts.clearOverride(id))
+    try {
+      setCatalog(await window.argus.devPrompts.clearOverride(id))
+      setMutationError(null)
+    } catch (e) {
+      setMutationError((e as Error).message)
+    }
   }
 
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
@@ -268,6 +282,14 @@ export function PromptsDevPage(): React.JSX.Element {
 
   return (
     <div className="flex flex-col gap-3">
+      {mutationError && (
+        <p
+          role="alert"
+          className="rounded-r2 border border-danger/40 bg-danger/10 p-2 text-xs text-danger"
+        >
+          {mutationError}
+        </p>
+      )}
       <div className="flex gap-1 border-b border-hair">
         {(
           [
