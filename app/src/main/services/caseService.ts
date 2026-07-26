@@ -19,6 +19,16 @@ import { createSession, latestSessionForMode, type SessionProvider } from './age
 /** Case-slug shape; also reused by caseFiles path guards so a slug can never traverse. */
 export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
+/** Model-facing working rules written into every new case's CLAUDE.md.
+ *  Registered as `generated-files.case-working-rules`. */
+export const CASE_WORKING_RULES = `## Working rules
+
+- Cite evidence as \`[<rel-path>:<line>]\` for every claim based on evidence, e.g. \`[evidence/app.log:812]\`.
+- Record findings with the \`mcp__argus__append_finding\` tool — never edit \`findings.md\` directly.
+- Search evidence with \`mcp__argus__search_evidence\` before grepping files.
+- To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
+- Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.`
+
 function claudeMdTemplate(input: NewCaseInput, now: string): string {
   return `# Case: ${input.slug}
 
@@ -33,13 +43,7 @@ function claudeMdTemplate(input: NewCaseInput, now: string): string {
 _No code workspaces linked._
 <!-- /argus:workspaces -->
 
-## Working rules
-
-- Cite evidence as \`[<rel-path>:<line>]\` for every claim based on evidence, e.g. \`[evidence/app.log:812]\`.
-- Record findings with the \`mcp__argus__append_finding\` tool — never edit \`findings.md\` directly.
-- Search evidence with \`mcp__argus__search_evidence\` before grepping files.
-- To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
-- Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.
+${CASE_WORKING_RULES}
 `
 }
 
