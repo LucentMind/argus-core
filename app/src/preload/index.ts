@@ -62,6 +62,7 @@ import type {
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
 import type { SeedSampleResult } from '../shared/onboarding'
+import type { PrBinding } from '../shared/pr'
 import type {
   OpenPanelRequest,
   PanelInfo,
@@ -360,6 +361,13 @@ const argus = {
       ipcRenderer.on(IPC.workspacesChanged, listener)
       return () => ipcRenderer.removeListener(IPC.workspacesChanged, listener)
     }
+  },
+  pr: {
+    link: (caseSlug: string, input: string): Promise<PrBinding> =>
+      ipcRenderer.invoke(IPC.prLink, caseSlug, input),
+    list: (caseSlug: string): Promise<PrBinding[]> => ipcRenderer.invoke(IPC.prList, caseSlug),
+    unlink: (caseSlug: string, bindingId: number): Promise<void> =>
+      ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId)
   },
   graph: {
     build: (
