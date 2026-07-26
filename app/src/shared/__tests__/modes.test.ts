@@ -22,6 +22,13 @@ describe('mode registry', () => {
     expect(MODES.review.role).toBe('review')
   })
 
+  it("review's method block mandates find/verify separation and verified labels", () => {
+    expect(MODES.review.personaFragment).toContain('Method — how you review')
+    expect(MODES.review.personaFragment).toContain('CONFIRMED')
+    expect(MODES.review.personaFragment).toContain('PLAUSIBLE')
+    expect(MODES.review.personaFragment).toContain('failure scenario')
+  })
+
   it("review's persona cites diff code the same way BASE_PERSONA cites linked-workspace code", () => {
     // A [<path>:<line>] citation (no repo prefix) would not render as a clickable link for
     // code in a linked workspace repo — see persona.ts's BASE_PERSONA citation rule.
