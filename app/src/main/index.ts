@@ -567,7 +567,8 @@ function registerIpc(): void {
     argusHome,
     detection,
     sampleAssetsDir,
-    listCaseSlugs: () => listCases(db).map((c) => c.slug)
+    listCaseSlugs: () => listCases(db).map((c) => c.slug),
+    resolvePrompt
   })
   ipcMain.handle(IPC.onboardingSeedSample, () => onboardingService.seedSampleCase())
   ipcMain.handle(IPC.casesList, () => listCases(db))

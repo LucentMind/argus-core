@@ -36,6 +36,8 @@ export interface OnboardingDeps {
   /** Directory holding SAMPLE_EVIDENCE_FILES (packaged: <resources>/onboarding-sample). */
   sampleAssetsDir: string
   listCaseSlugs: () => string[]
+  /** Prompt-registry resolver, forwarded to createCase for the case's CLAUDE.md. */
+  resolvePrompt?: (id: string) => string
 }
 
 export class OnboardingService {
@@ -49,7 +51,7 @@ export class OnboardingService {
    * duplicate, so re-running the ingest loop would otherwise pile up copies).
    */
   seedSampleCase(): SeedSampleResult {
-    const { db, argusHome, detection, sampleAssetsDir, listCaseSlugs } = this.deps
+    const { db, argusHome, detection, sampleAssetsDir, listCaseSlugs, resolvePrompt } = this.deps
     const exists = listCaseSlugs().includes(SAMPLE_CASE_SLUG)
     if (exists) {
       return {
@@ -58,7 +60,7 @@ export class OnboardingService {
       }
     }
 
-    createCase(db, argusHome, { slug: SAMPLE_CASE_SLUG, title: SAMPLE_CASE_TITLE })
+    createCase(db, argusHome, { slug: SAMPLE_CASE_SLUG, title: SAMPLE_CASE_TITLE }, resolvePrompt)
     const evidenceIds: number[] = []
     for (const file of SAMPLE_EVIDENCE_FILES) {
       const abs = path.join(sampleAssetsDir, file)
