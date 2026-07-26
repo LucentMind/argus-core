@@ -58,7 +58,7 @@ never apply such changes yourself.
 
 /**
  * Compose the system-prompt append by joining the given fragments (already in the
- * order assembleMode decided — mode identity, neutral core, pack fragments) with the
+ * order assembleMode decided — mode identity, neutral core, diagram guidance, pack fragments) with the
  * per-session personaAppend last. No base is prepended here; callers must supply the
  * full ordered composition (assembleMode does this for session construction). Empty
  * entries are dropped.
