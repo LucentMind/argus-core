@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
@@ -20,6 +20,9 @@ import { ChatFind } from './ChatFind'
 // The FTS snippet is a contiguous region of the indexed text with matched
 // terms wrapped in «» and boundary ellipses — stripping those yields a raw
 // substring of the original message, usable to find the message in-turn.
+/** px of slack below which the transcript still counts as scrolled to the end */
+const BOTTOM_SLACK = 24
+
 function snippetNeedle(snippet?: string): string | null {
   if (!snippet) return null
   const s = snippet.replace(/[«»]/g, '').replace(/^…/, '').replace(/…$/, '').trim()
@@ -129,9 +132,60 @@ export function ChatPane({
   }, [slug, sessionId])
   const bottom = useRef<HTMLDivElement>(null)
   const paneRef = useRef<HTMLDivElement>(null)
+  // Opening a case/chat hydrates the transcript asynchronously, so the pane
+  // first paints empty at scrollTop 0 and only then receives its items.
+  // Animating that first jump made every open visibly scroll from the top
+  // through the whole transcript, so the first anchor for a session is instant
+  // and only content arriving while the chat is already open animates. Keyed on
+  // the session rather than on item counts because the scroll container is not
+  // remounted per session: switching between two chats of equal length would
+  // otherwise skip the effect entirely and inherit the previous scrollTop.
+  //
+  // It is a layout effect, not a passive one: switching to an already-hydrated
+  // chat commits the whole new transcript at once, and a passive effect would
+  // run only after the browser had painted that transcript at the outgoing
+  // chat's scrollTop — one visible frame at the wrong position followed by a
+  // jump. Anchoring before paint puts the scroll in the same frame as the
+  // content.
+  const anchoredKey = useRef<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const pinnedToBottom = useRef(true)
+  const sessionKey = `${slug}:${sessionId}`
+  const rendered = state.items.length + state.pending.length + state.pendingDialogs.length
+  useLayoutEffect(() => {
+    const initial = anchoredKey.current !== sessionKey
+    // nothing to anchor to yet — wait for hydration so the first jump is the
+    // one that lands at the bottom
+    if (initial && rendered === 0) return
+    anchoredKey.current = sessionKey
+    if (initial) pinnedToBottom.current = true
+    bottom.current?.scrollIntoView?.({ behavior: initial ? 'auto' : 'smooth' })
+  }, [sessionKey, rendered])
+
+  // Anchoring once is not enough: the transcript keeps growing after the
+  // anchor runs. A ```mermaid fence mounts as its raw source and swaps in a
+  // taller SVG 150ms later (MermaidBlock), images decode late, and markdown
+  // reflows — each of which pushes the bottom below the anchored position, so
+  // a chat that was anchored correctly still ends up scrolled short of the
+  // end. Re-pin on every content resize, but only while the user is actually
+  // at the bottom, so scrolling up to read is never yanked back down.
+  function handleScroll(): void {
+    const el = scrollRef.current
+    if (!el) return
+    pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK
+  }
+
   useEffect(() => {
-    bottom.current?.scrollIntoView?.({ behavior: 'smooth' })
-  }, [state.items.length, state.pending.length, state.pendingDialogs.length])
+    const el = scrollRef.current
+    const content = contentRef.current
+    if (!el || !content || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [])
 
   // in-chat find (Ctrl/Cmd+F): the overlay is a pure component (ChatFind)
   // that owns the query text; ChatPane owns opening/closing, the scroll to
@@ -236,59 +290,69 @@ export function ChatPane({
           onMatchesChange={setFindMatches}
         />
       )}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {state.items.map((item, i) => {
-          if (item.kind === 'user') {
-            return (
-              <div
-                key={i}
-                data-turn-id={item.turnId ?? undefined}
-                data-item-index={i}
-                className={`ml-12 min-w-0 break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
-                  i === flashIndex ? 'bg-signal/20' : 'bg-hi'
-                } ${findRingClass(i)}`}
-              >
-                <CitedText text={item.text} onCite={onCite} caseSlug={slug} repoNames={repoNames} />
-              </div>
-            )
-          }
-          if (item.kind === 'assistant') {
-            return (
-              <div
-                key={i}
-                data-item-index={i}
-                className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
-                  i === flashIndex ? 'bg-signal/20' : ''
-                } ${findRingClass(i)}`}
-              >
-                <MessageView
-                  markdown={item.text}
-                  onCite={onCite}
-                  caseSlug={slug}
-                  repoNames={repoNames}
-                  streaming={item.streaming}
-                />
-                {item.streaming && <span className="text-xs text-mute">…</span>}
-              </div>
-            )
-          }
-          if (!showToolCalls) return null
-          return <ToolCallCard key={item.toolCallId} item={item} />
-        })}
-        {state.pending.map((p) => (
-          <ApprovalCard
-            key={p.requestId}
-            slug={slug}
-            sessionId={sessionId}
-            instanceId={session?.instanceId ?? null}
-            request={p}
-          />
-        ))}
-        {state.pendingDialogs.map((d) => (
-          <QuestionCard key={d.dialogId} slug={slug} sessionId={sessionId} dialog={d} />
-        ))}
-        {state.sessionNote && <div className="text-xs text-danger">{state.sessionNote}</div>}
-        <div ref={bottom} />
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
+        {/* inner content node: the scroll container's own box is fixed by the
+            flex layout, so only this wrapper's height reports the transcript
+            growing (mermaid SVGs, images) to the ResizeObserver above */}
+        <div ref={contentRef} className="space-y-3">
+          {state.items.map((item, i) => {
+            if (item.kind === 'user') {
+              return (
+                <div
+                  key={i}
+                  data-turn-id={item.turnId ?? undefined}
+                  data-item-index={i}
+                  className={`ml-12 min-w-0 break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
+                    i === flashIndex ? 'bg-signal/20' : 'bg-hi'
+                  } ${findRingClass(i)}`}
+                >
+                  <CitedText
+                    text={item.text}
+                    onCite={onCite}
+                    caseSlug={slug}
+                    repoNames={repoNames}
+                  />
+                </div>
+              )
+            }
+            if (item.kind === 'assistant') {
+              return (
+                <div
+                  key={i}
+                  data-item-index={i}
+                  className={`mr-6 min-w-0 break-words rounded-r3 transition-colors ${
+                    i === flashIndex ? 'bg-signal/20' : ''
+                  } ${findRingClass(i)}`}
+                >
+                  <MessageView
+                    markdown={item.text}
+                    onCite={onCite}
+                    caseSlug={slug}
+                    repoNames={repoNames}
+                    streaming={item.streaming}
+                  />
+                  {item.streaming && <span className="text-xs text-mute">…</span>}
+                </div>
+              )
+            }
+            if (!showToolCalls) return null
+            return <ToolCallCard key={item.toolCallId} item={item} />
+          })}
+          {state.pending.map((p) => (
+            <ApprovalCard
+              key={p.requestId}
+              slug={slug}
+              sessionId={sessionId}
+              instanceId={session?.instanceId ?? null}
+              request={p}
+            />
+          ))}
+          {state.pendingDialogs.map((d) => (
+            <QuestionCard key={d.dialogId} slug={slug} sessionId={sessionId} dialog={d} />
+          ))}
+          {state.sessionNote && <div className="text-xs text-danger">{state.sessionNote}</div>}
+          <div ref={bottom} />
+        </div>
       </div>
       {state.running && (
         <div className="px-4 pb-1">
