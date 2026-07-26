@@ -17,6 +17,7 @@ import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { devToolsEnabled } from './services/prompts/gate'
+import { PromptStore } from './services/prompts/store'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
@@ -334,6 +335,7 @@ function registerIpc(): void {
   // Single evaluation of the prompt-surface dev gate; `is` is already imported at the top of
   // this file. Everything downstream reads this boolean, never the env directly.
   const devTools = devToolsEnabled({ isDev: is.dev })
+  const promptStore = new PromptStore({ devTools })
 
   const settingsService = new SettingsService(argusHome, {
     resolvedTools: () => binariesService.settingsRows(),
