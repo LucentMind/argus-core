@@ -30,8 +30,11 @@ export function caseWorktreeDir(argusHome: string, caseSlug: string, repoPath: s
 }
 
 // --- per-repo mutex: chain promises per canonical repo path ---
+// Exported so prWorktree.ts serializes against branch checkouts on the SAME map. A
+// second lock map in that module would let a PR checkout and a branch checkout run
+// concurrently against one repo, which is exactly what this guards.
 const repoLocks = new Map<string, Promise<unknown>>()
-async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
+export async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
   const key = path.resolve(repoPath)
   const prev = repoLocks.get(key) ?? Promise.resolve()
   const run = prev.then(fn, fn)
