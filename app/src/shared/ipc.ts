@@ -95,6 +95,12 @@ export const IPC = {
    *  page in the renderer is presentation, not enforcement. */
   devPromptsCatalog: 'dev-prompts:catalog',
   devPromptsPreview: 'dev-prompts:preview',
+  devPromptsSetOverride: 'dev-prompts:set-override',
+  devPromptsClearOverride: 'dev-prompts:clear-override',
+  devPromptsClearAll: 'dev-prompts:clear-all',
+  devPromptsOverrides: 'dev-prompts:overrides',
+  /** main → renderer: active override ids changed; the banner and the page both re-read. */
+  devPromptsChanged: 'dev-prompts:changed',
   bundleExport: 'bundle:export',
   bundleInspect: 'bundle:inspect',
   bundleImport: 'bundle:import',

@@ -510,7 +510,18 @@ const argus = {
   devPrompts: {
     catalog: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsCatalog),
     preview: (mode: string): Promise<PromptPreview> =>
-      ipcRenderer.invoke(IPC.devPromptsPreview, mode)
+      ipcRenderer.invoke(IPC.devPromptsPreview, mode),
+    setOverride: (id: string, text: string): Promise<PromptCatalogPayload> =>
+      ipcRenderer.invoke(IPC.devPromptsSetOverride, id, text),
+    clearOverride: (id: string): Promise<PromptCatalogPayload> =>
+      ipcRenderer.invoke(IPC.devPromptsClearOverride, id),
+    clearAll: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsClearAll),
+    overrides: (): Promise<string[]> => ipcRenderer.invoke(IPC.devPromptsOverrides),
+    onChanged: (cb: (ids: string[]) => void): (() => void) => {
+      const listener = (_e: unknown, ids: string[]): void => cb(ids)
+      ipcRenderer.on(IPC.devPromptsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.devPromptsChanged, listener)
+    }
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
