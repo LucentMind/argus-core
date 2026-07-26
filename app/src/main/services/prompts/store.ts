@@ -125,10 +125,16 @@ export class PromptStore {
     }
   }
 
-  /** Shared refusal for every write path. */
-  private assertWritable(id: string): void {
+  /** The write-side half of guard 1: with the gate off there is no file object to write to.
+   *  Extracted so the condition and its message have exactly one definition. */
+  private assertGateOpen(): void {
     if (!this.deps.devTools || !this.file)
       throw new Error('dev tools are not enabled (set ARGUS_DEV_TOOLS=1)')
+  }
+
+  /** Shared refusal for every write path. */
+  private assertWritable(id: string): void {
+    this.assertGateOpen()
     const entry = entryById(id)
     if (!entry) throw new Error(`unknown prompt id: ${id}`)
     // external (and any future pack-owned) text is displayed because it reaches the model, but
@@ -155,8 +161,7 @@ export class PromptStore {
   }
 
   clearAll(): void {
-    if (!this.deps.devTools || !this.file)
-      throw new Error('dev tools are not enabled (set ARGUS_DEV_TOOLS=1)')
+    this.assertGateOpen()
     this.overrides = {}
     this.persist()
   }
