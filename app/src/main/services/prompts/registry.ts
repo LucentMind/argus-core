@@ -39,25 +39,22 @@ export interface PromptEntry {
 /** Drivers that register Argus's native MCP tools. Codex and the ACP drivers do not. */
 const NATIVE_TOOL_DRIVERS = ['claude-agent-sdk', 'github-copilot'] as const
 
+/** Derived from MODES rather than hand-listed, the same way TOOL_ENTRIES below is derived from
+ *  NATIVE_TOOL_SPECS: a new mode gets an entry for free, and the registry can never disagree
+ *  with the table it describes. MODES carries no per-mode line number, so the source points at
+ *  the file only — a less precise citation is the trade for the entries being generated. */
+const MODE_PERSONA_ENTRIES: PromptEntry[] = Object.values(MODES).map((def) => ({
+  id: `persona.mode.${def.id}`,
+  category: 'persona' as const,
+  title: `${def.label} mode identity`,
+  source: 'app/src/shared/modes.ts',
+  reaches: 'all' as const,
+  editable: true,
+  default: () => def.personaFragment
+}))
+
 const PERSONA_ENTRIES: PromptEntry[] = [
-  {
-    id: 'persona.mode.investigation',
-    category: 'persona',
-    title: 'Investigation mode identity',
-    source: 'app/src/shared/modes.ts:21',
-    reaches: 'all',
-    editable: true,
-    default: () => MODES.investigation.personaFragment
-  },
-  {
-    id: 'persona.mode.review',
-    category: 'persona',
-    title: 'Review mode identity',
-    source: 'app/src/shared/modes.ts:26',
-    reaches: 'all',
-    editable: true,
-    default: () => MODES.review.personaFragment
-  },
+  ...MODE_PERSONA_ENTRIES,
   {
     id: 'persona.neutral',
     category: 'persona',
