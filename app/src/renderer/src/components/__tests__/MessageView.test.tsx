@@ -4,6 +4,10 @@ import { render, screen } from '@testing-library/react'
 import { MessageView } from '../MessageView'
 import { clearSnippetCache } from '../../lib/snippetCache'
 
+vi.mock('../../lib/mermaid', () => ({
+  renderMermaid: vi.fn(async () => ({ ok: true, svg: '<svg></svg>' }))
+}))
+
 const snippet = {
   ok: true,
   evidenceId: 7,
@@ -110,5 +114,31 @@ describe('MessageView markdown rendering', () => {
   it('wraps output in the markdown-body styling hook', () => {
     const { container } = render(<MessageView markdown="hi" onCite={vi.fn()} caseSlug="C-1" />)
     expect((container.firstChild as HTMLElement).classList.contains('markdown-body')).toBe(true)
+  })
+})
+
+describe('MessageView mermaid fences', () => {
+  const FENCE = '```mermaid\nflowchart TD\n A-->B\n```'
+
+  it('routes mermaid fences to MermaidBlock', async () => {
+    render(<MessageView markdown={FENCE} onCite={vi.fn()} caseSlug="C-1" />)
+    expect(
+      await screen.findByRole('button', { name: 'Expand diagram' }, { timeout: 2000 })
+    ).toBeTruthy()
+  })
+
+  it('streaming messages keep the fence as a plain code block', async () => {
+    render(<MessageView markdown={FENCE} onCite={vi.fn()} caseSlug="C-1" streaming />)
+    expect(screen.getByText(/flowchart TD/)).toBeTruthy()
+    await new Promise((r) => setTimeout(r, 300))
+    expect(screen.queryByRole('button', { name: 'Expand diagram' })).toBeNull()
+  })
+
+  it('non-mermaid fences render as ordinary pre/code', () => {
+    const { container } = render(
+      <MessageView markdown={'```ts\nconst x = 1\n```'} onCite={vi.fn()} caseSlug="C-1" />
+    )
+    expect(container.querySelector('pre code')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Expand diagram' })).toBeNull()
   })
 })
