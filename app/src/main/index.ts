@@ -1367,7 +1367,7 @@ function registerIpc(): void {
   // regardless of what the renderer chooses to render, so main must refuse rather than trust it.
   ipcMain.handle(IPC.devPromptsCatalog, (): PromptCatalogPayload => {
     assertDevTools(devTools)
-    return { entries: promptStore.catalog(), modes: Object.keys(MODES) }
+    return promptStore.catalogPayload(Object.keys(MODES))
   })
 
   ipcMain.handle(IPC.devPromptsPreview, (_e, mode: string): PromptPreview => {
