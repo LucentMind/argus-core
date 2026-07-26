@@ -48,6 +48,7 @@
     "@zed-industries/agent-client-protocol": "^0.4.5",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.24.0",
+    "mermaid": "^11.16.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "semver": "^7.6.3",
