@@ -62,7 +62,7 @@ import type {
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
 import type { SeedSampleResult } from '../shared/onboarding'
-import type { PrBinding } from '../shared/pr'
+import type { PrBinding, PrSearchResult } from '../shared/pr'
 import type {
   OpenPanelRequest,
   PanelInfo,
@@ -367,7 +367,9 @@ const argus = {
       ipcRenderer.invoke(IPC.prLink, caseSlug, input),
     list: (caseSlug: string): Promise<PrBinding[]> => ipcRenderer.invoke(IPC.prList, caseSlug),
     unlink: (caseSlug: string, bindingId: number): Promise<void> =>
-      ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId)
+      ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId),
+    search: (caseSlug: string): Promise<PrSearchResult> =>
+      ipcRenderer.invoke(IPC.prSearch, caseSlug)
   },
   graph: {
     build: (

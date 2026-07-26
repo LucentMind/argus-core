@@ -118,6 +118,7 @@ import {
   autoLinkDefaultRepo
 } from './services/workspaces'
 import { addBinding, listBindings, removeBinding } from './services/prBindings'
+import { searchPrsForCase } from './services/prSearch'
 import { parsePrRef, remoteToOwnerRepo } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
@@ -1193,6 +1194,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.prUnlink, (_e, caseSlug: string, bindingId: number) => {
     assertSlug(caseSlug)
     return removeBinding(db, caseSlug, bindingId)
+  })
+  ipcMain.handle(IPC.prSearch, (_e, caseSlug: string) => {
+    assertSlug(caseSlug)
+    return searchPrsForCase({ db }, caseSlug)
   })
 
   ipcMain.handle(IPC.workspacesRefs, (_e, caseSlug: string) => {
