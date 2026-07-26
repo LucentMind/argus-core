@@ -330,6 +330,9 @@ export function CaseWorkspace({
         <ModeSwitcher
           slug={slug}
           activeMode={activeMode}
+          // the PR search outlives cases.setMode, so the control keeps spinning through it
+          busyMode={prSearching ? 'review' : null}
+          statusText={prSearching ? 'Searching for pull requests…' : null}
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />
@@ -476,14 +479,6 @@ export function CaseWorkspace({
           </>
         )}
       </div>
-      {prSearching && (
-        <div
-          role="status"
-          className="pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 rounded-r2 border border-hair bg-deep px-3 py-1.5 text-xs text-mute shadow"
-        >
-          Searching linked repos for pull requests…
-        </div>
-      )}
       {prPicker && (
         <PrPickerDialog slug={slug} result={prPicker} onClose={() => setPrPicker(null)} />
       )}

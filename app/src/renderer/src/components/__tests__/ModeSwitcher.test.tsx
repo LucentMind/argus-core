@@ -159,6 +159,38 @@ describe('ModeSwitcher', () => {
     await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
   })
 
+  // The work that makes review slow continues AFTER cases.setMode resolves (the PR search
+  // runs in the parent), so the parent has to be able to keep the control busy.
+  it('accepts an externally driven busy mode with its own status text', async () => {
+    available.mockResolvedValue(['investigation', 'review'])
+    const { rerender } = render(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="review"
+        busyMode="review"
+        statusText="Searching for pull requests…"
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    const reviewBtn = await screen.findByRole('button', { name: /case mode · review/i })
+    expect(reviewBtn.getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByText('Searching for pull requests…')).toBeTruthy()
+
+    rerender(
+      <ModeSwitcher
+        slug="c1"
+        activeMode="review"
+        busyMode={null}
+        statusText={null}
+        onModeChanged={vi.fn()}
+        onError={vi.fn()}
+      />
+    )
+    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
+    expect(screen.queryByText('Searching for pull requests…')).toBeNull()
+  })
+
   it('ignores repeat clicks while a switch is already in flight', async () => {
     available.mockResolvedValue(['investigation', 'review'])
     setMode.mockReset().mockReturnValue(new Promise(() => {}))
