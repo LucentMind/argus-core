@@ -54,6 +54,11 @@ export interface PromptCatalogPayload {
   entries: PromptEntryView[]
   /** Mode ids the preview tab can render, in MODES order. */
   modes: string[]
+  /** Ids with an active override, sorted. Drives the overridden chips and the Settings banner. */
+  activeOverrideIds: string[]
+  /** Non-null when the override file could not be parsed; the page shows it instead of
+   *  pretending no overrides are set. */
+  loadError: string | null
 }
 
 /** One contiguous span of the composed persona, for boundary marking in the preview. */

@@ -7,6 +7,8 @@ import type { PromptCatalogPayload } from '../../../../../shared/promptsIpc'
 
 const catalog: PromptCatalogPayload = {
   modes: ['investigation', 'review'],
+  activeOverrideIds: [],
+  loadError: null,
   entries: [
     {
       id: 'persona.neutral',
