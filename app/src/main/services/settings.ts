@@ -20,7 +20,11 @@ export class SettingsService {
 
   constructor(
     private argusHome: string,
-    private opts: { argusHomeFromEnv?: boolean; resolvedTools?: () => ResolvedToolRow[] } = {
+    private opts: {
+      argusHomeFromEnv?: boolean
+      resolvedTools?: () => ResolvedToolRow[]
+      devTools?: boolean
+    } = {
       argusHomeFromEnv: process.env.ARGUS_HOME != null
     }
   ) {
@@ -73,7 +77,8 @@ export class SettingsService {
       settings: this.settings,
       resolvedTools: this.opts.resolvedTools?.() ?? [],
       dataRoot: { path: this.argusHome, fromEnv: Boolean(this.opts.argusHomeFromEnv) },
-      loadError: this.error
+      loadError: this.error,
+      devTools: Boolean(this.opts.devTools)
     }
   }
 
