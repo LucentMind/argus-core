@@ -3,9 +3,10 @@ import {
   PROMPT_CATEGORY_LABELS,
   type PromptCategory,
   type PromptCatalogPayload,
-  type PromptEntryView
+  type PromptEntryView,
+  type PromptPreview
 } from '../../../../shared/promptsIpc'
-import { SettingsSection } from './settingsLayout'
+import { SettingsSection, SelectField } from './settingsLayout'
 import { Chip } from '../ui'
 
 /** Fixed display order. Iterating this rather than the PromptCategory union is deliberate:
@@ -65,21 +66,7 @@ function EntryRow({ entry }: { entry: PromptEntryView }): React.JSX.Element {
   )
 }
 
-export function PromptsDevPage(): React.JSX.Element {
-  const [catalog, setCatalog] = useState<PromptCatalogPayload | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    window.argus.devPrompts
-      .catalog()
-      .then(setCatalog)
-      // The gate refusal must be visible. A blank page would read as "no prompts exist".
-      .catch((e: Error) => setError(e.message))
-  }, [])
-
-  if (error) return <p className="p-3 text-xs text-danger">{error}</p>
-  if (!catalog) return <p className="p-3 text-xs text-mute">Loading…</p>
-
+function CatalogTab({ catalog }: { catalog: PromptCatalogPayload }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       {DISPLAY_ORDER.map((cat) => {
@@ -95,6 +82,124 @@ export function PromptsDevPage(): React.JSX.Element {
           </SettingsSection>
         )
       })}
+    </div>
+  )
+}
+
+function PreviewTab({ modes }: { modes: string[] }): React.JSX.Element {
+  const [mode, setMode] = useState(modes[0] ?? 'investigation')
+  const [preview, setPreview] = useState<PromptPreview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    window.argus.devPrompts
+      .preview(mode)
+      .then((p) => live && setPreview(p))
+      .catch((e: Error) => live && setError(e.message))
+    // Guard against a slow response for a previously-selected mode overwriting a newer one.
+    return () => {
+      live = false
+    }
+  }, [mode])
+
+  if (error) return <p className="p-3 text-xs text-danger">{error}</p>
+
+  // Derived, not a setPreview(null) reset in the effect: the payload declares which mode it
+  // was built for, so "showing another mode's text" is a comparison, not a state transition.
+  // Clearing state synchronously inside the effect would cascade an extra render.
+  const stale = !preview || preview.mode !== mode
+
+  return (
+    <div className="flex flex-col gap-3">
+      <label className="flex items-center gap-2 text-xs text-dim">
+        Mode
+        <SelectField aria-label="Mode" value={mode} options={modes} onChange={setMode} />
+      </label>
+
+      {stale ? (
+        <p className="text-xs text-mute">Loading…</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-mute">{preview.text.length} chars</span>
+          </div>
+
+          <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-r2 bg-overlay p-2 font-mono text-[11px] text-ink">
+            {preview.text}
+          </pre>
+
+          <SettingsSection title="Fragments" count={preview.fragments.length}>
+            <div className="rounded-r2 border border-hair">
+              {preview.fragments.map((f, i) => (
+                <div
+                  key={`${f.label}-${i}`}
+                  className="flex items-center gap-2 border-b border-hair px-2 py-1 text-xs last:border-b-0"
+                >
+                  <span data-testid="fragment-label" className="flex-1 font-mono text-[11px]">
+                    {f.label}
+                  </span>
+                  <span className="font-mono text-[10px] text-mute">
+                    {f.start}–{f.end}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </SettingsSection>
+
+          {/* Deliberately prominent, not a footnote. A reader who takes this for the whole
+              prompt draws wrong conclusions about what the agent actually received — and this
+              depicts the NEXT session, never one already running. */}
+          <SettingsSection title="Not shown in this preview">
+            <ul className="list-disc pl-5 text-xs text-dim">
+              {preview.omits.map((o) => (
+                <li key={o}>{o}</li>
+              ))}
+            </ul>
+          </SettingsSection>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function PromptsDevPage(): React.JSX.Element {
+  const [catalog, setCatalog] = useState<PromptCatalogPayload | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<'catalog' | 'preview'>('catalog')
+
+  useEffect(() => {
+    window.argus.devPrompts
+      .catalog()
+      .then(setCatalog)
+      // The gate refusal must be visible. A blank page would read as "no prompts exist".
+      .catch((e: Error) => setError(e.message))
+  }, [])
+
+  if (error) return <p className="p-3 text-xs text-danger">{error}</p>
+  if (!catalog) return <p className="p-3 text-xs text-mute">Loading…</p>
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-1 border-b border-hair">
+        {(
+          [
+            ['catalog', 'Catalog'],
+            ['preview', 'Composed preview']
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={`border-b-2 px-2.5 py-1.5 text-xs ${
+              tab === id ? 'border-signal text-ink' : 'border-transparent text-dim hover:text-ink'
+            }`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'catalog' ? <CatalogTab catalog={catalog} /> : <PreviewTab modes={catalog.modes} />}
     </div>
   )
 }
