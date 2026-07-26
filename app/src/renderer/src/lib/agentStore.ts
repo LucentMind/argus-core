@@ -70,15 +70,22 @@ export class AgentStore {
   /**
    * Replay persisted history into a session that has no live state yet.
    * Stale pending approvals are dropped (unanswerable after a restart) and
-   * running is cleared — only live events may set them. The guard is per
-   * session, not per case, so hydrating one session never no-ops a sibling
-   * session in the same case.
+   * running is cleared — only live events may set them. A trailing
+   * streaming flag is cleared too (the log ends in content.delta when the
+   * app closed mid-stream): hydrated content is final by definition. The
+   * guard is per session, not per case, so hydrating one session never
+   * no-ops a sibling session in the same case.
    */
   hydrate(caseSlug: string, sessionId: number, events: AgentEvent[]): void {
     if (this.byCase.get(keyOf(caseSlug, sessionId))?.items.length) return
     for (const e of events) this.applyToState(e)
     this.update(caseSlug, sessionId, (s) => ({
       ...s,
+      items: s.items.map((it, i) =>
+        i === s.items.length - 1 && it.kind === 'assistant' && it.streaming
+          ? { ...it, streaming: false }
+          : it
+      ),
       pending: [],
       pendingDialogs: [],
       running: false
