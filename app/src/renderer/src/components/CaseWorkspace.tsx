@@ -7,6 +7,8 @@ import { HeaderChips } from './HeaderChips'
 import { ModeSwitcher } from './ModeSwitcher'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
+import { PrPickerDialog } from './PrPickerDialog'
+import type { PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
@@ -87,6 +89,7 @@ export function CaseWorkspace({
   // that provider's capabilities — both are per-session once several providers are enabled.
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
     target: ChatJumpTarget
@@ -193,13 +196,25 @@ export function CaseWorkspace({
    *  list so a newly-created chat appears there, and tell the parent to refetch its case
    *  list so the `activeMode` prop this component renders off of stops being stale (see
    *  the onModeSwitched doc comment above; no local mirror of the mode is kept here). */
-  function handleModeChanged(_mode: ModeId, newSessionId: number): void {
+  function handleModeChanged(mode: ModeId, newSessionId: number): void {
     handleSwitchSession(newSessionId)
     onModeSwitched()
     void window.argus.sessions
       .list(slug)
       .then((list) => setSessions(list))
       .catch(() => setSessionsError('Could not load chat sessions.'))
+    // Entering review with nothing bound yet is the one moment discovery is worth ~5s of
+    // gh: offer the picker. It runs AFTER the switch resolved, so the chat opens
+    // immediately and a failed search degrades to manual linking in the Repos rail.
+    // Later entries go straight to the chat; "Link PR" there is the re-run path.
+    if (mode !== 'review') return
+    void window.argus.pr
+      .list(slug)
+      .then((bound) => (bound.length ? null : window.argus.pr.search(slug)))
+      .then((r) => {
+        if (r) setPrPicker(r)
+      })
+      .catch(() => undefined)
   }
 
   /** ModeSwitcher surfaces its own load/switch failures here rather than swallowing them —
@@ -333,6 +348,7 @@ export function CaseWorkspace({
           <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
             <ReposSection
               slug={slug}
+              onPrsFound={setPrPicker}
               headerExtra={
                 <button
                   aria-label="Collapse evidence"
@@ -450,6 +466,9 @@ export function CaseWorkspace({
           </>
         )}
       </div>
+      {prPicker && (
+        <PrPickerDialog slug={slug} result={prPicker} onClose={() => setPrPicker(null)} />
+      )}
     </div>
   )
 }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
-import type { PrBinding } from '../../../shared/pr'
-import { FolderGit2, GitPullRequest, Unlink } from 'lucide-react'
+import type { PrBinding, PrSearchResult } from '../../../shared/pr'
+import { FolderGit2, GitPullRequest, Search, Unlink } from 'lucide-react'
 import { Chip, IconBtn, SectionLabel } from './ui'
 import { RepoGraphControl } from './RepoGraphControl'
 import { reposStore } from '../lib/reposStore'
@@ -13,17 +13,21 @@ import { invalidateRepoSnippets } from '../lib/snippetCache'
  *  cited per line via [repo/path:line] citations. */
 export function ReposSection({
   slug,
-  headerExtra
+  headerExtra,
+  onPrsFound
 }: {
   slug: string
   /** rendered at the right edge of the Repos header (e.g. the pane-collapse button) */
   headerExtra?: React.ReactNode
+  /** "Find PRs" result, handed up so the parent can open the picker over the chat. */
+  onPrsFound?: (result: PrSearchResult) => void
 }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [refs, setRefs] = useState<BundleWorkspaceRef[]>([])
   const [prs, setPrs] = useState<PrBinding[]>([])
   const [prDraft, setPrDraft] = useState<string | null>(null)
   const [prError, setPrError] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
 
   const reload = useCallback((): Promise<void> => {
     // keep the citation domain + snippet cache in sync with link state
@@ -91,6 +95,23 @@ export function ReposSection({
           >
             <GitPullRequest size={13} />
           </IconBtn>
+          {onPrsFound && (
+            <IconBtn
+              aria-label="Find PRs"
+              title="Search linked repos for this ticket's pull requests"
+              className="h-5 w-5"
+              disabled={searching}
+              onClick={() => {
+                setSearching(true)
+                void window.argus.pr
+                  .search(slug)
+                  .then(onPrsFound)
+                  .finally(() => setSearching(false))
+              }}
+            >
+              <Search size={13} />
+            </IconBtn>
+          )}
           {headerExtra}
         </div>
       </div>

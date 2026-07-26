@@ -117,7 +117,12 @@ import {
   listStoredWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
-import { addBinding, listBindings, removeBinding } from './services/prBindings'
+import {
+  addBinding,
+  listBindings,
+  removeBinding,
+  materializePrBindings
+} from './services/prBindings'
 import { searchPrsForCase } from './services/prSearch'
 import { ensurePrWorktree } from './services/prWorktree'
 import type { PrMaterializer } from './services/prBindings'
@@ -127,7 +132,7 @@ function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
   return (b) =>
     b.repoPath ? ensurePrWorktree(argusHome, caseSlug, b.repoPath, b.number) : Promise.resolve(null)
 }
-import { parsePrRef, remoteToOwnerRepo } from '../shared/pr'
+import { parsePrRef, remoteToOwnerRepo, type PrRef } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
@@ -1218,6 +1223,27 @@ function registerIpc(): void {
   ipcMain.handle(IPC.prSearch, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
     return searchPrsForCase({ db }, caseSlug)
+  })
+  ipcMain.handle(IPC.prLinkMany, async (_e, caseSlug: string, refs: PrRef[]) => {
+    assertSlug(caseSlug)
+    const stored = listStoredWorkspaces(db, caseSlug)
+    const created = refs.map((ref) =>
+      addBinding(db, caseSlug, {
+        ...ref,
+        source: 'search',
+        // a search hit always comes from a linked repo, so this normally resolves
+        repoPath:
+          stored.find((w) => {
+            const or = w.remote ? remoteToOwnerRepo(w.remote) : null
+            return or?.owner === ref.owner && or?.repo === ref.repo
+          })?.path ?? null
+      })
+    )
+    await materializePrBindings(db, argusHome, caseSlug, prMaterializer(argusHome, caseSlug))
+    // The live session's sandbox was fixed at construction, so the chips — not the agent —
+    // are what this refreshes; the agent picks the worktree up on its next session.
+    broadcast(IPC.workspacesChanged, caseSlug)
+    return created
   })
 
   ipcMain.handle(IPC.workspacesRefs, (_e, caseSlug: string) => {

@@ -62,7 +62,7 @@ import type {
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
 import type { SeedSampleResult } from '../shared/onboarding'
-import type { PrBinding, PrSearchResult } from '../shared/pr'
+import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
 import type {
   OpenPanelRequest,
   PanelInfo,
@@ -369,7 +369,9 @@ const argus = {
     unlink: (caseSlug: string, bindingId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId),
     search: (caseSlug: string): Promise<PrSearchResult> =>
-      ipcRenderer.invoke(IPC.prSearch, caseSlug)
+      ipcRenderer.invoke(IPC.prSearch, caseSlug),
+    linkMany: (caseSlug: string, refs: PrRef[]): Promise<PrBinding[]> =>
+      ipcRenderer.invoke(IPC.prLinkMany, caseSlug, refs)
   },
   graph: {
     build: (
