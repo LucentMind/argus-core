@@ -29,6 +29,21 @@ Non-negotiable working rules:
   already name the root cause; tell the user about relevant matches.
 `.trim()
 
+/** Role-agnostic: applies to every mode. The renderer intercepts ```mermaid fences
+ *  (MessageView -> MermaidBlock), so diagrams work identically across all drivers —
+ *  they are plain text in the reply. */
+export const DIAGRAM_FRAGMENT = `
+VISUAL EXPLANATIONS — when an explanation is structural, include a mermaid diagram in a
+fenced \`\`\`mermaid block inline, next to the prose it illustrates. Reach for one when
+describing: a causal chain (symptom → proximate cause → root cause), an interaction among
+3+ components, an event timeline reconstructed from evidence, or a state machine
+(expected vs. actual paths). Do NOT diagram plain lists, single-step facts, or anything
+the prose already says in one sentence.
+Diagram reliability rules: prefer flowchart, sequenceDiagram, stateDiagram-v2, or
+timeline; wrap node labels containing punctuation in double quotes; keep a diagram under
+~25 nodes (split larger ones); never put HTML in labels.
+`.trim()
+
 /**
  * Appended as a persona fragment only when a skill named `contribute-back`
  * resolves enabled at session construction (registry.ts) — disabling the skill
