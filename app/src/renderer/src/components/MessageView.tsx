@@ -1,3 +1,4 @@
+import { isValidElement } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -8,6 +9,7 @@ import {
   type CiteTarget
 } from '../lib/citations'
 import { CitationCard } from './CitationCard'
+import { MermaidBlock } from './MermaidBlock'
 import type { CiteSource } from '../lib/snippetCache'
 
 function citeSource(caseSlug: string, cite: CiteTarget, names: ReadonlySet<string>): CiteSource {
@@ -28,7 +30,8 @@ export function MessageView({
   onCite,
   caseSlug,
   citationMode = 'collapsed',
-  repoNames = []
+  repoNames = [],
+  streaming = false
 }: {
   markdown: string
   onCite: (cite: CiteTarget) => void
@@ -38,6 +41,9 @@ export function MessageView({
   citationMode?: 'collapsed' | 'expanded'
   /** Linked repo names for this case — enables the repo citation domain. */
   repoNames?: readonly string[]
+  /** True while this message is still streaming — mermaid fences stay as code
+   *  blocks until the fence is guaranteed complete. */
+  streaming?: boolean
 }): React.JSX.Element {
   const names = toRepoNameSet(repoNames)
   return (
@@ -50,6 +56,21 @@ export function MessageView({
           // Expanded citation cards are block elements, which can't nest inside
           // <p> — render paragraphs as divs (identical under preflight's zero margins).
           p: ({ children }) => <div>{children}</div>,
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars -- node prop from react-markdown must be destructured to prevent spreading onto DOM
+          pre: ({ node: _node, children, ...rest }) => {
+            const child = Array.isArray(children) ? children[0] : children
+            if (isValidElement(child)) {
+              const childProps = child.props as { className?: string; children?: unknown }
+              if (
+                typeof childProps.className === 'string' &&
+                childProps.className.split(/\s+/).includes('language-mermaid') &&
+                typeof childProps.children === 'string'
+              ) {
+                return <MermaidBlock source={childProps.children} streaming={streaming} />
+              }
+            }
+            return <pre {...rest}>{children}</pre>
+          },
           a: ({ href, children }) => {
             const cite = href ? parseCiteHref(href) : null
             if (cite && caseSlug) {
