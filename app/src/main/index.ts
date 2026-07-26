@@ -119,6 +119,14 @@ import {
 } from './services/workspaces'
 import { addBinding, listBindings, removeBinding } from './services/prBindings'
 import { searchPrsForCase } from './services/prSearch'
+import { ensurePrWorktree } from './services/prWorktree'
+import type { PrMaterializer } from './services/prBindings'
+
+/** The real checkout used by both materialization call sites (mode entry, picker confirm). */
+function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
+  return (b) =>
+    b.repoPath ? ensurePrWorktree(argusHome, caseSlug, b.repoPath, b.number) : Promise.resolve(null)
+}
 import { parsePrRef, remoteToOwnerRepo } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
@@ -1092,7 +1100,7 @@ function registerIpc(): void {
     await agentService!.stopSession(caseSlug, sessionId)
     deleteSession(db, argusHome, caseSlug, sessionId)
   })
-  ipcMain.handle(IPC.casesSetMode, (_e, caseSlug: string, mode: ModeId) => {
+  ipcMain.handle(IPC.casesSetMode, async (_e, caseSlug: string, mode: ModeId) => {
     assertSlug(caseSlug)
     // Reject a mode that isn't a real MODES key rather than persisting it: an arbitrary
     // string in the mode column makes MODES[mode] undefined, which throws on every later
@@ -1106,7 +1114,16 @@ function registerIpc(): void {
     if (!available.includes(mode)) {
       throw new Error(`Mode not available for this case: ${mode}`)
     }
-    return setCaseMode(db, argusHome, caseSlug, mode, newSessionProvider())
+    const r = await setCaseMode(db, argusHome, caseSlug, mode, newSessionProvider(), {
+      materialize: prMaterializer(argusHome, caseSlug)
+    })
+    // Repo chips read worktree state, so a freshly checked-out PR must announce itself.
+    // The session's own sandbox needs no refresh: workspaceSandboxRoots covers the whole
+    // worktreesRoot and is computed once at session construction (agent/registry.ts:224),
+    // and a mode switch always lands on a different session — do not "optimize" a mode
+    // switch into reusing the live one.
+    if (mode === 'review') broadcast(IPC.workspacesChanged, caseSlug)
+    return r
   })
 
   // — modes —
