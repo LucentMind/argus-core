@@ -123,6 +123,21 @@ describe('AgentStore', () => {
     expect(st.running).toBe(false)
   })
 
+  it('hydrate finalizes a message cut off mid-stream (log ends in content.delta)', () => {
+    store.hydrate('NAV-1', 1, [
+      ev('turn.started', { userText: 'hi' }),
+      ev('content.delta', { text: 'partial ans' })
+    ])
+    const st = store.get('NAV-1', 1)
+    expect(st.items).toHaveLength(2)
+    expect(st.items[1]).toMatchObject({
+      kind: 'assistant',
+      text: 'partial ans',
+      streaming: false
+    })
+    expect(st.running).toBe(false)
+  })
+
   it('hydrate is a no-op when the case already has live state', () => {
     store.apply(ev('turn.started', { userText: 'live' }))
     store.hydrate('NAV-1', 1, [ev('assistant.message', { text: 'old history' })])
