@@ -6,16 +6,11 @@ import { MEMORY_HEADER } from '../agent/session'
 import { CASE_WORKING_RULES } from '../caseService'
 import { CASE_DISTILL_CONTRACT } from '../distill/caseDistillContract'
 import { DISTILL_CONTRACT } from '../refSync/distill'
+// The category union is an IPC payload type: it lives in shared/ so the renderer can import it
+// without reaching into main/. Re-exported below for main-side importers.
+import type { PromptCategory } from '../../../shared/promptsIpc'
 
-export type PromptCategory =
-  | 'persona'
-  | 'session-context'
-  | 'tools'
-  | 'tool-feedback'
-  | 'headless'
-  | 'generated-files'
-  | 'synthesized'
-  | 'external'
+export type { PromptCategory }
 
 export interface PromptEntry {
   /** Stable id, also the override key in Plan 3. Never renamed without a migration. */
