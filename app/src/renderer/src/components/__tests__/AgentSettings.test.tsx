@@ -38,7 +38,9 @@ function status(over?: Partial<ProviderStatus>): ProviderStatus {
 
 let statuses: ProviderStatus[]
 beforeEach(() => {
-  vi.mocked(confirm).mockResolvedValue(true)
+  // Cleared, not just re-primed: `mock.calls[0]` in later tests must be that test's own
+  // confirm() call, not a leftover from whichever test ran before it.
+  vi.mocked(confirm).mockClear().mockResolvedValue(true)
   settingsStore.reset()
   statuses = [status()]
   window.argus = {
@@ -341,5 +343,61 @@ describe('AgentSettings remove provider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove Copilot' }))
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(window.argus.settings.patch).not.toHaveBeenCalled()
+  })
+
+  it('removing the default provider hands the role to another enabled instance', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Expand Claude settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Claude' }))
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        agent: {
+          providerInstances: { 'claude-default': null },
+          modelPreferences: { 'claude-default': null },
+          activeInstanceId: 'copilot-1'
+        }
+      })
+    )
+  })
+
+  it('removing the distillation provider clears the pointer and says so in the dialog', async () => {
+    const p = payload((p) => {
+      withCopilot(p)
+      p.settings.agent.distillProvider = { instanceId: 'copilot-1' }
+    })
+    render(<AgentSettings payload={p} />)
+    fireEvent.click(await screen.findByLabelText('Expand Copilot settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Copilot' }))
+    expect(vi.mocked(confirm).mock.calls[0][0].message).toContain('distillation')
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        agent: {
+          providerInstances: { 'copilot-1': null },
+          modelPreferences: { 'copilot-1': null },
+          distillProvider: null
+        }
+      })
+    )
+  })
+
+  it('leaves distillProvider alone when it names a different instance', async () => {
+    // The warning and the clearing are driven by the SAME condition — the explicit setting —
+    // so a dialog that stays silent must also be a patch that leaves the pointer intact.
+    const p = payload((p) => {
+      withCopilot(p)
+      p.settings.agent.distillProvider = { instanceId: 'claude-default' }
+    })
+    render(<AgentSettings payload={p} />)
+    fireEvent.click(await screen.findByLabelText('Expand Copilot settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Copilot' }))
+    expect(vi.mocked(confirm).mock.calls[0][0].message).not.toContain('distillation')
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        agent: {
+          providerInstances: { 'copilot-1': null },
+          modelPreferences: { 'copilot-1': null }
+        }
+      })
+    )
   })
 })
