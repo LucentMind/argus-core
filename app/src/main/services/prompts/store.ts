@@ -1,20 +1,9 @@
-import { PROMPT_ENTRIES, entryById, type PromptCategory, type PromptEntry } from './registry'
+import { PROMPT_ENTRIES, entryById, type PromptEntry } from './registry'
+// Renderer-facing projection (Plan 2 sends this over IPC). Defined in shared/ so both sides
+// import the same declaration — see the docblock there.
+import type { PromptEntryView } from '../../../shared/promptsIpc'
 
-/** Renderer-facing projection of an entry (Plan 2 sends this over IPC). */
-export interface PromptEntryView {
-  id: string
-  category: PromptCategory
-  title: string
-  source: string
-  reaches: readonly string[] | 'all'
-  editable: boolean
-  defaultText: string
-  /** Always null in Plan 1 — overrides land in Plan 3. */
-  overrideText: string | null
-  /** Length of the effective text (override when present, else default). */
-  chars: number
-  note?: string
-}
+export type { PromptEntryView }
 
 export interface PromptStoreDeps {
   /** The dev-tools gate result. Plan 3 uses it to decide whether to read the override file
