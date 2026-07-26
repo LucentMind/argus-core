@@ -268,10 +268,27 @@ describe('PromptsDevPage — editing', () => {
 
     render(<PromptsDevPage />)
     fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    expect(await screen.findByText(/overridden/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }))
     // confirmStore renders <ConfirmHost/> at the app root, which is not mounted here — the
     // dialog is stubbed in beforeEach, so this resolves immediately.
     await waitFor(() => expect(api.clearOverride).toHaveBeenCalledWith('persona.neutral'))
+    // clearOverride resolves to the non-overridden catalog above — the chip must actually
+    // disappear, not just have the IPC call fire.
+    await waitFor(() => expect(screen.queryByText(/overridden/i)).not.toBeInTheDocument())
+  })
+
+  it("Reset to default's confirm copy warns that an unsaved draft edit is discarded too", async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Role-neutral core/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }))
+    const confirmMock = (await import('../../../lib/confirmStore')).confirm as ReturnType<
+      typeof vi.fn
+    >
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled())
+    expect(confirmMock.mock.calls[0][0]).toMatchObject({
+      message: expect.stringMatching(/unsaved draft/i)
+    })
   })
 
   it('does not offer editing for a read-only entry', async () => {
@@ -279,6 +296,37 @@ describe('PromptsDevPage — editing', () => {
     fireEvent.click(await screen.findByRole('button', { name: /claude_code preset/ }))
     expect(screen.queryByLabelText(/Prompt text/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Save$/ })).not.toBeInTheDocument()
+  })
+
+  it('re-reads the catalog when the change broadcast fires elsewhere (e.g. the banner)', async () => {
+    // The banner and this page are siblings under Settings and share one broadcast
+    // (dev-prompts:changed). A "Clear all" click in the banner must be reflected here too —
+    // otherwise the page keeps showing the stale "overridden" chip and stale draft text, and
+    // saving that draft would re-apply an override the developer just deleted.
+    const api = (
+      window as unknown as {
+        argus: {
+          devPrompts: {
+            catalog: ReturnType<typeof vi.fn>
+            onChanged: ReturnType<typeof vi.fn>
+          }
+        }
+      }
+    ).argus.devPrompts
+    api.catalog = vi.fn(async () => overriddenCatalog)
+
+    render(<PromptsDevPage />)
+    expect(await screen.findByText(/overridden/i)).toBeInTheDocument()
+
+    // Capture the callback the page subscribed with, then simulate the broadcast firing after
+    // the banner cleared the override elsewhere. The next catalog() read reflects that.
+    const onBroadcast = api.onChanged.mock.calls[0][0] as (ids: string[]) => void
+    const rereadCatalog = vi.fn(async () => catalog)
+    api.catalog = rereadCatalog
+    onBroadcast([])
+
+    await waitFor(() => expect(rereadCatalog).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByText(/overridden/i)).not.toBeInTheDocument())
   })
 
   it('surfaces a malformed override file instead of silently showing defaults', async () => {

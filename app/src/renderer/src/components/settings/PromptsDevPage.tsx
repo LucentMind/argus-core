@@ -245,11 +245,19 @@ export function PromptsDevPage(): React.JSX.Element {
   const [tab, setTab] = useState<'catalog' | 'preview'>('catalog')
 
   useEffect(() => {
-    window.argus.devPrompts
-      .catalog()
-      .then(setCatalog)
-      // The gate refusal must be visible. A blank page would read as "no prompts exist".
-      .catch((e: Error) => setError(e.message))
+    const reload = (): void => {
+      window.argus.devPrompts
+        .catalog()
+        .then(setCatalog)
+        // The gate refusal must be visible. A blank page would read as "no prompts exist".
+        .catch((e: Error) => setError(e.message))
+    }
+    reload()
+    // The banner and this page are mounted as siblings (SettingsView.tsx) and both react to the
+    // same broadcast. Without this, clearing overrides from the banner leaves this page showing
+    // stale "overridden" chips and stale draft text — editing and saving that draft would
+    // re-apply an override the developer just deliberately deleted.
+    return window.argus.devPrompts.onChanged(reload)
   }, [])
 
   const save = async (id: string, text: string): Promise<void> => {
@@ -264,7 +272,8 @@ export function PromptsDevPage(): React.JSX.Element {
   const reset = async (id: string): Promise<void> => {
     const ok = await confirm({
       title: 'Reset this prompt to its default?',
-      message: 'The override is deleted. This takes effect on the next session.',
+      message:
+        'The override is deleted. This takes effect on the next session. Any unsaved draft edit in the box below is discarded too.',
       confirmLabel: 'Reset',
       danger: true
     })
