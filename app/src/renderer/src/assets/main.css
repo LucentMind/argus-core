@@ -124,6 +124,15 @@ body {
   color: var(--ink);
 }
 
+/* Mermaid lightbox: the diagram scales up to fill the dialog. !important is required —
+   mermaid stamps an inline max-width on its root <svg>, which would otherwise clamp the
+   enlarged view to the thumbnail's natural size. */
+.mermaid-lightbox svg {
+  width: 100%;
+  height: 100%;
+  max-width: none !important;
+}
+
 /* highlight.js token classes mapped onto OEH theme vars (both themes for free) */
 .hljs-keyword,
 .hljs-literal,
