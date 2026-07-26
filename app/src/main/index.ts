@@ -437,7 +437,8 @@ function registerIpc(): void {
     argusHome,
     store: refSyncStore,
     reader: atlassian,
-    run: headlessRun
+    run: headlessRun,
+    resolvePrompt
   })
   refSyncStore.subscribe(() => broadcast(IPC.refsyncChanged, refSync.payload()))
 
@@ -461,7 +462,7 @@ function registerIpc(): void {
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
-    distill: (input) => runCaseDistill(input, headlessRun),
+    distill: (input) => runCaseDistill(input, headlessRun, resolvePrompt),
     stage: (slug, jobId, output) => stageDistillOutput(db, argusHome, slug, jobId, output),
     broadcast: (p) => broadcast(IPC.distillChanged, p)
   })
@@ -556,7 +557,7 @@ function registerIpc(): void {
 
   // — wave 0 handlers unchanged —
   ipcMain.handle(IPC.casesCreate, async (_e, input: NewCaseInput) => {
-    const rec = createCase(db, argusHome, input)
+    const rec = createCase(db, argusHome, input, resolvePrompt)
     await autoLinkDefaultRepo(db, argusHome, rec.slug, settingsService.get().general.defaultRepo)
     return rec
   })

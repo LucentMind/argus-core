@@ -45,6 +45,8 @@ export interface DriverSessionContext {
   permissionMode: PermissionMode
   /** Persona + memory-index text the driver injects as its system-prompt append. */
   systemAppend: string
+  /** Prompt-registry resolver; drivers use it for tool descriptions they register themselves. */
+  resolvePrompt?: (id: string) => string
   /** Composed connector servers (opaque passthrough for Claude; Copilot serializes). */
   extraMcpServers: Record<string, unknown>
   nativeToolDeps: NativeToolDeps

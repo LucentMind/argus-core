@@ -7,7 +7,10 @@ import type {
 export { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 import { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 
-export function buildCaseDistillPrompt(input: CaseDistillInput): string {
+export function buildCaseDistillPrompt(
+  input: CaseDistillInput,
+  resolve?: (id: string) => string
+): string {
   const m = input.caseMeta
   const findings = input.findings
     .map((f) => `### [${f.reviewState}] ${f.summary}\n${f.body}`)
@@ -22,7 +25,7 @@ export function buildCaseDistillPrompt(input: CaseDistillInput): string {
       )
     ].join('\n') || '(none)'
   return [
-    CASE_DISTILL_CONTRACT,
+    resolve ? resolve('headless.case-distill.contract') : CASE_DISTILL_CONTRACT,
     `# Case\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}\nclosed: ${m.closedAt}`,
     `# Findings (with review states)\n\n${findings || '(none)'}`,
     `# Evidence inventory\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,

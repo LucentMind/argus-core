@@ -23,12 +23,12 @@ Rules — follow every one:
 6. If a current body is provided, MERGE: update the sections the source pages cover, keep unrelated existing sections intact.
 7. Output the COMPLETE new body of the reference file as markdown. No YAML frontmatter, no commentary, no code fence around the whole file. Start directly with the H1 title line, followed by a one-sentence overview paragraph (it seeds the references index).`
 
-export function buildDistillPrompt(input: DistillInput): string {
+export function buildDistillPrompt(input: DistillInput, resolve?: (id: string) => string): string {
   const pages = input.pages
     .map((p) => `## Source page: ${p.title}\nURL: ${p.url}\n\n${p.markdown}`)
     .join('\n\n---\n\n')
   return [
-    DISTILL_CONTRACT,
+    resolve ? resolve('headless.ref-distill.contract') : DISTILL_CONTRACT,
     `# Target file: ${input.target}`,
     `# Current body\n\n${input.currentBody ?? '(file does not exist yet)'}`,
     `# Source pages\n\n${pages}`,
@@ -40,7 +40,8 @@ export function buildDistillPrompt(input: DistillInput): string {
  *  records a per-file failure and other files stay unaffected. Provider-blind by design. */
 export async function distillTarget(
   input: DistillInput,
-  run: (prompt: string) => Promise<string>
+  run: (prompt: string) => Promise<string>,
+  resolve?: (id: string) => string
 ): Promise<string> {
-  return run(buildDistillPrompt(input))
+  return run(buildDistillPrompt(input, resolve))
 }

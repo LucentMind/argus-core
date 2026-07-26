@@ -29,7 +29,12 @@ export const CASE_WORKING_RULES = `## Working rules
 - To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
 - Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.`
 
-function claudeMdTemplate(input: NewCaseInput, now: string): string {
+function claudeMdTemplate(
+  input: NewCaseInput,
+  now: string,
+  resolve?: (id: string) => string
+): string {
+  const rules = resolve ? resolve('generated-files.case-working-rules') : CASE_WORKING_RULES
   return `# Case: ${input.slug}
 
 - Title: ${input.title}
@@ -43,7 +48,7 @@ function claudeMdTemplate(input: NewCaseInput, now: string): string {
 _No code workspaces linked._
 <!-- /argus:workspaces -->
 
-${CASE_WORKING_RULES}
+${rules}
 `
 }
 
@@ -116,7 +121,12 @@ export function scaffoldCaseLinks(argusHome: string, dir: string): void {
   }
 }
 
-export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseInput): CaseRecord {
+export function createCase(
+  db: DatabaseSync,
+  argusHome: string,
+  input: NewCaseInput,
+  resolvePrompt?: (id: string) => string
+): CaseRecord {
   if (!SLUG_RE.test(input.slug)) {
     throw new Error(`Invalid case slug: ${JSON.stringify(input.slug)}`)
   }
@@ -160,7 +170,7 @@ export function createCase(db: DatabaseSync, argusHome: string, input: NewCaseIn
       path.join(dir, 'case.json'),
       JSON.stringify({ ...rec, id: undefined }, null, 2)
     )
-    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMdTemplate(input, now))
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), claudeMdTemplate(input, now, resolvePrompt))
     scaffoldCaseLinks(argusHome, dir)
     fs.writeFileSync(path.join(dir, 'findings.md'), `# Findings — ${input.slug}\n`)
     return rec

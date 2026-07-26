@@ -46,6 +46,8 @@ export interface RefSyncServiceDeps {
   run?: (prompt: string) => Promise<string>
   /** Injectable for tests; defaults to the headless distiller. */
   distill?: typeof distillTarget
+  /** Prompt-registry resolver, forwarded to the distiller. */
+  resolvePrompt?: (id: string) => string
   now?: () => Date
 }
 
@@ -196,7 +198,8 @@ export class RefSyncService {
           this.deps.run ??
             (() => {
               throw new Error('no provider configured for distillation')
-            })
+            }),
+          this.deps.resolvePrompt
         )
         drafts.push({
           target,

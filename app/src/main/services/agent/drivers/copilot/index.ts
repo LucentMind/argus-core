@@ -6,7 +6,7 @@ import type { AgentEvent } from '../../../../../shared/agent-events'
 import { PERMISSION_MODES } from '../../../../../shared/settings'
 import { AsyncQueue } from '../../asyncQueue'
 import { NATIVE_RISK } from '../../risk'
-import { NATIVE_TOOL_SPECS, argusToolHandlers } from '../../nativeTools'
+import { resolveToolSpecs, argusToolHandlers } from '../../nativeTools'
 import { panelCommandDescription } from '../../panelCommands'
 import type {
   AgentDriver,
@@ -184,7 +184,7 @@ export function buildCopilotTools(
 ): CopilotToolDef[] {
   const tools: CopilotToolDef[] = []
   const handlers = argusToolHandlers(ctx.nativeToolDeps)
-  for (const spec of NATIVE_TOOL_SPECS) {
+  for (const spec of resolveToolSpecs(ctx.resolvePrompt)) {
     const registration = `${ARGUS_TOOL_PREFIX}${spec.name}`
     const canonical = `mcp__argus__${spec.name}`
     toolNameMap.set(registration, canonical)

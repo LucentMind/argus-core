@@ -151,7 +151,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
             ...(ctx.dispatchPanelCommand
               ? buildPanelCommandServers(ctx.panelCommandDecls, ctx.dispatchPanelCommand)
               : {}),
-            argus: createArgusMcpServer(ctx.nativeToolDeps)
+            argus: createArgusMcpServer(ctx.nativeToolDeps, ctx.resolvePrompt)
           },
           canUseTool: (
             toolName: string,
