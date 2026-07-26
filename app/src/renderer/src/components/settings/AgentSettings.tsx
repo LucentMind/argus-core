@@ -115,6 +115,10 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
    * unset, distillation already auto-resolves and there is no setting to clear.
    */
   function removeInstance(id: string, label: string): void {
+    // Guard the invariant here, not just via the disabled button: the button is the
+    // user-facing half, but a second call site can't be trusted to re-derive `canRemove`
+    // before calling in, and this state is unrecoverable once persisted (see class comment).
+    if (Object.keys(a.providerInstances).length <= 1) return
     const isDistill = a.distillProvider?.instanceId === id
     void confirm({
       title: `Remove ${label}?`,
