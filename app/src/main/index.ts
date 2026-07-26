@@ -338,7 +338,7 @@ function registerIpc(): void {
   // Single evaluation of the prompt-surface dev gate; `is` is already imported at the top of
   // this file. Everything downstream reads this boolean, never the env directly.
   const devTools = devToolsEnabled({ isDev: is.dev })
-  const promptStore = new PromptStore({ devTools })
+  const promptStore = new PromptStore({ devTools, argusHome })
   const resolvePrompt = promptStore.resolveFn()
 
   const settingsService = new SettingsService(argusHome, {
@@ -1385,6 +1385,37 @@ function registerIpc(): void {
       ),
       personaAppend: settingsService.get().agent.personaAppend || undefined
     })
+  })
+
+  /** Every mutation returns the refreshed payload and announces the change, so the page and the
+   *  Settings banner can never disagree about what is overridden. */
+  const promptsChanged = (): PromptCatalogPayload => {
+    broadcast(IPC.devPromptsChanged, promptStore.activeOverrideIds())
+    return promptStore.catalogPayload(Object.keys(MODES))
+  }
+
+  ipcMain.handle(IPC.devPromptsSetOverride, (_e, id: string, text: string) => {
+    assertDevTools(devTools)
+    // The store validates id and editability itself — IPC arguments are untyped at runtime.
+    promptStore.setOverride(id, text)
+    return promptsChanged()
+  })
+
+  ipcMain.handle(IPC.devPromptsClearOverride, (_e, id: string) => {
+    assertDevTools(devTools)
+    promptStore.clearOverride(id)
+    return promptsChanged()
+  })
+
+  ipcMain.handle(IPC.devPromptsClearAll, () => {
+    assertDevTools(devTools)
+    promptStore.clearAll()
+    return promptsChanged()
+  })
+
+  ipcMain.handle(IPC.devPromptsOverrides, (): string[] => {
+    assertDevTools(devTools)
+    return promptStore.activeOverrideIds()
   })
 
   // — settings —
