@@ -266,6 +266,7 @@ export function ChatPane({
                   onCite={onCite}
                   caseSlug={slug}
                   repoNames={repoNames}
+                  streaming={item.streaming}
                 />
                 {item.streaming && <span className="text-xs text-mute">…</span>}
               </div>
