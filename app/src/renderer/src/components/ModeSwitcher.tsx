@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 
 export function ModeSwitcher({
   slug,
   activeMode,
+  busyMode = null,
+  statusText = null,
   onModeChanged,
   onError
 }: {
   slug: string
   activeMode: ModeId
+  /** Keeps a mode spinning after `cases.setMode` resolved — review's PR search runs in the
+   *  parent, so the control has to stay busy past the end of its own await. */
+  busyMode?: ModeId | null
+  /** What that work is, shown beside the control. Falls back to a generic switching note. */
+  statusText?: string | null
   /** The parent switches the active chat to `sessionId` — the mode's existing chat, or a
    *  freshly created one (`cases:set-mode`'s contract). */
   onModeChanged: (mode: ModeId, sessionId: number) => void
@@ -66,30 +74,41 @@ export function ModeSwitcher({
     return <span className="text-xs text-mute">{MODES[activeMode].label}</span>
   }
 
+  const busy = pending ?? busyMode
+  const status = statusText ?? (pending ? `Switching to ${MODES[pending].label}…` : null)
+
   return (
-    <div
-      role="group"
-      aria-label="Case mode"
-      className="flex shrink-0 overflow-hidden rounded-r2 border border-hair"
-    >
-      {modes.map((id, i) => (
-        <button
-          key={id}
-          type="button"
-          aria-label={`Case mode · ${MODES[id].label}`}
-          aria-pressed={id === activeMode}
-          aria-busy={pending === id}
-          disabled={pending !== null}
-          onClick={() => void pick(id)}
-          className={`px-2.5 py-1 text-xs transition-colors ${
-            id === activeMode ? 'bg-signal/10 text-ink' : 'text-dim hover:text-ink'
-          } ${pending === id ? 'animate-pulse bg-hair text-ink' : ''} ${
-            pending !== null && pending !== id ? 'opacity-50' : ''
-          } ${i !== modes.length - 1 ? 'border-r border-hair' : ''}`}
-        >
-          {MODES[id].label}
-        </button>
-      ))}
+    <div className="flex min-w-0 items-center gap-2">
+      <div
+        role="group"
+        aria-label="Case mode"
+        className="flex shrink-0 overflow-hidden rounded-r2 border border-hair"
+      >
+        {modes.map((id, i) => (
+          <button
+            key={id}
+            type="button"
+            aria-label={`Case mode · ${MODES[id].label}`}
+            aria-pressed={id === activeMode}
+            aria-busy={busy === id}
+            disabled={pending !== null}
+            onClick={() => void pick(id)}
+            className={`flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ${
+              id === activeMode ? 'bg-signal/10 text-ink' : 'text-dim hover:text-ink'
+            } ${pending !== null && pending !== id ? 'opacity-50' : ''} ${
+              i !== modes.length - 1 ? 'border-r border-hair' : ''
+            }`}
+          >
+            {busy === id && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
+            {MODES[id].label}
+          </button>
+        ))}
+      </div>
+      {status && (
+        <span role="status" className="truncate text-xs text-mute">
+          {status}
+        </span>
+      )}
     </div>
   )
 }
