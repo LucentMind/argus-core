@@ -1516,7 +1516,8 @@ function registerIpc(): void {
     extractors,
     emitProgress: (p) => broadcast(IPC.jiraAttachmentProgress, p),
     evidenceChanged: evidenceChangedB,
-    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
+    parsing: (slug, id, active) => broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active }),
+    resolvePrompt
   })
 
   // Typed-result boundary: AtlassianError → { ok: false, code }, auth errors also
