@@ -19,6 +19,7 @@ import { SettingsService } from './services/settings'
 import { devToolsEnabled } from './services/prompts/gate'
 import { PromptStore } from './services/prompts/store'
 import { assertDevTools } from './services/prompts/ipcGate'
+import { overrideBootWarnings } from './services/prompts/bootWarnings'
 import { buildPromptPreview } from './services/prompts/preview'
 import type { PromptCatalogPayload, PromptPreview } from '../shared/promptsIpc'
 import { SecretStore } from './services/secrets'
@@ -342,16 +343,14 @@ function registerIpc(): void {
   const resolvePrompt = promptStore.resolveFn()
 
   // GUARD 2. A terminal-only session — run the app, reproduce something, read stdout — never
-  // opens Settings, so the banner cannot reach it. This is the only guard that does.
-  const bootOverrides = promptStore.activeOverrideIds()
-  if (bootOverrides.length > 0)
-    console.warn(
-      `[prompts] ${bootOverrides.length} prompt override(s) ACTIVE — the agent is not running on built-in prompts: ${bootOverrides.join(', ')}`
-    )
-  if (promptStore.loadError)
-    console.warn(
-      `[prompts] override file could not be parsed, using defaults: ${promptStore.loadError}`
-    )
+  // opens Settings, so the banner cannot reach it. This is the only guard that does. The message
+  // text itself lives in bootWarnings.ts, which is unit-tested — this file cannot be, since
+  // nothing here calls `registerIpc()` in a test.
+  for (const w of overrideBootWarnings({
+    ids: promptStore.activeOverrideIds(),
+    loadError: promptStore.loadError
+  }))
+    console.warn(w)
 
   const settingsService = new SettingsService(argusHome, {
     resolvedTools: () => binariesService.settingsRows(),
