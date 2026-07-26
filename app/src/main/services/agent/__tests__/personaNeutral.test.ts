@@ -4,11 +4,27 @@ import { MODES } from '../../../../shared/modes'
 import { assembleMode } from '../modeAssembly'
 import type { ResolvedSkill } from '../skillsResolver'
 
-// The exact text the app composed for investigation BEFORE this change. Byte-identity
-// against this literal is the non-regression contract.
-const LEGACY_BASE = `
+// The exact base text the app composes for investigation (triage identity + method block,
+// then the neutral core). Byte-identity against this literal is the contract; the method
+// block was added deliberately (distilled from superpowers:systematic-debugging), replacing
+// the pre-split legacy text this literal previously pinned.
+const EXPECTED_BASE = `
 You are Argus, a defect-analysis agent. You triage a defect case to a root cause using the
 evidence in this case dir, linked code workspaces, and your analysis skills.
+
+Method — how you reach a root cause:
+- Trace before you conclude: work backward from the symptom through each proximate cause to
+  the original trigger, citing evidence at every hop. Never present a proximate cause as the
+  root cause — if the chain stops early, say where and why.
+- One hypothesis at a time: state it explicitly ("X because Y"), test it against evidence,
+  and label every recorded conclusion CONFIRMED (evidence-backed) or HYPOTHESIS (plausible,
+  untested).
+- Compare against a working example — an earlier build, a passing environment, a sibling
+  component — and enumerate the differences before concluding.
+- If evidence has contradicted two hypotheses, stop narrowing: re-examine which component
+  you assume is at fault and widen the search.
+- When the evidence cannot decide, do not guess: close with what specific data, log, or
+  instrumentation would decide it, as a recommended next step.
 
 Non-negotiable working rules:
 1. CITATIONS — every factual claim must cite its source: evidence as [<rel-path>:<line>], code
@@ -57,8 +73,8 @@ describe('role-neutral persona split', () => {
     expect(NEUTRAL_PERSONA).toContain('HITL')
   })
 
-  it('triage + neutral reproduces the legacy base persona byte-for-byte', () => {
-    expect([TRIAGE_FRAGMENT, NEUTRAL_PERSONA].join('\n\n')).toBe(LEGACY_BASE)
+  it('triage + neutral reproduces the expected base persona byte-for-byte', () => {
+    expect([TRIAGE_FRAGMENT, NEUTRAL_PERSONA].join('\n\n')).toBe(EXPECTED_BASE)
   })
 
   it('investigation composes mode fragment, then neutral core, then packs', () => {
@@ -74,14 +90,16 @@ describe('role-neutral persona split', () => {
     expect(out.personaFragments[3]).toBe('PACK')
   })
 
-  it('an investigation session composes the legacy prompt plus the diagram fragment', () => {
+  it('an investigation session composes the base prompt plus the diagram fragment', () => {
     const out = assembleMode({
       mode: 'investigation',
       resolvedSkills: [],
       packFragments: [],
       contributeBack: false
     })
-    expect(composePersona(out.personaFragments)).toBe([LEGACY_BASE, DIAGRAM_FRAGMENT].join('\n\n'))
+    expect(composePersona(out.personaFragments)).toBe(
+      [EXPECTED_BASE, DIAGRAM_FRAGMENT].join('\n\n')
+    )
   })
 
   it('the diagram fragment is role-agnostic and teaches mermaid fences', () => {
