@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, act, waitForElementToBeRemoved } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChatPane } from '../ChatPane'
 import { agentStore } from '../../lib/agentStore'
 import { uiStore } from '../../lib/uiStore'
@@ -234,6 +234,146 @@ describe('ChatPane', () => {
     const target = container.querySelector('[data-item-index="2"]')!
     expect(scrolled[scrolled.length - 1]).toBe(target)
     expect(onFocusConsumed).toHaveBeenCalled()
+  })
+
+  // Opening a case/chat hydrates the transcript asynchronously: the pane paints
+  // empty at scrollTop 0 and only then gets its items. Animating that first jump
+  // made every open visibly scroll from the top through the whole transcript.
+  describe('bottom anchoring', () => {
+    const scrollBehaviors: (string | undefined)[] = []
+    let originalScrollIntoView: typeof Element.prototype.scrollIntoView
+
+    beforeEach(() => {
+      scrollBehaviors.length = 0
+      originalScrollIntoView = Element.prototype.scrollIntoView
+      Element.prototype.scrollIntoView = function (arg?: boolean | ScrollIntoViewOptions) {
+        scrollBehaviors.push(typeof arg === 'object' ? arg.behavior : undefined)
+      }
+    })
+    afterEach(() => {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    })
+
+    const last = (): string | undefined => scrollBehaviors[scrollBehaviors.length - 1]
+
+    it('jumps a freshly opened chat to the bottom instantly, then animates new messages', () => {
+      const slug = 'NAV-SCROLL-OPEN'
+      const at = (type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, type, payload, turnId: 4 }) as AgentEvent
+      render(<ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      act(() => {
+        agentStore.hydrate(slug, 1, [
+          at('turn.started', { userText: 'why did the ingest stall?' }),
+          at('assistant.message', { text: 'the queue drained at 03:12' })
+        ] as AgentEvent[])
+      })
+      expect(scrollBehaviors).toHaveLength(1)
+      expect(last()).toBe('auto')
+
+      // a reply arriving while the user is already watching still animates
+      act(() => {
+        agentStore.apply(at('assistant.message', { text: 'and here is why' }))
+      })
+      expect(last()).toBe('smooth')
+    })
+
+    // A mermaid fence mounts as its raw source and swaps in a taller SVG 150ms
+    // later, so the transcript grows *after* the anchor has run and the chat
+    // ends up scrolled short of the end. Re-anchoring on content resize is what
+    // keeps it at the bottom; scrolling up must switch that off.
+    describe('content settling after the anchor', () => {
+      let fireResize: () => void
+      let observed: Element[]
+
+      beforeEach(() => {
+        observed = []
+        fireResize = () => undefined
+        vi.stubGlobal(
+          'ResizeObserver',
+          class {
+            constructor(cb: () => void) {
+              fireResize = cb
+            }
+            observe(el: Element): void {
+              observed.push(el)
+            }
+            disconnect(): void {
+              observed = []
+            }
+          }
+        )
+      })
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      /** jsdom has no layout, so drive the scroll geometry by hand */
+      function sizeScroller(el: HTMLElement, scrollHeight: number, scrollTop: number): void {
+        Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true })
+        Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true })
+        el.scrollTop = scrollTop
+      }
+
+      function renderPane(slug: string): HTMLElement {
+        const at = (type: string, payload: unknown): AgentEvent =>
+          ({ ...base, caseSlug: slug, type, payload, turnId: 1 }) as AgentEvent
+        agentStore.hydrate(slug, 1, [
+          at('turn.started', { userText: 'draw me the ingest path' }),
+          at('assistant.message', { text: '```mermaid\ngraph TD;A-->B;\n```' })
+        ] as AgentEvent[])
+        const { container } = render(
+          <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+        )
+        return container.querySelector<HTMLElement>('.overflow-y-auto')!
+      }
+
+      it('re-anchors when the transcript grows after the initial anchor', () => {
+        const scroller = renderPane('NAV-SETTLE')
+        expect(observed).toHaveLength(1)
+        // anchored at the bottom of the pre-render height...
+        sizeScroller(scroller, 500, 200)
+        fireResize()
+        expect(scroller.scrollTop).toBe(500)
+        // ...and again once the diagram swaps in and the transcript gets taller
+        sizeScroller(scroller, 900, 500)
+        fireResize()
+        expect(scroller.scrollTop).toBe(900)
+      })
+
+      it('leaves the view alone once the user has scrolled up to read', () => {
+        const scroller = renderPane('NAV-SETTLE-READ')
+        sizeScroller(scroller, 500, 40)
+        fireEvent.scroll(scroller)
+        // the diagram finishes rendering while the user is reading history
+        sizeScroller(scroller, 900, 40)
+        fireResize()
+        expect(scroller.scrollTop).toBe(40)
+      })
+    })
+
+    // The scroll container is not remounted per session, so an anchor keyed on
+    // item counts alone leaves an equal-length chat sitting at the previous
+    // chat's scrollTop.
+    it('re-anchors when switching to a chat with the same number of items', () => {
+      const slug = 'NAV-SCROLL-SWITCH'
+      const at = (sessionId: number, type: string, payload: unknown): AgentEvent =>
+        ({ ...base, caseSlug: slug, sessionId, type, payload, turnId: 1 }) as AgentEvent
+      agentStore.hydrate(slug, 1, [
+        at(1, 'turn.started', { userText: 'first chat' }),
+        at(1, 'assistant.message', { text: 'first answer' })
+      ] as AgentEvent[])
+      agentStore.hydrate(slug, 2, [
+        at(2, 'turn.started', { userText: 'second chat' }),
+        at(2, 'assistant.message', { text: 'second answer' })
+      ] as AgentEvent[])
+      const { rerender } = render(
+        <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+      )
+      expect(last()).toBe('auto')
+      rerender(<ChatPane slug={slug} sessionId={2} onSwitchSession={vi.fn()} onCite={vi.fn()} />)
+      expect(scrollBehaviors).toHaveLength(2)
+      expect(last()).toBe('auto')
+    })
   })
 
   it('opens the find overlay on Ctrl+F, rings matches, and refocuses composer on close', () => {
