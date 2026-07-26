@@ -37,6 +37,8 @@ const REMOVE_MESSAGE =
 const DISTILL_NOTE =
   'It is also your distillation provider — distillation will revert to auto-resolve.'
 
+const LAST_PROVIDER_NOTE = "Your only provider can't be removed."
+
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -154,6 +156,9 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
   const effectiveDefaultId = defaultInstanceId(payload.settings)
 
   const entries = Object.entries(a.providerInstances)
+  // Deleting the last instance would persist an empty map: providerInstances only receives its
+  // seed when the key is ABSENT, so `{}` is a durable zero-provider state, not a healed one.
+  const canRemove = entries.length > 1
   return (
     <>
       <SettingsSection
@@ -220,9 +225,13 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
                 onChange={(k, v) => patchInstance(id, { config: { [k]: v } })}
               />
               <ProviderModels settings={payload.settings} instanceId={id} />
-              <SettingRow label="Remove provider" description={REMOVE_MESSAGE}>
+              <SettingRow
+                label="Remove provider"
+                description={canRemove ? REMOVE_MESSAGE : LAST_PROVIDER_NOTE}
+              >
                 <Btn
                   variant="danger"
+                  disabled={!canRemove}
                   aria-label={`Remove ${label}`}
                   onClick={() => removeInstance(id, label)}
                 >
