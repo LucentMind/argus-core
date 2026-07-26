@@ -124,4 +124,49 @@ export class PromptStore {
       loadError: this.loadErr
     }
   }
+
+  /** Shared refusal for every write path. */
+  private assertWritable(id: string): void {
+    if (!this.deps.devTools || !this.file)
+      throw new Error('dev tools are not enabled (set ARGUS_DEV_TOOLS=1)')
+    const entry = entryById(id)
+    if (!entry) throw new Error(`unknown prompt id: ${id}`)
+    // external (and any future pack-owned) text is displayed because it reaches the model, but
+    // its bytes are not ours to invent.
+    if (!entry.editable) throw new Error(`prompt "${id}" is read-only`)
+  }
+
+  /** An empty string is a real override — "what happens with no citation rules?" is a question
+   *  this instrument exists to answer. Use `clearOverride` to go back to the default. */
+  setOverride(id: string, text: string): void {
+    this.assertWritable(id)
+    this.overrides = { ...this.overrides, [id]: text }
+    this.persist()
+  }
+
+  clearOverride(id: string): void {
+    this.assertWritable(id)
+    // Deliberately not an error when absent: "clear all" and a double-click on Reset both land
+    // here, and turning a harmless repeat into a dialog helps no one.
+    const rest = { ...this.overrides }
+    delete rest[id]
+    this.overrides = rest
+    this.persist()
+  }
+
+  clearAll(): void {
+    if (!this.deps.devTools || !this.file)
+      throw new Error('dev tools are not enabled (set ARGUS_DEV_TOOLS=1)')
+    this.overrides = {}
+    this.persist()
+  }
+
+  private persist(): void {
+    // JsonFileStore.write is temp + rename, so a crash cannot leave a half-written file that
+    // would load as "no overrides" and silently discard the edit.
+    this.file!.write(this.overrides)
+    // The on-disk state is now known-good, so a stale parse error from boot no longer describes
+    // reality.
+    this.loadErr = null
+  }
 }
