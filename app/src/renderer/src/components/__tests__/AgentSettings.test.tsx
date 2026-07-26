@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AgentSettings } from '../settings/AgentSettings'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
 import type { ProviderStatus } from '../../../../shared/types'
+import { confirm } from '../../lib/confirmStore'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   const p: SettingsPayload = {
@@ -32,6 +38,7 @@ function status(over?: Partial<ProviderStatus>): ProviderStatus {
 
 let statuses: ProviderStatus[]
 beforeEach(() => {
+  vi.mocked(confirm).mockResolvedValue(true)
   settingsStore.reset()
   statuses = [status()]
   window.argus = {
@@ -308,5 +315,31 @@ describe('AgentSettings session defaults', () => {
     const providers = (await screen.findByText('Providers')).closest('section')!
     expect(within(providers).getByTestId('provider-label-claude-default')).toBeTruthy()
     expect(within(providers).queryByLabelText('Max concurrent sessions')).toBeNull()
+  })
+})
+
+describe('AgentSettings remove provider', () => {
+  it('removing a provider deletes the instance and its model preferences', async () => {
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Expand Copilot settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Copilot' }))
+    expect(confirm).toHaveBeenCalled()
+    await waitFor(() =>
+      expect(window.argus.settings.patch).toHaveBeenCalledWith({
+        agent: {
+          providerInstances: { 'copilot-1': null },
+          modelPreferences: { 'copilot-1': null }
+        }
+      })
+    )
+  })
+
+  it('cancelling the confirm dialog patches nothing', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    render(<AgentSettings payload={payload(withCopilot)} />)
+    fireEvent.click(await screen.findByLabelText('Expand Copilot settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Copilot' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
   })
 })
