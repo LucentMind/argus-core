@@ -135,6 +135,11 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
   })
 }
 
+/** Fixed prose of the system-prompt memory block; the index itself is appended after it.
+ *  Registered as `session.memory-header`. */
+export const MEMORY_HEADER =
+  '## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.'
+
 export class CaseSession {
   readonly sessionId: number
   readonly mcpFingerprint: string
@@ -164,9 +169,7 @@ export class CaseSession {
     const dir = caseDir(deps.argusHome, deps.caseSlug)
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
     const memIndex = filteredIndex(deps.argusHome, access)
-    const memoryAppend = memIndex.trim()
-      ? `\n\n## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.\n\n${memIndex.trim()}`
-      : ''
+    const memoryAppend = memIndex.trim() ? `\n\n${MEMORY_HEADER}\n\n${memIndex.trim()}` : ''
     // Mode-scoped skill advertising (assembleMode via registry.ts). The driver allowlist
     // (deps.enabledSkills below) is never filtered by this — a skill missing from the index
     // is still loadable. buildSkillIndex already supplies its own lead line, so no extra

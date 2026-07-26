@@ -11,6 +11,9 @@ function truncateDescription(description: string): string {
     : description
 }
 
+/** Lead line of the prompt-visible skill index. Registered as `session.skill-index-lead`. */
+export const SKILL_INDEX_LEAD = 'Skills most relevant to this mode:'
+
 /**
  * The prompt-visible index of skills relevant to the active mode.
  *
@@ -27,5 +30,5 @@ export function buildSkillIndex(skills: ResolvedSkill[], role: ModeRole): string
   const lines = relevant.map((s) =>
     s.description ? `- ${s.name}: ${truncateDescription(s.description)}` : `- ${s.name}`
   )
-  return [`Skills most relevant to this mode:`, ...lines].join('\n')
+  return [SKILL_INDEX_LEAD, ...lines].join('\n')
 }
