@@ -1182,14 +1182,21 @@ function registerIpc(): void {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle(IPC.workspacesLink, (_e, caseSlug: string, repoPath: string) =>
-    linkWorkspace(db, argusHome, caseSlug, repoPath)
-  )
+  // Both link paths broadcast: linking/unlinking a repo changes which MODES are available
+  // (review needs one), and the mode switcher caches that list — without a signal it keeps
+  // offering a Review button the handler below then rejects. Same broadcast the repo chips
+  // already consume.
+  ipcMain.handle(IPC.workspacesLink, async (_e, caseSlug: string, repoPath: string) => {
+    const info = await linkWorkspace(db, argusHome, caseSlug, repoPath)
+    broadcast(IPC.workspacesChanged, caseSlug)
+    return info
+  })
   ipcMain.handle(IPC.workspacesUnlink, async (_e, caseSlug: string, repoPath: string) => {
     await unlinkWorkspace(db, argusHome, caseSlug, repoPath)
     // Unlinking the last repo takes review mode away; a case left sitting in it would be
     // stranded with an unclickable switcher.
     await demoteIfModeUnavailable(db, argusHome, caseSlug, newSessionProvider())
+    broadcast(IPC.workspacesChanged, caseSlug)
   })
   ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) =>
     listWorkspaces(db, argusHome, caseSlug)
