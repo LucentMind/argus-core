@@ -63,27 +63,47 @@ function literalsIn(rawSrc: string): string[] {
 const registered = PROMPT_ENTRIES.filter((e) => e.category !== 'external').map((e) => e.default())
 const deferredFiles = new Set(DEFERRED_PROMPTS.map((d) => d.file))
 
+/**
+ * Scan every SCANNED file once and bucket each qualifying literal as registered, deferred, or
+ * unexplained. Both tests below read off this single pass — the failure list and the per-file
+ * tally can never come from different scans (e.g. one filtering differently than the other).
+ */
+function scanAll(): { unexplained: string[]; perFile: Map<string, number> } {
+  const unexplained: string[] = []
+  const perFile = new Map<string, number>()
+  for (const f of SCANNED) {
+    const src = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8')
+    for (const lit of literalsIn(src)) {
+      // Registered: some entry's default contains (or equals) this literal. `contains`
+      // rather than `equals` because an extracted constant may be a slice of the literal
+      // the scanner sees (escapes, interpolation).
+      const isRegistered = registered.some(
+        (r) => r === lit || r.includes(lit.slice(0, 60)) || lit.includes(r.slice(0, 60))
+      )
+      if (isRegistered) continue
+      if (deferredFiles.has(f)) {
+        perFile.set(f, (perFile.get(f) ?? 0) + 1)
+        continue
+      }
+      unexplained.push(`${f}: ${lit.replace(/\s+/g, ' ').slice(0, 90)}`)
+    }
+  }
+  return { unexplained, perFile }
+}
+
+/** file -> number of literals that are neither registered nor caught by the unexplained list
+ *  above (i.e. the deferred-file literals) — the scan's raw tally. */
+function perFileCounts(): Map<string, number> {
+  return scanAll().perFile
+}
+
 describe('prompt coverage', () => {
   it('every scanned file exists', () => {
     for (const f of SCANNED) expect(fs.existsSync(path.join(REPO_ROOT, f)), f).toBe(true)
   })
 
   it('every long model-facing literal is registered or explicitly deferred', () => {
-    const unexplained: string[] = []
-    for (const f of SCANNED) {
-      const src = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8')
-      for (const lit of literalsIn(src)) {
-        // Registered: some entry's default contains (or equals) this literal. `contains`
-        // rather than `equals` because an extracted constant may be a slice of the literal
-        // the scanner sees (escapes, interpolation).
-        const isRegistered = registered.some(
-          (r) => r === lit || r.includes(lit.slice(0, 60)) || lit.includes(r.slice(0, 60))
-        )
-        if (isRegistered) continue
-        if (deferredFiles.has(f)) continue
-        unexplained.push(`${f}: ${lit.replace(/\s+/g, ' ').slice(0, 90)}`)
-      }
-    }
+    const { unexplained } = scanAll()
     expect(unexplained, `unregistered model-facing text:\n${unexplained.join('\n')}`).toEqual([])
   })
 
@@ -100,5 +120,15 @@ describe('prompt coverage', () => {
     // so a file whose prompts are all registered must not also be deferred.
     const fullyRegistered = ['app/src/shared/modes.ts', 'app/src/main/services/agent/persona.ts']
     for (const f of fullyRegistered) expect(deferredFiles.has(f), f).toBe(false)
+  })
+
+  it('a deferred file contains exactly the number of unregistered literals it declares', () => {
+    const expected = new Map<string, number>()
+    for (const d of DEFERRED_PROMPTS) expected.set(d.file, (expected.get(d.file) ?? 0) + d.count)
+    const actual = perFileCounts()
+    for (const [file, want] of expected) {
+      const got = actual.get(file) ?? 0
+      expect(got, `${file}: declared ${want} unregistered literal(s), found ${got}`).toBe(want)
+    }
   })
 })
