@@ -341,6 +341,18 @@ function registerIpc(): void {
   const promptStore = new PromptStore({ devTools, argusHome })
   const resolvePrompt = promptStore.resolveFn()
 
+  // GUARD 2. A terminal-only session — run the app, reproduce something, read stdout — never
+  // opens Settings, so the banner cannot reach it. This is the only guard that does.
+  const bootOverrides = promptStore.activeOverrideIds()
+  if (bootOverrides.length > 0)
+    console.warn(
+      `[prompts] ${bootOverrides.length} prompt override(s) ACTIVE — the agent is not running on built-in prompts: ${bootOverrides.join(', ')}`
+    )
+  if (promptStore.loadError)
+    console.warn(
+      `[prompts] override file could not be parsed, using defaults: ${promptStore.loadError}`
+    )
+
   const settingsService = new SettingsService(argusHome, {
     resolvedTools: () => binariesService.settingsRows(),
     devTools
