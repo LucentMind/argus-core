@@ -48,6 +48,9 @@ export const IPC = {
   /** main → renderer broadcast: a case's workspace state changed (e.g. the agent
    *  materialized a worktree) — repo chips and repo snippets should refresh. */
   workspacesChanged: 'workspaces:changed',
+  prLink: 'pr:link',
+  prList: 'pr:list',
+  prUnlink: 'pr:unlink',
   skillsList: 'skills:list',
   skillsDeleteUser: 'skills:delete-user',
   skillsRead: 'skills:read',

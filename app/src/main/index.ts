@@ -114,8 +114,11 @@ import {
   linkWorkspace,
   unlinkWorkspace,
   listWorkspaces,
+  listStoredWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
+import { addBinding, listBindings, removeBinding } from './services/prBindings'
+import { parsePrRef, remoteToOwnerRepo } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
@@ -1165,6 +1168,33 @@ function registerIpc(): void {
   ipcMain.handle(IPC.workspacesList, (_e, caseSlug: string) =>
     listWorkspaces(db, argusHome, caseSlug)
   )
+  // — pull requests —
+  // Unlike the workspaces:* handlers above (a known gap), every pr:* handler validates
+  // the slug before it reaches the DB or the filesystem.
+  ipcMain.handle(IPC.prLink, (_e, caseSlug: string, input: string) => {
+    assertSlug(caseSlug)
+    const stored = listStoredWorkspaces(db, caseSlug)
+    const ref = parsePrRef(input, stored[0]?.remote ?? null)
+    if (!ref) throw new Error(`Not a pull request reference: ${input}`)
+    // Match the parsed owner/repo against the linked remotes so the binding knows which
+    // local clone to make its worktree from. null stays supported (manual linking of a
+    // PR in an unlinked repo) — the agent falls back to `gh pr diff`.
+    const repoPath =
+      stored.find((w) => {
+        const or = w.remote ? remoteToOwnerRepo(w.remote) : null
+        return or?.owner === ref.owner && or?.repo === ref.repo
+      })?.path ?? null
+    return addBinding(db, caseSlug, { ...ref, repoPath, source: 'manual' })
+  })
+  ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
+    assertSlug(caseSlug)
+    return listBindings(db, caseSlug)
+  })
+  ipcMain.handle(IPC.prUnlink, (_e, caseSlug: string, bindingId: number) => {
+    assertSlug(caseSlug)
+    return removeBinding(db, caseSlug, bindingId)
+  })
+
   ipcMain.handle(IPC.workspacesRefs, (_e, caseSlug: string) => {
     const cj = path.join(caseDir(argusHome, caseSlug), 'case.json')
     try {

@@ -22,3 +22,68 @@ export interface PrBinding {
 }
 
 export type NewPrBinding = Omit<PrBinding, 'id' | 'caseId' | 'detectedAt'>
+
+/** A PR identified well enough to bind it. */
+export interface PrRef {
+  owner: string
+  repo: string
+  number: number
+  url: string
+}
+
+const OWNER_REPO = '([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)'
+
+// git@github.com:owner/repo(.git) | https://github.com/owner/repo(.git) |
+// ssh://git@github.com/owner/repo — trailing slash and .git suffix both optional.
+const REMOTE_RE = new RegExp(
+  `^(?:git@|(?:https?|ssh|git)://(?:[^@/]+@)?)github\\.com[:/]${OWNER_REPO}(?:\\.git)?/?$`,
+  'i'
+)
+
+/** `owner`/`repo` for a GitHub remote url; null for any other host or junk. */
+export function remoteToOwnerRepo(remote: string): { owner: string; repo: string } | null {
+  const m = REMOTE_RE.exec(remote.trim())
+  return m ? { owner: m[1], repo: m[2] } : null
+}
+
+function canonicalUrl(owner: string, repo: string, number: number): string {
+  return `https://github.com/${owner}/${repo}/pull/${number}`
+}
+
+const PR_URL_RE = new RegExp(
+  `^(?:https?://)?(?:www\\.)?github\\.com/${OWNER_REPO}/pull/(\\d+)\\b`,
+  'i'
+)
+const OWNER_REPO_HASH_RE = new RegExp(`^${OWNER_REPO}#(\\d+)$`)
+const BARE_NUMBER_RE = /^#?(\d+)$/
+
+/**
+ * A PR url, `owner/repo#N`, or a bare `N` resolved against `fallbackRemote`. The returned
+ * `url` is always canonical so bindings dedupe regardless of how they were typed.
+ */
+export function parsePrRef(input: string, fallbackRemote?: string | null): PrRef | null {
+  const raw = input.trim()
+  if (!raw) return null
+
+  const url = PR_URL_RE.exec(raw)
+  if (url) {
+    const number = Number(url[3])
+    return { owner: url[1], repo: url[2], number, url: canonicalUrl(url[1], url[2], number) }
+  }
+
+  const hash = OWNER_REPO_HASH_RE.exec(raw)
+  if (hash) {
+    const number = Number(hash[3])
+    return { owner: hash[1], repo: hash[2], number, url: canonicalUrl(hash[1], hash[2], number) }
+  }
+
+  const bare = BARE_NUMBER_RE.exec(raw)
+  if (bare) {
+    const or = fallbackRemote ? remoteToOwnerRepo(fallbackRemote) : null
+    if (!or) return null
+    const number = Number(bare[1])
+    return { ...or, number, url: canonicalUrl(or.owner, or.repo, number) }
+  }
+
+  return null
+}
