@@ -400,4 +400,13 @@ describe('AgentSettings remove provider', () => {
       })
     )
   })
+
+  it('disables removal of the only provider, with the reason stated', async () => {
+    // The default payload has exactly one instance (claude-default).
+    render(<AgentSettings payload={payload()} />)
+    fireEvent.click(await screen.findByLabelText('Expand Claude settings'))
+    const btn = screen.getByRole('button', { name: 'Remove Claude' }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(screen.getByText("Your only provider can't be removed.")).toBeTruthy()
+  })
 })
