@@ -87,6 +87,8 @@ export interface AgentServiceDeps {
     cmd: string,
     args: unknown[]
   ) => Promise<unknown>
+  /** Prompt-registry resolver; forwarded to assembleMode and each CaseSession. */
+  resolvePrompt?: (id: string) => string
 }
 
 export class AgentService {
@@ -208,7 +210,8 @@ export class AgentService {
       mode,
       resolvedSkills,
       packFragments: this.deps.personaFragments?.() ?? [],
-      contributeBack
+      contributeBack,
+      resolve: this.deps.resolvePrompt
     })
 
     const session = new CaseSession({
@@ -226,6 +229,7 @@ export class AgentService {
       personaFragments: assembled.personaFragments,
       skillIndex: assembled.skillIndex,
       packCliNames: this.deps.packCliNames?.() ?? [],
+      resolvePrompt: this.deps.resolvePrompt,
       emit: this.deps.onEvent,
       driver,
       resumeCursor: cursor,
