@@ -585,6 +585,39 @@ describe('CaseWorkspace mode switching', () => {
     expect(window.argus.pr.link).not.toHaveBeenCalled()
   })
 
+  // Re-review fix: `handlePrsFound` (the "Find PRs" button) got the case-switch guard above,
+  // but `handleModeChanged`'s auto-search — entering review mode with nothing bound — is a
+  // SECOND path that opens the same dialog and had the same defect, worse: it never called
+  // `setPrPickerCurrent` at all, so it always rendered the dialog with `currentBinding: null`
+  // even with no case switch involved — masked only because `bound.length` had already been
+  // checked to be zero for the same slug moments earlier. Both paths now funnel through the
+  // shared, guarded `openPrPicker`. Driven through the ModeSwitcher's Review button rather
+  // than "Find PRs", mirroring the two tests above.
+  it('drops a review-mode auto-search result that resolves after switching to a different case', async () => {
+    stubTwoModeSessions()
+    let resolveSearch!: (r: unknown) => void
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      () => new Promise((r) => (resolveSearch = r))
+    )
+    // default pr.list already resolves [] for any slug — matches "nothing bound yet" for A
+    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+
+    // switch case BEFORE case A's in-flight pr.search resolves — case B (per the scenario
+    // this pins) has a REAL pull request bound; that's not asserted directly here (no chip
+    // rendering is under test), but it's why a no-confirmation link would be so much worse
+    // on this path than on the "Find PRs" one, which at least always looked currentBinding
+    // up first.
+    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+
+    resolveSearch({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+    expect(window.argus.pr.link).not.toHaveBeenCalled()
+  })
+
   // Re-review fix: `handlePrsFound` used to be `void`-ed, so ReposSection's
   // `.then(onPrsFound).finally(() => setSearching(false))` did not actually wait for it —
   // `onPrsFound` returned synchronously (`void`), so `finally` ran as soon as `pr.search`
