@@ -202,8 +202,9 @@ export class AgentService {
     // session falls back to the thunk, which picks up the live default provider — so
     // switching the default in settings still takes effect for those on the next construct.
     // `driverForSession` is the shared rule (reviewFraming.ts) — the review-run composer
-    // resolves the same session's driver through the identical call, so the two can never
-    // disagree about which driver a session is actually running on.
+    // resolves the same session's driver through the identical call, so the two answer "which
+    // driver is this session actually on" the same way instead of each keeping its own copy of
+    // the fallback logic.
     const driver = driverForSession(
       {
         db: this.deps.db,
