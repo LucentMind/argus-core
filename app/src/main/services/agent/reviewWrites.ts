@@ -72,7 +72,7 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
   },
   'review_write.unknown-pr': {
     title: 'review writes — named pull request is not bound',
-    text: '{pr} is not one of the pull requests bound to this case ({bound}). Pass pr as owner/repo#number for a pull request that is actually bound here.',
+    text: '{pr} is not the pull request bound to this case ({bound}). Pass pr as owner/repo#number for the pull request that is actually bound here.',
     placeholders: ['pr', 'bound']
   },
   'review_write.unsafe-path': {
@@ -115,6 +115,16 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
   'review_write.comment-not-inline': {
     title: 'review writes — posted as a PR-level comment',
     text: 'Line {line} of {path} is not part of the diff, so this was posted as a PR-level comment instead: {url}',
+    placeholders: ['line', 'path', 'url']
+  },
+  'review_write.comment-ok-not-recorded': {
+    title: 'review writes — comment posted, local record failed',
+    text: 'Comment posted: {url}\n\nThis could not be recorded locally (a bug in Argus, not in the comment). The comment is already live — do not call post_review_comment again for this finding, it would duplicate it.',
+    placeholders: ['url']
+  },
+  'review_write.comment-not-inline-not-recorded': {
+    title: 'review writes — posted as a PR-level comment, local record failed',
+    text: 'Line {line} of {path} is not part of the diff, so this was posted as a PR-level comment instead: {url}\n\nThis could not be recorded locally (a bug in Argus, not in the comment). The comment is already live — do not call post_review_comment again for this finding, it would duplicate it.',
     placeholders: ['line', 'path', 'url']
   },
   'review_write.push-ok': {
@@ -291,10 +301,12 @@ export function resolveCommentTarget(
  * tool's `input`, so it lands in `argsPreview` for free) and is a CHECK, not just a display —
  * `resolveCommentTarget` throws `unknown-pr` if it names a PR that is not actually bound here.
  *
- * `recordFindingWrite` deliberately sits OUTSIDE the try/catch below: it runs only after a `gh`
- * call has already succeeded, so a failure there (e.g. a SQLite error) must propagate as itself,
- * not get reclassified as a `gh` failure via `ghErrorText` — that used to tell the model the post
- * had failed while the comment was actually live on the PR, and a retry would duplicate it.
+ * `recordFindingWrite` is wrapped in its OWN try/catch, separate from the `gh` call above: by
+ * the time it runs, the comment is already live on the PR, so a failure here (e.g. a SQLite
+ * error) must never be reported as a write failure — that used to tell the model the post had
+ * failed while the comment was actually live, and a retry would duplicate it. Instead the write
+ * still returns success (comment-ok / comment-not-inline) with a note that the local record
+ * failed, so the model neither retries nor believes nothing happened.
  */
 export async function postReviewComment(
   deps: ReviewWriteDeps,
@@ -328,7 +340,20 @@ export async function postReviewComment(
     })
   }
 
-  recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
+  try {
+    recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
+  } catch (err) {
+    console.warn(
+      `[review] recordFindingWrite failed after a live post for finding ${input.findingId}: ${(err as Error).message}`
+    )
+    return inline
+      ? wf(deps, 'review_write.comment-ok-not-recorded', { url })
+      : wf(deps, 'review_write.comment-not-inline-not-recorded', {
+          line: String(target.line),
+          path: target.repoRelPath,
+          url
+        })
+  }
   return inline
     ? wf(deps, 'review_write.comment-ok', { url })
     : wf(deps, 'review_write.comment-not-inline', {

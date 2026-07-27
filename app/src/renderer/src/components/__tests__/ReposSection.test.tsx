@@ -3,8 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ReposSection } from '../ReposSection'
+import { confirm } from '../../lib/confirmStore'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 beforeEach(() => {
+  vi.mocked(confirm).mockReset().mockResolvedValue(true)
   window.argus = {
     workspaces: {
       list: vi.fn(async () => [
@@ -79,6 +86,51 @@ describe('ReposSection pull requests', () => {
     await waitFor(() =>
       expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#16315')
     )
+    // no PR was bound yet, so replacing nothing needs no confirmation
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  // addBinding replaces rather than adds: linking a second PR over an already-bound one
+  // silently retargets any existing findings' comment/push actions unless the user is warned.
+  describe('replacing an already-bound PR', () => {
+    async function openDraftAndSubmit(value: string): Promise<void> {
+      render(<ReposSection slug="C-1" />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+      const box = screen.getByPlaceholderText(/pr url/i)
+      fireEvent.change(box, { target: { value } })
+      fireEvent.submit(box)
+    }
+
+    it('raises a confirm naming the current and new pull request', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: expect.stringContaining('JiaweiHan88/hivemindtest#16315')
+        })
+      )
+      expect(vi.mocked(confirm).mock.calls[0][0].title).toContain('JiaweiHan88/hivemindtest#99')
+    })
+
+    it('declining leaves the binding untouched and calls no IPC', async () => {
+      vi.mocked(confirm).mockResolvedValue(false)
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      // give any (incorrect) fire-and-forget link() call a chance to have happened
+      await new Promise((r) => setTimeout(r, 0))
+      expect(prApi().link).not.toHaveBeenCalled()
+    })
+
+    it('accepting proceeds to link the new pull request', async () => {
+      vi.mocked(confirm).mockResolvedValue(true)
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() =>
+        expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#99')
+      )
+    })
   })
 
   // The only way to reopen the picker once PRs are bound, and the recovery path for a

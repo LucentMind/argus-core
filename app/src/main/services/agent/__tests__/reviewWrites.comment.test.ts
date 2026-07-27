@@ -154,7 +154,13 @@ describe('postReviewComment', () => {
     ).rejects.toThrow(/empty/i)
   })
 
-  it('a recordFindingWrite failure after a successful post propagates as itself, not a gh retry/duplicate', async () => {
+  it('a recordFindingWrite failure after a successful post still reports comment-ok, not a failure', async () => {
+    // Was: "propagates as itself, not a gh retry/duplicate" — a recordFindingWrite failure used
+    // to reject postReviewComment entirely, which told the model the write had failed while the
+    // comment was already live on the PR. A retry from the model would then duplicate it. The
+    // fix (wave 5) wraps the recordFindingWrite call so this case still returns success with a
+    // note instead of throwing — the model is told the comment posted AND that it could not be
+    // recorded locally, so it neither retries nor believes nothing happened.
     const ghCalls: string[][] = []
     const gh: Runner = async (_cmd, args) => {
       ghCalls.push(args)
@@ -162,17 +168,22 @@ describe('postReviewComment', () => {
       return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
     }
     const id = seedFinding()
-    // The message is deliberately gh-flavored ("part of the diff") to pin the pre-fix bug: with
-    // recordFindingWrite still inside the try/catch, this message satisfies isLineNotInDiff and
-    // the catch block would retry as a SECOND gh call (postIssueComment) — an actual duplicate
-    // post — even though it was the DB write, not the gh post, that failed. Hoisting the write
-    // out of the try means this error now just propagates; no second gh call happens.
+    // The message is deliberately gh-flavored ("part of the diff") to pin the OLD bug: with
+    // recordFindingWrite still inside the original try/catch, this message would satisfy
+    // isLineNotInDiff and the catch block would retry as a SECOND gh call (postIssueComment) —
+    // an actual duplicate post. It now resolves instead of throwing, so no second gh call
+    // happens either way.
     const failingDb = dbThatFailsFindingUpdate(db, 'db write failed: part of the diff')
-    await expect(
-      postReviewComment({ db: failingDb, argusHome: home, gh }, 'c1', { findingId: id, body: 'x' })
-    ).rejects.toThrow(/db write failed/i)
+    const out = await postReviewComment({ db: failingDb, argusHome: home, gh }, 'c1', {
+      findingId: id,
+      body: 'x'
+    })
+    expect(out).toContain('https://github.com/acme/widget/pull/42#discussion_r1')
+    expect(out).toMatch(/could not be recorded locally/i)
     // Exactly the head lookup + the one inline post — no fallback issue-comment call.
     expect(ghCalls).toHaveLength(2)
+    // the finding row is untouched — the whole point is that the DB write never landed
+    expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.commentUrl).toBeNull()
   })
 
   it('refuses a finding id from another case with the unknown-finding text', async () => {

@@ -53,7 +53,12 @@ describe('PrPickerDialog', () => {
     expect(screen.getByRole('radio', { name: /16395/ })).not.toBeChecked()
   })
 
-  it('falls back to selecting the first candidate when every hit is a backport', () => {
+  it('selects nothing and disables Link selected when every hit is a backport', async () => {
+    // This is the one scenario the whole one-PR-per-case branch exists for: a PR and its
+    // backport turning up together. Pre-selecting `candidates[0]` here (the old "never
+    // confirmable-but-empty" fallback) would silently default the picker onto a backport —
+    // fixed by selecting nothing and disabling confirm instead, which meets the original
+    // worry (nothing can be confirmed while empty) without ever choosing a backport.
     render(
       <PrPickerDialog
         slug="c1"
@@ -78,9 +83,16 @@ describe('PrPickerDialog', () => {
         onClose={vi.fn()}
       />
     )
-    // never confirmable-but-empty: something is selected even when nothing was preselected
-    expect(screen.getByRole('radio', { name: /16315/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /16315/ })).not.toBeChecked()
     expect(screen.getByRole('radio', { name: /16395/ })).not.toBeChecked()
+    expect(screen.getByRole('button', { name: /link selected/i })).toBeDisabled()
+
+    // picking one enables it again, and links exactly that candidate
+    await userEvent.click(screen.getByRole('radio', { name: /16395/ }))
+    expect(screen.getByRole('button', { name: /link selected/i })).not.toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: /link selected/i }))
+    await waitFor(() => expect(link).toHaveBeenCalledTimes(1))
+    expect(link).toHaveBeenCalledWith('c1', expect.objectContaining({ number: 16395 }))
   })
 
   it('only one candidate is selectable at a time', async () => {

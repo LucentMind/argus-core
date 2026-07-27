@@ -110,7 +110,11 @@ export interface PrCandidate {
   createdAt: string
   /** Title matches the backport prefix — shown, but not pre-selected. */
   isBackport: boolean
-  /** Default checkbox state the picker renders. Never a binding decision on its own. */
+  /**
+   * Candidate for the picker's default RADIO selection (a case binds at most one PR, so
+   * only the first `preselected` hit is actually used — see PrPickerDialog's `defaultKey`).
+   * Never a binding decision on its own: a miss just costs the user one click.
+   */
   preselected: boolean
 }
 
@@ -144,9 +148,10 @@ export function classifyCandidates(raw: RawPrHit[]): PrCandidate[] {
         isDraft: h.isDraft,
         createdAt: h.createdAt,
         isBackport,
-        // Every non-backport is pre-selected: nothing in gh's available fields ranks
-        // relevance among them (recency is inverted by backports), so over-selecting
-        // something the user can uncheck beats omitting the PR they wanted.
+        // Every non-backport is marked preselected: nothing in gh's available fields ranks
+        // relevance among them (recency is inverted by backports). Only the FIRST
+        // `preselected` hit becomes the picker's radio default (a case binds at most one
+        // PR, so there is no "over-selection" to fall back on) — see PrPickerDialog.
         preselected: !isBackport
       }
     })

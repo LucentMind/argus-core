@@ -5,13 +5,15 @@ import type { PrCandidate, PrSearchResult } from '../../../shared/pr'
 
 const keyOf = (c: PrCandidate): string => `${c.owner}/${c.repo}#${c.number}`
 
-/** The candidate the dialog opens with selected: the first `preselected` hit, or — when
- *  every hit is a backport — the first candidate anyway, so the dialog is never
- *  confirmable-but-empty. */
+/** The candidate the dialog opens with selected: the first `preselected` hit, or nothing when
+ *  every hit is a backport. This is the one scenario the whole one-PR-per-case branch exists
+ *  for (a PR and its backport turning up together) — defaulting to `candidates[0]` here would
+ *  silently pre-select a backport. "Never confirmable-but-empty" is instead met by disabling
+ *  Link/confirm while nothing is selected (see the `disabled` prop below), not by picking
+ *  something. */
 function defaultKey(candidates: PrCandidate[]): string | null {
   const pre = candidates.find((c) => c.preselected)
-  const first = pre ?? candidates[0]
-  return first ? keyOf(first) : null
+  return pre ? keyOf(pre) : null
 }
 
 /**
@@ -111,7 +113,11 @@ export function PrPickerDialog({
           })}
         </div>
         <div className="flex items-center gap-2">
-          <Btn variant="primary" disabled={busy} onClick={() => void confirm()}>
+          <Btn
+            variant="primary"
+            disabled={busy || selected === null}
+            onClick={() => void confirm()}
+          >
             Link selected
           </Btn>
           <Btn variant="ghost" disabled={busy} onClick={onClose}>

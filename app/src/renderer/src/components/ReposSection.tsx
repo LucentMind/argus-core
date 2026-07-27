@@ -7,6 +7,7 @@ import { Chip, IconBtn, SectionLabel } from './ui'
 import { RepoGraphControl } from './RepoGraphControl'
 import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
+import { confirm } from '../lib/confirmStore'
 
 /** Linked repos as evidence: the repo chips (moved here from the header), with
  *  link/unlink and the graph control. Individual files are not listed — code is
@@ -63,6 +64,21 @@ export function ReposSection({
   async function linkPr(input: string): Promise<void> {
     const value = input.trim()
     if (!value) return
+    // A case has at most one bound PR (addBinding replaces, never adds); findings carry no PR
+    // reference of their own — they resolve against whatever is bound NOW. Swapping the binding
+    // out from under existing findings would silently retarget any "comment"/"push" action on
+    // them to the new PR, so a replacement (as opposed to the first link) is confirmed.
+    const current = prs[0]
+    if (current) {
+      const ok = await confirm({
+        title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
+        message:
+          'This case already has a pull request linked. Findings already recorded here will be attributed to the new pull request — any "comment" or "push" action on them will target it, not the one they were found against.',
+        confirmLabel: 'Replace',
+        danger: true
+      })
+      if (!ok) return
+    }
     try {
       await window.argus.pr.link(slug, value)
       setPrDraft(null)
