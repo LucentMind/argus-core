@@ -224,6 +224,7 @@ describe('buildCopilotTools', () => {
     ({
       caseDir: tmp,
       additionalDirectories: [],
+      subagents: [],
       permissionMode: 'default',
       systemAppend: '',
       extraMcpServers: {},
@@ -343,6 +344,7 @@ function baseCtx(over: Partial<DriverSessionContext> = {}): DriverSessionContext
     caseDir: '/tmp/case',
     additionalDirectories: [],
     skills: [],
+    subagents: [],
     permissionMode: 'default',
     systemAppend: '',
     extraMcpServers: {},

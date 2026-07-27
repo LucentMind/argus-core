@@ -1,6 +1,10 @@
 import { MODES } from '../../../shared/modes'
+import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
+import { REVIEW_RUN_PROMPTS } from '../agent/reviewRun'
+import { REVIEW_ACTION_PROMPTS } from '../agent/reviewActions'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
 import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
+import { REVIEW_WRITE_FEEDBACK } from '../agent/reviewWrites'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
 import { MEMORY_HEADER } from '../agent/session'
 import { MEMORY_FEEDBACK } from '../memory'
@@ -79,8 +83,65 @@ const MODE_PERSONA_ENTRIES: PromptEntry[] = Object.values(MODES).map((def) => ({
   default: () => def.personaFragment
 }))
 
+/** Derived from REVIEW_LAYERS for the same reason MODE_PERSONA_ENTRIES is derived from MODES:
+ *  a new layer registers itself, and the catalog cannot disagree with the table. Three entries
+ *  per layer: identity and task are separately worth overriding — a user who wants "also flag
+ *  N+1 queries" edits the prompt, not the persona — and `appliesWhen` is its own entry because
+ *  it is model-facing on its own terms: it becomes the compiled subagent's `description` (what
+ *  the main agent reads to pick applicable layers) and is rendered into the composed prompt's
+ *  layer menu, so it needs the same override seam as the other two, not just a doc comment. */
+const REVIEW_LAYER_ENTRIES: PromptEntry[] = Object.values(REVIEW_LAYERS).flatMap((def) => [
+  {
+    id: `review.layer.${def.id}.persona`,
+    category: 'persona' as const,
+    title: `Review layer · ${def.label} · identity`,
+    source: 'app/src/shared/reviewLayers.ts',
+    reaches: 'all' as const,
+    editable: true,
+    default: () => def.personaFragment
+  },
+  {
+    id: `review.layer.${def.id}.prompt`,
+    category: 'persona' as const,
+    title: `Review layer · ${def.label} · task`,
+    source: 'app/src/shared/reviewLayers.ts',
+    reaches: 'all' as const,
+    editable: true,
+    default: () => def.prompt
+  },
+  {
+    id: `review.layer.${def.id}.applies-when`,
+    category: 'persona' as const,
+    title: `Review layer · ${def.label} · applies-when`,
+    source: 'app/src/shared/reviewLayers.ts',
+    reaches: 'all' as const,
+    editable: true,
+    default: () => def.appliesWhen
+  }
+])
+
+/** The review-run scaffolding text (header, layer selection, fan-out, triage) — everything a
+ *  composed review turn says that is not a layer's own persona/task text. */
+const REVIEW_RUN_ENTRIES: PromptEntry[] = specEntries(REVIEW_RUN_PROMPTS, {
+  prefix: 'review.run',
+  category: 'persona',
+  source: 'app/src/main/services/agent/reviewRun.ts',
+  reaches: 'all'
+})
+
+/** The two finding write-action turns (post a PR comment, apply the change and push). */
+const REVIEW_ACTION_ENTRIES: PromptEntry[] = specEntries(REVIEW_ACTION_PROMPTS, {
+  prefix: 'review.action',
+  category: 'persona',
+  source: 'app/src/main/services/agent/reviewActions.ts',
+  reaches: 'all'
+})
+
 const PERSONA_ENTRIES: PromptEntry[] = [
   ...MODE_PERSONA_ENTRIES,
+  ...REVIEW_LAYER_ENTRIES,
+  ...REVIEW_RUN_ENTRIES,
+  ...REVIEW_ACTION_ENTRIES,
   {
     id: 'persona.neutral',
     category: 'persona',
@@ -147,6 +208,13 @@ const TOOL_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(TOOL_FEEDBACK, {
   prefix: 'tool-feedback',
   category: 'tool-feedback',
   source: 'app/src/main/services/agent/nativeTools.ts',
+  reaches: NATIVE_TOOL_DRIVERS
+})
+
+const REVIEW_WRITE_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(REVIEW_WRITE_FEEDBACK, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/agent/reviewWrites.ts',
   reaches: NATIVE_TOOL_DRIVERS
 })
 
@@ -279,6 +347,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...SESSION_ENTRIES,
   ...TOOL_ENTRIES,
   ...TOOL_FEEDBACK_ENTRIES,
+  ...REVIEW_WRITE_FEEDBACK_ENTRIES,
   ...MEMORY_FEEDBACK_ENTRIES,
   ...RISK_FEEDBACK_ENTRIES,
   ...HEADLESS_ENTRIES,

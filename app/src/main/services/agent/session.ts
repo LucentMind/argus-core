@@ -31,6 +31,11 @@ import { maybeAdvanceToAnalyzing } from '../caseService'
 import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
 import { sharedReferencesDir } from '../skillsDir'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
+import { compileLayerAgents, type SubagentDefinition } from './reviewSubagents'
+import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
+import type { SubagentSupport } from '../../../shared/drivers'
+import { reviewSubagentSupport } from './reviewFraming'
+import type { Runner } from '../github'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -101,6 +106,9 @@ export interface SessionDeps {
   onAuthFailure?: () => void
   /** Fired when a turn completes normally — the only real proof the credentials work. */
   onAuthVerified?: () => void
+  /** gh runner for the review write tools. Injected in tests; production leaves it undefined
+   *  and `nativeTools` falls back to `defaultGhRunner`. */
+  gh?: Runner
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
@@ -157,6 +165,24 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
  *  Registered as `session.memory-header`. */
 export const MEMORY_HEADER =
   '## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.'
+
+/**
+ * Which layer agents a session registers. Split out as a pure function so the mode/capability
+ * matrix is testable without constructing a session: only review mode on a driver that can
+ * actually register agents gets any, and both halves of that condition have bitten before.
+ * The condition itself is `reviewSubagentSupport` (reviewFraming.ts) — the same rule the
+ * review-run composer uses to decide how to FRAME the turn, so the two can never disagree
+ * about the same session (a session this returns [] for must never be told its turn can
+ * delegate by name, and vice versa).
+ */
+export function subagentsForSession(
+  mode: ModeId,
+  support: SubagentSupport,
+  resolve?: (id: string) => string
+): SubagentDefinition[] {
+  if (reviewSubagentSupport(mode, support) !== 'configurable') return []
+  return compileLayerAgents(REVIEW_LAYER_ORDER, resolve)
+}
 
 export class CaseSession {
   readonly sessionId: number
@@ -269,6 +295,11 @@ export class CaseSession {
       caseDir: dir,
       additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
       skills: deps.enabledSkills ?? [],
+      subagents: subagentsForSession(
+        this.mode,
+        deps.driver.capabilities.subagents,
+        deps.resolvePrompt
+      ),
       model: ao.model,
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',
@@ -287,6 +318,9 @@ export class CaseSession {
         currentTurnId: () => this.currentTurnRow,
         emitFinding: (markdown) =>
           this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
+        emitFindingUpdated: (findingId) =>
+          this.emit(makeEvent(this.ctx(), 'case.finding.updated', { findingId })),
+        gh: deps.gh,
         agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess(),
         openPanel: deps.openPanel,
         capturePanel: deps.capturePanel,
@@ -418,7 +452,8 @@ export class CaseSession {
         caseId: this.deps.caseId,
         caseSlug: this.deps.caseSlug,
         sessionId: this.sessionId,
-        turnId: this.currentTurnRow
+        turnId: this.currentTurnRow,
+        resolve: this.deps.resolvePrompt
       },
       {
         title: String(edited?.title ?? input.title),
@@ -659,8 +694,9 @@ export class CaseSession {
       // never substitute args on Bash/native asks, whatever the IPC caller sent.
       // Argus's own native tools are exposed as an `mcp__argus__*` server too, so
       // they're excluded from the editable set alongside Bash — except the narrow
-      // allowlist in shared/editableTools (currently just write_memory), where the
-      // args are pure reviewed content and editing is the review mechanism.
+      // allowlist in shared/editableTools (write_memory, panel_emit_finding,
+      // panel_ingest_evidence, post_review_comment), where the args are pure
+      // reviewed content and editing is the review mechanism.
       return {
         behavior: 'allow',
         updatedInput: (isEditableTool(toolName) ? outcome.updatedInput : undefined) ?? input

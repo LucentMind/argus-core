@@ -123,15 +123,10 @@ import {
   linkWorkspace,
   unlinkWorkspace,
   listWorkspaces,
-  listStoredWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
-import {
-  addBinding,
-  listBindings,
-  removeBinding,
-  materializePrBindings
-} from './services/prBindings'
+import { getBinding, listBindings, removeBinding } from './services/prBindings'
+import { linkPrForCase } from './services/prLink'
 import { searchPrsForCase } from './services/prSearch'
 import { ensurePrWorktree } from './services/prWorktree'
 import type { PrMaterializer } from './services/prBindings'
@@ -141,10 +136,12 @@ function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
   return (b) =>
     b.repoPath ? ensurePrWorktree(argusHome, caseSlug, b.repoPath, b.number) : Promise.resolve(null)
 }
-import { parsePrRef, remoteToOwnerRepo, type PrRef } from '../shared/pr'
+import type { PrRef } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
+import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
+import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
@@ -1152,6 +1149,59 @@ function registerIpc(): void {
     return availableModes(modeContextForCase(db, caseSlug))
   })
 
+  // — review —
+  // Composes here rather than in the renderer because the PR binding, the worktree path and
+  // the session's provider all live in main. The composed text then goes out through the
+  // ordinary agent send path, so a review run queues, cancels and mirrors like a typed message.
+  // The handler body lives in reviewRunCompose.ts (thin wrapper here) so it is testable without
+  // booting Electron; the driver resolution inside it mirrors AgentService's own exactly
+  // (reviewFraming.ts's driverForSession — same `driverForInstance`/`resolveDriver` shape
+  // AgentService is constructed with below).
+  ipcMain.handle(
+    IPC.reviewComposeRunPrompt,
+    (_e, caseSlug: string, sessionId: number, layerIds: string[]) =>
+      composeReviewRunPrompt(
+        {
+          db,
+          getBinding,
+          materialize: prMaterializer(argusHome, caseSlug),
+          resolvePrompt,
+          driverForInstance: (instanceId) =>
+            resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
+          resolveDriver: () => getActiveDriver(settingsService.get().agent)
+        },
+        caseSlug,
+        sessionId,
+        layerIds
+      )
+  )
+
+  // Composes the two finding write-action turns (post a comment, apply + push) the same way —
+  // main owns the binding and worktree path, and the composed text goes out through the
+  // ordinary agent send path.
+  ipcMain.handle(
+    IPC.reviewComposeActionPrompt,
+    (_e, caseSlug: string, sessionId: number, findingId: number, action: string) =>
+      composeReviewActionPrompt(
+        {
+          db,
+          argusHome,
+          resolvePrompt,
+          // ReviewWriteDeps.resolve is the seam findingForCase/resolveCommentTarget use for
+          // their throw text; resolvePrompt is the one buildReviewActionPrompt uses. Both are
+          // the same registry — pass both or half the strings ignore the user's overrides.
+          resolve: resolvePrompt,
+          driverForInstance: (instanceId) =>
+            resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
+          resolveDriver: () => getActiveDriver(settingsService.get().agent)
+        },
+        caseSlug,
+        sessionId,
+        findingId,
+        action
+      )
+  )
+
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {
     return db
@@ -1219,21 +1269,21 @@ function registerIpc(): void {
   // — pull requests —
   // Unlike the workspaces:* handlers above (a known gap), every pr:* handler validates
   // the slug before it reaches the DB or the filesystem.
-  ipcMain.handle(IPC.prLink, (_e, caseSlug: string, input: string) => {
-    assertSlug(caseSlug)
-    const stored = listStoredWorkspaces(db, caseSlug)
-    const ref = parsePrRef(input, stored[0]?.remote ?? null)
-    if (!ref) throw new Error(`Not a pull request reference: ${input}`)
-    // Match the parsed owner/repo against the linked remotes so the binding knows which
-    // local clone to make its worktree from. null stays supported (manual linking of a
-    // PR in an unlinked repo) — the agent falls back to `gh pr diff`.
-    const repoPath =
-      stored.find((w) => {
-        const or = w.remote ? remoteToOwnerRepo(w.remote) : null
-        return or?.owner === ref.owner && or?.repo === ref.repo
-      })?.path ?? null
-    return addBinding(db, caseSlug, { ...ref, repoPath, source: 'manual' })
-  })
+  // The handler body lives in prLink.ts (thin wrapper here) so the picker/manual parsing
+  // split and the shared materialize+broadcast side effect are testable without booting
+  // Electron. (Both paths run the same side effect now — see linkPrForCase's doc comment.)
+  ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) =>
+    linkPrForCase(
+      {
+        db,
+        argusHome,
+        materialize: prMaterializer(argusHome, caseSlug),
+        broadcast: (slug) => broadcast(IPC.workspacesChanged, slug)
+      },
+      caseSlug,
+      input
+    )
+  )
   ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
     return listBindings(db, caseSlug)
@@ -1246,28 +1296,6 @@ function registerIpc(): void {
     assertSlug(caseSlug)
     return searchPrsForCase({ db }, caseSlug)
   })
-  ipcMain.handle(IPC.prLinkMany, async (_e, caseSlug: string, refs: PrRef[]) => {
-    assertSlug(caseSlug)
-    const stored = listStoredWorkspaces(db, caseSlug)
-    const created = refs.map((ref) =>
-      addBinding(db, caseSlug, {
-        ...ref,
-        source: 'search',
-        // a search hit always comes from a linked repo, so this normally resolves
-        repoPath:
-          stored.find((w) => {
-            const or = w.remote ? remoteToOwnerRepo(w.remote) : null
-            return or?.owner === ref.owner && or?.repo === ref.repo
-          })?.path ?? null
-      })
-    )
-    await materializePrBindings(db, argusHome, caseSlug, prMaterializer(argusHome, caseSlug))
-    // The live session's sandbox was fixed at construction, so the chips — not the agent —
-    // are what this refreshes; the agent picks the worktree up on its next session.
-    broadcast(IPC.workspacesChanged, caseSlug)
-    return created
-  })
-
   ipcMain.handle(IPC.workspacesRefs, (_e, caseSlug: string) => {
     const cj = path.join(caseDir(argusHome, caseSlug), 'case.json')
     try {

@@ -22,6 +22,7 @@ import { materializeSessionSkills } from './skillsResolver'
 import { assembleMode } from './modeAssembly'
 import type { Detection } from '../packs/detection'
 import type { SessionPromptCapture } from '../../../shared/promptsIpc'
+import { driverForSession } from './reviewFraming'
 
 export interface AgentServiceDeps {
   db: DatabaseSync
@@ -200,10 +201,18 @@ export class AgentService {
     // A session pinned to an instance resolves ITS driver; an unpinned (pre-multi-provider)
     // session falls back to the thunk, which picks up the live default provider — so
     // switching the default in settings still takes effect for those on the next construct.
-    const driver =
-      pinned?.instanceId && this.deps.driverForInstance
-        ? this.deps.driverForInstance(pinned.instanceId)
-        : this.resolveDriver()
+    // `driverForSession` is the shared rule (reviewFraming.ts) — the review-run composer
+    // resolves the same session's driver through the identical call, so the two answer "which
+    // driver is this session actually on" the same way instead of each keeping its own copy of
+    // the fallback logic.
+    const driver = driverForSession(
+      {
+        db: this.deps.db,
+        driverForInstance: this.deps.driverForInstance,
+        resolveDriver: () => this.resolveDriver()
+      },
+      sessionId
+    )
     const cursor = sessionCursor(this.deps.db, sessionId, driver.kind, pinned?.instanceId)
 
     const access = this.deps.agentAccess()

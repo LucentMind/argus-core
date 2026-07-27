@@ -5,10 +5,11 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { ModeSwitcher } from './ModeSwitcher'
+import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
 import { PrPickerDialog } from './PrPickerDialog'
-import type { PrSearchResult } from '../../../shared/pr'
+import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
@@ -90,6 +91,12 @@ export function CaseWorkspace({
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
+  // The binding the picker was opened over, so it can warn before silently replacing one —
+  // the picker is reachable via "Find PRs" (ReposSection) regardless of whether a PR is
+  // already bound, unlike the auto-open-on-review-entry path below (which only fires when
+  // nothing is bound yet). Fetched fresh each time the picker opens rather than mirroring
+  // ReposSection's own `prs` state, so it is correct whichever caller opened the dialog.
+  const [prPickerCurrent, setPrPickerCurrent] = useState<PrBinding | null>(null)
   const [prSearching, setPrSearching] = useState(false)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
@@ -107,7 +114,24 @@ export function CaseWorkspace({
     setSessionId(null)
     setSessions([])
     setSessionsError(null)
+    // A picker opened over case A (or a `handlePrsFound` lookup still in flight for it) must
+    // not survive into case B: CaseWorkspace is never remounted on a slug change (App.tsx
+    // renders it with no `key`), so without this an already-open dialog would keep showing
+    // A's candidates/binding while `slug` (and so `<PrPickerDialog slug={slug} …/>`, and any
+    // "Link selected" click) has already moved on to B — silently retargeting B's binding
+    // to a PR found via A's repos. `handlePrsFound`'s own stale-guard (below) covers the
+    // still-in-flight case; this covers the already-resolved, dialog-already-open case.
+    setPrPicker(null)
+    setPrPickerCurrent(null)
   }
+  // The current slug, read by `handlePrsFound`'s async chain once it resolves — a ref kept
+  // current via its own effect (refs may not be written during render) rather than the
+  // `sessions.list` effect's cleanup `stale` flag below, because this chain starts from an
+  // event callback (ReposSection's "Find PRs"), not from an effect keyed on `[slug]`.
+  const currentSlugRef = useRef(slug)
+  useEffect(() => {
+    currentSlugRef.current = slug
+  }, [slug])
 
   useEffect(() => {
     wireAgentStore()
@@ -191,6 +215,51 @@ export function CaseWorkspace({
     })
   }
 
+  /**
+   * The guarded core of "open the PR picker": look up whatever is currently bound, THEN open
+   * the picker with it already known — never the reverse — and never for a case the user has
+   * since switched away from. Both places that can open `PrPickerDialog` (the auto-search
+   * below, on entering review mode with nothing bound, and `handlePrsFound`, from
+   * `ReposSection`'s "Find PRs") funnel through this so neither has to remember the guard on
+   * its own; a future third caller inherits it too just by calling this.
+   *
+   * `pr.list` is a genuine IPC round trip, not a microtask; opening the dialog first and
+   * setting `currentBinding` only once it resolves would leave a real window where "Link
+   * selected" is clickable (a default candidate already selected) while `currentBinding`
+   * still reads `null` — `PrPickerDialog.confirm()` cannot tell "nothing bound" apart from
+   * "not loaded yet", so a click landing in that window would skip the replace-confirmation
+   * entirely (or — for the auto-search path specifically, which never populated
+   * `currentBinding` at all before this — skip it on EVERY link, not just a timing window).
+   * A failed lookup still opens the picker (degrading to "nothing bound" rather than
+   * blocking it — the confirm is a safety net, not a gate the picker depends on to
+   * function), it just does so no earlier than a successful one would.
+   *
+   * `CaseWorkspace` is never remounted on a slug change (`App.tsx` renders it with no
+   * `key`), so a case switch started while this is in flight would otherwise land ITS
+   * case-A result on the now-current case B when it resolves. `forSlug`/`currentSlugRef`
+   * (same purpose as the `sessions.list` effect's `stale` flag above, expressed as a ref
+   * because this starts from an event callback / a `.then` continuation rather than an
+   * effect keyed on `[slug]`) drops it instead — and the `slug !== lastSlug` block above
+   * clears an already-open dialog for the OLD case, which a guard on the not-yet-resolved
+   * lookup alone can't reach.
+   *
+   * Returns its promise so a caller that wants "busy until the dialog is actually up" (like
+   * `ReposSection`'s `searching` flag, via `handlePrsFound`) can await it — otherwise a
+   * second search could start (and later resolve) before the first one's dialog had opened,
+   * swapping `result`/`currentBinding` out from under an already-rendered picker.
+   */
+  function openPrPicker(forSlug: string, result: PrSearchResult): Promise<void> {
+    return window.argus.pr
+      .list(forSlug)
+      .then((bound) => bound[0] ?? null)
+      .catch(() => null)
+      .then((current) => {
+        if (currentSlugRef.current !== forSlug) return // the case switched while this was in flight
+        setPrPickerCurrent(current)
+        setPrPicker(result)
+      })
+  }
+
   /** ModeSwitcher already called cases.setMode itself (switching the case's active mode,
    *  and creating that mode's chat if it didn't exist yet). Follow the user to that chat —
    *  same path a search-hit jump or the session-list picker uses — refresh the session
@@ -212,17 +281,19 @@ export function CaseWorkspace({
     // immediately and a failed search degrades to manual linking in the Repos rail.
     // Later entries go straight to the chat; "Link PR" there is the re-run path.
     if (mode !== 'review') return
+    const forSlug = slug
     void window.argus.pr
-      .list(slug)
+      .list(forSlug)
       .then((bound) => {
         if (bound.length) return null
         // ~5s of gh with nothing on screen reads as a hang; say what is happening
         setPrSearching(true)
-        return window.argus.pr.search(slug)
+        return window.argus.pr.search(forSlug)
       })
-      .then((r) => {
-        if (r) setPrPicker(r)
-      })
+      // openPrPicker re-checks the binding (rather than trusting the `bound.length` check
+      // above, which by now is a whole `gh` search old) and re-checks the slug — see its
+      // doc comment for why both re-checks matter here, not just for handlePrsFound.
+      .then((r) => (r ? openPrPicker(forSlug, r) : undefined))
       .catch(() => undefined)
       .finally(() => setPrSearching(false))
   }
@@ -231,6 +302,12 @@ export function CaseWorkspace({
    *  same error line handleModelChange's .catch uses above. */
   function handleModeError(message: string): void {
     setSessionsError(message)
+  }
+
+  /** ReposSection's "Find PRs" result handler — see `openPrPicker`'s doc comment for what
+   *  this guards against. */
+  function handlePrsFound(result: PrSearchResult): Promise<void> {
+    return openPrPicker(slug, result)
   }
 
   // a search hit's jump target: switch to its session via the same path as a
@@ -336,6 +413,9 @@ export function CaseWorkspace({
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />
+        {activeMode === 'review' && (
+          <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
+        )}
         <div className="ml-auto">
           <HeaderChips
             slug={slug}
@@ -361,7 +441,7 @@ export function CaseWorkspace({
           <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
             <ReposSection
               slug={slug}
-              onPrsFound={setPrPicker}
+              onPrsFound={handlePrsFound}
               headerExtra={
                 <button
                   aria-label="Collapse evidence"
@@ -480,7 +560,15 @@ export function CaseWorkspace({
         )}
       </div>
       {prPicker && (
-        <PrPickerDialog slug={slug} result={prPicker} onClose={() => setPrPicker(null)} />
+        <PrPickerDialog
+          slug={slug}
+          result={prPicker}
+          currentBinding={prPickerCurrent}
+          onClose={() => {
+            setPrPicker(null)
+            setPrPickerCurrent(null)
+          }}
+        />
       )}
     </div>
   )

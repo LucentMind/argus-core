@@ -138,7 +138,9 @@ CREATE INDEX IF NOT EXISTS idx_turns_session_id      ON turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_case_id    ON tool_calls(case_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_findings_case_id      ON findings(case_id);
-CREATE INDEX IF NOT EXISTS idx_pr_bindings_case_id   ON pr_bindings(case_id);
+-- pr_bindings(case_id) has no separate FK index: the UNIQUE index created below
+-- (pr_bindings_one_per_case) already covers case_id as its leading column, so a
+-- second non-unique index on the same column would be pure redundancy.
 -- key -> fts rowid side tables (see ftsIndex.ts): the FTS key columns are
 -- UNINDEXED, so deleting by them scanned the whole index. These let deletes
 -- resolve rowids by index and delete each by rowid.
@@ -162,6 +164,32 @@ export function openDb(file: string): DatabaseSync {
   db.exec(`PRAGMA journal_mode = WAL;`)
   db.exec(`PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
+  // One pull request per case (plan 2026-07-27-one-pr-per-case). The citation grammar findings
+  // use — [<repo-name>/<path>:<line>] — cannot name a PR number, so two PRs bound in one repo
+  // are indistinguishable to every consumer downstream. Enforced here rather than by convention
+  // because three separate review rounds found the same wrong-PR bug when it was convention.
+  //
+  // A case with MORE THAN ONE binding has every binding deleted, not just trimmed down to one:
+  // there is no principled way to pick a survivor. The old approach kept MAX(id) (the last row
+  // inserted), but under the multi-link path that insert order was gh's search order — which
+  // shared/pr.ts documents ranks nothing among candidates (recency is inverted by backports).
+  // Silently keeping a coin-flip survivor is exactly the wrong-PR hazard this migration exists
+  // to close; better to leave the case loudly unbound so the picker (gated on zero bindings —
+  // see CaseWorkspace.tsx's handleModeChanged) offers again. A binding is a link plus a cached
+  // repo path: no worktree and no case data is lost either way. The DELETE must run BEFORE the
+  // index is created — openDb runs on every app start, and an existing database with several
+  // bindings on one case would otherwise fail to open here for every user who has that state,
+  // rather than being silently repaired.
+  db.exec(
+    `DELETE FROM pr_bindings WHERE case_id IN (
+       SELECT case_id FROM pr_bindings GROUP BY case_id HAVING COUNT(*) > 1
+     )`
+  )
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS pr_bindings_one_per_case ON pr_bindings(case_id)`)
+  // A database created before this migration still has the now-redundant non-unique index
+  // (see the SCHEMA comment above) — drop it explicitly rather than leaving dead index upkeep
+  // on every future insert/delete.
+  db.exec(`DROP INDEX IF EXISTS idx_pr_bindings_case_id`)
   const caseCols = db.prepare(`PRAGMA table_info(cases)`).all() as { name: string }[]
   if (!caseCols.some((c) => c.name === 'workspaces')) {
     db.exec(`ALTER TABLE cases ADD COLUMN workspaces TEXT NOT NULL DEFAULT '[]'`)
@@ -260,6 +288,35 @@ export function openDb(file: string): DatabaseSync {
   }
   if (!hasSessionCol('model')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`)
+  }
+  // Review flavor (spec §6). All nullable: an investigation finding leaves them empty, and
+  // mode is NOT stored — it joins from sessions.mode, which is already the session's binding.
+  // diff_path/diff_line are the anchor parsed from the finding's first citation at write time,
+  // so posting an inline PR comment never re-parses prose.
+  const findingCols = db.prepare(`PRAGMA table_info(findings)`).all() as { name: string }[]
+  if (!findingCols.some((c) => c.name === 'layer')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN layer TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'severity')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN severity TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'diff_path')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN diff_path TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'diff_line')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN diff_line INTEGER`)
+  }
+  // Plan 4 (spec §6/§9). suggested_change is the fix the review agent proposed and is what
+  // the Apply action implements; comment_url and pushed_sha are write-action OUTCOMES, kept
+  // so a restart still shows which findings were already acted on.
+  if (!findingCols.some((c) => c.name === 'suggested_change')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN suggested_change TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'comment_url')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN comment_url TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'pushed_sha')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN pushed_sha TEXT`)
   }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {

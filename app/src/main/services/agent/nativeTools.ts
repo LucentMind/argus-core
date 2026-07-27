@@ -24,6 +24,17 @@ import { ensureIndex, getLines, searchLines } from '../lineIndex'
 import { resolveTextDocAbs } from '../textdoc'
 import { fillPrompt } from '../prompts/fill'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
+import {
+  isReviewLayerId,
+  isReviewSeverity,
+  REVIEW_LAYER_ORDER,
+  SEVERITIES,
+  type ReviewLayerId,
+  type ReviewSeverity
+} from '../../../shared/reviewLayers'
+import { firstCitation } from '../../../shared/citations'
+import { postReviewComment, pushReviewChange } from './reviewWrites'
+import { defaultGhRunner, type Runner } from '../github'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -53,6 +64,10 @@ export interface NativeToolDeps {
   /** Fired after workspace_checkout materializes/switches a case worktree, so the
    *  renderer can refresh repo chips + repo snippet caches without a case switch. */
   onWorktreeChanged?: (caseSlug: string) => void
+  /** gh runner for the review write tools. Injected in tests; production uses the default. */
+  gh?: Runner
+  /** Fired after a write action mutates a finding row, so the findings pane refetches. */
+  emitFindingUpdated?: (findingId: number) => void
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -128,6 +143,16 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'capture_panel.hint': {
     title: 'capture_panel — how to view the capture',
     text: 'Use the Read tool on rel_path to view the panel.'
+  },
+  'append_finding.bad-layer': {
+    title: 'append_finding — unknown layer',
+    text: 'Unknown layer {layer}. Use one of: {expected}.',
+    placeholders: ['layer', 'expected']
+  },
+  'append_finding.bad-severity': {
+    title: 'append_finding — unknown severity',
+    text: 'Unknown severity {severity}. Use one of: {expected}.',
+    placeholders: ['severity', 'expected']
   }
 }
 
@@ -138,24 +163,73 @@ export interface FindingWriteCtx {
   caseSlug: string
   sessionId: number
   turnId: number | null
+  /** Prompt-registry resolver for the `append_finding.bad-layer`/`.bad-severity` entries.
+   *  Optional: a caller without a store gets the shipped defaults, exactly as `fb()` does
+   *  inside `argusToolHandlers`. */
+  resolve?: (id: string) => string
 }
 
 /** Append a finding block to findings.md + insert the pending findings row. Shared by the
  *  native append_finding tool and the panel emitFinding HITL path (3b). */
 export function appendFinding(
   ctx: FindingWriteCtx,
-  input: { title: string; markdown: string }
+  input: {
+    title: string
+    markdown: string
+    /** Review flavor (spec §6). Omitted by investigation findings. */
+    layer?: ReviewLayerId
+    severity?: ReviewSeverity
+    /** The concrete fix, when the agent has one. Null on a finding that only reports. */
+    suggestedChange?: string
+  }
 ): { findingId: number; block: string } {
+  // Validate BEFORE the insert: a rejected finding must leave no row and no findings.md block.
+  if (input.layer !== undefined && !isReviewLayerId(input.layer)) {
+    const text = ctx.resolve
+      ? ctx.resolve('tool-feedback.append_finding.bad-layer')
+      : TOOL_FEEDBACK['append_finding.bad-layer'].text
+    throw new Error(
+      fillPrompt(text, {
+        layer: JSON.stringify(input.layer),
+        expected: REVIEW_LAYER_ORDER.join('|')
+      })
+    )
+  }
+  if (input.severity !== undefined && !isReviewSeverity(input.severity)) {
+    const text = ctx.resolve
+      ? ctx.resolve('tool-feedback.append_finding.bad-severity')
+      : TOOL_FEEDBACK['append_finding.bad-severity'].text
+    throw new Error(
+      fillPrompt(text, {
+        severity: JSON.stringify(input.severity),
+        expected: SEVERITIES.join('|')
+      })
+    )
+  }
   const title = input.title || 'Finding'
   const dir = caseDir(ctx.argusHome, ctx.caseSlug)
+  // Anchor parsed once, here. Plan 4 posts an inline PR comment against it and must not
+  // re-parse prose at the moment it writes to a pull request.
+  const anchor = firstCitation(input.markdown)
   // Insert first so the row id can be embedded in the findings.md block, giving
   // FindingsPane an exact row↔block join (see findings.ts parseFindingBodies).
   const res = ctx.db
     .prepare(
-      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
-       VALUES (?, ?, ?, ?, 'pending', ?)`
+      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line, suggested_change)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
     )
-    .run(ctx.caseId, ctx.sessionId, ctx.turnId, title, new Date().toISOString())
+    .run(
+      ctx.caseId,
+      ctx.sessionId,
+      ctx.turnId,
+      title,
+      new Date().toISOString(),
+      input.layer ?? null,
+      input.severity ?? null,
+      anchor?.path ?? null,
+      anchor?.line ?? null,
+      input.suggestedChange ?? null
+    )
   const findingId = Number(res.lastInsertRowid)
   const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
   fs.appendFileSync(path.join(dir, 'findings.md'), block)
@@ -291,12 +365,53 @@ export function argusToolHandlers(
           caseId: deps.caseId,
           caseSlug,
           sessionId,
-          turnId: deps.currentTurnId?.() ?? null
+          turnId: deps.currentTurnId?.() ?? null,
+          resolve: deps.resolve
         },
-        { title: String(args.title ?? 'Finding'), markdown: String(args.markdown ?? '') }
+        {
+          title: String(args.title ?? 'Finding'),
+          markdown: String(args.markdown ?? ''),
+          ...(args.layer === undefined ? {} : { layer: args.layer as ReviewLayerId }),
+          ...(args.severity === undefined ? {} : { severity: args.severity as ReviewSeverity }),
+          ...(args.suggested_change === undefined
+            ? {}
+            : { suggestedChange: String(args.suggested_change) })
+        }
       )
       deps.emitFinding(block)
       return fb('append_finding.ok')
+    },
+
+    async post_review_comment(args) {
+      const findingId = Number(args.finding_id)
+      const out = await postReviewComment(
+        { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
+        caseSlug,
+        {
+          findingId,
+          body: String(args.body ?? ''),
+          // Empty (never passed, or passed as '') is treated as absent by resolveBindingForFinding
+          // — same fallback behavior as before `pr` existed.
+          expectPr: String(args.pr ?? '')
+        }
+      )
+      deps.emitFindingUpdated?.(findingId)
+      return out
+    },
+
+    async push_review_change(args) {
+      const findingId = Number(args.finding_id)
+      const out = await pushReviewChange(
+        { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
+        caseSlug,
+        {
+          findingId,
+          commitMessage: String(args.commit_message ?? ''),
+          expectPr: String(args.pr ?? '')
+        }
+      )
+      deps.emitFindingUpdated?.(findingId)
+      return out
     },
 
     async update_case_status(args) {
@@ -477,8 +592,26 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      'Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim.',
-    schema: { title: z.string(), markdown: z.string() }
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — and suggested_change when you know the concrete fix, which is what the user's Apply action will implement.",
+    schema: {
+      title: z.string(),
+      markdown: z.string(),
+      layer: z.enum(REVIEW_LAYER_ORDER as [string, ...string[]]).optional(),
+      severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional(),
+      suggested_change: z.string().optional()
+    }
+  },
+  {
+    name: 'post_review_comment',
+    description:
+      "Post a recorded review finding as an inline comment on the bound pull request, anchored at the finding's cited diff line. Pass the finding_id you got from the findings list, pr as owner/repo#number naming EXACTLY the pull request bound to this case (copy it from the prompt — this is checked, not just displayed), and the exact comment body to publish — the user sees and can edit that body before it is posted. Falls back to a PR-level comment when the cited line is not part of the diff.",
+    schema: { finding_id: z.number(), pr: z.string().min(1), body: z.string() }
+  },
+  {
+    name: 'push_review_change',
+    description:
+      "Commit everything currently changed in the PR worktree and push it to the pull request's head branch. Pass pr as owner/repo#number naming EXACTLY the pull request bound to this case (copy it from the prompt — this is checked, not just displayed). Apply the change with your edit tools FIRST — this tool commits what is already on disk and writes nothing itself. Only works on a PR from the same repository, never a fork.",
+    schema: { finding_id: z.number(), pr: z.string().min(1), commit_message: z.string() }
   },
   {
     name: 'update_case_status',

@@ -1,12 +1,22 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm } from '../../lib/confirmStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
+
+// ConfirmHost (which confirm() talks to) is mounted at the app root (App.tsx), not inside
+// CaseWorkspace — mock the store directly, same pattern as ReposSection.test.tsx and
+// PrPickerDialog.test.tsx.
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 // jsdom has no runtime ResizeObserver; DOM lib types already declare it globally.
 /* eslint-disable @typescript-eslint/no-empty-function */
@@ -29,6 +39,7 @@ function payload(): SettingsPayload {
 
 beforeEach(() => {
   localStorage.clear()
+  vi.mocked(confirm).mockReset().mockResolvedValue(true)
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
   // CaseWorkspace renders Composer, which reads the shared settingsStore
@@ -411,7 +422,7 @@ describe('CaseWorkspace mode switching', () => {
 
     // the search runs only after the switch resolves, so the chat is never delayed by it
     await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
-    expect(await screen.findByRole('checkbox', { name: /16315/ })).toBeTruthy()
+    expect(await screen.findByRole('radio', { name: /16315/ })).toBeTruthy()
   })
 
   it('does not offer the picker when the case already has bound PRs', async () => {
@@ -425,6 +436,213 @@ describe('CaseWorkspace mode switching', () => {
     await waitFor(() => expect(window.argus.cases.setMode).toHaveBeenCalled())
     await new Promise((r) => setTimeout(r, 0))
     expect(window.argus.pr.search).not.toHaveBeenCalled()
+  })
+
+  // Re-review fix: `pr.list` is a genuine IPC round trip (unlike a microtask), so it can
+  // resolve strictly AFTER the render that would have shown the picker already interactive.
+  // The old handler opened the dialog immediately and filled in `currentBinding` whenever
+  // `pr.list` happened to resolve — leaving a real window where "Link selected" was
+  // clickable with `currentBinding` still `null`, which `PrPickerDialog.confirm()` cannot
+  // tell apart from "nothing is bound". This exercises the real async ordering (the mock
+  // resolves on a later tick, not synchronously) rather than passing `currentBinding` as a
+  // prop like the PrPickerDialog-level tests do.
+  it('never opens the picker before pr.list resolves, so the replace-confirm can never be skipped', async () => {
+    let resolveList!: (bound: unknown[]) => void
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
+      () => new Promise((r) => (resolveList = r))
+    )
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({
+        candidates: [
+          {
+            owner: 'acme',
+            repo: 'widget',
+            number: 100,
+            url: 'https://github.com/acme/widget/pull/100',
+            title: 'the original PR',
+            state: 'merged',
+            isDraft: false,
+            createdAt: '2026-07-20T10:00:00Z',
+            isBackport: false,
+            preselected: true
+          },
+          {
+            owner: 'acme',
+            repo: 'widget',
+            number: 205,
+            url: 'https://github.com/acme/widget/pull/205',
+            title: 'a later PR',
+            state: 'merged',
+            isDraft: false,
+            createdAt: '2026-07-25T10:00:00Z',
+            isBackport: false,
+            preselected: false
+          }
+        ],
+        error: null,
+        searchedRepos: ['acme/widget']
+      })
+    )
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // pr.list has not resolved yet — the dialog must not be up (and so nothing is clickable)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+
+    // now let the (already-bound-to-#100) lookup resolve, on a later tick
+    resolveList([
+      {
+        id: 1,
+        caseId: 1,
+        repoPath: null,
+        owner: 'acme',
+        repo: 'widget',
+        number: 100,
+        url: 'https://github.com/acme/widget/pull/100',
+        source: 'search',
+        detectedAt: '2026-07-20T10:00:00Z'
+      }
+    ])
+
+    await screen.findByRole('button', { name: /link selected/i })
+    fireEvent.click(screen.getByRole('radio', { name: /205/ }))
+    fireEvent.click(screen.getByRole('button', { name: /link selected/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(confirm).mock.calls[0][0].title as string).toContain('acme/widget#100')
+  })
+
+  const oneCandidate = [
+    {
+      owner: 'acme',
+      repo: 'widget',
+      number: 100,
+      url: 'https://github.com/acme/widget/pull/100',
+      title: 'the original PR',
+      state: 'merged' as const,
+      isDraft: false,
+      createdAt: '2026-07-20T10:00:00Z',
+      isBackport: false,
+      preselected: true
+    }
+  ]
+
+  // Re-review fix: CaseWorkspace is never remounted on a slug change (App.tsx renders it
+  // with no `key`; the `slug !== lastSlug` block patches state in place), so a case switch
+  // started while handlePrsFound's chain is still in flight would otherwise land case A's
+  // late-resolving result on the now-current case B — B's real binding is never consulted,
+  // and "Link selected" would call `pr.link(B, aCandidateFoundViaA'sRepos)`. This exercises
+  // the in-flight half of the fix (the `currentSlugRef` guard inside `handlePrsFound`); the
+  // next test exercises the already-resolved half (clearing an open dialog on switch).
+  it('drops a Find-PRs lookup that resolves after switching to a different case', async () => {
+    // ReposSection's own `reload()` effect ALSO calls `pr.list(slug)` (on mount, and again
+    // when `slug` changes) — a single shared resolver would get silently reassigned to
+    // whichever of those calls happens to be pending, defeating the point of this test.
+    // Track every call instead, so the ONE this test cares about (handlePrsFound's, for
+    // case A) can be resolved on its own, independent of ReposSection's mount-time call and
+    // its own reload for case B triggered by the switch below.
+    const listResolvers: Array<(bound: unknown[]) => void> = []
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
+      () => new Promise((r) => listResolvers.push(r))
+    )
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    )
+    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    await screen.findByRole('button', { name: 'Find PRs' })
+    // resolve ReposSection's own mount-time pr.list('NAV-1') call — irrelevant to this test
+    listResolvers.shift()?.([])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find PRs' }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // handlePrsFound's own pr.list('NAV-1') call, now pending — capture ITS resolver before
+    // switching, so the switch's own pr.list('NAV-2') call can't be confused with it
+    await waitFor(() => expect(listResolvers.length).toBe(1))
+    const resolveCaseA = listResolvers[0]
+
+    // switch case BEFORE case A's in-flight lookup resolves
+    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+
+    resolveCaseA([]) // case A's lookup resolves late, after the switch
+    await new Promise((r) => setTimeout(r, 0))
+    // A's dialog must not have opened on top of B, and nothing was linked on B's behalf
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+    expect(window.argus.pr.link).not.toHaveBeenCalled()
+  })
+
+  it('closes an already-open Find-PRs dialog when the case is switched', async () => {
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    )
+    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
+    await screen.findByRole('button', { name: /link selected/i }) // dialog is up for A
+
+    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+    expect(window.argus.pr.link).not.toHaveBeenCalled()
+  })
+
+  // Re-review fix: `handlePrsFound` (the "Find PRs" button) got the case-switch guard above,
+  // but `handleModeChanged`'s auto-search — entering review mode with nothing bound — is a
+  // SECOND path that opens the same dialog and had the same defect, worse: it never called
+  // `setPrPickerCurrent` at all, so it always rendered the dialog with `currentBinding: null`
+  // even with no case switch involved — masked only because `bound.length` had already been
+  // checked to be zero for the same slug moments earlier. Both paths now funnel through the
+  // shared, guarded `openPrPicker`. Driven through the ModeSwitcher's Review button rather
+  // than "Find PRs", mirroring the two tests above.
+  it('drops a review-mode auto-search result that resolves after switching to a different case', async () => {
+    stubTwoModeSessions()
+    let resolveSearch!: (r: unknown) => void
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      () => new Promise((r) => (resolveSearch = r))
+    )
+    // default pr.list already resolves [] for any slug — matches "nothing bound yet" for A
+    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+
+    // switch case BEFORE case A's in-flight pr.search resolves — case B (per the scenario
+    // this pins) has a REAL pull request bound; that's not asserted directly here (no chip
+    // rendering is under test), but it's why a no-confirmation link would be so much worse
+    // on this path than on the "Find PRs" one, which at least always looked currentBinding
+    // up first.
+    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+
+    resolveSearch({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+    expect(window.argus.pr.link).not.toHaveBeenCalled()
+  })
+
+  // Re-review fix: `handlePrsFound` used to be `void`-ed, so ReposSection's
+  // `.then(onPrsFound).finally(() => setSearching(false))` did not actually wait for it —
+  // `onPrsFound` returned synchronously (`void`), so `finally` ran as soon as `pr.search`
+  // itself resolved, re-enabling "Find PRs" while the picker's own `pr.list` lookup (and so
+  // the dialog opening) was still pending. `handlePrsFound` now returns its promise, so
+  // `.then` genuinely chains onto it.
+  it('keeps Find PRs disabled until the picker is actually up, not just until pr.search resolves', async () => {
+    let resolveList!: (bound: unknown[]) => void
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
+      () => new Promise((r) => (resolveList = r))
+    )
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    )
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    const findBtn = await screen.findByRole('button', { name: 'Find PRs' })
+
+    fireEvent.click(findBtn)
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // pr.search has resolved, but the chain's own pr.list lookup hasn't — the control must
+    // still read busy, not just while pr.search itself was in flight
+    await waitFor(() => expect(findBtn).toBeDisabled())
+
+    resolveList([])
+    await waitFor(() => expect(findBtn).not.toBeDisabled())
   })
 
   it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
@@ -455,7 +673,11 @@ describe('CaseWorkspace mode switching', () => {
     stubTwoModeSessions()
     const { unmount } = render(workspace('NAV-1', { activeMode: 'investigation' }))
 
-    const reviewBtn = await screen.findByRole('button', { name: /review/i })
+    // The mode switcher's Review control carries its own aria-label ("Case mode · Review");
+    // matched by that exact string rather than /review/i because once the mode is review,
+    // ReviewRunButton (rendered beside it) has an accessible name of "Run review" — a loose
+    // /review/i would still match both.
+    const reviewBtn = await screen.findByRole('button', { name: 'Case mode · Review' })
     fireEvent.click(reviewBtn)
     await waitFor(() => expect(uiStore.get().activeSessions['NAV-1']).toBe(7))
 
@@ -465,7 +687,7 @@ describe('CaseWorkspace mode switching', () => {
     unmount()
     render(workspace('NAV-1', { activeMode: 'review' }))
 
-    const reviewAfter = await screen.findByRole('button', { name: /review/i })
+    const reviewAfter = await screen.findByRole('button', { name: 'Case mode · Review' })
     expect(reviewAfter.getAttribute('aria-pressed')).toBe('true')
     expect(
       screen.getByRole('button', { name: /investigation/i }).getAttribute('aria-pressed')

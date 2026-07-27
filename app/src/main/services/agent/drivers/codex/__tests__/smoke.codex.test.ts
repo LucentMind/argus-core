@@ -99,6 +99,7 @@ function open(
     caseDir: scratch.caseDir,
     additionalDirectories: [],
     skills: [],
+    subagents: [],
     permissionMode: 'default',
     systemAppend: '',
     extraMcpServers: {},

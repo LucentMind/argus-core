@@ -8,6 +8,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
 /** Files known to carry model-facing text. A new prompt-bearing file must be added here. */
 const SCANNED = [
   'app/src/shared/modes.ts',
+  'app/src/shared/reviewLayers.ts',
   'app/src/shared/tourPrompts.ts',
   'app/src/main/services/agent/persona.ts',
   'app/src/main/services/agent/skillIndex.ts',
@@ -20,13 +21,17 @@ const SCANNED = [
   'app/src/main/services/distill/contract.ts',
   'app/src/main/services/refSync/distill.ts',
   'app/src/main/services/caseService.ts',
-  'app/src/main/services/jiraPrompts.ts'
+  'app/src/main/services/jiraPrompts.ts',
+  'app/src/main/services/agent/reviewRun.ts',
+  'app/src/main/services/agent/reviewWrites.ts',
+  'app/src/main/services/agent/reviewActions.ts'
 ]
 
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */
 const RETURN_SCANNED = [
   'app/src/main/services/agent/nativeTools.ts',
-  'app/src/main/services/memory.ts'
+  'app/src/main/services/memory.ts',
+  'app/src/main/services/agent/reviewWrites.ts'
 ]
 
 /**
@@ -76,6 +81,10 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   {
     text: 'Cannot delete the memory index',
     why: 'deleteTopic is a Settings-page action invoked by the user; no tool exposes it.'
+  },
+  {
+    text: '${b.owner}/${b.repo}#${b.number}',
+    why: "prIdentity() in reviewWrites.ts: the case's one binding as owner/repo#number, for the {bound} placeholder in review_write.unknown-pr (so the model can copy a value straight into `pr`) — pure interpolation, no words of its own. Kept as this one longer/specific pattern rather than also carrying a short '#${b.number}' entry: a short generic fragment would silently waive any FUTURE literal in reviewWrites.ts that merely happens to interpolate a PR number, e.g. a hypothetical `PR #${b.number} is closed — reopen it first` — exactly the rot this file's own comment warns about."
   }
 ]
 

@@ -40,9 +40,11 @@ export type RiskVerdict =
 
 /**
  * The only risk text that reaches the model. `session.ts` forwards `verdict.reason` as the
- * tool_result on a DENY; on an ASK the reason renders on the approval card for the user, and a
- * refusal sends `outcome.comment ?? 'Denied by user'` instead. Ask reasons are therefore UI
- * copy and are deliberately not registered.
+ * tool_result on a DENY. On an ASK, `verdict.reason` does NOT reach the approval card — the
+ * card is built from `{requestId, tool, risk, grantKey, argsPreview}` only (session.ts's
+ * `handleToolRequest`), and a refusal sends `outcome.comment ?? 'Denied by user'` back to the
+ * model instead. An ASK's `reason` is logged to the audit trail (`logToolCall`) but otherwise
+ * unused, so these are deliberately not registered as user-facing copy.
  */
 export const RISK_DENY_REASONS: PromptTextSpecs = {
   'risk.path-outside-sandbox': {
@@ -98,6 +100,18 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
     risk: 'MEDIUM',
     grantKey: null,
     reason: 'Write to agent memory (steers all future sessions)'
+  },
+  mcp__argus__post_review_comment: {
+    action: 'ask',
+    risk: 'MEDIUM',
+    grantKey: null,
+    reason: 'Post a comment on a pull request'
+  },
+  mcp__argus__push_review_change: {
+    action: 'ask',
+    risk: 'HIGH',
+    grantKey: null,
+    reason: 'Remote mutation: push a commit to the pull request branch'
   }
 }
 

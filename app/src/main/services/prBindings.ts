@@ -38,23 +38,40 @@ function rowToBinding(row: PrBindingRow): PrBinding {
   }
 }
 
-/** Idempotent on (case, owner, repo, number): re-adding returns the existing row. */
+/**
+ * Bind a pull request to a case, replacing whatever was bound before. A case has at most one
+ * PR (see the unique index in db.ts): re-adding the SAME pr is idempotent and keeps the row's
+ * identity, while a different one supersedes it.
+ */
 export function addBinding(db: DatabaseSync, caseSlug: string, input: NewPrBinding): PrBinding {
   const caseId = caseIdOf(db, caseSlug)
-  db.prepare(
-    `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(case_id, owner, repo, number) DO NOTHING`
-  ).run(
-    caseId,
-    input.repoPath,
-    input.owner,
-    input.repo,
-    input.number,
-    input.url,
-    input.source,
-    new Date().toISOString()
-  )
+  // Delete-then-insert as one statement pair: the unique index would reject the insert if a
+  // different PR were still bound, and a partial apply would leave the case with no PR at all.
+  db.exec('BEGIN')
+  try {
+    db.prepare(
+      `DELETE FROM pr_bindings
+        WHERE case_id = ? AND NOT (owner = ? AND repo = ? AND number = ?)`
+    ).run(caseId, input.owner, input.repo, input.number)
+    db.prepare(
+      `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(case_id, owner, repo, number) DO NOTHING`
+    ).run(
+      caseId,
+      input.repoPath,
+      input.owner,
+      input.repo,
+      input.number,
+      input.url,
+      input.source,
+      new Date().toISOString()
+    )
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
   const row = db
     .prepare(
       `SELECT * FROM pr_bindings WHERE case_id = ? AND owner = ? AND repo = ? AND number = ?`
@@ -63,7 +80,20 @@ export function addBinding(db: DatabaseSync, caseSlug: string, input: NewPrBindi
   return rowToBinding(row)
 }
 
-/** Newest first. */
+/** The case's bound pull request, or null. The single-binding read every consumer should use. */
+export function getBinding(db: DatabaseSync, caseSlug: string): PrBinding | null {
+  const caseId = caseIdOf(db, caseSlug)
+  const row = db.prepare(`SELECT * FROM pr_bindings WHERE case_id = ?`).get(caseId) as unknown as
+    PrBindingRow | undefined
+  return row ? rowToBinding(row) : null
+}
+
+/**
+ * At most one row (the unique index in db.ts enforces it) — kept for `IPC.prList`
+ * (main/index.ts), which the repo chips read as a list so they render correctly whether the
+ * case has zero or one PR bound. Every other consumer wants the single binding directly:
+ * prefer `getBinding`.
+ */
 export function listBindings(db: DatabaseSync, caseSlug: string): PrBinding[] {
   const caseId = caseIdOf(db, caseSlug)
   const rows = db
@@ -100,7 +130,16 @@ export type PrMaterializer = (binding: PrBinding) => Promise<string | null>
  *
  * Checkout is lazy and never fatal: a binding with `repoPath === null` is skipped by
  * design (the agent falls back to `gh pr diff`), and a git failure is logged and stepped
- * over so it can never block a mode switch.
+ * over so it can never block a mode switch. The `CLAUDE.md` write is wrapped the same way:
+ * by the time this runs, `addBinding` has already committed, so an fs error here (disk
+ * full, permissions) must not turn into a rejected `pr:link` call — that used to read to
+ * callers as "the link failed" (e.g. the Repos rail's manual-link catch reporting "Not a
+ * pull request reference") for a PR that was, in fact, bound. The `getBinding` read itself
+ * gets the same treatment for the same reason (a bare SELECT on a connection that just
+ * committed is unlikely to fail, but "unlikely" is not "impossible", and this function's
+ * whole point is that nothing downstream of a committed write may read as a failure) — on
+ * failure it logs and returns without touching `CLAUDE.md` at all, rather than writing an
+ * "unbound" state it can't actually confirm.
  */
 export async function materializePrBindings(
   db: DatabaseSync,
@@ -115,7 +154,14 @@ export async function materializePrBindings(
     url: string
     worktreePath: string | null
   }[] = []
-  for (const b of listBindings(db, caseSlug)) {
+  let b: PrBinding | null
+  try {
+    b = getBinding(db, caseSlug)
+  } catch (err) {
+    console.warn(`[pr] getBinding for ${caseSlug} failed: ${(err as Error).message}`)
+    return
+  }
+  if (b) {
     let worktreePath: string | null = null
     if (b.repoPath) {
       try {
@@ -128,5 +174,9 @@ export async function materializePrBindings(
     }
     lines.push({ owner: b.owner, repo: b.repo, number: b.number, url: b.url, worktreePath })
   }
-  updateClaudeMdPrs(argusHome, caseSlug, lines)
+  try {
+    updateClaudeMdPrs(argusHome, caseSlug, lines)
+  } catch (err) {
+    console.warn(`[pr] CLAUDE.md update for ${caseSlug} failed: ${(err as Error).message}`)
+  }
 }

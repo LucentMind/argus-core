@@ -428,6 +428,28 @@ describe('tool taxonomy', () => {
   })
 })
 
+describe('review write tools', () => {
+  it('asks at MEDIUM for a PR comment, with no session grant', () => {
+    const v = classifyToolCall('mcp__argus__post_review_comment', {}, ctx())
+    expect(v).toEqual({
+      action: 'ask',
+      risk: 'MEDIUM',
+      grantKey: null,
+      reason: 'Post a comment on a pull request'
+    })
+  })
+
+  it('asks at HIGH for a push, with no session grant', () => {
+    const v = classifyToolCall('mcp__argus__push_review_change', {}, ctx())
+    expect(v).toEqual({
+      action: 'ask',
+      risk: 'HIGH',
+      grantKey: null,
+      reason: 'Remote mutation: push a commit to the pull request branch'
+    })
+  })
+})
+
 describe("network taxonomy kind (Copilot 'fetch')", () => {
   // A driver taxonomy exercising the 'network' kind. Claude declares none (WebFetch stays
   // on the legacy fallback), so this is exercised only through an inline entry / Copilot.

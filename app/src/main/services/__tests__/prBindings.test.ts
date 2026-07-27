@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { addBinding, listBindings, removeBinding, bindingCount } from '../prBindings'
+import { addBinding, getBinding, listBindings, removeBinding, bindingCount } from '../prBindings'
 import { modeContextForCase } from '../modeContext'
 import { availableModes } from '../../../shared/modes'
 
@@ -40,16 +40,11 @@ describe('pr bindings', () => {
     expect(listBindings(db, 'c1')).toHaveLength(1)
   })
 
-  it('supports several PRs per case and removal', () => {
-    addBinding(db, 'c1', PR)
-    const second = addBinding(db, 'c1', {
-      ...PR,
-      number: 43,
-      url: 'https://github.com/acme/widget/pull/43'
-    })
-    expect(listBindings(db, 'c1')).toHaveLength(2)
-    removeBinding(db, 'c1', second.id)
-    expect(listBindings(db, 'c1').map((b) => b.number)).toEqual([42])
+  it('supports binding and removal', () => {
+    const bound = addBinding(db, 'c1', PR)
+    expect(listBindings(db, 'c1')).toHaveLength(1)
+    removeBinding(db, 'c1', bound.id)
+    expect(listBindings(db, 'c1')).toEqual([])
   })
 
   it('bindings are scoped per case', () => {
@@ -75,5 +70,127 @@ describe('pr bindings', () => {
 
   it('modeContextForCase is total — an unknown slug reports zero repos, never throws', () => {
     expect(modeContextForCase(db, 'nope').linkedRepoCount).toBe(0)
+  })
+})
+
+describe('one binding per case', () => {
+  it('replaces an existing binding rather than accumulating', () => {
+    addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    const second = addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      source: 'manual'
+    })
+    expect(listBindings(db, 'c1')).toHaveLength(1)
+    expect(listBindings(db, 'c1')[0].number).toBe(43)
+    expect(getBinding(db, 'c1')?.id).toBe(second.id)
+  })
+
+  it('re-adding the same PR is idempotent and keeps its identity', () => {
+    const first = addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    const again = addBinding(db, 'c1', {
+      repoPath: '/clones/widget',
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    expect(again.id).toBe(first.id)
+    expect(listBindings(db, 'c1')).toHaveLength(1)
+  })
+
+  it('binds each case independently', () => {
+    createCase(db, home, { slug: 'c2', title: 'Case 2' })
+    addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    addBinding(db, 'c2', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'gadget',
+      number: 7,
+      url: 'https://github.com/acme/gadget/pull/7',
+      source: 'manual'
+    })
+    expect(getBinding(db, 'c1')?.number).toBe(42)
+    expect(getBinding(db, 'c2')?.number).toBe(7)
+  })
+
+  it('getBinding returns null for a case with no PR', () => {
+    expect(getBinding(db, 'c1')).toBeNull()
+  })
+
+  it('migrates a database that already has several bindings on one case by unbinding it entirely', () => {
+    // Build the pre-migration state directly: openDb's own index would reject it.
+    const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-prmigrate-'))
+    const file = path.join(home2, 'argus.db')
+    const first = openDb(file)
+    createCase(first, home2, { slug: 'c1', title: 'Case 1' })
+    const caseId = (first.prepare(`SELECT id FROM cases WHERE slug = 'c1'`).get() as { id: number })
+      .id
+    first.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
+    for (const n of [42, 43, 44]) {
+      first
+        .prepare(
+          `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
+           VALUES (?, NULL, 'acme', 'widget', ?, ?, 'search', ?)`
+        )
+        .run(caseId, n, `https://github.com/acme/widget/pull/${n}`, new Date().toISOString())
+    }
+    expect(first.prepare(`SELECT COUNT(*) AS n FROM pr_bindings`).get()).toEqual({ n: 3 })
+    first.close()
+
+    // Picking a survivor (the old MAX(id) behaviour) would silently keep whichever PR happened
+    // to be inserted last — gh's search order, which ranks nothing (shared/pr.ts). #44 landing
+    // last here is exactly the ambiguous case (a PR and its backport from one search): the fix
+    // is to leave the case wholly unbound rather than gamble on a specific number.
+    const reopened = openDb(file) // runs the migration
+    expect(reopened.prepare(`SELECT COUNT(*) AS n FROM pr_bindings`).get()).toEqual({ n: 0 })
+    expect(getBinding(reopened, 'c1')).toBeNull()
+    reopened.close()
+  })
+
+  it('leaves a case with exactly one binding untouched by the migration', () => {
+    const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-prmigrate-single-'))
+    const file = path.join(home2, 'argus.db')
+    const first = openDb(file)
+    createCase(first, home2, { slug: 'c1', title: 'Case 1' })
+    addBinding(first, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'search'
+    })
+    first.close()
+
+    const reopened = openDb(file) // runs the migration again on every open
+    expect(reopened.prepare(`SELECT COUNT(*) AS n FROM pr_bindings`).get()).toEqual({ n: 1 })
+    expect(getBinding(reopened, 'c1')?.number).toBe(42)
+    reopened.close()
   })
 })

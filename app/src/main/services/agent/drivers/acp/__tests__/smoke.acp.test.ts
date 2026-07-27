@@ -75,6 +75,7 @@ describeOrSkip('ACP real-runtime smoke (ACP_SMOKE=1)', () => {
             caseDir: tmp,
             additionalDirectories: [],
             skills: [],
+            subagents: [],
             permissionMode: 'default',
             systemAppend: 'SMOKE',
             extraMcpServers: {},
