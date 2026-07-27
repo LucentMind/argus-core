@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildReviewRunPrompt } from '../reviewRun'
-import { REVIEW_LAYERS } from '../../../../shared/reviewLayers'
+import { REVIEW_LAYERS, CANDIDATE_CONTRACT } from '../../../../shared/reviewLayers'
 
 const base = {
   prUrl: 'https://github.com/o/r/pull/7',
@@ -21,10 +21,25 @@ describe('buildReviewRunPrompt', () => {
     expect(p).not.toContain(REVIEW_LAYERS.correctness.prompt)
   })
 
-  it('on a promptable driver inlines each layer prompt', () => {
+  it("on a promptable driver inlines each layer's investigative task", () => {
     const p = buildReviewRunPrompt({ ...base, support: 'promptable', pinnedLayers: [] })
-    expect(p).toContain(REVIEW_LAYERS.correctness.prompt)
-    expect(p).toContain(REVIEW_LAYERS.security.prompt)
+    expect(p).toContain('chase every suspicion')
+    expect(p).toContain('trace where untrusted input reaches')
+  })
+
+  // Finding 1 (layered-review review): the promptable path used to inline the delegate-only
+  // CANDIDATE_CONTRACT verbatim ("Return candidates only — do NOT record findings. You have no
+  // findings tool… Emit nothing else.") into the SAME turn as the agent that runs the passes
+  // itself and IS told to call append_finding a few paragraphs later. That is the only path for
+  // Codex, Cursor and Grok (promptable drivers), so the contradiction was not a corner case.
+  it('on a promptable driver never tells the recording agent it has no findings tool', () => {
+    const p = buildReviewRunPrompt({ ...base, support: 'promptable', pinnedLayers: [] })
+    expect(p).not.toContain(CANDIDATE_CONTRACT)
+    expect(p).not.toMatch(/no findings tool/i)
+    expect(p).not.toMatch(/do NOT record findings/i)
+    // The turn still tells the agent it DOES have and should use append_finding — via the
+    // shared triage text that already follows the fan-out section for both driver kinds.
+    expect(p).toMatch(/append_finding/)
   })
 
   it('lets the agent choose when nothing is pinned', () => {

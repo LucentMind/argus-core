@@ -1,4 +1,9 @@
-import { REVIEW_LAYERS, REVIEW_LAYER_ORDER, type ReviewLayerId } from '../../../shared/reviewLayers'
+import {
+  REVIEW_LAYERS,
+  REVIEW_LAYER_ORDER,
+  CANDIDATE_CONTRACT,
+  type ReviewLayerId
+} from '../../../shared/reviewLayers'
 import type { SubagentSupport } from '../../../shared/drivers'
 import { compileLayerAgents } from './reviewSubagents'
 import { fillPrompt } from '../prompts/fill'
@@ -34,8 +39,11 @@ pass. Say which layers you chose and why, in one line, before you start.`,
   },
   'fanout-configurable': {
     title: 'Review run — fan-out (driver can register agents)',
-    text: `Each layer is available as a subagent you can delegate to by name. Dispatch the
-layers you chose in parallel, one subagent per layer, and wait for all of them.
+    text: `Each layer is available as a subagent you can delegate to by name. A layer subagent
+starts with no context beyond what you send it and cannot read this turn — your delegation
+message to each one must state the worktree path and the diff scope (the PR and its
+merge-base, from above) so it knows what to read. Dispatch the layers you chose in parallel,
+one subagent per layer, and wait for all of them.
 
 Delegate when the diff is large or spans several concerns. For a small, single-concern diff,
 running the passes yourself is faster and cheaper — each subagent re-reads the diff at full
@@ -45,7 +53,12 @@ cost. Use your judgement; do not fan out by reflex.`
     title: 'Review run — fan-out (driver cannot register agents)',
     text: `Run each layer you chose as its own separate pass, in order, finishing one before
 starting the next. If you have a way to delegate a pass to a subagent, use it; otherwise run
-the passes yourself. Each pass's instructions follow.
+the passes yourself.
+
+The instructions below describe what to look for in each pass — they still apply. You are
+running these passes yourself, not delegating to a separate agent: you have append_finding,
+and you record survivors with it yourself once you've triaged across all passes, per the
+steps below.
 
 {layerBodies}`,
     placeholders: ['layerBodies']
@@ -69,6 +82,22 @@ Then end with the verdict — ready / ready with fixes / not ready — and one s
 reasoning. Do not change any code; applying a fix happens only when the user accepts a
 finding and asks for it.`
   }
+}
+
+/**
+ * Strips the delegate-only candidate contract ("Return candidates only — do NOT record
+ * findings. You have no findings tool. … Emit nothing else.") from an inlined layer body.
+ * Used only on the promptable path, where the layer text is inlined into the SAME turn as the
+ * agent that runs it — that agent DOES have `append_finding` and is told exactly how to use it
+ * by the shared `triage` text a few paragraphs later, so leaving the delegate contract in would
+ * tell it the opposite (finding 1 of the layered-review review). A no-op if the resolved text
+ * doesn't end with the shipped contract (e.g. a pack override changed it); the fanout-promptable
+ * header text above `{layerBodies}` is the fallback framing for that case.
+ */
+function stripCandidateContract(text: string): string {
+  const idx = text.lastIndexOf(CANDIDATE_CONTRACT)
+  if (idx === -1) return text
+  return text.slice(0, idx).trimEnd()
 }
 
 /** Compose the turn a Review run sends. Pure; `resolve` is the prompt-registry seam. */
@@ -98,7 +127,9 @@ export function buildReviewRunPrompt(opts: {
     opts.support === 'configurable'
       ? text('fanout-configurable')
       : fillPrompt(text('fanout-promptable'), {
-          layerBodies: agents.map((a) => `### ${a.name}\n${a.prompt}`).join('\n\n')
+          layerBodies: agents
+            .map((a) => `### ${a.name}\n${stripCandidateContract(a.prompt)}`)
+            .join('\n\n')
         })
 
   return [

@@ -34,6 +34,7 @@ import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 import { compileLayerAgents, type SubagentDefinition } from './reviewSubagents'
 import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { SubagentSupport } from '../../../shared/drivers'
+import { reviewSubagentSupport } from './reviewFraming'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -165,13 +166,17 @@ export const MEMORY_HEADER =
  * Which layer agents a session registers. Split out as a pure function so the mode/capability
  * matrix is testable without constructing a session: only review mode on a driver that can
  * actually register agents gets any, and both halves of that condition have bitten before.
+ * The condition itself is `reviewSubagentSupport` (reviewFraming.ts) — the same rule the
+ * review-run composer uses to decide how to FRAME the turn, so the two can never disagree
+ * about the same session (a session this returns [] for must never be told its turn can
+ * delegate by name, and vice versa).
  */
 export function subagentsForSession(
   mode: ModeId,
   support: SubagentSupport,
   resolve?: (id: string) => string
 ): SubagentDefinition[] {
-  if (mode !== 'review' || support !== 'configurable') return []
+  if (reviewSubagentSupport(mode, support) !== 'configurable') return []
   return compileLayerAgents(REVIEW_LAYER_ORDER, resolve)
 }
 

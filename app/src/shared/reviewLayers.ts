@@ -26,7 +26,11 @@ export interface ReviewLayerDefinition {
 export const SEVERITIES = ['critical', 'major', 'minor'] as const
 export type ReviewSeverity = (typeof SEVERITIES)[number]
 
-const CANDIDATE_CONTRACT = `
+/** Exported so the review-run composer (main/services/agent/reviewRun.ts) can strip it back
+ *  out when a layer's task text is inlined into a turn for an agent that is NOT a delegate —
+ *  it does have a findings tool and is told to use it (finding 1 of the layered-review review;
+ *  see reviewRun.ts's stripCandidateContract). */
+export const CANDIDATE_CONTRACT = `
 Return candidates only — do NOT record findings. You have no findings tool. For each candidate
 emit exactly:
   CANDIDATE
