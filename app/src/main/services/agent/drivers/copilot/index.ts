@@ -33,6 +33,7 @@ import {
 } from './client'
 import { acquireAuthRejectionTrap } from './authTrap'
 import { runCopilotHeadless } from './headless'
+import { copilotCustomAgents } from './subagentBinding'
 
 /** A fatal stream error is threaded through the events queue as this sentinel so it can
  *  propagate out of `events()` (contract invariant 5) without an out-of-band throw. */
@@ -389,6 +390,7 @@ export function createCopilotDriver(
         // otherwise. Permission requests for these tools arrive as kind:"mcp" and synthesize
         // to `mcp__<server>__<tool>` (§2), so they re-enter the Argus classifier per call.
         const mcpServers = toCopilotMcpServers(ctx.extraMcpServers ?? {})
+        const customAgents = copilotCustomAgents(ctx.subagents)
         const sessionConfig: CopilotSessionConfig = {
           workingDirectory: ctx.caseDir,
           systemMessage: { mode: 'append', content: ctx.systemAppend },
@@ -397,7 +399,8 @@ export function createCopilotDriver(
           onExitPlanModeRequest: (request) =>
             exitPlanModeDecision(request, ctx.onToolRequest, abort.signal),
           ...(skillDirectories ? { skillDirectories } : {}),
-          ...(mcpServers ? { mcpServers } : {})
+          ...(mcpServers ? { mcpServers } : {}),
+          ...(customAgents ? { customAgents } : {})
         }
         session = ctx.resumeCursor
           ? await client.resumeSession(ctx.resumeCursor, sessionConfig)

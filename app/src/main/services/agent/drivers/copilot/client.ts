@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { asarUnpackedPath } from '../asar'
 import type { RawSdkEvent } from './normalize'
+import type { CopilotCustomAgent } from './subagentBinding'
 
 /**
  * Structural surface of a Copilot SDK session that the driver relies on. Kept minimal
@@ -61,6 +62,9 @@ export interface CopilotSessionConfig {
   /** Composed connector servers, translated by `toCopilotMcpServers` — each entry MUST
    *  carry a `tools` allowlist or the runtime loads it `not_configured` (EVIDENCE §6c). */
   mcpServers?: Record<string, unknown>
+  /** Review-layer subagents, translated by `copilotCustomAgents` (Task 7). Each entry carries
+   *  an explicit tool allowlist — never the wildcard the SDK's own built-in agents use. */
+  customAgents?: CopilotCustomAgent[]
   /** Approve/deny the agent's request to leave plan mode (Task 9B; EVIDENCE §9). */
   onExitPlanModeRequest?: (
     request: {
