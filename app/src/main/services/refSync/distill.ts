@@ -1,3 +1,6 @@
+import { fillPrompt } from '../prompts/fill'
+import type { PromptTextSpecs } from '../../../shared/promptSpec'
+
 export interface DistillPage {
   title: string
   url: string
@@ -23,16 +26,39 @@ Rules — follow every one:
 6. If a current body is provided, MERGE: update the sections the source pages cover, keep unrelated existing sections intact.
 7. Output the COMPLETE new body of the reference file as markdown. No YAML frontmatter, no commentary, no code fence around the whole file. Start directly with the H1 title line, followed by a one-sentence overview paragraph (it seeds the references index).`
 
+/** Section headers of the reference-distillation prompt. Two of them name the target file, so
+ *  they are templates: an override that dropped `{target}` would tell the model to rewrite a
+ *  file it was never told the name of. */
+export const REF_DISTILL_SECTIONS: PromptTextSpecs = {
+  target: {
+    title: 'Ref-distill section — target file',
+    text: '# Target file: {target}',
+    placeholders: ['target']
+  },
+  'current-body': { title: 'Ref-distill section — current body', text: '# Current body' },
+  'source-pages': { title: 'Ref-distill section — source pages', text: '# Source pages' },
+  'output-nudge': {
+    title: 'Ref-distill — closing output instruction',
+    text: 'Return ONLY the complete updated body of {target} as markdown.',
+    placeholders: ['target']
+  }
+}
+
 export function buildDistillPrompt(input: DistillInput, resolve?: (id: string) => string): string {
   const pages = input.pages
     .map((p) => `## Source page: ${p.title}\nURL: ${p.url}\n\n${p.markdown}`)
     .join('\n\n---\n\n')
+  const sec = (key: string): string =>
+    fillPrompt(
+      resolve ? resolve(`headless.ref-distill.section.${key}`) : REF_DISTILL_SECTIONS[key].text,
+      { target: input.target }
+    )
   return [
     resolve ? resolve('headless.ref-distill.contract') : DISTILL_CONTRACT,
-    `# Target file: ${input.target}`,
-    `# Current body\n\n${input.currentBody ?? '(file does not exist yet)'}`,
-    `# Source pages\n\n${pages}`,
-    `Return ONLY the complete updated body of ${input.target} as markdown.`
+    sec('target'),
+    `${sec('current-body')}\n\n${input.currentBody ?? '(file does not exist yet)'}`,
+    `${sec('source-pages')}\n\n${pages}`,
+    sec('output-nudge')
   ].join('\n\n')
 }
 

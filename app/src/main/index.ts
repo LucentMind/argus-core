@@ -21,6 +21,7 @@ import { PromptStore } from './services/prompts/store'
 import { assertDevTools } from './services/prompts/ipcGate'
 import { overrideBootWarnings } from './services/prompts/bootWarnings'
 import { buildPromptPreview } from './services/prompts/preview'
+import { fillPrompt } from './services/prompts/fill'
 import type { PromptCatalogPayload, PromptPreview } from '../shared/promptsIpc'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
@@ -302,7 +303,7 @@ function registerIpc(): void {
       const caption = input.caption?.trim()
       const text =
         (caption ? `${caption}\n\n` : '') +
-        `I captured this from a panel and saved it as ${res.relPath} — use Read on that path to view the image.`
+        fillPrompt(resolvePrompt('synthesized.panel-capture'), { relPath: res.relPath })
       broadcast(IPC.panelsDraft, { caseSlug, sessionId, text })
       return { ok: true, evidenceId: res.evidenceId }
     }
@@ -1515,6 +1516,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.devPromptsOverrides, (): string[] => {
     assertDevTools(devTools)
     return promptStore.activeOverrideIds()
+  })
+
+  /** Resolve ONE entry for a renderer-owned prompt (the onboarding tour). Gated like every
+   *  other dev-prompts handler; the caller falls back to its shipped constant on refusal,
+   *  which is the normal path for anyone without the gate. */
+  ipcMain.handle(IPC.devPromptsResolve, (_e, id: string): string => {
+    assertDevTools(devTools)
+    // The store rejects an unknown id itself — IPC arguments are untyped at runtime.
+    return promptStore.resolve(id)
   })
 
   // — settings —

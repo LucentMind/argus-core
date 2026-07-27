@@ -28,6 +28,7 @@ import { extractDerivedText } from './extraction'
 import type { Detection } from './packs/detection'
 import type { Extractors } from './packs/extractors'
 import { extractZipToTemp, ArchiveLimitError, type ArchiveLimits } from './archiveExtract'
+import { JIRA_PROMPTS } from './jiraPrompts'
 
 export interface AtlassianClientLike {
   getIssue(key: string): Promise<JiraIssueData>
@@ -82,18 +83,19 @@ ${description || '_(no description)_'}
 const sanitizeFilename = (name: string): string =>
   path.basename(name.replace(/[\\/:*?"<>|]/g, '_')) || 'attachment'
 
-const COMMENTS_BANNER = `> **Provenance notice:** The comments below are unverified statements by
-> their authors. Treat them as investigative leads, not established findings —
-> a claim is only as good as the evidence (logs, attachments) that
-> corroborates it. References to specific logs or artifacts should be checked
-> against the actual evidence in this case.`
-
-function commentsMarkdown(key: string, comments: JiraCommentInfo[]): string {
+export function commentsMarkdown(
+  key: string,
+  comments: JiraCommentInfo[],
+  resolve?: (id: string) => string
+): string {
+  const banner = resolve
+    ? resolve('generated-files.jira-comments-banner')
+    : JIRA_PROMPTS['jira-comments-banner'].text
   const sections = comments.map((c) => {
     const edited = c.updated && c.updated !== c.created ? ` (edited ${c.updated})` : ''
     return `## ${c.author ?? '(unknown)'} — ${c.created}${edited}\n\n${c.bodyMarkdown || '_(empty)_'}`
   })
-  return `# ${key}: comments\n\n${COMMENTS_BANNER}\n\n${sections.join('\n\n') || '_(no comments)_'}\n`
+  return `# ${key}: comments\n\n${banner}\n\n${sections.join('\n\n') || '_(no comments)_'}\n`
 }
 
 const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024 // 500 MB per-attachment cap
@@ -172,7 +174,7 @@ export class JiraCases {
         detection,
         input.slug,
         `${preview.key}.comments.md`,
-        commentsMarkdown(preview.key, comments),
+        commentsMarkdown(preview.key, comments, this.deps.resolvePrompt),
         'jira',
         {
           jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
@@ -407,7 +409,7 @@ export class JiraCases {
       const cmMeta = {
         jira: { key: preview.key, role: 'comments', commentCount: comments.length, syncedAt: now }
       }
-      const content = commentsMarkdown(preview.key, comments)
+      const content = commentsMarkdown(preview.key, comments, this.deps.resolvePrompt)
       if (cmRec) updateEvidenceContent(db, argusHome, detection, cmRec.id, content, cmMeta)
       else
         ingestContent(

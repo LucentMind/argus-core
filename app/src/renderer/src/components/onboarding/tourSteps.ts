@@ -1,3 +1,5 @@
+import { TOUR_PROMPTS } from '../../../../shared/tourPrompts'
+
 export type TourTarget =
   'composer' | 'settings-memory' | 'settings-proposals' | 'settings-library' | 'settings-team'
 
@@ -8,6 +10,8 @@ export interface TourStep {
   view: 'case' | 'settings'
   narration: string
   suggestedPrompt?: string
+  /** Registry id of `suggestedPrompt`, when it has one. Lets the dev page override it. */
+  promptId?: string
   requiresIntegration?: 'confluence' | 'hive'
   explain: string
   /**
@@ -43,8 +47,8 @@ export const TOUR_STEPS: TourStep[] = [
     view: 'case',
     narration:
       'Argus turns what it learns into durable memory and reusable skills. Send this prompt: it records a cross-case fact and drafts a skill for you to review — then I will show you where each one goes.',
-    suggestedPrompt:
-      'We keep seeing bearing-discontinuity errors in nav.fusion after an IMU bearing-drift warning. Remember this pattern for future cases, and draft a reusable skill that flags it so I can review and add it to my library.',
+    suggestedPrompt: TOUR_PROMPTS['tour.memory'].text,
+    promptId: 'synthesized.tour.memory',
     explain: '',
     reveal: {
       watchTool: 'mcp__argus__write_memory',

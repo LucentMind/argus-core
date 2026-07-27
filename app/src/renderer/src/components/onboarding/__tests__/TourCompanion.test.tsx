@@ -5,6 +5,7 @@ import { TourCompanion } from '../TourCompanion'
 import { tourStore } from '../../../lib/tourStore'
 import { composerDraft } from '../../../lib/composerDraft'
 import { defaultSettings } from '../../../../../shared/settings'
+import { TOUR_PROMPTS } from '../../../../../shared/tourPrompts'
 
 let emitAgentEvent: ((e: unknown) => void) | null = null
 
@@ -197,5 +198,50 @@ describe('TourCompanion', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /exit tour/i }))
     await waitFor(() => expect(onExit).toHaveBeenCalled())
+  })
+})
+
+describe('tour prompt honours a dev override', () => {
+  /** The outer beforeEach builds window.argus without devPrompts (that is the gate-off shape).
+   *  Augment it rather than replacing it, so sessions.list and agent.onEvent still work. */
+  const withDevPrompts = (resolve: () => Promise<string>): void => {
+    ;(window.argus as unknown as Record<string, unknown>).devPrompts = { resolve: vi.fn(resolve) }
+  }
+
+  it('stages the resolved text when the gate is on', async () => {
+    withDevPrompts(async () => 'OVERRIDDEN PROMPT')
+    const setSpy = vi.spyOn(composerDraft, 'set')
+    render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={vi.fn()}
+        onExit={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /stage prompt/i }))
+    await waitFor(() =>
+      expect(setSpy).toHaveBeenCalledWith('sample-onboarding', 7, 'OVERRIDDEN PROMPT')
+    )
+  })
+
+  it('falls back to the shipped text when the gated call refuses', async () => {
+    // The gate is off for every ordinary user, so a refusal is the NORMAL path, not an error.
+    withDevPrompts(async () => {
+      throw new Error('dev tools are not enabled (set ARGUS_DEV_TOOLS=1)')
+    })
+    const setSpy = vi.spyOn(composerDraft, 'set')
+    render(
+      <TourCompanion
+        sampleSlug="sample-onboarding"
+        settings={defaultSettings()}
+        onNavigate={vi.fn()}
+        onExit={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /stage prompt/i }))
+    await waitFor(() =>
+      expect(setSpy).toHaveBeenCalledWith('sample-onboarding', 7, TOUR_PROMPTS['tour.memory'].text)
+    )
   })
 })

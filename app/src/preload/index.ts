@@ -529,6 +529,7 @@ const argus = {
       ipcRenderer.invoke(IPC.devPromptsClearOverride, id),
     clearAll: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsClearAll),
     overrides: (): Promise<string[]> => ipcRenderer.invoke(IPC.devPromptsOverrides),
+    resolve: (id: string): Promise<string> => ipcRenderer.invoke(IPC.devPromptsResolve, id),
     onChanged: (cb: (ids: string[]) => void): (() => void) => {
       const listener = (_e: unknown, ids: string[]): void => cb(ids)
       ipcRenderer.on(IPC.devPromptsChanged, listener)
