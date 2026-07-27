@@ -142,7 +142,7 @@ export interface DriverCapabilities {
   /** Mirrors the shared DriverDefinition field (`shared/drivers.ts`): which wire field this
    *  driver puts `DriverSessionContext.systemAppend` into. Each driver's contract test asserts
    *  this flag, the shared flag, and the transport reported through `capturePrompt` all agree. */
-  systemPromptTransport: SystemPromptTransport,
+  systemPromptTransport: SystemPromptTransport
   /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
   subagents: SubagentSupport
 }
