@@ -162,6 +162,22 @@ export function openDb(file: string): DatabaseSync {
   db.exec(`PRAGMA journal_mode = WAL;`)
   db.exec(`PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
+  // One pull request per case (plan 2026-07-27-one-pr-per-case). The citation grammar findings
+  // use — [<repo-name>/<path>:<line>] — cannot name a PR number, so two PRs bound in one repo
+  // are indistinguishable to every consumer downstream. Enforced here rather than by convention
+  // because three separate review rounds found the same wrong-PR bug when it was convention.
+  //
+  // Surplus rows are deleted, newest kept. A binding is a link plus a cached repo path: no
+  // worktree and no case data is lost, and the PR picker can re-link. The DELETE must run
+  // BEFORE the index is created — openDb runs on every app start, and an existing database with
+  // several bindings on one case would otherwise fail to open here for every user who has that
+  // state, rather than being silently repaired.
+  db.exec(
+    `DELETE FROM pr_bindings WHERE id NOT IN (
+       SELECT MAX(id) FROM pr_bindings GROUP BY case_id
+     )`
+  )
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS pr_bindings_one_per_case ON pr_bindings(case_id)`)
   const caseCols = db.prepare(`PRAGMA table_info(cases)`).all() as { name: string }[]
   if (!caseCols.some((c) => c.name === 'workspaces')) {
     db.exec(`ALTER TABLE cases ADD COLUMN workspaces TEXT NOT NULL DEFAULT '[]'`)

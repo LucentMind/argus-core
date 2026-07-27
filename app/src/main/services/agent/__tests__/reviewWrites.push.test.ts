@@ -232,19 +232,38 @@ describe('pushReviewChange', () => {
 })
 
 describe('pushReviewChange — multi-binding disambiguation', () => {
+  /** Inserts a second pr_bindings row directly, bypassing addBinding's replace-on-link
+   *  collapse and the one-binding-per-case unique index (db.ts) — a case can no longer reach
+   *  this state through addBinding (plan 2026-07-27-one-pr-per-case), but the tests below
+   *  still exercise resolveBindingForFinding's multi-binding disambiguation (reviewWrites.ts),
+   *  which is unchanged by this plan's Task 1. */
+  function bindDirect(b: {
+    repoPath: string | null
+    owner: string
+    repo: string
+    number: number
+    url: string
+  }): void {
+    db.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
+    const caseId = getCase(db, 'c1')!.id
+    db.prepare(
+      `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`
+    ).run(caseId, b.repoPath, b.owner, b.repo, b.number, b.url, new Date().toISOString())
+  }
+
   /** Adds a second binding (gadget/#7) and returns its repoPath. Added AFTER widget/#42, so
    *  listBindings (newest first) puts it at index 0 — any bindings[0] fallback would target
    *  it, which is exactly the bug these tests guard against. */
   function addSecondBinding(): string {
     const repoPath2 = path.join(home, 'clones', 'gadget')
     fs.mkdirSync(repoPath2, { recursive: true })
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath: repoPath2,
       owner: 'acme',
       repo: 'gadget',
       number: 7,
-      url: 'https://github.com/acme/gadget/pull/7',
-      source: 'manual'
+      url: 'https://github.com/acme/gadget/pull/7'
     })
     return repoPath2
   }
@@ -305,13 +324,12 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
     // Same owner/repo, different number: pr_bindings' unique key is (case_id, owner, repo,
     // number), so both can be bound to one case (IPC.prLinkMany from a single search does
     // exactly this). Both match the `widget/` citation prefix.
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath,
       owner: 'acme',
       repo: 'widget',
       number: 43,
-      url: 'https://github.com/acme/widget/pull/43',
-      source: 'manual'
+      url: 'https://github.com/acme/widget/pull/43'
     })
     const { git, calls } = scriptedGit()
     const id = seedFindingCiting('See [widget/src/guard.ts:17].')
@@ -330,13 +348,12 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
     // returned bindings[0] regardless would pass a "pick #43" assertion by coincidence. Picking
     // #42 (already bound + worktree-materialized by the outer beforeEach, and NOT bindings[0])
     // is what actually proves pr selects the binding.
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath,
       owner: 'acme',
       repo: 'widget',
       number: 43,
-      url: 'https://github.com/acme/widget/pull/43',
-      source: 'manual'
+      url: 'https://github.com/acme/widget/pull/43'
     })
     const gh: Runner = async (_cmd, args) => {
       const repo = args[args.indexOf('--repo') + 1]
@@ -380,13 +397,12 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
     // [widget/...], but the agent passes pr: acme/gadget#7 — a genuine contradiction. Without
     // this check, `match` (gadget#7) would win outright and this call would go on to commit and
     // push to gadget's branch for a change described against widget's citation.
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath: null,
       owner: 'acme',
       repo: 'gadget',
       number: 7,
-      url: 'https://github.com/acme/gadget/pull/7',
-      source: 'manual'
+      url: 'https://github.com/acme/gadget/pull/7'
     })
     const { git, calls } = scriptedGit()
     const id = seedFindingCiting('See [widget/src/guard.ts:17].')

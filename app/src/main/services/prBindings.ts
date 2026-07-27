@@ -38,23 +38,40 @@ function rowToBinding(row: PrBindingRow): PrBinding {
   }
 }
 
-/** Idempotent on (case, owner, repo, number): re-adding returns the existing row. */
+/**
+ * Bind a pull request to a case, replacing whatever was bound before. A case has at most one
+ * PR (see the unique index in db.ts): re-adding the SAME pr is idempotent and keeps the row's
+ * identity, while a different one supersedes it.
+ */
 export function addBinding(db: DatabaseSync, caseSlug: string, input: NewPrBinding): PrBinding {
   const caseId = caseIdOf(db, caseSlug)
-  db.prepare(
-    `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(case_id, owner, repo, number) DO NOTHING`
-  ).run(
-    caseId,
-    input.repoPath,
-    input.owner,
-    input.repo,
-    input.number,
-    input.url,
-    input.source,
-    new Date().toISOString()
-  )
+  // Delete-then-insert as one statement pair: the unique index would reject the insert if a
+  // different PR were still bound, and a partial apply would leave the case with no PR at all.
+  db.exec('BEGIN')
+  try {
+    db.prepare(
+      `DELETE FROM pr_bindings
+        WHERE case_id = ? AND NOT (owner = ? AND repo = ? AND number = ?)`
+    ).run(caseId, input.owner, input.repo, input.number)
+    db.prepare(
+      `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(case_id, owner, repo, number) DO NOTHING`
+    ).run(
+      caseId,
+      input.repoPath,
+      input.owner,
+      input.repo,
+      input.number,
+      input.url,
+      input.source,
+      new Date().toISOString()
+    )
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
   const row = db
     .prepare(
       `SELECT * FROM pr_bindings WHERE case_id = ? AND owner = ? AND repo = ? AND number = ?`
@@ -63,7 +80,19 @@ export function addBinding(db: DatabaseSync, caseSlug: string, input: NewPrBindi
   return rowToBinding(row)
 }
 
-/** Newest first. */
+/** The case's bound pull request, or null. The single-binding read every consumer should use. */
+export function getBinding(db: DatabaseSync, caseSlug: string): PrBinding | null {
+  const caseId = caseIdOf(db, caseSlug)
+  const row = db.prepare(`SELECT * FROM pr_bindings WHERE case_id = ?`).get(caseId) as unknown as
+    PrBindingRow | undefined
+  return row ? rowToBinding(row) : null
+}
+
+/**
+ * At most one row (the unique index in db.ts enforces it) — kept only because
+ * materializePrBindings/main/index.ts/reviewRunCompose.ts/reviewWrites.ts still call it.
+ * Prefer `getBinding` for new code.
+ */
 export function listBindings(db: DatabaseSync, caseSlug: string): PrBinding[] {
   const caseId = caseIdOf(db, caseSlug)
   const rows = db
@@ -115,7 +144,8 @@ export async function materializePrBindings(
     url: string
     worktreePath: string | null
   }[] = []
-  for (const b of listBindings(db, caseSlug)) {
+  const b = getBinding(db, caseSlug)
+  if (b) {
     let worktreePath: string | null = null
     if (b.repoPath) {
       try {
