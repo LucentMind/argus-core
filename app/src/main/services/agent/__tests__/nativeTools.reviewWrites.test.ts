@@ -103,26 +103,6 @@ describe('review write tools via argusToolHandlers', () => {
     ).findingId
   }
 
-  /** Inserts a second pr_bindings row directly, bypassing addBinding's replace-on-link
-   *  collapse and the one-binding-per-case unique index (db.ts) — a case can no longer reach
-   *  this state through addBinding (plan 2026-07-27-one-pr-per-case), but the test below still
-   *  exercises resolveBindingForFinding's same-repo disambiguation (reviewWrites.ts), which is
-   *  unchanged. */
-  function bindDirect(b: {
-    repoPath: string | null
-    owner: string
-    repo: string
-    number: number
-    url: string
-  }): void {
-    db.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
-    const caseId = getCase(db, 'c1')!.id
-    db.prepare(
-      `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`
-    ).run(caseId, b.repoPath, b.owner, b.repo, b.number, b.url, new Date().toISOString())
-  }
-
   it('post_review_comment coerces finding_id/body, posts via the injected gh, and notifies the listener', async () => {
     const calls: string[][] = []
     const gh: Runner = async (_cmd, args) => {
@@ -166,31 +146,16 @@ describe('review write tools via argusToolHandlers', () => {
     expect(row?.commentUrl).toBe('https://github.com/acme/widget/pull/42#discussion_r1')
   })
 
-  it('post_review_comment threads the pr argument through to pick the right one of two same-repo bindings', async () => {
-    // #43 is added AFTER #42 (the outer beforeEach's binding, whose worktree is already
-    // materialized with src/guard.ts), so listBindings (newest first) puts #43 at bindings[0].
-    // Picking #42 — NOT bindings[0] — via pr is what actually proves the argument selects the
-    // binding, rather than an implementation that checks pr's validity and then still returns
-    // bindings[0] regardless.
-    bindDirect({
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 43,
-      url: 'https://github.com/acme/widget/pull/43'
-    })
-
+  it('post_review_comment threads the pr argument through to the resolver, which checks it against the bound PR', async () => {
     const calls: string[][] = []
     const gh: Runner = async (_cmd, args) => {
       calls.push(args)
-      if (args[0] === 'pr') {
-        const number = args[2]
+      if (args[0] === 'pr')
         return JSON.stringify({
-          headRefName: number === '43' ? 'pr43-branch' : 'feature/guard',
-          headRefOid: number === '43' ? 'sha43' : 'abc123',
+          headRefName: 'feature/guard',
+          headRefOid: 'abc123',
           isCrossRepository: false
         })
-      }
       return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
     }
     const handlers = argusToolHandlers({
@@ -210,7 +175,27 @@ describe('review write tools via argusToolHandlers', () => {
       body: 'x'
     })
     expect(out).toContain('#discussion_r1')
-    expect(calls[0]).toContain('42') // the head lookup targeted PR #42, not #43
+    expect(calls[0]).toContain('42')
+  })
+
+  it('post_review_comment rejects a pr argument naming a PR this case is not bound to', async () => {
+    const gh: Runner = async () => {
+      throw new Error('gh must not be called')
+    }
+    const handlers = argusToolHandlers({
+      db,
+      argusHome: home,
+      detection,
+      caseId: getCase(db, 'c1')!.id,
+      caseSlug: 'c1',
+      sessionId: 1,
+      emitFinding,
+      gh
+    })
+    const id = seedFinding()
+    await expect(
+      handlers.post_review_comment({ finding_id: String(id), pr: 'acme/widget#99', body: 'x' })
+    ).rejects.toThrow(/acme\/widget#99/i)
   })
 
   it('push_review_change coerces finding_id, commits+pushes to a real remote, and notifies the listener', async () => {

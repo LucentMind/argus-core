@@ -38,35 +38,10 @@ function finding(markdown: string): number {
 
 /** Materialize the worktree dir the resolver verifies against, with one real file. */
 function seedWorktree(prNumber: number, rel: string): string {
-  return seedWorktreeFor(repoPath, prNumber, rel)
-}
-
-/** Same as `seedWorktree`, but for a second repo clone (multi-binding tests). */
-function seedWorktreeFor(repoP: string, prNumber: number, rel: string): string {
-  const wt = casePrWorktreeDir(home, 'c1', repoP, prNumber)
+  const wt = casePrWorktreeDir(home, 'c1', repoPath, prNumber)
   fs.mkdirSync(path.join(wt, path.dirname(rel)), { recursive: true })
   fs.writeFileSync(path.join(wt, rel), 'x')
   return wt
-}
-
-/** Inserts a second pr_bindings row directly, bypassing addBinding's replace-on-link collapse
- *  and the one-binding-per-case unique index (db.ts) — a case can no longer reach this state
- *  through addBinding (plan 2026-07-27-one-pr-per-case), but the tests below still exercise
- *  resolveBindingForFinding's multi-binding disambiguation (reviewWrites.ts), which is
- *  unchanged by this plan's Task 1. */
-function bindDirect(b: {
-  repoPath: string | null
-  owner: string
-  repo: string
-  number: number
-  url: string
-}): void {
-  db.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
-  const caseId = getCase(db, 'c1')!.id
-  db.prepare(
-    `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`
-  ).run(caseId, b.repoPath, b.owner, b.repo, b.number, b.url, new Date().toISOString())
 }
 
 beforeEach(() => {
@@ -194,9 +169,7 @@ describe('resolveCommentTarget', () => {
     expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(/does not exist/i)
   })
 
-  it('rejects an ambiguous citation when two PRs are bound and neither name matches', () => {
-    const repoPath2 = path.join(home, 'clones', 'gadget')
-    fs.mkdirSync(repoPath2, { recursive: true })
+  it("accepts a pr argument naming the case's bound PR", () => {
     addBinding(db, 'c1', {
       repoPath,
       owner: 'acme',
@@ -204,94 +177,6 @@ describe('resolveCommentTarget', () => {
       number: 42,
       url: 'https://github.com/acme/widget/pull/42',
       source: 'manual'
-    })
-    bindDirect({
-      repoPath: repoPath2,
-      owner: 'acme',
-      repo: 'gadget',
-      number: 7,
-      url: 'https://github.com/acme/gadget/pull/7'
-    })
-    // Neither binding's worktree is materialized, so a silent bindings[0] fallback here
-    // would go unchecked and post to the wrong PR.
-    const id = finding('See [other/src/x.ts:1].')
-    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(
-      /bound pull requests/i
-    )
-  })
-
-  it('still resolves the matching PR when two are bound and the prefix names one of them', () => {
-    const repoPath2 = path.join(home, 'clones', 'gadget')
-    fs.mkdirSync(repoPath2, { recursive: true })
-    addBinding(db, 'c1', {
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 42,
-      url: 'https://github.com/acme/widget/pull/42',
-      source: 'manual'
-    })
-    bindDirect({
-      repoPath: repoPath2,
-      owner: 'acme',
-      repo: 'gadget',
-      number: 7,
-      url: 'https://github.com/acme/gadget/pull/7'
-    })
-    seedWorktreeFor(repoPath2, 7, 'a/b.ts')
-    const id = finding('See [gadget/a/b.ts:5].')
-    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id)
-    expect(t.repoRelPath).toBe('a/b.ts')
-    expect(t.binding.number).toBe(7)
-  })
-
-  it('rejects a same-repo citation when two PRs from the same repo are bound (#42/#43), instead of picking bindings[0]', () => {
-    // pr_bindings' unique key is (case_id, owner, repo, number) — nothing stops binding both
-    // #42 and #43 of the SAME repo to one case (IPC.prLinkMany from a single search does
-    // exactly this). Both match the `widget/` citation prefix, so the pre-fix `find` would
-    // silently return whichever `listBindings` (newest first) happened to return first.
-    addBinding(db, 'c1', {
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 42,
-      url: 'https://github.com/acme/widget/pull/42',
-      source: 'manual'
-    })
-    bindDirect({
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 43,
-      url: 'https://github.com/acme/widget/pull/43'
-    })
-    seedWorktree(42, 'src/guard.ts')
-    const id = finding('See [widget/src/guard.ts:17].')
-    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(
-      /bound pull requests in widget/i
-    )
-  })
-
-  it('an explicit pr argument picks the right one of two same-repo bindings', () => {
-    // #43 is added AFTER #42, so listBindings (newest first) puts #43 at bindings[0] — an
-    // implementation that parsed `pr`, did the unknown-pr membership check, and then still
-    // returned bindings[0] regardless would pass a "pick #43" assertion by coincidence. Picking
-    // #42 here — the one that is NOT bindings[0] — is the assertion that actually distinguishes
-    // "pr genuinely selects the binding" from "pr is checked but ignored".
-    addBinding(db, 'c1', {
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 42,
-      url: 'https://github.com/acme/widget/pull/42',
-      source: 'manual'
-    })
-    bindDirect({
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 43,
-      url: 'https://github.com/acme/widget/pull/43'
     })
     seedWorktree(42, 'src/guard.ts')
     const id = finding('See [widget/src/guard.ts:17].')
@@ -313,36 +198,6 @@ describe('resolveCommentTarget', () => {
     const id = finding('See [widget/src/guard.ts:17].')
     expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#99')).toThrow(
       /acme\/widget#99/i
-    )
-  })
-
-  it('rejects a pr that contradicts the citation instead of silently overriding it', () => {
-    // acme/widget#42 (worktree materialized) and acme/gadget#7 (manual link, no local clone) are
-    // both bound. The finding cites [widget/...], naming widget — but the agent passes
-    // pr: acme/gadget#7. Without this check, `match` (gadget#7) would win outright: `named`
-    // wouldn't include it so the citation's path prefix would NOT get stripped, gadget's
-    // worktree is null so the path-missing check is skipped, and a 422-on-non-diff-line fallback
-    // would publish a comment ABOUT widget's citation onto gadget's PR — the exact "wrong PR"
-    // class this whole fix wave exists to prevent, reachable through the mechanism that fixed it.
-    addBinding(db, 'c1', {
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 42,
-      url: 'https://github.com/acme/widget/pull/42',
-      source: 'manual'
-    })
-    bindDirect({
-      repoPath: null,
-      owner: 'acme',
-      repo: 'gadget',
-      number: 7,
-      url: 'https://github.com/acme/gadget/pull/7'
-    })
-    seedWorktree(42, 'src/guard.ts')
-    const id = finding('See [widget/src/guard.ts:17].')
-    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/gadget#7')).toThrow(
-      /widget/i
     )
   })
 

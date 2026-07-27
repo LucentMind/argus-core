@@ -123,15 +123,10 @@ import {
   linkWorkspace,
   unlinkWorkspace,
   listWorkspaces,
-  listStoredWorkspaces,
   autoLinkDefaultRepo
 } from './services/workspaces'
-import {
-  addBinding,
-  listBindings,
-  removeBinding,
-  materializePrBindings
-} from './services/prBindings'
+import { getBinding, listBindings, removeBinding } from './services/prBindings'
+import { linkPrForCase } from './services/prLink'
 import { searchPrsForCase } from './services/prSearch'
 import { ensurePrWorktree } from './services/prWorktree'
 import type { PrMaterializer } from './services/prBindings'
@@ -141,7 +136,7 @@ function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
   return (b) =>
     b.repoPath ? ensurePrWorktree(argusHome, caseSlug, b.repoPath, b.number) : Promise.resolve(null)
 }
-import { parsePrRef, remoteToOwnerRepo, type PrRef } from '../shared/pr'
+import type { PrRef } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
@@ -1168,7 +1163,7 @@ function registerIpc(): void {
       composeReviewRunPrompt(
         {
           db,
-          listBindings,
+          getBinding,
           materialize: prMaterializer(argusHome, caseSlug),
           resolvePrompt,
           driverForInstance: (instanceId) =>
@@ -1274,36 +1269,20 @@ function registerIpc(): void {
   // — pull requests —
   // Unlike the workspaces:* handlers above (a known gap), every pr:* handler validates
   // the slug before it reaches the DB or the filesystem.
-  ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) => {
-    assertSlug(caseSlug)
-    const stored = listStoredWorkspaces(db, caseSlug)
-    // Free text (the Repos rail's manual field) is parsed here; a picker selection already
-    // arrives as a resolved PrRef — the shape is how the two sources are told apart.
-    const manual = typeof input === 'string'
-    const ref = manual ? parsePrRef(input, stored[0]?.remote ?? null) : input
-    if (!ref) throw new Error(`Not a pull request reference: ${input}`)
-    // Match the parsed owner/repo against the linked remotes so the binding knows which
-    // local clone to make its worktree from. null stays supported (manual linking of a
-    // PR in an unlinked repo) — the agent falls back to `gh pr diff`.
-    const repoPath =
-      stored.find((w) => {
-        const or = w.remote ? remoteToOwnerRepo(w.remote) : null
-        return or?.owner === ref.owner && or?.repo === ref.repo
-      })?.path ?? null
-    const binding = addBinding(db, caseSlug, {
-      ...ref,
-      repoPath,
-      source: manual ? 'manual' : 'search'
-    })
-    if (!manual) {
-      // A picker selection, like the old pr:link-many, checks out the PR's worktree right
-      // away and tells the repo chips. Manual linking (the Repos rail) does neither — its
-      // caller reloads its own state after the call resolves.
-      await materializePrBindings(db, argusHome, caseSlug, prMaterializer(argusHome, caseSlug))
-      broadcast(IPC.workspacesChanged, caseSlug)
-    }
-    return binding
-  })
+  // The handler body lives in prLink.ts (thin wrapper here) so the picker-vs-manual
+  // materialize+broadcast gate is testable without booting Electron.
+  ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) =>
+    linkPrForCase(
+      {
+        db,
+        argusHome,
+        materialize: prMaterializer(argusHome, caseSlug),
+        broadcast: (slug) => broadcast(IPC.workspacesChanged, slug)
+      },
+      caseSlug,
+      input
+    )
+  )
   ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
     return listBindings(db, caseSlug)

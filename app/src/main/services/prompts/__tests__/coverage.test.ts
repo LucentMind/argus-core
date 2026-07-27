@@ -84,7 +84,7 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   },
   {
     text: '${b.owner}/${b.repo}#${b.number}',
-    why: "prIdentity() in reviewWrites.ts: one binding as owner/repo#number, for both the {bound} placeholder in review_write.unknown-pr and the {numbers} placeholder in review_write.ambiguous-pr (deliberately the full identity in both, so the model can copy a value straight into `pr`) — pure interpolation, no words of its own. Kept as this one longer/specific pattern rather than also carrying a short '#${b.number}' entry: a short generic fragment would silently waive any FUTURE literal in reviewWrites.ts that merely happens to interpolate a PR number, e.g. a hypothetical `PR #${b.number} is closed — reopen it first` — exactly the rot this file's own comment warns about."
+    why: "prIdentity() in reviewWrites.ts: the case's one binding as owner/repo#number, for the {bound} placeholder in review_write.unknown-pr (so the model can copy a value straight into `pr`) — pure interpolation, no words of its own. Kept as this one longer/specific pattern rather than also carrying a short '#${b.number}' entry: a short generic fragment would silently waive any FUTURE literal in reviewWrites.ts that merely happens to interpolate a PR number, e.g. a hypothetical `PR #${b.number} is closed — reopen it first` — exactly the rot this file's own comment warns about."
   }
 ]
 

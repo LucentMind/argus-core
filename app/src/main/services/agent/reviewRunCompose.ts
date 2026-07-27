@@ -8,7 +8,7 @@ import { resolveReviewFraming, type ReviewFramingDeps } from './reviewFraming'
 
 export interface ComposeReviewRunPromptDeps extends ReviewFramingDeps {
   db: DatabaseSync
-  listBindings: (db: DatabaseSync, caseSlug: string) => PrBinding[]
+  getBinding: (db: DatabaseSync, caseSlug: string) => PrBinding | null
   materialize: PrMaterializer
   resolvePrompt?: (id: string) => string
 }
@@ -43,8 +43,7 @@ export async function composeReviewRunPrompt(
 
   const framing = resolveReviewFraming(deps, caseSlug, sessionId)
 
-  const bindings = deps.listBindings(deps.db, caseSlug)
-  const binding = bindings[0]
+  const binding = deps.getBinding(deps.db, caseSlug)
   if (!binding) throw new Error('No pull request is bound to this case.')
   const worktree = await deps.materialize(binding)
   if (!worktree) {

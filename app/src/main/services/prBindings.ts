@@ -89,9 +89,10 @@ export function getBinding(db: DatabaseSync, caseSlug: string): PrBinding | null
 }
 
 /**
- * At most one row (the unique index in db.ts enforces it) — kept only because
- * materializePrBindings/main/index.ts/reviewRunCompose.ts/reviewWrites.ts still call it.
- * Prefer `getBinding` for new code.
+ * At most one row (the unique index in db.ts enforces it) — kept for `IPC.prList`
+ * (main/index.ts), which the repo chips read as a list so they render correctly whether the
+ * case has zero or one PR bound. Every other consumer wants the single binding directly:
+ * prefer `getBinding`.
  */
 export function listBindings(db: DatabaseSync, caseSlug: string): PrBinding[] {
   const caseId = caseIdOf(db, caseSlug)

@@ -67,7 +67,7 @@ function seedFinding(): number {
 
 /**
  * A DatabaseSync whose `prepare` throws for the finding-update statement only — every other
- * query (the ownership SELECT, listBindings) goes to the real db untouched. `Object.create`
+ * query (the ownership SELECT, getBinding) goes to the real db untouched. `Object.create`
  * rather than a `Proxy`: our own `prepare` property shadows the inherited one and is called
  * with `this = wrapper`, but its body only closes over `real` and never reads `this`, so it
  * never risks an "illegal invocation" against the native DatabaseSync internals the way

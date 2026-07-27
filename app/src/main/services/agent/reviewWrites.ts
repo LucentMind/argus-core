@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { parsePrRef, type PrBinding } from '../../../shared/pr'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
 import { fillPrompt } from '../prompts/fill'
-import { listBindings } from '../prBindings'
+import { getBinding } from '../prBindings'
 import { casePrWorktreeDir } from '../prWorktree'
 import {
   defaultGhRunner,
@@ -70,25 +70,10 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
     text: '{path} does not exist in the PR worktree at {worktree}. Cite a path inside the reviewed repo.',
     placeholders: ['path', 'worktree']
   },
-  'review_write.ambiguous-binding': {
-    title: 'review writes — cannot tell which PR the finding belongs to',
-    text: 'This case has {count} bound pull requests and {path} does not name any of them ({repos}). Re-record the finding with a [<repo-name>/<path>:<line>] citation so the pull request is unambiguous.',
-    placeholders: ['count', 'path', 'repos']
-  },
-  'review_write.ambiguous-pr': {
-    title: 'review writes — several bound PRs in the same repo',
-    text: 'This case has {count} bound pull requests in {repo} ({numbers}) and a [<repo-name>/<path>:<line>] citation cannot say which. Pass the pr argument to name the pull request explicitly.',
-    placeholders: ['count', 'repo', 'numbers']
-  },
   'review_write.unknown-pr': {
     title: 'review writes — named pull request is not bound',
     text: '{pr} is not one of the pull requests bound to this case ({bound}). Pass pr as owner/repo#number for a pull request that is actually bound here.',
     placeholders: ['pr', 'bound']
-  },
-  'review_write.pr-mismatch': {
-    title: 'review writes — pr contradicts the citation',
-    text: "The citation names {citedRepo}, but pr is {pr} — a different pull request. Pass a pr that matches the citation's repo, or re-record the finding with a citation for the pull request pr actually names.",
-    placeholders: ['citedRepo', 'pr']
   },
   'review_write.unsafe-path': {
     title: 'review writes — citation path escapes the repo',
@@ -102,11 +87,6 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
   'review_write.empty-commit-message': {
     title: 'review writes — empty commit message',
     text: "The commit message is empty. Write one in the repository's existing style before calling push_review_change."
-  },
-  'review_write.uncited-ambiguous': {
-    title: 'review writes — uncited finding, several bound PRs',
-    text: 'This case has {count} bound pull requests and this finding carries no citation, so there is no way to tell which one it belongs to ({repos}). Re-record it with a [<repo-name>/<path>:<line>] citation.',
-    placeholders: ['count', 'repos']
   },
   'review_write.no-worktree': {
     title: 'review writes — PR has no local checkout',
@@ -220,116 +200,38 @@ function sameBindingIdentity(
   )
 }
 
-/** A binding as the `owner/repo#number` the model is told to pass back as `pr`. Shared by
- *  `unknown-pr`'s `{bound}` list and `ambiguous-pr`'s `{numbers}` list — deliberately the SAME
- *  full identity in both, even though `ambiguous-pr` already names the shared repo separately,
- *  so the model can copy a value straight out of the error text into `pr` without having to
- *  reconstruct `owner/repo` itself. */
+/** A binding as the `owner/repo#number` the model is told to pass back as `pr` — used by
+ *  `unknown-pr`'s `{bound}` placeholder so the model can copy a value straight out of the
+ *  error text into `pr` without having to reconstruct `owner/repo` itself. */
 function prIdentity(b: PrBinding): string {
   return `${b.owner}/${b.repo}#${b.number}`
 }
 
 /**
- * Which bound PR a finding belongs to, from its citation's `<repo-name>/` prefix (if any) and/or
- * an explicit `owner/repo#number` the model was told to pass. Shared by the comment path (which
- * then strips the prefix and verifies the path exists in the worktree) and the push path (which
- * needs neither — push's whole point can be deleting or renaming the cited file, and it has no
- * anchor requirement to begin with).
- *
- * `expectPr`, when present, is authoritative for WHICH binding wins: an exact `owner/repo#number`
- * identity match short-circuits every ambiguity check below (a same-repo `#42`/`#43` pair no
- * longer needs the citation prefix to disambiguate, since the model named the PR directly). No
- * match at all is always an error, even with a single binding, so a stale/typo'd `pr` argument
- * never silently falls back to "the only one there is". Nor may `expectPr` silently overrule a
- * citation that names a DIFFERENT repo (`pr-mismatch`): without that check, an `expectPr` for
- * PR B on a finding cited against PR A's repo would resolve to B, skip the path/worktree checks
- * that assume the citation and the binding agree, and publish A's content on B. `named` — whether
- * to strip the citation's leading path segment — is still decided from the citation prefix alone,
- * independent of how the binding itself was chosen.
- *
- * Without `expectPr` (every call site that predates it, and the compose-prompt path which has no
- * PR to name yet), behavior is exactly as before: a null `diffPath` still resolves when there is
- * exactly one binding, and a citation prefix that matches more than one binding's repo name is a
- * NEW ambiguity (`ambiguous-pr`) distinct from a prefix that matches none (`ambiguous-binding`) —
- * `pr_bindings`' unique key is `(case_id, owner, repo, number)`, so two PRs from the SAME repo
- * can both be bound, and `bindings.find` used to silently pick whichever `listBindings` (newest
- * first) happened to return first.
+ * The pull request a finding belongs to: the case's one binding (see prBindings.getBinding and
+ * the unique index in db.ts). `expectPr`, when the model supplies it, is a CHECK — it must name
+ * that binding — not a selector; naming any other PR throws (`unknown-pr`) rather than
+ * retargeting the write. There is nothing left to disambiguate: with exactly one binding, a
+ * citation's `<repo-name>/` prefix can only ever agree with it or name something else entirely,
+ * so the old citation-prefix search and the `pr`-contradicts-citation guard both have no case
+ * left to catch — see resolveCommentTarget for the (now unconditional) prefix strip.
  */
 function resolveBindingForFinding(
   deps: ReviewWriteDeps,
   caseSlug: string,
-  diffPath: string | null,
   expectPr?: string
-): { binding: PrBinding; named: boolean } {
-  const bindings = listBindings(deps.db, caseSlug)
-  if (bindings.length === 0) throw new Error(wf(deps, 'review_write.no-binding'))
-
-  const slash = diffPath !== null ? diffPath.indexOf('/') : -1
-  const head = slash > 0 ? (diffPath as string).slice(0, slash) : ''
-  const named = head
-    ? bindings.filter(
-        (b) =>
-          b.repo.toLowerCase() === head.toLowerCase() ||
-          (b.repoPath !== null && path.basename(b.repoPath).toLowerCase() === head.toLowerCase())
-      )
-    : []
-
+): PrBinding {
+  const binding = getBinding(deps.db, caseSlug)
+  if (!binding) throw new Error(wf(deps, 'review_write.no-binding'))
   if (expectPr) {
     const wanted = parseExpectPr(expectPr)
-    const match = wanted ? bindings.find((b) => sameBindingIdentity(b, wanted)) : undefined
-    if (!match) {
+    if (!wanted || !sameBindingIdentity(binding, wanted)) {
       throw new Error(
-        wf(deps, 'review_write.unknown-pr', {
-          pr: expectPr,
-          bound: bindings.map(prIdentity).join(', ')
-        })
+        wf(deps, 'review_write.unknown-pr', { pr: expectPr, bound: prIdentity(binding) })
       )
     }
-    // A citation that actually names a repo (named.length > 0) and does NOT include the `pr`
-    // match is a genuine contradiction — the citation says one PR, `pr` says another — and must
-    // fail loudly rather than let `pr` silently win. Left unchecked, this reaches GitHub: the
-    // 422-on-non-diff-line fallback has no worktree/path check to catch it, so a comment about
-    // repo X's citation would publish onto repo Y's PR. `named.length === 0` (an
-    // already-repo-relative citation, or an uncited finding) makes no repo claim to contradict,
-    // so it is not an error — `pr` is simply the only source of truth in that case.
-    if (named.length > 0 && !named.some((b) => b.id === match.id)) {
-      throw new Error(wf(deps, 'review_write.pr-mismatch', { citedRepo: head, pr: expectPr }))
-    }
-    return { binding: match, named: named.some((b) => b.id === match.id) }
   }
-
-  if (diffPath === null) {
-    if (bindings.length > 1) {
-      throw new Error(
-        wf(deps, 'review_write.uncited-ambiguous', {
-          count: String(bindings.length),
-          repos: bindings.map((b) => b.repo).join(', ')
-        })
-      )
-    }
-    return { binding: bindings[0], named: false }
-  }
-
-  if (named.length === 0 && bindings.length > 1) {
-    throw new Error(
-      wf(deps, 'review_write.ambiguous-binding', {
-        count: String(bindings.length),
-        path: diffPath,
-        repos: bindings.map((b) => b.repo).join(', ')
-      })
-    )
-  }
-  if (named.length > 1) {
-    throw new Error(
-      wf(deps, 'review_write.ambiguous-pr', {
-        count: String(named.length),
-        repo: head,
-        numbers: named.map(prIdentity).join(', ')
-      })
-    )
-  }
-
-  return { binding: named[0] ?? bindings[0], named: named.length === 1 }
+  return binding
 }
 
 /**
@@ -348,9 +250,17 @@ export function resolveCommentTarget(
   if (!row.diff_path || row.diff_line === null) {
     throw new Error(wf(deps, 'review_write.no-anchor', { id: String(findingId) }))
   }
-  const { binding, named } = resolveBindingForFinding(deps, caseSlug, row.diff_path, expectPr)
+  const binding = resolveBindingForFinding(deps, caseSlug, expectPr)
 
+  // The prefix names the binding's repo when it matches either the GitHub repo name or the
+  // local clone's directory name (a clone can be checked out under a different name).
   const slash = row.diff_path.indexOf('/')
+  const head = slash > 0 ? row.diff_path.slice(0, slash) : ''
+  const named =
+    head !== '' &&
+    (binding.repo.toLowerCase() === head.toLowerCase() ||
+      (binding.repoPath !== null &&
+        path.basename(binding.repoPath).toLowerCase() === head.toLowerCase()))
   const rest = slash > 0 ? row.diff_path.slice(slash + 1) : row.diff_path
   const repoRelPath = named ? rest : row.diff_path
   // The review-run header hands the agent the ABSOLUTE worktree path; an absolute or
@@ -469,8 +379,8 @@ export async function pushReviewChange(
   if (!input.commitMessage.trim()) {
     throw new Error(wf(deps, 'review_write.empty-commit-message'))
   }
-  const row = findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
-  const { binding } = resolveBindingForFinding(deps, caseSlug, row.diff_path, input.expectPr)
+  findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
+  const binding = resolveBindingForFinding(deps, caseSlug, input.expectPr)
   const worktree = worktreeFor(deps, caseSlug, binding)
   if (!worktree) {
     throw new Error(wf(deps, 'review_write.no-worktree', { number: String(binding.number) }))
