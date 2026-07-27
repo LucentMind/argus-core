@@ -114,7 +114,24 @@ export function CaseWorkspace({
     setSessionId(null)
     setSessions([])
     setSessionsError(null)
+    // A picker opened over case A (or a `handlePrsFound` lookup still in flight for it) must
+    // not survive into case B: CaseWorkspace is never remounted on a slug change (App.tsx
+    // renders it with no `key`), so without this an already-open dialog would keep showing
+    // A's candidates/binding while `slug` (and so `<PrPickerDialog slug={slug} …/>`, and any
+    // "Link selected" click) has already moved on to B — silently retargeting B's binding
+    // to a PR found via A's repos. `handlePrsFound`'s own stale-guard (below) covers the
+    // still-in-flight case; this covers the already-resolved, dialog-already-open case.
+    setPrPicker(null)
+    setPrPickerCurrent(null)
   }
+  // The current slug, read by `handlePrsFound`'s async chain once it resolves — a ref kept
+  // current via its own effect (refs may not be written during render) rather than the
+  // `sessions.list` effect's cleanup `stale` flag below, because this chain starts from an
+  // event callback (ReposSection's "Find PRs"), not from an effect keyed on `[slug]`.
+  const currentSlugRef = useRef(slug)
+  useEffect(() => {
+    currentSlugRef.current = slug
+  }, [slug])
 
   useEffect(() => {
     wireAgentStore()
@@ -240,22 +257,40 @@ export function CaseWorkspace({
     setSessionsError(message)
   }
 
-  /** ReposSection's "Find PRs" result handler: looks up whatever is currently bound, THEN
-   *  opens the picker with it already known — never the reverse. `pr.list` is a genuine IPC
-   *  round trip, not a microtask; opening the dialog first and setting `currentBinding` when
-   *  it resolves left a real window where "Link selected" was clickable (default candidate
-   *  already selected) while `currentBinding` still read `null` — `PrPickerDialog.confirm()`
-   *  cannot tell "nothing bound" apart from "not loaded yet", so a click landing in that
-   *  window skipped the replace-confirmation entirely. A failed lookup still opens the
-   *  picker (degrading to "nothing bound" rather than blocking it — the confirm is a safety
-   *  net, not a gate the picker depends on to function), it just does so no earlier than a
-   *  successful one would. */
-  function handlePrsFound(result: PrSearchResult): void {
-    void window.argus.pr
-      .list(slug)
+  /**
+   * ReposSection's "Find PRs" result handler: looks up whatever is currently bound, THEN
+   * opens the picker with it already known — never the reverse. `pr.list` is a genuine IPC
+   * round trip, not a microtask; opening the dialog first and setting `currentBinding` when
+   * it resolves left a real window where "Link selected" was clickable (default candidate
+   * already selected) while `currentBinding` still read `null` — `PrPickerDialog.confirm()`
+   * cannot tell "nothing bound" apart from "not loaded yet", so a click landing in that
+   * window skipped the replace-confirmation entirely. A failed lookup still opens the
+   * picker (degrading to "nothing bound" rather than blocking it — the confirm is a safety
+   * net, not a gate the picker depends on to function), it just does so no earlier than a
+   * successful one would.
+   *
+   * Two more things this closes:
+   *  - `CaseWorkspace` is never remounted on a slug change, so a case switch started while
+   *    this chain is in flight would otherwise land ITS case-A result on the now-current
+   *    case B when it resolves — `forSlug`/`currentSlugRef` (same purpose as the
+   *    `sessions.list` effect's `stale` flag above, expressed as a ref because this chain
+   *    starts from an event callback rather than an effect keyed on `[slug]`) drops it
+   *    instead.
+   *  - Returning the promise (rather than `void`-ing it) lets `ReposSection`'s
+   *    `.then(onPrsFound).finally(() => setSearching(false))` actually wait for this whole
+   *    chain, not just `pr.search`, so "Find PRs" stays disabled until the dialog is
+   *    actually up — otherwise a second search could start (and later resolve) before the
+   *    first one's dialog had opened, swapping `result`/`currentBinding` out from under an
+   *    already-rendered picker.
+   */
+  function handlePrsFound(result: PrSearchResult): Promise<void> {
+    const forSlug = slug
+    return window.argus.pr
+      .list(forSlug)
       .then((bound) => bound[0] ?? null)
       .catch(() => null)
       .then((current) => {
+        if (currentSlugRef.current !== forSlug) return // the case switched while this was in flight
         setPrPickerCurrent(current)
         setPrPicker(result)
       })
