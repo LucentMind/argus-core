@@ -17,12 +17,17 @@ import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
 import { devToolsEnabled } from './services/prompts/gate'
+import { PromptCaptureStore } from './services/prompts/capture'
 import { PromptStore } from './services/prompts/store'
 import { assertDevTools } from './services/prompts/ipcGate'
 import { overrideBootWarnings } from './services/prompts/bootWarnings'
 import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
-import type { PromptCatalogPayload, PromptPreview } from '../shared/promptsIpc'
+import type {
+  PromptCatalogPayload,
+  PromptPreview,
+  SessionPromptCapture
+} from '../shared/promptsIpc'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
@@ -359,6 +364,7 @@ function registerIpc(): void {
   const devTools = devToolsEnabled({ isDev: is.dev })
   const promptStore = new PromptStore({ devTools, argusHome })
   const resolvePrompt = promptStore.resolveFn()
+  const promptCaptures = new PromptCaptureStore({ devTools, argusHome })
 
   // GUARD 2. A terminal-only session — run the app, reproduce something, read stdout — never
   // opens Settings, so the banner cannot reach it. This is the only guard that does. The message
@@ -983,6 +989,11 @@ function registerIpc(): void {
     personaFragments: () => packRegistry.personaFragments(),
     packCliNames: () => packRegistry.binaryDecls().flatMap(({ decl }) => decl.names),
     resolvePrompt,
+    activeOverrides: () => promptStore.activeOverrideIds(),
+    // Undefined, not a no-op: with the gate off CaseSession must not even assemble a record.
+    ...(promptCaptures.enabled
+      ? { recordPromptCapture: (c: SessionPromptCapture) => promptCaptures.record(c) }
+      : {}),
     onEvent: (e) => {
       langfuseExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)

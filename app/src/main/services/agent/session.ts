@@ -5,8 +5,16 @@ import type { ApprovalDecision } from '../../../shared/types'
 import type { PermissionMode } from '../../../shared/settings'
 import { makeEvent, type NormalizeCtx } from './events'
 import { classifyToolCall, type RiskContext } from './risk'
-import type { AgentDriver, DriverSession, DriverSessionContext, TurnResult } from './driver'
+import type {
+  AgentDriver,
+  DriverSession,
+  DriverSessionContext,
+  SystemPromptTransport,
+  TurnResult
+} from './driver'
 import { isAuthFailure } from './drivers/claude'
+import { captureFragments, captureTools } from '../prompts/captureInput'
+import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 import type { RiskLevel } from '../../../shared/connectors'
 import { PendingApprovals, PendingDialogs, SessionGrants } from './approvals'
 import { appendFinding, type NativeToolDeps } from './nativeTools'
@@ -54,6 +62,14 @@ export interface SessionDeps {
    *  after the persona. The driver allowlist (`enabledSkills`) is unaffected — advertising is
    *  scoped, availability is not. */
   skillIndex?: string
+  /** Registry ids parallel to `personaFragments` (from `assembleMode`); attributes captured
+   *  bytes to the entry that produced them. */
+  personaFragmentIds?: (string | null)[]
+  /** GUARD 4: prompt override ids live at construction time, recorded onto every capture. */
+  activeOverrides?: () => string[]
+  /** Sink for the session prompt capture. ABSENT when the dev-tools gate is off — that absence,
+   *  not an `if` inside a no-op function, is what keeps the normal build free of this work. */
+  recordPromptCapture?: (c: SessionPromptCapture) => void
   /** Pack-declared CLI binary names (from PackRegistry), auto-allowlisted as LOW risk. */
   packCliNames?: string[]
   emit: (e: AgentEvent) => void
@@ -199,6 +215,45 @@ export class CaseSession {
     // now live in the driver (agent/driver.ts + drivers/*). CaseSession supplies the
     // driver-agnostic context — persona/memory append, native tool deps, the approval
     // pipeline, and the DB-writing callbacks — and consumes the normalized event stream.
+    // Hoisted so the capture records EXACTLY what the driver received — not a second
+    // composition that could drift from it.
+    const systemAppend =
+      composePersona(deps.personaFragments ?? [], ao.personaAppend) +
+      skillIndexAppend +
+      memoryAppend
+    // Absent when the gate is off: no record is assembled, no closure retained, no cost.
+    const recordCapture = deps.recordPromptCapture
+    const capturePrompt = recordCapture
+      ? ({ transport }: { transport: SystemPromptTransport }): void => {
+          const activeOverrides = deps.activeOverrides?.() ?? []
+          recordCapture({
+            caseSlug: deps.caseSlug,
+            sessionId: this.sessionId,
+            createdAt: new Date().toISOString(),
+            driverKind: deps.driver.kind,
+            model: ao.model ?? null,
+            mode: this.mode,
+            permissionMode: ao.permissionMode ?? 'default',
+            transport,
+            systemAppend,
+            fragments: captureFragments({
+              fragments: deps.personaFragments ?? [],
+              ids: deps.personaFragmentIds ?? [],
+              activeOverrides
+            }),
+            skillIndex: deps.skillIndex ?? '',
+            memoryIndex: memIndex,
+            enabledSkills: deps.enabledSkills ?? [],
+            tools: captureTools({
+              driverKind: deps.driver.kind,
+              resolve: deps.resolvePrompt,
+              panelCommandDecls: deps.panelCommandDecls ?? [],
+              connectorIds: Object.keys(deps.extraMcpServers ?? {})
+            }),
+            activeOverrides
+          })
+        }
+      : undefined
     const driverCtx: DriverSessionContext = {
       caseDir: dir,
       additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
@@ -206,11 +261,9 @@ export class CaseSession {
       model: ao.model,
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',
-      systemAppend:
-        composePersona(deps.personaFragments ?? [], ao.personaAppend) +
-        skillIndexAppend +
-        memoryAppend,
+      systemAppend,
       resolvePrompt: deps.resolvePrompt,
+      ...(capturePrompt ? { capturePrompt } : {}),
       extraMcpServers: deps.extraMcpServers ?? {},
       nativeToolDeps: {
         db: deps.db,

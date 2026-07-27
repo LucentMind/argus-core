@@ -1,6 +1,6 @@
 import { MODES } from '../../../shared/modes'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
-import { NATIVE_TOOL_SPECS, TOOL_FEEDBACK } from '../agent/nativeTools'
+import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
 import { MEMORY_HEADER } from '../agent/session'
 import { MEMORY_FEEDBACK } from '../memory'
@@ -64,9 +64,6 @@ export function specEntries(
     ...(s.placeholders ? { placeholders: s.placeholders } : {})
   }))
 }
-
-/** Drivers that register Argus's native MCP tools. Codex and the ACP drivers do not. */
-const NATIVE_TOOL_DRIVERS = ['claude-agent-sdk', 'github-copilot'] as const
 
 /** Derived from MODES rather than hand-listed, the same way TOOL_ENTRIES below is derived from
  *  NATIVE_TOOL_SPECS: a new mode gets an entry for free, and the registry can never disagree

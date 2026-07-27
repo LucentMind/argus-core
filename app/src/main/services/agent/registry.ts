@@ -21,6 +21,7 @@ import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
 import { assembleMode } from './modeAssembly'
 import type { Detection } from '../packs/detection'
+import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 
 export interface AgentServiceDeps {
   db: DatabaseSync
@@ -89,6 +90,10 @@ export interface AgentServiceDeps {
   ) => Promise<unknown>
   /** Prompt-registry resolver; forwarded to assembleMode and each CaseSession. */
   resolvePrompt?: (id: string) => string
+  /** GUARD 4 input: active prompt override ids, read per session construction. */
+  activeOverrides?: () => string[]
+  /** Sink for session prompt captures; absent when the dev-tools gate is off. */
+  recordPromptCapture?: (c: SessionPromptCapture) => void
 }
 
 export class AgentService {
@@ -228,6 +233,9 @@ export class AgentService {
       enabledSkills: assembled.enabledSkills,
       personaFragments: assembled.personaFragments,
       skillIndex: assembled.skillIndex,
+      personaFragmentIds: assembled.personaFragmentIds,
+      activeOverrides: this.deps.activeOverrides,
+      recordPromptCapture: this.deps.recordPromptCapture,
       packCliNames: this.deps.packCliNames?.() ?? [],
       resolvePrompt: this.deps.resolvePrompt,
       emit: this.deps.onEvent,
