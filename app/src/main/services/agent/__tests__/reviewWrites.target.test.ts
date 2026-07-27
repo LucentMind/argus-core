@@ -256,6 +256,11 @@ describe('resolveCommentTarget', () => {
   })
 
   it('an explicit pr argument picks the right one of two same-repo bindings', () => {
+    // #43 is added AFTER #42, so listBindings (newest first) puts #43 at bindings[0] — an
+    // implementation that parsed `pr`, did the unknown-pr membership check, and then still
+    // returned bindings[0] regardless would pass a "pick #43" assertion by coincidence. Picking
+    // #42 here — the one that is NOT bindings[0] — is the assertion that actually distinguishes
+    // "pr genuinely selects the binding" from "pr is checked but ignored".
     addBinding(db, 'c1', {
       repoPath,
       owner: 'acme',
@@ -272,10 +277,10 @@ describe('resolveCommentTarget', () => {
       url: 'https://github.com/acme/widget/pull/43',
       source: 'manual'
     })
-    seedWorktree(43, 'src/guard.ts')
+    seedWorktree(42, 'src/guard.ts')
     const id = finding('See [widget/src/guard.ts:17].')
-    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#43')
-    expect(t.binding.number).toBe(43)
+    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#42')
+    expect(t.binding.number).toBe(42)
     expect(t.repoRelPath).toBe('src/guard.ts')
   })
 
@@ -293,6 +298,55 @@ describe('resolveCommentTarget', () => {
     expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#99')).toThrow(
       /acme\/widget#99/i
     )
+  })
+
+  it('rejects a pr that contradicts the citation instead of silently overriding it', () => {
+    // acme/widget#42 (worktree materialized) and acme/gadget#7 (manual link, no local clone) are
+    // both bound. The finding cites [widget/...], naming widget — but the agent passes
+    // pr: acme/gadget#7. Without this check, `match` (gadget#7) would win outright: `named`
+    // wouldn't include it so the citation's path prefix would NOT get stripped, gadget's
+    // worktree is null so the path-missing check is skipped, and a 422-on-non-diff-line fallback
+    // would publish a comment ABOUT widget's citation onto gadget's PR — the exact "wrong PR"
+    // class this whole fix wave exists to prevent, reachable through the mechanism that fixed it.
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'gadget',
+      number: 7,
+      url: 'https://github.com/acme/gadget/pull/7',
+      source: 'manual'
+    })
+    seedWorktree(42, 'src/guard.ts')
+    const id = finding('See [widget/src/guard.ts:17].')
+    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/gadget#7')).toThrow(
+      /widget/i
+    )
+  })
+
+  it('an uncited (already repo-relative) finding makes no repo claim, so pr is not a contradiction', () => {
+    // named.length === 0 here (the citation has no `<repo>/` prefix at all), so there is nothing
+    // for `pr` to contradict — pr alone must still resolve it.
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    seedWorktree(42, 'src/guard.ts')
+    const id = finding('See [src/guard.ts:17].')
+    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#42')
+    expect(t.binding.number).toBe(42)
+    expect(t.repoRelPath).toBe('src/guard.ts')
   })
 
   it('rejects an absolute citation path even when the worktree is unmaterialized', () => {

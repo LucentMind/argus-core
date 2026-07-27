@@ -147,6 +147,11 @@ describe('review write tools via argusToolHandlers', () => {
   })
 
   it('post_review_comment threads the pr argument through to pick the right one of two same-repo bindings', async () => {
+    // #43 is added AFTER #42 (the outer beforeEach's binding, whose worktree is already
+    // materialized with src/guard.ts), so listBindings (newest first) puts #43 at bindings[0].
+    // Picking #42 — NOT bindings[0] — via pr is what actually proves the argument selects the
+    // binding, rather than an implementation that checks pr's validity and then still returns
+    // bindings[0] regardless.
     addBinding(db, 'c1', {
       repoPath,
       owner: 'acme',
@@ -155,9 +160,6 @@ describe('review write tools via argusToolHandlers', () => {
       url: 'https://github.com/acme/widget/pull/43',
       source: 'manual'
     })
-    const worktree43 = casePrWorktreeDir(home, 'c1', repoPath, 43)
-    fs.mkdirSync(path.join(worktree43, 'src'), { recursive: true })
-    fs.writeFileSync(path.join(worktree43, 'src', 'guard.ts'), 'x')
 
     const calls: string[][] = []
     const gh: Runner = async (_cmd, args) => {
@@ -170,7 +172,7 @@ describe('review write tools via argusToolHandlers', () => {
           isCrossRepository: false
         })
       }
-      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/43#discussion_r1' })
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
     }
     const handlers = argusToolHandlers({
       db,
@@ -183,15 +185,13 @@ describe('review write tools via argusToolHandlers', () => {
       gh
     })
     const id = seedFinding()
-    // Without pr, two widget bindings (#42 and #43) are ambiguous — this pins that pr is what
-    // resolves it, not the coincidence of there being only one binding.
     const out = await handlers.post_review_comment({
       finding_id: String(id),
-      pr: 'acme/widget#43',
+      pr: 'acme/widget#42',
       body: 'x'
     })
     expect(out).toContain('#discussion_r1')
-    expect(calls[0]).toContain('43') // the head lookup targeted PR #43, not #42
+    expect(calls[0]).toContain('42') // the head lookup targeted PR #42, not #43
   })
 
   it('push_review_change coerces finding_id, commits+pushes to a real remote, and notifies the listener', async () => {
