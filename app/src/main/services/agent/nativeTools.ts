@@ -414,6 +414,12 @@ export interface NativeToolSpec {
   schema: z.ZodRawShape
 }
 
+/** The driver kinds that register Argus's native MCP tools — Claude via `createArgusMcpServer`,
+ *  Copilot via `buildCopilotTools`. Codex and the ACP drivers register none of them, so neither
+ *  the tool descriptions nor their result text ever reaches those models. Lives here, not in the
+ *  prompt registry, because it is a property of this table; `registry.ts` imports it. */
+export const NATIVE_TOOL_DRIVERS = ['claude-agent-sdk', 'github-copilot'] as const
+
 export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'search_evidence',
