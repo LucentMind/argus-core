@@ -131,6 +131,23 @@ describe('ReposSection pull requests', () => {
         expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#99')
       )
     })
+
+    // Re-review fix: `linkingPr` (and so the disabled input) now gates BEFORE the confirm
+    // await, matching the restructuring PrPickerDialog's `confirm()` got this round — a
+    // double-click could otherwise race the await and raise the confirm dialog twice.
+    it('disables the input while the replace-confirm itself is pending, not just the link', async () => {
+      let resolveConfirm!: (v: boolean) => void
+      vi.mocked(confirm).mockImplementation(() => new Promise((r) => (resolveConfirm = r)))
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      expect(screen.getByPlaceholderText(/linking/i)).toBeDisabled()
+
+      resolveConfirm(true)
+      await waitFor(() =>
+        expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#99')
+      )
+    })
   })
 
   // Re-review fix: retyping the ALREADY-bound PR (a no-op for addBinding, which is

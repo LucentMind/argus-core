@@ -240,16 +240,25 @@ export function CaseWorkspace({
     setSessionsError(message)
   }
 
-  /** ReposSection's "Find PRs" result handler: opens the picker AND looks up whatever is
-   *  currently bound, so the dialog can warn before silently replacing it. A failed lookup
-   *  degrades to "nothing bound" rather than blocking the picker — the confirm is a safety
-   *  net, not a gate the picker depends on to function. */
+  /** ReposSection's "Find PRs" result handler: looks up whatever is currently bound, THEN
+   *  opens the picker with it already known — never the reverse. `pr.list` is a genuine IPC
+   *  round trip, not a microtask; opening the dialog first and setting `currentBinding` when
+   *  it resolves left a real window where "Link selected" was clickable (default candidate
+   *  already selected) while `currentBinding` still read `null` — `PrPickerDialog.confirm()`
+   *  cannot tell "nothing bound" apart from "not loaded yet", so a click landing in that
+   *  window skipped the replace-confirmation entirely. A failed lookup still opens the
+   *  picker (degrading to "nothing bound" rather than blocking it — the confirm is a safety
+   *  net, not a gate the picker depends on to function), it just does so no earlier than a
+   *  successful one would. */
   function handlePrsFound(result: PrSearchResult): void {
-    setPrPicker(result)
     void window.argus.pr
       .list(slug)
-      .then((bound) => setPrPickerCurrent(bound[0] ?? null))
-      .catch(() => setPrPickerCurrent(null))
+      .then((bound) => bound[0] ?? null)
+      .catch(() => null)
+      .then((current) => {
+        setPrPickerCurrent(current)
+        setPrPicker(result)
+      })
   }
 
   // a search hit's jump target: switch to its session via the same path as a
