@@ -52,13 +52,12 @@ cost. Use your judgement; do not fan out by reflex.`
   'fanout-promptable': {
     title: 'Review run — fan-out (driver cannot register agents)',
     text: `Run each layer you chose as its own separate pass, in order, finishing one before
-starting the next. If you have a way to delegate a pass to a subagent, use it; otherwise run
-the passes yourself.
+starting the next. You are running each pass yourself — this driver has no way to register a
+separate subagent to delegate to.
 
-The instructions below describe what to look for in each pass — they still apply. You are
-running these passes yourself, not delegating to a separate agent: you have append_finding,
-and you record survivors with it yourself once you've triaged across all passes, per the
-steps below.
+The instructions below describe what to look for in each pass — they still apply. You have
+append_finding, and you record survivors with it yourself once you've triaged across all
+passes, per the steps below.
 
 {layerBodies}`,
     placeholders: ['layerBodies']

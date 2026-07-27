@@ -42,6 +42,16 @@ describe('buildReviewRunPrompt', () => {
     expect(p).toMatch(/append_finding/)
   })
 
+  // Follow-up from the layered-review review: nothing asserted that the configurable fan-out
+  // text actually tells the delegating agent WHAT to hand each subagent — a prompt override or
+  // a careless edit to `fanout-configurable` could silently drop that and reopen the finding
+  // that a layer subagent starts with no context of its own.
+  it('tells a configurable driver to state the worktree path and diff scope when delegating', () => {
+    const p = buildReviewRunPrompt({ ...base, support: 'configurable', pinnedLayers: [] })
+    expect(p).toMatch(/worktree path/i)
+    expect(p).toMatch(/diff scope/i)
+  })
+
   it('lets the agent choose when nothing is pinned', () => {
     const p = buildReviewRunPrompt({ ...base, support: 'configurable', pinnedLayers: [] })
     expect(p).toContain(REVIEW_LAYERS.security.appliesWhen)

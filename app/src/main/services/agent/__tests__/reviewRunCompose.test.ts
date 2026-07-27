@@ -96,7 +96,14 @@ describe('composeReviewRunPrompt', () => {
       []
     )
     expect(p).toContain('review-correctness')
-    expect(p).not.toMatch(/no findings tool/i)
+    // Discriminates configurable framing from promptable framing (the layer menu names every
+    // agent unconditionally, so `toContain('review-correctness')` alone passes under either
+    // framing — see reviewRunCompose.test.ts:135's same discriminator, inverted here): only the
+    // configurable fan-out text extends the by-name delegation invite, and only the promptable
+    // path inlines a layer's own task text (e.g. correctness's "chase every suspicion") into
+    // this turn.
+    expect(p).toMatch(/available as a subagent you can delegate to by name/i)
+    expect(p).not.toContain('chase every suspicion')
   })
 
   it('frames a pinned-instance review-mode session off ITS instance driver, not the default', async () => {
