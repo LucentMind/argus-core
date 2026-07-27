@@ -93,8 +93,17 @@ export function FindingsPane({
 
   // Chips for layers actually present: a filter for a layer with no findings is a dead control.
   const presentLayers = REVIEW_LAYER_ORDER.filter((id) => findings.some((f) => f.layer === id))
+  const layerCounts = new Map(
+    presentLayers.map((id) => [id, findings.filter((f) => f.layer === id).length])
+  )
+  // Derived, not authoritative: layerFilter is only state that *asked* to filter. If the
+  // finding set changes underneath it (session/mode switch, clear-all, a new run — this pane
+  // instance has no key and survives all of those) and the requested layer is no longer
+  // present, the filter self-clears here with no extra effect and no dead-end empty state.
+  const effectiveFilter =
+    layerFilter !== null && presentLayers.includes(layerFilter) ? layerFilter : null
   const shown = findings
-    .filter((f) => layerFilter === null || f.layer === layerFilter)
+    .filter((f) => effectiveFilter === null || f.layer === effectiveFilter)
     .slice()
     .sort((a, b) => rank(a) - rank(b))
 
@@ -126,24 +135,24 @@ export function FindingsPane({
         </div>
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
-      {/* A single-layer filter is a dead control (nothing to narrow down to) — and would
-          collide, in the DOM, with that same layer's badge text on the one finding it labels. */}
-      {presentLayers.length > 1 && (
+      {/* A count suffix (the same "field · value" idiom as the " · sess N" tag below) makes
+          the chip read as a control with its own state, not a copy of the finding badge. */}
+      {presentLayers.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {presentLayers.map((id) => (
             <button
               key={id}
               type="button"
               aria-label={`Filter · ${REVIEW_LAYERS[id].label}`}
-              aria-pressed={layerFilter === id}
-              onClick={() => setLayerFilter((cur) => (cur === id ? null : id))}
+              aria-pressed={effectiveFilter === id}
+              onClick={() => setLayerFilter(effectiveFilter === id ? null : id)}
               className={`rounded-r1 border px-1.5 py-0.5 text-[10px] transition-colors ${
-                layerFilter === id
+                effectiveFilter === id
                   ? 'border-signal bg-signal/15 text-ink'
                   : 'border-hair2 text-mute hover:text-ink'
               }`}
             >
-              {REVIEW_LAYERS[id].label}
+              {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
             </button>
           ))}
         </div>
