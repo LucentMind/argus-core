@@ -18,7 +18,7 @@ beforeEach(() => {
 describe('ReviewRunButton', () => {
   it('runs with no pinned layers by default', async () => {
     render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
-    await userEvent.click(screen.getByRole('button', { name: /^review$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
     await waitFor(() => expect(composeRunPrompt).toHaveBeenCalledWith('c1', 3, []))
     expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED')
   })
@@ -27,20 +27,20 @@ describe('ReviewRunButton', () => {
     render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /choose review layers/i }))
     await userEvent.click(screen.getByRole('checkbox', { name: /security/i }))
-    await userEvent.click(screen.getByRole('button', { name: /^review$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
     await waitFor(() => expect(composeRunPrompt).toHaveBeenCalledWith('c1', 3, ['security']))
   })
 
   it('is disabled with no session', () => {
     render(<ReviewRunButton slug="c1" sessionId={null} onError={vi.fn()} />)
-    expect(screen.getByRole('button', { name: /^review$/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^run review$/i })).toBeDisabled()
   })
 
   it('reports a compose failure and sends nothing', async () => {
     composeRunPrompt.mockRejectedValue(new Error('No PR bound to this case.'))
     const onError = vi.fn()
     render(<ReviewRunButton slug="c1" sessionId={3} onError={onError} />)
-    await userEvent.click(screen.getByRole('button', { name: /^review$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
     await waitFor(() => expect(onError).toHaveBeenCalledWith('No PR bound to this case.'))
     expect(send).not.toHaveBeenCalled()
   })
