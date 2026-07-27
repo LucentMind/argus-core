@@ -346,7 +346,11 @@ describe('AgentSettings remove provider', () => {
   })
 
   it('removing the default provider hands the role to another enabled instance', async () => {
-    render(<AgentSettings payload={payload(withCopilot)} />)
+    const p = payload((p) => {
+      withCopilot(p)
+      p.settings.agent.distillProvider = { instanceId: 'claude-default' }
+    })
+    render(<AgentSettings payload={p} />)
     fireEvent.click(await screen.findByLabelText('Expand Claude settings'))
     fireEvent.click(screen.getByRole('button', { name: 'Remove Claude' }))
     await waitFor(() =>
@@ -354,6 +358,7 @@ describe('AgentSettings remove provider', () => {
         agent: {
           providerInstances: { 'claude-default': null },
           modelPreferences: { 'claude-default': null },
+          distillProvider: null,
           activeInstanceId: 'copilot-1'
         }
       })
