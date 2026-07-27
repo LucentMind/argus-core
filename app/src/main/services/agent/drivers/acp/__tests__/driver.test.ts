@@ -142,7 +142,8 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
       planMode: true,
       mcpConnectors: false,
       headlessOneShot: false,
-      systemPromptTransport: 'none'
+      systemPromptTransport: 'none',
+      subagents: 'promptable'
     })
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])
     expect(d.runHeadless).toBeUndefined()

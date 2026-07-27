@@ -287,7 +287,8 @@ export function createCopilotDriver(
       // mcpConnectors omitted (= supported): connector servers forward with a tools:["*"]
       // allowlist, which resolves the §6/§6b "not_configured" failure (EVIDENCE §6c).
       headlessOneShot: true,
-      systemPromptTransport: 'systemMessage.append'
+      systemPromptTransport: 'systemMessage.append',
+      subagents: 'configurable'
     },
 
     isAuthErrorMessage: isCopilotAuthErrorMessage,

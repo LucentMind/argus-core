@@ -66,7 +66,8 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       editableApprovals: true,
       costReporting: true,
       headlessOneShot: true,
-      systemPromptTransport: 'systemPrompt.append'
+      systemPromptTransport: 'systemPrompt.append',
+      subagents: 'configurable'
     },
 
     runHeadless: (prompt, opts) => runClaudeHeadless(prompt, opts, createQuery),
