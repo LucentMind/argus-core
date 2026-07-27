@@ -157,6 +157,10 @@ export interface FindingWriteCtx {
   caseSlug: string
   sessionId: number
   turnId: number | null
+  /** Prompt-registry resolver for the `append_finding.bad-layer`/`.bad-severity` entries.
+   *  Optional: a caller without a store gets the shipped defaults, exactly as `fb()` does
+   *  inside `argusToolHandlers`. */
+  resolve?: (id: string) => string
 }
 
 /** Append a finding block to findings.md + insert the pending findings row. Shared by the
@@ -173,16 +177,22 @@ export function appendFinding(
 ): { findingId: number; block: string } {
   // Validate BEFORE the insert: a rejected finding must leave no row and no findings.md block.
   if (input.layer !== undefined && !isReviewLayerId(input.layer)) {
+    const text = ctx.resolve
+      ? ctx.resolve('tool-feedback.append_finding.bad-layer')
+      : TOOL_FEEDBACK['append_finding.bad-layer'].text
     throw new Error(
-      fillPrompt(TOOL_FEEDBACK['append_finding.bad-layer'].text, {
+      fillPrompt(text, {
         layer: JSON.stringify(input.layer),
         expected: REVIEW_LAYER_ORDER.join('|')
       })
     )
   }
   if (input.severity !== undefined && !isReviewSeverity(input.severity)) {
+    const text = ctx.resolve
+      ? ctx.resolve('tool-feedback.append_finding.bad-severity')
+      : TOOL_FEEDBACK['append_finding.bad-severity'].text
     throw new Error(
-      fillPrompt(TOOL_FEEDBACK['append_finding.bad-severity'].text, {
+      fillPrompt(text, {
         severity: JSON.stringify(input.severity),
         expected: SEVERITIES.join('|')
       })
@@ -346,7 +356,8 @@ export function argusToolHandlers(
           caseId: deps.caseId,
           caseSlug,
           sessionId,
-          turnId: deps.currentTurnId?.() ?? null
+          turnId: deps.currentTurnId?.() ?? null,
+          resolve: deps.resolve
         },
         {
           title: String(args.title ?? 'Finding'),

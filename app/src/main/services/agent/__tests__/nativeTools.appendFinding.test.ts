@@ -88,4 +88,16 @@ it('rejects an unknown severity instead of persisting it', () => {
   expect(() => appendFinding(ctx, { title: 't', markdown: 'm', severity: 'nit' as never })).toThrow(
     /nit/
   )
+  expect((ctx.db.prepare(`SELECT COUNT(*) AS n FROM findings`).get() as { n: number }).n).toBe(0)
+})
+
+it('routes the bad-layer error through ctx.resolve so an override actually bites', () => {
+  const overridden = 'CUSTOM OVERRIDE: layer {layer} not in {expected}'
+  const resolvingCtx: FindingWriteCtx = {
+    ...ctx,
+    resolve: (id) => (id === 'tool-feedback.append_finding.bad-layer' ? overridden : id)
+  }
+  expect(() =>
+    appendFinding(resolvingCtx, { title: 't', markdown: 'm', layer: 'vibes' as never })
+  ).toThrow(/CUSTOM OVERRIDE: layer "vibes" not in/)
 })
