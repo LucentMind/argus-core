@@ -5,6 +5,8 @@ import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
+import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
+import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
@@ -33,6 +35,7 @@ export function FindingsPane({
   const [findings, setFindings] = useState<FindingRow[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
+  const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -81,6 +84,20 @@ export function FindingsPane({
   // the seeded file is just "# Findings — <slug>" — nothing worth clearing
   const hasBody = md.split('\n').some((l) => l.trim() !== '' && !/^#\s/.test(l.trim()))
 
+  // Most-severe first, matching how the review persona is told to rank. Unflavored
+  // (investigation) findings sort after every severity, then newest-first as before — the list
+  // query already returns id DESC, so a stable sort preserves that inside each bucket.
+  const SEVERITY_RANK: Record<string, number> = { critical: 0, major: 1, minor: 2 }
+  const rank = (f: FindingRow): number =>
+    f.severity ? SEVERITY_RANK[f.severity] : Object.keys(SEVERITY_RANK).length
+
+  // Chips for layers actually present: a filter for a layer with no findings is a dead control.
+  const presentLayers = REVIEW_LAYER_ORDER.filter((id) => findings.some((f) => f.layer === id))
+  const shown = findings
+    .filter((f) => layerFilter === null || f.layer === layerFilter)
+    .slice()
+    .sort((a, b) => rank(a) - rank(b))
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -109,9 +126,31 @@ export function FindingsPane({
         </div>
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
-      {findings.length > 0 ? (
+      {/* A single-layer filter is a dead control (nothing to narrow down to) — and would
+          collide, in the DOM, with that same layer's badge text on the one finding it labels. */}
+      {presentLayers.length > 1 && (
+        <div className="flex flex-wrap gap-1">
+          {presentLayers.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={`Filter · ${REVIEW_LAYERS[id].label}`}
+              aria-pressed={layerFilter === id}
+              onClick={() => setLayerFilter((cur) => (cur === id ? null : id))}
+              className={`rounded-r1 border px-1.5 py-0.5 text-[10px] transition-colors ${
+                layerFilter === id
+                  ? 'border-signal bg-signal/15 text-ink'
+                  : 'border-hair2 text-mute hover:text-ink'
+              }`}
+            >
+              {REVIEW_LAYERS[id].label}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown.length > 0 ? (
         <ul className="flex flex-col gap-2">
-          {findings.map((f) => {
+          {shown.map((f) => {
             const open = expandedId === f.id
             const accepted = f.reviewState === 'accepted'
             const rejected = f.reviewState === 'rejected'
@@ -157,6 +196,24 @@ export function FindingsPane({
                     {formatWhen(f.createdAt)}
                     {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
                   </span>
+                  {f.layer && (
+                    <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
+                      {REVIEW_LAYERS[f.layer].label}
+                    </span>
+                  )}
+                  {f.severity && (
+                    <span
+                      className={`rounded-r1 px-1 text-[10px] ${
+                        f.severity === 'critical'
+                          ? 'bg-danger/15 text-danger'
+                          : f.severity === 'major'
+                            ? 'bg-signal/15 text-ink'
+                            : 'text-mute'
+                      }`}
+                    >
+                      {f.severity}
+                    </span>
+                  )}
                   <span className="flex-1" />
                   <button
                     aria-label="Mark finding good"
@@ -190,7 +247,9 @@ export function FindingsPane({
           })}
         </ul>
       ) : (
-        <p className="text-xs text-mute">No findings yet.</p>
+        <p className="text-xs text-mute">
+          {findings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
+        </p>
       )}
     </div>
   )
