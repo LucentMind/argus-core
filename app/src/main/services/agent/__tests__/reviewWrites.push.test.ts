@@ -124,6 +124,20 @@ describe('pushReviewChange', () => {
     expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.pushedSha).toBe('newsha1')
   })
 
+  it('refuses an empty commit message before touching git or gh', async () => {
+    const { git, calls } = scriptedGit()
+    const gh: Runner = async () => {
+      throw new Error('gh must not be called')
+    }
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
+        findingId: seedFinding(),
+        commitMessage: '   '
+      })
+    ).rejects.toThrow(/empty/i)
+    expect(calls).toEqual([])
+  })
+
   it('refuses a fork PR before touching git', async () => {
     const { git, calls } = scriptedGit()
     const gh: Runner = async () => headJson({ isCrossRepository: true })
@@ -284,6 +298,77 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
         commitMessage: 'm'
       })
     ).rejects.toThrow(/no citation/i)
+    expect(calls).toEqual([])
+  })
+
+  it('rejects a same-repo citation when two PRs from the same repo are bound (#42/#43)', async () => {
+    // Same owner/repo, different number: pr_bindings' unique key is (case_id, owner, repo,
+    // number), so both can be bound to one case (IPC.prLinkMany from a single search does
+    // exactly this). Both match the `widget/` citation prefix.
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      source: 'manual'
+    })
+    const { git, calls } = scriptedGit()
+    const id = seedFindingCiting('See [widget/src/guard.ts:17].')
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingId: id,
+        commitMessage: 'm'
+      })
+    ).rejects.toThrow(/bound pull requests in widget/i)
+    expect(calls).toEqual([])
+  })
+
+  it('an explicit pr argument picks the right one of two same-repo bindings', async () => {
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      source: 'manual'
+    })
+    const worktree43 = casePrWorktreeDir(home, 'c1', repoPath, 43)
+    fs.mkdirSync(worktree43, { recursive: true })
+    const gh: Runner = async (_cmd, args) => {
+      const repo = args[args.indexOf('--repo') + 1]
+      const number = args[2]
+      if (repo === 'acme/widget' && number === '43') {
+        return JSON.stringify({
+          headRefName: 'pr43-branch',
+          headRefOid: 'sha43',
+          isCrossRepository: false
+        })
+      }
+      return headJson()
+    }
+    const { git, cwds } = scriptedGit()
+    const id = seedFindingCiting('See [widget/src/guard.ts:17].')
+    const out = await pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
+      findingId: id,
+      commitMessage: 'm',
+      expectPr: 'acme/widget#43'
+    })
+    expect(out).toContain('#43')
+    expect(out).not.toContain('#42')
+    expect(cwds.every((c) => c === worktree43)).toBe(true)
+  })
+
+  it('a pr argument naming a PR that is not bound throws', async () => {
+    const { git, calls } = scriptedGit()
+    const id = seedFinding()
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingId: id,
+        commitMessage: 'm',
+        expectPr: 'acme/widget#999'
+      })
+    ).rejects.toThrow(/acme\/widget#999/i)
     expect(calls).toEqual([])
   })
 })

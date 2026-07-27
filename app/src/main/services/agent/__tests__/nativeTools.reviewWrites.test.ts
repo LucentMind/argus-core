@@ -129,15 +129,69 @@ describe('review write tools via argusToolHandlers', () => {
     })
     const id = seedFinding()
     // finding_id arrives as a string (as it would off the wire) to pin Number(args.finding_id);
-    // body is omitted to pin the String(args.body ?? '') fallback to an empty string.
-    const out = await handlers.post_review_comment({ finding_id: String(id) })
+    // pr is omitted to pin the String(args.pr ?? '') fallback to an empty string (a single
+    // binding still resolves fine with no pr named). body must be non-empty post-fix — the
+    // empty-body guard (reviewWrites.ts) now rejects the coerced-empty string this test used
+    // to pin before pr existed.
+    const out = await handlers.post_review_comment({
+      finding_id: String(id),
+      body: 'This guard is inverted.'
+    })
     expect(out).toContain('https://github.com/acme/widget/pull/42#discussion_r1')
     expect(emitFindingUpdated).toHaveBeenCalledOnce()
     expect(emitFindingUpdated).toHaveBeenCalledWith(id)
     const inlineCall = calls.find((c) => c.includes('-F'))
-    expect(inlineCall).toContain('body=')
+    expect(inlineCall?.some((arg) => arg.startsWith('body='))).toBe(true)
     const row = listFindings(db, home, 'c1').find((f) => f.id === id)
     expect(row?.commentUrl).toBe('https://github.com/acme/widget/pull/42#discussion_r1')
+  })
+
+  it('post_review_comment threads the pr argument through to pick the right one of two same-repo bindings', async () => {
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      source: 'manual'
+    })
+    const worktree43 = casePrWorktreeDir(home, 'c1', repoPath, 43)
+    fs.mkdirSync(path.join(worktree43, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(worktree43, 'src', 'guard.ts'), 'x')
+
+    const calls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      calls.push(args)
+      if (args[0] === 'pr') {
+        const number = args[2]
+        return JSON.stringify({
+          headRefName: number === '43' ? 'pr43-branch' : 'feature/guard',
+          headRefOid: number === '43' ? 'sha43' : 'abc123',
+          isCrossRepository: false
+        })
+      }
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/43#discussion_r1' })
+    }
+    const handlers = argusToolHandlers({
+      db,
+      argusHome: home,
+      detection,
+      caseId: getCase(db, 'c1')!.id,
+      caseSlug: 'c1',
+      sessionId: 1,
+      emitFinding,
+      gh
+    })
+    const id = seedFinding()
+    // Without pr, two widget bindings (#42 and #43) are ambiguous — this pins that pr is what
+    // resolves it, not the coincidence of there being only one binding.
+    const out = await handlers.post_review_comment({
+      finding_id: String(id),
+      pr: 'acme/widget#43',
+      body: 'x'
+    })
+    expect(out).toContain('#discussion_r1')
+    expect(calls[0]).toContain('43') // the head lookup targeted PR #43, not #42
   })
 
   it('push_review_change coerces finding_id, commits+pushes to a real remote, and notifies the listener', async () => {

@@ -387,7 +387,13 @@ export function argusToolHandlers(
       const out = await postReviewComment(
         { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
         caseSlug,
-        { findingId, body: String(args.body ?? '') }
+        {
+          findingId,
+          body: String(args.body ?? ''),
+          // Empty (never passed, or passed as '') is treated as absent by resolveBindingForFinding
+          // — same fallback behavior as before `pr` existed.
+          expectPr: String(args.pr ?? '')
+        }
       )
       deps.emitFindingUpdated?.(findingId)
       return out
@@ -398,7 +404,11 @@ export function argusToolHandlers(
       const out = await pushReviewChange(
         { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
         caseSlug,
-        { findingId, commitMessage: String(args.commit_message ?? '') }
+        {
+          findingId,
+          commitMessage: String(args.commit_message ?? ''),
+          expectPr: String(args.pr ?? '')
+        }
       )
       deps.emitFindingUpdated?.(findingId)
       return out
@@ -594,14 +604,14 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'post_review_comment',
     description:
-      "Post a recorded review finding as an inline comment on the bound pull request, anchored at the finding's cited diff line. Pass the finding_id you got from the findings list and the exact comment body to publish — the user sees and can edit that body before it is posted. Falls back to a PR-level comment when the cited line is not part of the diff.",
-    schema: { finding_id: z.number(), body: z.string() }
+      "Post a recorded review finding as an inline comment on the bound pull request, anchored at the finding's cited diff line. Pass the finding_id you got from the findings list, pr as owner/repo#number naming EXACTLY the pull request to write to (copy it from the prompt — this is checked, not just displayed, and a case can have more than one pull request bound), and the exact comment body to publish — the user sees and can edit that body before it is posted. Falls back to a PR-level comment when the cited line is not part of the diff.",
+    schema: { finding_id: z.number(), pr: z.string(), body: z.string() }
   },
   {
     name: 'push_review_change',
     description:
-      "Commit everything currently changed in the PR worktree and push it to the pull request's head branch. Apply the change with your edit tools FIRST — this tool commits what is already on disk and writes nothing itself. Only works on a PR from the same repository, never a fork.",
-    schema: { finding_id: z.number(), commit_message: z.string() }
+      "Commit everything currently changed in the PR worktree and push it to the pull request's head branch. Pass pr as owner/repo#number naming EXACTLY the pull request to push to (copy it from the prompt — this is checked, not just displayed, and a case can have more than one pull request bound). Apply the change with your edit tools FIRST — this tool commits what is already on disk and writes nothing itself. Only works on a PR from the same repository, never a fork.",
+    schema: { finding_id: z.number(), pr: z.string(), commit_message: z.string() }
   },
   {
     name: 'update_case_status',

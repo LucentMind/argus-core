@@ -23,11 +23,13 @@ The finding says:
 
 {body}
 
-Call post_review_comment with finding_id {findingId} and a body you write yourself: state the
-problem and the concrete failure scenario in the reviewer's voice, addressed to the PR author.
-Keep it to a few sentences. Do not restate the citation — the comment is anchored at
-{anchor} automatically. The user sees your body and can edit it before it is posted, so write
-the text you would actually send.`,
+Call post_review_comment with finding_id {findingId}, pr set to the owner/repo#number that
+{prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this case can
+have more than one pull request bound, and pr is how the tool and the approval card both know
+which one you mean — and a body you write yourself: state the problem and the concrete failure
+scenario in the reviewer's voice, addressed to the PR author. Keep it to a few sentences. Do not
+restate the citation — the comment is anchored at {anchor} automatically. The user sees your body
+and can edit it before it is posted, so write the text you would actually send.`,
     placeholders: ['findingId', 'summary', 'prUrl', 'body', 'anchor']
   },
   apply: {
@@ -48,9 +50,12 @@ you do elsewhere reaches the PR. Steps, in order:
 2. Make the smallest edit that fixes it. Do not reformat, rename, or fix anything the finding
    did not raise.
 3. Show the diff you produced (git diff in the worktree) and say in one line what it does.
-4. Call push_review_change with finding_id {findingId} and a commit message in the repository's
-   existing style. It commits what is on disk and pushes to the PR branch — it writes no code
-   itself, so nothing you skipped in step 2 will be made up for here.
+4. Call push_review_change with finding_id {findingId}, pr set to the owner/repo#number that
+   {prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this case can
+   have more than one pull request bound, and pr is how the tool and the approval card both know
+   which one you mean — and a commit message in the repository's existing style. It commits what
+   is on disk and pushes to the PR branch — it writes no code itself, so nothing you skipped in
+   step 2 will be made up for here.
 
 The push stops at a confirmation the user must accept. If they decline, leave the worktree as
 it is and say so.`,
@@ -95,6 +100,13 @@ export function buildReviewActionPrompt(opts: {
       : 'This finding records no suggested change — derive the fix from the finding body.',
     anchor: opts.anchor,
     prUrl: opts.prUrl,
+    // In production, `action === 'apply'` reaching here always carries a non-null worktreePath:
+    // composeReviewActionPrompt (reviewActionCompose.ts) throws review_write.no-worktree BEFORE
+    // composing rather than calling this with `apply` and no worktree. This fallback is dead on
+    // that path — it only fires if this pure function is called directly with `apply` and a null
+    // worktreePath (as reviewActions.test.ts does), or for a `comment` turn, whose template
+    // never references {worktreePath} at all. Kept (rather than tightening the type) so the
+    // function stays testable/callable independent of the compose-layer guard.
     worktreePath: opts.worktreePath ?? '(no local checkout — re-enter review mode first)'
   })
 }

@@ -65,6 +65,24 @@ function seedFinding(): number {
   ).findingId
 }
 
+/**
+ * A DatabaseSync whose `prepare` throws for the finding-update statement only — every other
+ * query (the ownership SELECT, listBindings) goes to the real db untouched. `Object.create`
+ * rather than a `Proxy`: our own `prepare` property shadows the inherited one and is called
+ * with `this = wrapper`, but its body only closes over `real` and never reads `this`, so it
+ * never risks an "illegal invocation" against the native DatabaseSync internals the way
+ * rebinding the real method to a different receiver would.
+ */
+function dbThatFailsFindingUpdate(real: DatabaseSync, message: string): DatabaseSync {
+  const wrapper = Object.create(real) as DatabaseSync
+  const fakePrepare = (sql: string, ...rest: unknown[]): unknown => {
+    if (/^\s*UPDATE\s+findings/i.test(sql)) throw new Error(message)
+    return (real.prepare as (...a: unknown[]) => unknown)(sql, ...rest)
+  }
+  Object.defineProperty(wrapper, 'prepare', { value: fakePrepare })
+  return wrapper
+}
+
 describe('postReviewComment', () => {
   it('posts an inline comment on the head commit and records the url', async () => {
     const calls: string[][] = []
@@ -124,6 +142,37 @@ describe('postReviewComment', () => {
       postReviewComment({ db, argusHome: home, gh }, 'c1', { findingId: id, body: 'x' })
     ).rejects.toThrow(/403/)
     expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.commentUrl).toBeNull()
+  })
+
+  it('rejects an empty body before calling gh at all', async () => {
+    const gh: Runner = async () => {
+      throw new Error('gh must not be called')
+    }
+    const id = seedFinding()
+    await expect(
+      postReviewComment({ db, argusHome: home, gh }, 'c1', { findingId: id, body: '   ' })
+    ).rejects.toThrow(/empty/i)
+  })
+
+  it('a recordFindingWrite failure after a successful post propagates as itself, not a gh retry/duplicate', async () => {
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      ghCalls.push(args)
+      if (args[0] === 'pr') return HEAD_JSON
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#discussion_r1' })
+    }
+    const id = seedFinding()
+    // The message is deliberately gh-flavored ("part of the diff") to pin the pre-fix bug: with
+    // recordFindingWrite still inside the try/catch, this message satisfies isLineNotInDiff and
+    // the catch block would retry as a SECOND gh call (postIssueComment) — an actual duplicate
+    // post — even though it was the DB write, not the gh post, that failed. Hoisting the write
+    // out of the try means this error now just propagates; no second gh call happens.
+    const failingDb = dbThatFailsFindingUpdate(db, 'db write failed: part of the diff')
+    await expect(
+      postReviewComment({ db: failingDb, argusHome: home, gh }, 'c1', { findingId: id, body: 'x' })
+    ).rejects.toThrow(/db write failed/i)
+    // Exactly the head lookup + the one inline post — no fallback issue-comment call.
+    expect(ghCalls).toHaveLength(2)
   })
 
   it('refuses a finding id from another case with the unknown-finding text', async () => {
