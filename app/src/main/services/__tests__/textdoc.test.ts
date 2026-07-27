@@ -71,6 +71,11 @@ describe('openTextDoc', () => {
 })
 
 describe('readTextDocLines', () => {
+  // The heaviest I/O test in the suite: it has to clear MAX_WHOLE_FILE_BYTES, so it
+  // writes ~2.1MB as 192k lines and then ingests them — hash, copy, FTS index. 541ms
+  // locally on an idle machine; it blew both the 5s and 15s budgets on GitHub's
+  // windows runner, where I/O-heavy work inflates far past the suite's ~9x average.
+  // Its own budget, so the global testTimeout stays tight enough to catch regressions.
   it('serves pages from a large evidence file', async () => {
     const count = Math.ceil(MAX_READ_BYTES / 11) + 500 // 11-byte lines
     const content =
@@ -84,5 +89,5 @@ describe('readTextDocLines', () => {
       1003
     )
     expect(r).toEqual({ from: 1001, lines: ['0000001001', '0000001002', '0000001003'] })
-  })
+  }, 60_000)
 })
