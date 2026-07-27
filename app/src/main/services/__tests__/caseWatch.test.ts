@@ -34,9 +34,14 @@ const watchAndSettle = async (slug: string): Promise<void> => {
 
 describe('caseWatch hub', () => {
   it('broadcasts (debounced) on a file change in the case dir', async () => {
-    hub.watch('C1')
+    // Settle first so the write cannot race the watcher's start, and allow well past the
+    // 300ms debounce for delivery: this went green-then-red across two macOS CI runs with
+    // an immediate write and a 3s bound. Whether the event was lost to an unarmed FSEvents
+    // stream or merely late under load is not established — these cover both, at the cost
+    // of half a second.
+    await watchAndSettle('C1')
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'evidence', 'x.txt'), 'hi')
-    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 3000 })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
   })
 
   it('suppress() swallows self-caused events inside the window', async () => {
