@@ -14,6 +14,21 @@ const DEFAULT_MAX_PER_CASE = 50
  *  filesystem-safe (`caseDir`), so anything else is either a bug or an attempt to escape. */
 const SAFE_SLUG = /^[A-Za-z0-9._-]+$/
 
+/** `.` and `..` both satisfy SAFE_SLUG's character class — it allows `.` so a dots-only string
+ *  passes — but `path.join(root, '..')` escapes the capture dir entirely (and `.` is a no-op
+ *  alias for it), so they need an explicit call-out the regex alone can't provide. Kept as the
+ *  single gate both `record` and `read` route through, so the rule can't drift between them. */
+function isSafeSlug(slug: string): boolean {
+  return SAFE_SLUG.test(slug) && slug !== '.' && slug !== '..'
+}
+
+/** sessionId reaches `read` straight off IPC too, and is interpolated directly into a path
+ *  segment (`${sessionId}.json`) with no other sanitization — anything other than a
+ *  non-negative safe integer is a traversal vector (e.g. `../../config`) or nonsense. */
+function isSafeSessionId(id: number): boolean {
+  return Number.isSafeInteger(id) && id >= 0
+}
+
 export interface PromptCaptureStoreDeps {
   /** The dev-tools gate result. Load-bearing: with it off, nothing is written or read. */
   devTools: boolean
@@ -42,7 +57,7 @@ export class PromptCaptureStore {
   }
 
   private caseDirFor(slug: string): string | null {
-    if (!SAFE_SLUG.test(slug)) return null
+    if (!isSafeSlug(slug)) return null
     return path.join(this.root(), slug)
   }
 
@@ -50,8 +65,11 @@ export class PromptCaptureStore {
     if (!this.enabled) return
     const dir = this.caseDirFor(c.caseSlug)
     // A throw here is right: this is a write path with a value the harness controls, so an
-    // unsafe slug is a bug worth surfacing, not a silent no-op.
+    // unsafe slug or session id is a bug worth surfacing, not a silent no-op.
     if (!dir) throw new Error(`unsafe case slug for prompt capture: ${c.caseSlug}`)
+    if (!isSafeSessionId(c.sessionId)) {
+      throw new Error(`unsafe session id for prompt capture: ${c.sessionId}`)
+    }
     fs.mkdirSync(dir, { recursive: true })
     // Not atomic (no temp+rename): a capture is disposable debugging exhaust, and `list`/`read`
     // already skip a malformed file. Paying for atomicity on every session construction would
@@ -83,6 +101,8 @@ export class PromptCaptureStore {
     if (!this.enabled) return null
     const dir = this.caseDirFor(caseSlug)
     if (!dir) return null
+    // Unlike `record`, bad input here is just a miss: sessionId arrives off IPC, untyped.
+    if (!isSafeSessionId(sessionId)) return null
     return readRecord(path.join(dir, `${sessionId}.json`))
   }
 
