@@ -640,7 +640,14 @@ const argus = {
   },
   review: {
     composeRunPrompt: (slug: string, sessionId: number, layerIds: string[]): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeRunPrompt, slug, sessionId, layerIds)
+      ipcRenderer.invoke(IPC.reviewComposeRunPrompt, slug, sessionId, layerIds),
+    composeActionPrompt: (
+      slug: string,
+      sessionId: number,
+      findingId: number,
+      action: 'comment' | 'apply'
+    ): Promise<string> =>
+      ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingId, action)
   },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */

@@ -35,6 +35,7 @@ import { compileLayerAgents, type SubagentDefinition } from './reviewSubagents'
 import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { SubagentSupport } from '../../../shared/drivers'
 import { reviewSubagentSupport } from './reviewFraming'
+import type { Runner } from '../github'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -105,6 +106,9 @@ export interface SessionDeps {
   onAuthFailure?: () => void
   /** Fired when a turn completes normally — the only real proof the credentials work. */
   onAuthVerified?: () => void
+  /** gh runner for the review write tools. Injected in tests; production leaves it undefined
+   *  and `nativeTools` falls back to `defaultGhRunner`. */
+  gh?: Runner
   /** Open/focus a panel in this session's case (3b-2); session-bound by AgentService. */
   openPanel?: NativeToolDeps['openPanel']
   /** Capture a panel to evidence in this session's case; session-bound by AgentService. */
@@ -314,6 +318,9 @@ export class CaseSession {
         currentTurnId: () => this.currentTurnRow,
         emitFinding: (markdown) =>
           this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),
+        emitFindingUpdated: (findingId) =>
+          this.emit(makeEvent(this.ctx(), 'case.finding.updated', { findingId })),
+        gh: deps.gh,
         agentAccess: () => deps.agentAccess?.() ?? defaultAgentAccess(),
         openPanel: deps.openPanel,
         capturePanel: deps.capturePanel,
