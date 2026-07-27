@@ -8,6 +8,7 @@ import { buildPanelCommandServers } from '../../panelCommands'
 import { probeAuth } from './probe'
 import { resolveClaudeCliPath } from './cliPath'
 import { qualifySkill, skillPluginRoot } from '../../skillsResolver'
+import { claudeAgentsOption } from './subagentBinding'
 import type {
   AgentDriver,
   DriverSession,
@@ -91,6 +92,12 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // claudeDriver.test.ts asserts it actually holds ctx.systemAppend.
       ctx.capturePrompt?.({ transport: 'systemPrompt.append' })
 
+      // Computed once: the layer agents from Task 5's driver-neutral definitions,
+      // translated into the SDK's `agents` shape. undefined (not {}) when ctx.subagents
+      // is empty, so the conditional spread below omits the key entirely rather than
+      // sending an empty object — see subagentBinding.ts for why that distinction matters.
+      const layerAgents = claudeAgentsOption(ctx.subagents)
+
       // Options bag: relocated from session.ts:168-211; the DriverSessionContext
       // fields substitute for the SessionDeps/agentOptions values the harness used to
       // read directly (systemAppend, extraMcpServers, nativeToolDeps, onToolRequest).
@@ -125,6 +132,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           // The only reliable containment is denying Task outright (disallowedTools:['Task'],
           // verified: no subagent spawns) — a deliberate product call, not an oversight.
           skills: ctx.skills.map(qualifySkill),
+          // Task 5's layer-agent definitions, translated to the SDK's vocabulary. Absent
+          // (not {}) when there are none to register — see layerAgents above.
+          ...(layerAgents ? { agents: layerAgents } : {}),
           // Load PROJECT settings only. The main session is already bounded by `skills`
           // above, but a subagent re-derives its own listing and measured 52 skills — 36 of
           // them the operator's personal Claude Code toolkit (superpowers, revealjs,
