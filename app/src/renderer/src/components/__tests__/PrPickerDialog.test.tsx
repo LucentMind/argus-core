@@ -19,17 +19,17 @@ const cand = (o: Partial<PrCandidate> & Pick<PrCandidate, 'number'>): PrCandidat
   ...o
 })
 
-const linkMany = vi.fn()
+const link = vi.fn()
 
 beforeEach(() => {
-  linkMany.mockReset().mockResolvedValue([])
+  link.mockReset().mockResolvedValue(undefined)
   ;(window as unknown as { argus: unknown }).argus = {
-    pr: { linkMany }
+    pr: { link }
   } as never
 })
 
 describe('PrPickerDialog', () => {
-  it('checks preselected candidates and leaves backports unchecked', () => {
+  it('preselects the first non-backport candidate and leaves the backport unselected', () => {
     render(
       <PrPickerDialog
         slug="c1"
@@ -49,11 +49,63 @@ describe('PrPickerDialog', () => {
         onClose={vi.fn()}
       />
     )
-    expect(screen.getByRole('checkbox', { name: /16315/ })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /16395/ })).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: /16315/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /16395/ })).not.toBeChecked()
   })
 
-  it('links exactly the checked candidates on confirm', async () => {
+  it('falls back to selecting the first candidate when every hit is a backport', () => {
+    render(
+      <PrPickerDialog
+        slug="c1"
+        result={{
+          candidates: [
+            cand({
+              number: 16315,
+              isBackport: true,
+              preselected: false,
+              title: '[Backport release/v0.27] a'
+            }),
+            cand({
+              number: 16395,
+              isBackport: true,
+              preselected: false,
+              title: '[Backport release/v0.27] b'
+            })
+          ],
+          error: null,
+          searchedRepos: ['JiaweiHan88/HiveMindTest']
+        }}
+        onClose={vi.fn()}
+      />
+    )
+    // never confirmable-but-empty: something is selected even when nothing was preselected
+    expect(screen.getByRole('radio', { name: /16315/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /16395/ })).not.toBeChecked()
+  })
+
+  it('only one candidate is selectable at a time', async () => {
+    render(
+      <PrPickerDialog
+        slug="c1"
+        result={{
+          candidates: [cand({ number: 16315 }), cand({ number: 16395, preselected: false })],
+          error: null,
+          searchedRepos: ['JiaweiHan88/HiveMindTest']
+        }}
+        onClose={vi.fn()}
+      />
+    )
+    const first = screen.getByRole('radio', { name: /16315/ })
+    const second = screen.getByRole('radio', { name: /16395/ })
+    expect(first).toBeChecked()
+    expect(second).not.toBeChecked()
+
+    await userEvent.click(second)
+    expect(second).toBeChecked()
+    expect(first).not.toBeChecked()
+  })
+
+  it('links exactly the selected candidate on confirm', async () => {
     const onClose = vi.fn()
     render(
       <PrPickerDialog
@@ -67,8 +119,28 @@ describe('PrPickerDialog', () => {
       />
     )
     await userEvent.click(screen.getByRole('button', { name: /link selected/i }))
-    await waitFor(() => expect(linkMany).toHaveBeenCalledTimes(1))
-    expect(linkMany).toHaveBeenCalledWith('c1', [expect.objectContaining({ number: 16315 })])
+    await waitFor(() => expect(link).toHaveBeenCalledTimes(1))
+    expect(link).toHaveBeenCalledWith('c1', expect.objectContaining({ number: 16315 }))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('links the newly selected candidate, not the original default, after switching', async () => {
+    const onClose = vi.fn()
+    render(
+      <PrPickerDialog
+        slug="c1"
+        result={{
+          candidates: [cand({ number: 16315 }), cand({ number: 16395, preselected: false })],
+          error: null,
+          searchedRepos: ['JiaweiHan88/HiveMindTest']
+        }}
+        onClose={onClose}
+      />
+    )
+    await userEvent.click(screen.getByRole('radio', { name: /16395/ }))
+    await userEvent.click(screen.getByRole('button', { name: /link selected/i }))
+    await waitFor(() => expect(link).toHaveBeenCalledTimes(1))
+    expect(link).toHaveBeenCalledWith('c1', expect.objectContaining({ number: 16395 }))
     expect(onClose).toHaveBeenCalled()
   })
 

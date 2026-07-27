@@ -1274,10 +1274,13 @@ function registerIpc(): void {
   // — pull requests —
   // Unlike the workspaces:* handlers above (a known gap), every pr:* handler validates
   // the slug before it reaches the DB or the filesystem.
-  ipcMain.handle(IPC.prLink, (_e, caseSlug: string, input: string) => {
+  ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) => {
     assertSlug(caseSlug)
     const stored = listStoredWorkspaces(db, caseSlug)
-    const ref = parsePrRef(input, stored[0]?.remote ?? null)
+    // Free text (the Repos rail's manual field) is parsed here; a picker selection already
+    // arrives as a resolved PrRef — the shape is how the two sources are told apart.
+    const manual = typeof input === 'string'
+    const ref = manual ? parsePrRef(input, stored[0]?.remote ?? null) : input
     if (!ref) throw new Error(`Not a pull request reference: ${input}`)
     // Match the parsed owner/repo against the linked remotes so the binding knows which
     // local clone to make its worktree from. null stays supported (manual linking of a
@@ -1287,7 +1290,19 @@ function registerIpc(): void {
         const or = w.remote ? remoteToOwnerRepo(w.remote) : null
         return or?.owner === ref.owner && or?.repo === ref.repo
       })?.path ?? null
-    return addBinding(db, caseSlug, { ...ref, repoPath, source: 'manual' })
+    const binding = addBinding(db, caseSlug, {
+      ...ref,
+      repoPath,
+      source: manual ? 'manual' : 'search'
+    })
+    if (!manual) {
+      // A picker selection, like the old pr:link-many, checks out the PR's worktree right
+      // away and tells the repo chips. Manual linking (the Repos rail) does neither — its
+      // caller reloads its own state after the call resolves.
+      await materializePrBindings(db, argusHome, caseSlug, prMaterializer(argusHome, caseSlug))
+      broadcast(IPC.workspacesChanged, caseSlug)
+    }
+    return binding
   })
   ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
@@ -1301,28 +1316,6 @@ function registerIpc(): void {
     assertSlug(caseSlug)
     return searchPrsForCase({ db }, caseSlug)
   })
-  ipcMain.handle(IPC.prLinkMany, async (_e, caseSlug: string, refs: PrRef[]) => {
-    assertSlug(caseSlug)
-    const stored = listStoredWorkspaces(db, caseSlug)
-    const created = refs.map((ref) =>
-      addBinding(db, caseSlug, {
-        ...ref,
-        source: 'search',
-        // a search hit always comes from a linked repo, so this normally resolves
-        repoPath:
-          stored.find((w) => {
-            const or = w.remote ? remoteToOwnerRepo(w.remote) : null
-            return or?.owner === ref.owner && or?.repo === ref.repo
-          })?.path ?? null
-      })
-    )
-    await materializePrBindings(db, argusHome, caseSlug, prMaterializer(argusHome, caseSlug))
-    // The live session's sandbox was fixed at construction, so the chips — not the agent —
-    // are what this refreshes; the agent picks the worktree up on its next session.
-    broadcast(IPC.workspacesChanged, caseSlug)
-    return created
-  })
-
   ipcMain.handle(IPC.workspacesRefs, (_e, caseSlug: string) => {
     const cj = path.join(caseDir(argusHome, caseSlug), 'case.json')
     try {

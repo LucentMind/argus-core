@@ -5,13 +5,22 @@ import type { PrCandidate, PrSearchResult } from '../../../shared/pr'
 
 const keyOf = (c: PrCandidate): string => `${c.owner}/${c.repo}#${c.number}`
 
+/** The candidate the dialog opens with selected: the first `preselected` hit, or — when
+ *  every hit is a backport — the first candidate anyway, so the dialog is never
+ *  confirmable-but-empty. */
+function defaultKey(candidates: PrCandidate[]): string | null {
+  const pre = candidates.find((c) => c.preselected)
+  const first = pre ?? candidates[0]
+  return first ? keyOf(first) : null
+}
+
 /**
  * Pick which of a case's candidate PRs to bind, modeled on JiraAttachmentsDialog.
  *
- * Non-backports arrive pre-checked (`candidate.preselected`); the heuristic only ever
- * sets a default, so a miss costs one click and never hides or binds anything on its own.
- * Both the error and empty states stay dismissible — manual linking in the repos rail is
- * always the fallback.
+ * A case binds at most one PR, so this is a single choice: the non-backport heuristic
+ * only ever picks the *default* radio (`candidate.preselected`), so a miss costs one
+ * click and never hides or binds anything on its own. Both the error and empty states
+ * stay dismissible — manual linking in the repos rail is always the fallback.
  */
 export function PrPickerDialog({
   slug,
@@ -22,27 +31,27 @@ export function PrPickerDialog({
   result: PrSearchResult
   onClose: () => void
 }): React.JSX.Element {
-  const [checked, setChecked] = useState<Set<string>>(
-    () => new Set(result.candidates.filter((c) => c.preselected).map(keyOf))
-  )
+  const [selected, setSelected] = useState<string | null>(() => defaultKey(result.candidates))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function confirm(): Promise<void> {
     setBusy(true)
     setError(null)
-    const selected = result.candidates.filter((c) => checked.has(keyOf(c)))
+    const candidate = result.candidates.find((c) => keyOf(c) === selected)
     try {
-      if (selected.length) {
-        await window.argus.pr.linkMany(
-          slug,
-          selected.map((c) => ({ owner: c.owner, repo: c.repo, number: c.number, url: c.url }))
-        )
+      if (candidate) {
+        await window.argus.pr.link(slug, {
+          owner: candidate.owner,
+          repo: candidate.repo,
+          number: candidate.number,
+          url: candidate.url
+        })
       }
       onClose()
     } catch {
       setBusy(false)
-      setError('Could not link the selected pull requests.')
+      setError('Could not link the selected pull request.')
     }
   }
 
@@ -85,16 +94,12 @@ export function PrPickerDialog({
                 className="flex items-center gap-2 rounded-r1 px-1 py-0.5 text-xs hover:bg-hi"
               >
                 <input
-                  type="checkbox"
+                  type="radio"
+                  name="pr-picker-candidate"
                   // the number must be in the accessible name — it is how a row is identified
                   aria-label={`#${c.number} ${c.title}`}
-                  checked={checked.has(k)}
-                  onChange={(e) => {
-                    const next = new Set(checked)
-                    if (e.target.checked) next.add(k)
-                    else next.delete(k)
-                    setChecked(next)
-                  }}
+                  checked={selected === k}
+                  onChange={() => setSelected(k)}
                 />
                 <span className="shrink-0 font-mono text-mute">#{c.number}</span>
                 <span className="min-w-0 flex-1 truncate text-ink">{c.title}</span>
