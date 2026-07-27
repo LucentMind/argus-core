@@ -221,6 +221,17 @@ export class CaseSession {
       composePersona(deps.personaFragments ?? [], ao.personaAppend) +
       skillIndexAppend +
       memoryAppend
+    // personaAppend is a user setting (Settings page), not a registry entry — attribute it with
+    // a null id, same as pack fragments, so captureFragments accounts for every byte
+    // composePersona folds into systemAppend. Appended (not prepended) to stay index-aligned
+    // with personaFragmentIds: composePersona itself always places personaAppend last.
+    const trimmedPersonaAppend = (ao.personaAppend ?? '').trim()
+    const captureFragmentTexts = trimmedPersonaAppend
+      ? [...(deps.personaFragments ?? []), trimmedPersonaAppend]
+      : (deps.personaFragments ?? [])
+    const captureFragmentIds = trimmedPersonaAppend
+      ? [...(deps.personaFragmentIds ?? []), null]
+      : (deps.personaFragmentIds ?? [])
     // Absent when the gate is off: no record is assembled, no closure retained, no cost.
     const recordCapture = deps.recordPromptCapture
     const capturePrompt = recordCapture
@@ -237,8 +248,8 @@ export class CaseSession {
             transport,
             systemAppend,
             fragments: captureFragments({
-              fragments: deps.personaFragments ?? [],
-              ids: deps.personaFragmentIds ?? [],
+              fragments: captureFragmentTexts,
+              ids: captureFragmentIds,
               activeOverrides
             }),
             skillIndex: deps.skillIndex ?? '',
