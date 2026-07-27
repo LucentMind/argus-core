@@ -261,6 +261,23 @@ export function openDb(file: string): DatabaseSync {
   if (!hasSessionCol('model')) {
     db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`)
   }
+  // Review flavor (spec §6). All nullable: an investigation finding leaves them empty, and
+  // mode is NOT stored — it joins from sessions.mode, which is already the session's binding.
+  // diff_path/diff_line are the anchor parsed from the finding's first citation at write time,
+  // so posting an inline PR comment never re-parses prose.
+  const findingCols = db.prepare(`PRAGMA table_info(findings)`).all() as { name: string }[]
+  if (!findingCols.some((c) => c.name === 'layer')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN layer TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'severity')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN severity TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'diff_path')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN diff_path TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'diff_line')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN diff_line INTEGER`)
+  }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)

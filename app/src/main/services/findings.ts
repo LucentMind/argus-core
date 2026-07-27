@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FindingRow, ReviewState } from '../../shared/observability'
+import { isReviewLayerId, isReviewSeverity } from '../../shared/reviewLayers'
+import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { appendDeletionAudit } from './deletionAudit'
@@ -18,6 +20,11 @@ interface Raw {
   review_state: string
   reviewed_at: string | null
   created_at: string
+  layer: string | null
+  severity: string | null
+  diff_path: string | null
+  diff_line: number | null
+  mode: string | null
 }
 
 function toRow(r: Raw): FindingRow {
@@ -29,9 +36,22 @@ function toRow(r: Raw): FindingRow {
     summary: r.summary,
     reviewState: r.review_state as ReviewState,
     reviewedAt: r.reviewed_at,
-    createdAt: r.created_at
+    createdAt: r.created_at,
+    layer: isReviewLayerId(r.layer) ? r.layer : null,
+    severity: isReviewSeverity(r.severity) ? r.severity : null,
+    diffPath: r.diff_path,
+    diffLine: r.diff_line,
+    // A finding whose session was deleted, or one written before the mode axis, has no mode
+    // to join — it is investigation by the same rule that made investigation the implicit
+    // default for every pre-existing case (spec §3).
+    mode: (r.mode as ModeId | null) ?? DEFAULT_MODE
   }
 }
+
+// A finding's mode is derived by joining sessions.mode (never stored on the finding row
+// itself), so every finding read goes through this LEFT JOIN. LEFT is load-bearing: an
+// inner join would drop every session-less finding (deleted session, or pre-mode-axis rows).
+const FINDINGS_WITH_MODE = `findings f LEFT JOIN sessions s ON s.id = f.session_id`
 
 /** Parse findings.md into an id→body map using the `<!-- finding:{id} -->`
  *  markers appendFinding writes. Body is the markdown after the `## title` and
@@ -61,7 +81,8 @@ export function listFindings(db: DatabaseSync, argusHome: string, caseSlug: stri
   const rows = (
     db
       .prepare(
-        `SELECT f.* FROM findings f JOIN cases c ON c.id = f.case_id
+        `SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE}
+         JOIN cases c ON c.id = f.case_id
          WHERE c.slug = ? ORDER BY f.id DESC`
       )
       .all(caseSlug) as unknown as Raw[]
@@ -88,8 +109,9 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
     reviewedAt,
     id
   )
-  const row = db.prepare(`SELECT * FROM findings WHERE id = ?`).get(id) as unknown as
-    Raw | undefined
+  const row = db
+    .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+    .get(id) as unknown as Raw | undefined
   return row ? toRow(row) : null
 }
 
