@@ -133,6 +133,71 @@ describe('ReposSection pull requests', () => {
     })
   })
 
+  // Re-review fix: retyping the ALREADY-bound PR (a no-op for addBinding, which is
+  // idempotent on identity) must not scare the user with a "replace" warning about
+  // findings retargeting — nothing retargets when the identity doesn't change.
+  describe('re-linking the SAME pull request', () => {
+    async function openDraftAndSubmit(value: string): Promise<void> {
+      render(<ReposSection slug="C-1" />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+      const box = screen.getByPlaceholderText(/pr url/i)
+      fireEvent.change(box, { target: { value } })
+      fireEvent.submit(box)
+    }
+
+    it('no confirm for the canonical url spelling', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit(BINDING.url)
+      await waitFor(() => expect(prApi().link).toHaveBeenCalledWith('C-1', BINDING.url))
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('no confirm for the owner/repo#n spelling', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#16315')
+      await waitFor(() =>
+        expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#16315')
+      )
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('still confirms a spelling of a genuinely different pull request', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  // Re-review fix: pr:link now runs a git fetch + worktree add unconditionally (see
+  // prLink.ts), not just a DB write — the input must show it is busy and refuse a second
+  // submit while the first is still in flight.
+  it('disables the input while a link is in flight and re-enables after', async () => {
+    let resolveLink: (() => void) | undefined
+    prApi().link = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLink = resolve
+        })
+    )
+    render(<ReposSection slug="C-1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'JiaweiHan88/hivemindtest#16315' } })
+    fireEvent.submit(box)
+    await waitFor(() => expect(box).toBeDisabled())
+
+    // a second submit while linking is in flight must not fire a second IPC call
+    fireEvent.change(box, { target: { value: 'JiaweiHan88/hivemindtest#77' } })
+    fireEvent.submit(box)
+    expect(prApi().link).toHaveBeenCalledTimes(1)
+
+    // a successful link clears the draft and closes the form (setPrDraft(null)), so the
+    // input itself unmounts — assert re-enablement indirectly via the form disappearing
+    // rather than the (by-then-detached) input node.
+    resolveLink!()
+    await waitFor(() => expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull())
+  })
+
   // The only way to reopen the picker once PRs are bound, and the recovery path for a
   // search that failed or found nothing.
   it('re-runs the search on demand and hands the result to the picker', async () => {

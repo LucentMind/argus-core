@@ -1269,8 +1269,9 @@ function registerIpc(): void {
   // — pull requests —
   // Unlike the workspaces:* handlers above (a known gap), every pr:* handler validates
   // the slug before it reaches the DB or the filesystem.
-  // The handler body lives in prLink.ts (thin wrapper here) so the picker-vs-manual
-  // materialize+broadcast gate is testable without booting Electron.
+  // The handler body lives in prLink.ts (thin wrapper here) so the picker/manual parsing
+  // split and the shared materialize+broadcast side effect are testable without booting
+  // Electron. (Both paths run the same side effect now — see linkPrForCase's doc comment.)
   ipcMain.handle(IPC.prLink, async (_e, caseSlug: string, input: string | PrRef) =>
     linkPrForCase(
       {

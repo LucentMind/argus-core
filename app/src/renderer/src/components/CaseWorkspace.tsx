@@ -9,7 +9,7 @@ import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
 import { PrPickerDialog } from './PrPickerDialog'
-import type { PrSearchResult } from '../../../shared/pr'
+import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
@@ -91,6 +91,12 @@ export function CaseWorkspace({
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
+  // The binding the picker was opened over, so it can warn before silently replacing one —
+  // the picker is reachable via "Find PRs" (ReposSection) regardless of whether a PR is
+  // already bound, unlike the auto-open-on-review-entry path below (which only fires when
+  // nothing is bound yet). Fetched fresh each time the picker opens rather than mirroring
+  // ReposSection's own `prs` state, so it is correct whichever caller opened the dialog.
+  const [prPickerCurrent, setPrPickerCurrent] = useState<PrBinding | null>(null)
   const [prSearching, setPrSearching] = useState(false)
   const [focusTurn, setFocusTurn] = useState<{
     sessionId: number
@@ -234,6 +240,18 @@ export function CaseWorkspace({
     setSessionsError(message)
   }
 
+  /** ReposSection's "Find PRs" result handler: opens the picker AND looks up whatever is
+   *  currently bound, so the dialog can warn before silently replacing it. A failed lookup
+   *  degrades to "nothing bound" rather than blocking the picker — the confirm is a safety
+   *  net, not a gate the picker depends on to function. */
+  function handlePrsFound(result: PrSearchResult): void {
+    setPrPicker(result)
+    void window.argus.pr
+      .list(slug)
+      .then((bound) => setPrPickerCurrent(bound[0] ?? null))
+      .catch(() => setPrPickerCurrent(null))
+  }
+
   // a search hit's jump target: switch to its session via the same path as a
   // normal switcher click, then hand ChatPane the message to scroll to + flash
   function handleJumpToTurn(targetSessionId: number, target: ChatJumpTarget): void {
@@ -365,7 +383,7 @@ export function CaseWorkspace({
           <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
             <ReposSection
               slug={slug}
-              onPrsFound={setPrPicker}
+              onPrsFound={handlePrsFound}
               headerExtra={
                 <button
                   aria-label="Collapse evidence"
@@ -484,7 +502,15 @@ export function CaseWorkspace({
         )}
       </div>
       {prPicker && (
-        <PrPickerDialog slug={slug} result={prPicker} onClose={() => setPrPicker(null)} />
+        <PrPickerDialog
+          slug={slug}
+          result={prPicker}
+          currentBinding={prPickerCurrent}
+          onClose={() => {
+            setPrPicker(null)
+            setPrPickerCurrent(null)
+          }}
+        />
       )}
     </div>
   )

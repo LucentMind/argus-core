@@ -186,6 +186,37 @@ describe('postReviewComment', () => {
     expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.commentUrl).toBeNull()
   })
 
+  // The mirror of the test above, for the OTHER return branch: the inline post fails with
+  // "not part of the diff", the PR-level fallback succeeds, and THEN recordFindingWrite
+  // fails. Both branches share the one recordFindingWrite call site (see postReviewComment's
+  // try/catch around it) but return different feedback text (comment-not-inline vs.
+  // comment-ok) — this pins that the not-recorded note is appended to the right one.
+  it('a recordFindingWrite failure after a PR-level fallback post still reports comment-not-inline, not a failure', async () => {
+    const ghCalls: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      ghCalls.push(args)
+      if (args[0] === 'pr') return HEAD_JSON
+      if (args[3].includes('/pulls/')) {
+        throw Object.assign(new Error('Command failed'), {
+          stderr: 'HTTP 422: line must be part of the diff'
+        })
+      }
+      return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#issuecomment-9' })
+    }
+    const id = seedFinding()
+    const failingDb = dbThatFailsFindingUpdate(db, 'db write failed')
+    const out = await postReviewComment({ db: failingDb, argusHome: home, gh }, 'c1', {
+      findingId: id,
+      body: 'This guard is inverted.'
+    })
+    expect(out).toMatch(/not part of the diff/i)
+    expect(out).toContain('#issuecomment-9')
+    expect(out).toMatch(/could not be recorded locally/i)
+    // head lookup + failed inline attempt + the fallback issue-comment post — no retry beyond that
+    expect(ghCalls).toHaveLength(3)
+    expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.commentUrl).toBeNull()
+  })
+
   it('refuses a finding id from another case with the unknown-finding text', async () => {
     createCase(db, home, { slug: 'c2', title: 'Case 2' })
     const foreign = db
