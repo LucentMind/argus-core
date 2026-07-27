@@ -350,6 +350,47 @@ describe('createCopilotDriver — skillDirectories (Task 10)', () => {
   })
 })
 
+describe('createCopilotDriver — customAgents (Task 7)', () => {
+  it('omits customAgents when ctx.subagents is empty', async () => {
+    const { factory, sessionConfigs } = makeFake()
+    const driver = createCopilotDriver({}, { clientFactory: factory })
+    const session = driver.createSession(makeCtx({ subagents: [] }))
+    await tick()
+    expect(sessionConfigs).toHaveLength(1)
+    expect('customAgents' in sessionConfigs[0]).toBe(false)
+    session.end()
+  })
+
+  it('maps ctx.subagents to SessionConfig.customAgents', async () => {
+    const { factory, sessionConfigs } = makeFake()
+    const driver = createCopilotDriver({}, { clientFactory: factory })
+    const session = driver.createSession(
+      makeCtx({
+        subagents: [
+          {
+            name: 'review-correctness',
+            description: 'always',
+            prompt: 'BODY',
+            tools: ['read', 'search', 'execute']
+          }
+        ]
+      })
+    )
+    await tick()
+    expect(sessionConfigs).toHaveLength(1)
+    expect(sessionConfigs[0].customAgents).toEqual([
+      {
+        name: 'review-correctness',
+        displayName: 'review-correctness',
+        description: 'always',
+        prompt: 'BODY',
+        tools: ['view', 'grep', 'glob', 'bash']
+      }
+    ])
+    session.end()
+  })
+})
+
 describe('createCopilotDriver — probeAuth', () => {
   it('reports ready with login in detail (never the email field) + CLI version', async () => {
     const { factory, stop } = makeFake({ authenticated: true })
