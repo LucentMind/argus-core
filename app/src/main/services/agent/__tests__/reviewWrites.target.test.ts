@@ -226,4 +226,105 @@ describe('resolveCommentTarget', () => {
     expect(t.repoRelPath).toBe('a/b.ts')
     expect(t.binding.number).toBe(7)
   })
+
+  it('rejects a same-repo citation when two PRs from the same repo are bound (#42/#43), instead of picking bindings[0]', () => {
+    // pr_bindings' unique key is (case_id, owner, repo, number) — nothing stops binding both
+    // #42 and #43 of the SAME repo to one case (IPC.prLinkMany from a single search does
+    // exactly this). Both match the `widget/` citation prefix, so the pre-fix `find` would
+    // silently return whichever `listBindings` (newest first) happened to return first.
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      source: 'manual'
+    })
+    seedWorktree(42, 'src/guard.ts')
+    const id = finding('See [widget/src/guard.ts:17].')
+    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(
+      /bound pull requests in widget/i
+    )
+  })
+
+  it('an explicit pr argument picks the right one of two same-repo bindings', () => {
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 43,
+      url: 'https://github.com/acme/widget/pull/43',
+      source: 'manual'
+    })
+    seedWorktree(43, 'src/guard.ts')
+    const id = finding('See [widget/src/guard.ts:17].')
+    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#43')
+    expect(t.binding.number).toBe(43)
+    expect(t.repoRelPath).toBe('src/guard.ts')
+  })
+
+  it('a pr argument naming a PR that is not bound throws, even with a single binding', () => {
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    seedWorktree(42, 'src/guard.ts')
+    const id = finding('See [widget/src/guard.ts:17].')
+    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id, 'acme/widget#99')).toThrow(
+      /acme\/widget#99/i
+    )
+  })
+
+  it('rejects an absolute citation path even when the worktree is unmaterialized', () => {
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    // No seedWorktree() call: the worktree stays unmaterialized, so only the unconditional
+    // check (not the fs.existsSync one, which is gated on `worktree` being non-null) can catch
+    // this — a home-directory path would otherwise reach the PR-level fallback comment body.
+    const id = finding('See [/Users/someone/repo/src/guard.ts:17].')
+    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(
+      /not a safe repo-relative path/i
+    )
+  })
+
+  it('rejects a citation path with a ".." segment', () => {
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    const id = finding('See [widget/../../etc/passwd:1].')
+    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(
+      /not a safe repo-relative path/i
+    )
+  })
 })

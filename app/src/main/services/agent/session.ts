@@ -694,8 +694,9 @@ export class CaseSession {
       // never substitute args on Bash/native asks, whatever the IPC caller sent.
       // Argus's own native tools are exposed as an `mcp__argus__*` server too, so
       // they're excluded from the editable set alongside Bash — except the narrow
-      // allowlist in shared/editableTools (currently just write_memory), where the
-      // args are pure reviewed content and editing is the review mechanism.
+      // allowlist in shared/editableTools (write_memory, panel_emit_finding,
+      // panel_ingest_evidence, post_review_comment), where the args are pure
+      // reviewed content and editing is the review mechanism.
       return {
         behavior: 'allow',
         updatedInput: (isEditableTool(toolName) ? outcome.updatedInput : undefined) ?? input

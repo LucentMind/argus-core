@@ -176,6 +176,29 @@ describe('composeReviewActionPrompt', () => {
     expect(p).toContain('UNIQUE-BODY-MARKER')
   })
 
+  it('throws no-worktree for an apply turn when the PR has no local checkout, instead of composing an edit-here prompt', async () => {
+    // worktreeFor legitimately returns null: a manual link to an unlinked repo, a failed
+    // materialization, or a PR linked after the last review-mode entry. Composing anyway would
+    // send the agent editing the user's real linked clone (in-sandbox, auto-allowed) instead of
+    // the PR worktree, only to have push_review_change throw afterward with the stray edits
+    // left behind unmentioned.
+    fs.rmSync(worktree, { recursive: true, force: true })
+    const sessionId = seedSession()
+    const findingId = seedFinding(sessionId)
+    await expect(
+      composeReviewActionPrompt(baseDeps(), 'c1', sessionId, findingId, 'apply')
+    ).rejects.toThrow(/no local checkout/i)
+  })
+
+  it('still composes a comment turn when the PR has no local checkout — comment needs no worktree', async () => {
+    fs.rmSync(worktree, { recursive: true, force: true })
+    const sessionId = seedSession()
+    const findingId = seedFinding(sessionId)
+    const p = await composeReviewActionPrompt(baseDeps(), 'c1', sessionId, findingId, 'comment')
+    expect(p).toContain('Inverted guard')
+    expect(p).toContain('https://github.com/acme/widget/pull/42')
+  })
+
   it('still composes (not throws) when findings.md is missing, with the body left blank', async () => {
     const sessionId = seedSession()
     const findingId = seedFinding(

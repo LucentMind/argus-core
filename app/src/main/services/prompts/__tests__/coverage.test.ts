@@ -81,6 +81,14 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   {
     text: 'Cannot delete the memory index',
     why: 'deleteTopic is a Settings-page action invoked by the user; no tool exposes it.'
+  },
+  {
+    text: '${b.owner}/${b.repo}#${b.number}',
+    why: 'Formats one bound PR as owner/repo#number for the {bound} placeholder in review_write.unknown-pr — pure interpolation, no words of its own.'
+  },
+  {
+    text: '#${b.number}',
+    why: 'Formats one same-repo binding as #<number> for the {numbers} placeholder in review_write.ambiguous-pr — pure interpolation, no words of its own.'
   }
 ]
 

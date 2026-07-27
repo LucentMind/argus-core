@@ -75,6 +75,29 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
     text: 'This case has {count} bound pull requests and {path} does not name any of them ({repos}). Re-record the finding with a [<repo-name>/<path>:<line>] citation so the pull request is unambiguous.',
     placeholders: ['count', 'path', 'repos']
   },
+  'review_write.ambiguous-pr': {
+    title: 'review writes — several bound PRs in the same repo',
+    text: 'This case has {count} bound pull requests in {repo} ({numbers}) and a [<repo-name>/<path>:<line>] citation cannot say which. Pass the pr argument to name the pull request explicitly.',
+    placeholders: ['count', 'repo', 'numbers']
+  },
+  'review_write.unknown-pr': {
+    title: 'review writes — named pull request is not bound',
+    text: '{pr} is not one of the pull requests bound to this case ({bound}). Pass pr as owner/repo#number for a pull request that is actually bound here.',
+    placeholders: ['pr', 'bound']
+  },
+  'review_write.unsafe-path': {
+    title: 'review writes — citation path escapes the repo',
+    text: '{path} is not a safe repo-relative path (absolute, or containing "..") and cannot be published. Re-record the finding with a repo-relative [<repo-name>/<path>:<line>] citation.',
+    placeholders: ['path']
+  },
+  'review_write.empty-body': {
+    title: 'review writes — empty comment body',
+    text: 'The comment body is empty. Write the text to post before calling post_review_comment.'
+  },
+  'review_write.empty-commit-message': {
+    title: 'review writes — empty commit message',
+    text: "The commit message is empty. Write one in the repository's existing style before calling push_review_change."
+  },
   'review_write.uncited-ambiguous': {
     title: 'review writes — uncited finding, several bound PRs',
     text: 'This case has {count} bound pull requests and this finding carries no citation, so there is no way to tell which one it belongs to ({repos}). Re-record it with a [<repo-name>/<path>:<line>] citation.',
@@ -167,23 +190,81 @@ export function worktreeFor(
   return fs.existsSync(wt) ? wt : null
 }
 
+/** `owner/repo#number`, the form the composed prompt tells the agent to pass as `pr`. */
+const EXPECT_PR_RE = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/
+
+function parseExpectPr(v: string): { owner: string; repo: string; number: number } | null {
+  const m = EXPECT_PR_RE.exec(v.trim())
+  if (!m) return null
+  return { owner: m[1], repo: m[2], number: Number(m[3]) }
+}
+
+function sameBindingIdentity(
+  b: PrBinding,
+  want: { owner: string; repo: string; number: number }
+): boolean {
+  return (
+    b.owner.toLowerCase() === want.owner.toLowerCase() &&
+    b.repo.toLowerCase() === want.repo.toLowerCase() &&
+    b.number === want.number
+  )
+}
+
 /**
- * Which bound PR a finding belongs to, from its citation's `<repo-name>/` prefix (if any).
- * Shared by the comment path (which then strips the prefix and verifies the path exists in
- * the worktree) and the push path (which needs neither — push's whole point can be deleting or
- * renaming the cited file, and it has no anchor requirement to begin with).
+ * Which bound PR a finding belongs to, from its citation's `<repo-name>/` prefix (if any) and/or
+ * an explicit `owner/repo#number` the model was told to pass. Shared by the comment path (which
+ * then strips the prefix and verifies the path exists in the worktree) and the push path (which
+ * needs neither — push's whole point can be deleting or renaming the cited file, and it has no
+ * anchor requirement to begin with).
  *
- * A null `diffPath` still resolves when there is exactly one binding: only the multi-binding
- * case needs the citation to disambiguate. `named` tells the caller whether the prefix actually
- * matched a binding (vs. falling back to the sole one).
+ * `expectPr`, when present, is authoritative for WHICH binding wins: an exact `owner/repo#number`
+ * identity match short-circuits every ambiguity check below (a same-repo `#42`/`#43` pair no
+ * longer needs the citation prefix to disambiguate, since the model named the PR directly). No
+ * match at all is always an error, even with a single binding, so a stale/typo'd `pr` argument
+ * never silently falls back to "the only one there is". `named` — whether to strip the citation's
+ * leading path segment — is still decided from the citation prefix alone, independent of how the
+ * binding itself was chosen.
+ *
+ * Without `expectPr` (every call site that predates it, and the compose-prompt path which has no
+ * PR to name yet), behavior is exactly as before: a null `diffPath` still resolves when there is
+ * exactly one binding, and a citation prefix that matches more than one binding's repo name is a
+ * NEW ambiguity (`ambiguous-pr`) distinct from a prefix that matches none (`ambiguous-binding`) —
+ * `pr_bindings`' unique key is `(case_id, owner, repo, number)`, so two PRs from the SAME repo
+ * can both be bound, and `bindings.find` used to silently pick whichever `listBindings` (newest
+ * first) happened to return first.
  */
 function resolveBindingForFinding(
   deps: ReviewWriteDeps,
   caseSlug: string,
-  diffPath: string | null
+  diffPath: string | null,
+  expectPr?: string
 ): { binding: PrBinding; named: boolean } {
   const bindings = listBindings(deps.db, caseSlug)
   if (bindings.length === 0) throw new Error(wf(deps, 'review_write.no-binding'))
+
+  const slash = diffPath !== null ? diffPath.indexOf('/') : -1
+  const head = slash > 0 ? (diffPath as string).slice(0, slash) : ''
+  const named = head
+    ? bindings.filter(
+        (b) =>
+          b.repo.toLowerCase() === head.toLowerCase() ||
+          (b.repoPath !== null && path.basename(b.repoPath).toLowerCase() === head.toLowerCase())
+      )
+    : []
+
+  if (expectPr) {
+    const wanted = parseExpectPr(expectPr)
+    const match = wanted ? bindings.find((b) => sameBindingIdentity(b, wanted)) : undefined
+    if (!match) {
+      throw new Error(
+        wf(deps, 'review_write.unknown-pr', {
+          pr: expectPr,
+          bound: bindings.map((b) => `${b.owner}/${b.repo}#${b.number}`).join(', ')
+        })
+      )
+    }
+    return { binding: match, named: named.some((b) => b.id === match.id) }
+  }
 
   if (diffPath === null) {
     if (bindings.length > 1) {
@@ -197,17 +278,7 @@ function resolveBindingForFinding(
     return { binding: bindings[0], named: false }
   }
 
-  const slash = diffPath.indexOf('/')
-  const head = slash > 0 ? diffPath.slice(0, slash) : ''
-  const named = head
-    ? bindings.find(
-        (b) =>
-          b.repo.toLowerCase() === head.toLowerCase() ||
-          (b.repoPath !== null && path.basename(b.repoPath).toLowerCase() === head.toLowerCase())
-      )
-    : undefined
-
-  if (!named && bindings.length > 1) {
+  if (named.length === 0 && bindings.length > 1) {
     throw new Error(
       wf(deps, 'review_write.ambiguous-binding', {
         count: String(bindings.length),
@@ -216,8 +287,17 @@ function resolveBindingForFinding(
       })
     )
   }
+  if (named.length > 1) {
+    throw new Error(
+      wf(deps, 'review_write.ambiguous-pr', {
+        count: String(named.length),
+        repo: head,
+        numbers: named.map((b) => `#${b.number}`).join(', ')
+      })
+    )
+  }
 
-  return { binding: named ?? bindings[0], named: named !== undefined }
+  return { binding: named[0] ?? bindings[0], named: named.length === 1 }
 }
 
 /**
@@ -229,17 +309,26 @@ function resolveBindingForFinding(
 export function resolveCommentTarget(
   deps: ReviewWriteDeps,
   caseSlug: string,
-  findingId: number
+  findingId: number,
+  expectPr?: string
 ): CommentTarget {
   const row = findingForCase(deps, caseSlug, findingId)
   if (!row.diff_path || row.diff_line === null) {
     throw new Error(wf(deps, 'review_write.no-anchor', { id: String(findingId) }))
   }
-  const { binding, named } = resolveBindingForFinding(deps, caseSlug, row.diff_path)
+  const { binding, named } = resolveBindingForFinding(deps, caseSlug, row.diff_path, expectPr)
 
   const slash = row.diff_path.indexOf('/')
   const rest = slash > 0 ? row.diff_path.slice(slash + 1) : row.diff_path
   const repoRelPath = named ? rest : row.diff_path
+  // The review-run header hands the agent the ABSOLUTE worktree path; an absolute or
+  // traversal-carrying citation would otherwise reach GitHub verbatim — inline via a path the
+  // API happens to reject, or PR-level via the fallback body's `**{path}:{line}**` text, which
+  // has no such check. Enforced unconditionally, not just when a worktree exists to check
+  // against: an unmaterialized worktree must not turn into a free pass for the leak.
+  if (path.isAbsolute(repoRelPath) || repoRelPath.split(/[\\/]/).includes('..')) {
+    throw new Error(wf(deps, 'review_write.unsafe-path', { path: repoRelPath }))
+  }
   const worktree = worktreeFor(deps, caseSlug, binding)
   if (worktree && !fs.existsSync(path.join(worktree, repoRelPath))) {
     throw new Error(wf(deps, 'review_write.path-missing', { path: repoRelPath, worktree }))
@@ -254,19 +343,32 @@ export function resolveCommentTarget(
  * legitimate outcome — a finding may cite context the diff only reads — so we retry once as a
  * PR-level comment carrying the `path:line` in its body, rather than failing the write. Any
  * other gh failure propagates untouched and NOTHING is recorded on the finding.
+ *
+ * `input.expectPr`, when supplied, is the `owner/repo#number` the model was told to copy from
+ * the composed prompt: it both makes the approval card name the target PR (it is part of the
+ * tool's `input`, so it lands in `argsPreview` for free) and is a CHECK, not just a display —
+ * `resolveCommentTarget` throws `unknown-pr` if it names a PR that is not actually bound here.
+ *
+ * `recordFindingWrite` deliberately sits OUTSIDE the try/catch below: it runs only after a `gh`
+ * call has already succeeded, so a failure there (e.g. a SQLite error) must propagate as itself,
+ * not get reclassified as a `gh` failure via `ghErrorText` — that used to tell the model the post
+ * had failed while the comment was actually live on the PR, and a retry would duplicate it.
  */
 export async function postReviewComment(
   deps: ReviewWriteDeps,
   caseSlug: string,
-  input: { findingId: number; body: string }
+  input: { findingId: number; body: string; expectPr?: string }
 ): Promise<string> {
-  const target = resolveCommentTarget(deps, caseSlug, input.findingId)
+  if (!input.body.trim()) throw new Error(wf(deps, 'review_write.empty-body'))
+  const target = resolveCommentTarget(deps, caseSlug, input.findingId, input.expectPr)
   const run = deps.gh ?? defaultGhRunner
   const repo = `${target.binding.owner}/${target.binding.repo}`
   const head = await prHead(run, repo, target.binding.number)
 
+  let url: string
+  let inline = true
   try {
-    const url = await postInlineComment(run, {
+    url = await postInlineComment(run, {
       repo,
       number: target.binding.number,
       commitId: head.sha,
@@ -274,22 +376,24 @@ export async function postReviewComment(
       line: target.line,
       body: input.body
     })
-    recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
-    return wf(deps, 'review_write.comment-ok', { url })
   } catch (err) {
     if (!isLineNotInDiff(err)) throw new Error(ghErrorText(err))
-    const url = await postIssueComment(run, {
+    inline = false
+    url = await postIssueComment(run, {
       repo,
       number: target.binding.number,
       body: `**${target.repoRelPath}:${target.line}**\n\n${input.body}`
     })
-    recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
-    return wf(deps, 'review_write.comment-not-inline', {
-      line: String(target.line),
-      path: target.repoRelPath,
-      url
-    })
   }
+
+  recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
+  return inline
+    ? wf(deps, 'review_write.comment-ok', { url })
+    : wf(deps, 'review_write.comment-not-inline', {
+        line: String(target.line),
+        path: target.repoRelPath,
+        url
+      })
 }
 
 /** A push over a cold remote is the slow one here; commit/status are instant. */
@@ -312,10 +416,12 @@ function gitExitCode(err: unknown): number | string | undefined {
  * upstream to infer — the refspec is explicit. Never `--force`: a non-fast-forward rejection
  * is git's answer to a race we must not win, and it is surfaced verbatim.
  *
- * Guards run in cost order and each fails before the next does any work: ownership, a local
- * checkout, fork, and staleness. Staleness is checked before "is there anything to do" because
- * that answer needs the ancestry check anyway (a clean worktree that is ahead of the PR head
- * still has something to push — see below) — a stale worktree that somehow fast-forwards would
+ * Guards run in cost order and each fails before the next does any work: an empty commit
+ * message, ownership, binding resolution (which PR — see `resolveBindingForFinding`, and now
+ * also where `input.expectPr` is verified against what is actually bound), a local checkout,
+ * fork, and staleness. Staleness is checked before "is there anything to do" because that
+ * answer needs the ancestry check anyway (a clean worktree that is ahead of the PR head still
+ * has something to push — see below) — a stale worktree that somehow fast-forwards would
  * silently drop commits pushed to the PR since we fetched it.
  *
  * Commit and push are separate steps rather than one atomic "commit-then-push": if a previous
@@ -326,10 +432,13 @@ function gitExitCode(err: unknown): number | string | undefined {
 export async function pushReviewChange(
   deps: ReviewWriteDeps,
   caseSlug: string,
-  input: { findingId: number; commitMessage: string }
+  input: { findingId: number; commitMessage: string; expectPr?: string }
 ): Promise<string> {
+  if (!input.commitMessage.trim()) {
+    throw new Error(wf(deps, 'review_write.empty-commit-message'))
+  }
   const row = findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
-  const { binding } = resolveBindingForFinding(deps, caseSlug, row.diff_path)
+  const { binding } = resolveBindingForFinding(deps, caseSlug, row.diff_path, input.expectPr)
   const worktree = worktreeFor(deps, caseSlug, binding)
   if (!worktree) {
     throw new Error(wf(deps, 'review_write.no-worktree', { number: String(binding.number) }))

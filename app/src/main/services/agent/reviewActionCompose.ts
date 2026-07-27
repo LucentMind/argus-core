@@ -5,7 +5,7 @@ import { assertSlug } from '../caseFiles'
 import { caseDir } from '../paths'
 import { parseFindingBodies } from '../findings'
 import { resolveReviewFraming, type ReviewFramingDeps } from './reviewFraming'
-import { findingForCase, resolveCommentTarget, type ReviewWriteDeps } from './reviewWrites'
+import { findingForCase, resolveCommentTarget, wf, type ReviewWriteDeps } from './reviewWrites'
 import { buildReviewActionPrompt, isReviewAction } from './reviewActions'
 
 export interface ComposeReviewActionDeps extends ReviewFramingDeps, ReviewWriteDeps {
@@ -38,6 +38,16 @@ export async function composeReviewActionPrompt(
   resolveReviewFraming(deps, caseSlug, sessionId)
   const row = findingForCase(deps, caseSlug, findingId)
   const target = resolveCommentTarget(deps, caseSlug, findingId)
+
+  // `worktreeFor` legitimately returns null (a manual link to an unlinked repo, a failed
+  // materialization, or a PR linked after the last review-mode entry). The comment action needs
+  // no checkout, but apply's whole prompt is "edit the worktree at {worktreePath}" — composing
+  // that with no worktree would send the agent editing the user's real linked clone (which IS
+  // inside the sandbox and auto-allowed) instead, only to have push_review_change throw
+  // `no-worktree` afterward and leave the stray edits behind unmentioned. Fail before composing.
+  if (action === 'apply' && !target.worktree) {
+    throw new Error(wf(deps, 'review_write.no-worktree', { number: String(target.binding.number) }))
+  }
 
   let body = ''
   try {
