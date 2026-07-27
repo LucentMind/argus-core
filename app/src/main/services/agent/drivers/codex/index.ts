@@ -129,6 +129,11 @@ export function createCodexDriver(
         model: ctx.model ?? 'gpt-5.4'
       })
 
+      // Synchronous on purpose — see the copilot driver. `developerInstructions` is omitted from
+      // startParams when systemAppend is empty, which is a payload detail, not a different
+      // transport: this driver's field is always developerInstructions.
+      ctx.capturePrompt?.({ transport: 'developerInstructions' })
+
       let client: CodexClientLike | null = null
       let threadId: string | null = null
       let activeTurnId: string | null = null

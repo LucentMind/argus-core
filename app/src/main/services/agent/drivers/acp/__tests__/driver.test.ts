@@ -153,6 +153,23 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
     expect(createAcpDriver(PROFILE).isAuthErrorMessage?.('unauthorized')).toBe(true)
     expect(isAcpAuthErrorMessage('disk full')).toBe(false)
   })
+
+  it('declares transport "none" and reports it — the systemAppend drop is asserted, not hidden', () => {
+    // This test DOCUMENTS a known gap. When the plan that forwards the persona as a first-turn
+    // preamble lands, this expectation flips to that transport rather than being deleted.
+    const forwarded: Array<{ transport: string }> = []
+    const d = createAcpDriver(PROFILE, { clientFactory: makeFake().factory })
+    expect(d.capabilities.systemPromptTransport).toBe('none')
+    d.createSession(
+      makeCtx({
+        systemAppend: 'PERSONA',
+        capturePrompt: (f) => {
+          forwarded.push(f)
+        }
+      })
+    )
+    expect(forwarded).toEqual([{ transport: 'none' }])
+  })
 })
 
 describe('mcpConnectors:false degradation — session.mcp.skipped', () => {

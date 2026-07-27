@@ -127,6 +127,12 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       const model = profile.resolveModel?.(ctx.model ?? '') ?? ctx.model ?? 'auto'
       const norm = createAcpNormalizer({ resumed: Boolean(ctx.resumeCursor), model })
 
+      // 'none' is the honest answer: ACP `newSession` accepts no system prompt, and nothing
+      // below reads ctx.systemAppend — persona, citation rules, mode identity, skill index and
+      // memory index are all composed by the harness and dropped here. Declaring it is what
+      // makes the loss auditable; forwarding it as a first-turn preamble is a separate plan.
+      ctx.capturePrompt?.({ transport: 'none' })
+
       let session: AcpSessionLike | null = null
       let client: AcpClientLike | null = null
       const pendingPrompts: string[] = []

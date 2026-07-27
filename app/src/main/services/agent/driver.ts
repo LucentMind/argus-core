@@ -50,6 +50,18 @@ export interface DriverSessionContext {
   systemAppend: string
   /** Prompt-registry resolver; drivers use it for tool descriptions they register themselves. */
   resolvePrompt?: (id: string) => string
+  /**
+   * Declare which wire field this driver puts `systemAppend` into (spec §4).
+   *
+   * Called EXACTLY ONCE per `createSession`, synchronously, before any await — a driver whose
+   * async bootstrap fails must still have declared its transport, and the dev page must be able
+   * to compare a live session's transport against the static capability.
+   *
+   * Absent when the dev-tools gate is off, so a normal build assembles no record at all. A
+   * driver that puts the prompt nowhere passes `'none'`: the degradation is declared, not
+   * silent — the same honesty `mcpConnectors: false` + `session.mcp.skipped` already provide.
+   */
+  capturePrompt?: (forwarded: { transport: SystemPromptTransport }) => void
   /** Composed connector servers (opaque passthrough for Claude; Copilot serializes). */
   extraMcpServers: Record<string, unknown>
   nativeToolDeps: NativeToolDeps
