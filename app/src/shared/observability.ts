@@ -60,6 +60,12 @@ export interface FindingRow {
   /** Anchor parsed from the finding's first citation at write time. */
   diffPath: string | null
   diffLine: number | null
+  /** The fix the review agent proposed, if any. Gates the Apply action. */
+  suggestedChange: string | null
+  /** Set once this finding has been posted as a PR comment; the comment's html url. */
+  commentUrl: string | null
+  /** Set once this finding's change has been pushed; the commit sha that landed. */
+  pushedSha: string | null
   /** Derived from the finding's session (sessions.mode), never stored on the row.
    *  A finding with no session reads as the default mode. */
   mode: ModeId

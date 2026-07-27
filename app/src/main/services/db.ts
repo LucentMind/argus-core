@@ -278,6 +278,18 @@ export function openDb(file: string): DatabaseSync {
   if (!findingCols.some((c) => c.name === 'diff_line')) {
     db.exec(`ALTER TABLE findings ADD COLUMN diff_line INTEGER`)
   }
+  // Plan 4 (spec §6/§9). suggested_change is the fix the review agent proposed and is what
+  // the Apply action implements; comment_url and pushed_sha are write-action OUTCOMES, kept
+  // so a restart still shows which findings were already acted on.
+  if (!findingCols.some((c) => c.name === 'suggested_change')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN suggested_change TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'comment_url')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN comment_url TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'pushed_sha')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN pushed_sha TEXT`)
+  }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)

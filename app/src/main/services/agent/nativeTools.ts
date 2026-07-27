@@ -173,6 +173,8 @@ export function appendFinding(
     /** Review flavor (spec §6). Omitted by investigation findings. */
     layer?: ReviewLayerId
     severity?: ReviewSeverity
+    /** The concrete fix, when the agent has one. Null on a finding that only reports. */
+    suggestedChange?: string
   }
 ): { findingId: number; block: string } {
   // Validate BEFORE the insert: a rejected finding must leave no row and no findings.md block.
@@ -207,8 +209,8 @@ export function appendFinding(
   // FindingsPane an exact row↔block join (see findings.ts parseFindingBodies).
   const res = ctx.db
     .prepare(
-      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
+      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line, suggested_change)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
     )
     .run(
       ctx.caseId,
@@ -219,7 +221,8 @@ export function appendFinding(
       input.layer ?? null,
       input.severity ?? null,
       anchor?.path ?? null,
-      anchor?.line ?? null
+      anchor?.line ?? null,
+      input.suggestedChange ?? null
     )
   const findingId = Number(res.lastInsertRowid)
   const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
@@ -363,7 +366,10 @@ export function argusToolHandlers(
           title: String(args.title ?? 'Finding'),
           markdown: String(args.markdown ?? ''),
           ...(args.layer === undefined ? {} : { layer: args.layer as ReviewLayerId }),
-          ...(args.severity === undefined ? {} : { severity: args.severity as ReviewSeverity })
+          ...(args.severity === undefined ? {} : { severity: args.severity as ReviewSeverity }),
+          ...(args.suggested_change === undefined
+            ? {}
+            : { suggestedChange: String(args.suggested_change) })
         }
       )
       deps.emitFinding(block)
@@ -548,12 +554,13 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor.",
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — and suggested_change when you know the concrete fix, which is what the user's Apply action will implement.",
     schema: {
       title: z.string(),
       markdown: z.string(),
       layer: z.enum(REVIEW_LAYER_ORDER as [string, ...string[]]).optional(),
-      severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional()
+      severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional(),
+      suggested_change: z.string().optional()
     }
   },
   {

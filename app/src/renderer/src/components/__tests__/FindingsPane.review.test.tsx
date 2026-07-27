@@ -20,6 +20,9 @@ function row(over: Partial<FindingRow>): FindingRow {
     severity: null,
     diffPath: null,
     diffLine: null,
+    suggestedChange: null,
+    commentUrl: null,
+    pushedSha: null,
     mode: 'investigation',
     ...over
   }
