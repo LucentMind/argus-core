@@ -23,10 +23,13 @@ import { assertDevTools } from './services/prompts/ipcGate'
 import { overrideBootWarnings } from './services/prompts/bootWarnings'
 import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
+import { buildCaptureDetail } from './services/prompts/captureDetail'
 import type {
   PromptCatalogPayload,
   PromptPreview,
-  SessionPromptCapture
+  SessionPromptCapture,
+  PromptCaptureSummary,
+  PromptCaptureDetail
 } from '../shared/promptsIpc'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
@@ -1537,6 +1540,36 @@ function registerIpc(): void {
     // The store rejects an unknown id itself — IPC arguments are untyped at runtime.
     return promptStore.resolve(id)
   })
+
+  ipcMain.handle(IPC.devPromptsCaptures, (): PromptCaptureSummary[] => {
+    assertDevTools(devTools)
+    return promptCaptures.list()
+  })
+
+  ipcMain.handle(
+    IPC.devPromptsCapture,
+    (_e, caseSlug: string, sessionId: number): PromptCaptureDetail | null => {
+      assertDevTools(devTools)
+      // The store validates the slug itself — IPC arguments are untyped at runtime.
+      const capture = promptCaptures.read(caseSlug, Number(sessionId))
+      if (!capture) return null
+      return buildCaptureDetail({
+        capture,
+        // Live inputs, so "what a session would build now" means this install's packs and
+        // settings — the same composition the Composed-preview tab shows.
+        persona: () =>
+          buildPromptPreview({
+            mode: capture.mode as ModeId,
+            resolve: resolvePrompt,
+            packFragments: packRegistry.personaFragments(),
+            contributeBack: resolveSkills(argusHome, agentAccessStore.get()).some(
+              (s) => s.name === 'contribute-back' && s.enabled
+            ),
+            personaAppend: settingsService.get().agent.personaAppend || undefined
+          }).text
+      })
+    }
+  )
 
   // — settings —
   ipcMain.handle(IPC.settingsGet, () => settingsService.payload())

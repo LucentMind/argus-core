@@ -105,6 +105,8 @@ export const IPC = {
   devPromptsClearAll: 'dev-prompts:clear-all',
   devPromptsOverrides: 'dev-prompts:overrides',
   devPromptsResolve: 'dev-prompts:resolve',
+  devPromptsCaptures: 'dev-prompts:captures',
+  devPromptsCapture: 'dev-prompts:capture',
   /** main → renderer: active override ids changed; the banner and the page both re-read. */
   devPromptsChanged: 'dev-prompts:changed',
   bundleExport: 'bundle:export',
