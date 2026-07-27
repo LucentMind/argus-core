@@ -116,6 +116,7 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
     caseDir: '/tmp/case',
     additionalDirectories: [],
     skills: [],
+    subagents: [],
     permissionMode: 'default',
     systemAppend: 'PERSONA',
     extraMcpServers: {},

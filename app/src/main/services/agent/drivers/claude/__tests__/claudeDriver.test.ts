@@ -55,6 +55,7 @@ const baseCtx = (): Parameters<ReturnType<typeof createClaudeDriver>['createSess
   caseDir: tmp,
   additionalDirectories: [],
   skills: [],
+  subagents: [],
   permissionMode: 'default' as const,
   systemAppend: 'PERSONA',
   extraMcpServers: {},

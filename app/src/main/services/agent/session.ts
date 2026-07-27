@@ -31,6 +31,9 @@ import { maybeAdvanceToAnalyzing } from '../caseService'
 import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
 import { sharedReferencesDir } from '../skillsDir'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
+import { compileLayerAgents, type SubagentDefinition } from './reviewSubagents'
+import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
+import type { SubagentSupport } from '../../../shared/drivers'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -158,6 +161,20 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
 export const MEMORY_HEADER =
   '## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.'
 
+/**
+ * Which layer agents a session registers. Split out as a pure function so the mode/capability
+ * matrix is testable without constructing a session: only review mode on a driver that can
+ * actually register agents gets any, and both halves of that condition have bitten before.
+ */
+export function subagentsForSession(
+  mode: ModeId,
+  support: SubagentSupport,
+  resolve?: (id: string) => string
+): SubagentDefinition[] {
+  if (mode !== 'review' || support !== 'configurable') return []
+  return compileLayerAgents(REVIEW_LAYER_ORDER, resolve)
+}
+
 export class CaseSession {
   readonly sessionId: number
   readonly mcpFingerprint: string
@@ -269,6 +286,11 @@ export class CaseSession {
       caseDir: dir,
       additionalDirectories: [...deps.workspaceRoots, ...deps.skillsRoots],
       skills: deps.enabledSkills ?? [],
+      subagents: subagentsForSession(
+        this.mode,
+        deps.driver.capabilities.subagents,
+        deps.resolvePrompt
+      ),
       model: ao.model,
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',
