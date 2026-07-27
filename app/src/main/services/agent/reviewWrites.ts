@@ -254,3 +254,71 @@ export async function postReviewComment(
     })
   }
 }
+
+/** A push over a cold remote is the slow one here; commit/status are instant. */
+const GIT_PUSH_TIMEOUT_MS = 120_000
+const GIT_TIMEOUT_MS = 30_000
+
+/**
+ * Commit the PR worktree and push it to the PR's head branch (spec §6's HIGH write).
+ *
+ * The worktree is checked out DETACHED at `refs/argus/pr/<n>` (prWorktree.ts), so there is no
+ * upstream to infer — the refspec is explicit. Never `--force`: a non-fast-forward rejection
+ * is git's answer to a race we must not win, and it is surfaced verbatim.
+ *
+ * Guards run in cost order and each fails before the next does any work: ownership, a local
+ * checkout, fork, a dirty tree, and staleness. The staleness check exists because a stale
+ * worktree that somehow fast-forwards would silently drop commits pushed to the PR since we
+ * fetched it.
+ */
+export async function pushReviewChange(
+  deps: ReviewWriteDeps,
+  caseSlug: string,
+  input: { findingId: number; commitMessage: string }
+): Promise<string> {
+  findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
+  const bindings = listBindings(deps.db, caseSlug)
+  if (bindings.length === 0) throw new Error(wf(deps, 'review_write.no-binding'))
+  const binding = bindings[0]
+  const worktree = worktreeFor(deps, caseSlug, binding)
+  if (!worktree) {
+    throw new Error(wf(deps, 'review_write.no-worktree', { number: String(binding.number) }))
+  }
+
+  const repo = `${binding.owner}/${binding.repo}`
+  const head = await prHead(deps.gh ?? defaultGhRunner, repo, binding.number)
+  if (head.isCrossRepository) {
+    throw new Error(wf(deps, 'review_write.fork', { number: String(binding.number), repo }))
+  }
+
+  const git = deps.git ?? defaultGitRunner
+  const dirty = await git(worktree, ['status', '--porcelain'], { timeoutMs: GIT_TIMEOUT_MS })
+  if (!dirty.trim()) throw new Error(wf(deps, 'review_write.nothing-to-push'))
+
+  try {
+    await git(worktree, ['merge-base', '--is-ancestor', head.sha, 'HEAD'], {
+      timeoutMs: GIT_TIMEOUT_MS
+    })
+  } catch {
+    throw new Error(
+      wf(deps, 'review_write.stale-worktree', {
+        number: String(binding.number),
+        sha: head.sha.slice(0, 12)
+      })
+    )
+  }
+
+  await git(worktree, ['add', '-A'], { timeoutMs: GIT_TIMEOUT_MS })
+  await git(worktree, ['commit', '-m', input.commitMessage], { timeoutMs: GIT_TIMEOUT_MS })
+  const sha = await git(worktree, ['rev-parse', 'HEAD'], { timeoutMs: GIT_TIMEOUT_MS })
+  await git(worktree, ['push', 'origin', `HEAD:refs/heads/${head.ref}`], {
+    timeoutMs: GIT_PUSH_TIMEOUT_MS
+  })
+
+  recordFindingWrite(deps.db, input.findingId, { pushedSha: sha })
+  return wf(deps, 'review_write.push-ok', {
+    sha,
+    ref: head.ref,
+    number: String(binding.number)
+  })
+}
