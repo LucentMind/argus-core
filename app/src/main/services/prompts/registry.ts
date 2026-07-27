@@ -1,4 +1,5 @@
 import { MODES } from '../../../shared/modes'
+import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
 import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
@@ -79,8 +80,34 @@ const MODE_PERSONA_ENTRIES: PromptEntry[] = Object.values(MODES).map((def) => ({
   default: () => def.personaFragment
 }))
 
+/** Derived from REVIEW_LAYERS for the same reason MODE_PERSONA_ENTRIES is derived from MODES:
+ *  a new layer registers itself, and the catalog cannot disagree with the table. Two entries
+ *  per layer because the identity and the task are separately worth overriding — a user who
+ *  wants "also flag N+1 queries" edits the prompt, not the persona. */
+const REVIEW_LAYER_ENTRIES: PromptEntry[] = Object.values(REVIEW_LAYERS).flatMap((def) => [
+  {
+    id: `review.layer.${def.id}.persona`,
+    category: 'persona' as const,
+    title: `Review layer · ${def.label} · identity`,
+    source: 'app/src/shared/reviewLayers.ts',
+    reaches: 'all' as const,
+    editable: true,
+    default: () => def.personaFragment
+  },
+  {
+    id: `review.layer.${def.id}.prompt`,
+    category: 'persona' as const,
+    title: `Review layer · ${def.label} · task`,
+    source: 'app/src/shared/reviewLayers.ts',
+    reaches: 'all' as const,
+    editable: true,
+    default: () => def.prompt
+  }
+])
+
 const PERSONA_ENTRIES: PromptEntry[] = [
   ...MODE_PERSONA_ENTRIES,
+  ...REVIEW_LAYER_ENTRIES,
   {
     id: 'persona.neutral',
     category: 'persona',

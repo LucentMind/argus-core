@@ -8,6 +8,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
 /** Files known to carry model-facing text. A new prompt-bearing file must be added here. */
 const SCANNED = [
   'app/src/shared/modes.ts',
+  'app/src/shared/reviewLayers.ts',
   'app/src/shared/tourPrompts.ts',
   'app/src/main/services/agent/persona.ts',
   'app/src/main/services/agent/skillIndex.ts',
