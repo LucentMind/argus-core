@@ -63,12 +63,18 @@ describe('resolveCasePath', () => {
       path.join(caseRoot(), 'findings.md')
     )
   })
-  it.each(['../other', '..\\other', '/etc/passwd', 'C:\\Windows\\system32'])(
-    'rejects escape: %s',
-    (p) => {
-      expect(() => resolveCasePath(argusHome, 'NAV-1', p)).toThrow(/outside the case directory/i)
-    }
-  )
+  // Backslashes and drive letters only denote an escape on win32. On POSIX `..\other`
+  // and `C:\Windows\system32` are legal single filenames that stay inside the case dir,
+  // so resolveCasePath is correct not to throw and asserting it would test the platform
+  // rather than the guard.
+  const escapes = [
+    '../other',
+    '/etc/passwd',
+    ...(process.platform === 'win32' ? ['..\\other', 'C:\\Windows\\system32'] : ['../../etc/x'])
+  ]
+  it.each(escapes)('rejects escape: %s', (p) => {
+    expect(() => resolveCasePath(argusHome, 'NAV-1', p)).toThrow(/outside the case directory/i)
+  })
   it.each(['../../../x', '..'])('rejects traversal via the slug: %s', (slug) => {
     expect(() => resolveCasePath(argusHome, slug, 'hosts')).toThrow(/invalid case slug/i)
   })

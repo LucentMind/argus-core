@@ -369,7 +369,10 @@ describe('tool taxonomy', () => {
       action: 'allow',
       risk: 'LOW'
     })
-    expect(classifyToolCall('Write', { file_path: 'C:\\outside\\x' }, ctx()).action).toBe('deny')
+    // Absolute and outside the (POSIX) caseDir this ctx declares, on both platforms:
+    // 'C:\outside\x' is merely a relative filename on POSIX, so it resolves *inside* the
+    // case dir and is correctly allowed there.
+    expect(classifyToolCall('Write', { file_path: '/outside/x' }, ctx()).action).toBe('deny')
   })
 
   it('classifies shell via the taxonomy commandField', () => {

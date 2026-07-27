@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveClaudeCliPath } from '../cliPath'
 
@@ -10,13 +11,17 @@ import { resolveClaudeCliPath } from '../cliPath'
 describe('resolveClaudeCliPath', () => {
   const binName = process.platform === 'win32' ? 'claude.exe' : 'claude'
 
+  // Native separators: asar.ts's regex handles both, but claudeBinaryPath goes through
+  // path.dirname, which reads a backslash path as a single filename on POSIX. A hardcoded
+  // windows fixture therefore tests the platform, not the asar rewrite.
+  const resRoot = process.platform === 'win32' ? 'C:\\app\\resources' : '/app/resources'
+  const pkgTail = ['node_modules', '@anthropic-ai', 'sdk-win32-x64']
+
   it('returns the unpacked twin when the SDK binary resolves inside an asar', () => {
-    const got = resolveClaudeCliPath(
-      () => 'C:\\app\\resources\\app.asar\\node_modules\\@anthropic-ai\\sdk-win32-x64\\package.json'
+    const got = resolveClaudeCliPath(() =>
+      path.join(resRoot, 'app.asar', ...pkgTail, 'package.json')
     )
-    expect(got).toBe(
-      `C:\\app\\resources\\app.asar.unpacked\\node_modules\\@anthropic-ai\\sdk-win32-x64\\${binName}`
-    )
+    expect(got).toBe(path.join(resRoot, 'app.asar.unpacked', ...pkgTail, binName))
   })
 
   /** Unpackaged runs must keep deferring to the SDK's own resolution — we only override to
