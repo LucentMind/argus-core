@@ -1,0 +1,63 @@
+name: CI
+
+# build.yml only fires on release tags, so until this workflow existed a type
+# error could survive every commit and surface for the first time in a release
+# build — which is exactly what v1.0.6 did.
+on:
+  push:
+    branches: [main]
+  # Work is merged locally and pushed to main today, so this never fires yet.
+  # It costs nothing and works the day a PR is opened. Paired with a
+  # branch-restricted push trigger it also cannot double-run: a feature-branch
+  # push stays silent until a PR exists for it.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded commit's run teaches nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      # A Windows failure must not suppress the macOS result. Suppression is how
+      # the v1.0.6 type error disguised itself as a platform-specific bug: the
+      # mac job skipped typecheck entirely and reported green on a broken tree.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # The suite takes ~34s, but 31 test files spawn subprocesses and a wedged
+    # child would otherwise hold the runner for six hours. A backstop, not a budget.
+    timeout-minutes: 20
+    defaults:
+      run:
+        # Every script must run from app/. vitest invoked from the repo root
+        # produces phantom failures.
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # tsc first: it is the cheapest of the three and caught the bug that
+      # motivated this workflow.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
