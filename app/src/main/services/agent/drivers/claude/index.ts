@@ -86,6 +86,10 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // hardcoded `false` here made every restart mint a second root.
       const isResume = Boolean(ctx.resumeCursor && UUID_RE.test(ctx.resumeCursor))
 
+      // Declares WHICH field carries the prompt; the options bag below is the field, and
+      // claudeDriver.test.ts asserts it actually holds ctx.systemAppend.
+      ctx.capturePrompt?.({ transport: 'systemPrompt.append' })
+
       // Options bag: relocated from session.ts:168-211; the DriverSessionContext
       // fields substitute for the SessionDeps/agentOptions values the harness used to
       // read directly (systemAppend, extraMcpServers, nativeToolDeps, onToolRequest).

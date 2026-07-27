@@ -36,13 +36,19 @@ function minimalNativeDeps(): NativeToolDeps {
   }
 }
 
+/** The options bag from the most recent createQuery call — how the SDK was actually configured. */
+let lastOptions: Record<string, unknown> | null = null
+
 function fakeQuery(messages: unknown[]): CreateQueryFn {
-  return () => ({
-    async *[Symbol.asyncIterator]() {
-      for (const m of messages) yield m
-    },
-    interrupt: async () => undefined
-  })
+  return (args) => {
+    lastOptions = args.options
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const m of messages) yield m
+      },
+      interrupt: async () => undefined
+    }
+  }
 }
 
 const baseCtx = (): Parameters<ReturnType<typeof createClaudeDriver>['createSession']>[0] => ({
@@ -71,6 +77,17 @@ describe('createClaudeDriver', () => {
       costReporting: true
     })
     expect(driver.capabilities.permissionModes).toContain('default')
+  })
+
+  it('forwards ctx.systemAppend as the preset system-prompt append', () => {
+    // The fixture supplied systemAppend for a long time without anything asserting it landed —
+    // exactly the blind spot that let the ACP driver drop it unnoticed.
+    createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+    expect(lastOptions?.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: 'PERSONA'
+    })
   })
 
   it('normalizes the SDK stream into AgentEvents and reports cursor + turn result', async () => {

@@ -301,6 +301,11 @@ export function createCopilotDriver(
         model: ctx.model ?? 'auto'
       })
 
+      // Synchronous on purpose: sessionConfig is built inside the async `ready` bootstrap below,
+      // which can die on client.start(). The transport is a property of this driver's wiring,
+      // not of whether the CLI booted.
+      ctx.capturePrompt?.({ transport: 'systemMessage.append' })
+
       let session: CopilotSessionLike | null = null
       let client: CopilotClientLike | null = null
       const pendingPrompts: string[] = []

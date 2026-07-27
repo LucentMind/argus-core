@@ -132,6 +132,17 @@ describe('createCopilotDriver — capabilities + auth predicate', () => {
     expect(createCopilotDriver().isAuthErrorMessage?.(AUTH_MSG)).toBe(true)
     expect(isCopilotAuthErrorMessage('some unrelated error')).toBe(false)
   })
+
+  it('forwards ctx.systemAppend as an appended systemMessage', async () => {
+    const fake = makeFake()
+    const session = createCopilotDriver({}, { clientFactory: fake.factory }).createSession(
+      makeCtx({ systemAppend: 'PERSONA' })
+    )
+    session.send('go')
+    await tick()
+    session.end()
+    expect(fake.sessionConfigs[0]?.systemMessage).toEqual({ mode: 'append', content: 'PERSONA' })
+  })
 })
 
 describe('createCopilotDriver — session lifecycle', () => {

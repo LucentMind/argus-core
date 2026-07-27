@@ -88,22 +88,31 @@ export function runDriverContractSuite(
       emitFinding: () => {}
     })
 
-    const makeCtx = (overrides: Partial<DriverSessionContext> = {}): DriverSessionContext => ({
-      caseDir: tmp,
-      additionalDirectories: [],
-      skills: [],
-      permissionMode: 'default',
-      systemAppend: 'CONTRACT',
-      extraMcpServers: {},
-      nativeToolDeps: nativeDeps(),
-      panelCommandDecls: [],
-      resumeCursor: null,
-      eventCtx: () => ({ caseId: 1, caseSlug: 'c', sessionId: 1, turnId: 1 }),
-      onToolRequest: async () => ({ behavior: 'allow', updatedInput: {} }),
-      onCursor: vi.fn(),
-      onTurnResult: vi.fn(),
-      ...overrides
-    })
+    /** Every capturePrompt call the driver made during the most recent makeCtx() session. */
+    let captured: Array<{ transport: string }> = []
+
+    const makeCtx = (overrides: Partial<DriverSessionContext> = {}): DriverSessionContext => {
+      captured = []
+      return {
+        caseDir: tmp,
+        additionalDirectories: [],
+        skills: [],
+        permissionMode: 'default',
+        systemAppend: 'CONTRACT',
+        extraMcpServers: {},
+        nativeToolDeps: nativeDeps(),
+        panelCommandDecls: [],
+        resumeCursor: null,
+        eventCtx: () => ({ caseId: 1, caseSlug: 'c', sessionId: 1, turnId: 1 }),
+        onToolRequest: async () => ({ behavior: 'allow', updatedInput: {} }),
+        onCursor: vi.fn(),
+        onTurnResult: vi.fn(),
+        capturePrompt: (f) => {
+          captured.push(f)
+        },
+        ...overrides
+      }
+    }
 
     // 1. events() yields only valid AgentEvent union members.
     it('yields only well-formed AgentEvent union members', async () => {
@@ -234,6 +243,28 @@ export function runDriverContractSuite(
       expect(DRIVERS[d.kind].capabilities.systemPromptTransport).toBe(
         d.capabilities.systemPromptTransport
       )
+    })
+
+    // 9. Every driver must declare, at session construction, WHICH wire field it puts the
+    //    composed system prompt into — including `none`, for a driver that puts it nowhere.
+    //    The call is synchronous so it cannot be lost to a failed async bootstrap, and it must
+    //    agree with the static capability, because the dev page reads the capability with no
+    //    session open and the capture with one.
+    it('reports its systemPromptTransport exactly once, synchronously, matching its capability', () => {
+      const driver = makeDriver()
+      const ctx = makeCtx()
+      driver.createSession(ctx)
+      expect(captured).toHaveLength(1)
+      expect(captured[0].transport).toBe(driver.capabilities.systemPromptTransport)
+    })
+
+    // 10. The seam is optional. A caller with the dev gate off omits it entirely, and no driver
+    //     may assume it is there.
+    it('creates a session normally when capturePrompt is absent', () => {
+      setScript({ content: ['x'], completeTurn: true })
+      const ctx = makeCtx()
+      delete (ctx as { capturePrompt?: unknown }).capturePrompt
+      expect(() => makeDriver().createSession(ctx)).not.toThrow()
     })
   })
 }
