@@ -24,6 +24,9 @@ interface Raw {
   severity: string | null
   diff_path: string | null
   diff_line: number | null
+  suggested_change: string | null
+  comment_url: string | null
+  pushed_sha: string | null
   mode: string | null
 }
 
@@ -41,6 +44,9 @@ function toRow(r: Raw): FindingRow {
     severity: isReviewSeverity(r.severity) ? r.severity : null,
     diffPath: r.diff_path,
     diffLine: r.diff_line,
+    suggestedChange: r.suggested_change,
+    commentUrl: r.comment_url,
+    pushedSha: r.pushed_sha,
     // A finding whose session was deleted, or one written before the mode axis, has no mode
     // to join — it is investigation by the same rule that made investigation the implicit
     // default for every pre-existing case (spec §3).
@@ -134,4 +140,28 @@ export function clearFindings(
     `# Findings — ${caseSlug}\n`
   )
   return { cleared }
+}
+
+/**
+ * Record the outcome of a write action on a finding. Only the supplied keys are written, so
+ * posting a comment never clears a previous push and vice versa. Silently no-ops on an empty
+ * patch rather than emitting `SET WHERE id = ?` with no assignments.
+ */
+export function recordFindingWrite(
+  db: DatabaseSync,
+  id: number,
+  patch: { commentUrl?: string; pushedSha?: string }
+): void {
+  const sets: string[] = []
+  const vals: string[] = []
+  if (patch.commentUrl !== undefined) {
+    sets.push('comment_url = ?')
+    vals.push(patch.commentUrl)
+  }
+  if (patch.pushedSha !== undefined) {
+    sets.push('pushed_sha = ?')
+    vals.push(patch.pushedSha)
+  }
+  if (sets.length === 0) return
+  db.prepare(`UPDATE findings SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
 }
