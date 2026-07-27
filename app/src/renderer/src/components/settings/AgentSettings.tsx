@@ -32,7 +32,7 @@ const MODE_BY_LABEL = Object.fromEntries(
 /** Used as BOTH the danger row's description and the confirm dialog's body, so the promise
  *  made before the click and the one made during it cannot drift apart. */
 const REMOVE_MESSAGE =
-  "This deletes the provider's configuration and model preferences. Chats already using it fall back to the default provider."
+  "This deletes the provider's configuration and model preferences. Chats already using it will need another provider selected."
 
 const DISTILL_NOTE =
   'It is also your distillation provider — distillation will revert to auto-resolve.'
@@ -60,6 +60,7 @@ function RemoveProviderButton({
     <Btn
       variant="danger"
       disabled={!canRemove}
+      title={canRemove ? undefined : LAST_PROVIDER_NOTE}
       aria-label={`Remove ${label}`}
       onClick={() => onRemove(id, label)}
     >
@@ -146,8 +147,10 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
   function removeInstance(id: string, label: string): void {
     // Guard the invariant here, not just via the disabled button: the button is the
     // user-facing half, but a second call site can't be trusted to re-derive `canRemove`
-    // before calling in, and this state is unrecoverable once persisted (see class comment).
-    if (Object.keys(a.providerInstances).length <= 1) return
+    // before calling in. A zero-provider result is unrecoverable for the running session
+    // (no model picker, defaultModelRef() undefined) even though the schema reseeds
+    // claude-default on the next launch — see the `canRemove` comment below.
+    if (!canRemove) return
     const isDistill = a.distillProvider?.instanceId === id
     void confirm({
       title: `Remove ${label}?`,
@@ -189,8 +192,11 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
   const effectiveDefaultId = defaultInstanceId(payload.settings)
 
   const entries = Object.entries(a.providerInstances)
-  // Deleting the last instance would persist an empty map: providerInstances only receives its
-  // seed when the key is ABSENT, so `{}` is a durable zero-provider state, not a healed one.
+  // Deleting the last instance would leave providerInstances as `{}` for the rest of the running
+  // session — no model picker, and defaultModelRef() returns undefined. stripDefaultsAt drops an
+  // empty map before it reaches disk, so the schema reseeds claude-default on restart, but it
+  // also leaves activeInstanceId pointing at the deleted id, which is its own surprise. Neither
+  // half makes removing the last provider a good idea.
   const canRemove = entries.length > 1
   return (
     <>
