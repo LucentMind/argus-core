@@ -21,7 +21,7 @@ export interface ClaudeAgentEntry {
  * The tool list is an allowlist, which is what keeps `mcp__argus__append_finding` out of a
  * layer agent: candidates return as text and the main agent records the survivors. It also
  * narrows what a subagent can do with a skill it loaded from a linked repo — a side effect,
- * not containment. The skill-leak gap documented at index.ts:105-120 remains open by design.
+ * not containment. The skill-leak gap documented at index.ts:113-128 remains open by design.
  */
 export function claudeAgentsOption(
   defs: readonly SubagentDefinition[]
