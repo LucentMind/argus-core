@@ -4,6 +4,7 @@ import type { SubagentSupport, SystemPromptTransport } from '../../../shared/dri
 import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
+import type { SubagentDefinition } from './reviewSubagents'
 
 export type { SystemPromptTransport }
 
@@ -43,6 +44,12 @@ export interface DriverSessionContext {
    * back to the CLI's discover-everything default.
    */
   skills: readonly string[]
+  /**
+   * Review layer agents this session may delegate to (services/agent/reviewSubagents.ts).
+   * Always present; empty means "register nothing" — investigation mode, or a driver whose
+   * `subagents` capability is 'promptable'. A driver that cannot register agents ignores it.
+   */
+  subagents: readonly SubagentDefinition[]
   model?: string
   cliPath?: string
   permissionMode: PermissionMode

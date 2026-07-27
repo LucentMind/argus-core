@@ -97,6 +97,7 @@ export function runDriverContractSuite(
         caseDir: tmp,
         additionalDirectories: [],
         skills: [],
+        subagents: [],
         permissionMode: 'default',
         systemAppend: 'CONTRACT',
         extraMcpServers: {},
