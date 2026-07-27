@@ -10,7 +10,8 @@ import { getCase } from '../caseService'
  * (session.ts's `subagentsForSession`, which decides which layer agents actually get
  * registered on the driver) and the review-run composer (`reviewRunCompose.ts`'s
  * `resolveReviewFraming` below, which decides which framing text the composed turn uses), so
- * the two can never answer the question differently for the same session.
+ * the two answer the question through the identical resolution path for the same session
+ * instead of each maintaining its own copy of the rule.
  *
  * Before this helper existed they didn't just risk disagreeing — they disagreed by
  * construction. The composer read capability off `sessions.instance_id` alone (ignoring mode
@@ -59,11 +60,10 @@ export function driverForSession(deps: SessionDriverDeps, sessionId: number): Ag
     : deps.resolveDriver()
 }
 
-export interface ReviewFramingDeps extends SessionDriverDeps {}
+export type ReviewFramingDeps = SessionDriverDeps
 
 export interface ReviewFraming {
   support: SubagentSupport
-  mode: ModeId
 }
 
 /**
@@ -88,5 +88,5 @@ export function resolveReviewFraming(
   }
   const mode = sessionMode(deps.db, sessionId)
   const driver = driverForSession(deps, sessionId)
-  return { support: reviewSubagentSupport(mode, driver.capabilities.subagents), mode }
+  return { support: reviewSubagentSupport(mode, driver.capabilities.subagents) }
 }

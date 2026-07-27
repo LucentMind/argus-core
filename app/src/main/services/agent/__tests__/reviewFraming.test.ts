@@ -125,7 +125,7 @@ describe('resolveReviewFraming', () => {
       'FRAME-1',
       s.id
     )
-    expect(framing).toEqual({ support: 'configurable', mode: 'review' })
+    expect(framing).toEqual({ support: 'configurable' })
   })
 
   it('frames promptable for an investigation-mode session even on a configurable driver', () => {
