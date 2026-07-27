@@ -61,6 +61,11 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
     text: '{path} does not exist in the PR worktree at {worktree}. Cite a path inside the reviewed repo.',
     placeholders: ['path', 'worktree']
   },
+  'review_write.ambiguous-binding': {
+    title: 'review writes — cannot tell which PR the finding belongs to',
+    text: 'This case has {count} bound pull requests and {path} does not name any of them ({repos}). Re-record the finding with a [<repo-name>/<path>:<line>] citation so the pull request is unambiguous.',
+    placeholders: ['count', 'path', 'repos']
+  },
   'review_write.no-worktree': {
     title: 'review writes — PR has no local checkout',
     text: 'PR #{number} has no local checkout, so there is nothing to commit or push. Re-enter review mode to materialize it.',
@@ -176,6 +181,16 @@ export function resolveCommentTarget(
           (b.repoPath !== null && path.basename(b.repoPath).toLowerCase() === head.toLowerCase())
       )
     : undefined
+
+  if (!named && bindings.length > 1) {
+    throw new Error(
+      wf(deps, 'review_write.ambiguous-binding', {
+        count: String(bindings.length),
+        path: row.diff_path,
+        repos: bindings.map((b) => b.repo).join(', ')
+      })
+    )
+  }
 
   const binding = named ?? bindings[0]
   const repoRelPath = named ? rest : row.diff_path
