@@ -462,4 +462,16 @@ describe('PromptsDevPage — session capture', () => {
     await openTab()
     expect(await screen.findByText(/No sessions captured yet/)).toBeInTheDocument()
   })
+
+  it('explains a vanished record instead of rendering nothing, and keeps the list usable', async () => {
+    ;(
+      window as unknown as { argus: { devPrompts: { capture: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts.capture = vi.fn(async () => null)
+    await openTab()
+    fireEvent.click(await screen.findByText('c-1 · session 7'))
+    expect(await screen.findByText(/no longer on disk/i)).toBeInTheDocument()
+    // The list must stay visible and clickable — the user needs to be able to pick another row.
+    expect(screen.getByText('c-1 · session 7')).toBeInTheDocument()
+    expect(screen.getByText('c-2 · session 3')).toBeInTheDocument()
+  })
 })
