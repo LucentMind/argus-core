@@ -39,6 +39,35 @@ const DISTILL_NOTE =
 
 const LAST_PROVIDER_NOTE = "Your only provider can't be removed."
 
+/**
+ * The unavailable-driver branch renders no expanded panel for the danger row to live in, so
+ * the same Remove action has to appear inline there as well as inside ProviderRow's children.
+ * Defining it once keeps the accessible name and the disabled rule from drifting apart between
+ * the two spots.
+ */
+function RemoveProviderButton({
+  id,
+  label,
+  canRemove,
+  onRemove
+}: {
+  id: string
+  label: string
+  canRemove: boolean
+  onRemove: (id: string, label: string) => void
+}): React.JSX.Element {
+  return (
+    <Btn
+      variant="danger"
+      disabled={!canRemove}
+      aria-label={`Remove ${label}`}
+      onClick={() => onRemove(id, label)}
+    >
+      Remove
+    </Btn>
+  )
+}
+
 export function AgentSettings({ payload }: { payload: SettingsPayload }): React.JSX.Element {
   const a = payload.settings.agent
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
@@ -194,14 +223,12 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
               <div key={id} className="flex items-center gap-2 px-4 py-3">
                 <Chip tone="danger">unavailable driver: {instance.driver}</Chip>
                 <span className="flex-1" />
-                <Btn
-                  variant="danger"
-                  disabled={!canRemove}
-                  aria-label={`Remove ${label}`}
-                  onClick={() => removeInstance(id, label)}
-                >
-                  Remove
-                </Btn>
+                <RemoveProviderButton
+                  id={id}
+                  label={label}
+                  canRemove={canRemove}
+                  onRemove={removeInstance}
+                />
               </div>
             )
           }
@@ -242,14 +269,12 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
                 label="Remove provider"
                 description={canRemove ? REMOVE_MESSAGE : LAST_PROVIDER_NOTE}
               >
-                <Btn
-                  variant="danger"
-                  disabled={!canRemove}
-                  aria-label={`Remove ${label}`}
-                  onClick={() => removeInstance(id, label)}
-                >
-                  Remove
-                </Btn>
+                <RemoveProviderButton
+                  id={id}
+                  label={label}
+                  canRemove={canRemove}
+                  onRemove={removeInstance}
+                />
               </SettingRow>
             </ProviderRow>
           )
