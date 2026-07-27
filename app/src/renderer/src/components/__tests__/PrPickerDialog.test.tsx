@@ -120,7 +120,12 @@ describe('PrPickerDialog', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: /link selected/i }))
     await waitFor(() => expect(link).toHaveBeenCalledTimes(1))
-    expect(link).toHaveBeenCalledWith('c1', expect.objectContaining({ number: 16315 }))
+    expect(link).toHaveBeenCalledWith('c1', {
+      owner: 'JiaweiHan88',
+      repo: 'HiveMindTest',
+      number: 16315,
+      url: 'https://github.com/JiaweiHan88/HiveMindTest/pull/16315'
+    })
     expect(onClose).toHaveBeenCalled()
   })
 

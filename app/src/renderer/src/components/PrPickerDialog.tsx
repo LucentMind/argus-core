@@ -57,8 +57,8 @@ export function PrPickerDialog({
 
   return (
     <ModalShell
-      title="Link pull requests"
-      ariaLabel="Link pull requests"
+      title="Link pull request"
+      ariaLabel="Link pull request"
       onClose={busy ? () => {} : onClose}
       className="max-h-[85vh] w-[620px]"
     >

@@ -24,9 +24,9 @@ The finding says:
 {body}
 
 Call post_review_comment with finding_id {findingId}, pr set to the owner/repo#number that
-{prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this case can
-have more than one pull request bound, and pr is how the tool and the approval card both know
-which one you mean — and a body you write yourself: state the problem and the concrete failure
+{prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this is checked
+against the pull request bound to this case and is how the approval card shows which one you
+mean — and a body you write yourself: state the problem and the concrete failure
 scenario in the reviewer's voice, addressed to the PR author. Keep it to a few sentences. Do not
 restate the citation — the comment is anchored at {anchor} automatically. The user sees your body
 and can edit it before it is posted, so write the text you would actually send.`,
@@ -51,9 +51,9 @@ you do elsewhere reaches the PR. Steps, in order:
    did not raise.
 3. Show the diff you produced (git diff in the worktree) and say in one line what it does.
 4. Call push_review_change with finding_id {findingId}, pr set to the owner/repo#number that
-   {prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this case can
-   have more than one pull request bound, and pr is how the tool and the approval card both know
-   which one you mean — and a commit message in the repository's existing style. It commits what
+   {prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this is
+   checked against the pull request bound to this case and is how the approval card shows which
+   one you mean — and a commit message in the repository's existing style. It commits what
    is on disk and pushes to the PR branch — it writes no code itself, so nothing you skipped in
    step 2 will be made up for here.
 

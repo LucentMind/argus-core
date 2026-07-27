@@ -71,7 +71,7 @@ function seedFindingCiting(markdown: string): number {
 
 /**
  * A git runner that answers each subcommand from a script and records the calls (and the cwd
- * each was run in, so multi-binding tests can prove the right worktree was touched).
+ * each was run in, so a test can prove the right worktree was touched).
  *
  * `!`-prefixed override values throw. `codes` lets a specific subcommand's thrown error carry
  * an exit code other than 1 — real `git merge-base --is-ancestor` exits 1 only for "not an
@@ -231,152 +231,17 @@ describe('pushReviewChange', () => {
   })
 })
 
-describe('pushReviewChange — multi-binding disambiguation', () => {
-  /** Inserts a second pr_bindings row directly, bypassing addBinding's replace-on-link
-   *  collapse and the one-binding-per-case unique index (db.ts) — a case can no longer reach
-   *  this state through addBinding (plan 2026-07-27-one-pr-per-case), but the tests below
-   *  still exercise resolveBindingForFinding's multi-binding disambiguation (reviewWrites.ts),
-   *  which is unchanged by this plan's Task 1. */
-  function bindDirect(b: {
-    repoPath: string | null
-    owner: string
-    repo: string
-    number: number
-    url: string
-  }): void {
-    db.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
-    const caseId = getCase(db, 'c1')!.id
-    db.prepare(
-      `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`
-    ).run(caseId, b.repoPath, b.owner, b.repo, b.number, b.url, new Date().toISOString())
-  }
-
-  /** Adds a second binding (gadget/#7) and returns its repoPath. Added AFTER widget/#42, so
-   *  listBindings (newest first) puts it at index 0 — any bindings[0] fallback would target
-   *  it, which is exactly the bug these tests guard against. */
-  function addSecondBinding(): string {
-    const repoPath2 = path.join(home, 'clones', 'gadget')
-    fs.mkdirSync(repoPath2, { recursive: true })
-    bindDirect({
-      repoPath: repoPath2,
-      owner: 'acme',
-      repo: 'gadget',
-      number: 7,
-      url: 'https://github.com/acme/gadget/pull/7'
-    })
-    return repoPath2
-  }
-
-  it('refuses an ambiguous citation when two PRs are bound and neither name matches', async () => {
-    addSecondBinding()
+describe('pushReviewChange — pr argument', () => {
+  it("accepts a pr argument naming the case's bound PR", async () => {
     const { git, calls } = scriptedGit()
-    const id = seedFindingCiting('See [other/src/x.ts:1].')
-    await expect(
-      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: id,
-        commitMessage: 'm'
-      })
-    ).rejects.toThrow(/bound pull requests/i)
-    expect(calls).toEqual([])
-  })
-
-  it('pushes to the PR the citation names, not bindings[0]', async () => {
-    addSecondBinding()
-    const { git, cwds } = scriptedGit()
-    // gh discriminates by --repo so the resolved PR is provable, not assumed.
-    const gh: Runner = async (_cmd, args) => {
-      const repo = args[args.indexOf('--repo') + 1]
-      if (repo === 'acme/gadget') {
-        return JSON.stringify({
-          headRefName: 'gadget-branch',
-          headRefOid: 'gadgetsha',
-          isCrossRepository: false
-        })
-      }
-      return headJson()
-    }
-    const id = seedFindingCiting('See [widget/src/guard.ts:17].') // names widget/#42, not gadget/#7
-    const out = await pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
-      findingId: id,
-      commitMessage: 'm'
-    })
-    expect(out).toContain('#42')
-    expect(out).not.toContain('#7')
-    expect(out).toContain('feature/guard')
-    expect(cwds.every((c) => c === worktree)).toBe(true)
-  })
-
-  it('refuses an uncited finding when two PRs are bound, distinctly from a bad citation', async () => {
-    addSecondBinding()
-    const { git, calls } = scriptedGit()
-    const id = seedFindingCiting('No citation here at all.')
-    await expect(
-      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: id,
-        commitMessage: 'm'
-      })
-    ).rejects.toThrow(/no citation/i)
-    expect(calls).toEqual([])
-  })
-
-  it('rejects a same-repo citation when two PRs from the same repo are bound (#42/#43)', async () => {
-    // Same owner/repo, different number: pr_bindings' unique key is (case_id, owner, repo,
-    // number), so both can be bound to one case (IPC.prLinkMany from a single search does
-    // exactly this). Both match the `widget/` citation prefix.
-    bindDirect({
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 43,
-      url: 'https://github.com/acme/widget/pull/43'
-    })
-    const { git, calls } = scriptedGit()
-    const id = seedFindingCiting('See [widget/src/guard.ts:17].')
-    await expect(
-      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: id,
-        commitMessage: 'm'
-      })
-    ).rejects.toThrow(/bound pull requests in widget/i)
-    expect(calls).toEqual([])
-  })
-
-  it('an explicit pr argument picks the right one of two same-repo bindings', async () => {
-    // #43 is added AFTER #42, so listBindings (newest first) puts #43 at bindings[0] — an
-    // implementation that parsed `pr`, did the unknown-pr membership check, and then still
-    // returned bindings[0] regardless would pass a "pick #43" assertion by coincidence. Picking
-    // #42 (already bound + worktree-materialized by the outer beforeEach, and NOT bindings[0])
-    // is what actually proves pr selects the binding.
-    bindDirect({
-      repoPath,
-      owner: 'acme',
-      repo: 'widget',
-      number: 43,
-      url: 'https://github.com/acme/widget/pull/43'
-    })
-    const gh: Runner = async (_cmd, args) => {
-      const repo = args[args.indexOf('--repo') + 1]
-      const number = args[2]
-      if (repo === 'acme/widget' && number === '43') {
-        return JSON.stringify({
-          headRefName: 'pr43-branch',
-          headRefOid: 'sha43',
-          isCrossRepository: false
-        })
-      }
-      return headJson() // #42's head
-    }
-    const { git, cwds } = scriptedGit()
-    const id = seedFindingCiting('See [widget/src/guard.ts:17].')
-    const out = await pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
+    const id = seedFinding()
+    const out = await pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
       findingId: id,
       commitMessage: 'm',
       expectPr: 'acme/widget#42'
     })
     expect(out).toContain('#42')
-    expect(out).not.toContain('#43')
-    expect(cwds.every((c) => c === worktree)).toBe(true)
+    expect(calls).toContainEqual(['push', 'origin', 'HEAD:refs/heads/feature/guard'])
   })
 
   it('a pr argument naming a PR that is not bound throws', async () => {
@@ -389,30 +254,6 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
         expectPr: 'acme/widget#999'
       })
     ).rejects.toThrow(/acme\/widget#999/i)
-    expect(calls).toEqual([])
-  })
-
-  it('rejects a pr that contradicts the citation instead of silently pushing to the wrong PR', async () => {
-    // #42 (from the outer beforeEach) is bound alongside acme/gadget#7. The finding cites
-    // [widget/...], but the agent passes pr: acme/gadget#7 — a genuine contradiction. Without
-    // this check, `match` (gadget#7) would win outright and this call would go on to commit and
-    // push to gadget's branch for a change described against widget's citation.
-    bindDirect({
-      repoPath: null,
-      owner: 'acme',
-      repo: 'gadget',
-      number: 7,
-      url: 'https://github.com/acme/gadget/pull/7'
-    })
-    const { git, calls } = scriptedGit()
-    const id = seedFindingCiting('See [widget/src/guard.ts:17].')
-    await expect(
-      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: id,
-        commitMessage: 'm',
-        expectPr: 'acme/gadget#7'
-      })
-    ).rejects.toThrow(/widget/i)
     expect(calls).toEqual([])
   })
 })

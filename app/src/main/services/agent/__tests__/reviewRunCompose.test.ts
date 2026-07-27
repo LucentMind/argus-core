@@ -62,7 +62,7 @@ afterEach(() => {
 function baseDeps(overrides: Partial<ComposeReviewRunPromptDeps> = {}): ComposeReviewRunPromptDeps {
   return {
     db,
-    listBindings: () => [binding],
+    getBinding: () => binding,
     materialize: async () => '/wt/o-r-pr7',
     resolveDriver: () => stubDriver('promptable'),
     ...overrides
@@ -80,7 +80,7 @@ describe('composeReviewRunPrompt', () => {
   it('errors when the case has no PR bound', async () => {
     const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
     await expect(
-      composeReviewRunPrompt(baseDeps({ listBindings: () => [] }), 'COMPOSE-1', s.id, [])
+      composeReviewRunPrompt(baseDeps({ getBinding: () => null }), 'COMPOSE-1', s.id, [])
     ).rejects.toThrow(/No pull request is bound to this case/)
   })
 
