@@ -64,6 +64,9 @@ export class PromptStore {
       // A stale id (renamed entry) or a now-read-only one is dropped. Keeping it would leave a
       // permanent phantom in the banner for text nothing resolves.
       if (!entry || !entry.editable) continue
+      // Same rule as setOverride: a hand-edited file must not install an override the write
+      // path would have refused.
+      if ((entry.placeholders ?? []).some((p) => !text.includes(`{${p}}`))) continue
       next[id] = text
     }
     this.overrides = next
@@ -109,6 +112,7 @@ export class PromptStore {
         overrideText,
         // The effective text — what the model actually receives.
         chars: (overrideText ?? defaultText).length,
+        ...(e.placeholders ? { placeholders: e.placeholders } : {}),
         ...(e.note ? { note: e.note } : {})
       }
     })
@@ -142,10 +146,26 @@ export class PromptStore {
     if (!entry.editable) throw new Error(`prompt "${id}" is read-only`)
   }
 
+  /** A template entry's placeholders carry runtime values (a line number, a path, a filename).
+   *  An override that drops one still reads as a sentence but has silently lost that value, so
+   *  the write is refused rather than warned about. */
+  private assertPlaceholders(entry: PromptEntry, text: string): void {
+    const missing = (entry.placeholders ?? []).filter((p) => !text.includes(`{${p}}`))
+    if (missing.length === 0) return
+    const list = missing.map((p) => `{${p}}`).join(', ')
+    const plural = missing.length > 1
+    throw new Error(
+      `prompt "${entry.id}" must keep the placeholder${plural ? 's' : ''} ${list} — ` +
+        `without ${plural ? 'them' : 'it'} the value ${plural ? 'they carry' : 'it carries'} ` +
+        `disappears from the message`
+    )
+  }
+
   /** An empty string is a real override — "what happens with no citation rules?" is a question
    *  this instrument exists to answer. Use `clearOverride` to go back to the default. */
   setOverride(id: string, text: string): void {
     this.assertWritable(id)
+    this.assertPlaceholders(entryById(id)!, text)
     this.persist({ ...this.overrides, [id]: text })
   }
 

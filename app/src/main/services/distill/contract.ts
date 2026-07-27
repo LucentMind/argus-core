@@ -3,9 +3,42 @@ import type {
   CaseDistillOutput,
   CaseDistillSummary
 } from '../../../shared/distill'
+import type { PromptTextSpecs } from '../../../shared/promptSpec'
 
 export { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 import { CASE_DISTILL_CONTRACT } from './caseDistillContract'
+
+/** Section headers of the case-close distillation prompt. The payload under each header is
+ *  assembled from the case and stays in code — only the header text is registered. */
+export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
+  case: { title: 'Case-distill section — case metadata', text: '# Case' },
+  findings: {
+    title: 'Case-distill section — findings',
+    text: '# Findings (with review states)'
+  },
+  evidence: { title: 'Case-distill section — evidence', text: '# Evidence inventory' },
+  sessions: { title: 'Case-distill section — chat sessions', text: '# Chat sessions' },
+  'memory-index': {
+    title: 'Case-distill section — memory index',
+    text: '# Memory index (topics that already exist)'
+  },
+  skills: {
+    title: 'Case-distill section — installed skills',
+    text: '# Installed skills (full current content — a skill-edit must return the whole file with its change merged in)'
+  },
+  references: {
+    title: 'Case-distill section — references',
+    text: '# References (full current content — a reference-edit must return the whole file with its change merged in; NEVER edit a [tier: confluence] reference — see rule 7)'
+  },
+  captured: {
+    title: 'Case-distill section — already captured',
+    text: '# Knowledge already captured from this case (do NOT repeat)'
+  },
+  'output-nudge': {
+    title: 'Case-distill — closing output instruction',
+    text: 'Return exactly one fenced ```json block now.'
+  }
+}
 
 export function buildCaseDistillPrompt(
   input: CaseDistillInput,
@@ -24,27 +57,29 @@ export function buildCaseDistillPrompt(
         (w) => `- memory write → ${w.topic}${w.indexEntry ? ` — ${w.indexEntry}` : ''}`
       )
     ].join('\n') || '(none)'
+  const sec = (key: string): string =>
+    resolve ? resolve(`headless.case-distill.section.${key}`) : CASE_DISTILL_SECTIONS[key].text
   return [
     resolve ? resolve('headless.case-distill.contract') : CASE_DISTILL_CONTRACT,
-    `# Case\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}\nclosed: ${m.closedAt}`,
-    `# Findings (with review states)\n\n${findings || '(none)'}`,
-    `# Evidence inventory\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
-    `# Chat sessions\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,
-    `# Memory index (topics that already exist)\n${input.memoryIndex || '(empty)'}`,
-    `# Installed skills (full current content — a skill-edit must return the whole file with its change merged in)\n${
+    `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}\nclosed: ${m.closedAt}`,
+    `${sec('findings')}\n\n${findings || '(none)'}`,
+    `${sec('evidence')}\n${input.evidence.map((e) => `- ${e.relPath} (${e.artifactType}, ${e.size} bytes)`).join('\n') || '(none)'}`,
+    `${sec('sessions')}\n${input.sessionTitles.map((t) => `- ${t}`).join('\n') || '(none)'}`,
+    `${sec('memory-index')}\n${input.memoryIndex || '(empty)'}`,
+    `${sec('skills')}\n${
       input.skillsIndex
         .map((s) => `## ${s.name} — ${s.description}\n\n${s.content}`)
         .join('\n\n---\n\n') || '(none)'
     }`,
-    `# References (full current content — a reference-edit must return the whole file with its change merged in; NEVER edit a [tier: confluence] reference — see rule 7)\n${
+    `${sec('references')}\n${
       input.referencesIndex
         .map(
           (r) => `## ${r.name} [tier: ${r.tier ?? 'team-knowledge'}] — ${r.summary}\n\n${r.content}`
         )
         .join('\n\n---\n\n') || '(none)'
     }`,
-    `# Knowledge already captured from this case (do NOT repeat)\n${captured}`,
-    `Return exactly one fenced \`\`\`json block now.`
+    `${sec('captured')}\n${captured}`,
+    sec('output-nudge')
   ].join('\n\n')
 }
 

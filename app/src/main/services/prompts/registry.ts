@@ -1,14 +1,21 @@
 import { MODES } from '../../../shared/modes'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
-import { NATIVE_TOOL_SPECS } from '../agent/nativeTools'
+import { NATIVE_TOOL_SPECS, TOOL_FEEDBACK } from '../agent/nativeTools'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
 import { MEMORY_HEADER } from '../agent/session'
+import { MEMORY_FEEDBACK } from '../memory'
+import { RISK_DENY_REASONS } from '../agent/risk'
 import { CASE_WORKING_RULES } from '../caseService'
 import { CASE_DISTILL_CONTRACT } from '../distill/caseDistillContract'
-import { DISTILL_CONTRACT } from '../refSync/distill'
+import { CASE_DISTILL_SECTIONS } from '../distill/contract'
+import { DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../refSync/distill'
+import { JIRA_PROMPTS } from '../jiraPrompts'
+import { PANEL_DRAFTS } from '../panels/draftMessages'
+import { TOUR_PROMPTS } from '../../../shared/tourPrompts'
 // The category union is an IPC payload type: it lives in shared/ so the renderer can import it
 // without reaching into main/. Re-exported below for main-side importers.
 import type { PromptCategory } from '../../../shared/promptsIpc'
+import type { PromptTextSpecs } from '../../../shared/promptSpec'
 
 export type { PromptCategory }
 
@@ -27,8 +34,35 @@ export interface PromptEntry {
   /** Read at call time, never cached — an override must not need a restart.
    *  Returns '' only for `category: 'external'`. */
   default: () => string
+  /** Names of `{name}` tokens in the text. Present only for template entries; an override
+   *  that drops one is rejected by `PromptStore.setOverride`. */
+  placeholders?: readonly string[]
   /** Required for `external`, forbidden otherwise: where the real text lives. */
   note?: string
+}
+
+/** Derive one entry per key of a module's `PromptTextSpecs` record. Used by every category
+ *  whose text is a set of short strings rather than one big constant — adding a string to the
+ *  module's record registers it, so the catalog cannot fall behind the code. */
+export function specEntries(
+  specs: PromptTextSpecs,
+  opts: {
+    prefix: string
+    category: PromptCategory
+    source: string
+    reaches: readonly string[] | 'all'
+  }
+): PromptEntry[] {
+  return Object.entries(specs).map(([key, s]) => ({
+    id: `${opts.prefix}.${key}`,
+    category: opts.category,
+    title: s.title,
+    source: opts.source,
+    reaches: opts.reaches,
+    editable: true,
+    default: () => s.text,
+    ...(s.placeholders ? { placeholders: s.placeholders } : {})
+  }))
 }
 
 /** Drivers that register Argus's native MCP tools. Codex and the ACP drivers do not. */
@@ -84,7 +118,7 @@ const SESSION_ENTRIES: PromptEntry[] = [
     id: 'session.memory-header',
     category: 'session-context',
     title: 'Agent-memory block header',
-    source: 'app/src/main/services/agent/session.ts:167',
+    source: 'app/src/main/services/agent/session.ts:142',
     reaches: 'all',
     editable: true,
     default: () => MEMORY_HEADER
@@ -93,7 +127,7 @@ const SESSION_ENTRIES: PromptEntry[] = [
     id: 'session.skill-index-lead',
     category: 'session-context',
     title: 'Skill-index lead line',
-    source: 'app/src/main/services/agent/skillIndex.ts:30',
+    source: 'app/src/main/services/agent/skillIndex.ts:15',
     reaches: 'all',
     editable: true,
     default: () => SKILL_INDEX_LEAD
@@ -106,11 +140,34 @@ const TOOL_ENTRIES: PromptEntry[] = NATIVE_TOOL_SPECS.map((s) => ({
   id: `tool.${s.name}.description`,
   category: 'tools' as const,
   title: `${s.name} — tool description`,
-  source: 'app/src/main/services/agent/nativeTools.ts:323',
+  source: 'app/src/main/services/agent/nativeTools.ts:417',
   reaches: NATIVE_TOOL_DRIVERS,
   editable: true,
   default: () => s.description
 }))
+
+const TOOL_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(TOOL_FEEDBACK, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/agent/nativeTools.ts',
+  reaches: NATIVE_TOOL_DRIVERS
+})
+
+const MEMORY_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(MEMORY_FEEDBACK, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/memory.ts',
+  reaches: NATIVE_TOOL_DRIVERS
+})
+
+// Deny reasons reach whichever driver produced the tool call, not only the two that register
+// Argus's own MCP tools — the classifier runs over every driver's native tools.
+const RISK_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(RISK_DENY_REASONS, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/agent/risk.ts',
+  reaches: 'all'
+})
 
 const HEADLESS_ENTRIES: PromptEntry[] = [
   {
@@ -127,25 +184,62 @@ const HEADLESS_ENTRIES: PromptEntry[] = [
     id: 'headless.ref-distill.contract',
     category: 'headless',
     title: 'Confluence→reference distillation contract',
-    source: 'app/src/main/services/refSync/distill.ts:15',
+    source: 'app/src/main/services/refSync/distill.ts:18',
     reaches: 'all',
     editable: true,
     default: () => DISTILL_CONTRACT
   }
 ]
 
+const CASE_DISTILL_SECTION_ENTRIES: PromptEntry[] = specEntries(CASE_DISTILL_SECTIONS, {
+  prefix: 'headless.case-distill.section',
+  category: 'headless',
+  source: 'app/src/main/services/distill/contract.ts',
+  // Headless runs resolve their own provider (settings.distillProvider) and are driver-blind.
+  reaches: 'all'
+})
+
+const REF_DISTILL_SECTION_ENTRIES: PromptEntry[] = specEntries(REF_DISTILL_SECTIONS, {
+  prefix: 'headless.ref-distill.section',
+  category: 'headless',
+  source: 'app/src/main/services/refSync/distill.ts',
+  reaches: 'all'
+})
+
 const GENERATED_FILE_ENTRIES: PromptEntry[] = [
   {
     id: 'generated-files.case-working-rules',
     category: 'generated-files',
     title: 'Per-case CLAUDE.md working rules',
-    source: 'app/src/main/services/caseService.ts:22',
+    source: 'app/src/main/services/caseService.ts:25',
     // Only the Claude driver loads CLAUDE.md — it sets settingSources:['project'].
     reaches: ['claude-agent-sdk'],
     editable: true,
     default: () => CASE_WORKING_RULES
   }
 ]
+
+const JIRA_ENTRIES: PromptEntry[] = specEntries(JIRA_PROMPTS, {
+  prefix: 'generated-files',
+  category: 'generated-files',
+  source: 'app/src/main/services/jiraPrompts.ts',
+  // Written into an evidence file, so any driver that reads the case sees it.
+  reaches: 'all'
+})
+
+const SYNTHESIZED_ENTRIES: PromptEntry[] = specEntries(PANEL_DRAFTS, {
+  prefix: 'synthesized',
+  category: 'synthesized',
+  source: 'app/src/main/services/panels/draftMessages.ts',
+  reaches: 'all'
+})
+
+const TOUR_ENTRIES: PromptEntry[] = specEntries(TOUR_PROMPTS, {
+  prefix: 'synthesized',
+  category: 'synthesized',
+  source: 'app/src/shared/tourPrompts.ts',
+  reaches: 'all'
+})
 
 /** Prompt text that reaches the model but is not in this repo. Registered because it dominates
  *  the token budget — the claude_code preset alone is larger than everything Argus adds — so a
@@ -187,8 +281,16 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...PERSONA_ENTRIES,
   ...SESSION_ENTRIES,
   ...TOOL_ENTRIES,
+  ...TOOL_FEEDBACK_ENTRIES,
+  ...MEMORY_FEEDBACK_ENTRIES,
+  ...RISK_FEEDBACK_ENTRIES,
   ...HEADLESS_ENTRIES,
+  ...CASE_DISTILL_SECTION_ENTRIES,
+  ...REF_DISTILL_SECTION_ENTRIES,
   ...GENERATED_FILE_ENTRIES,
+  ...JIRA_ENTRIES,
+  ...SYNTHESIZED_ENTRIES,
+  ...TOUR_ENTRIES,
   ...EXTERNAL_ENTRIES
 ]
 

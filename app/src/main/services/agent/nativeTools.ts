@@ -22,6 +22,8 @@ import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
 import { ensureIndex, getLines, searchLines } from '../lineIndex'
 import { resolveTextDocAbs } from '../textdoc'
+import { fillPrompt } from '../prompts/fill'
+import type { PromptTextSpecs } from '../../../shared/promptSpec'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -30,6 +32,9 @@ export interface NativeToolDeps {
   caseId: number
   caseSlug: string
   sessionId: number
+  /** Prompt-registry resolver for `TOOL_FEEDBACK`. Optional: tests and any caller that has no
+   *  store get the defaults, exactly as before. */
+  resolve?: (id: string) => string
   emitFinding: (markdown: string) => void
   /** Live agent-access overrides; read per read_memory call so mid-session toggles bite. */
   agentAccess?: () => AgentAccess
@@ -51,6 +56,80 @@ export interface NativeToolDeps {
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
+
+/**
+ * Model-facing text these tools RETURN or THROW, as opposed to the descriptions they advertise.
+ * Registered as `tool-feedback.*` and resolved through `deps.resolve` at call time, so an
+ * override bites on the next call without a rebuild.
+ *
+ * Not everything a handler returns is here. Data echoes stay hardcoded — the `lines a-b of N`
+ * and `N matches` headers, `status → closed (fixed)`, and `Unknown evidence_id: N`, whose
+ * wording is a security decision (identical for "missing" and "belongs to another case", so an
+ * agent cannot probe ids across cases) and must not be overridable.
+ */
+export const TOOL_FEEDBACK: PromptTextSpecs = {
+  'search_case_history.empty': {
+    title: 'search_case_history — no matches',
+    text: 'No similar past cases found.'
+  },
+  'read_lines.out-of-range': {
+    title: 'read_lines — start past end of file',
+    text: 'line {from} does not exist — the file ends at line {total}',
+    placeholders: ['from', 'total']
+  },
+  'grep_lines.capped': {
+    title: 'grep_lines — result cap reached',
+    text: '[capped — continue with from_line: {next}]',
+    placeholders: ['next']
+  },
+  'ingest_artifact.outside-case-dir': {
+    title: 'ingest_artifact — path outside the case dir',
+    text: 'ingest_artifact only accepts files inside the case dir: {dir}',
+    placeholders: ['dir']
+  },
+  'append_finding.ok': {
+    title: 'append_finding — success',
+    text: 'finding appended'
+  },
+  'update_case_status.invalid-status': {
+    title: 'update_case_status — unknown status',
+    text: 'Invalid status {status}; expected {expected}',
+    placeholders: ['status', 'expected']
+  },
+  'update_case_status.needs-resolution': {
+    title: 'update_case_status — closing without a resolution',
+    text: 'Closing requires a resolution; expected {expected}',
+    placeholders: ['expected']
+  },
+  'read_memory.index-not-a-topic': {
+    title: 'read_memory — asked for _index',
+    text: 'read_memory: "_index" is not a topic — its enabled lines are already in your context'
+  },
+  'read_memory.topic-disabled': {
+    title: 'read_memory — topic disabled by agent access',
+    text: 'read_memory: topic "{topic}" is disabled by agent-access settings',
+    placeholders: ['topic']
+  },
+  'read_memory.no-such-topic': {
+    title: 'read_memory — unknown topic',
+    text: 'read_memory: no such topic "{topic}" — see the index lines in your context',
+    placeholders: ['topic']
+  },
+  'write_proposal.drafted': {
+    title: 'write_proposal — drafted, and inert until accepted',
+    text: 'Proposal drafted: proposals/{file}. It is inert — nothing changes until the user accepts it on the Settings → Proposals page. Do not apply the change yourself.',
+    placeholders: ['file']
+  },
+  'workspace_checkout.ok': {
+    title: 'workspace_checkout — checked out, primary untouched',
+    text: 'Checked out {ref} in case worktree: {worktree}\nWork with the code there; the primary checkout is untouched.',
+    placeholders: ['ref', 'worktree']
+  },
+  'capture_panel.hint': {
+    title: 'capture_panel — how to view the capture',
+    text: 'Use the Read tool on rel_path to view the panel.'
+  }
+}
 
 export interface FindingWriteCtx {
   db: DatabaseSync
@@ -88,6 +167,13 @@ export function argusToolHandlers(
 ): Record<string, (args: Record<string, unknown>) => Promise<string>> {
   const { db, argusHome, detection, caseSlug, sessionId } = deps
   const dir = caseDir(argusHome, caseSlug)
+
+  /** Resolve one `tool-feedback.*` entry and fill its placeholders. No resolver = the default. */
+  const fb = (key: string, vars: Record<string, string> = {}): string => {
+    const spec = TOOL_FEEDBACK[key]
+    const text = deps.resolve ? deps.resolve(`tool-feedback.${key}`) : spec.text
+    return fillPrompt(text, vars)
+  }
 
   const num = (v: unknown, name: string, fallback?: number): number => {
     if (v == null && fallback !== undefined) return fallback
@@ -127,7 +213,7 @@ export function argusToolHandlers(
     async search_case_history(args) {
       const limit = args.limit == null ? 5 : Number(args.limit)
       const hits = searchCaseSummaries(db, String(args.query ?? ''), { limit })
-      if (hits.length === 0) return 'No similar past cases found.'
+      if (hits.length === 0) return fb('search_case_history.empty')
       return hits
         .map((h) => `«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}`)
         .join('\n')
@@ -144,7 +230,10 @@ export function argusToolHandlers(
       const from = Math.max(1, num(args.from, 'from', 1))
       const to = Math.min(num(args.to, 'to', from), from + 499)
       if (from > index.totalLines) {
-        return `line ${from} does not exist — the file ends at line ${index.totalLines}`
+        return fb('read_lines.out-of-range', {
+          from: String(from),
+          total: String(index.totalLines)
+        })
       }
       const r = getLines(index, abs, from, to)
       const body = r.lines.map((l, i) => `${r.from + i}\t${l}`).join('\n')
@@ -181,14 +270,14 @@ export function argusToolHandlers(
         return `${n}\t${line}`
       })
       const header = `${hits.length} matches (lines ${fromLine}-${scannedTo} of ${index.totalLines})`
-      const tail = capped ? `\n[capped — continue with from_line: ${scannedTo + 1}]` : ''
+      const tail = capped ? `\n${fb('grep_lines.capped', { next: String(scannedTo + 1) })}` : ''
       return `${header}\n${shown.join('\n')}${tail}`
     },
 
     async ingest_artifact(args) {
       const p = path.resolve(String(args.path ?? ''))
       if (!p.startsWith(dir + path.sep)) {
-        throw new Error(`ingest_artifact only accepts files inside the case dir: ${dir}`)
+        throw new Error(fb('ingest_artifact.outside-case-dir', { dir }))
       }
       const rec = ingestArtifact(db, argusHome, detection, caseSlug, p, 'agent')
       return JSON.stringify(rec, null, 2)
@@ -207,19 +296,26 @@ export function argusToolHandlers(
         { title: String(args.title ?? 'Finding'), markdown: String(args.markdown ?? '') }
       )
       deps.emitFinding(block)
-      return 'finding appended'
+      return fb('append_finding.ok')
     },
 
     async update_case_status(args) {
       const status = String(args.status ?? '')
       if (!STATUSES.includes(status as CaseStatus)) {
-        throw new Error(`Invalid status ${JSON.stringify(status)}; expected ${STATUSES.join('|')}`)
+        throw new Error(
+          fb('update_case_status.invalid-status', {
+            status: JSON.stringify(status),
+            expected: STATUSES.join('|')
+          })
+        )
       }
       let resolution: CaseResolution | null = null
       if (status === 'closed') {
         const r = String(args.resolution ?? '')
         if (!CASE_RESOLUTIONS.includes(r as CaseResolution)) {
-          throw new Error(`Closing requires a resolution; expected ${CASE_RESOLUTIONS.join('|')}`)
+          throw new Error(
+            fb('update_case_status.needs-resolution', { expected: CASE_RESOLUTIONS.join('|') })
+          )
         }
         resolution = r as CaseResolution
       }
@@ -230,29 +326,30 @@ export function argusToolHandlers(
     async read_memory(args) {
       const topic = String(args.topic ?? '')
       if (topic === '_index') {
-        throw new Error(
-          'read_memory: "_index" is not a topic — its enabled lines are already in your context'
-        )
+        throw new Error(fb('read_memory.index-not-a-topic'))
       }
       const access = deps.agentAccess?.() ?? defaultAgentAccess()
       if (!topicEnabled(access, topic)) {
-        throw new Error(`read_memory: topic "${topic}" is disabled by agent-access settings`)
+        throw new Error(fb('read_memory.topic-disabled', { topic }))
       }
       const content = readTopic(argusHome, topic) // validates the topic name
       if (!content) {
-        throw new Error(
-          `read_memory: no such topic "${topic}" — see the index lines in your context`
-        )
+        throw new Error(fb('read_memory.no-such-topic', { topic }))
       }
       return content
     },
 
     async write_memory(args) {
-      return applyMemoryWrite(argusHome, caseSlug, {
-        topic: String(args.topic ?? ''),
-        content: String(args.content ?? ''),
-        indexEntry: args.index_entry == null ? undefined : String(args.index_entry)
-      })
+      return applyMemoryWrite(
+        argusHome,
+        caseSlug,
+        {
+          topic: String(args.topic ?? ''),
+          content: String(args.content ?? ''),
+          indexEntry: args.index_entry == null ? undefined : String(args.index_entry)
+        },
+        deps.resolve
+      )
     },
 
     async write_proposal(args) {
@@ -262,10 +359,7 @@ export function argusToolHandlers(
         title: String(args.title ?? ''),
         content: String(args.content ?? '')
       })
-      return (
-        `Proposal drafted: proposals/${file}. It is inert — nothing changes until the user ` +
-        `accepts it on the Settings → Proposals page. Do not apply the change yourself.`
-      )
+      return fb('write_proposal.drafted', { file })
     },
 
     async workspace_checkout(args) {
@@ -276,7 +370,7 @@ export function argusToolHandlers(
         String(args.ref ?? '')
       )
       deps.onWorktreeChanged?.(caseSlug)
-      return `Checked out ${args.ref} in case worktree: ${wt}\nWork with the code there; the primary checkout is untouched.`
+      return fb('workspace_checkout.ok', { ref: String(args.ref ?? ''), worktree: wt })
     },
 
     async open_panel(args) {
@@ -299,7 +393,7 @@ export function argusToolHandlers(
             evidence_id: res.evidenceId,
             rel_path: res.relPath,
             artifact_type: res.artifactType,
-            hint: 'Use the Read tool on rel_path to view the panel.'
+            hint: fb('capture_panel.hint')
           },
           null,
           2

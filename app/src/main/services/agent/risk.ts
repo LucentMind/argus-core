@@ -1,6 +1,8 @@
 import path from 'node:path'
 import type { Risk } from '../../../shared/agent-events'
 import { classifyToolName, type RiskLevel } from '../../../shared/connectors'
+import { fillPrompt } from '../prompts/fill'
+import type { PromptTextSpecs } from '../../../shared/promptSpec'
 
 export type ToolTaxonomyEntry =
   | { kind: 'fs-read' | 'fs-write'; pathFields?: readonly string[] }
@@ -26,12 +28,40 @@ export interface RiskContext {
   panelCommandRisk?: Record<string, 'low' | 'medium' | 'high'>
   /** Driver-declared mapping from its native tool names to risk-relevant shape. */
   taxonomy: ToolTaxonomy
+  /** Prompt-registry resolver for `RISK_DENY_REASONS`. Optional: callers without a store get
+   *  the defaults. */
+  resolve?: (id: string) => string
 }
 
 export type RiskVerdict =
   | { action: 'allow'; risk: Risk }
   | { action: 'ask'; risk: Risk; grantKey: string | null; reason: string }
   | { action: 'deny'; risk: Risk; reason: string }
+
+/**
+ * The only risk text that reaches the model. `session.ts` forwards `verdict.reason` as the
+ * tool_result on a DENY; on an ASK the reason renders on the approval card for the user, and a
+ * refusal sends `outcome.comment ?? 'Denied by user'` instead. Ask reasons are therefore UI
+ * copy and are deliberately not registered.
+ */
+export const RISK_DENY_REASONS: PromptTextSpecs = {
+  'risk.path-outside-sandbox': {
+    title: 'Denied — path outside the sandbox',
+    text: 'Path outside sandbox: {path}',
+    placeholders: ['path']
+  },
+  'risk.readonly-root': {
+    title: 'Denied — write under a read-only root',
+    text: 'Read-only root: {path}',
+    placeholders: ['path']
+  }
+}
+
+/** Resolve one deny reason and fill in the offending path. No resolver = the default. */
+function denyReason(ctx: RiskContext, key: string, pathValue: string): string {
+  const text = ctx.resolve ? ctx.resolve(`tool-feedback.${key}`) : RISK_DENY_REASONS[key].text
+  return fillPrompt(text, { path: pathValue })
+}
 
 /** Canonical Argus native-tool risk verdicts (keyed by `mcp__argus__<name>`). Exported so
  *  drivers can decide per-tool permission gating: a driver may bypass its SDK permission
@@ -218,7 +248,11 @@ function classifySegment(segment: string, ctx: RiskContext): RiskVerdict {
   if (prog === 'cd') {
     const target = tokens[1]
     if (target && path.isAbsolute(target) && !inSandbox(target, ctx))
-      return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${target}` }
+      return {
+        action: 'deny',
+        risk: 'HIGH',
+        reason: denyReason(ctx, 'risk.path-outside-sandbox', target)
+      }
     return { action: 'allow', risk: 'LOW' }
   }
   // Builtin classifiers above always win; the pack allowlist only applies to CLIs that
@@ -274,9 +308,17 @@ export function classifyToolCall(
     // resolves against it. A missing path means "cwd" -> caseDir -> allowed.
     const abs = p ? path.resolve(ctx.caseDir, p) : ctx.caseDir
     if (!inSandbox(abs, ctx))
-      return { action: 'deny', risk: 'HIGH', reason: `Path outside sandbox: ${p ?? abs}` }
+      return {
+        action: 'deny',
+        risk: 'HIGH',
+        reason: denyReason(ctx, 'risk.path-outside-sandbox', p ?? abs)
+      }
     if (tax.kind === 'fs-write' && withinAny(abs, ctx.readonlyRoots))
-      return { action: 'deny', risk: 'HIGH', reason: `Read-only root: ${p ?? abs}` }
+      return {
+        action: 'deny',
+        risk: 'HIGH',
+        reason: denyReason(ctx, 'risk.readonly-root', p ?? abs)
+      }
     return { action: 'allow', risk: 'LOW' }
   }
 

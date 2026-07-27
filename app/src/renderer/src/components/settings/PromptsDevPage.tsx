@@ -10,9 +10,10 @@ import { SettingsSection, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
 
-/** Fixed display order. Iterating this rather than the PromptCategory union is deliberate:
- *  two categories are empty until Plan 3, and rendering a heading per union member would
- *  advertise sections that hold nothing — implying the catalog is complete when it is not. */
+/** Fixed display order. Iterating this rather than the PromptCategory union is deliberate: the
+ *  union is a type, and a heading rendered per union member would advertise a section even
+ *  when nothing in the build populates it — implying the catalog is complete when it is not.
+ *  Empty categories are skipped at render time below. */
 const DISPLAY_ORDER: PromptCategory[] = [
   'persona',
   'session-context',
@@ -88,6 +89,15 @@ function EntryRow({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
+              {entry.placeholders && (
+                <p className="text-[11px] text-dim">
+                  Must keep:{' '}
+                  <span className="font-mono text-mute">
+                    {entry.placeholders.map((p) => `{${p}}`).join(' ')}
+                  </span>{' '}
+                  — each carries a runtime value into the message.
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <button
                   className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink disabled:text-faint"

@@ -186,7 +186,8 @@ export class CaseSession {
       readonlyRoots: [...deps.skillsRoots],
       packCliNames: deps.packCliNames,
       panelCommandRisk: panelCommandRiskMap(deps.panelCommandDecls ?? []),
-      taxonomy: deps.driver.toolTaxonomy
+      taxonomy: deps.driver.toolTaxonomy,
+      resolve: deps.resolvePrompt
     }
     this.detailCtx = {
       taxonomy: deps.driver.toolTaxonomy,
@@ -218,6 +219,7 @@ export class CaseSession {
         caseId: deps.caseId,
         caseSlug: deps.caseSlug,
         sessionId: this.sessionId,
+        resolve: deps.resolvePrompt,
         currentTurnId: () => this.currentTurnRow,
         emitFinding: (markdown) =>
           this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown })),

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { resolveToolSpecs, NATIVE_TOOL_SPECS } from '../../agent/nativeTools'
-import { buildCaseDistillPrompt } from '../../distill/contract'
+import { buildCaseDistillPrompt, CASE_DISTILL_SECTIONS } from '../../distill/contract'
 import { CASE_DISTILL_CONTRACT } from '../../distill/caseDistillContract'
-import { buildDistillPrompt, DISTILL_CONTRACT } from '../../refSync/distill'
+import { buildDistillPrompt, DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../../refSync/distill'
 import type { CaseDistillInput } from '../../../../shared/distill'
+import { PROMPT_ENTRIES } from '../registry'
 
 const stub = (id: string): string => `<<${id}>>`
 
@@ -55,8 +56,8 @@ describe('headless contracts honour an injected resolver', () => {
   it('case-distill prompt leads with the resolved contract', () => {
     const out = buildCaseDistillPrompt(distillInput(), stub)
     expect(out.startsWith('<<headless.case-distill.contract>>')).toBe(true)
-    // Scaffolding stays hardcoded in Plan 1 — Plan 3 registers it.
-    expect(out).toContain('# Evidence inventory')
+    // Scaffolding is registered too as of Plan 3 — resolved just like the contract.
+    expect(out).toContain('<<headless.case-distill.section.evidence>>')
   })
 
   it('case-distill prompt with no resolver leads with the constant', () => {
@@ -69,11 +70,90 @@ describe('headless contracts honour an injected resolver', () => {
       stub
     )
     expect(out.startsWith('<<headless.ref-distill.contract>>')).toBe(true)
-    expect(out).toContain('# Target file: references/x.md')
+    // Scaffolding is registered too as of Plan 3 — resolved just like the contract.
+    expect(out).toContain('<<headless.ref-distill.section.target>>')
   })
 
   it('reference-distill prompt with no resolver leads with the constant', () => {
     const out = buildDistillPrompt({ target: 'references/x.md', currentBody: null, pages: [] })
     expect(out.startsWith(DISTILL_CONTRACT)).toBe(true)
+  })
+})
+
+describe('distill scaffolding honours an injected resolver', () => {
+  it('registers one entry per section key', () => {
+    const ids = PROMPT_ENTRIES.filter((e) => e.id.includes('.section.')).map((e) => e.id)
+    expect(ids.sort()).toEqual(
+      [
+        ...Object.keys(CASE_DISTILL_SECTIONS).map((k) => `headless.case-distill.section.${k}`),
+        ...Object.keys(REF_DISTILL_SECTIONS).map((k) => `headless.ref-distill.section.${k}`)
+      ].sort()
+    )
+  })
+
+  it('every case-distill section header is resolved, not just the contract', () => {
+    const out = buildCaseDistillPrompt(distillInput(), stub)
+    for (const key of Object.keys(CASE_DISTILL_SECTIONS)) {
+      expect(out, key).toContain(`<<headless.case-distill.section.${key}>>`)
+    }
+  })
+
+  it('case-distill payloads survive the rewiring', () => {
+    const out = buildCaseDistillPrompt(distillInput(), stub)
+    expect(out).toContain('slug: c-1')
+    expect(out).toContain('(none)')
+  })
+
+  it('with no resolver the case-distill prompt is byte-identical to the defaults', () => {
+    const out = buildCaseDistillPrompt(distillInput())
+    expect(out).toContain('# Evidence inventory')
+    expect(out).toContain(
+      '# Installed skills (full current content — a skill-edit must return the whole file with its change merged in)'
+    )
+    expect(out.endsWith('Return exactly one fenced ```json block now.')).toBe(true)
+  })
+
+  it('no-resolver case-distill prompt keeps its section structure and separator count intact', () => {
+    // startsWith/endsWith and toContain above only anchor the first/last element and spot-check
+    // substrings — a regression that dropped or duplicated a '\n\n' between two *middle*
+    // sections would slip past both. This test asserts the structure instead: every section
+    // header from CASE_DISTILL_SECTIONS appears, in order, at the start of some '\n\n'-delimited
+    // chunk, and the total chunk count for this fixed input is pinned so a missing or doubled
+    // separator fails the test even though the prose payload is never asserted.
+    const out = buildCaseDistillPrompt(distillInput())
+    const parts = out.split('\n\n')
+
+    // Pins the separator count for this deterministic input: the contract text plus one
+    // hardcoded extra break in the (empty) findings section split it into 12 chunks. Any
+    // dropped or added '\n\n' anywhere in the assembly changes this number.
+    expect(parts.length).toBe(12)
+    expect(out.startsWith(CASE_DISTILL_CONTRACT)).toBe(true)
+
+    let cursor = 0
+    for (const key of Object.keys(CASE_DISTILL_SECTIONS)) {
+      const header = CASE_DISTILL_SECTIONS[key].text
+      const idx = parts.findIndex((p, i) => i >= cursor && p.startsWith(header))
+      expect(
+        idx,
+        `section "${key}" header not found in order at/after chunk ${cursor}`
+      ).toBeGreaterThanOrEqual(cursor)
+      cursor = idx + 1
+    }
+  })
+
+  it('refSync section headers resolve and keep the target filled in', () => {
+    const out = buildDistillPrompt(
+      { target: 'references/x.md', currentBody: null, pages: [] },
+      stub
+    )
+    for (const key of Object.keys(REF_DISTILL_SECTIONS)) {
+      expect(out, key).toContain(`<<headless.ref-distill.section.${key}>>`)
+    }
+  })
+
+  it('with no resolver the refSync prompt still names the target file', () => {
+    const out = buildDistillPrompt({ target: 'references/x.md', currentBody: null, pages: [] })
+    expect(out).toContain('# Target file: references/x.md')
+    expect(out).toContain('Return ONLY the complete updated body of references/x.md as markdown.')
   })
 })

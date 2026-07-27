@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { memoryAuditPath, memoryDir, memoryIndexPath } from './paths'
 import { topicEnabled, type AgentAccess } from '../../shared/agentAccess'
+import { fillPrompt } from './prompts/fill'
+import type { PromptTextSpecs } from '../../shared/promptSpec'
 
 export const MEMORY_INDEX_MAX_LINES = 200
 
@@ -107,35 +109,74 @@ export function deleteTopic(argusHome: string, name: string): void {
   }
 }
 
+/** Length cap for one `_index.md` line. Referenced by both the check and its message so an
+ *  overridden message can never disagree with the rule it describes. */
+export const MEMORY_INDEX_ENTRY_MAX = 200
+
+/**
+ * Model-facing errors thrown by the write_memory backend. Registered as `tool-feedback.*`.
+ * The success return (`memory/<topic>.md updated (N bytes)`) is deliberately absent — it is a
+ * write receipt, not instruction text.
+ */
+export const MEMORY_FEEDBACK: PromptTextSpecs = {
+  'write_memory.reserved-index': {
+    title: 'write_memory — wrote to _index',
+    text: 'write_memory: "_index" is a reserved topic name and cannot be written to'
+  },
+  'write_memory.empty-content': {
+    title: 'write_memory — empty content',
+    text: 'write_memory: content must not be empty'
+  },
+  'write_memory.index-entry-multiline': {
+    title: 'write_memory — multi-line index entry',
+    text: 'write_memory: index_entry must be a single line (no interior newlines)'
+  },
+  'write_memory.index-entry-too-long': {
+    title: 'write_memory — index entry over the length cap',
+    text: 'write_memory: index_entry must be at most {max} characters',
+    placeholders: ['max']
+  },
+  'write_memory.index-full': {
+    title: 'write_memory — index line cap reached',
+    text: 'write_memory: _index.md is at its {max}-line cap — consolidate existing topics instead of adding new index entries',
+    placeholders: ['max']
+  }
+}
+
 /** Backend for the write_memory native tool. Appends content; maintains the index; audits. */
 export function applyMemoryWrite(
   argusHome: string,
   caseSlug: string,
-  input: { topic: string; content: string; indexEntry?: string }
+  input: { topic: string; content: string; indexEntry?: string },
+  resolve?: (id: string) => string
 ): string {
+  /** Resolve one `tool-feedback.*` entry and fill it. No resolver = the default. */
+  const fb = (key: string, vars: Record<string, string> = {}): string =>
+    fillPrompt(resolve ? resolve(`tool-feedback.${key}`) : MEMORY_FEEDBACK[key].text, vars)
+
   const { topic, content } = input
   if (topic === '_index') {
-    throw new Error('write_memory: "_index" is a reserved topic name and cannot be written to')
+    throw new Error(fb('write_memory.reserved-index'))
   }
   const p = topicPath(argusHome, topic) // validates the name
-  if (!content.trim()) throw new Error('write_memory: content must not be empty')
+  if (!content.trim()) throw new Error(fb('write_memory.empty-content'))
 
   const indexEntry = input.indexEntry?.trim() || null
   if (indexEntry) {
     if (/[\r\n]/.test(indexEntry)) {
-      throw new Error('write_memory: index_entry must be a single line (no interior newlines)')
+      throw new Error(fb('write_memory.index-entry-multiline'))
     }
-    if (indexEntry.length > 200) {
-      throw new Error('write_memory: index_entry must be at most 200 characters')
+    if (indexEntry.length > MEMORY_INDEX_ENTRY_MAX) {
+      throw new Error(
+        fb('write_memory.index-entry-too-long', { max: String(MEMORY_INDEX_ENTRY_MAX) })
+      )
     }
     const idx = readIndex(argusHome)
     const lines = idx.split('\n').filter((l) => l.trim() !== '')
     const lineRe = indexLineFor(topic)
     const has = lines.some((l) => lineRe.test(l))
     if (!has && lines.length >= MEMORY_INDEX_MAX_LINES) {
-      throw new Error(
-        `write_memory: _index.md is at its ${MEMORY_INDEX_MAX_LINES}-line cap — consolidate existing topics instead of adding new index entries`
-      )
+      throw new Error(fb('write_memory.index-full', { max: String(MEMORY_INDEX_MAX_LINES) }))
     }
     if (!has) {
       fs.mkdirSync(memoryDir(argusHome), { recursive: true })

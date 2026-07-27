@@ -243,6 +243,49 @@ function breakWrites(store: PromptStore): void {
   }
 }
 
+describe('placeholder validation', () => {
+  it('rejects an override that drops a declared placeholder', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    expect(() =>
+      store.setOverride('tool-feedback.read_lines.out-of-range', 'line {from} does not exist')
+    ).toThrow(/must keep the placeholder \{total\}/)
+    expect(store.activeOverrideIds()).toEqual([])
+  })
+
+  it('names every missing placeholder, not just the first', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    expect(() =>
+      store.setOverride('tool-feedback.read_lines.out-of-range', 'that line is not in the file')
+    ).toThrow(/\{from\}, \{total\}/)
+  })
+
+  it('accepts an override that keeps every placeholder, in any order', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride(
+      'tool-feedback.read_lines.out-of-range',
+      'the file stops at {total}, so {from} is out of range'
+    )
+    expect(store.resolve('tool-feedback.read_lines.out-of-range')).toBe(
+      'the file stops at {total}, so {from} is out of range'
+    )
+  })
+
+  it('still accepts an empty override on an entry with no placeholders', () => {
+    const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
+    store.setOverride('tool-feedback.append_finding.ok', '')
+    expect(store.resolve('tool-feedback.append_finding.ok')).toBe('')
+  })
+
+  it('drops an on-disk override that violates the placeholder contract', () => {
+    // A file hand-edited outside the app must not get in through the back door — reload
+    // applies the same rule as setOverride.
+    const home = tmpHome({ 'tool-feedback.read_lines.out-of-range': 'no tokens here' })
+    const store = new PromptStore({ devTools: true, argusHome: home })
+    expect(store.activeOverrideIds()).toEqual([])
+    expect(store.resolve('tool-feedback.read_lines.out-of-range')).toContain('{from}')
+  })
+})
+
 describe('PromptStore overrides — a failed write must not be adopted', () => {
   it('setOverride: the throw propagates and the in-memory override is not adopted', () => {
     const store = new PromptStore({ devTools: true, argusHome: tmpHome() })

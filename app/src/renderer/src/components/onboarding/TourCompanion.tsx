@@ -92,7 +92,18 @@ export function TourCompanion({
     if (!step.suggestedPrompt) return
     const sessions = await window.argus.sessions.list(sampleSlug)
     const sid = sessions[0]?.id
-    if (sid != null) composerDraft.set(sampleSlug, sid, step.suggestedPrompt)
+    if (sid == null) return
+    // Dev-only override; the gate is off for ordinary users, so a refusal is expected and the
+    // shipped text is used. Any failure keeps the tour working rather than staging nothing.
+    let text = step.suggestedPrompt
+    if (step.promptId) {
+      try {
+        text = await window.argus.devPrompts.resolve(step.promptId)
+      } catch {
+        text = step.suggestedPrompt
+      }
+    }
+    composerDraft.set(sampleSlug, sid, text)
   }
 
   const panel = (

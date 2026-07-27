@@ -99,4 +99,14 @@ describe('prompt registry', () => {
   it('entryById returns undefined for an unknown id', () => {
     expect(entryById('nope.not.real')).toBeUndefined()
   })
+
+  it('every declared placeholder appears in the entry default that declares it', () => {
+    // Otherwise setOverride would reject an override for a token the default itself lacks —
+    // an entry nobody could ever edit.
+    for (const e of PROMPT_ENTRIES) {
+      for (const p of e.placeholders ?? []) {
+        expect(e.default(), `${e.id} is missing {${p}}`).toContain(`{${p}}`)
+      }
+    }
+  })
 })

@@ -46,6 +46,8 @@ export interface PromptEntryView {
   overrideText: string | null
   /** Length of the effective text (override when present, else default). */
   chars: number
+  /** Names of `{name}` tokens the text must keep. Absent for non-template entries. */
+  placeholders?: readonly string[]
   /** Present only for `category: 'external'`: where the real text lives. */
   note?: string
 }
