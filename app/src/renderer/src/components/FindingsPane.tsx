@@ -1,5 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { ChevronRight, PanelRight, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
+import {
+  ChevronRight,
+  GitCommitVertical,
+  MessageSquarePlus,
+  PanelRight,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2
+} from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
@@ -36,6 +44,8 @@ export function FindingsPane({
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
   const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actingId, setActingId] = useState<number | null>(null)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -59,6 +69,26 @@ export function FindingsPane({
     const state: ReviewState = cur === next ? 'pending' : next
     await window.argus.findings.review(id, state)
     setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, reviewState: state } : f)))
+  }
+
+  /**
+   * Composition happens in main (it owns the PR binding and the worktree path) and the composed
+   * text goes out through the ordinary agent.send path — the same shape as ReviewRunButton, so
+   * cancel/queue/mirror behave exactly as they do for a typed message. The actual write is
+   * gated later, at the approval card the agent's tool call raises.
+   */
+  async function runAction(id: number, action: 'comment' | 'apply'): Promise<void> {
+    if (sessionId === null || actingId !== null) return
+    setActingId(id)
+    setActionError(null)
+    try {
+      const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, id, action)
+      await window.argus.agent.send(slug, sessionId, prompt)
+    } catch (err) {
+      setActionError((err as Error).message)
+    } finally {
+      setActingId(null)
+    }
   }
 
   async function clearAll(): Promise<void> {
@@ -135,6 +165,7 @@ export function FindingsPane({
         </div>
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
+      {actionError && <p className="text-xs text-danger">{actionError}</p>}
       {/* A count suffix (the same "field · value" idiom as the " · sess N" tag below) makes
           the chip read as a control with its own state, not a copy of the finding badge. */}
       {presentLayers.length > 0 && (
@@ -223,7 +254,57 @@ export function FindingsPane({
                       {f.severity}
                     </span>
                   )}
+                  {f.commentUrl && (
+                    <a
+                      href={f.commentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+                    >
+                      commented
+                    </a>
+                  )}
+                  {f.pushedSha && (
+                    <span
+                      title={`Pushed ${f.pushedSha}`}
+                      className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
+                    >
+                      {f.pushedSha.slice(0, 7)}
+                    </span>
+                  )}
                   <span className="flex-1" />
+                  {f.mode === 'review' && (
+                    <>
+                      <button
+                        aria-label="Post as PR comment"
+                        title={
+                          f.diffPath
+                            ? 'Post this finding as an inline PR comment'
+                            : 'No diff anchor — this finding cannot be an inline comment'
+                        }
+                        disabled={sessionId === null || actingId !== null || !f.diffPath}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                        onClick={() => void runAction(f.id, 'comment')}
+                      >
+                        <MessageSquarePlus size={13} />
+                      </button>
+                      <button
+                        aria-label="Apply change and push"
+                        title={
+                          !f.diffPath
+                            ? 'No diff anchor — this finding cites no code to change'
+                            : f.suggestedChange
+                              ? 'Apply the suggested change in the PR worktree and push it'
+                              : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
+                        }
+                        disabled={sessionId === null || actingId !== null || !f.diffPath}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                        onClick={() => void runAction(f.id, 'apply')}
+                      >
+                        <GitCommitVertical size={13} />
+                      </button>
+                    </>
+                  )}
                   <button
                     aria-label="Mark finding good"
                     aria-pressed={accepted}
