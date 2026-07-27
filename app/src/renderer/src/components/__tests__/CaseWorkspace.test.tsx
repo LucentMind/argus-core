@@ -456,8 +456,9 @@ describe('CaseWorkspace mode switching', () => {
     const { unmount } = render(workspace('NAV-1', { activeMode: 'investigation' }))
 
     // The mode switcher's Review control carries its own aria-label ("Case mode · Review");
-    // matched by that rather than /review/i because once the mode is review,
-    // ReviewRunButton (rendered beside it) also has an accessible name of "Review".
+    // matched by that exact string rather than /review/i because once the mode is review,
+    // ReviewRunButton (rendered beside it) has an accessible name of "Run review" — a loose
+    // /review/i would still match both.
     const reviewBtn = await screen.findByRole('button', { name: 'Case mode · Review' })
     fireEvent.click(reviewBtn)
     await waitFor(() => expect(uiStore.get().activeSessions['NAV-1']).toBe(7))

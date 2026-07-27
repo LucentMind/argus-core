@@ -47,13 +47,14 @@ export function ReviewRunButton({
     <div className="relative flex items-center">
       <button
         type="button"
+        aria-label="Run review"
         disabled={sessionId === null || running}
         aria-busy={running}
         onClick={() => void run()}
         className="flex items-center gap-1 rounded-l-r2 border border-hair px-2.5 py-1 text-xs text-ink transition-colors hover:bg-signal/10 disabled:opacity-50"
       >
         {running && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
-        Review
+        Run review
       </button>
       <button
         type="button"
@@ -76,12 +77,7 @@ export function ReviewRunButton({
           </p>
           {REVIEW_LAYER_ORDER.map((id) => (
             <label key={id} className="flex items-center gap-2 text-xs text-ink">
-              <input
-                type="checkbox"
-                checked={pinned.includes(id)}
-                onChange={() => toggle(id)}
-                aria-label={REVIEW_LAYERS[id].label}
-              />
+              <input type="checkbox" checked={pinned.includes(id)} onChange={() => toggle(id)} />
               {REVIEW_LAYERS[id].label}
             </label>
           ))}
