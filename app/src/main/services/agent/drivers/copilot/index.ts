@@ -286,7 +286,8 @@ export function createCopilotDriver(
       costReporting: false, // free tier bills cost:0; costUsd is always null (§5, amendment 10)
       // mcpConnectors omitted (= supported): connector servers forward with a tools:["*"]
       // allowlist, which resolves the §6/§6b "not_configured" failure (EVIDENCE §6c).
-      headlessOneShot: true
+      headlessOneShot: true,
+      systemPromptTransport: 'systemMessage.append'
     },
 
     isAuthErrorMessage: isCopilotAuthErrorMessage,

@@ -430,7 +430,8 @@ describe('CaseSession', () => {
         permissionModes: ['default'],
         editableApprovals: true,
         costReporting: true,
-        headlessOneShot: false
+        headlessOneShot: false,
+        systemPromptTransport: 'systemPrompt.append'
       },
       createSession: () => ({
         events: () => eventQueue,
