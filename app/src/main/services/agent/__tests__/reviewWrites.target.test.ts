@@ -38,7 +38,12 @@ function finding(markdown: string): number {
 
 /** Materialize the worktree dir the resolver verifies against, with one real file. */
 function seedWorktree(prNumber: number, rel: string): string {
-  const wt = casePrWorktreeDir(home, 'c1', repoPath, prNumber)
+  return seedWorktreeFor(repoPath, prNumber, rel)
+}
+
+/** Same as `seedWorktree`, but for a second repo clone (multi-binding tests). */
+function seedWorktreeFor(repoP: string, prNumber: number, rel: string): string {
+  const wt = casePrWorktreeDir(home, 'c1', repoP, prNumber)
   fs.mkdirSync(path.join(wt, path.dirname(rel)), { recursive: true })
   fs.writeFileSync(path.join(wt, rel), 'x')
   return wt
@@ -167,5 +172,58 @@ describe('resolveCommentTarget', () => {
     seedWorktree(42, 'src/guard.ts')
     const id = finding('See [widget/src/gone.ts:2].')
     expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(/does not exist/i)
+  })
+
+  it('rejects an ambiguous citation when two PRs are bound and neither name matches', () => {
+    const repoPath2 = path.join(home, 'clones', 'gadget')
+    fs.mkdirSync(repoPath2, { recursive: true })
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    addBinding(db, 'c1', {
+      repoPath: repoPath2,
+      owner: 'acme',
+      repo: 'gadget',
+      number: 7,
+      url: 'https://github.com/acme/gadget/pull/7',
+      source: 'manual'
+    })
+    // Neither binding's worktree is materialized, so a silent bindings[0] fallback here
+    // would go unchecked and post to the wrong PR.
+    const id = finding('See [other/src/x.ts:1].')
+    expect(() => resolveCommentTarget({ db, argusHome: home }, 'c1', id)).toThrow(
+      /bound pull requests/i
+    )
+  })
+
+  it('still resolves the matching PR when two are bound and the prefix names one of them', () => {
+    const repoPath2 = path.join(home, 'clones', 'gadget')
+    fs.mkdirSync(repoPath2, { recursive: true })
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    addBinding(db, 'c1', {
+      repoPath: repoPath2,
+      owner: 'acme',
+      repo: 'gadget',
+      number: 7,
+      url: 'https://github.com/acme/gadget/pull/7',
+      source: 'manual'
+    })
+    seedWorktreeFor(repoPath2, 7, 'a/b.ts')
+    const id = finding('See [gadget/a/b.ts:5].')
+    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id)
+    expect(t.repoRelPath).toBe('a/b.ts')
+    expect(t.binding.number).toBe(7)
   })
 })
