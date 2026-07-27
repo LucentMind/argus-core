@@ -251,6 +251,10 @@ function CaptureTab(): React.JSX.Element {
   const [rows, setRows] = useState<PromptCaptureSummary[] | null>(null)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [detail, setDetail] = useState<PromptCaptureDetail | null>(null)
+  // The key the *last resolved response* belongs to — kept separately from `detail` because a
+  // successful-but-empty response (record vanished) also sets `detail` to null, and that must
+  // stay distinguishable from "haven't asked yet" / "still loading".
+  const [detailKey, setDetailKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -263,10 +267,15 @@ function CaptureTab(): React.JSX.Element {
   useEffect(() => {
     if (!openKey) return
     let live = true
-    const [caseSlug, sessionId] = openKey.split('#')
+    const key = openKey
+    const [caseSlug, sessionId] = key.split('#')
     window.argus.devPrompts
       .capture(caseSlug, Number(sessionId))
-      .then((d) => live && setDetail(d))
+      .then((d) => {
+        if (!live) return
+        setDetail(d)
+        setDetailKey(key)
+      })
       .catch((e: Error) => live && setError(e.message))
     // Guard against a slow response for a previously-selected row overwriting a newer one.
     return () => {
@@ -287,6 +296,10 @@ function CaptureTab(): React.JSX.Element {
   // Derived, not reset in an effect: the payload names the session it describes, so showing
   // another row's detail is a comparison, not a state transition.
   const shown = detail && openKey === `${detail.capture.caseSlug}#${detail.capture.sessionId}`
+  // A resolved response for the currently-open row that came back null — the record was on the
+  // list a moment ago but is gone now (ring-buffer eviction keeps only the newest 50 per case, or
+  // it was deleted). Distinct from "still loading", which is neither `shown` nor `missing`.
+  const missing = !shown && detailKey === openKey && detail === null
 
   return (
     <div className="flex flex-col gap-3">
@@ -319,6 +332,14 @@ function CaptureTab(): React.JSX.Element {
           ))}
         </div>
       </SettingsSection>
+
+      {missing && (
+        <p className="rounded-r2 border border-hair bg-overlay p-2 text-xs text-dim">
+          This capture is no longer on disk. It was most likely evicted by the ring buffer (which
+          keeps only the newest 50 records per case) or deleted. Pick another row from the list
+          above.
+        </p>
+      )}
 
       {shown && detail && (
         <>
