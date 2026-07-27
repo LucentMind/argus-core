@@ -34,8 +34,12 @@ export function ReposSection({
   slug: string
   /** rendered at the right edge of the Repos header (e.g. the pane-collapse button) */
   headerExtra?: React.ReactNode
-  /** "Find PRs" result, handed up so the parent can open the picker over the chat. */
-  onPrsFound?: (result: PrSearchResult) => void
+  /** "Find PRs" result, handed up so the parent can open the picker over the chat. May
+   *  return a promise (CaseWorkspace's handler does, so it can look up the case's current
+   *  binding before opening the dialog) — `searching` below stays true until it settles, so
+   *  a second search cannot start while the first result is still being turned into an open
+   *  dialog. */
+  onPrsFound?: (result: PrSearchResult) => void | Promise<void>
 }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [refs, setRefs] = useState<BundleWorkspaceRef[]>([])

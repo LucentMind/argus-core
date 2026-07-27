@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
@@ -510,6 +511,105 @@ describe('CaseWorkspace mode switching', () => {
     fireEvent.click(screen.getByRole('button', { name: /link selected/i }))
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
     expect(vi.mocked(confirm).mock.calls[0][0].title as string).toContain('acme/widget#100')
+  })
+
+  const oneCandidate = [
+    {
+      owner: 'acme',
+      repo: 'widget',
+      number: 100,
+      url: 'https://github.com/acme/widget/pull/100',
+      title: 'the original PR',
+      state: 'merged' as const,
+      isDraft: false,
+      createdAt: '2026-07-20T10:00:00Z',
+      isBackport: false,
+      preselected: true
+    }
+  ]
+
+  // Re-review fix: CaseWorkspace is never remounted on a slug change (App.tsx renders it
+  // with no `key`; the `slug !== lastSlug` block patches state in place), so a case switch
+  // started while handlePrsFound's chain is still in flight would otherwise land case A's
+  // late-resolving result on the now-current case B — B's real binding is never consulted,
+  // and "Link selected" would call `pr.link(B, aCandidateFoundViaA'sRepos)`. This exercises
+  // the in-flight half of the fix (the `currentSlugRef` guard inside `handlePrsFound`); the
+  // next test exercises the already-resolved half (clearing an open dialog on switch).
+  it('drops a Find-PRs lookup that resolves after switching to a different case', async () => {
+    // ReposSection's own `reload()` effect ALSO calls `pr.list(slug)` (on mount, and again
+    // when `slug` changes) — a single shared resolver would get silently reassigned to
+    // whichever of those calls happens to be pending, defeating the point of this test.
+    // Track every call instead, so the ONE this test cares about (handlePrsFound's, for
+    // case A) can be resolved on its own, independent of ReposSection's mount-time call and
+    // its own reload for case B triggered by the switch below.
+    const listResolvers: Array<(bound: unknown[]) => void> = []
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
+      () => new Promise((r) => listResolvers.push(r))
+    )
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    )
+    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    await screen.findByRole('button', { name: 'Find PRs' })
+    // resolve ReposSection's own mount-time pr.list('NAV-1') call — irrelevant to this test
+    listResolvers.shift()?.([])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find PRs' }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // handlePrsFound's own pr.list('NAV-1') call, now pending — capture ITS resolver before
+    // switching, so the switch's own pr.list('NAV-2') call can't be confused with it
+    await waitFor(() => expect(listResolvers.length).toBe(1))
+    const resolveCaseA = listResolvers[0]
+
+    // switch case BEFORE case A's in-flight lookup resolves
+    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+
+    resolveCaseA([]) // case A's lookup resolves late, after the switch
+    await new Promise((r) => setTimeout(r, 0))
+    // A's dialog must not have opened on top of B, and nothing was linked on B's behalf
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+    expect(window.argus.pr.link).not.toHaveBeenCalled()
+  })
+
+  it('closes an already-open Find-PRs dialog when the case is switched', async () => {
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    )
+    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
+    await screen.findByRole('button', { name: /link selected/i }) // dialog is up for A
+
+    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+    expect(window.argus.pr.link).not.toHaveBeenCalled()
+  })
+
+  // Re-review fix: `handlePrsFound` used to be `void`-ed, so ReposSection's
+  // `.then(onPrsFound).finally(() => setSearching(false))` did not actually wait for it —
+  // `onPrsFound` returned synchronously (`void`), so `finally` ran as soon as `pr.search`
+  // itself resolved, re-enabling "Find PRs" while the picker's own `pr.list` lookup (and so
+  // the dialog opening) was still pending. `handlePrsFound` now returns its promise, so
+  // `.then` genuinely chains onto it.
+  it('keeps Find PRs disabled until the picker is actually up, not just until pr.search resolves', async () => {
+    let resolveList!: (bound: unknown[]) => void
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
+      () => new Promise((r) => (resolveList = r))
+    )
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
+    )
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    const findBtn = await screen.findByRole('button', { name: 'Find PRs' })
+
+    fireEvent.click(findBtn)
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // pr.search has resolved, but the chain's own pr.list lookup hasn't — the control must
+    // still read busy, not just while pr.search itself was in flight
+    await waitFor(() => expect(findBtn).toBeDisabled())
+
+    resolveList([])
+    await waitFor(() => expect(findBtn).not.toBeDisabled())
   })
 
   it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
