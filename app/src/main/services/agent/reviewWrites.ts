@@ -3,7 +3,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { DatabaseSync } from 'node:sqlite'
-import type { PrBinding } from '../../../shared/pr'
+import { parsePrRef, type PrBinding } from '../../../shared/pr'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
 import { fillPrompt } from '../prompts/fill'
 import { listBindings } from '../prBindings'
@@ -84,6 +84,11 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
     title: 'review writes — named pull request is not bound',
     text: '{pr} is not one of the pull requests bound to this case ({bound}). Pass pr as owner/repo#number for a pull request that is actually bound here.',
     placeholders: ['pr', 'bound']
+  },
+  'review_write.pr-mismatch': {
+    title: 'review writes — pr contradicts the citation',
+    text: "The citation names {citedRepo}, but pr is {pr} — a different pull request. Pass a pr that matches the citation's repo, or re-record the finding with a citation for the pull request pr actually names.",
+    placeholders: ['citedRepo', 'pr']
   },
   'review_write.unsafe-path': {
     title: 'review writes — citation path escapes the repo',
@@ -190,13 +195,18 @@ export function worktreeFor(
   return fs.existsSync(wt) ? wt : null
 }
 
-/** `owner/repo#number`, the form the composed prompt tells the agent to pass as `pr`. */
-const EXPECT_PR_RE = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/
-
+/**
+ * Parse `pr` into `{owner, repo, number}`. The composed prompt tells the agent `owner/repo#number`
+ * (reviewActions.ts), but reuses `shared/pr.ts`'s `parsePrRef` rather than a bespoke regex — it
+ * already accepts that form AND a full PR url (the exact string the prompt hands the agent to
+ * derive `owner/repo#number` FROM, so an agent that pastes the url back verbatim still resolves
+ * instead of failing closed on a technicality). No `fallbackRemote` is passed, so the bare-`#N`
+ * form `parsePrRef` also accepts is correctly refused here — there is no "current repo" to
+ * resolve a bare number against in this context, and a bare number silently matching the wrong
+ * repo would defeat the whole point of `pr`.
+ */
 function parseExpectPr(v: string): { owner: string; repo: string; number: number } | null {
-  const m = EXPECT_PR_RE.exec(v.trim())
-  if (!m) return null
-  return { owner: m[1], repo: m[2], number: Number(m[3]) }
+  return parsePrRef(v)
 }
 
 function sameBindingIdentity(
@@ -210,6 +220,15 @@ function sameBindingIdentity(
   )
 }
 
+/** A binding as the `owner/repo#number` the model is told to pass back as `pr`. Shared by
+ *  `unknown-pr`'s `{bound}` list and `ambiguous-pr`'s `{numbers}` list — deliberately the SAME
+ *  full identity in both, even though `ambiguous-pr` already names the shared repo separately,
+ *  so the model can copy a value straight out of the error text into `pr` without having to
+ *  reconstruct `owner/repo` itself. */
+function prIdentity(b: PrBinding): string {
+  return `${b.owner}/${b.repo}#${b.number}`
+}
+
 /**
  * Which bound PR a finding belongs to, from its citation's `<repo-name>/` prefix (if any) and/or
  * an explicit `owner/repo#number` the model was told to pass. Shared by the comment path (which
@@ -221,9 +240,12 @@ function sameBindingIdentity(
  * identity match short-circuits every ambiguity check below (a same-repo `#42`/`#43` pair no
  * longer needs the citation prefix to disambiguate, since the model named the PR directly). No
  * match at all is always an error, even with a single binding, so a stale/typo'd `pr` argument
- * never silently falls back to "the only one there is". `named` — whether to strip the citation's
- * leading path segment — is still decided from the citation prefix alone, independent of how the
- * binding itself was chosen.
+ * never silently falls back to "the only one there is". Nor may `expectPr` silently overrule a
+ * citation that names a DIFFERENT repo (`pr-mismatch`): without that check, an `expectPr` for
+ * PR B on a finding cited against PR A's repo would resolve to B, skip the path/worktree checks
+ * that assume the citation and the binding agree, and publish A's content on B. `named` — whether
+ * to strip the citation's leading path segment — is still decided from the citation prefix alone,
+ * independent of how the binding itself was chosen.
  *
  * Without `expectPr` (every call site that predates it, and the compose-prompt path which has no
  * PR to name yet), behavior is exactly as before: a null `diffPath` still resolves when there is
@@ -259,9 +281,19 @@ function resolveBindingForFinding(
       throw new Error(
         wf(deps, 'review_write.unknown-pr', {
           pr: expectPr,
-          bound: bindings.map((b) => `${b.owner}/${b.repo}#${b.number}`).join(', ')
+          bound: bindings.map(prIdentity).join(', ')
         })
       )
+    }
+    // A citation that actually names a repo (named.length > 0) and does NOT include the `pr`
+    // match is a genuine contradiction — the citation says one PR, `pr` says another — and must
+    // fail loudly rather than let `pr` silently win. Left unchecked, this reaches GitHub: the
+    // 422-on-non-diff-line fallback has no worktree/path check to catch it, so a comment about
+    // repo X's citation would publish onto repo Y's PR. `named.length === 0` (an
+    // already-repo-relative citation, or an uncited finding) makes no repo claim to contradict,
+    // so it is not an error — `pr` is simply the only source of truth in that case.
+    if (named.length > 0 && !named.some((b) => b.id === match.id)) {
+      throw new Error(wf(deps, 'review_write.pr-mismatch', { citedRepo: head, pr: expectPr }))
     }
     return { binding: match, named: named.some((b) => b.id === match.id) }
   }
@@ -292,7 +324,7 @@ function resolveBindingForFinding(
       wf(deps, 'review_write.ambiguous-pr', {
         count: String(named.length),
         repo: head,
-        numbers: named.map((b) => `#${b.number}`).join(', ')
+        numbers: named.map(prIdentity).join(', ')
       })
     )
   }

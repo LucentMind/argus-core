@@ -325,6 +325,11 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
   })
 
   it('an explicit pr argument picks the right one of two same-repo bindings', async () => {
+    // #43 is added AFTER #42, so listBindings (newest first) puts #43 at bindings[0] — an
+    // implementation that parsed `pr`, did the unknown-pr membership check, and then still
+    // returned bindings[0] regardless would pass a "pick #43" assertion by coincidence. Picking
+    // #42 (already bound + worktree-materialized by the outer beforeEach, and NOT bindings[0])
+    // is what actually proves pr selects the binding.
     addBinding(db, 'c1', {
       repoPath,
       owner: 'acme',
@@ -333,8 +338,6 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
       url: 'https://github.com/acme/widget/pull/43',
       source: 'manual'
     })
-    const worktree43 = casePrWorktreeDir(home, 'c1', repoPath, 43)
-    fs.mkdirSync(worktree43, { recursive: true })
     const gh: Runner = async (_cmd, args) => {
       const repo = args[args.indexOf('--repo') + 1]
       const number = args[2]
@@ -345,18 +348,18 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
           isCrossRepository: false
         })
       }
-      return headJson()
+      return headJson() // #42's head
     }
     const { git, cwds } = scriptedGit()
     const id = seedFindingCiting('See [widget/src/guard.ts:17].')
     const out = await pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
       findingId: id,
       commitMessage: 'm',
-      expectPr: 'acme/widget#43'
+      expectPr: 'acme/widget#42'
     })
-    expect(out).toContain('#43')
-    expect(out).not.toContain('#42')
-    expect(cwds.every((c) => c === worktree43)).toBe(true)
+    expect(out).toContain('#42')
+    expect(out).not.toContain('#43')
+    expect(cwds.every((c) => c === worktree)).toBe(true)
   })
 
   it('a pr argument naming a PR that is not bound throws', async () => {
@@ -369,6 +372,31 @@ describe('pushReviewChange — multi-binding disambiguation', () => {
         expectPr: 'acme/widget#999'
       })
     ).rejects.toThrow(/acme\/widget#999/i)
+    expect(calls).toEqual([])
+  })
+
+  it('rejects a pr that contradicts the citation instead of silently pushing to the wrong PR', async () => {
+    // #42 (from the outer beforeEach) is bound alongside acme/gadget#7. The finding cites
+    // [widget/...], but the agent passes pr: acme/gadget#7 — a genuine contradiction. Without
+    // this check, `match` (gadget#7) would win outright and this call would go on to commit and
+    // push to gadget's branch for a change described against widget's citation.
+    addBinding(db, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'gadget',
+      number: 7,
+      url: 'https://github.com/acme/gadget/pull/7',
+      source: 'manual'
+    })
+    const { git, calls } = scriptedGit()
+    const id = seedFindingCiting('See [widget/src/guard.ts:17].')
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingId: id,
+        commitMessage: 'm',
+        expectPr: 'acme/gadget#7'
+      })
+    ).rejects.toThrow(/widget/i)
     expect(calls).toEqual([])
   })
 })

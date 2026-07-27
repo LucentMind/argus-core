@@ -31,6 +31,15 @@ describe('buildReviewActionPrompt', () => {
     expect(editAt).toBeLessThan(pushAt)
   })
 
+  it('falls back to a re-enter-review-mode note when worktreePath is null', () => {
+    // In production this only happens for a `comment` turn (whose template never references
+    // {worktreePath} — composeReviewActionPrompt throws before composing `apply` with no
+    // worktree), but buildReviewActionPrompt is pure and callable directly with any
+    // combination, so the fallback string itself still needs to be pinned.
+    const p = buildReviewActionPrompt({ ...base, action: 'apply', worktreePath: null })
+    expect(p).toContain('(no local checkout — re-enter review mode first)')
+  })
+
   it('says so when the finding carries no suggested change', () => {
     const p = buildReviewActionPrompt({ ...base, action: 'apply', suggestedChange: null })
     expect(p).toMatch(/no suggested change/i)
