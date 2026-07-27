@@ -3,6 +3,8 @@ import {
   PROMPT_CATEGORY_LABELS,
   type PromptCategory,
   type PromptCatalogPayload,
+  type PromptCaptureDetail,
+  type PromptCaptureSummary,
   type PromptEntryView,
   type PromptPreview
 } from '../../../../shared/promptsIpc'
@@ -245,6 +247,173 @@ function PreviewTab({ modes }: { modes: string[] }): React.JSX.Element {
   )
 }
 
+function CaptureTab(): React.JSX.Element {
+  const [rows, setRows] = useState<PromptCaptureSummary[] | null>(null)
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  const [detail, setDetail] = useState<PromptCaptureDetail | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.argus.devPrompts
+      .captures()
+      .then(setRows)
+      .catch((e: Error) => setError(e.message))
+  }, [])
+
+  useEffect(() => {
+    if (!openKey) return
+    let live = true
+    const [caseSlug, sessionId] = openKey.split('#')
+    window.argus.devPrompts
+      .capture(caseSlug, Number(sessionId))
+      .then((d) => live && setDetail(d))
+      .catch((e: Error) => live && setError(e.message))
+    // Guard against a slow response for a previously-selected row overwriting a newer one.
+    return () => {
+      live = false
+    }
+  }, [openKey])
+
+  if (error) return <p className="p-3 text-xs text-danger">{error}</p>
+  if (!rows) return <p className="p-3 text-xs text-mute">Loading…</p>
+  if (rows.length === 0)
+    return (
+      <p className="p-3 text-xs text-mute">
+        No sessions captured yet. Open a case and start a session — one record is written per
+        session construction.
+      </p>
+    )
+
+  // Derived, not reset in an effect: the payload names the session it describes, so showing
+  // another row's detail is a comparison, not a state transition.
+  const shown = detail && openKey === `${detail.capture.caseSlug}#${detail.capture.sessionId}`
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SettingsSection title="Recent sessions" count={rows.length}>
+        <div className="rounded-r2 border border-hair">
+          {rows.map((r) => (
+            <button
+              key={`${r.caseSlug}#${r.sessionId}`}
+              onClick={() => setOpenKey(`${r.caseSlug}#${r.sessionId}`)}
+              className="flex w-full items-center gap-2 border-b border-hair px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-overlay"
+            >
+              <span className="flex-1 font-mono text-[11px] text-ink">
+                {r.caseSlug} · session {r.sessionId}
+              </span>
+              <Chip tone="neutral">{r.driverKind}</Chip>
+              {/* Deliberately loud. A session that received NO persona must not read as a
+                  session with a short one — that misreading is the reason this tab exists. */}
+              {r.transport === 'none' ? (
+                <Chip tone="danger">
+                  <span data-testid={`transport-none-${r.caseSlug}-${r.sessionId}`}>
+                    prompt dropped
+                  </span>
+                </Chip>
+              ) : (
+                <Chip tone="neutral">{r.transport}</Chip>
+              )}
+              {r.overrideCount > 0 && <Chip tone="defect">{r.overrideCount} overridden</Chip>}
+              <span className="font-mono text-[10px] text-mute">{r.chars} chars</span>
+            </button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      {shown && detail && (
+        <>
+          {detail.capture.transport === 'none' && (
+            <p
+              role="alert"
+              className="rounded-r2 border border-danger/40 bg-danger/10 p-2 text-xs text-danger"
+            >
+              This driver forwarded no system prompt. The text below was composed and discarded —
+              the model never saw the persona, citation rules, mode identity, skill index or memory
+              index.
+            </p>
+          )}
+          {!detail.personaMatchesCurrent && (
+            <p
+              data-testid="persona-drift"
+              className="rounded-r2 border border-defect/40 bg-defect/10 p-2 text-xs text-defect"
+            >
+              The persona has changed since this session started — an override was set or cleared,
+              or the code moved. Compare against the Composed preview tab.
+            </p>
+          )}
+
+          <SettingsSection title="What this session was built with">
+            <dl className="grid grid-cols-[10rem_1fr] gap-y-1 px-2 py-1 text-xs">
+              <dt className="text-dim">Driver</dt>
+              <dd className="font-mono text-[11px]">{detail.capture.driverKind}</dd>
+              <dt className="text-dim">Transport</dt>
+              <dd data-testid="capture-transport" className="font-mono text-[11px]">
+                {detail.capture.transport}
+              </dd>
+              <dt className="text-dim">Model</dt>
+              <dd className="font-mono text-[11px]">
+                {detail.capture.model ?? '(driver default)'}
+              </dd>
+              <dt className="text-dim">Mode</dt>
+              <dd className="font-mono text-[11px]">{detail.capture.mode}</dd>
+              <dt className="text-dim">Permission mode</dt>
+              <dd className="font-mono text-[11px]">{detail.capture.permissionMode}</dd>
+              <dt className="text-dim">Started</dt>
+              <dd className="font-mono text-[11px]">{detail.capture.createdAt}</dd>
+              <dt className="text-dim">Active overrides</dt>
+              <dd data-testid="capture-overrides" className="font-mono text-[11px]">
+                {detail.capture.activeOverrides.join(', ') || 'none'}
+              </dd>
+            </dl>
+          </SettingsSection>
+
+          <SettingsSection
+            title="System append (exact bytes)"
+            count={detail.capture.systemAppend.length}
+          >
+            <pre className="max-h-[24rem] overflow-auto whitespace-pre-wrap rounded-r2 bg-overlay p-2 font-mono text-[11px] text-ink">
+              {detail.capture.systemAppend}
+            </pre>
+          </SettingsSection>
+
+          <SettingsSection title="Fragments" count={detail.capture.fragments.length}>
+            <div className="rounded-r2 border border-hair">
+              {detail.capture.fragments.map((f, i) => (
+                <div
+                  key={`${f.label}-${i}`}
+                  className="flex items-center gap-2 border-b border-hair px-2 py-1 text-xs last:border-b-0"
+                >
+                  <span className="flex-1 font-mono text-[11px]">{f.label}</span>
+                  {f.overridden && (
+                    <Chip tone="defect">
+                      <span data-testid="fragment-overridden">overridden</span>
+                    </Chip>
+                  )}
+                  <span className="font-mono text-[10px] text-mute">{f.chars} chars</span>
+                </div>
+              ))}
+            </div>
+          </SettingsSection>
+
+          <SettingsSection title="Tools advertised" count={detail.capture.tools.length}>
+            <div className="rounded-r2 border border-hair">
+              {detail.capture.tools.map((t) => (
+                <div
+                  key={`${t.origin}-${t.name}`}
+                  className="flex items-center gap-2 border-b border-hair px-2 py-1 text-xs last:border-b-0"
+                >
+                  <span className="flex-1 font-mono text-[11px]">{t.name}</span>
+                  <Chip tone="neutral">{t.origin}</Chip>
+                </div>
+              ))}
+            </div>
+          </SettingsSection>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function PromptsDevPage(): React.JSX.Element {
   const [catalog, setCatalog] = useState<PromptCatalogPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -252,7 +421,7 @@ export function PromptsDevPage(): React.JSX.Element {
   // the catalog the user was just editing. A failed save/reset must stay visible without
   // hiding the entries they're looking at.
   const [mutationError, setMutationError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'catalog' | 'preview'>('catalog')
+  const [tab, setTab] = useState<'catalog' | 'preview' | 'capture'>('catalog')
 
   useEffect(() => {
     const reload = (): void => {
@@ -313,7 +482,8 @@ export function PromptsDevPage(): React.JSX.Element {
         {(
           [
             ['catalog', 'Catalog'],
-            ['preview', 'Composed preview']
+            ['preview', 'Composed preview'],
+            ['capture', 'Session capture']
           ] as const
         ).map(([id, label]) => (
           <button
@@ -327,11 +497,9 @@ export function PromptsDevPage(): React.JSX.Element {
           </button>
         ))}
       </div>
-      {tab === 'catalog' ? (
-        <CatalogTab catalog={catalog} onSave={save} onReset={reset} />
-      ) : (
-        <PreviewTab modes={catalog.modes} />
-      )}
+      {tab === 'catalog' && <CatalogTab catalog={catalog} onSave={save} onReset={reset} />}
+      {tab === 'preview' && <PreviewTab modes={catalog.modes} />}
+      {tab === 'capture' && <CaptureTab />}
     </div>
   )
 }

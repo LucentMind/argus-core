@@ -3,7 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PromptsDevPage } from '../PromptsDevPage'
-import type { PromptCatalogPayload } from '../../../../../shared/promptsIpc'
+import type {
+  PromptCatalogPayload,
+  PromptCaptureDetail,
+  PromptCaptureSummary
+} from '../../../../../shared/promptsIpc'
 
 vi.mock('../../../lib/confirmStore', async (orig) => ({
   ...(await orig<typeof import('../../../lib/confirmStore')>()),
@@ -63,6 +67,54 @@ const preview = {
   omits: ['Agent memory index — filtered per case', 'Skill index — depends on resolved skills']
 }
 
+const captureRows: PromptCaptureSummary[] = [
+  {
+    caseSlug: 'c-1',
+    sessionId: 7,
+    createdAt: '2026-07-27T12:00:00.000Z',
+    driverKind: 'claude-agent-sdk',
+    mode: 'investigation',
+    transport: 'systemPrompt.append',
+    chars: 1400,
+    overrideCount: 1
+  },
+  {
+    caseSlug: 'c-2',
+    sessionId: 3,
+    createdAt: '2026-07-27T09:00:00.000Z',
+    driverKind: 'cursor',
+    mode: 'investigation',
+    transport: 'none',
+    chars: 1400,
+    overrideCount: 0
+  }
+]
+
+const captureDetail: PromptCaptureDetail = {
+  capture: {
+    caseSlug: 'c-1',
+    sessionId: 7,
+    createdAt: '2026-07-27T12:00:00.000Z',
+    driverKind: 'claude-agent-sdk',
+    model: 'claude-opus-5',
+    mode: 'investigation',
+    permissionMode: 'default',
+    transport: 'systemPrompt.append',
+    systemAppend: 'PERSONA BYTES',
+    fragments: [
+      { id: 'persona.neutral', label: 'persona.neutral', chars: 7, overridden: true },
+      { id: null, label: 'Pack or settings fragment', chars: 6, overridden: false }
+    ],
+    skillIndex: 'Skills most relevant to this mode:\n- doctor',
+    memoryIndex: '- topic: hook',
+    enabledSkills: ['doctor'],
+    tools: [{ name: 'grep_lines', description: 'search', origin: 'native' }],
+    activeOverrides: ['persona.neutral']
+  },
+  currentPersona: 'PERSONA BYTES',
+  personaMatchesCurrent: true
+}
+
 beforeEach(() => {
   ;(window as unknown as { argus: unknown }).argus = {
     devPrompts: {
@@ -72,7 +124,9 @@ beforeEach(() => {
       clearOverride: vi.fn(async () => catalog),
       clearAll: vi.fn(async () => catalog),
       overrides: vi.fn(async () => []),
-      onChanged: vi.fn(() => () => {})
+      onChanged: vi.fn(() => () => {}),
+      captures: vi.fn(async () => captureRows),
+      capture: vi.fn(async () => captureDetail)
     }
   }
 })
@@ -339,5 +393,73 @@ describe('PromptsDevPage — editing', () => {
     render(<PromptsDevPage />)
     expect(await screen.findByText(/override file/i)).toBeInTheDocument()
     expect(screen.getByText(/Unexpected token/)).toBeInTheDocument()
+  })
+})
+
+describe('PromptsDevPage — session capture', () => {
+  const openTab = async (): Promise<void> => {
+    render(<PromptsDevPage />)
+    // Wait for the catalog IPC to resolve before touching the tab bar — gating on the mocked
+    // call, not on a passive effect.
+    await screen.findByText('Persona & mode identity')
+    fireEvent.click(screen.getByText('Session capture'))
+  }
+
+  it('lists recent captures with their case, session and driver', async () => {
+    await openTab()
+    expect(await screen.findByText('c-1 · session 7')).toBeInTheDocument()
+    expect(screen.getByText('c-2 · session 3')).toBeInTheDocument()
+    expect(screen.getByText('claude-agent-sdk')).toBeInTheDocument()
+  })
+
+  it('flags a capture whose driver forwarded nothing', async () => {
+    await openTab()
+    await screen.findByText('c-2 · session 3')
+    expect(screen.getByTestId('transport-none-c-2-3')).toBeInTheDocument()
+  })
+
+  it('does not flag a capture whose driver did forward the prompt', async () => {
+    await openTab()
+    await screen.findByText('c-1 · session 7')
+    expect(screen.queryByTestId('transport-none-c-1-7')).not.toBeInTheDocument()
+  })
+
+  it('opens a capture and shows the exact bytes it was built with', async () => {
+    await openTab()
+    fireEvent.click(await screen.findByText('c-1 · session 7'))
+    expect(await screen.findByText('PERSONA BYTES')).toBeInTheDocument()
+    // By testid, not by text: the row chip above carries the same string, so getByText would
+    // match two elements and throw.
+    expect(screen.getByTestId('capture-transport')).toHaveTextContent('systemPrompt.append')
+  })
+
+  it('names the overrides that were active, and marks the overridden fragment', async () => {
+    await openTab()
+    fireEvent.click(await screen.findByText('c-1 · session 7'))
+    await screen.findByText('PERSONA BYTES')
+    // Guard 4: the evidence travels with the record.
+    expect(screen.getByTestId('capture-overrides')).toHaveTextContent('persona.neutral')
+    expect(screen.getAllByTestId('fragment-overridden')).toHaveLength(1)
+  })
+
+  it('says so when the persona has changed since the session started', async () => {
+    ;(
+      window as unknown as { argus: { devPrompts: { capture: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts.capture = vi.fn(async () => ({
+      ...captureDetail,
+      currentPersona: 'DIFFERENT',
+      personaMatchesCurrent: false
+    }))
+    await openTab()
+    fireEvent.click(await screen.findByText('c-1 · session 7'))
+    expect(await screen.findByTestId('persona-drift')).toBeInTheDocument()
+  })
+
+  it('explains an empty list instead of rendering nothing', async () => {
+    ;(
+      window as unknown as { argus: { devPrompts: { captures: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts.captures = vi.fn(async () => [])
+    await openTab()
+    expect(await screen.findByText(/No sessions captured yet/)).toBeInTheDocument()
   })
 })
