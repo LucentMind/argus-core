@@ -109,8 +109,8 @@ ticket, spec or acceptance criteria say it should — including the parts it sil
     prompt: `
 Read the stated intent (ticket, spec, acceptance criteria, PR description) and then the diff.
 Report where the implementation diverges from the stated intent, and any acceptance criterion
-with no corresponding change. If the case carries no stated intent, reply with the single line
-NO CANDIDATES rather than inventing criteria.
+with no corresponding change. If the case carries no stated intent, this layer has nothing to
+report for it — do not invent acceptance criteria to fill the gap.
 
 ${CANDIDATE_CONTRACT}
 `.trim()
