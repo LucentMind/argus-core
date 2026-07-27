@@ -103,6 +103,26 @@ describe('review write tools via argusToolHandlers', () => {
     ).findingId
   }
 
+  /** Inserts a second pr_bindings row directly, bypassing addBinding's replace-on-link
+   *  collapse and the one-binding-per-case unique index (db.ts) — a case can no longer reach
+   *  this state through addBinding (plan 2026-07-27-one-pr-per-case), but the test below still
+   *  exercises resolveBindingForFinding's same-repo disambiguation (reviewWrites.ts), which is
+   *  unchanged. */
+  function bindDirect(b: {
+    repoPath: string | null
+    owner: string
+    repo: string
+    number: number
+    url: string
+  }): void {
+    db.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
+    const caseId = getCase(db, 'c1')!.id
+    db.prepare(
+      `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`
+    ).run(caseId, b.repoPath, b.owner, b.repo, b.number, b.url, new Date().toISOString())
+  }
+
   it('post_review_comment coerces finding_id/body, posts via the injected gh, and notifies the listener', async () => {
     const calls: string[][] = []
     const gh: Runner = async (_cmd, args) => {
@@ -152,13 +172,12 @@ describe('review write tools via argusToolHandlers', () => {
     // Picking #42 — NOT bindings[0] — via pr is what actually proves the argument selects the
     // binding, rather than an implementation that checks pr's validity and then still returns
     // bindings[0] regardless.
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath,
       owner: 'acme',
       repo: 'widget',
       number: 43,
-      url: 'https://github.com/acme/widget/pull/43',
-      source: 'manual'
+      url: 'https://github.com/acme/widget/pull/43'
     })
 
     const calls: string[][] = []

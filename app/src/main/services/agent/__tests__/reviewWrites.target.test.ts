@@ -49,6 +49,26 @@ function seedWorktreeFor(repoP: string, prNumber: number, rel: string): string {
   return wt
 }
 
+/** Inserts a second pr_bindings row directly, bypassing addBinding's replace-on-link collapse
+ *  and the one-binding-per-case unique index (db.ts) — a case can no longer reach this state
+ *  through addBinding (plan 2026-07-27-one-pr-per-case), but the tests below still exercise
+ *  resolveBindingForFinding's multi-binding disambiguation (reviewWrites.ts), which is
+ *  unchanged by this plan's Task 1. */
+function bindDirect(b: {
+  repoPath: string | null
+  owner: string
+  repo: string
+  number: number
+  url: string
+}): void {
+  db.exec(`DROP INDEX IF EXISTS pr_bindings_one_per_case`)
+  const caseId = getCase(db, 'c1')!.id
+  db.prepare(
+    `INSERT INTO pr_bindings (case_id, repo_path, owner, repo, number, url, source, detected_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`
+  ).run(caseId, b.repoPath, b.owner, b.repo, b.number, b.url, new Date().toISOString())
+}
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-revwrite-'))
   db = openDb(path.join(home, 'argus.db'))
@@ -185,13 +205,12 @@ describe('resolveCommentTarget', () => {
       url: 'https://github.com/acme/widget/pull/42',
       source: 'manual'
     })
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath: repoPath2,
       owner: 'acme',
       repo: 'gadget',
       number: 7,
-      url: 'https://github.com/acme/gadget/pull/7',
-      source: 'manual'
+      url: 'https://github.com/acme/gadget/pull/7'
     })
     // Neither binding's worktree is materialized, so a silent bindings[0] fallback here
     // would go unchecked and post to the wrong PR.
@@ -212,13 +231,12 @@ describe('resolveCommentTarget', () => {
       url: 'https://github.com/acme/widget/pull/42',
       source: 'manual'
     })
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath: repoPath2,
       owner: 'acme',
       repo: 'gadget',
       number: 7,
-      url: 'https://github.com/acme/gadget/pull/7',
-      source: 'manual'
+      url: 'https://github.com/acme/gadget/pull/7'
     })
     seedWorktreeFor(repoPath2, 7, 'a/b.ts')
     const id = finding('See [gadget/a/b.ts:5].')
@@ -240,13 +258,12 @@ describe('resolveCommentTarget', () => {
       url: 'https://github.com/acme/widget/pull/42',
       source: 'manual'
     })
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath,
       owner: 'acme',
       repo: 'widget',
       number: 43,
-      url: 'https://github.com/acme/widget/pull/43',
-      source: 'manual'
+      url: 'https://github.com/acme/widget/pull/43'
     })
     seedWorktree(42, 'src/guard.ts')
     const id = finding('See [widget/src/guard.ts:17].')
@@ -269,13 +286,12 @@ describe('resolveCommentTarget', () => {
       url: 'https://github.com/acme/widget/pull/42',
       source: 'manual'
     })
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath,
       owner: 'acme',
       repo: 'widget',
       number: 43,
-      url: 'https://github.com/acme/widget/pull/43',
-      source: 'manual'
+      url: 'https://github.com/acme/widget/pull/43'
     })
     seedWorktree(42, 'src/guard.ts')
     const id = finding('See [widget/src/guard.ts:17].')
@@ -316,13 +332,12 @@ describe('resolveCommentTarget', () => {
       url: 'https://github.com/acme/widget/pull/42',
       source: 'manual'
     })
-    addBinding(db, 'c1', {
+    bindDirect({
       repoPath: null,
       owner: 'acme',
       repo: 'gadget',
       number: 7,
-      url: 'https://github.com/acme/gadget/pull/7',
-      source: 'manual'
+      url: 'https://github.com/acme/gadget/pull/7'
     })
     seedWorktree(42, 'src/guard.ts')
     const id = finding('See [widget/src/guard.ts:17].')

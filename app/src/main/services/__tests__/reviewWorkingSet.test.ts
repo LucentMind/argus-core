@@ -38,9 +38,8 @@ beforeEach(() => {
 })
 
 describe('review working set', () => {
-  it('materializes once per binding that has a repoPath, and never for repoPath: null', async () => {
+  it('materializes the bound PR when it has a repoPath', async () => {
     bind(42, '/tmp/widget')
-    bind(43, null)
     const seen: number[] = []
     await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async (b) => {
@@ -49,6 +48,18 @@ describe('review working set', () => {
       }
     })
     expect(seen).toEqual([42])
+  })
+
+  it('never materializes a binding with repoPath: null', async () => {
+    bind(43, null)
+    const seen: number[] = []
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+      materialize: async (b) => {
+        seen.push(b.number)
+        return `/wt/widget-c1-pr${b.number}`
+      }
+    })
+    expect(seen).toEqual([])
   })
 
   it('does not materialize when switching to investigation', async () => {
@@ -76,15 +87,22 @@ describe('review working set', () => {
     ).toBe('review')
   })
 
-  it("writes each bound PR into the case's CLAUDE.md, with the worktree path when materialized", async () => {
+  it("writes the bound PR into the case's CLAUDE.md, with the worktree path when materialized", async () => {
     bind(42, '/tmp/widget')
-    bind(43, null)
     await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
       materialize: async (b) => `/wt/widget-c1-pr${b.number}`
     })
     const md = claudeMd()
     expect(md).toContain('acme/widget#42')
     expect(md).toContain('/wt/widget-c1-pr42')
+  })
+
+  it("writes the bound PR into CLAUDE.md without a worktree path when it isn't materialized", async () => {
+    bind(43, null)
+    await setCaseMode(db, home, 'c1', 'review', PROVIDER, {
+      materialize: async (b) => `/wt/widget-c1-pr${b.number}`
+    })
+    const md = claudeMd()
     // an unmaterialized binding is still listed — the agent falls back to `gh pr diff`
     expect(md).toContain('acme/widget#43')
     expect(md).not.toContain('/wt/widget-c1-pr43')
@@ -92,7 +110,6 @@ describe('review working set', () => {
 
   it('materializePrBindings is directly callable with the same contract (the picker path)', async () => {
     bind(42, '/tmp/widget')
-    bind(43, null)
     const seen: number[] = []
     await materializePrBindings(db, home, 'c1', async (b) => {
       seen.push(b.number)
