@@ -1,3 +1,6 @@
+import type { ReviewLayerId, ReviewSeverity } from './reviewLayers'
+import type { ModeId } from './modes'
+
 export interface ModelUsage {
   model: string
   inputTokens: number
@@ -51,6 +54,15 @@ export interface FindingRow {
   /** Finding body markdown (from findings.md, joined by id marker). Absent for
    *  legacy findings written before markers existed. */
   body?: string
+  /** Review flavor; null on investigation findings. */
+  layer: ReviewLayerId | null
+  severity: ReviewSeverity | null
+  /** Anchor parsed from the finding's first citation at write time. */
+  diffPath: string | null
+  diffLine: number | null
+  /** Derived from the finding's session (sessions.mode), never stored on the row.
+   *  A finding with no session reads as the default mode. */
+  mode: ModeId
 }
 
 export interface SkillUsageRow {
