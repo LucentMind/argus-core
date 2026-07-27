@@ -1,8 +1,11 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { PermissionMode } from '../../../shared/settings'
+import type { SystemPromptTransport } from '../../../shared/drivers'
 import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
+
+export type { SystemPromptTransport }
 
 export type DriverKind = 'claude-agent-sdk' | 'github-copilot' | 'codex' | 'cursor' | 'grok'
 
@@ -117,6 +120,10 @@ export interface DriverCapabilities {
    *  supports a plan-then-approve mode. Optional/absent where irrelevant (Claude enforces
    *  `acceptEdits`/`plan` internally without a distinct capability flag). */
   planMode?: boolean
+  /** Mirrors the shared DriverDefinition field (`shared/drivers.ts`): which wire field this
+   *  driver puts `DriverSessionContext.systemAppend` into. Each driver's contract test asserts
+   *  this flag, the shared flag, and the transport reported through `capturePrompt` all agree. */
+  systemPromptTransport: SystemPromptTransport
 }
 
 /** Inputs for a tool-less one-shot run with no case and no session (distillation).

@@ -28,6 +28,16 @@ export interface CatalogModel {
 }
 
 /**
+ * Which field of the underlying SDK/wire a driver puts Argus's composed system prompt into.
+ *
+ * `'none'` is a DECLARED DEGRADATION, not an omission: the harness still composes the text and
+ * the driver discards it. `'unknown'` exists only for `DEFAULT_CAPABILITIES`, where no driver
+ * has been resolved — claiming `'none'` there would assert a bug that may not exist.
+ */
+export type SystemPromptTransport =
+  'systemPrompt.append' | 'systemMessage.append' | 'developerInstructions' | 'none' | 'unknown'
+
+/**
  * Renderer-visible driver capabilities — a shared-layer mirror of the main-process
  * `AgentDriver.capabilities` (`main/services/agent/driver.ts`). Kept as an independent
  * copy deliberately: this file must never import from `main` (shared-layer rule), and the
@@ -46,6 +56,10 @@ export interface DriverCapabilities {
   /** Whether this driver can run a tool-less one-shot prompt with no case and no session.
    *  Explicit and required — unlike `mcpConnectors`, absence here means nothing. */
   headlessOneShot: boolean
+  /** Which wire field carries the composed system prompt. Explicit and required — like
+   *  `headlessOneShot` and unlike `mcpConnectors`, absence here would mean nothing, and the
+   *  point of this field is that a new driver cannot skip the question. */
+  systemPromptTransport: SystemPromptTransport
 }
 
 export interface DriverDefinition {
@@ -122,7 +136,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       permissionModes: PERMISSION_MODES,
       editableApprovals: true,
       costReporting: true,
-      headlessOneShot: true
+      headlessOneShot: true,
+      // options.systemPrompt = { type:'preset', preset:'claude_code', append: ctx.systemAppend }
+      systemPromptTransport: 'systemPrompt.append'
     }
   },
   'github-copilot': {
@@ -146,7 +162,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       costReporting: false,
       planMode: true,
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
-      headlessOneShot: true
+      headlessOneShot: true,
+      // sessionConfig.systemMessage = { mode:'append', content: ctx.systemAppend }
+      systemPromptTransport: 'systemMessage.append'
     }
   },
   codex: {
@@ -177,7 +195,9 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       editableApprovals: false,
       costReporting: false, // no dollar cost on the wire (contract §7) — matches main's driver
       planMode: true,
-      headlessOneShot: true
+      headlessOneShot: true,
+      // startParams.developerInstructions, omitted entirely when systemAppend is empty
+      systemPromptTransport: 'developerInstructions'
     }
   },
   cursor: {
@@ -201,7 +221,12 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       planMode: true,
       // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
       mcpConnectors: false,
-      headlessOneShot: false
+      headlessOneShot: false,
+      // KNOWN GAP, declared rather than hidden: ACP `newSession` takes no system prompt and the
+      // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
+      // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
+      // this declaration is what makes the loss visible instead of silent.
+      systemPromptTransport: 'none'
     }
   },
   grok: {
@@ -220,7 +245,12 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       planMode: true,
       // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
       mcpConnectors: false,
-      headlessOneShot: false
+      headlessOneShot: false,
+      // KNOWN GAP, declared rather than hidden: ACP `newSession` takes no system prompt and the
+      // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
+      // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
+      // this declaration is what makes the loss visible instead of silent.
+      systemPromptTransport: 'none'
     }
   }
 }
@@ -254,7 +284,9 @@ const DEFAULT_CAPABILITIES: DriverCapabilities = {
   permissionModes: PERMISSION_MODES,
   editableApprovals: false,
   costReporting: true,
-  headlessOneShot: false
+  headlessOneShot: false,
+  // No driver resolved, so we genuinely do not know. 'none' would be a claim, not a default.
+  systemPromptTransport: 'unknown'
 }
 
 /** An enabled provider instance paired with its resolved driver, in settings key order. */

@@ -8,6 +8,7 @@ import type { AgentEvent } from '../../../../shared/agent-events'
 import type { AgentDriver, DriverSessionContext } from '../driver'
 import type { NativeToolDeps } from '../nativeTools'
 import type { DatabaseSync } from 'node:sqlite'
+import { DRIVERS } from '../../../../shared/drivers'
 
 /**
  * A driver-agnostic description of what a scripted backend should do for a single
@@ -222,6 +223,17 @@ export function runDriverContractSuite(
       expect(resultAt).toBeGreaterThanOrEqual(0)
       expect(completedAt).toBeGreaterThanOrEqual(0)
       expect(resultAt).toBeLessThan(completedAt)
+    })
+
+    // 8. The shared catalog drives what the RENDERER can say about a driver; the main-side flag
+    //    drives what the session capture records. If they disagree, the dev page reports a
+    //    transport the session never used — the exact class of blindness this feature removes.
+    it('declares a systemPromptTransport that agrees with the shared catalog', () => {
+      const d = makeDriver()
+      expect(DRIVERS[d.kind]).toBeDefined()
+      expect(DRIVERS[d.kind].capabilities.systemPromptTransport).toBe(
+        d.capabilities.systemPromptTransport
+      )
     })
   })
 }

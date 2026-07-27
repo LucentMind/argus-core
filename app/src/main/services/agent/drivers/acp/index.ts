@@ -112,7 +112,12 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       planMode: true,
       // connectors not yet forwarded — toAcpMcpServers drops them; see session.mcp.skipped
       mcpConnectors: false,
-      headlessOneShot: false
+      headlessOneShot: false,
+      // KNOWN GAP, declared rather than hidden: ACP `newSession` takes no system prompt and the
+      // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
+      // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
+      // this declaration is what makes the loss visible instead of silent.
+      systemPromptTransport: 'none'
     },
 
     isAuthErrorMessage: isAcpAuthErrorMessage,
