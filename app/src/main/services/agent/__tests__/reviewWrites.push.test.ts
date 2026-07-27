@@ -52,6 +52,10 @@ beforeEach(() => {
 })
 
 function seedFinding(): number {
+  return seedFindingCiting('See [widget/src/guard.ts:17].')
+}
+
+function seedFindingCiting(markdown: string): number {
   return appendFinding(
     {
       db,
@@ -61,22 +65,38 @@ function seedFinding(): number {
       sessionId: 1,
       turnId: null
     },
-    { title: 'F', markdown: 'See [widget/src/guard.ts:17].', suggestedChange: 'flip it' }
+    { title: 'F', markdown, suggestedChange: 'flip it' }
   ).findingId
 }
 
-/** A git runner that answers each subcommand from a script and records the calls. */
-function scriptedGit(over: Partial<Record<string, string>> = {}): {
+/**
+ * A git runner that answers each subcommand from a script and records the calls (and the cwd
+ * each was run in, so multi-binding tests can prove the right worktree was touched).
+ *
+ * `!`-prefixed override values throw. `codes` lets a specific subcommand's thrown error carry
+ * an exit code other than 1 — real `git merge-base --is-ancestor` exits 1 only for "not an
+ * ancestor"; anything else (timeout, unresolvable sha) must propagate as a raw error instead of
+ * being reported as staleness.
+ */
+function scriptedGit(
+  over: Partial<Record<string, string>> = {},
+  codes: Partial<Record<string, number>> = {}
+): {
   git: GitRunner
   calls: string[][]
+  cwds: string[]
 } {
   const calls: string[][] = []
-  const git: GitRunner = async (_cwd, args) => {
+  const cwds: string[] = []
+  const git: GitRunner = async (cwd, args) => {
     calls.push(args)
+    cwds.push(cwd)
     const sub = args[0]
     if (sub in over) {
       const v = over[sub] as string
-      if (v.startsWith('!')) throw new Error(v.slice(1))
+      if (v.startsWith('!')) {
+        throw Object.assign(new Error(v.slice(1)), { code: codes[sub] ?? 1 })
+      }
       return v
     }
     if (sub === 'status') return ' M src/guard.ts'
@@ -84,7 +104,7 @@ function scriptedGit(over: Partial<Record<string, string>> = {}): {
     if (sub === 'rev-parse') return 'newsha1'
     return ''
   }
-  return { git, calls }
+  return { git, calls, cwds }
 }
 
 describe('pushReviewChange', () => {
@@ -117,7 +137,10 @@ describe('pushReviewChange', () => {
   })
 
   it('refuses when the worktree has nothing to commit', async () => {
-    const { git, calls } = scriptedGit({ status: '' })
+    // Clean AND at the PR's head sha (abc123, per ghOk/headJson) — genuinely nothing to do.
+    // Post-fix, "clean" alone isn't enough: a clean-but-ahead worktree (a prior commit whose
+    // push failed) has to fall through to a bare push instead — see the "ahead" test below.
+    const { git, calls } = scriptedGit({ status: '', 'rev-parse': 'abc123' })
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
         findingId: seedFinding(),
@@ -136,6 +159,36 @@ describe('pushReviewChange', () => {
       })
     ).rejects.toThrow(/behind PR #42/i)
     expect(calls.map((c) => c[0])).not.toContain('commit')
+  })
+
+  it('propagates a merge-base failure that is not exit code 1 as a raw error, not staleness', async () => {
+    const { git, calls } = scriptedGit(
+      { 'merge-base': '!fatal: unable to resolve ref feature/guard' },
+      { 'merge-base': 128 }
+    )
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingId: seedFinding(),
+        commitMessage: 'm'
+      })
+    ).rejects.toThrow(/unable to resolve ref/)
+    expect(calls.map((c) => c[0])).not.toContain('commit')
+  })
+
+  it('pushes without committing when the tree is clean but HEAD is already ahead of the PR head', async () => {
+    // Simulates a retry after a previous call committed locally but the push itself failed:
+    // clean tree, HEAD != the PR's last-seen head sha (abc123).
+    const { git, calls } = scriptedGit({ status: '', 'rev-parse': 'aheadsha1' })
+    const id = seedFinding()
+    const out = await pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+      findingId: id,
+      commitMessage: 'm'
+    })
+    expect(calls.map((c) => c[0])).not.toContain('add')
+    expect(calls.map((c) => c[0])).not.toContain('commit')
+    expect(calls).toContainEqual(['push', 'origin', 'HEAD:refs/heads/feature/guard'])
+    expect(out).toMatch(/aheadsha1/)
+    expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.pushedSha).toBe('aheadsha1')
   })
 
   it('refuses when the PR was never checked out locally', async () => {
@@ -161,6 +214,77 @@ describe('pushReviewChange', () => {
       })
     ).rejects.toThrow(/rejected/)
     expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.pushedSha).toBeNull()
+  })
+})
+
+describe('pushReviewChange — multi-binding disambiguation', () => {
+  /** Adds a second binding (gadget/#7) and returns its repoPath. Added AFTER widget/#42, so
+   *  listBindings (newest first) puts it at index 0 — any bindings[0] fallback would target
+   *  it, which is exactly the bug these tests guard against. */
+  function addSecondBinding(): string {
+    const repoPath2 = path.join(home, 'clones', 'gadget')
+    fs.mkdirSync(repoPath2, { recursive: true })
+    addBinding(db, 'c1', {
+      repoPath: repoPath2,
+      owner: 'acme',
+      repo: 'gadget',
+      number: 7,
+      url: 'https://github.com/acme/gadget/pull/7',
+      source: 'manual'
+    })
+    return repoPath2
+  }
+
+  it('refuses an ambiguous citation when two PRs are bound and neither name matches', async () => {
+    addSecondBinding()
+    const { git, calls } = scriptedGit()
+    const id = seedFindingCiting('See [other/src/x.ts:1].')
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingId: id,
+        commitMessage: 'm'
+      })
+    ).rejects.toThrow(/bound pull requests/i)
+    expect(calls).toEqual([])
+  })
+
+  it('pushes to the PR the citation names, not bindings[0]', async () => {
+    addSecondBinding()
+    const { git, cwds } = scriptedGit()
+    // gh discriminates by --repo so the resolved PR is provable, not assumed.
+    const gh: Runner = async (_cmd, args) => {
+      const repo = args[args.indexOf('--repo') + 1]
+      if (repo === 'acme/gadget') {
+        return JSON.stringify({
+          headRefName: 'gadget-branch',
+          headRefOid: 'gadgetsha',
+          isCrossRepository: false
+        })
+      }
+      return headJson()
+    }
+    const id = seedFindingCiting('See [widget/src/guard.ts:17].') // names widget/#42, not gadget/#7
+    const out = await pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
+      findingId: id,
+      commitMessage: 'm'
+    })
+    expect(out).toContain('#42')
+    expect(out).not.toContain('#7')
+    expect(out).toContain('feature/guard')
+    expect(cwds.every((c) => c === worktree)).toBe(true)
+  })
+
+  it('refuses an uncited finding when two PRs are bound, distinctly from a bad citation', async () => {
+    addSecondBinding()
+    const { git, calls } = scriptedGit()
+    const id = seedFindingCiting('No citation here at all.')
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingId: id,
+        commitMessage: 'm'
+      })
+    ).rejects.toThrow(/no citation/i)
+    expect(calls).toEqual([])
   })
 })
 

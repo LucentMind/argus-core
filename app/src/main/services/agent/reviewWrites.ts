@@ -75,6 +75,11 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
     text: 'This case has {count} bound pull requests and {path} does not name any of them ({repos}). Re-record the finding with a [<repo-name>/<path>:<line>] citation so the pull request is unambiguous.',
     placeholders: ['count', 'path', 'repos']
   },
+  'review_write.uncited-ambiguous': {
+    title: 'review writes — uncited finding, several bound PRs',
+    text: 'This case has {count} bound pull requests and this finding carries no citation, so there is no way to tell which one it belongs to ({repos}). Re-record it with a [<repo-name>/<path>:<line>] citation.',
+    placeholders: ['count', 'repos']
+  },
   'review_write.no-worktree': {
     title: 'review writes — PR has no local checkout',
     text: 'PR #{number} has no local checkout, so there is nothing to commit or push. Re-enter review mode to materialize it.',
@@ -163,6 +168,59 @@ export function worktreeFor(
 }
 
 /**
+ * Which bound PR a finding belongs to, from its citation's `<repo-name>/` prefix (if any).
+ * Shared by the comment path (which then strips the prefix and verifies the path exists in
+ * the worktree) and the push path (which needs neither — push's whole point can be deleting or
+ * renaming the cited file, and it has no anchor requirement to begin with).
+ *
+ * A null `diffPath` still resolves when there is exactly one binding: only the multi-binding
+ * case needs the citation to disambiguate. `named` tells the caller whether the prefix actually
+ * matched a binding (vs. falling back to the sole one).
+ */
+function resolveBindingForFinding(
+  deps: ReviewWriteDeps,
+  caseSlug: string,
+  diffPath: string | null
+): { binding: PrBinding; named: boolean } {
+  const bindings = listBindings(deps.db, caseSlug)
+  if (bindings.length === 0) throw new Error(wf(deps, 'review_write.no-binding'))
+
+  if (diffPath === null) {
+    if (bindings.length > 1) {
+      throw new Error(
+        wf(deps, 'review_write.uncited-ambiguous', {
+          count: String(bindings.length),
+          repos: bindings.map((b) => b.repo).join(', ')
+        })
+      )
+    }
+    return { binding: bindings[0], named: false }
+  }
+
+  const slash = diffPath.indexOf('/')
+  const head = slash > 0 ? diffPath.slice(0, slash) : ''
+  const named = head
+    ? bindings.find(
+        (b) =>
+          b.repo.toLowerCase() === head.toLowerCase() ||
+          (b.repoPath !== null && path.basename(b.repoPath).toLowerCase() === head.toLowerCase())
+      )
+    : undefined
+
+  if (!named && bindings.length > 1) {
+    throw new Error(
+      wf(deps, 'review_write.ambiguous-binding', {
+        count: String(bindings.length),
+        path: diffPath,
+        repos: bindings.map((b) => b.repo).join(', ')
+      })
+    )
+  }
+
+  return { binding: named ?? bindings[0], named: named !== undefined }
+}
+
+/**
  * A finding's `(PR, repo-relative path, line)`. The citation grammar the review persona is
  * told to use is `[<repo-name>/<path>:<line>]` (reviewRun.ts's triage step), but GitHub wants
  * a repo-relative path — so the first segment is stripped when it names the reviewed repo.
@@ -177,31 +235,10 @@ export function resolveCommentTarget(
   if (!row.diff_path || row.diff_line === null) {
     throw new Error(wf(deps, 'review_write.no-anchor', { id: String(findingId) }))
   }
-  const bindings = listBindings(deps.db, caseSlug)
-  if (bindings.length === 0) throw new Error(wf(deps, 'review_write.no-binding'))
+  const { binding, named } = resolveBindingForFinding(deps, caseSlug, row.diff_path)
 
   const slash = row.diff_path.indexOf('/')
-  const head = slash > 0 ? row.diff_path.slice(0, slash) : ''
   const rest = slash > 0 ? row.diff_path.slice(slash + 1) : row.diff_path
-  const named = head
-    ? bindings.find(
-        (b) =>
-          b.repo.toLowerCase() === head.toLowerCase() ||
-          (b.repoPath !== null && path.basename(b.repoPath).toLowerCase() === head.toLowerCase())
-      )
-    : undefined
-
-  if (!named && bindings.length > 1) {
-    throw new Error(
-      wf(deps, 'review_write.ambiguous-binding', {
-        count: String(bindings.length),
-        path: row.diff_path,
-        repos: bindings.map((b) => b.repo).join(', ')
-      })
-    )
-  }
-
-  const binding = named ?? bindings[0]
   const repoRelPath = named ? rest : row.diff_path
   const worktree = worktreeFor(deps, caseSlug, binding)
   if (worktree && !fs.existsSync(path.join(worktree, repoRelPath))) {
@@ -260,6 +297,15 @@ const GIT_PUSH_TIMEOUT_MS = 120_000
 const GIT_TIMEOUT_MS = 30_000
 
 /**
+ * `git merge-base --is-ancestor` exits 1 specifically for "not an ancestor" — every other
+ * non-zero exit (a timeout, an unresolvable sha) is a real error and must not be reported as
+ * staleness, which would send the user to "re-enter review mode" for an unrelated problem.
+ */
+function gitExitCode(err: unknown): number | string | undefined {
+  return (err as { code?: number | string } | undefined)?.code
+}
+
+/**
  * Commit the PR worktree and push it to the PR's head branch (spec §6's HIGH write).
  *
  * The worktree is checked out DETACHED at `refs/argus/pr/<n>` (prWorktree.ts), so there is no
@@ -267,19 +313,23 @@ const GIT_TIMEOUT_MS = 30_000
  * is git's answer to a race we must not win, and it is surfaced verbatim.
  *
  * Guards run in cost order and each fails before the next does any work: ownership, a local
- * checkout, fork, a dirty tree, and staleness. The staleness check exists because a stale
- * worktree that somehow fast-forwards would silently drop commits pushed to the PR since we
- * fetched it.
+ * checkout, fork, and staleness. Staleness is checked before "is there anything to do" because
+ * that answer needs the ancestry check anyway (a clean worktree that is ahead of the PR head
+ * still has something to push — see below) — a stale worktree that somehow fast-forwards would
+ * silently drop commits pushed to the PR since we fetched it.
+ *
+ * Commit and push are separate steps rather than one atomic "commit-then-push": if a previous
+ * call committed locally but the push itself failed (rejected, network drop), the worktree is
+ * clean AND ahead of the last-seen PR head. Re-running must not mistake that for "nothing to
+ * do" (the dirty-tree guard) — it commits nothing and retries only the push.
  */
 export async function pushReviewChange(
   deps: ReviewWriteDeps,
   caseSlug: string,
   input: { findingId: number; commitMessage: string }
 ): Promise<string> {
-  findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
-  const bindings = listBindings(deps.db, caseSlug)
-  if (bindings.length === 0) throw new Error(wf(deps, 'review_write.no-binding'))
-  const binding = bindings[0]
+  const row = findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
+  const { binding } = resolveBindingForFinding(deps, caseSlug, row.diff_path)
   const worktree = worktreeFor(deps, caseSlug, binding)
   if (!worktree) {
     throw new Error(wf(deps, 'review_write.no-worktree', { number: String(binding.number) }))
@@ -292,14 +342,13 @@ export async function pushReviewChange(
   }
 
   const git = deps.git ?? defaultGitRunner
-  const dirty = await git(worktree, ['status', '--porcelain'], { timeoutMs: GIT_TIMEOUT_MS })
-  if (!dirty.trim()) throw new Error(wf(deps, 'review_write.nothing-to-push'))
 
   try {
     await git(worktree, ['merge-base', '--is-ancestor', head.sha, 'HEAD'], {
       timeoutMs: GIT_TIMEOUT_MS
     })
-  } catch {
+  } catch (err) {
+    if (gitExitCode(err) !== 1) throw err
     throw new Error(
       wf(deps, 'review_write.stale-worktree', {
         number: String(binding.number),
@@ -308,9 +357,19 @@ export async function pushReviewChange(
     )
   }
 
-  await git(worktree, ['add', '-A'], { timeoutMs: GIT_TIMEOUT_MS })
-  await git(worktree, ['commit', '-m', input.commitMessage], { timeoutMs: GIT_TIMEOUT_MS })
-  const sha = await git(worktree, ['rev-parse', 'HEAD'], { timeoutMs: GIT_TIMEOUT_MS })
+  let sha = await git(worktree, ['rev-parse', 'HEAD'], { timeoutMs: GIT_TIMEOUT_MS })
+  const dirty = await git(worktree, ['status', '--porcelain'], { timeoutMs: GIT_TIMEOUT_MS })
+
+  if (!dirty.trim() && sha === head.sha) {
+    throw new Error(wf(deps, 'review_write.nothing-to-push'))
+  }
+
+  if (dirty.trim()) {
+    await git(worktree, ['add', '-A'], { timeoutMs: GIT_TIMEOUT_MS })
+    await git(worktree, ['commit', '-m', input.commitMessage], { timeoutMs: GIT_TIMEOUT_MS })
+    sha = await git(worktree, ['rev-parse', 'HEAD'], { timeoutMs: GIT_TIMEOUT_MS })
+  }
+
   await git(worktree, ['push', 'origin', `HEAD:refs/heads/${head.ref}`], {
     timeoutMs: GIT_PUSH_TIMEOUT_MS
   })
