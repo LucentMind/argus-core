@@ -169,7 +169,11 @@ export async function inspectBundle(
   argusHome: string,
   zipPath: string
 ): Promise<BundleInspection> {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'arguscase-inspect-'))
+  // realpathSync for the same reason importCase does it: os.tmpdir() is /var/folders/…
+  // on macOS, a symlink into /private/var, and zip-lib compares an extracted file's
+  // realpath against the unresolved target — so its guard rejects manifest.json as
+  // "outside" a folder it is plainly inside, and no bundle can be inspected at all.
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'arguscase-inspect-')))
   try {
     await extract(zipPath, tmp, {
       onEntry: (e) => {
