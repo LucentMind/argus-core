@@ -12,9 +12,12 @@ import { applyMemoryWrite } from '../../memory'
 import { createDetection } from '../../packs/detection'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
-import type { AgentDriver } from '../driver'
+import type { AgentDriver, DriverSession, DriverSessionContext } from '../driver'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { DatabaseSync } from 'node:sqlite'
+import { compileLayerAgents } from '../reviewSubagents'
+import { REVIEW_LAYER_ORDER } from '../../../../shared/reviewLayers'
+import { PERMISSION_MODES } from '../../../../shared/settings'
 
 interface FakeSdk {
   messages: AsyncQueue<unknown>
@@ -431,7 +434,8 @@ describe('CaseSession', () => {
         editableApprovals: true,
         costReporting: true,
         headlessOneShot: false,
-        systemPromptTransport: 'systemPrompt.append'
+        systemPromptTransport: 'systemPrompt.append',
+        subagents: 'promptable'
       },
       createSession: () => ({
         events: () => eventQueue,
@@ -1080,6 +1084,48 @@ describe('CaseSession', () => {
         decision: 'observed'
       })
     ])
+    await s.stop('stopped')
+  })
+
+  // Finding 6 (layered-review review): session.subagents.test.ts covers the pure
+  // subagentsForSession, and the driver tests cover ctx → driver options, but nothing in
+  // between proved CaseSession actually threads the compiled agents onto the
+  // DriverSessionContext the driver receives — every driver-facing ctx literal elsewhere in
+  // this file passes `subagents: []`, so a regression that hardcoded session.ts's real value
+  // to `[]` would typecheck and pass the whole suite silently.
+  it('threads the four compiled layer agents onto the DriverSessionContext in review mode on a configurable driver', async () => {
+    const sdk = fakeSdk()
+    let captured: DriverSessionContext | undefined
+    const configurableStubDriver: AgentDriver = {
+      kind: 'claude-agent-sdk',
+      toolTaxonomy: CLAUDE_TOOL_TAXONOMY,
+      authFixHint: 'stub',
+      capabilities: {
+        permissionModes: PERMISSION_MODES,
+        editableApprovals: true,
+        costReporting: true,
+        headlessOneShot: false,
+        systemPromptTransport: 'systemPrompt.append',
+        subagents: 'configurable'
+      },
+      createSession(ctx): DriverSession {
+        captured = ctx
+        const queue = new AsyncQueue<AgentEvent>()
+        return {
+          events: () => queue,
+          send: () => {},
+          interrupt: async () => queue.end(),
+          end: () => queue.end()
+        }
+      },
+      probeAuth: async () => ({ ok: true, detail: '' })
+    }
+    const s = makeSession(sdk, { driver: configurableStubDriver, mode: 'review' })
+    expect(captured).toBeDefined()
+    expect(captured!.subagents).toEqual(compileLayerAgents(REVIEW_LAYER_ORDER))
+    expect(captured!.subagents.map((d) => d.name)).toEqual(
+      REVIEW_LAYER_ORDER.map((id) => `review-${id}`)
+    )
     await s.stop('stopped')
   })
 })

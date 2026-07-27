@@ -51,6 +51,7 @@ export type AgentEvent = AgentEventBase &
         payload: { requestId: string; decision: 'allow' | 'allow-session' | 'deny' | 'cancelled' }
       }
     | { type: 'case.finding.added'; payload: { markdown: string } }
+    | { type: 'case.finding.updated'; payload: { findingId: number } }
     | { type: 'case.evidence.ingested'; payload: { evidenceId: number; relPath: string } }
     | { type: 'session.mcp.skipped'; payload: { instanceId: string; reason: string } }
     | {

@@ -1,19 +1,10 @@
-/** Citation grammar: [<path>:<linespec>], where <linespec> is one or more
- *  comma-separated line numbers or `start-end` ranges (e.g. `10`, `5-8`,
- *  `43,56`, `11123-11124,11139`). The path is colon-free but MAY contain spaces
- *  and single-level `[..]` groups — derived-evidence filenames legitimately look
- *  like `evidence/.derived/..._[20210311-015]_PO 512 T ....DemoTrace.zip.txt`.
- *  The path alternation never crosses a stray `[`/`]`, so prose log fragments
- *  such as `[nav-sdk]` or `[IgnoredRoute(...)]` are left alone and, crucially,
- *  cannot swallow a real citation that follows them.
- *  Whether a matched bracket IS a citation is then decided per call:
+import { makeCitationRe } from '../../../shared/citations'
+
+/** Whether a matched bracket IS a citation is decided per call:
  *  - static domain: case files (evidence/, findings.md, .rca/)
  *  - dynamic domain: linked workspace repos — the first path segment matches a
  *    repo name supplied by the caller (per case).
  *  Anything else stays plain text. */
-const PATH_SUB = String.raw`(?:[^\[\]:]|\[[^\[\]]*\])+`
-const LINESPEC_SUB = String.raw`\d+(?:-\d+)?(?:,\s*\d+(?:-\d+)?)*`
-const CANDIDATE_RE = new RegExp(String.raw`\[(${PATH_SUB}):(${LINESPEC_SUB})\](?!\()`, 'g')
 const STATIC_PREFIX_RE = /^(?:evidence\/|findings\.md|\.rca\/)/
 
 /** What a citation points at, with an inclusive line range (end === start for
@@ -61,7 +52,7 @@ function parseLineSpec(spec: string): { start: number; end: number } | null {
 
 export function linkifyCitations(markdown: string, repoNames: readonly string[] = []): string {
   const names = toRepoNameSet(repoNames)
-  return markdown.replace(CANDIDATE_RE, (m, p: string, spec: string) => {
+  return markdown.replace(makeCitationRe(), (m, p: string, spec: string) => {
     if (classifyCitePath(p, names) === null) return m
     const range = parseLineSpec(spec)
     if (!range) return m
@@ -91,7 +82,7 @@ export type CiteSegment =
  */
 export function splitCitations(text: string, repoNames: readonly string[] = []): CiteSegment[] {
   const names = toRepoNameSet(repoNames)
-  const re = new RegExp(CANDIDATE_RE.source, 'g') // fresh instance: global regexes are stateful
+  const re = makeCitationRe() // fresh instance: global regexes are stateful
   const out: CiteSegment[] = []
   let last = 0
   let m: RegExpExecArray | null

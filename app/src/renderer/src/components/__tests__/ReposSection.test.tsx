@@ -3,8 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ReposSection } from '../ReposSection'
+import { confirm } from '../../lib/confirmStore'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 beforeEach(() => {
+  vi.mocked(confirm).mockReset().mockResolvedValue(true)
   window.argus = {
     workspaces: {
       list: vi.fn(async () => [
@@ -79,6 +86,133 @@ describe('ReposSection pull requests', () => {
     await waitFor(() =>
       expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#16315')
     )
+    // no PR was bound yet, so replacing nothing needs no confirmation
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  // addBinding replaces rather than adds: linking a second PR over an already-bound one
+  // silently retargets any existing findings' comment/push actions unless the user is warned.
+  describe('replacing an already-bound PR', () => {
+    async function openDraftAndSubmit(value: string): Promise<void> {
+      render(<ReposSection slug="C-1" />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+      const box = screen.getByPlaceholderText(/pr url/i)
+      fireEvent.change(box, { target: { value } })
+      fireEvent.submit(box)
+    }
+
+    it('raises a confirm naming the current and new pull request', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: expect.stringContaining('JiaweiHan88/hivemindtest#16315')
+        })
+      )
+      expect(vi.mocked(confirm).mock.calls[0][0].title).toContain('JiaweiHan88/hivemindtest#99')
+    })
+
+    it('declining leaves the binding untouched and calls no IPC', async () => {
+      vi.mocked(confirm).mockResolvedValue(false)
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      // give any (incorrect) fire-and-forget link() call a chance to have happened
+      await new Promise((r) => setTimeout(r, 0))
+      expect(prApi().link).not.toHaveBeenCalled()
+    })
+
+    it('accepting proceeds to link the new pull request', async () => {
+      vi.mocked(confirm).mockResolvedValue(true)
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() =>
+        expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#99')
+      )
+    })
+
+    // Re-review fix: `linkingPr` (and so the disabled input) now gates BEFORE the confirm
+    // await, matching the restructuring PrPickerDialog's `confirm()` got this round — a
+    // double-click could otherwise race the await and raise the confirm dialog twice.
+    it('disables the input while the replace-confirm itself is pending, not just the link', async () => {
+      let resolveConfirm!: (v: boolean) => void
+      vi.mocked(confirm).mockImplementation(() => new Promise((r) => (resolveConfirm = r)))
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      expect(screen.getByPlaceholderText(/linking/i)).toBeDisabled()
+
+      resolveConfirm(true)
+      await waitFor(() =>
+        expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#99')
+      )
+    })
+  })
+
+  // Re-review fix: retyping the ALREADY-bound PR (a no-op for addBinding, which is
+  // idempotent on identity) must not scare the user with a "replace" warning about
+  // findings retargeting — nothing retargets when the identity doesn't change.
+  describe('re-linking the SAME pull request', () => {
+    async function openDraftAndSubmit(value: string): Promise<void> {
+      render(<ReposSection slug="C-1" />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+      const box = screen.getByPlaceholderText(/pr url/i)
+      fireEvent.change(box, { target: { value } })
+      fireEvent.submit(box)
+    }
+
+    it('no confirm for the canonical url spelling', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit(BINDING.url)
+      await waitFor(() => expect(prApi().link).toHaveBeenCalledWith('C-1', BINDING.url))
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('no confirm for the owner/repo#n spelling', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#16315')
+      await waitFor(() =>
+        expect(prApi().link).toHaveBeenCalledWith('C-1', 'JiaweiHan88/hivemindtest#16315')
+      )
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('still confirms a spelling of a genuinely different pull request', async () => {
+      prApi().list = vi.fn(async () => [BINDING])
+      await openDraftAndSubmit('JiaweiHan88/hivemindtest#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  // Re-review fix: pr:link now runs a git fetch + worktree add unconditionally (see
+  // prLink.ts), not just a DB write — the input must show it is busy and refuse a second
+  // submit while the first is still in flight.
+  it('disables the input while a link is in flight and re-enables after', async () => {
+    let resolveLink: (() => void) | undefined
+    prApi().link = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLink = resolve
+        })
+    )
+    render(<ReposSection slug="C-1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'JiaweiHan88/hivemindtest#16315' } })
+    fireEvent.submit(box)
+    await waitFor(() => expect(box).toBeDisabled())
+
+    // a second submit while linking is in flight must not fire a second IPC call
+    fireEvent.change(box, { target: { value: 'JiaweiHan88/hivemindtest#77' } })
+    fireEvent.submit(box)
+    expect(prApi().link).toHaveBeenCalledTimes(1)
+
+    // a successful link clears the draft and closes the form (setPrDraft(null)), so the
+    // input itself unmounts — assert re-enablement indirectly via the form disappearing
+    // rather than the (by-then-detached) input node.
+    resolveLink!()
+    await waitFor(() => expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull())
   })
 
   // The only way to reopen the picker once PRs are bound, and the recovery path for a

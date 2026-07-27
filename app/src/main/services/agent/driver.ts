@@ -1,9 +1,10 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { PermissionMode } from '../../../shared/settings'
-import type { SystemPromptTransport } from '../../../shared/drivers'
+import type { SubagentSupport, SystemPromptTransport } from '../../../shared/drivers'
 import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
+import type { SubagentDefinition } from './reviewSubagents'
 
 export type { SystemPromptTransport }
 
@@ -43,6 +44,12 @@ export interface DriverSessionContext {
    * back to the CLI's discover-everything default.
    */
   skills: readonly string[]
+  /**
+   * Review layer agents this session may delegate to (services/agent/reviewSubagents.ts).
+   * Always present; empty means "register nothing" — investigation mode, or a driver whose
+   * `subagents` capability is 'promptable'. A driver that cannot register agents ignores it.
+   */
+  subagents: readonly SubagentDefinition[]
   model?: string
   cliPath?: string
   permissionMode: PermissionMode
@@ -136,6 +143,8 @@ export interface DriverCapabilities {
    *  driver puts `DriverSessionContext.systemAppend` into. Each driver's contract test asserts
    *  this flag, the shared flag, and the transport reported through `capturePrompt` all agree. */
   systemPromptTransport: SystemPromptTransport
+  /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
+  subagents: SubagentSupport
 }
 
 /** Inputs for a tool-less one-shot run with no case and no session (distillation).

@@ -1,10 +1,20 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { ChevronRight, PanelRight, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react'
+import {
+  ChevronRight,
+  GitCommitVertical,
+  MessageSquarePlus,
+  PanelRight,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2
+} from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
+import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
+import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
@@ -33,6 +43,9 @@ export function FindingsPane({
   const [findings, setFindings] = useState<FindingRow[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
+  const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actingId, setActingId] = useState<number | null>(null)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -58,6 +71,26 @@ export function FindingsPane({
     setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, reviewState: state } : f)))
   }
 
+  /**
+   * Composition happens in main (it owns the PR binding and the worktree path) and the composed
+   * text goes out through the ordinary agent.send path — the same shape as ReviewRunButton, so
+   * cancel/queue/mirror behave exactly as they do for a typed message. The actual write is
+   * gated later, at the approval card the agent's tool call raises.
+   */
+  async function runAction(id: number, action: 'comment' | 'apply'): Promise<void> {
+    if (sessionId === null || actingId !== null) return
+    setActingId(id)
+    setActionError(null)
+    try {
+      const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, id, action)
+      await window.argus.agent.send(slug, sessionId, prompt)
+    } catch (err) {
+      setActionError((err as Error).message)
+    } finally {
+      setActingId(null)
+    }
+  }
+
   async function clearAll(): Promise<void> {
     const count = findings.length
     const ok = await confirm({
@@ -80,6 +113,29 @@ export function FindingsPane({
 
   // the seeded file is just "# Findings — <slug>" — nothing worth clearing
   const hasBody = md.split('\n').some((l) => l.trim() !== '' && !/^#\s/.test(l.trim()))
+
+  // Most-severe first, matching how the review persona is told to rank. Unflavored
+  // (investigation) findings sort after every severity, then newest-first as before — the list
+  // query already returns id DESC, so a stable sort preserves that inside each bucket.
+  const SEVERITY_RANK: Record<string, number> = { critical: 0, major: 1, minor: 2 }
+  const rank = (f: FindingRow): number =>
+    f.severity ? SEVERITY_RANK[f.severity] : Object.keys(SEVERITY_RANK).length
+
+  // Chips for layers actually present: a filter for a layer with no findings is a dead control.
+  const presentLayers = REVIEW_LAYER_ORDER.filter((id) => findings.some((f) => f.layer === id))
+  const layerCounts = new Map(
+    presentLayers.map((id) => [id, findings.filter((f) => f.layer === id).length])
+  )
+  // Derived, not authoritative: layerFilter is only state that *asked* to filter. If the
+  // finding set changes underneath it (session/mode switch, clear-all, a new run — this pane
+  // instance has no key and survives all of those) and the requested layer is no longer
+  // present, the filter self-clears here with no extra effect and no dead-end empty state.
+  const effectiveFilter =
+    layerFilter !== null && presentLayers.includes(layerFilter) ? layerFilter : null
+  const shown = findings
+    .filter((f) => effectiveFilter === null || f.layer === effectiveFilter)
+    .slice()
+    .sort((a, b) => rank(a) - rank(b))
 
   return (
     <div className="flex flex-col gap-2">
@@ -109,9 +165,32 @@ export function FindingsPane({
         </div>
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
-      {findings.length > 0 ? (
+      {actionError && <p className="text-xs text-danger">{actionError}</p>}
+      {/* A count suffix (the same "field · value" idiom as the " · sess N" tag below) makes
+          the chip read as a control with its own state, not a copy of the finding badge. */}
+      {presentLayers.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {presentLayers.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={`Filter · ${REVIEW_LAYERS[id].label}`}
+              aria-pressed={effectiveFilter === id}
+              onClick={() => setLayerFilter(effectiveFilter === id ? null : id)}
+              className={`rounded-r1 border px-1.5 py-0.5 text-[10px] transition-colors ${
+                effectiveFilter === id
+                  ? 'border-signal bg-signal/15 text-ink'
+                  : 'border-hair2 text-mute hover:text-ink'
+              }`}
+            >
+              {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown.length > 0 ? (
         <ul className="flex flex-col gap-2">
-          {findings.map((f) => {
+          {shown.map((f) => {
             const open = expandedId === f.id
             const accepted = f.reviewState === 'accepted'
             const rejected = f.reviewState === 'rejected'
@@ -157,7 +236,75 @@ export function FindingsPane({
                     {formatWhen(f.createdAt)}
                     {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
                   </span>
+                  {f.layer && (
+                    <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
+                      {REVIEW_LAYERS[f.layer].label}
+                    </span>
+                  )}
+                  {f.severity && (
+                    <span
+                      className={`rounded-r1 px-1 text-[10px] ${
+                        f.severity === 'critical'
+                          ? 'bg-danger/15 text-danger'
+                          : f.severity === 'major'
+                            ? 'bg-signal/15 text-ink'
+                            : 'text-mute'
+                      }`}
+                    >
+                      {f.severity}
+                    </span>
+                  )}
+                  {f.commentUrl && (
+                    <a
+                      href={f.commentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+                    >
+                      commented
+                    </a>
+                  )}
+                  {f.pushedSha && (
+                    <span
+                      title={`Pushed ${f.pushedSha}`}
+                      className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
+                    >
+                      {f.pushedSha.slice(0, 7)}
+                    </span>
+                  )}
                   <span className="flex-1" />
+                  {f.mode === 'review' && (
+                    <>
+                      <button
+                        aria-label="Post as PR comment"
+                        title={
+                          f.diffPath
+                            ? 'Post this finding as an inline PR comment'
+                            : 'No diff anchor — this finding cannot be an inline comment'
+                        }
+                        disabled={sessionId === null || actingId !== null || !f.diffPath}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                        onClick={() => void runAction(f.id, 'comment')}
+                      >
+                        <MessageSquarePlus size={13} />
+                      </button>
+                      <button
+                        aria-label="Apply change and push"
+                        title={
+                          !f.diffPath
+                            ? 'No diff anchor — this finding cites no code to change'
+                            : f.suggestedChange
+                              ? 'Apply the suggested change in the PR worktree and push it'
+                              : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
+                        }
+                        disabled={sessionId === null || actingId !== null || !f.diffPath}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                        onClick={() => void runAction(f.id, 'apply')}
+                      >
+                        <GitCommitVertical size={13} />
+                      </button>
+                    </>
+                  )}
                   <button
                     aria-label="Mark finding good"
                     aria-pressed={accepted}
@@ -190,7 +337,9 @@ export function FindingsPane({
           })}
         </ul>
       ) : (
-        <p className="text-xs text-mute">No findings yet.</p>
+        <p className="text-xs text-mute">
+          {findings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
+        </p>
       )}
     </div>
   )

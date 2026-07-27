@@ -116,6 +116,7 @@ function makeCtx(overrides: Partial<DriverSessionContext> = {}): DriverSessionCo
     caseDir: '/tmp/case',
     additionalDirectories: [],
     skills: [],
+    subagents: [],
     permissionMode: 'default',
     systemAppend: 'PERSONA',
     extraMcpServers: {},
@@ -142,7 +143,8 @@ describe('createAcpDriver — capabilities + auth predicate', () => {
       planMode: true,
       mcpConnectors: false,
       headlessOneShot: false,
-      systemPromptTransport: 'none'
+      systemPromptTransport: 'none',
+      subagents: 'promptable'
     })
     expect(Object.keys(d.toolTaxonomy.entries).sort()).toEqual(['fetch', 'read', 'shell', 'write'])
     expect(d.runHeadless).toBeUndefined()

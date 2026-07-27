@@ -195,6 +195,7 @@ export class AgentStore {
             }
           }
         case 'case.finding.added':
+        case 'case.finding.updated':
           return { ...s, findingsBump: s.findingsBump + 1 }
         case 'session.error':
           return { ...s, sessionNote: `Session error: ${e.payload.message}` }
