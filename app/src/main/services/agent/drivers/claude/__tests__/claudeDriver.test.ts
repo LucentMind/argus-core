@@ -196,6 +196,49 @@ describe('createClaudeDriver', () => {
     )
   })
 
+  it('omits the agents key when no subagents are configured', () => {
+    const spy = vi.fn(fakeQuery([]))
+    createClaudeDriver(spy).createSession(baseCtx())
+    const options = spy.mock.calls[0][0].options as Record<string, unknown>
+    expect('agents' in options).toBe(false)
+    expect(options.agents).toBeUndefined()
+  })
+
+  it('includes agents in options when subagents are configured', () => {
+    const spy = vi.fn(fakeQuery([]))
+    const ctx = {
+      ...baseCtx(),
+      subagents: [
+        {
+          name: 'review-security',
+          description: 'when auth changes',
+          prompt: 'SECURITY_REVIEW_PROMPT',
+          tools: ['read', 'search']
+        },
+        {
+          name: 'test-analyzer',
+          description: 'for test failures',
+          prompt: 'TEST_PROMPT',
+          tools: ['execute']
+        }
+      ]
+    }
+    createClaudeDriver(spy).createSession(ctx)
+    const options = spy.mock.calls[0][0].options as Record<string, unknown>
+    expect(options.agents).toEqual({
+      'review-security': {
+        description: 'when auth changes',
+        prompt: 'SECURITY_REVIEW_PROMPT',
+        tools: ['Read', 'Grep', 'Glob']
+      },
+      'test-analyzer': {
+        description: 'for test failures',
+        prompt: 'TEST_PROMPT',
+        tools: ['Bash']
+      }
+    })
+  })
+
   it('flags auth-shaped failed turns', async () => {
     const ctx = baseCtx()
     const driver = createClaudeDriver(
