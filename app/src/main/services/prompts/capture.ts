@@ -19,7 +19,9 @@ const DEFAULT_MAX_PER_CASE = 50
  *  cross-case summary the dev page renders in one screen. Reusing the per-case number as the
  *  global cap silently hid most of the history once more than a couple of cases had captures —
  *  four cases at 50 each already means 150 of 200 records were invisible. 250 keeps truncation
- *  rare without making the dev page read every capture file on a large install. */
+ *  rare while bounding what crosses IPC and what the page renders at once. It does NOT bound the
+ *  I/O: `list` reads and parses every capture file before slicing, so raising this changes the
+ *  payload, never the scan cost. */
 const DEFAULT_LIST_LIMIT = 250
 
 /** Case slugs reach `read` straight off IPC, which is untyped at runtime. Slugs are generated
@@ -97,7 +99,9 @@ export class PromptCaptureStore {
       fs.writeFileSync(file, JSON.stringify(c, null, 2), 'utf8')
       this.evict(dir)
     } catch (err) {
-      console.warn(`[prompts] failed to write capture ${file}:`, err)
+      // `evict` is inside the try too, so this covers a failed eviction as well as a failed
+      // write — hence "record", not "write": the file may well be on disk.
+      console.warn(`[prompts] failed to record capture ${file}:`, err)
     }
   }
 
