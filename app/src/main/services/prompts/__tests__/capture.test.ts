@@ -79,6 +79,27 @@ describe('PromptCaptureStore — record and read back', () => {
     expect(store.read('../../config', 1)).toBeNull()
     expect(() => store.record(capture({ caseSlug: '../escape' }))).toThrow(/case slug/i)
   })
+
+  it('refuses a bare ".." or "." case slug even though it matches the character class', () => {
+    // SAFE_SLUG allows `.`, so a dots-only slug passes the regex; `path.join(root, '..')`
+    // still escapes the capture dir entirely, so it needs its own explicit rejection.
+    const store = new PromptCaptureStore({ devTools: true, argusHome: home })
+    expect(store.read('..', 1)).toBeNull()
+    expect(store.read('.', 1)).toBeNull()
+    expect(() => store.record(capture({ caseSlug: '..' }))).toThrow(/case slug/i)
+    expect(() => store.record(capture({ caseSlug: '.' }))).toThrow(/case slug/i)
+  })
+
+  it('refuses a non-integer, negative, or non-finite session id', () => {
+    // sessionId is interpolated straight into a path segment with no other sanitization, and
+    // (like caseSlug) arrives off IPC untyped at runtime.
+    const store = new PromptCaptureStore({ devTools: true, argusHome: home })
+    store.record(capture({ sessionId: 1 }))
+    for (const bad of ['../../config' as unknown as number, -1, 1.5, NaN, Infinity]) {
+      expect(store.read('c-1', bad)).toBeNull()
+      expect(() => store.record(capture({ sessionId: bad }))).toThrow(/session id/i)
+    }
+  })
 })
 
 describe('PromptCaptureStore — ring buffer', () => {
