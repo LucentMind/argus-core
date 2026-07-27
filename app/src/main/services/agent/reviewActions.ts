@@ -38,7 +38,7 @@ The finding says:
 
 {body}
 
-Suggested change: {suggestedChange}
+{suggestedChange}
 
 Work in the PR worktree at {worktreePath} — that checkout IS the pull request's head; nothing
 you do elsewhere reaches the PR. Steps, in order:
@@ -88,8 +88,11 @@ export function buildReviewActionPrompt(opts: {
     body: opts.body,
     // A finding with no suggested change is still applicable — the agent derives the fix from
     // the body — but it must be told that, not handed an empty line that reads as a mistake.
-    suggestedChange:
-      opts.suggestedChange ?? 'no suggested change recorded — derive the fix from the finding.',
+    // The placeholder carries the WHOLE line (not just a value appended to a label) so the
+    // no-suggestion case doesn't read back as "Suggested change: no suggested change...".
+    suggestedChange: opts.suggestedChange
+      ? `Suggested change: ${opts.suggestedChange}`
+      : 'This finding records no suggested change — derive the fix from the finding body.',
     anchor: opts.anchor,
     prUrl: opts.prUrl,
     worktreePath: opts.worktreePath ?? '(no local checkout — re-enter review mode first)'
