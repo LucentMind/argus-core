@@ -117,7 +117,8 @@ export function createCodexDriver(
       editableApprovals: false, // the approval decision reply carries no edited input
       costReporting: false, // no cost field anywhere on this wire (contract §7) — token counts only
       headlessOneShot: true, // runHeadless is present, below
-      systemPromptTransport: 'developerInstructions'
+      systemPromptTransport: 'developerInstructions',
+      subagents: 'promptable'
     },
 
     runHeadless: (prompt, opts) => runCodexHeadless(prompt, opts, clientFactory, config.cliPath),

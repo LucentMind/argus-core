@@ -431,7 +431,8 @@ describe('CaseSession', () => {
         editableApprovals: true,
         costReporting: true,
         headlessOneShot: false,
-        systemPromptTransport: 'systemPrompt.append'
+        systemPromptTransport: 'systemPrompt.append',
+        subagents: 'promptable'
       },
       createSession: () => ({
         events: () => eventQueue,

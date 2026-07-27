@@ -38,6 +38,16 @@ export type SystemPromptTransport =
   'systemPrompt.append' | 'systemMessage.append' | 'developerInstructions' | 'none' | 'unknown'
 
 /**
+ * How a driver can host review layer subagents (see services/agent/reviewSubagents.ts).
+ * - 'configurable': Argus can register named agents with their own prompt and tool allowlist
+ *   (Claude SDK `agents`; Copilot `customAgents`).
+ * - 'promptable': the backend delegates internally but exposes no registration surface, so the
+ *   layer text is inlined into the main turn instead (Codex app-server; ACP has no agent
+ *   concept at all — verified against @zed-industries/agent-client-protocol's schema).
+ */
+export type SubagentSupport = 'configurable' | 'promptable'
+
+/**
  * Renderer-visible driver capabilities — a shared-layer mirror of the main-process
  * `AgentDriver.capabilities` (`main/services/agent/driver.ts`). Kept as an independent
  * copy deliberately: this file must never import from `main` (shared-layer rule), and the
@@ -59,7 +69,9 @@ export interface DriverCapabilities {
   /** Which wire field carries the composed system prompt. Explicit and required — like
    *  `headlessOneShot` and unlike `mcpConnectors`, absence here would mean nothing, and the
    *  point of this field is that a new driver cannot skip the question. */
-  systemPromptTransport: SystemPromptTransport
+  systemPromptTransport: SystemPromptTransport,
+  /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
+  subagents: SubagentSupport
 }
 
 export interface DriverDefinition {
@@ -138,7 +150,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       costReporting: true,
       headlessOneShot: true,
       // options.systemPrompt = { type:'preset', preset:'claude_code', append: ctx.systemAppend }
-      systemPromptTransport: 'systemPrompt.append'
+      systemPromptTransport: 'systemPrompt.append',
+      subagents: 'configurable'
     }
   },
   'github-copilot': {
@@ -164,7 +177,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // mcpConnectors omitted (= supported): resolved by the tools:["*"] allowlist (EVIDENCE §6c)
       headlessOneShot: true,
       // sessionConfig.systemMessage = { mode:'append', content: ctx.systemAppend }
-      systemPromptTransport: 'systemMessage.append'
+      systemPromptTransport: 'systemMessage.append',
+      subagents: 'configurable'
     }
   },
   codex: {
@@ -197,7 +211,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       planMode: true,
       headlessOneShot: true,
       // startParams.developerInstructions, omitted entirely when systemAppend is empty
-      systemPromptTransport: 'developerInstructions'
+      systemPromptTransport: 'developerInstructions',
+      subagents: 'promptable'
     }
   },
   cursor: {
@@ -226,7 +241,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
       // this declaration is what makes the loss visible instead of silent.
-      systemPromptTransport: 'none'
+      systemPromptTransport: 'none',
+      subagents: 'promptable'
     }
   },
   grok: {
@@ -250,7 +266,8 @@ export const DRIVERS: Record<string, DriverDefinition> = {
       // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
       // this declaration is what makes the loss visible instead of silent.
-      systemPromptTransport: 'none'
+      systemPromptTransport: 'none',
+      subagents: 'promptable'
     }
   }
 }
@@ -286,7 +303,8 @@ const DEFAULT_CAPABILITIES: DriverCapabilities = {
   costReporting: true,
   headlessOneShot: false,
   // No driver resolved, so we genuinely do not know. 'none' would be a claim, not a default.
-  systemPromptTransport: 'unknown'
+  systemPromptTransport: 'unknown',
+  subagents: 'promptable'
 }
 
 /** An enabled provider instance paired with its resolved driver, in settings key order. */

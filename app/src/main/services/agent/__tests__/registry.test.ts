@@ -629,7 +629,8 @@ function stubDriver(kind: DriverKind, calls: DriverKind[]): AgentDriver {
       editableApprovals: true,
       costReporting: true,
       headlessOneShot: false,
-      systemPromptTransport: 'systemPrompt.append'
+      systemPromptTransport: 'systemPrompt.append',
+      subagents: 'promptable'
     },
     createSession(): DriverSession {
       calls.push(kind)

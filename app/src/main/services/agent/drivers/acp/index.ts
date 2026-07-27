@@ -117,7 +117,8 @@ export function createAcpDriver(profile: AcpAgentProfile, deps: AcpDriverDeps = 
       // driver never reads ctx.systemAppend, so persona / citation rules / mode identity / skill
       // index / memory index all go nowhere. Fixing it (a first-turn preamble) is its own plan;
       // this declaration is what makes the loss visible instead of silent.
-      systemPromptTransport: 'none'
+      systemPromptTransport: 'none',
+      subagents: 'promptable'
     },
 
     isAuthErrorMessage: isAcpAuthErrorMessage,

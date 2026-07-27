@@ -1,6 +1,6 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { PermissionMode } from '../../../shared/settings'
-import type { SystemPromptTransport } from '../../../shared/drivers'
+import type { SubagentSupport, SystemPromptTransport } from '../../../shared/drivers'
 import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
@@ -135,7 +135,9 @@ export interface DriverCapabilities {
   /** Mirrors the shared DriverDefinition field (`shared/drivers.ts`): which wire field this
    *  driver puts `DriverSessionContext.systemAppend` into. Each driver's contract test asserts
    *  this flag, the shared flag, and the transport reported through `capturePrompt` all agree. */
-  systemPromptTransport: SystemPromptTransport
+  systemPromptTransport: SystemPromptTransport,
+  /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
+  subagents: SubagentSupport
 }
 
 /** Inputs for a tool-less one-shot run with no case and no session (distillation).
