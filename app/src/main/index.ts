@@ -144,7 +144,9 @@ function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
 import { parsePrRef, remoteToOwnerRepo, type PrRef } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
-import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
+import { activeInstanceConfig, defaultModelRef, capabilitiesFor } from '../shared/drivers'
+import { isReviewLayerId } from '../shared/reviewLayers'
+import { buildReviewRunPrompt } from './services/agent/reviewRun'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
@@ -1151,6 +1153,39 @@ function registerIpc(): void {
     assertSlug(caseSlug)
     return availableModes(modeContextForCase(db, caseSlug))
   })
+
+  // — review —
+  // Composes here rather than in the renderer because the PR binding, the worktree path and
+  // the session's provider all live in main. The composed text then goes out through the
+  // ordinary agent send path, so a review run queues, cancels and mirrors like a typed message.
+  ipcMain.handle(
+    IPC.reviewComposeRunPrompt,
+    async (_e, caseSlug: string, sessionId: number, layerIds: string[]) => {
+      assertSlug(caseSlug)
+      if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+      const layers = layerIds.filter(isReviewLayerId)
+      if (layers.length !== layerIds.length) {
+        throw new Error(`Unknown review layer in ${JSON.stringify(layerIds)}`)
+      }
+      const bindings = listBindings(db, caseSlug)
+      const binding = bindings[0]
+      if (!binding) throw new Error('No pull request is bound to this case.')
+      const worktree = await prMaterializer(argusHome, caseSlug)(binding)
+      if (!worktree) {
+        throw new Error(`PR #${binding.number} has no linked local repo to check out.`)
+      }
+      const row = db.prepare(`SELECT instance_id FROM sessions WHERE id = ?`).get(sessionId) as
+        { instance_id: string | null } | undefined
+      const support = capabilitiesFor(settingsService.get(), row?.instance_id ?? null).subagents
+      return buildReviewRunPrompt({
+        support,
+        pinnedLayers: layers,
+        prUrl: binding.url,
+        worktreePath: worktree,
+        resolve: resolvePrompt
+      })
+    }
+  )
 
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {

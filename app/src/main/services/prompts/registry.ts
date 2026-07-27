@@ -1,5 +1,6 @@
 import { MODES } from '../../../shared/modes'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
+import { REVIEW_RUN_PROMPTS } from '../agent/reviewRun'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
 import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
@@ -105,9 +106,19 @@ const REVIEW_LAYER_ENTRIES: PromptEntry[] = Object.values(REVIEW_LAYERS).flatMap
   }
 ])
 
+/** The review-run scaffolding text (header, layer selection, fan-out, triage) — everything a
+ *  composed review turn says that is not a layer's own persona/task text. */
+const REVIEW_RUN_ENTRIES: PromptEntry[] = specEntries(REVIEW_RUN_PROMPTS, {
+  prefix: 'review.run',
+  category: 'persona',
+  source: 'app/src/main/services/agent/reviewRun.ts',
+  reaches: 'all'
+})
+
 const PERSONA_ENTRIES: PromptEntry[] = [
   ...MODE_PERSONA_ENTRIES,
   ...REVIEW_LAYER_ENTRIES,
+  ...REVIEW_RUN_ENTRIES,
   {
     id: 'persona.neutral',
     category: 'persona',

@@ -638,6 +638,10 @@ const argus = {
     clear: (caseSlug: string): Promise<{ cleared: number }> =>
       ipcRenderer.invoke(IPC.findingsClear, caseSlug)
   },
+  review: {
+    composeRunPrompt: (slug: string, sessionId: number, layerIds: string[]): Promise<string> =>
+      ipcRenderer.invoke(IPC.reviewComposeRunPrompt, slug, sessionId, layerIds)
+  },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */
     setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor)
