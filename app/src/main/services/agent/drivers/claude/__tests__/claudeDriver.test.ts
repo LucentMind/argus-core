@@ -213,13 +213,13 @@ describe('createClaudeDriver', () => {
           name: 'review-security',
           description: 'when auth changes',
           prompt: 'SECURITY_REVIEW_PROMPT',
-          tools: ['read', 'search']
+          tools: ['read', 'search'] as const
         },
         {
           name: 'test-analyzer',
           description: 'for test failures',
           prompt: 'TEST_PROMPT',
-          tools: ['execute']
+          tools: ['execute'] as const
         }
       ]
     }
