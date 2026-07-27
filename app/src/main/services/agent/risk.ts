@@ -98,6 +98,12 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
     risk: 'MEDIUM',
     grantKey: null,
     reason: 'Write to agent memory (steers all future sessions)'
+  },
+  mcp__argus__post_review_comment: {
+    action: 'ask',
+    risk: 'MEDIUM',
+    grantKey: null,
+    reason: 'Post a comment on a pull request'
   }
 }
 

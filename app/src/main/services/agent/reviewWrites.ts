@@ -8,7 +8,16 @@ import type { PromptTextSpecs } from '../../../shared/promptSpec'
 import { fillPrompt } from '../prompts/fill'
 import { listBindings } from '../prBindings'
 import { casePrWorktreeDir } from '../prWorktree'
-import { type Runner } from '../github'
+import {
+  defaultGhRunner,
+  ghErrorText,
+  isLineNotInDiff,
+  postInlineComment,
+  postIssueComment,
+  prHead,
+  type Runner
+} from '../github'
+import { recordFindingWrite } from '../findings'
 
 const execFileAsync = promisify(execFile)
 
@@ -199,4 +208,49 @@ export function resolveCommentTarget(
     throw new Error(wf(deps, 'review_write.path-missing', { path: repoRelPath, worktree }))
   }
   return { binding, repoRelPath, line: row.diff_line, worktree }
+}
+
+/**
+ * Post a finding as an inline PR review comment on its diff anchor.
+ *
+ * GitHub rejects an inline comment whose line is not in the diff's hunks (HTTP 422). That is a
+ * legitimate outcome — a finding may cite context the diff only reads — so we retry once as a
+ * PR-level comment carrying the `path:line` in its body, rather than failing the write. Any
+ * other gh failure propagates untouched and NOTHING is recorded on the finding.
+ */
+export async function postReviewComment(
+  deps: ReviewWriteDeps,
+  caseSlug: string,
+  input: { findingId: number; body: string }
+): Promise<string> {
+  const target = resolveCommentTarget(deps, caseSlug, input.findingId)
+  const run = deps.gh ?? defaultGhRunner
+  const repo = `${target.binding.owner}/${target.binding.repo}`
+  const head = await prHead(run, repo, target.binding.number)
+
+  try {
+    const url = await postInlineComment(run, {
+      repo,
+      number: target.binding.number,
+      commitId: head.sha,
+      path: target.repoRelPath,
+      line: target.line,
+      body: input.body
+    })
+    recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
+    return wf(deps, 'review_write.comment-ok', { url })
+  } catch (err) {
+    if (!isLineNotInDiff(err)) throw new Error(ghErrorText(err))
+    const url = await postIssueComment(run, {
+      repo,
+      number: target.binding.number,
+      body: `**${target.repoRelPath}:${target.line}**\n\n${input.body}`
+    })
+    recordFindingWrite(deps.db, input.findingId, { commentUrl: url })
+    return wf(deps, 'review_write.comment-not-inline', {
+      line: String(target.line),
+      path: target.repoRelPath,
+      url
+    })
+  }
 }
