@@ -368,15 +368,15 @@ const argus = {
     }
   },
   pr: {
-    link: (caseSlug: string, input: string): Promise<PrBinding> =>
+    // `input` is either free text (typed into the Repos rail, parsed in main) or an
+    // already-resolved ref (a PR picker selection) — the handler tells them apart by shape.
+    link: (caseSlug: string, input: string | PrRef): Promise<PrBinding> =>
       ipcRenderer.invoke(IPC.prLink, caseSlug, input),
     list: (caseSlug: string): Promise<PrBinding[]> => ipcRenderer.invoke(IPC.prList, caseSlug),
     unlink: (caseSlug: string, bindingId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId),
     search: (caseSlug: string): Promise<PrSearchResult> =>
-      ipcRenderer.invoke(IPC.prSearch, caseSlug),
-    linkMany: (caseSlug: string, refs: PrRef[]): Promise<PrBinding[]> =>
-      ipcRenderer.invoke(IPC.prLinkMany, caseSlug, refs)
+      ipcRenderer.invoke(IPC.prSearch, caseSlug)
   },
   graph: {
     build: (

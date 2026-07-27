@@ -411,7 +411,7 @@ describe('CaseWorkspace mode switching', () => {
 
     // the search runs only after the switch resolves, so the chat is never delayed by it
     await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
-    expect(await screen.findByRole('checkbox', { name: /16315/ })).toBeTruthy()
+    expect(await screen.findByRole('radio', { name: /16315/ })).toBeTruthy()
   })
 
   it('does not offer the picker when the case already has bound PRs', async () => {
