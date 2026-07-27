@@ -92,7 +92,11 @@ it('writes a line-index sidecar for large imported text evidence (ingest parity)
  * integrity check in importCase still passes.
  */
 async function bundleWithCaseJson(patch: Record<string, unknown>): Promise<string> {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-resolution-'))
+  // realpathSync on every extract target here: os.tmpdir() is a /var/folders symlink
+  // into /private/var on macOS, and zip-lib compares an extracted file's realpath
+  // against the unresolved target, so its guard rejects files it is plainly writing
+  // inside. Same reason bundle.ts resolves its staging dirs up front.
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-resolution-')))
   await extract(bundle, tmp)
   const cjPath = path.join(tmp, 'case', 'case.json')
   const cj = JSON.parse(fs.readFileSync(cjPath, 'utf8'))
@@ -127,7 +131,7 @@ describe('inspectBundle / proposeSlug', () => {
 
   it('refuses a newer bundle format with a clear message', async () => {
     // rebuild the bundle with format bumped
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-'))
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-')))
     await extract(bundle, tmp)
     const mf = JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'))
     mf.format = 99
@@ -183,7 +187,7 @@ describe('importCase', () => {
 
   it('refuses a tampered bundle and writes nothing', async () => {
     // tamper: change a file's bytes without updating the manifest hash
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper2-'))
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper2-')))
     await extract(bundle, tmp)
     fs.appendFileSync(path.join(tmp, 'case', 'findings.md'), 'TAMPERED\n')
     const bad = path.join(tmp, 'bad.arguscase')
@@ -212,7 +216,7 @@ describe('importCase', () => {
     // exploit: the integrity loop only verifies manifest-LISTED files, so an extra
     // staged sidecar (not in the manifest) sails through untouched. Duplicate a sidecar
     // so reindex hits a UNIQUE(case_id, rel_path) violation AFTER the rename has landed.
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper3-'))
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper3-')))
     await extract(bundle, tmp)
     const metaDir = path.join(tmp, 'case', 'evidence', '.meta')
     fs.copyFileSync(path.join(metaDir, 'boot.txt.json'), path.join(metaDir, 'boot-dup.txt.json'))
@@ -231,7 +235,7 @@ describe('importCase', () => {
   })
 
   it('rejects a manifest listing an unsafe (traversal) path and writes nothing', async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-manifest-'))
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-manifest-')))
     await extract(bundle, tmp)
     const mf = JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'))
     mf.files.push({ path: '../escape.txt', sha256: '0', size: 1 })
@@ -249,7 +253,7 @@ describe('importCase', () => {
   })
 
   it('skips a sidecar with an unsafe (traversal) relPath, leaving no rogue rows', async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-sidecar-'))
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-tamper-sidecar-')))
     await extract(bundle, tmp)
     const metaDir = path.join(tmp, 'case', 'evidence', '.meta')
     const good = JSON.parse(fs.readFileSync(path.join(metaDir, 'boot.txt.json'), 'utf8'))

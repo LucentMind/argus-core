@@ -66,7 +66,11 @@ describe('exportCase', () => {
     expect(manifest.slug).toBe('NAV-100')
     expect(manifest.includesTranscripts).toBe(true)
 
-    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-unzip-'))
+    // realpathSync: os.tmpdir() is a /var/folders symlink into /private/var on macOS,
+    // and zip-lib compares an extracted file's realpath against the unresolved target,
+    // so its guard rejects files it is plainly writing inside. Same reason bundle.ts
+    // resolves its staging dirs up front.
+    const out = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-unzip-')))
     await extract(dest, out)
     const onDisk = bundleManifestSchema.parse(
       JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'))

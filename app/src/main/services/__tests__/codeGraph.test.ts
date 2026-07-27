@@ -31,10 +31,16 @@ describe('codeGraph helpers', () => {
     expect(repoIdFor('/x/y', 'git@github.com:Org/My.Repo.git')).toBe('org-my-repo')
   })
 
+  // Native absolute paths: with no remote, repoIdFor takes a basename, and path.basename
+  // on POSIX reads 'C:\code\navigator' as one long filename — so a hardcoded windows path
+  // would assert about the platform rather than the id scheme.
+  const absPath = (...seg: string[]): string =>
+    process.platform === 'win32' ? `C:\\${seg.join('\\')}` : `/${seg.join('/')}`
+
   it('repoIdFor without remote uses basename + stable path hash', () => {
-    const a = repoIdFor('C:\\code\\navigator', null)
-    const b = repoIdFor('C:\\code\\navigator', null)
-    const c = repoIdFor('C:\\other\\navigator', null)
+    const a = repoIdFor(absPath('code', 'navigator'), null)
+    const b = repoIdFor(absPath('code', 'navigator'), null)
+    const c = repoIdFor(absPath('other', 'navigator'), null)
     expect(a).toBe(b)
     expect(a).toMatch(/^navigator-[0-9a-f]{8}$/)
     expect(a).not.toBe(c)
@@ -66,7 +72,7 @@ describe('codeGraph helpers', () => {
   })
 
   it('repoIdFor falls back to path hash when the remote tail slugs to nothing', () => {
-    const id = repoIdFor('C:\\code\\navigator', 'https://host/---/___.git')
+    const id = repoIdFor(absPath('code', 'navigator'), 'https://host/---/___.git')
     expect(id).toMatch(/^navigator-[0-9a-f]{8}$/)
   })
 

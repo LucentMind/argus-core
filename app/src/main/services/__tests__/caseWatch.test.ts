@@ -20,6 +20,18 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
+// macOS FSEvents replays changes made shortly before a watch starts. Probed on a CI
+// runner: the beforeEach mkdir of evidence/ arrives at the fresh watcher as a real
+// `rename` event named "evidence", which isRelevant() deliberately treats as relevant
+// (the evidence dir itself changing counts). Windows delivers no such backlog, which is
+// why this only ever failed on macOS. Drain the burst so the "nothing fires" tests
+// assert about the write under exercise instead of setup noise.
+const watchAndSettle = async (slug: string): Promise<void> => {
+  hub.watch(slug)
+  await new Promise((r) => setTimeout(r, 500)) // > DEBOUNCE_MS (300)
+  events.length = 0
+}
+
 describe('caseWatch hub', () => {
   it('broadcasts (debounced) on a file change in the case dir', async () => {
     hub.watch('C1')
@@ -50,7 +62,7 @@ describe('caseWatch hub', () => {
   })
 
   it('ignores writes outside evidence/ (agent session mirrors)', async () => {
-    hub.watch('C1')
+    await watchAndSettle('C1')
     const sessions = path.join(caseDir(argusHome, 'C1'), 'sessions')
     fs.mkdirSync(sessions, { recursive: true })
     fs.writeFileSync(path.join(sessions, 's.jsonl'), '{}')
@@ -59,7 +71,7 @@ describe('caseWatch hub', () => {
   })
 
   it('ignores writes in evidence dot-dirs (.meta/.derived are pipeline-managed)', async () => {
-    hub.watch('C1')
+    await watchAndSettle('C1')
     const metaDir = path.join(caseDir(argusHome, 'C1'), 'evidence', '.meta')
     fs.mkdirSync(metaDir, { recursive: true })
     fs.writeFileSync(path.join(metaDir, 'x.json'), '{}')
@@ -68,7 +80,7 @@ describe('caseWatch hub', () => {
   })
 
   it('ignores case.json writes at the case root', async () => {
-    hub.watch('C1')
+    await watchAndSettle('C1')
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'case.json'), '{}')
     await new Promise((r) => setTimeout(r, 800))
     expect(events).toEqual([])
