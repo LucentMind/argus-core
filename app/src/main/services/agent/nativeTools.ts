@@ -33,7 +33,7 @@ import {
   type ReviewSeverity
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
-import { postReviewComment } from './reviewWrites'
+import { postReviewComment, pushReviewChange } from './reviewWrites'
 import { defaultGhRunner, type Runner } from '../github'
 
 export interface NativeToolDeps {
@@ -393,6 +393,17 @@ export function argusToolHandlers(
       return out
     },
 
+    async push_review_change(args) {
+      const findingId = Number(args.finding_id)
+      const out = await pushReviewChange(
+        { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
+        caseSlug,
+        { findingId, commitMessage: String(args.commit_message ?? '') }
+      )
+      deps.emitFindingUpdated?.(findingId)
+      return out
+    },
+
     async update_case_status(args) {
       const status = String(args.status ?? '')
       if (!STATUSES.includes(status as CaseStatus)) {
@@ -585,6 +596,12 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     description:
       "Post a recorded review finding as an inline comment on the bound pull request, anchored at the finding's cited diff line. Pass the finding_id you got from the findings list and the exact comment body to publish — the user sees and can edit that body before it is posted. Falls back to a PR-level comment when the cited line is not part of the diff.",
     schema: { finding_id: z.number(), body: z.string() }
+  },
+  {
+    name: 'push_review_change',
+    description:
+      "Commit everything currently changed in the PR worktree and push it to the pull request's head branch. Apply the change with your edit tools FIRST — this tool commits what is already on disk and writes nothing itself. Only works on a PR from the same repository, never a fork.",
+    schema: { finding_id: z.number(), commit_message: z.string() }
   },
   {
     name: 'update_case_status',
