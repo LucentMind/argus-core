@@ -33,6 +33,27 @@ describe('captureFragments', () => {
     ])
   })
 
+  it('reports the trimmed length, matching what composePersona actually emits', () => {
+    // composePersona trims each fragment before joining (persona.ts) — chars must match the
+    // bytes that actually land in systemAppend, not the raw pre-trim length.
+    const out = captureFragments({
+      fragments: ['  padded text  '],
+      ids: ['persona.neutral'],
+      activeOverrides: []
+    })
+    expect(out[0].chars).toBe('padded text'.length)
+  })
+
+  it('reports 0 chars for a whitespace-only fragment', () => {
+    // composePersona drops it entirely — it contributed nothing to systemAppend.
+    const out = captureFragments({
+      fragments: ['   \n\t  '],
+      ids: [null],
+      activeOverrides: []
+    })
+    expect(out[0].chars).toBe(0)
+  })
+
   it('tolerates an ids array shorter than the fragments array', () => {
     // Defensive: a future assembler change that appends a fragment without an id must degrade
     // to "unattributed", not throw during session construction.
@@ -81,24 +102,81 @@ describe('captureTools', () => {
     )
   })
 
-  it('includes pack panel commands under their MCP tool name', () => {
-    const out = captureTools({ driverKind: 'cursor', panelCommandDecls: pack, connectorIds: [] })
-    expect(out).toEqual([{ name: 'mcp__p__w_go', description: 'Run it', origin: 'pack' }])
+  it('includes pack panel commands under their MCP tool name for a driver that registers them', () => {
+    const out = captureTools({
+      driverKind: 'claude-agent-sdk',
+      panelCommandDecls: pack,
+      connectorIds: []
+    })
+    expect(out.filter((t) => t.origin === 'pack')).toEqual([
+      { name: 'mcp__p__w_go', description: 'Run it', origin: 'pack' }
+    ])
   })
 
-  it('lists connector servers by id, with no tool names', () => {
+  it('includes pack panel commands for github-copilot too', () => {
+    const out = captureTools({
+      driverKind: 'github-copilot',
+      panelCommandDecls: pack,
+      connectorIds: []
+    })
+    expect(out.filter((t) => t.origin === 'pack')).toEqual([
+      { name: 'mcp__p__w_go', description: 'Run it', origin: 'pack' }
+    ])
+  })
+
+  it.each(['codex', 'cursor'])(
+    'omits pack panel commands for %s — its driver never reads panelCommandDecls',
+    (driverKind) => {
+      const out = captureTools({ driverKind, panelCommandDecls: pack, connectorIds: [] })
+      expect(out.filter((t) => t.origin === 'pack')).toEqual([])
+    }
+  )
+
+  it('lists connector servers by id, with no tool names, for a driver that forwards them', () => {
     // Connector tools live in a remote server; Argus composes the server, never its tool list.
     const out = captureTools({
-      driverKind: 'cursor',
+      driverKind: 'claude-agent-sdk',
       panelCommandDecls: [],
       connectorIds: ['jira']
     })
-    expect(out).toEqual([
+    expect(out.filter((t) => t.origin === 'connector')).toEqual([
       {
         name: 'jira',
         description: 'Connector MCP server (tool list is remote)',
         origin: 'connector'
       }
     ])
+  })
+
+  it('lists connector servers for github-copilot too', () => {
+    const out = captureTools({
+      driverKind: 'github-copilot',
+      panelCommandDecls: [],
+      connectorIds: ['jira']
+    })
+    expect(out.filter((t) => t.origin === 'connector')).toEqual([
+      {
+        name: 'jira',
+        description: 'Connector MCP server (tool list is remote)',
+        origin: 'connector'
+      }
+    ])
+  })
+
+  it.each(['codex', 'cursor'])(
+    'omits connector servers for %s — codex has no MCP wiring, ACP drops the servers and reports mcpConnectors:false',
+    (driverKind) => {
+      const out = captureTools({ driverKind, panelCommandDecls: [], connectorIds: ['jira'] })
+      expect(out.filter((t) => t.origin === 'connector')).toEqual([])
+    }
+  )
+
+  it('records nothing at all for codex or cursor beyond an empty list', () => {
+    const out = captureTools({
+      driverKind: 'cursor',
+      panelCommandDecls: pack,
+      connectorIds: ['jira']
+    })
+    expect(out).toEqual([])
   })
 })

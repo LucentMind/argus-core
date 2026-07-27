@@ -118,7 +118,9 @@ describe('CaseSession assembles the prompt capture', () => {
     const sdk = spyQuery()
     build(createClaudeDriver(sdk.fn), {
       mode: 'investigation',
-      personaFragments: ['IDENTITY', 'NEUTRAL', 'PACK'],
+      // 'PADDED' carries surrounding whitespace to prove captureFragments reports the trimmed
+      // length composePersona actually emits, not the raw fragment length.
+      personaFragments: ['IDENTITY', 'NEUTRAL', '  PADDED  '],
       personaFragmentIds: ['persona.mode.investigation', 'persona.neutral', null],
       skillIndex: 'Skills most relevant to this mode:\n- doctor',
       enabledSkills: ['doctor'],
@@ -126,7 +128,13 @@ describe('CaseSession assembles the prompt capture', () => {
       recordPromptCapture: (c: SessionPromptCapture) => {
         captured.push(c)
       },
-      agentOptions: { model: 'claude-opus-5', permissionMode: 'plan' }
+      // Leading/trailing whitespace here too, so the personaAppend fragment's chars also
+      // reflects the trimmed bytes composePersona folds into systemAppend.
+      agentOptions: {
+        model: 'claude-opus-5',
+        permissionMode: 'plan',
+        personaAppend: '  Focus on ADAS module defects.  '
+      }
     })
 
     expect(captured).toHaveLength(1)
@@ -147,6 +155,7 @@ describe('CaseSession assembles the prompt capture', () => {
     const sent = sdk.options()?.systemPrompt as { append: string } | undefined
     expect(c.systemAppend).toBe(sent?.append)
     expect(c.systemAppend).toContain('IDENTITY')
+    expect(c.systemAppend).toContain('Focus on ADAS module defects.')
 
     expect(c.fragments).toEqual([
       {
@@ -156,9 +165,36 @@ describe('CaseSession assembles the prompt capture', () => {
         overridden: false
       },
       { id: 'persona.neutral', label: 'persona.neutral', chars: 7, overridden: true },
-      { id: null, label: 'Pack or settings fragment', chars: 4, overridden: false }
+      { id: null, label: 'Pack or settings fragment', chars: 'PADDED'.length, overridden: false },
+      {
+        id: null,
+        label: 'Pack or settings fragment',
+        chars: 'Focus on ADAS module defects.'.length,
+        overridden: false
+      }
     ])
     expect(c.tools.some((t) => t.name === 'grep_lines' && t.origin === 'native')).toBe(true)
+  })
+
+  it('omits the personaAppend fragment entirely when it is empty or whitespace-only', () => {
+    const captured: SessionPromptCapture[] = []
+    const sdk = spyQuery()
+    build(createClaudeDriver(sdk.fn), {
+      mode: 'investigation',
+      personaFragments: ['IDENTITY'],
+      personaFragmentIds: ['persona.mode.investigation'],
+      recordPromptCapture: (c: SessionPromptCapture) => captured.push(c),
+      agentOptions: { personaAppend: '   ' }
+    })
+    expect(captured).toHaveLength(1)
+    expect(captured[0].fragments).toEqual([
+      {
+        id: 'persona.mode.investigation',
+        label: 'persona.mode.investigation',
+        chars: 8,
+        overridden: false
+      }
+    ])
   })
 
   it('omits capturePrompt from the driver context entirely when there is no sink', () => {
