@@ -2,12 +2,26 @@ import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
+import { parsePrRef } from '../../../shared/pr'
 import { FolderGit2, GitPullRequest, Search, Unlink } from 'lucide-react'
 import { Chip, IconBtn, SectionLabel } from './ui'
 import { RepoGraphControl } from './RepoGraphControl'
 import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
 import { confirm } from '../lib/confirmStore'
+
+/** Same `owner/repo#number` identity, case-insensitive — used to skip the replace-confirmation
+ *  when the typed reference already names the currently bound PR. */
+function sameIdentity(
+  a: { owner: string; repo: string; number: number },
+  b: { owner: string; repo: string; number: number }
+): boolean {
+  return (
+    a.owner.toLowerCase() === b.owner.toLowerCase() &&
+    a.repo.toLowerCase() === b.repo.toLowerCase() &&
+    a.number === b.number
+  )
+}
 
 /** Linked repos as evidence: the repo chips (moved here from the header), with
  *  link/unlink and the graph control. Individual files are not listed — code is
@@ -29,6 +43,10 @@ export function ReposSection({
   const [prDraft, setPrDraft] = useState<string | null>(null)
   const [prError, setPrError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
+  // `pr:link` now does real network work (a `git fetch` + `worktree add` under a repo lock,
+  // since materialize+broadcast run unconditionally — see prLink.ts), not just a DB write —
+  // without this the input stays enabled and shows nothing while it runs.
+  const [linkingPr, setLinkingPr] = useState(false)
 
   const reload = useCallback((): Promise<void> => {
     // keep the citation domain + snippet cache in sync with link state
@@ -63,30 +81,41 @@ export function ReposSection({
 
   async function linkPr(input: string): Promise<void> {
     const value = input.trim()
-    if (!value) return
+    if (!value || linkingPr) return
     // A case has at most one bound PR (addBinding replaces, never adds); findings carry no PR
     // reference of their own — they resolve against whatever is bound NOW. Swapping the binding
     // out from under existing findings would silently retarget any "comment"/"push" action on
-    // them to the new PR, so a replacement (as opposed to the first link) is confirmed.
+    // them to the new PR, so a replacement (as opposed to the first link, or re-linking the
+    // SAME pr — addBinding is idempotent there and nothing retargets) is confirmed.
     const current = prs[0]
     if (current) {
-      const ok = await confirm({
-        title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
-        message:
-          'This case already has a pull request linked. Findings already recorded here will be attributed to the new pull request — any "comment" or "push" action on them will target it, not the one they were found against.',
-        confirmLabel: 'Replace',
-        danger: true
-      })
-      if (!ok) return
+      const parsed = parsePrRef(value)
+      const sameAsCurrent = parsed !== null && sameIdentity(parsed, current)
+      if (!sameAsCurrent) {
+        const ok = await confirm({
+          title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
+          message:
+            'This case already has a pull request linked. Findings already recorded here will be attributed to the new pull request — any "comment" or "push" action on them will target it, not the one they were found against.',
+          confirmLabel: 'Replace',
+          danger: true
+        })
+        if (!ok) return
+      }
     }
+    setLinkingPr(true)
     try {
       await window.argus.pr.link(slug, value)
       setPrDraft(null)
       setPrError(null)
       await reload()
     } catch {
-      // main throws on anything parsePrRef can't read — say so instead of failing silently
+      // main throws on anything parsePrRef can't read — say so instead of failing silently.
+      // (A CLAUDE.md write failure AFTER the binding committed no longer reaches here — see
+      // materializePrBindings's own try/catch — so this message stays honest: it only fires
+      // when the link genuinely never happened.)
       setPrError('Not a pull request reference.')
+    } finally {
+      setLinkingPr(false)
     }
   }
 
@@ -160,9 +189,10 @@ export function ReposSection({
           <input
             autoFocus
             value={prDraft}
+            disabled={linkingPr}
             onChange={(e) => setPrDraft(e.target.value)}
-            placeholder="PR url, owner/repo#N, or number"
-            className="w-full rounded border border-line bg-transparent px-1.5 py-0.5 text-xs"
+            placeholder={linkingPr ? 'Linking…' : 'PR url, owner/repo#N, or number'}
+            className="w-full rounded border border-line bg-transparent px-1.5 py-0.5 text-xs disabled:opacity-60"
           />
           {prError && <div className="mt-0.5 text-[11px] text-danger">{prError}</div>}
         </form>

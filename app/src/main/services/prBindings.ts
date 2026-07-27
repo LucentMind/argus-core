@@ -130,7 +130,11 @@ export type PrMaterializer = (binding: PrBinding) => Promise<string | null>
  *
  * Checkout is lazy and never fatal: a binding with `repoPath === null` is skipped by
  * design (the agent falls back to `gh pr diff`), and a git failure is logged and stepped
- * over so it can never block a mode switch.
+ * over so it can never block a mode switch. The `CLAUDE.md` write is wrapped the same way:
+ * by the time this runs, `addBinding` has already committed, so an fs error here (disk
+ * full, permissions) must not turn into a rejected `pr:link` call — that used to read to
+ * callers as "the link failed" (e.g. the Repos rail's manual-link catch reporting "Not a
+ * pull request reference") for a PR that was, in fact, bound.
  */
 export async function materializePrBindings(
   db: DatabaseSync,
@@ -159,5 +163,9 @@ export async function materializePrBindings(
     }
     lines.push({ owner: b.owner, repo: b.repo, number: b.number, url: b.url, worktreePath })
   }
-  updateClaudeMdPrs(argusHome, caseSlug, lines)
+  try {
+    updateClaudeMdPrs(argusHome, caseSlug, lines)
+  } catch (err) {
+    console.warn(`[pr] CLAUDE.md update for ${caseSlug} failed: ${(err as Error).message}`)
+  }
 }

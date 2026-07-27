@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -117,5 +117,26 @@ describe('review working set', () => {
     })
     expect(seen).toEqual([42])
     expect(claudeMd()).toContain('acme/widget#42')
+  })
+
+  // Fix wave (re-review): a CLAUDE.md write failure used to reject materializePrBindings
+  // AFTER addBinding had already committed — linkPrForCase's caller (the Repos rail) then
+  // reported "Not a pull request reference" for a PR that was, in fact, bound. This mirrors
+  // "a failing materializer does not block the mode switch" above, for the fs write instead
+  // of the git checkout.
+  describe('a failing CLAUDE.md write does not reject materializePrBindings', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('does not throw, and the binding is unaffected', async () => {
+      bind(42, '/tmp/widget')
+      vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+        throw new Error('ENOSPC: no space left on device')
+      })
+      await expect(
+        materializePrBindings(db, home, 'c1', async (b) => `/wt/widget-c1-pr${b.number}`)
+      ).resolves.toBeUndefined()
+    })
   })
 })
