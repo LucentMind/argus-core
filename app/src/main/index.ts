@@ -146,6 +146,7 @@ import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
+import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
@@ -1177,6 +1178,32 @@ function registerIpc(): void {
         caseSlug,
         sessionId,
         layerIds
+      )
+  )
+
+  // Composes the two finding write-action turns (post a comment, apply + push) the same way —
+  // main owns the binding and worktree path, and the composed text goes out through the
+  // ordinary agent send path.
+  ipcMain.handle(
+    IPC.reviewComposeActionPrompt,
+    (_e, caseSlug: string, sessionId: number, findingId: number, action: string) =>
+      composeReviewActionPrompt(
+        {
+          db,
+          argusHome,
+          resolvePrompt,
+          // ReviewWriteDeps.resolve is the seam findingForCase/resolveCommentTarget use for
+          // their throw text; resolvePrompt is the one buildReviewActionPrompt uses. Both are
+          // the same registry — pass both or half the strings ignore the user's overrides.
+          resolve: resolvePrompt,
+          driverForInstance: (instanceId) =>
+            resolveInstanceDriver(settingsService.get().agent, instanceId).driver,
+          resolveDriver: () => getActiveDriver(settingsService.get().agent)
+        },
+        caseSlug,
+        sessionId,
+        findingId,
+        action
       )
   )
 

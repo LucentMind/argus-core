@@ -167,6 +167,7 @@ export const IPC = {
   sessionsDelete: 'sessions:delete',
   findingsClear: 'findings:clear',
   reviewComposeRunPrompt: 'review:compose-run-prompt',
+  reviewComposeActionPrompt: 'review:compose-action-prompt',
   graphBuild: 'graph:build',
   graphStatus: 'graph:status',
   graphInstall: 'graph:install',

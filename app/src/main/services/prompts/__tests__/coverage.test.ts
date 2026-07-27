@@ -23,7 +23,8 @@ const SCANNED = [
   'app/src/main/services/caseService.ts',
   'app/src/main/services/jiraPrompts.ts',
   'app/src/main/services/agent/reviewRun.ts',
-  'app/src/main/services/agent/reviewWrites.ts'
+  'app/src/main/services/agent/reviewWrites.ts',
+  'app/src/main/services/agent/reviewActions.ts'
 ]
 
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */
