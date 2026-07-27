@@ -134,7 +134,12 @@ export type PrMaterializer = (binding: PrBinding) => Promise<string | null>
  * by the time this runs, `addBinding` has already committed, so an fs error here (disk
  * full, permissions) must not turn into a rejected `pr:link` call — that used to read to
  * callers as "the link failed" (e.g. the Repos rail's manual-link catch reporting "Not a
- * pull request reference") for a PR that was, in fact, bound.
+ * pull request reference") for a PR that was, in fact, bound. The `getBinding` read itself
+ * gets the same treatment for the same reason (a bare SELECT on a connection that just
+ * committed is unlikely to fail, but "unlikely" is not "impossible", and this function's
+ * whole point is that nothing downstream of a committed write may read as a failure) — on
+ * failure it logs and returns without touching `CLAUDE.md` at all, rather than writing an
+ * "unbound" state it can't actually confirm.
  */
 export async function materializePrBindings(
   db: DatabaseSync,
@@ -149,7 +154,13 @@ export async function materializePrBindings(
     url: string
     worktreePath: string | null
   }[] = []
-  const b = getBinding(db, caseSlug)
+  let b: PrBinding | null
+  try {
+    b = getBinding(db, caseSlug)
+  } catch (err) {
+    console.warn(`[pr] getBinding for ${caseSlug} failed: ${(err as Error).message}`)
+    return
+  }
   if (b) {
     let worktreePath: string | null = null
     if (b.repoPath) {

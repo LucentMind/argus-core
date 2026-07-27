@@ -92,6 +92,13 @@ export function ReposSection({
       const parsed = parsePrRef(value)
       const sameAsCurrent = parsed !== null && sameIdentity(parsed, current)
       if (!sameAsCurrent) {
+        // `linkingPr` gates BEFORE the confirm await, not just the IPC call after it — same
+        // restructuring PrPickerDialog's `confirm()` got this round, for the same reason: a
+        // double-click could otherwise race the await and raise the confirm dialog twice.
+        // It never bypasses the confirmation itself either way — confirmStore.request()
+        // cancels (resolves `false`) a still-pending prompt when a newer one arrives — but a
+        // second prompt flashing on screen is still worth closing.
+        setLinkingPr(true)
         const ok = await confirm({
           title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
           message:
@@ -99,7 +106,10 @@ export function ReposSection({
           confirmLabel: 'Replace',
           danger: true
         })
-        if (!ok) return
+        if (!ok) {
+          setLinkingPr(false)
+          return
+        }
       }
     }
     setLinkingPr(true)

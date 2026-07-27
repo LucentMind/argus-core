@@ -26,6 +26,22 @@ const bind = (n: number, repoPath: string | null): PrBinding =>
     source: 'search'
   })
 
+/**
+ * A DatabaseSync whose `prepare` throws for `getBinding`'s SELECT only — every other query
+ * goes to the real db untouched. Same `Object.create` wrapper shape as
+ * `reviewWrites.comment.test.ts`'s `dbThatFailsFindingUpdate` (see that file for why
+ * `Object.create` rather than a `Proxy`).
+ */
+function dbThatFailsGetBinding(real: DatabaseSync, message: string): DatabaseSync {
+  const wrapper = Object.create(real) as DatabaseSync
+  const fakePrepare = (sql: string, ...rest: unknown[]): unknown => {
+    if (/^\s*SELECT \* FROM pr_bindings/i.test(sql)) throw new Error(message)
+    return (real.prepare as (...a: unknown[]) => unknown)(sql, ...rest)
+  }
+  Object.defineProperty(wrapper, 'prepare', { value: fakePrepare })
+  return wrapper
+}
+
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-rws-'))
   db = openDb(path.join(home, 'argus.db'))
@@ -137,6 +153,23 @@ describe('review working set', () => {
       await expect(
         materializePrBindings(db, home, 'c1', async (b) => `/wt/widget-c1-pr${b.number}`)
       ).resolves.toBeUndefined()
+    })
+  })
+
+  // Re-review fix: the last uncaught step in materializePrBindings — the `getBinding` read
+  // itself, one line above the git-checkout and CLAUDE.md calls this same pass already
+  // hardened. Unlike those two, a failure here means we don't actually know what's bound, so
+  // the fix returns early rather than writing a "nothing linked" state it can't confirm —
+  // this pins that CLAUDE.md is left completely untouched, not overwritten with a lie.
+  describe('a failing getBinding read does not reject materializePrBindings', () => {
+    it('does not throw, and CLAUDE.md is left untouched', async () => {
+      bind(42, '/tmp/widget')
+      const before = claudeMd()
+      const failingDb = dbThatFailsGetBinding(db, 'disk read error')
+      await expect(
+        materializePrBindings(failingDb, home, 'c1', async (b) => `/wt/widget-c1-pr${b.number}`)
+      ).resolves.toBeUndefined()
+      expect(claudeMd()).toBe(before)
     })
   })
 })

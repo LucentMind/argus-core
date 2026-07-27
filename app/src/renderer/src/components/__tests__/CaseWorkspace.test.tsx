@@ -4,9 +4,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { confirm } from '../../lib/confirmStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
+
+// ConfirmHost (which confirm() talks to) is mounted at the app root (App.tsx), not inside
+// CaseWorkspace — mock the store directly, same pattern as ReposSection.test.tsx and
+// PrPickerDialog.test.tsx.
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 // jsdom has no runtime ResizeObserver; DOM lib types already declare it globally.
 /* eslint-disable @typescript-eslint/no-empty-function */
@@ -29,6 +38,7 @@ function payload(): SettingsPayload {
 
 beforeEach(() => {
   localStorage.clear()
+  vi.mocked(confirm).mockReset().mockResolvedValue(true)
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
   // CaseWorkspace renders Composer, which reads the shared settingsStore
@@ -425,6 +435,81 @@ describe('CaseWorkspace mode switching', () => {
     await waitFor(() => expect(window.argus.cases.setMode).toHaveBeenCalled())
     await new Promise((r) => setTimeout(r, 0))
     expect(window.argus.pr.search).not.toHaveBeenCalled()
+  })
+
+  // Re-review fix: `pr.list` is a genuine IPC round trip (unlike a microtask), so it can
+  // resolve strictly AFTER the render that would have shown the picker already interactive.
+  // The old handler opened the dialog immediately and filled in `currentBinding` whenever
+  // `pr.list` happened to resolve — leaving a real window where "Link selected" was
+  // clickable with `currentBinding` still `null`, which `PrPickerDialog.confirm()` cannot
+  // tell apart from "nothing is bound". This exercises the real async ordering (the mock
+  // resolves on a later tick, not synchronously) rather than passing `currentBinding` as a
+  // prop like the PrPickerDialog-level tests do.
+  it('never opens the picker before pr.list resolves, so the replace-confirm can never be skipped', async () => {
+    let resolveList!: (bound: unknown[]) => void
+    ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
+      () => new Promise((r) => (resolveList = r))
+    )
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({
+        candidates: [
+          {
+            owner: 'acme',
+            repo: 'widget',
+            number: 100,
+            url: 'https://github.com/acme/widget/pull/100',
+            title: 'the original PR',
+            state: 'merged',
+            isDraft: false,
+            createdAt: '2026-07-20T10:00:00Z',
+            isBackport: false,
+            preselected: true
+          },
+          {
+            owner: 'acme',
+            repo: 'widget',
+            number: 205,
+            url: 'https://github.com/acme/widget/pull/205',
+            title: 'a later PR',
+            state: 'merged',
+            isDraft: false,
+            createdAt: '2026-07-25T10:00:00Z',
+            isBackport: false,
+            preselected: false
+          }
+        ],
+        error: null,
+        searchedRepos: ['acme/widget']
+      })
+    )
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // pr.list has not resolved yet — the dialog must not be up (and so nothing is clickable)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
+
+    // now let the (already-bound-to-#100) lookup resolve, on a later tick
+    resolveList([
+      {
+        id: 1,
+        caseId: 1,
+        repoPath: null,
+        owner: 'acme',
+        repo: 'widget',
+        number: 100,
+        url: 'https://github.com/acme/widget/pull/100',
+        source: 'search',
+        detectedAt: '2026-07-20T10:00:00Z'
+      }
+    ])
+
+    await screen.findByRole('button', { name: /link selected/i })
+    fireEvent.click(screen.getByRole('radio', { name: /205/ }))
+    fireEvent.click(screen.getByRole('button', { name: /link selected/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(confirm).mock.calls[0][0].title as string).toContain('acme/widget#100')
   })
 
   it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
