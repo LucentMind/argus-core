@@ -143,7 +143,7 @@ describe('one binding per case', () => {
     expect(getBinding(db, 'c1')).toBeNull()
   })
 
-  it('migrates a database that already has several bindings on one case', () => {
+  it('migrates a database that already has several bindings on one case by unbinding it entirely', () => {
     // Build the pre-migration state directly: openDb's own index would reject it.
     const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-prmigrate-'))
     const file = path.join(home2, 'argus.db')
@@ -163,9 +163,34 @@ describe('one binding per case', () => {
     expect(first.prepare(`SELECT COUNT(*) AS n FROM pr_bindings`).get()).toEqual({ n: 3 })
     first.close()
 
+    // Picking a survivor (the old MAX(id) behaviour) would silently keep whichever PR happened
+    // to be inserted last — gh's search order, which ranks nothing (shared/pr.ts). #44 landing
+    // last here is exactly the ambiguous case (a PR and its backport from one search): the fix
+    // is to leave the case wholly unbound rather than gamble on a specific number.
     const reopened = openDb(file) // runs the migration
+    expect(reopened.prepare(`SELECT COUNT(*) AS n FROM pr_bindings`).get()).toEqual({ n: 0 })
+    expect(getBinding(reopened, 'c1')).toBeNull()
+    reopened.close()
+  })
+
+  it('leaves a case with exactly one binding untouched by the migration', () => {
+    const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-prmigrate-single-'))
+    const file = path.join(home2, 'argus.db')
+    const first = openDb(file)
+    createCase(first, home2, { slug: 'c1', title: 'Case 1' })
+    addBinding(first, 'c1', {
+      repoPath: null,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'search'
+    })
+    first.close()
+
+    const reopened = openDb(file) // runs the migration again on every open
     expect(reopened.prepare(`SELECT COUNT(*) AS n FROM pr_bindings`).get()).toEqual({ n: 1 })
-    expect(getBinding(reopened, 'c1')?.number).toBe(44) // newest kept
+    expect(getBinding(reopened, 'c1')?.number).toBe(42)
     reopened.close()
   })
 })

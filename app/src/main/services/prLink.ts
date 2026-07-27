@@ -8,22 +8,27 @@ export interface LinkPrForCaseDeps {
   db: DatabaseSync
   argusHome: string
   materialize: PrMaterializer
-  /** Fired only on a picker selection (see below) — repo chips read worktree state and need
-   *  telling that a PR was just checked out. */
+  /** Repo chips read worktree state and need telling that a PR was just (re)checked out. */
   broadcast: (caseSlug: string) => void
 }
 
 /**
  * The body of the `pr:link` IPC handler (main/index.ts), pulled out so the picker-vs-manual
- * side-effect gate — materialize the worktree, then broadcast `workspacesChanged` — is testable
- * without booting Electron. Same DI-first posture as reviewRunCompose.ts/reviewActionCompose.ts:
- * `ipcMain.handle` is a thin wrapper that supplies the live deps and calls this.
+ * parsing split is testable without booting Electron. Same DI-first posture as
+ * reviewRunCompose.ts/reviewActionCompose.ts: `ipcMain.handle` is a thin wrapper that supplies
+ * the live deps and calls this.
  *
  * Free text (the Repos rail's manual field) is parsed here; a picker selection already arrives
- * as a resolved `PrRef` — the shape is how the two sources are told apart. A picker selection,
- * like the old `pr:link-many`, checks out the PR's worktree right away and tells the repo chips.
- * Manual linking (the Repos rail) does neither — its caller reloads its own state after the call
- * resolves. This asymmetry is pre-existing and deliberate, not a bug to fix here.
+ * as a resolved `PrRef` — the shape is how the two sources are told apart. Both paths now share
+ * the same side effect: materialize the worktree, then broadcast `workspacesChanged`. They used
+ * to differ (only a picker selection did either) back when linking only ever ADDED a PR — the
+ * `argus:prs` region of CLAUDE.md (materializePrBindings also writes it) just omitted whatever
+ * a manual link hadn't materialized yet. Now that `addBinding` REPLACES the case's one binding,
+ * skipping this on the manual path would leave that region naming the PR that is no longer
+ * bound while the agent still reads it. The call is lazy and never fatal by design (a binding
+ * with no local clone is skipped, a git failure is logged and stepped over — see
+ * materializePrBindings), so unifying costs the manual path exactly the fetch the picker path
+ * already pays.
  */
 export async function linkPrForCase(
   deps: LinkPrForCaseDeps,
@@ -48,9 +53,7 @@ export async function linkPrForCase(
     repoPath,
     source: manual ? 'manual' : 'search'
   })
-  if (!manual) {
-    await materializePrBindings(deps.db, deps.argusHome, caseSlug, deps.materialize)
-    deps.broadcast(caseSlug)
-  }
+  await materializePrBindings(deps.db, deps.argusHome, caseSlug, deps.materialize)
+  deps.broadcast(caseSlug)
   return binding
 }

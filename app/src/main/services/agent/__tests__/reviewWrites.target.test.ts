@@ -202,7 +202,7 @@ describe('resolveCommentTarget', () => {
   })
 
   it('an uncited (already repo-relative) finding makes no repo claim, so pr is not a contradiction', () => {
-    // named.length === 0 here (the citation has no `<repo>/` prefix at all), so there is nothing
+    // `named` is false here (the citation has no `<repo>/` prefix at all), so there is nothing
     // for `pr` to contradict — pr alone must still resolve it.
     addBinding(db, 'c1', {
       repoPath,

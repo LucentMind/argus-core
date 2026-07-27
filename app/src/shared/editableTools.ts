@@ -10,10 +10,11 @@
  * cannot reach another case's finding. It also carries `pr` (`owner/repo#number`) — a ref
  * naming the write target, which looks like exactly what the "never" above forbids — but
  * `resolveBindingForFinding` (reviewWrites.ts) re-validates an edited `pr` against the case's
- * OWN bindings before it is used: an edit can only pick a different pull request already bound
- * to this case, never reach another case's binding or an arbitrary ref, so it stays in the same
- * "reviewed content" class as `body`, not the "names a command/path/ref outside that check"
- * class the rule is guarding against.
+ * OWN binding before it is used: a case has at most one pull request bound (see the unique
+ * index in db.ts), so an edited `pr` can only match that one binding or throw `unknown-pr` —
+ * there is no OTHER bound pull request for it to redirect to, let alone another case's. It
+ * stays in the same "reviewed content" class as `body`, not the "names a command/path/ref
+ * outside that check" class the rule is guarding against.
  */
 const EDITABLE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   'mcp__argus__write_memory',

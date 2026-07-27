@@ -35,7 +35,13 @@ function deps(over: Partial<LinkPrForCaseDeps> = {}): LinkPrForCaseDeps {
 }
 
 describe('linkPrForCase', () => {
-  it('takes the manual path for a string input: no materialize, no broadcast', async () => {
+  it('the manual (string) path also materializes and broadcasts', async () => {
+    // Was "no materialize, no broadcast" — deliberately inverted (fix wave, one-PR-per-case).
+    // addBinding now REPLACES the case's binding instead of only ever adding one, so skipping
+    // materialize on the manual path would leave the `argus:prs` region of CLAUDE.md (written
+    // by materializePrBindings) still naming a PR that is no longer bound. The manual path pays
+    // the same lazy, never-fatal fetch the picker path already pays.
+    linkWorkspace('https://github.com/acme/widget.git', '/tmp/repo-a')
     const materialize = vi.fn(async () => '/wt/acme-widget-42')
     const broadcast = vi.fn()
     const binding = await linkPrForCase(
@@ -45,8 +51,8 @@ describe('linkPrForCase', () => {
     )
     expect(binding.number).toBe(42)
     expect(binding.source).toBe('manual')
-    expect(materialize).not.toHaveBeenCalled()
-    expect(broadcast).not.toHaveBeenCalled()
+    expect(materialize).toHaveBeenCalledTimes(1)
+    expect(broadcast).toHaveBeenCalledExactlyOnceWith('c1')
     expect(getBinding(db, 'c1')?.number).toBe(42)
   })
 

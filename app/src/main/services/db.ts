@@ -138,7 +138,9 @@ CREATE INDEX IF NOT EXISTS idx_turns_session_id      ON turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_case_id    ON tool_calls(case_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session_id ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_findings_case_id      ON findings(case_id);
-CREATE INDEX IF NOT EXISTS idx_pr_bindings_case_id   ON pr_bindings(case_id);
+-- pr_bindings(case_id) has no separate FK index: the UNIQUE index created below
+-- (pr_bindings_one_per_case) already covers case_id as its leading column, so a
+-- second non-unique index on the same column would be pure redundancy.
 -- key -> fts rowid side tables (see ftsIndex.ts): the FTS key columns are
 -- UNINDEXED, so deleting by them scanned the whole index. These let deletes
 -- resolve rowids by index and delete each by rowid.
@@ -167,17 +169,27 @@ export function openDb(file: string): DatabaseSync {
   // are indistinguishable to every consumer downstream. Enforced here rather than by convention
   // because three separate review rounds found the same wrong-PR bug when it was convention.
   //
-  // Surplus rows are deleted, newest kept. A binding is a link plus a cached repo path: no
-  // worktree and no case data is lost, and the PR picker can re-link. The DELETE must run
-  // BEFORE the index is created — openDb runs on every app start, and an existing database with
-  // several bindings on one case would otherwise fail to open here for every user who has that
-  // state, rather than being silently repaired.
+  // A case with MORE THAN ONE binding has every binding deleted, not just trimmed down to one:
+  // there is no principled way to pick a survivor. The old approach kept MAX(id) (the last row
+  // inserted), but under the multi-link path that insert order was gh's search order — which
+  // shared/pr.ts documents ranks nothing among candidates (recency is inverted by backports).
+  // Silently keeping a coin-flip survivor is exactly the wrong-PR hazard this migration exists
+  // to close; better to leave the case loudly unbound so the picker (gated on zero bindings —
+  // see CaseWorkspace.tsx's handleModeChanged) offers again. A binding is a link plus a cached
+  // repo path: no worktree and no case data is lost either way. The DELETE must run BEFORE the
+  // index is created — openDb runs on every app start, and an existing database with several
+  // bindings on one case would otherwise fail to open here for every user who has that state,
+  // rather than being silently repaired.
   db.exec(
-    `DELETE FROM pr_bindings WHERE id NOT IN (
-       SELECT MAX(id) FROM pr_bindings GROUP BY case_id
+    `DELETE FROM pr_bindings WHERE case_id IN (
+       SELECT case_id FROM pr_bindings GROUP BY case_id HAVING COUNT(*) > 1
      )`
   )
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS pr_bindings_one_per_case ON pr_bindings(case_id)`)
+  // A database created before this migration still has the now-redundant non-unique index
+  // (see the SCHEMA comment above) — drop it explicitly rather than leaving dead index upkeep
+  // on every future insert/delete.
+  db.exec(`DROP INDEX IF EXISTS idx_pr_bindings_case_id`)
   const caseCols = db.prepare(`PRAGMA table_info(cases)`).all() as { name: string }[]
   if (!caseCols.some((c) => c.name === 'workspaces')) {
     db.exec(`ALTER TABLE cases ADD COLUMN workspaces TEXT NOT NULL DEFAULT '[]'`)
