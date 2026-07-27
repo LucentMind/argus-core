@@ -24,6 +24,15 @@ import { ensureIndex, getLines, searchLines } from '../lineIndex'
 import { resolveTextDocAbs } from '../textdoc'
 import { fillPrompt } from '../prompts/fill'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
+import {
+  isReviewLayerId,
+  isReviewSeverity,
+  REVIEW_LAYER_ORDER,
+  SEVERITIES,
+  type ReviewLayerId,
+  type ReviewSeverity
+} from '../../../shared/reviewLayers'
+import { firstCitation } from '../../../shared/citations'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -128,6 +137,16 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'capture_panel.hint': {
     title: 'capture_panel — how to view the capture',
     text: 'Use the Read tool on rel_path to view the panel.'
+  },
+  'append_finding.bad-layer': {
+    title: 'append_finding — unknown layer',
+    text: 'Unknown layer {layer}. Use one of: {expected}.',
+    placeholders: ['layer', 'expected']
+  },
+  'append_finding.bad-severity': {
+    title: 'append_finding — unknown severity',
+    text: 'Unknown severity {severity}. Use one of: {expected}.',
+    placeholders: ['severity', 'expected']
   }
 }
 
@@ -144,18 +163,54 @@ export interface FindingWriteCtx {
  *  native append_finding tool and the panel emitFinding HITL path (3b). */
 export function appendFinding(
   ctx: FindingWriteCtx,
-  input: { title: string; markdown: string }
+  input: {
+    title: string
+    markdown: string
+    /** Review flavor (spec §6). Omitted by investigation findings. */
+    layer?: ReviewLayerId
+    severity?: ReviewSeverity
+  }
 ): { findingId: number; block: string } {
+  // Validate BEFORE the insert: a rejected finding must leave no row and no findings.md block.
+  if (input.layer !== undefined && !isReviewLayerId(input.layer)) {
+    throw new Error(
+      fillPrompt(TOOL_FEEDBACK['append_finding.bad-layer'].text, {
+        layer: JSON.stringify(input.layer),
+        expected: REVIEW_LAYER_ORDER.join('|')
+      })
+    )
+  }
+  if (input.severity !== undefined && !isReviewSeverity(input.severity)) {
+    throw new Error(
+      fillPrompt(TOOL_FEEDBACK['append_finding.bad-severity'].text, {
+        severity: JSON.stringify(input.severity),
+        expected: SEVERITIES.join('|')
+      })
+    )
+  }
   const title = input.title || 'Finding'
   const dir = caseDir(ctx.argusHome, ctx.caseSlug)
+  // Anchor parsed once, here. Plan 4 posts an inline PR comment against it and must not
+  // re-parse prose at the moment it writes to a pull request.
+  const anchor = firstCitation(input.markdown)
   // Insert first so the row id can be embedded in the findings.md block, giving
   // FindingsPane an exact row↔block join (see findings.ts parseFindingBodies).
   const res = ctx.db
     .prepare(
-      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
-       VALUES (?, ?, ?, ?, 'pending', ?)`
+      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
     )
-    .run(ctx.caseId, ctx.sessionId, ctx.turnId, title, new Date().toISOString())
+    .run(
+      ctx.caseId,
+      ctx.sessionId,
+      ctx.turnId,
+      title,
+      new Date().toISOString(),
+      input.layer ?? null,
+      input.severity ?? null,
+      anchor?.path ?? null,
+      anchor?.line ?? null
+    )
   const findingId = Number(res.lastInsertRowid)
   const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
   fs.appendFileSync(path.join(dir, 'findings.md'), block)
@@ -293,7 +348,12 @@ export function argusToolHandlers(
           sessionId,
           turnId: deps.currentTurnId?.() ?? null
         },
-        { title: String(args.title ?? 'Finding'), markdown: String(args.markdown ?? '') }
+        {
+          title: String(args.title ?? 'Finding'),
+          markdown: String(args.markdown ?? ''),
+          ...(args.layer === undefined ? {} : { layer: args.layer as ReviewLayerId }),
+          ...(args.severity === undefined ? {} : { severity: args.severity as ReviewSeverity })
+        }
       )
       deps.emitFinding(block)
       return fb('append_finding.ok')
@@ -477,8 +537,13 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      'Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim.',
-    schema: { title: z.string(), markdown: z.string() }
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor.",
+    schema: {
+      title: z.string(),
+      markdown: z.string(),
+      layer: z.enum(REVIEW_LAYER_ORDER as [string, ...string[]]).optional(),
+      severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional()
+    }
   },
   {
     name: 'update_case_status',
