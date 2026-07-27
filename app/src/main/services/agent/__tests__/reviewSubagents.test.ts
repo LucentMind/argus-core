@@ -34,16 +34,25 @@ describe('compileLayerAgents', () => {
     }
   })
 
-  it('routes every string through the resolver when one is given', () => {
+  it('routes every string through the resolver when one is given, including the description', () => {
     const seen: string[] = []
     const resolve = (id: string): string => {
       seen.push(id)
       return `OVERRIDDEN:${id}`
     }
     const [def] = compileLayerAgents(['tests'], resolve)
-    expect(seen).toEqual(['review.layer.tests.persona', 'review.layer.tests.prompt'])
+    expect(seen.sort()).toEqual(
+      [
+        'review.layer.tests.applies-when',
+        'review.layer.tests.persona',
+        'review.layer.tests.prompt'
+      ].sort()
+    )
     expect(def.prompt).toContain('OVERRIDDEN:review.layer.tests.persona')
     expect(def.prompt).toContain('OVERRIDDEN:review.layer.tests.prompt')
+    // The description is the seam this test exists for: compileLayerAgents used to read
+    // `def.appliesWhen` directly here, bypassing an override even though persona/task did not.
+    expect(def.description).toBe('OVERRIDDEN:review.layer.tests.applies-when')
   })
 
   it('preserves the caller order and drops nothing', () => {

@@ -82,9 +82,12 @@ const MODE_PERSONA_ENTRIES: PromptEntry[] = Object.values(MODES).map((def) => ({
 }))
 
 /** Derived from REVIEW_LAYERS for the same reason MODE_PERSONA_ENTRIES is derived from MODES:
- *  a new layer registers itself, and the catalog cannot disagree with the table. Two entries
- *  per layer because the identity and the task are separately worth overriding — a user who
- *  wants "also flag N+1 queries" edits the prompt, not the persona. */
+ *  a new layer registers itself, and the catalog cannot disagree with the table. Three entries
+ *  per layer: identity and task are separately worth overriding — a user who wants "also flag
+ *  N+1 queries" edits the prompt, not the persona — and `appliesWhen` is its own entry because
+ *  it is model-facing on its own terms: it becomes the compiled subagent's `description` (what
+ *  the main agent reads to pick applicable layers) and is rendered into the composed prompt's
+ *  layer menu, so it needs the same override seam as the other two, not just a doc comment. */
 const REVIEW_LAYER_ENTRIES: PromptEntry[] = Object.values(REVIEW_LAYERS).flatMap((def) => [
   {
     id: `review.layer.${def.id}.persona`,
@@ -103,6 +106,15 @@ const REVIEW_LAYER_ENTRIES: PromptEntry[] = Object.values(REVIEW_LAYERS).flatMap
     reaches: 'all' as const,
     editable: true,
     default: () => def.prompt
+  },
+  {
+    id: `review.layer.${def.id}.applies-when`,
+    category: 'persona' as const,
+    title: `Review layer · ${def.label} · applies-when`,
+    source: 'app/src/shared/reviewLayers.ts',
+    reaches: 'all' as const,
+    editable: true,
+    default: () => def.appliesWhen
   }
 ])
 
