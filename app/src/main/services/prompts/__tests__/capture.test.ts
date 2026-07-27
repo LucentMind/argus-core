@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -41,7 +41,7 @@ describe('PromptCaptureStore — gate', () => {
     expect(store.enabled).toBe(false)
     store.record(capture())
     expect(fs.existsSync(path.join(home, CAPTURE_DIR_REL))).toBe(false)
-    expect(store.list()).toEqual([])
+    expect(store.list()).toEqual({ rows: [], total: 0 })
     expect(store.read('c-1', 1)).toBeNull()
   })
 })
@@ -63,7 +63,7 @@ describe('PromptCaptureStore — record and read back', () => {
     store.record(capture({ systemAppend: 'FIRST' }))
     store.record(capture({ systemAppend: 'SECOND' }))
     expect(store.read('c-1', 1)?.systemAppend).toBe('SECOND')
-    expect(store.list()).toHaveLength(1)
+    expect(store.list().rows).toHaveLength(1)
   })
 
   it('returns null for a case or session that was never captured', () => {
@@ -81,13 +81,30 @@ describe('PromptCaptureStore — record and read back', () => {
   })
 
   it('refuses a bare ".." or "." case slug even though it matches the character class', () => {
-    // SAFE_SLUG allows `.`, so a dots-only slug passes the regex; `path.join(root, '..')`
-    // still escapes the capture dir entirely, so it needs its own explicit rejection.
+    // Rationale: see isSafeSlug's doc comment in capture.ts.
     const store = new PromptCaptureStore({ devTools: true, argusHome: home })
     expect(store.read('..', 1)).toBeNull()
     expect(store.read('.', 1)).toBeNull()
     expect(() => store.record(capture({ caseSlug: '..' }))).toThrow(/case slug/i)
     expect(() => store.record(capture({ caseSlug: '.' }))).toThrow(/case slug/i)
+  })
+
+  it('does not propagate a write failure — the session it describes must survive', () => {
+    // record() runs synchronously inside the CaseSession constructor, which nothing wraps in a
+    // try/catch (agent/registry.ts). A directory sitting where the record file should go
+    // reproduces a real environmental failure (writeFileSync -> EISDIR) without relying on
+    // platform-specific permission tricks.
+    const store = new PromptCaptureStore({ devTools: true, argusHome: home })
+    const dir = path.join(home, CAPTURE_DIR_REL, 'c-1')
+    fs.mkdirSync(path.join(dir, '1.json'), { recursive: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(() => store.record(capture({ sessionId: 1 }))).not.toThrow()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0][0]).toContain(path.join(dir, '1.json'))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('refuses a non-integer, negative, or non-finite session id', () => {
@@ -128,8 +145,9 @@ describe('PromptCaptureStore — list', () => {
     const store = new PromptCaptureStore({ devTools: true, argusHome: home })
     store.record(capture({ caseSlug: 'c-1', sessionId: 1, createdAt: '2026-07-27T10:00:00.000Z' }))
     store.record(capture({ caseSlug: 'c-2', sessionId: 2, createdAt: '2026-07-27T12:00:00.000Z' }))
-    const rows = store.list()
+    const { rows, total } = store.list()
     expect(rows.map((r) => r.sessionId)).toEqual([2, 1])
+    expect(total).toBe(2)
     expect(rows[0]).toMatchObject({
       caseSlug: 'c-2',
       driverKind: 'claude-agent-sdk',
@@ -140,16 +158,19 @@ describe('PromptCaptureStore — list', () => {
     })
   })
 
-  it('honours the limit', () => {
+  it('honours the limit, and reports the untruncated total alongside it', () => {
     const store = new PromptCaptureStore({ devTools: true, argusHome: home })
     for (const id of [1, 2, 3]) store.record(capture({ sessionId: id }))
-    expect(store.list(2)).toHaveLength(2)
+    const { rows, total } = store.list(2)
+    expect(rows).toHaveLength(2)
+    // The whole point of Finding 4: truncation must stay visible to the caller, not silent.
+    expect(total).toBe(3)
   })
 
   it('counts active overrides in the summary', () => {
     const store = new PromptCaptureStore({ devTools: true, argusHome: home })
     store.record(capture({ activeOverrides: ['persona.neutral', 'persona.diagram'] }))
-    expect(store.list()[0].overrideCount).toBe(2)
+    expect(store.list().rows[0].overrideCount).toBe(2)
   })
 
   it('skips an unreadable or malformed file instead of throwing', () => {
@@ -157,7 +178,9 @@ describe('PromptCaptureStore — list', () => {
     const store = new PromptCaptureStore({ devTools: true, argusHome: home })
     store.record(capture({ sessionId: 1 }))
     fs.writeFileSync(path.join(home, CAPTURE_DIR_REL, 'c-1', '2.json'), '{ not json', 'utf8')
-    expect(store.list().map((r) => r.sessionId)).toEqual([1])
+    const { rows, total } = store.list()
+    expect(rows.map((r) => r.sessionId)).toEqual([1])
+    expect(total).toBe(1)
     expect(store.read('c-1', 2)).toBeNull()
   })
 })

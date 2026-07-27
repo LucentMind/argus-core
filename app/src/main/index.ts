@@ -28,7 +28,7 @@ import type {
   PromptCatalogPayload,
   PromptPreview,
   SessionPromptCapture,
-  PromptCaptureSummary,
+  PromptCaptureListPayload,
   PromptCaptureDetail
 } from '../shared/promptsIpc'
 import { SecretStore } from './services/secrets'
@@ -1541,7 +1541,7 @@ function registerIpc(): void {
     return promptStore.resolve(id)
   })
 
-  ipcMain.handle(IPC.devPromptsCaptures, (): PromptCaptureSummary[] => {
+  ipcMain.handle(IPC.devPromptsCaptures, (): PromptCaptureListPayload => {
     assertDevTools(devTools)
     return promptCaptures.list()
   })

@@ -30,7 +30,7 @@ import type { MemoryTopicsPayload, MemoryAuditEntry, SkillsPayload } from '../sh
 import type {
   PromptCatalogPayload,
   PromptPreview,
-  PromptCaptureSummary,
+  PromptCaptureListPayload,
   PromptCaptureDetail
 } from '../shared/promptsIpc'
 import type {
@@ -535,7 +535,7 @@ const argus = {
     clearAll: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsClearAll),
     overrides: (): Promise<string[]> => ipcRenderer.invoke(IPC.devPromptsOverrides),
     resolve: (id: string): Promise<string> => ipcRenderer.invoke(IPC.devPromptsResolve, id),
-    captures: (): Promise<PromptCaptureSummary[]> => ipcRenderer.invoke(IPC.devPromptsCaptures),
+    captures: (): Promise<PromptCaptureListPayload> => ipcRenderer.invoke(IPC.devPromptsCaptures),
     capture: (caseSlug: string, sessionId: number): Promise<PromptCaptureDetail | null> =>
       ipcRenderer.invoke(IPC.devPromptsCapture, caseSlug, sessionId),
     onChanged: (cb: (ids: string[]) => void): (() => void) => {

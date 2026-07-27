@@ -147,11 +147,17 @@ export interface PromptCaptureSummary {
 
 export interface PromptCaptureDetail {
   capture: SessionPromptCapture
-  /** The persona a NEW session in this capture's mode would build right now. Computed at read
-   *  time, never stored — "current" is a moving target. */
-  currentPersona: string
-  /** Whether the captured `systemAppend` still begins with `currentPersona`. False means the
-   *  prompt has changed since this session started (an override was set or cleared, or the
-   *  code moved). */
+  /** Whether the captured `systemAppend` still begins with the persona a NEW session in this
+   *  capture's mode would build right now (computed server-side, not shipped: the Composed
+   *  preview tab already shows that exact text). False means the prompt has changed since this
+   *  session started (an override was set or cleared, or the code moved). */
   personaMatchesCurrent: boolean
+}
+
+/** Response for the capture list: `rows` is capped (see capture.ts's DEFAULT_LIST_LIMIT), `total`
+ *  is how many records actually exist so the UI can say "showing N of total" instead of
+ *  rendering a truncated list as though it were complete. */
+export interface PromptCaptureListPayload {
+  rows: PromptCaptureSummary[]
+  total: number
 }

@@ -20,9 +20,10 @@ export function buildCaptureDetail(input: {
   }
   return {
     capture: input.capture,
-    currentPersona,
     // The `!== ''` guard is load-bearing: every string startsWith('') is true, so without it an
-    // uncomputable persona would report a match.
+    // uncomputable persona would report a match. `currentPersona` itself is not shipped — the
+    // Composed preview tab already renders that exact text, so shipping it again on every open
+    // would just be a second, redundant multi-KB payload.
     personaMatchesCurrent:
       currentPersona !== '' && input.capture.systemAppend.startsWith(currentPersona)
   }

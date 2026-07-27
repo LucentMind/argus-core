@@ -26,9 +26,10 @@ function capture(over: Partial<SessionPromptCapture> = {}): SessionPromptCapture
 describe('buildCaptureDetail', () => {
   it('reports a match when the captured prompt still starts with the current persona', () => {
     const d = buildCaptureDetail({ capture: capture(), persona: () => 'PERSONA' })
-    expect(d.currentPersona).toBe('PERSONA')
     expect(d.personaMatchesCurrent).toBe(true)
     expect(d.capture.sessionId).toBe(1)
+    // The persona itself is not shipped — only whether it matches. See promptsIpc.ts.
+    expect(d).not.toHaveProperty('currentPersona')
   })
 
   it('reports a mismatch when the persona has changed since the session started', () => {
@@ -45,7 +46,6 @@ describe('buildCaptureDetail', () => {
         throw new Error('unknown mode: retired-mode')
       }
     })
-    expect(d.currentPersona).toBe('')
     expect(d.personaMatchesCurrent).toBe(false)
   })
 

@@ -6,6 +6,7 @@ import { PromptsDevPage } from '../PromptsDevPage'
 import type {
   PromptCatalogPayload,
   PromptCaptureDetail,
+  PromptCaptureListPayload,
   PromptCaptureSummary
 } from '../../../../../shared/promptsIpc'
 
@@ -83,12 +84,14 @@ const captureRows: PromptCaptureSummary[] = [
     sessionId: 3,
     createdAt: '2026-07-27T09:00:00.000Z',
     driverKind: 'cursor',
-    mode: 'investigation',
+    mode: 'review',
     transport: 'none',
     chars: 1400,
     overrideCount: 0
   }
 ]
+
+const captureList: PromptCaptureListPayload = { rows: captureRows, total: captureRows.length }
 
 const captureDetail: PromptCaptureDetail = {
   capture: {
@@ -111,7 +114,6 @@ const captureDetail: PromptCaptureDetail = {
     tools: [{ name: 'grep_lines', description: 'search', origin: 'native' }],
     activeOverrides: ['persona.neutral']
   },
-  currentPersona: 'PERSONA BYTES',
   personaMatchesCurrent: true
 }
 
@@ -125,7 +127,7 @@ beforeEach(() => {
       clearAll: vi.fn(async () => catalog),
       overrides: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {}),
-      captures: vi.fn(async () => captureRows),
+      captures: vi.fn(async () => captureList),
       capture: vi.fn(async () => captureDetail)
     }
   }
@@ -412,6 +414,27 @@ describe('PromptsDevPage — session capture', () => {
     expect(screen.getByText('claude-agent-sdk')).toBeInTheDocument()
   })
 
+  it('shows the mode alongside the driver chip', async () => {
+    await openTab()
+    await screen.findByText('c-1 · session 7')
+    expect(screen.getByText('investigation')).toBeInTheDocument()
+    expect(screen.getByText('review')).toBeInTheDocument()
+  })
+
+  it('says how many captures are hidden when the list is truncated', async () => {
+    ;(
+      window as unknown as { argus: { devPrompts: { captures: ReturnType<typeof vi.fn> } } }
+    ).argus.devPrompts.captures = vi.fn(async () => ({ rows: captureRows, total: 412 }))
+    await openTab()
+    expect(await screen.findByText(/showing 2 of 412/i)).toBeInTheDocument()
+  })
+
+  it('does not show a truncation notice when the list is not truncated', async () => {
+    await openTab()
+    await screen.findByText('c-1 · session 7')
+    expect(screen.queryByText(/showing \d+ of/i)).not.toBeInTheDocument()
+  })
+
   it('flags a capture whose driver forwarded nothing', async () => {
     await openTab()
     await screen.findByText('c-2 · session 3')
@@ -447,7 +470,6 @@ describe('PromptsDevPage — session capture', () => {
       window as unknown as { argus: { devPrompts: { capture: ReturnType<typeof vi.fn> } } }
     ).argus.devPrompts.capture = vi.fn(async () => ({
       ...captureDetail,
-      currentPersona: 'DIFFERENT',
       personaMatchesCurrent: false
     }))
     await openTab()
@@ -458,7 +480,7 @@ describe('PromptsDevPage — session capture', () => {
   it('explains an empty list instead of rendering nothing', async () => {
     ;(
       window as unknown as { argus: { devPrompts: { captures: ReturnType<typeof vi.fn> } } }
-    ).argus.devPrompts.captures = vi.fn(async () => [])
+    ).argus.devPrompts.captures = vi.fn(async () => ({ rows: [], total: 0 }))
     await openTab()
     expect(await screen.findByText(/No sessions captured yet/)).toBeInTheDocument()
   })
