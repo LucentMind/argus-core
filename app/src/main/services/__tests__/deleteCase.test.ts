@@ -12,6 +12,7 @@ import { insertMessageFts } from '../ftsIndex'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import { upsertCaseSummary, searchCaseSummaries } from '../distill/summaries'
+import { CAPTURE_DIR_REL } from '../prompts/capture'
 
 let tmp: string, argusHome: string, db: DatabaseSync
 const detection = createDetection(samplePackRegistry())
@@ -158,6 +159,26 @@ describe('deleteCase', () => {
     expect(ftsCount).toBe(0)
     expect(jobsCount).toBe(0)
     expect(searchCaseSummaries(db, 'sig')).toEqual([])
+  })
+
+  it('removes the case capture directory (.dev-prompts/<slug>) along with the case', () => {
+    // Captured systemAppend includes the persona, pack fragments and the agent-access-filtered
+    // memory index — a deleted case's prompt text must not survive it on disk.
+    createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
+    const capDir = path.join(argusHome, CAPTURE_DIR_REL, 'NAV-1')
+    fs.mkdirSync(capDir, { recursive: true })
+    fs.writeFileSync(path.join(capDir, '1.json'), '{}', 'utf8')
+
+    deleteCase(db, argusHome, 'NAV-1')
+
+    expect(fs.existsSync(capDir)).toBe(false)
+  })
+
+  it('does not fail case deletion when there is no capture directory to remove', () => {
+    createCase(db, argusHome, { slug: 'NAV-1', title: 't' })
+    expect(fs.existsSync(path.join(argusHome, CAPTURE_DIR_REL, 'NAV-1'))).toBe(false)
+
+    expect(() => deleteCase(db, argusHome, 'NAV-1')).not.toThrow()
   })
 
   it('rejects unknown cases and hostile slugs before touching anything', () => {

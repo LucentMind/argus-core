@@ -14,6 +14,7 @@ import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
 import { deleteEvidenceFtsForCase, deleteMessagesFtsForCase } from './ftsIndex'
+import { CAPTURE_DIR_REL } from './prompts/capture'
 import { createSession, latestSessionForMode, type SessionProvider } from './agent/sessionStore'
 import { materializePrBindings, type PrMaterializer } from './prBindings'
 
@@ -556,9 +557,11 @@ export function maybeAdvanceToAnalyzing(db: DatabaseSync, argusHome: string, cas
  * findings; their case_id columns are now indexed) → distill
  * tables (case_summaries, case_summaries_fts, distill_jobs — keyed by
  * case_slug, not case_id, so the cascade above doesn't touch them) → audit →
- * case directory. Callers must first stop live sessions
- * (AgentService.stopAllForCase) and close the case's file watcher. rmSync
- * removes the .claude junctions as links, never their targets.
+ * case directory → dev-tools prompt capture directory (best-effort; a captured
+ * systemAppend includes the persona, pack fragments and the agent-access-filtered
+ * memory index, so a deleted case's prompt text must not survive it). Callers must
+ * first stop live sessions (AgentService.stopAllForCase) and close the case's file
+ * watcher. rmSync removes the .claude junctions as links, never their targets.
  */
 export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): void {
   if (!SLUG_RE.test(slug)) throw new Error(`Invalid case slug: ${JSON.stringify(slug)}`)
@@ -595,4 +598,11 @@ export function deleteCase(db: DatabaseSync, argusHome: string, slug: string): v
   }
   appendDeletionAudit(argusHome, 'case.delete', slug, detail)
   fs.rmSync(caseDir(argusHome, slug), { recursive: true, force: true })
+  // Best-effort: case deletion is the more important operation, so a failure to remove the
+  // capture directory (locked file, permissions) must not surface as a failed case deletion.
+  try {
+    fs.rmSync(path.join(argusHome, CAPTURE_DIR_REL, slug), { recursive: true, force: true })
+  } catch (err) {
+    console.warn(`[prompts] failed to remove capture directory for deleted case ${slug}:`, err)
+  }
 }

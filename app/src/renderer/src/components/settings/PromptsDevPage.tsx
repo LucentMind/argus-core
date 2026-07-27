@@ -4,7 +4,7 @@ import {
   type PromptCategory,
   type PromptCatalogPayload,
   type PromptCaptureDetail,
-  type PromptCaptureSummary,
+  type PromptCaptureListPayload,
   type PromptEntryView,
   type PromptPreview
 } from '../../../../shared/promptsIpc'
@@ -248,7 +248,7 @@ function PreviewTab({ modes }: { modes: string[] }): React.JSX.Element {
 }
 
 function CaptureTab(): React.JSX.Element {
-  const [rows, setRows] = useState<PromptCaptureSummary[] | null>(null)
+  const [list, setList] = useState<PromptCaptureListPayload | null>(null)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [detail, setDetail] = useState<PromptCaptureDetail | null>(null)
   // The key the *last resolved response* belongs to — kept separately from `detail` because a
@@ -260,7 +260,7 @@ function CaptureTab(): React.JSX.Element {
   useEffect(() => {
     window.argus.devPrompts
       .captures()
-      .then(setRows)
+      .then(setList)
       .catch((e: Error) => setError(e.message))
   }, [])
 
@@ -284,7 +284,8 @@ function CaptureTab(): React.JSX.Element {
   }, [openKey])
 
   if (error) return <p className="p-3 text-xs text-danger">{error}</p>
-  if (!rows) return <p className="p-3 text-xs text-mute">Loading…</p>
+  if (!list) return <p className="p-3 text-xs text-mute">Loading…</p>
+  const rows = list.rows
   if (rows.length === 0)
     return (
       <p className="p-3 text-xs text-mute">
@@ -292,6 +293,9 @@ function CaptureTab(): React.JSX.Element {
         session construction.
       </p>
     )
+  // list.total counts every record found, before the DEFAULT_LIST_LIMIT cap — silently rendering
+  // only `rows` as though it were everything is exactly what Finding 4 exists to prevent.
+  const truncated = list.total > rows.length
 
   // Derived, not reset in an effect: the payload names the session it describes, so showing
   // another row's detail is a comparison, not a state transition.
@@ -314,6 +318,7 @@ function CaptureTab(): React.JSX.Element {
               <span className="flex-1 font-mono text-[11px] text-ink">
                 {r.caseSlug} · session {r.sessionId}
               </span>
+              <Chip tone="neutral">{r.mode}</Chip>
               <Chip tone="neutral">{r.driverKind}</Chip>
               {/* Deliberately loud. A session that received NO persona must not read as a
                   session with a short one — that misreading is the reason this tab exists. */}
@@ -332,6 +337,12 @@ function CaptureTab(): React.JSX.Element {
           ))}
         </div>
       </SettingsSection>
+
+      {truncated && (
+        <p className="text-xs text-mute">
+          showing {rows.length} of {list.total}
+        </p>
+      )}
 
       {missing && (
         <p className="rounded-r2 border border-hair bg-overlay p-2 text-xs text-dim">

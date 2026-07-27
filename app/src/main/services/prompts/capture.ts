@@ -1,6 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { PromptCaptureSummary, SessionPromptCapture } from '../../../shared/promptsIpc'
+import type {
+  PromptCaptureListPayload,
+  PromptCaptureSummary,
+  SessionPromptCapture
+} from '../../../shared/promptsIpc'
 
 /** Where captures live, relative to ARGUS_HOME. Dot-prefixed: this is debugging exhaust, not
  *  user data, and it must not show up beside `cases/` and `memory/` in a file browser. */
@@ -9,6 +13,14 @@ export const CAPTURE_DIR_REL = '.dev-prompts'
 /** Newest sessions retained per case. Per-case, not global: a long-running case must not evict
  *  the only capture of the case you are actually debugging. */
 const DEFAULT_MAX_PER_CASE = 50
+
+/** Cap on how many rows `list` returns, across ALL cases. Deliberately a separate constant from
+ *  DEFAULT_MAX_PER_CASE: that one bounds a single case's ring buffer (50), this one bounds a
+ *  cross-case summary the dev page renders in one screen. Reusing the per-case number as the
+ *  global cap silently hid most of the history once more than a couple of cases had captures —
+ *  four cases at 50 each already means 150 of 200 records were invisible. 250 keeps truncation
+ *  rare without making the dev page read every capture file on a large install. */
+const DEFAULT_LIST_LIMIT = 250
 
 /** Case slugs reach `read` straight off IPC, which is untyped at runtime. Slugs are generated
  *  filesystem-safe (`caseDir`), so anything else is either a bug or an attempt to escape. */
@@ -70,12 +82,23 @@ export class PromptCaptureStore {
     if (!isSafeSessionId(c.sessionId)) {
       throw new Error(`unsafe session id for prompt capture: ${c.sessionId}`)
     }
-    fs.mkdirSync(dir, { recursive: true })
-    // Not atomic (no temp+rename): a capture is disposable debugging exhaust, and `list`/`read`
-    // already skip a malformed file. Paying for atomicity on every session construction would
-    // buy nothing.
-    fs.writeFileSync(path.join(dir, `${c.sessionId}.json`), JSON.stringify(c, null, 2), 'utf8')
-    this.evict(dir)
+    const file = path.join(dir, `${c.sessionId}.json`)
+    // Unlike the slug/session-id checks above, a failure here must NOT propagate: record() runs
+    // synchronously inside the CaseSession constructor (agent/registry.ts does not try/catch it),
+    // so an escaping error would fail the session it was only trying to describe. An AV or
+    // indexer holding the file open (EPERM on Windows), a full disk, a missing ARGUS_HOME — none
+    // of that is worth taking a session down for a disposable debugging capture. Best-effort,
+    // surfaced the same way an override-parse failure is at boot (prompts/bootWarnings.ts).
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      // Not atomic (no temp+rename): a capture is disposable debugging exhaust, and `list`/`read`
+      // already skip a malformed file. Paying for atomicity on every session construction would
+      // buy nothing.
+      fs.writeFileSync(file, JSON.stringify(c, null, 2), 'utf8')
+      this.evict(dir)
+    } catch (err) {
+      console.warn(`[prompts] failed to write capture ${file}:`, err)
+    }
   }
 
   /** Keep the newest `max` session ids in one case dir. Ordered by session id, which is a
@@ -106,8 +129,8 @@ export class PromptCaptureStore {
     return readRecord(path.join(dir, `${sessionId}.json`))
   }
 
-  list(limit = DEFAULT_MAX_PER_CASE): PromptCaptureSummary[] {
-    if (!this.enabled) return []
+  list(limit = DEFAULT_LIST_LIMIT): PromptCaptureListPayload {
+    if (!this.enabled) return { rows: [], total: 0 }
     const root = this.root()
     let cases: string[]
     try {
@@ -115,7 +138,7 @@ export class PromptCaptureStore {
         .readdirSync(root, { withFileTypes: true })
         .flatMap((e) => (e.isDirectory() ? [e.name] : []))
     } catch {
-      return [] // nothing captured yet
+      return { rows: [], total: 0 } // nothing captured yet
     }
     const rows: PromptCaptureSummary[] = []
     for (const slug of cases) {
@@ -142,7 +165,9 @@ export class PromptCaptureStore {
       }
     }
     rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
-    return rows.slice(0, limit)
+    // `total` lets the caller say "showing N of total" instead of rendering a truncated list as
+    // though it were the whole history.
+    return { rows: rows.slice(0, limit), total: rows.length }
   }
 }
 
