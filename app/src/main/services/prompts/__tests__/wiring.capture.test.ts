@@ -211,7 +211,8 @@ describe('CaseSession assembles the prompt capture', () => {
         editableApprovals: true,
         costReporting: true,
         headlessOneShot: false,
-        systemPromptTransport: 'systemPrompt.append'
+        systemPromptTransport: 'systemPrompt.append',
+        subagents: 'configurable'
       },
       createSession: (ctx) => {
         seen.push(ctx)

@@ -22,6 +22,7 @@ function stubDriver(kind: string, subagents: SubagentSupport): AgentDriver {
       editableApprovals: true,
       costReporting: true,
       headlessOneShot: false,
+      systemPromptTransport: 'systemPrompt.append',
       subagents
     },
     createSession(): DriverSession {

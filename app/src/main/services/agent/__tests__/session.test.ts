@@ -1105,6 +1105,7 @@ describe('CaseSession', () => {
         editableApprovals: true,
         costReporting: true,
         headlessOneShot: false,
+        systemPromptTransport: 'systemPrompt.append',
         subagents: 'configurable'
       },
       createSession(ctx): DriverSession {
