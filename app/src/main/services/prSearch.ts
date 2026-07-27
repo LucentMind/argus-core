@@ -1,5 +1,3 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   classifyCandidates,
@@ -9,16 +7,10 @@ import {
 } from '../../shared/pr'
 import { getCase } from './caseService'
 import { listStoredWorkspaces } from './workspaces'
+import { defaultGhRunner, type Runner } from './github'
 
-const execFileAsync = promisify(execFile)
-
-/** Injected so tests never spawn a process. Mirrors hivemind.ts's Runner. */
-export type Runner = (cmd: string, args: string[], opts?: { timeoutMs?: number }) => Promise<string>
-
-const defaultRun: Runner = async (cmd, args, opts) => {
-  const { stdout } = await execFileAsync(cmd, args, { timeout: opts?.timeoutMs })
-  return stdout.trim()
-}
+/** Re-exported so existing importers of `prSearch`'s Runner keep working. */
+export type { Runner }
 
 export interface PrSearchDeps {
   db: DatabaseSync
@@ -76,7 +68,7 @@ export async function searchPrsForCase(
 
   let stdout: string
   try {
-    stdout = await (deps.gh ?? defaultRun)('gh', args, { timeoutMs: SEARCH_TIMEOUT_MS })
+    stdout = await (deps.gh ?? defaultGhRunner)('gh', args, { timeoutMs: SEARCH_TIMEOUT_MS })
   } catch (err) {
     const e = err as NodeJS.ErrnoException
     return {
