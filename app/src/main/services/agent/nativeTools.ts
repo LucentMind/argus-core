@@ -33,6 +33,8 @@ import {
   type ReviewSeverity
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
+import { postReviewComment } from './reviewWrites'
+import { defaultGhRunner, type Runner } from '../github'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -62,6 +64,10 @@ export interface NativeToolDeps {
   /** Fired after workspace_checkout materializes/switches a case worktree, so the
    *  renderer can refresh repo chips + repo snippet caches without a case switch. */
   onWorktreeChanged?: (caseSlug: string) => void
+  /** gh runner for the review write tools. Injected in tests; production uses the default. */
+  gh?: Runner
+  /** Fired after a write action mutates a finding row, so the findings pane refetches. */
+  emitFindingUpdated?: (findingId: number) => void
 }
 
 const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
@@ -376,6 +382,17 @@ export function argusToolHandlers(
       return fb('append_finding.ok')
     },
 
+    async post_review_comment(args) {
+      const findingId = Number(args.finding_id)
+      const out = await postReviewComment(
+        { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
+        caseSlug,
+        { findingId, body: String(args.body ?? '') }
+      )
+      deps.emitFindingUpdated?.(findingId)
+      return out
+    },
+
     async update_case_status(args) {
       const status = String(args.status ?? '')
       if (!STATUSES.includes(status as CaseStatus)) {
@@ -562,6 +579,12 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
       severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional(),
       suggested_change: z.string().optional()
     }
+  },
+  {
+    name: 'post_review_comment',
+    description:
+      "Post a recorded review finding as an inline comment on the bound pull request, anchored at the finding's cited diff line. Pass the finding_id you got from the findings list and the exact comment body to publish — the user sees and can edit that body before it is posted. Falls back to a PR-level comment when the cited line is not part of the diff.",
+    schema: { finding_id: z.number(), body: z.string() }
   },
   {
     name: 'update_case_status',
