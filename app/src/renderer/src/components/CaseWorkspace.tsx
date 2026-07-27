@@ -5,6 +5,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { HeaderChips } from './HeaderChips'
 import { ModeSwitcher } from './ModeSwitcher'
+import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
 import { PrPickerDialog } from './PrPickerDialog'
@@ -336,6 +337,9 @@ export function CaseWorkspace({
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />
+        {activeMode === 'review' && (
+          <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
+        )}
         <div className="ml-auto">
           <HeaderChips
             slug={slug}

@@ -455,7 +455,10 @@ describe('CaseWorkspace mode switching', () => {
     stubTwoModeSessions()
     const { unmount } = render(workspace('NAV-1', { activeMode: 'investigation' }))
 
-    const reviewBtn = await screen.findByRole('button', { name: /review/i })
+    // The mode switcher's Review control carries its own aria-label ("Case mode · Review");
+    // matched by that rather than /review/i because once the mode is review,
+    // ReviewRunButton (rendered beside it) also has an accessible name of "Review".
+    const reviewBtn = await screen.findByRole('button', { name: 'Case mode · Review' })
     fireEvent.click(reviewBtn)
     await waitFor(() => expect(uiStore.get().activeSessions['NAV-1']).toBe(7))
 
@@ -465,7 +468,7 @@ describe('CaseWorkspace mode switching', () => {
     unmount()
     render(workspace('NAV-1', { activeMode: 'review' }))
 
-    const reviewAfter = await screen.findByRole('button', { name: /review/i })
+    const reviewAfter = await screen.findByRole('button', { name: 'Case mode · Review' })
     expect(reviewAfter.getAttribute('aria-pressed')).toBe('true')
     expect(
       screen.getByRole('button', { name: /investigation/i }).getAttribute('aria-pressed')
