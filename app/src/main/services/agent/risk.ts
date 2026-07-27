@@ -104,6 +104,12 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
     risk: 'MEDIUM',
     grantKey: null,
     reason: 'Post a comment on a pull request'
+  },
+  mcp__argus__push_review_change: {
+    action: 'ask',
+    risk: 'HIGH',
+    grantKey: null,
+    reason: 'Remote mutation: push a commit to the pull request branch'
   }
 }
 

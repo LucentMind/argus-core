@@ -438,6 +438,16 @@ describe('review write tools', () => {
       reason: 'Post a comment on a pull request'
     })
   })
+
+  it('asks at HIGH for a push, with no session grant', () => {
+    const v = classifyToolCall('mcp__argus__push_review_change', {}, ctx())
+    expect(v).toEqual({
+      action: 'ask',
+      risk: 'HIGH',
+      grantKey: null,
+      reason: 'Remote mutation: push a commit to the pull request branch'
+    })
+  })
 })
 
 describe("network taxonomy kind (Copilot 'fetch')", () => {
