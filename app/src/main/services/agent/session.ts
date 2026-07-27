@@ -440,7 +440,8 @@ export class CaseSession {
         caseId: this.deps.caseId,
         caseSlug: this.deps.caseSlug,
         sessionId: this.sessionId,
-        turnId: this.currentTurnRow
+        turnId: this.currentTurnRow,
+        resolve: this.deps.resolvePrompt
       },
       {
         title: String(edited?.title ?? input.title),
