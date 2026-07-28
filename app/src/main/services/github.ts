@@ -16,7 +16,22 @@ const execFileAsync = promisify(execFile)
  * thin seam so multi-VCS stays possible without being built). Every caller injects a
  * `Runner`, so no test ever spawns a process.
  */
-export type Runner = (cmd: string, args: string[], opts?: { timeoutMs?: number }) => Promise<string>
+export type Runner = (
+  cmd: string,
+  args: string[],
+  opts?: { timeoutMs?: number; maxBytes?: number }
+) => Promise<string>
+
+/**
+ * How much stdout a `gh` call may produce. Node's `execFile` default is **1 MB**, and exceeding
+ * it kills the child and rejects with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` — a limit nothing at
+ * the call site hints at. Shipping that default made `fetch_check_logs` fail on precisely the
+ * logs it exists to read, and left `CI_LOG_MAX_BYTES` truncation unreachable: any log big enough
+ * to need truncating blew the buffer first. Found 2026-07-28 against a real 3.08 MB log.
+ *
+ * Treat an explicit `maxBuffer` as part of the same habit as this module's explicit `timeout`.
+ */
+const GH_MAX_BUFFER_BYTES = 16 * 1024 * 1024
 
 /**
  * Deliberately does NOT catch: execFile's rejection carries `.code` and `.stderr`, and
@@ -24,7 +39,10 @@ export type Runner = (cmd: string, args: string[], opts?: { timeoutMs?: number }
  * break that caller silently. Callers that want prose use `ghErrorText` below.
  */
 export const defaultGhRunner: Runner = async (cmd, args, opts) => {
-  const { stdout } = await execFileAsync(cmd, args, { timeout: opts?.timeoutMs })
+  const { stdout } = await execFileAsync(cmd, args, {
+    timeout: opts?.timeoutMs,
+    maxBuffer: opts?.maxBytes ?? GH_MAX_BUFFER_BYTES
+  })
   return stdout.trim()
 }
 
@@ -145,10 +163,22 @@ export async function postIssueComment(
  *  API's redirect to a signed blob url. */
 export const GH_LOG_TIMEOUT_MS = 60_000
 
+/**
+ * A job log is the one `gh` response with no natural size bound — the capture that motivated the
+ * default was 3.08 MB, and a verbose matrix job can be far larger. Well above the 2 MB the caller
+ * keeps, because the whole body must be buffered before it can be tail-truncated.
+ *
+ * Beyond this the call still fails loudly (execFile kills the child) rather than silently
+ * returning a head-truncated log. If real logs ever approach it, stream the response and keep a
+ * rolling tail instead of raising the number again.
+ */
+export const GH_LOG_MAX_BYTES = 64 * 1024 * 1024
+
 /** A GitHub Actions job's log, as plain text. The API redirects to a blob; `gh` follows it. */
 export async function fetchJobLog(run: Runner, repo: string, jobId: number): Promise<string> {
   return run('gh', ['api', `repos/${repo}/actions/jobs/${jobId}/logs`], {
-    timeoutMs: GH_LOG_TIMEOUT_MS
+    timeoutMs: GH_LOG_TIMEOUT_MS,
+    maxBytes: GH_LOG_MAX_BYTES
   })
 }
 
