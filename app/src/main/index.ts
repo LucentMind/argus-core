@@ -126,6 +126,7 @@ import {
   autoLinkDefaultRepo
 } from './services/workspaces'
 import { getBinding, listBindings, removeBinding } from './services/prBindings'
+import { refreshPrStatuses, readPrStatuses } from './services/prStatusService'
 import { linkPrForCase } from './services/prLink'
 import { searchPrsForCase } from './services/prSearch'
 import { ensurePrWorktree } from './services/prWorktree'
@@ -142,6 +143,7 @@ import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
+import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
@@ -1202,6 +1204,20 @@ function registerIpc(): void {
       )
   )
 
+  // The companion's Analyze button. Same posture as the two above — main owns the binding and
+  // the worktree path — but no framing deps: a CI triage turn is single-pass, so it never asks
+  // which driver the session runs on.
+  ipcMain.handle(
+    IPC.reviewComposeCiPrompt,
+    (_e, caseSlug: string, sessionId: number, checkName: string) =>
+      composeCiTriagePrompt(
+        { db, argusHome, resolvePrompt, resolve: resolvePrompt },
+        caseSlug,
+        sessionId,
+        checkName
+      )
+  )
+
   // — case extras —
   ipcMain.handle(IPC.caseCost, (_e, caseSlug: string) => {
     return db
@@ -1287,6 +1303,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
     return listBindings(db, caseSlug)
+  })
+  ipcMain.handle(IPC.prStatusList, (_e, caseSlugs: string[]) =>
+    readPrStatuses(db, Array.isArray(caseSlugs) ? caseSlugs : [])
+  )
+  ipcMain.handle(IPC.prStatusRefresh, async (_e, caseSlugs: string[]) => {
+    const slugs = Array.isArray(caseSlugs) ? caseSlugs : []
+    const out = await refreshPrStatuses({ db }, slugs)
+    // Broadcast the slugs that actually changed, so a second window's dashboard repaints
+    // without re-fetching. The payload is slugs, not statuses: every listener reads the cache.
+    if (Object.keys(out).length > 0) broadcast(IPC.prStatusChanged, Object.keys(out))
+    return out
   })
   ipcMain.handle(IPC.prUnlink, (_e, caseSlug: string, bindingId: number) => {
     assertSlug(caseSlug)

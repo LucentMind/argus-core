@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { NewPrBinding, PrBinding } from '../../shared/pr'
 import { updateClaudeMdPrs } from './skillsDir'
+import { clearPrStatus } from './prStatusCache'
 
 // A raw id lookup rather than caseService's getCase: this module only needs the numeric
 // id, and importing getCase would recreate a module cycle that was deliberately removed
@@ -72,6 +73,16 @@ export function addBinding(db: DatabaseSync, caseSlug: string, input: NewPrBindi
     db.exec('ROLLBACK')
     throw err
   }
+  // The cached status describes the PR that WAS bound. Leaving it would show the old PR's
+  // checks under the new one until the first refresh lands — and on a replace, a green dot for
+  // a PR the user just stopped looking at. Clearing is safe: absent reads as "not fetched yet",
+  // which is exactly true.
+  //
+  // Deliberately OUTSIDE the try: the plan put it inside, immediately after COMMIT, but the
+  // catch there runs `ROLLBACK` — and rolling back a transaction that just committed throws its
+  // own error, masking whatever actually went wrong. Nothing after a committed write belongs in
+  // a block whose handler assumes the write is still open.
+  clearPrStatus(db, caseSlug)
   const row = db
     .prepare(
       `SELECT * FROM pr_bindings WHERE case_id = ? AND owner = ? AND repo = ? AND number = ?`
@@ -105,6 +116,7 @@ export function listBindings(db: DatabaseSync, caseSlug: string): PrBinding[] {
 export function removeBinding(db: DatabaseSync, caseSlug: string, bindingId: number): void {
   const caseId = caseIdOf(db, caseSlug)
   db.prepare(`DELETE FROM pr_bindings WHERE case_id = ? AND id = ?`).run(caseId, bindingId)
+  clearPrStatus(db, caseSlug)
 }
 
 /**

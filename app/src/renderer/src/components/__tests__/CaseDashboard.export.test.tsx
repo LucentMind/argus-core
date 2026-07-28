@@ -48,6 +48,14 @@ beforeEach(() => {
     },
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
     proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    // The dashboard mounts usePrStatuses for every case, which reads the cache and
+    // subscribes through these on mount.
+    pr: {
+      statusList: vi.fn(async () => ({})),
+      statusRefresh: vi.fn(async () => ({})),
+      onStatusChanged: vi.fn(() => () => {})
+    },
+
     jira: {
       syncAll: vi.fn().mockResolvedValue({ ok: true, value: { synced: 0, changed: 0, failed: 0 } }),
       onSyncProgress: vi.fn(() => () => {})

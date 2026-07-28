@@ -50,6 +50,11 @@ export const IPC = {
   workspacesChanged: 'workspaces:changed',
   prLink: 'pr:link',
   prList: 'pr:list',
+  prStatusList: 'pr-status:list',
+  prStatusRefresh: 'pr-status:refresh',
+  /** main → renderer broadcast: these cases' cached PR/CI status changed. The payload is the
+   *  slug list; every listener re-reads the cache rather than trusting a pushed status. */
+  prStatusChanged: 'pr-status:changed',
   prUnlink: 'pr:unlink',
   prSearch: 'pr:search',
   skillsList: 'skills:list',
@@ -167,6 +172,7 @@ export const IPC = {
   findingsClear: 'findings:clear',
   reviewComposeRunPrompt: 'review:compose-run-prompt',
   reviewComposeActionPrompt: 'review:compose-action-prompt',
+  reviewComposeCiPrompt: 'review:compose-ci-prompt',
   graphBuild: 'graph:build',
   graphStatus: 'graph:status',
   graphInstall: 'graph:install',

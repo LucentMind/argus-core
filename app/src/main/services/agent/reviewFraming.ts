@@ -62,6 +62,26 @@ export function driverForSession(deps: SessionDriverDeps, sessionId: number): Ag
 
 export type ReviewFramingDeps = SessionDriverDeps
 
+/**
+ * Throws unless `sessionId` belongs to `caseSlug`. Split out of `resolveReviewFraming` because
+ * the ownership question and the subagent-framing question are independent: a composer that
+ * produces a single-pass turn (`ciTriageCompose.ts`) needs the guard but has no framing to
+ * resolve, and forcing it to supply `resolveDriver` just to reach the guard would be a driver
+ * lookup performed for its side effect of throwing.
+ *
+ * A cross-case session id reaching a composer is a bug in the caller, never a legitimate
+ * request — same posture as AgentService.getOrCreate's ownership guard.
+ */
+export function assertSessionForCase(db: DatabaseSync, caseSlug: string, sessionId: number): void {
+  const rec = getCase(db, caseSlug)
+  if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
+  const owner = db.prepare(`SELECT case_id FROM sessions WHERE id = ?`).get(sessionId) as
+    { case_id: number } | undefined
+  if (!owner || owner.case_id !== rec.id) {
+    throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
+  }
+}
+
 export interface ReviewFraming {
   support: SubagentSupport
 }
@@ -79,13 +99,7 @@ export function resolveReviewFraming(
   caseSlug: string,
   sessionId: number
 ): ReviewFraming {
-  const rec = getCase(deps.db, caseSlug)
-  if (!rec) throw new Error(`Unknown case: ${caseSlug}`)
-  const owner = deps.db.prepare(`SELECT case_id FROM sessions WHERE id = ?`).get(sessionId) as
-    { case_id: number } | undefined
-  if (!owner || owner.case_id !== rec.id) {
-    throw new Error(`Unknown session ${sessionId} for case ${caseSlug}`)
-  }
+  assertSessionForCase(deps.db, caseSlug, sessionId)
   const mode = sessionMode(deps.db, sessionId)
   const driver = driverForSession(deps, sessionId)
   return { support: reviewSubagentSupport(mode, driver.capabilities.subagents) }
