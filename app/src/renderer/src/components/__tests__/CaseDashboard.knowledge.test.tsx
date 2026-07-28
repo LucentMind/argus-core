@@ -53,7 +53,8 @@ const defaultProps = {
 
 beforeEach(() => {
   window.argus = {
-    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },    // The dashboard mounts usePrStatuses for every case, which reads the cache and
+    settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
+    // The dashboard mounts usePrStatuses for every case, which reads the cache and
     // subscribes through these on mount.
     pr: {
       statusList: vi.fn(async () => ({})),

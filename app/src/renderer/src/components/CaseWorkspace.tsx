@@ -305,10 +305,19 @@ export function CaseWorkspace({
     setSessionsError(message)
   }
 
-  /** Filled in by Task 13; kept separate so the section can mount before the compose IPC
-   *  exists. A plain function, like the handlers around it — this component uses no useCallback
-   *  and PrCompanionSection is not memoized, so a stable identity would buy nothing. */
-  async function analyzeCheck(_checkName: string): Promise<void> {}
+  /** Mirrors ReviewRunButton: compose in main (it owns the binding and worktree path), then
+   *  send through the ordinary agent path so cancel/queue/mirror behave normally. A plain
+   *  function, like the handlers around it — this component uses no useCallback and
+   *  PrCompanionSection is not memoized, so a stable identity would buy nothing. */
+  async function analyzeCheck(checkName: string): Promise<void> {
+    if (sessionId === null) return
+    try {
+      const prompt = await window.argus.review.composeCiPrompt(slug, sessionId, checkName)
+      await window.argus.agent.send(slug, sessionId, prompt)
+    } catch (err) {
+      handleModeError((err as Error).message)
+    }
+  }
 
   /** ReposSection's "Find PRs" result handler — see `openPrPicker`'s doc comment for what
    *  this guards against. */

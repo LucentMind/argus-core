@@ -21,7 +21,9 @@ describe('actionsJobId', () => {
   })
 
   it('tolerates a query string and a trailing slash', () => {
-    expect(actionsJobId('https://github.com/acme/widget/actions/runs/123/job/456?check_suite=9')).toBe(456)
+    expect(
+      actionsJobId('https://github.com/acme/widget/actions/runs/123/job/456?check_suite=9')
+    ).toBe(456)
     expect(actionsJobId('https://github.com/acme/widget/actions/runs/123/job/456/')).toBe(456)
   })
 

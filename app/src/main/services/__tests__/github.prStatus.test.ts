@@ -100,7 +100,12 @@ describe('fetchPrStatuses', () => {
         url: 'https://github.com/acme/widget/actions/runs/1/job/99',
         jobId: 99
       },
-      { name: 'ci/circleci', bucket: 'pass', url: 'https://circleci.com/gh/acme/widget/7', jobId: null }
+      {
+        name: 'ci/circleci',
+        bucket: 'pass',
+        url: 'https://circleci.com/gh/acme/widget/7',
+        jobId: null
+      }
     ])
   })
 
@@ -166,10 +171,7 @@ describe('fetchPrStatuses', () => {
   })
 
   it('parses the real capture from Task 1 without throwing', async () => {
-    const raw = fs.readFileSync(
-      path.join(__dirname, 'fixtures', 'prStatus.graphql.json'),
-      'utf8'
-    )
+    const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'prStatus.graphql.json'), 'utf8')
     const run: Runner = async () => raw
     const map = await fetchPrStatuses(run, [T0], NOW)
     const s = map.get(prTargetKey(T0))!
@@ -185,10 +187,7 @@ describe('fetchPrStatuses', () => {
   it('keeps same-named checks as separate rows — real PRs repeat check names', async () => {
     // Observed in the Task 1 capture: vitejs/vite#23097 lists "Semantic Pull Request" twice, and
     // cli/cli#13998 had 46 contexts under 20 distinct names. Collapsing by name would hide runs.
-    const raw = fs.readFileSync(
-      path.join(__dirname, 'fixtures', 'prStatus.graphql.json'),
-      'utf8'
-    )
+    const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'prStatus.graphql.json'), 'utf8')
     const nodes = (
       JSON.parse(raw) as {
         data: {
