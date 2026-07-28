@@ -262,15 +262,26 @@ export function resolveCommentTarget(
   }
   const binding = resolveBindingForFinding(deps, caseSlug, expectPr)
 
-  // The prefix names the binding's repo when it matches either the GitHub repo name or the
-  // local clone's directory name (a clone can be checked out under a different name).
+  // The prefix names the binding's repo when it matches any name the agent could reasonably
+  // have used for it:
+  //   - the GitHub repo name,
+  //   - the local clone's directory name (a clone can be checked out under a different name),
+  //   - the PR WORKTREE's directory name, `<repo>-<case>-pr<n>`.
+  // The third is not a nicety. The review-run header hands the agent the absolute worktree
+  // path and the triage step asks for `<repo-name>/...`, so the name the agent is standing in
+  // and the name the grammar wants are different strings — and the 2026-07-28 acceptance run
+  // found it citing the former. Computed from the binding rather than from `worktreeFor` so
+  // the strip is a naming rule, not a fact about whether the checkout currently exists.
   const slash = row.diff_path.indexOf('/')
   const head = slash > 0 ? row.diff_path.slice(0, slash) : ''
-  const named =
-    head !== '' &&
-    (binding.repo.toLowerCase() === head.toLowerCase() ||
-      (binding.repoPath !== null &&
-        path.basename(binding.repoPath).toLowerCase() === head.toLowerCase()))
+  const aliases = [binding.repo]
+  if (binding.repoPath !== null) {
+    aliases.push(path.basename(binding.repoPath))
+    aliases.push(
+      path.basename(casePrWorktreeDir(deps.argusHome, caseSlug, binding.repoPath, binding.number))
+    )
+  }
+  const named = head !== '' && aliases.some((a) => a.toLowerCase() === head.toLowerCase())
   const rest = slash > 0 ? row.diff_path.slice(slash + 1) : row.diff_path
   const repoRelPath = named ? rest : row.diff_path
   // The review-run header hands the agent the ABSOLUTE worktree path; an absolute or
