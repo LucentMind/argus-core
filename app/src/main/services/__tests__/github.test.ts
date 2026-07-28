@@ -113,4 +113,35 @@ describe('error helpers', () => {
     expect(isLineNotInDiff(err)).toBe(true)
     expect(isLineNotInDiff(Object.assign(new Error('x'), { stderr: 'HTTP 404' }))).toBe(false)
   })
+
+  // The shape a real `gh api` emits today, captured verbatim on 2026-07-29 against a live 422:
+  // stderr carries only the generic line, and the API's sub-errors — the only place the anchor
+  // failure is identifiable — are a JSON body on STDOUT. "part of the diff" appears in neither
+  // stream, which is why the stderr-text match alone left the PR-level fallback dead in the
+  // real app while every fake-Runner test stayed green.
+  it('detects the rejection in the real gh error shape (sub-errors on stdout)', () => {
+    const err = Object.assign(new Error('Command failed'), {
+      stderr: 'gh: Validation Failed (HTTP 422)',
+      stdout:
+        '{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","code":"custom","field":"pull_request_review_thread.line","message":"could not be resolved"}],"documentation_url":"https://docs.github.com/rest/pulls/comments#create-a-review-comment-for-a-pull-request","status":"422"}'
+    })
+    expect(isLineNotInDiff(err)).toBe(true)
+  })
+
+  it('does not treat other 422 validation failures as line-not-in-diff', () => {
+    const err = Object.assign(new Error('Command failed'), {
+      stderr: 'gh: Validation Failed (HTTP 422)',
+      stdout:
+        '{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","code":"custom","field":"body","message":"too long"}],"status":"422"}'
+    })
+    expect(isLineNotInDiff(err)).toBe(false)
+    expect(
+      isLineNotInDiff(
+        Object.assign(new Error('x'), {
+          stderr: 'gh: Validation Failed (HTTP 422)',
+          stdout: 'not json'
+        })
+      )
+    ).toBe(false)
+  })
 })
