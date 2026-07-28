@@ -5,6 +5,7 @@ import { REVIEW_ACTION_PROMPTS } from '../agent/reviewActions'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
 import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
 import { REVIEW_WRITE_FEEDBACK } from '../agent/reviewWrites'
+import { CI_LOG_FEEDBACK } from '../agent/ciLogs'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
 import { MEMORY_HEADER } from '../agent/session'
 import { MEMORY_FEEDBACK } from '../memory'
@@ -218,6 +219,13 @@ const REVIEW_WRITE_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(REVIEW_WRITE_FE
   reaches: NATIVE_TOOL_DRIVERS
 })
 
+const CI_LOG_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(CI_LOG_FEEDBACK, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/agent/ciLogs.ts',
+  reaches: NATIVE_TOOL_DRIVERS
+})
+
 const MEMORY_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(MEMORY_FEEDBACK, {
   prefix: 'tool-feedback',
   category: 'tool-feedback',
@@ -348,6 +356,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...TOOL_ENTRIES,
   ...TOOL_FEEDBACK_ENTRIES,
   ...REVIEW_WRITE_FEEDBACK_ENTRIES,
+  ...CI_LOG_FEEDBACK_ENTRIES,
   ...MEMORY_FEEDBACK_ENTRIES,
   ...RISK_FEEDBACK_ENTRIES,
   ...HEADLESS_ENTRIES,

@@ -34,6 +34,7 @@ import {
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
 import { postReviewComment, pushReviewChange } from './reviewWrites'
+import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
 
 export interface NativeToolDeps {
@@ -414,6 +415,24 @@ export function argusToolHandlers(
       return out
     },
 
+    async fetch_check_logs(args) {
+      const { evidenceId } = await fetchCheckLogs(
+        {
+          db,
+          argusHome,
+          detection: deps.detection,
+          gh: deps.gh,
+          resolve: deps.resolve
+        },
+        caseSlug,
+        String(args.check_name ?? '')
+      )
+      return ciFeedback(deps, 'ci_logs.ok', {
+        name: String(args.check_name ?? ''),
+        id: String(evidenceId)
+      })
+    },
+
     async update_case_status(args) {
       const status = String(args.status ?? '')
       if (!STATUSES.includes(status as CaseStatus)) {
@@ -612,6 +631,14 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     description:
       "Commit everything currently changed in the PR worktree and push it to the pull request's head branch. Pass pr as owner/repo#number naming EXACTLY the pull request bound to this case (copy it from the prompt — this is checked, not just displayed). Apply the change with your edit tools FIRST — this tool commits what is already on disk and writes nothing itself. Only works on a PR from the same repository, never a fork.",
     schema: { finding_id: z.number(), pr: z.string().min(1), commit_message: z.string() }
+  },
+  {
+    name: 'fetch_check_logs',
+    description:
+      "Fetch a CI check's log from the pull request bound to this case and ingest it as evidence, returning its evidence_id. Pass the check's name exactly as the checks list shows it. Only GitHub Actions jobs have readable logs. The log can be large — read it with read_lines or grep_lines rather than quoting it back.",
+    schema: {
+      check_name: z.string()
+    }
   },
   {
     name: 'update_case_status',
