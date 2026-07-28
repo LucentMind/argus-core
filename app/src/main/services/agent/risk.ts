@@ -81,6 +81,10 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   // Inert until accepted on the Proposals page (spec §2.4) — writing a proposal steers nothing.
   mcp__argus__write_proposal: { action: 'allow', risk: 'LOW' },
+  // A read: pulls a CI job log into evidence. Spec §8 — "reads (fetch PR/CI/diff/logs) auto-run
+  // and are logged". Ingesting is a local write, but of content the user already has access to
+  // and asked for; the HITL bar is for writes that leave the machine.
+  mcp__argus__fetch_check_logs: { action: 'allow', risk: 'LOW' },
   mcp__argus__open_panel: { action: 'allow', risk: 'LOW' },
   mcp__argus__capture_panel: { action: 'allow', risk: 'LOW' },
   mcp__argus__update_case_status: {
