@@ -111,8 +111,13 @@ describe('postReviewComment', () => {
       calls.push(args)
       if (args[0] === 'pr') return HEAD_JSON
       if (args[3].includes('/pulls/')) {
+        // The REAL gh error shape (captured 2026-07-29): generic stderr, sub-errors on stdout.
+        // The old fake put "part of the diff" in stderr — text real gh never emits — which let
+        // the fallback stay green in tests while being dead against live GitHub.
         throw Object.assign(new Error('Command failed'), {
-          stderr: 'HTTP 422: line must be part of the diff'
+          stderr: 'gh: Validation Failed (HTTP 422)',
+          stdout:
+            '{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","code":"custom","field":"pull_request_review_thread.line","message":"could not be resolved"}],"status":"422"}'
         })
       }
       return JSON.stringify({ html_url: 'https://github.com/acme/widget/pull/42#issuecomment-9' })

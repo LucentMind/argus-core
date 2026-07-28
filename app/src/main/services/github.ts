@@ -62,7 +62,24 @@ export function ghErrorText(err: unknown): string {
  * so `postReviewComment` falls back to a PR-level comment rather than failing.
  */
 export function isLineNotInDiff(err: unknown): boolean {
-  return /part of the diff/i.test(ghErrorText(err))
+  if (/part of the diff/i.test(ghErrorText(err))) return true
+  // Real `gh api` (captured 2026-07-29): stderr says only "gh: Validation Failed (HTTP 422)".
+  // The API's sub-errors land as a JSON body on STDOUT, and the anchor failure is identified
+  // by field, not prose — `pull_request_review_thread.line` / "could not be resolved".
+  const stdout = (err as { stdout?: string })?.stdout ?? ''
+  if (!stdout) return false
+  try {
+    const body = JSON.parse(stdout) as {
+      status?: string
+      errors?: { field?: string }[]
+    }
+    return (
+      body.status === '422' &&
+      (body.errors ?? []).some((e) => (e.field ?? '').startsWith('pull_request_review_thread'))
+    )
+  } catch {
+    return false
+  }
 }
 
 export interface PrHead {
