@@ -69,7 +69,7 @@ export interface DriverCapabilities {
   /** Which wire field carries the composed system prompt. Explicit and required — like
    *  `headlessOneShot` and unlike `mcpConnectors`, absence here would mean nothing, and the
    *  point of this field is that a new driver cannot skip the question. */
-  systemPromptTransport: SystemPromptTransport,
+  systemPromptTransport: SystemPromptTransport
   /** Explicit and required, like `headlessOneShot`: absence has no safe default here. */
   subagents: SubagentSupport
 }
