@@ -8,6 +8,7 @@ import { ModeSwitcher } from './ModeSwitcher'
 import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
+import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
@@ -304,6 +305,11 @@ export function CaseWorkspace({
     setSessionsError(message)
   }
 
+  /** Filled in by Task 13; kept separate so the section can mount before the compose IPC
+   *  exists. A plain function, like the handlers around it — this component uses no useCallback
+   *  and PrCompanionSection is not memoized, so a stable identity would buy nothing. */
+  async function analyzeCheck(_checkName: string): Promise<void> {}
+
   /** ReposSection's "Find PRs" result handler — see `openPrPicker`'s doc comment for what
    *  this guards against. */
   function handlePrsFound(result: PrSearchResult): Promise<void> {
@@ -452,6 +458,11 @@ export function CaseWorkspace({
                   <PanelLeft size={14} strokeWidth={1.5} />
                 </button>
               }
+            />
+            <PrCompanionSection
+              slug={slug}
+              mode={activeMode}
+              onAnalyze={(checkName) => void analyzeCheck(checkName)}
             />
             <SectionLabel>Evidence</SectionLabel>
             <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
