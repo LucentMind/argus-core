@@ -69,34 +69,69 @@ describe('usePrStatuses', () => {
     expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
   })
 
-  it('does not poll when nothing is running', async () => {
+  it('keeps a slow heartbeat when nothing is running', async () => {
+    // NOT "does not poll": stopping outright is what let a restarted CI run go unnoticed
+    // indefinitely (see IDLE_POLL_MULTIPLIER). Idling is the fix.
     render(<Probe slugs={['c1']} interval={20_000} />)
     await act(async () => {})
     expect(statusRefresh).toHaveBeenCalledTimes(1)
+
+    // Still quiet one fast interval in — the idle cadence must be slower, not merely non-zero.
     await act(async () => {
-      vi.advanceTimersByTime(120_000)
+      vi.advanceTimersByTime(20_000)
     })
     expect(statusRefresh).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(40_000)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
   })
 
-  it('polls while a check is running and stops once it settles', async () => {
+  it('discovers a run that starts after everything had settled', async () => {
+    // The exact defect: terminal -> running was undiscoverable, because discovering it needed
+    // the poll that all-terminal had switched off.
+    render(<Probe slugs={['c1']} interval={20_000} />)
+    await act(async () => {})
+    expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
+
+    statusRefresh.mockResolvedValueOnce({ c1: status({ rollup: 'running' }) })
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(screen.getByTestId('rollups')).toHaveTextContent('c1:running')
+
+    // and having found work, it goes back to the fast cadence
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(3)
+  })
+
+  it('polls fast while a check is running and slows once it settles', async () => {
     statusRefresh.mockResolvedValueOnce({ c1: status({ rollup: 'running' }) })
     render(<Probe slugs={['c1']} interval={20_000} />)
     await act(async () => {})
     expect(statusRefresh).toHaveBeenCalledTimes(1)
 
-    // still running -> the interval is armed
+    // still running -> the fast interval is armed
     await act(async () => {
       vi.advanceTimersByTime(20_000)
     })
     expect(statusRefresh).toHaveBeenCalledTimes(2)
     expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
 
-    // that second refresh returned passing -> the interval must be disarmed
+    // that second refresh returned passing -> the fast interval must no longer fire
     await act(async () => {
-      vi.advanceTimersByTime(60_000)
+      vi.advanceTimersByTime(20_000)
     })
     expect(statusRefresh).toHaveBeenCalledTimes(2)
+
+    // ...but the idle one does
+    await act(async () => {
+      vi.advanceTimersByTime(40_000)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(3)
   })
 
   it('makes no call at all for an empty slug list', async () => {
@@ -118,14 +153,19 @@ describe('usePrStatuses', () => {
     expect(statusRefresh).toHaveBeenCalledTimes(before)
   })
 
-  it('survives a refresh that rejects without wedging the poll', async () => {
+  it('survives a refresh that rejects and retries at the idle cadence', async () => {
     statusRefresh.mockRejectedValueOnce(new Error('gh exploded'))
     render(<Probe slugs={['c1']} interval={20_000} />)
     await act(async () => {})
     expect(screen.getByTestId('rollups')).toHaveTextContent('c1:-')
-    // a rejection is not "running", so nothing is armed and nothing throws
+    expect(statusRefresh).toHaveBeenCalledTimes(1)
+
+    // One transient IPC failure must not blind the surface for the life of the mount — that is
+    // the same defect as stopping at all-terminal, with a rarer trigger.
     await act(async () => {
       vi.advanceTimersByTime(60_000)
     })
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
   })
 })
