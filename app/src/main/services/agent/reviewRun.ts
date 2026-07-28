@@ -74,7 +74,9 @@ anything:
 3. Denoise — drop pre-existing issues, style, anything a linter or CI already catches, and
    anything a senior engineer would not raise.
 4. Record — call append_finding once per survivor, with layer, severity
-   (critical|major|minor) and a [<repo-name>/<path>:<line>] citation into the changed lines.
+   (critical|major|minor) and a [{repoName}/<path>:<line>] citation into the changed lines.
+   The prefix is exactly {repoName} and the path is relative to the repository root — NOT the
+   name of the worktree directory you are reading from, which is a different string.
    Every finding states the concrete failure scenario. No scenario, no finding. When you know
    the concrete fix, pass suggested_change describing it in one or two sentences — that is
    what the user's Apply action will implement, and a finding without one can only be
@@ -82,7 +84,8 @@ anything:
 
 Then end with the verdict — ready / ready with fixes / not ready — and one sentence of
 reasoning. Do not change any code; applying a fix happens only when the user accepts a
-finding and asks for it.`
+finding and asks for it.`,
+    placeholders: ['repoName']
   }
 }
 
@@ -109,6 +112,10 @@ export function buildReviewRunPrompt(opts: {
   pinnedLayers: readonly ReviewLayerId[]
   prUrl: string
   worktreePath: string
+  /** The GitHub repo name — the citation prefix `resolveCommentTarget` strips. Stated
+   *  literally in the triage step because the worktree directory the agent reads from is
+   *  named differently (`<repo>-<case>-pr<n>`) and it will otherwise cite that. */
+  repoName: string
   resolve?: (id: string) => string
 }): string {
   const r = opts.resolve
@@ -138,6 +145,6 @@ export function buildReviewRunPrompt(opts: {
     fillPrompt(text('header'), { prUrl: opts.prUrl, worktreePath: opts.worktreePath }),
     selection,
     fanout,
-    text('triage')
+    fillPrompt(text('triage'), { repoName: opts.repoName })
   ].join('\n\n')
 }

@@ -55,6 +55,7 @@ export async function composeReviewRunPrompt(
     pinnedLayers: layers,
     prUrl: binding.url,
     worktreePath: worktree,
+    repoName: binding.repo,
     resolve: deps.resolvePrompt
   })
 }
