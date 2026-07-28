@@ -4,7 +4,8 @@ import { REVIEW_LAYERS, CANDIDATE_CONTRACT } from '../../../../shared/reviewLaye
 
 const base = {
   prUrl: 'https://github.com/o/r/pull/7',
-  worktreePath: '/wt/r-case-pr7'
+  worktreePath: '/wt/r-case-pr7',
+  repoName: 'r'
 }
 
 describe('buildReviewRunPrompt', () => {
@@ -12,6 +13,15 @@ describe('buildReviewRunPrompt', () => {
     const p = buildReviewRunPrompt({ ...base, support: 'configurable', pinnedLayers: [] })
     expect(p).toContain('https://github.com/o/r/pull/7')
     expect(p).toContain('/wt/r-case-pr7')
+  })
+
+  it('spells out the citation prefix instead of leaving <repo-name> to inference', () => {
+    // The worktree is named `r-case-pr7` while the repo is `r`; an agent told only
+    // "<repo-name>" reads the folder it is standing in and cites the wrong one (2026-07-28
+    // acceptance run). The triage step therefore states the literal prefix.
+    const p = buildReviewRunPrompt({ ...base, support: 'configurable', pinnedLayers: [] })
+    expect(p).toContain('[r/<path>:<line>]')
+    expect(p).not.toContain('[<repo-name>/<path>:<line>]')
   })
 
   it('on a configurable driver delegates by agent name and does not inline layer prompts', () => {
