@@ -29,7 +29,16 @@ export interface ArtifactTypeMeta {
   isText: boolean
 }
 
-export type EvidenceOrigin = 'upload' | 'jira' | 's3' | 'agent' | 'panel' | 'scan' | 'paste'
+export type EvidenceOrigin =
+  | 'upload'
+  | 'jira'
+  | 's3'
+  | 'agent'
+  | 'panel'
+  | 'scan'
+  | 'paste'
+  /** A CI job log pulled in by `fetch_check_logs` (Plan 5). */
+  | 'ci'
 
 export interface NewCaseInput {
   slug: string
