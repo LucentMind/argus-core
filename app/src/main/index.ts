@@ -143,6 +143,7 @@ import { exportCase, importCase, inspectBundle } from './services/bundle'
 import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
+import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
@@ -1200,6 +1201,20 @@ function registerIpc(): void {
         sessionId,
         findingId,
         action
+      )
+  )
+
+  // The companion's Analyze button. Same posture as the two above — main owns the binding and
+  // the worktree path — but no framing deps: a CI triage turn is single-pass, so it never asks
+  // which driver the session runs on.
+  ipcMain.handle(
+    IPC.reviewComposeCiPrompt,
+    (_e, caseSlug: string, sessionId: number, checkName: string) =>
+      composeCiTriagePrompt(
+        { db, argusHome, resolvePrompt, resolve: resolvePrompt },
+        caseSlug,
+        sessionId,
+        checkName
       )
   )
 

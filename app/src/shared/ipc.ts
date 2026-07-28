@@ -172,6 +172,7 @@ export const IPC = {
   findingsClear: 'findings:clear',
   reviewComposeRunPrompt: 'review:compose-run-prompt',
   reviewComposeActionPrompt: 'review:compose-action-prompt',
+  reviewComposeCiPrompt: 'review:compose-ci-prompt',
   graphBuild: 'graph:build',
   graphStatus: 'graph:status',
   graphInstall: 'graph:install',

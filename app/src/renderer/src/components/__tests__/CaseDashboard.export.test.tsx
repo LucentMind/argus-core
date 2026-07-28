@@ -47,7 +47,8 @@ beforeEach(() => {
       export: vi.fn().mockResolvedValue({ ok: true, path: 'C:/x.arguscase', fileCount: 12 })
     },
     settings: { get: vi.fn(async () => payload()), onChanged: vi.fn(() => () => {}) },
-    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },    // The dashboard mounts usePrStatuses for every case, which reads the cache and
+    proposals: { list: vi.fn().mockResolvedValue({ proposals: [] }) },
+    // The dashboard mounts usePrStatuses for every case, which reads the cache and
     // subscribes through these on mount.
     pr: {
       statusList: vi.fn(async () => ({})),

@@ -121,8 +121,7 @@ describe('fetchCheckLogs', () => {
 
   it('truncates a huge log and says so, rather than ingesting it whole', async () => {
     const huge = 'x'.repeat(CI_LOG_MAX_BYTES + 5000)
-    const gh: Runner = async (_cmd, args) =>
-      args[1] === 'graphql' ? statusPayload([BUILD]) : huge
+    const gh: Runner = async (_cmd, args) => (args[1] === 'graphql' ? statusPayload([BUILD]) : huge)
     const out = await fetchCheckLogs(deps(gh), 'c1', 'build')
     expect(out.text.length).toBeLessThan(huge.length)
     expect(out.text).toMatch(/truncated/i)

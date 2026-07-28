@@ -9,8 +9,7 @@ import type { PrStatus } from '../../shared/prStatus'
 
 export function writePrStatus(db: DatabaseSync, caseSlug: string, status: PrStatus): void {
   const row = db.prepare(`SELECT id FROM cases WHERE slug = ?`).get(caseSlug) as
-    | { id: number }
-    | undefined
+    { id: number } | undefined
   if (!row) return
   db.prepare(
     `INSERT INTO pr_status_cache (case_id, fetched_at, status_json) VALUES (?, ?, ?)
