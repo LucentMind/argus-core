@@ -1,0 +1,1 @@
+{"data":{"t0":{"pullRequest":{"number":23097,"url":"https://github.com/vitejs/vite/pull/23097","state":"OPEN"}},"t1":null},"errors":[{"type":"NOT_FOUND","path":["t1"],"locations":[{"line":1,"column":107}],"message":"Could not resolve to a Repository with the name 'vitejs/definitely-not-a-real-repo'."}]}

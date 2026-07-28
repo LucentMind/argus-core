@@ -115,7 +115,12 @@ beforeEach(() => {
       list: vi.fn(async () => []),
       link: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined),
-      search: vi.fn(async () => ({ candidates: [], error: null, searchedRepos: [] }))
+      search: vi.fn(async () => ({ candidates: [], error: null, searchedRepos: [] })),
+      // The review-mode left aside mounts PrCompanionSection, which loads/refreshes/subscribes
+      // through these the moment the case is in review mode.
+      statusList: vi.fn(async () => ({})),
+      statusRefresh: vi.fn(async () => ({})),
+      onStatusChanged: vi.fn(() => () => {})
     },
     graph: {
       status: vi.fn(async () => []),

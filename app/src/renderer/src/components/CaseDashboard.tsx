@@ -5,6 +5,7 @@ import { FolderInput, Plus } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { useSettingsPayload } from '../lib/settingsStore'
+import { usePrStatuses } from '../lib/prStatusStore'
 
 export function CaseDashboard({
   cases,
@@ -103,6 +104,15 @@ export function CaseDashboard({
     setDeleting(slug)
   }
 
+  /** 60s, not review mode's 20s: many PRs, none of them being stared at. Still polls only while
+   *  some check is running, and only while the dashboard is mounted. The FULL case list is
+   *  passed, not `visible` — a filtered-out case should keep refreshing so its dot is right the
+   *  moment the filter clears. */
+  const prStatuses = usePrStatuses(
+    cases.map((c) => c.slug),
+    60_000
+  )
+
   const q = filter.trim().toLowerCase()
   const visible = cases.filter((c) => {
     if (!showClosed && c.status === 'closed') return false
@@ -177,6 +187,7 @@ export function CaseDashboard({
             onOpen={onOpen}
             onExport={(slug) => void exportCase(slug)}
             onDelete={(slug) => void requestDelete(slug)}
+            prRollup={prStatuses[c.slug]?.rollup}
             note={
               deleteError?.slug === c.slug
                 ? { text: deleteError.text, danger: true }

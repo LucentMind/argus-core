@@ -2,6 +2,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Chip } from './ui'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { useSettingsPayload } from '../lib/settingsStore'
+import { prStatusStore } from '../lib/prStatusStore'
+import { PrRollupDot } from './PrRollupDot'
 import { capabilitiesFor, defaultInstanceId } from '../../../shared/drivers'
 import type { AuthStatus, PreflightReport } from '../../../shared/types'
 
@@ -21,6 +23,13 @@ export function HeaderChips({
   const state = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () => (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
+  )
+  // Read-only: the chip never fetches. The cache outlives review mode, so a case shows its last
+  // known PR state in any mode — which is the point of putting it in the header rather than in
+  // the review-only companion.
+  const prStatus = useSyncExternalStore(
+    (cb) => prStatusStore.subscribe(cb),
+    () => prStatusStore.get(slug)
   )
   const settingsPayload = useSettingsPayload()
   const costReporting = capabilitiesFor(
@@ -94,6 +103,19 @@ export function HeaderChips({
             ? ` · $${state.cost.costUsd.toFixed(2)}`
             : ''}
       </Chip>
+      {prStatus && (
+        <Chip>
+          <a
+            href={prStatus.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1"
+            title={`${prStatus.owner}/${prStatus.repo}#${prStatus.number}`}
+          >
+            <PrRollupDot rollup={prStatus.rollup} size={6} />#{prStatus.number}
+          </a>
+        </Chip>
+      )}
     </div>
   )
 }

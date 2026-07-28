@@ -24,14 +24,17 @@ const SCANNED = [
   'app/src/main/services/jiraPrompts.ts',
   'app/src/main/services/agent/reviewRun.ts',
   'app/src/main/services/agent/reviewWrites.ts',
-  'app/src/main/services/agent/reviewActions.ts'
+  'app/src/main/services/agent/reviewActions.ts',
+  'app/src/main/services/agent/ciLogs.ts',
+  'app/src/main/services/agent/ciTriage.ts'
 ]
 
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */
 const RETURN_SCANNED = [
   'app/src/main/services/agent/nativeTools.ts',
   'app/src/main/services/memory.ts',
-  'app/src/main/services/agent/reviewWrites.ts'
+  'app/src/main/services/agent/reviewWrites.ts',
+  'app/src/main/services/agent/ciLogs.ts'
 ]
 
 /**

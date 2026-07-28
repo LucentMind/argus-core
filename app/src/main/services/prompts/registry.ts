@@ -2,9 +2,11 @@ import { MODES } from '../../../shared/modes'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import { REVIEW_RUN_PROMPTS } from '../agent/reviewRun'
 import { REVIEW_ACTION_PROMPTS } from '../agent/reviewActions'
+import { CI_TRIAGE_PROMPTS } from '../agent/ciTriage'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
 import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
 import { REVIEW_WRITE_FEEDBACK } from '../agent/reviewWrites'
+import { CI_LOG_FEEDBACK } from '../agent/ciLogs'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
 import { MEMORY_HEADER } from '../agent/session'
 import { MEMORY_FEEDBACK } from '../memory'
@@ -137,11 +139,20 @@ const REVIEW_ACTION_ENTRIES: PromptEntry[] = specEntries(REVIEW_ACTION_PROMPTS, 
   reaches: 'all'
 })
 
+/** The CI-failure analysis turn the companion's Analyze button sends. */
+const CI_TRIAGE_ENTRIES: PromptEntry[] = specEntries(CI_TRIAGE_PROMPTS, {
+  prefix: 'review.ci',
+  category: 'persona',
+  source: 'app/src/main/services/agent/ciTriage.ts',
+  reaches: 'all'
+})
+
 const PERSONA_ENTRIES: PromptEntry[] = [
   ...MODE_PERSONA_ENTRIES,
   ...REVIEW_LAYER_ENTRIES,
   ...REVIEW_RUN_ENTRIES,
   ...REVIEW_ACTION_ENTRIES,
+  ...CI_TRIAGE_ENTRIES,
   {
     id: 'persona.neutral',
     category: 'persona',
@@ -215,6 +226,13 @@ const REVIEW_WRITE_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(REVIEW_WRITE_FE
   prefix: 'tool-feedback',
   category: 'tool-feedback',
   source: 'app/src/main/services/agent/reviewWrites.ts',
+  reaches: NATIVE_TOOL_DRIVERS
+})
+
+const CI_LOG_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(CI_LOG_FEEDBACK, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/agent/ciLogs.ts',
   reaches: NATIVE_TOOL_DRIVERS
 })
 
@@ -348,6 +366,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...TOOL_ENTRIES,
   ...TOOL_FEEDBACK_ENTRIES,
   ...REVIEW_WRITE_FEEDBACK_ENTRIES,
+  ...CI_LOG_FEEDBACK_ENTRIES,
   ...MEMORY_FEEDBACK_ENTRIES,
   ...RISK_FEEDBACK_ENTRIES,
   ...HEADLESS_ENTRIES,

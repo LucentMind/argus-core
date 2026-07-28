@@ -126,6 +126,15 @@ CREATE TABLE IF NOT EXISTS pr_bindings (
   detected_at TEXT NOT NULL,
   UNIQUE(case_id, owner, repo, number)
 );
+-- Last fetched PR + CI state, one row per case (a case binds at most one PR, so case_id is the
+-- key and its own FK index). Stored as a JSON projection of a remote API rather than columns:
+-- nothing queries it by field — every consumer reads the whole status for one or more cases and
+-- renders it — so columns would be schema churn with no query to serve.
+CREATE TABLE IF NOT EXISTS pr_status_cache (
+  case_id INTEGER PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+  fetched_at TEXT NOT NULL,
+  status_json TEXT NOT NULL
+);
 -- Foreign-key indexes. With PRAGMA foreign_keys=ON, an ON DELETE CASCADE on the
 -- parent (cases) forces SQLite to find matching child rows; without an index on
 -- the child's FK column that is a FULL TABLE SCAN per cascade, so deleting one

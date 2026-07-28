@@ -1,6 +1,8 @@
 import type { CaseRecord, CaseStatus } from '../../../shared/types'
 import { formatSyncRecency, type ActionItem } from '../../../shared/triage'
+import type { PrRollup } from '../../../shared/prStatus'
 import { Card, Chip, IconBtn } from './ui'
+import { PrRollupDot } from './PrRollupDot'
 import { Download, Trash2 } from 'lucide-react'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
@@ -25,13 +27,17 @@ export function CaseCard({
   onOpen,
   onExport,
   onDelete,
-  note
+  note,
+  prRollup
 }: {
   c: CaseRecord
   onOpen: (slug: string) => void
   onExport: (slug: string) => void
   onDelete: (slug: string) => void
   note: { text: string; danger: boolean } | null
+  /** Cached CI rollup for this case's bound PR. Absent when the case has no PR — the dashboard
+   *  reads the cache and passes only what it has, so the card never fetches anything itself. */
+  prRollup?: PrRollup
 }): React.JSX.Element {
   const actions = c.actionItems.filter((i) => i.severity === 'action')
   // `stale` is deliberately dropped: the footer below now states sync recency
@@ -44,7 +50,10 @@ export function CaseCard({
   return (
     <Card onClick={() => onOpen(c.slug)} className="group flex flex-col gap-2 p-4">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-sm text-defect">{c.slug}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono text-sm text-defect">{c.slug}</span>
+          {prRollup && <PrRollupDot rollup={prRollup} />}
+        </span>
         <span className="flex items-center gap-1.5">
           <IconBtn
             aria-label={`Export ${c.slug}`}

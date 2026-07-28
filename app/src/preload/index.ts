@@ -68,6 +68,7 @@ import type {
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
+import type { PrStatus } from '../shared/prStatus'
 import type {
   OpenPanelRequest,
   PanelInfo,
@@ -376,7 +377,16 @@ const argus = {
     unlink: (caseSlug: string, bindingId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId),
     search: (caseSlug: string): Promise<PrSearchResult> =>
-      ipcRenderer.invoke(IPC.prSearch, caseSlug)
+      ipcRenderer.invoke(IPC.prSearch, caseSlug),
+    statusList: (caseSlugs: string[]): Promise<Record<string, PrStatus>> =>
+      ipcRenderer.invoke(IPC.prStatusList, caseSlugs),
+    statusRefresh: (caseSlugs: string[]): Promise<Record<string, PrStatus>> =>
+      ipcRenderer.invoke(IPC.prStatusRefresh, caseSlugs),
+    onStatusChanged: (cb: (slugs: string[]) => void): (() => void) => {
+      const h = (_e: unknown, slugs: string[]): void => cb(slugs)
+      ipcRenderer.on(IPC.prStatusChanged, h)
+      return () => ipcRenderer.removeListener(IPC.prStatusChanged, h)
+    }
   },
   graph: {
     build: (
@@ -647,7 +657,9 @@ const argus = {
       findingId: number,
       action: 'comment' | 'apply'
     ): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingId, action)
+      ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingId, action),
+    composeCiPrompt: (slug: string, sessionId: number, checkName: string): Promise<string> =>
+      ipcRenderer.invoke(IPC.reviewComposeCiPrompt, slug, sessionId, checkName)
   },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */
