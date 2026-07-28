@@ -126,6 +126,7 @@ import {
   autoLinkDefaultRepo
 } from './services/workspaces'
 import { getBinding, listBindings, removeBinding } from './services/prBindings'
+import { refreshPrStatuses, readPrStatuses } from './services/prStatusService'
 import { linkPrForCase } from './services/prLink'
 import { searchPrsForCase } from './services/prSearch'
 import { ensurePrWorktree } from './services/prWorktree'
@@ -1287,6 +1288,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC.prList, (_e, caseSlug: string) => {
     assertSlug(caseSlug)
     return listBindings(db, caseSlug)
+  })
+  ipcMain.handle(IPC.prStatusList, (_e, caseSlugs: string[]) =>
+    readPrStatuses(db, Array.isArray(caseSlugs) ? caseSlugs : [])
+  )
+  ipcMain.handle(IPC.prStatusRefresh, async (_e, caseSlugs: string[]) => {
+    const slugs = Array.isArray(caseSlugs) ? caseSlugs : []
+    const out = await refreshPrStatuses({ db }, slugs)
+    // Broadcast the slugs that actually changed, so a second window's dashboard repaints
+    // without re-fetching. The payload is slugs, not statuses: every listener reads the cache.
+    if (Object.keys(out).length > 0) broadcast(IPC.prStatusChanged, Object.keys(out))
+    return out
   })
   ipcMain.handle(IPC.prUnlink, (_e, caseSlug: string, bindingId: number) => {
     assertSlug(caseSlug)
