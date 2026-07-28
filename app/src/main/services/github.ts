@@ -140,6 +140,18 @@ export async function postIssueComment(
   return htmlUrlOf(out)
 }
 
+/** Longer than GH_TIMEOUT_MS: a log is a blob download, not a metadata call. The real capture
+ *  (Task 1) was 136 KB for one job, delivered as plain text after `gh` transparently followed the
+ *  API's redirect to a signed blob url. */
+export const GH_LOG_TIMEOUT_MS = 60_000
+
+/** A GitHub Actions job's log, as plain text. The API redirects to a blob; `gh` follows it. */
+export async function fetchJobLog(run: Runner, repo: string, jobId: number): Promise<string> {
+  return run('gh', ['api', `repos/${repo}/actions/jobs/${jobId}/logs`], {
+    timeoutMs: GH_LOG_TIMEOUT_MS
+  })
+}
+
 export interface PrTarget {
   owner: string
   repo: string
