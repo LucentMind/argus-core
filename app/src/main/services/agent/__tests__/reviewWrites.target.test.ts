@@ -54,6 +54,43 @@ beforeEach(() => {
 })
 
 describe('resolveCommentTarget', () => {
+  it('strips the PR WORKTREE directory name, which is what the agent actually sees', () => {
+    // Found by the 2026-07-28 acceptance run. The review-run header hands the agent the
+    // absolute worktree path, whose last segment is `<repo>-<case>-pr<n>` — so the agent cites
+    // that, not the repo name the grammar asks for. Recognising only `repo`/basename(repoPath)
+    // left the prefix unstripped and the path check then failed on a path that was correct.
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    const wt = seedWorktree(42, 'src/auth.js')
+    const id = finding(`See [${path.basename(wt)}/src/auth.js:69].`)
+    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id)
+    expect(t.repoRelPath).toBe('src/auth.js')
+    expect(t.line).toBe(69)
+  })
+
+  it('strips the worktree directory name even before the worktree is materialized', () => {
+    // The strip decision must not depend on the checkout existing — it is a naming rule, and
+    // `worktreeFor` returning null is a legitimate state (manual link, failed materialization).
+    addBinding(db, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    const id = finding('See [widget-c1-pr42/src/auth.js:69].')
+    const t = resolveCommentTarget({ db, argusHome: home }, 'c1', id)
+    expect(t.repoRelPath).toBe('src/auth.js')
+    expect(t.worktree).toBeNull()
+  })
+
   it('strips the repo-name prefix the citation grammar requires', () => {
     addBinding(db, 'c1', {
       repoPath,
