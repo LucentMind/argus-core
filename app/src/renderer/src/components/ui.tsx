@@ -12,17 +12,34 @@ const CHIP_TONES = {
 export function Chip({
   tone = 'neutral',
   title,
+  onClick,
+  'aria-label': ariaLabel,
   children
 }: {
   tone?: keyof typeof CHIP_TONES
   title?: string
+  /** With a handler the chip is a real button (pointer + hover affordance); without one it
+   *  stays the inert span it always was. */
+  onClick?: () => void
+  'aria-label'?: string
   children: ReactNode
 }): React.JSX.Element {
+  const cls = `inline-flex items-center gap-1 rounded-r1 border bg-hair/50 px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${CHIP_TONES[tone]}`
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        title={title}
+        aria-label={ariaLabel}
+        onClick={onClick}
+        className={`${cls} cursor-pointer transition-colors hover:bg-hair`}
+      >
+        {children}
+      </button>
+    )
+  }
   return (
-    <span
-      title={title}
-      className={`inline-flex items-center gap-1 rounded-r1 border bg-hair/50 px-1.5 py-0.5 font-mono text-[10.5px] uppercase tracking-wide ${CHIP_TONES[tone]}`}
-    >
+    <span title={title} className={cls}>
       {children}
     </span>
   )

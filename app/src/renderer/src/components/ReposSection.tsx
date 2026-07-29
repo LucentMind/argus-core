@@ -214,7 +214,12 @@ export function ReposSection({
       {/* Invisible until useful — same rule ModeSwitcher follows for a single mode. */}
       {prs.map((p) => (
         <div key={p.id} className="flex items-center gap-1">
-          <Chip tone={p.repoPath ? 'defect' : 'neutral'} title={p.url}>
+          <Chip
+            tone={p.repoPath ? 'defect' : 'neutral'}
+            title={p.url}
+            aria-label={`Open pull request ${p.owner}/${p.repo}#${p.number} on GitHub`}
+            onClick={() => void window.argus.openExternal(p.url)}
+          >
             {p.owner}/{p.repo}#{p.number}
             {p.repoPath ? '' : ' · no local clone'}
           </Chip>
