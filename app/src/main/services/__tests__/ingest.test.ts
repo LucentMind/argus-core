@@ -136,3 +136,38 @@ describe('ingestArtifact', () => {
     expect(fresh.c).toBe(1)
   })
 })
+
+describe('listEvidence scoping', () => {
+  function addRow(relPath: string): void {
+    const caseId = Number(db.prepare(`SELECT id FROM cases WHERE slug='NAVAPI-1'`).get()!.id)
+    db.prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
+       VALUES (?, ?, 'sha', 'text', 1, 'upload', '2026-07-29T00:00:00.000Z')`
+    ).run(caseId, relPath)
+  }
+
+  it('defaults to investigation, so an unedited caller never sees artifacts', () => {
+    addRow('evidence/ticket.md')
+    addRow('artifacts/ci-5.log')
+    expect(listEvidence(db, 'NAVAPI-1').map((e) => e.relPath)).toEqual(['evidence/ticket.md'])
+  })
+
+  it('returns only artifacts for the review scope', () => {
+    addRow('evidence/ticket.md')
+    addRow('artifacts/ci-5.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'review').map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
+  })
+
+  it('returns both for the all scope', () => {
+    addRow('evidence/ticket.md')
+    addRow('artifacts/ci-5.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'all')).toHaveLength(2)
+  })
+
+  // The prefix must anchor at the start: a nested dir with the same name stays investigation.
+  it('does not treat evidence/artifacts/... as review', () => {
+    addRow('evidence/artifacts/x.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'review')).toHaveLength(0)
+    expect(listEvidence(db, 'NAVAPI-1')).toHaveLength(1)
+  })
+})
