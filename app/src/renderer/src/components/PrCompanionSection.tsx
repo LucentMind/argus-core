@@ -159,9 +159,11 @@ function CheckGroup({
             type="button"
             aria-expanded={showPassed}
             aria-label={
-              label
-                ? `Show ${passed.length} passed checks in ${label}`
-                : `Show ${passed.length} passed checks`
+              // "check" vs "checks": a lone passing check is common on a small PR, and the
+              // accessible name is the only place the count is spoken.
+              `Show ${passed.length} passed check${passed.length === 1 ? '' : 's'}${
+                label ? ` in ${label}` : ''
+              }`
             }
             className="flex h-7 items-center gap-1.5 rounded-r1 px-1.5 text-[11px] text-mute transition-colors hover:bg-hair/60"
             onClick={() => setShowPassed((v) => !v)}

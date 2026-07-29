@@ -103,35 +103,36 @@ export function ReposSection({
     // SAME pr — addBinding is idempotent there and nothing retargets) is confirmed. Read fresh
     // rather than trusting `prs`: the Pull request section owns unlink now (Task 2) and does not
     // broadcast, so cached `prs` can name a PR that is no longer bound.
-    const current = (await window.argus.pr.list(slug))[0]
-    if (current) {
-      const parsed = parsePrRef(value)
-      const sameAsCurrent = parsed !== null && sameIdentity(parsed, current)
-      if (!sameAsCurrent) {
-        const ok = await confirm({
-          title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
-          message:
-            'This case already has a pull request linked. Findings already recorded here will be attributed to the new pull request — any "comment" or "push" action on them will target it, not the one they were found against.',
-          confirmLabel: 'Replace',
-          danger: true
-        })
-        if (!ok) {
-          setLinkingPr(false)
-          return
+    // One outer finally covers every exit from here on, including a rejected pr.list: without it
+    // a failed lookup would leave the input stuck disabled on "Linking…" until remount.
+    try {
+      const current = (await window.argus.pr.list(slug))[0]
+      if (current) {
+        const parsed = parsePrRef(value)
+        const sameAsCurrent = parsed !== null && sameIdentity(parsed, current)
+        if (!sameAsCurrent) {
+          const ok = await confirm({
+            title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
+            message:
+              'This case already has a pull request linked. Findings already recorded here will be attributed to the new pull request — any "comment" or "push" action on them will target it, not the one they were found against.',
+            confirmLabel: 'Replace',
+            danger: true
+          })
+          if (!ok) return
         }
       }
-    }
-    try {
-      await window.argus.pr.link(slug, value)
-      setPrDraft(null)
-      setPrError(null)
-      await reload()
-    } catch {
-      // main throws on anything parsePrRef can't read — say so instead of failing silently.
-      // (A CLAUDE.md write failure AFTER the binding committed no longer reaches here — see
-      // materializePrBindings's own try/catch — so this message stays honest: it only fires
-      // when the link genuinely never happened.)
-      setPrError('Not a pull request reference.')
+      try {
+        await window.argus.pr.link(slug, value)
+        setPrDraft(null)
+        setPrError(null)
+        await reload()
+      } catch {
+        // main throws on anything parsePrRef can't read — say so instead of failing silently.
+        // (A CLAUDE.md write failure AFTER the binding committed no longer reaches here — see
+        // materializePrBindings's own try/catch — so this message stays honest: it only fires
+        // when the link genuinely never happened.)
+        setPrError('Not a pull request reference.')
+      }
     } finally {
       setLinkingPr(false)
     }
