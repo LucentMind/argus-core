@@ -22,6 +22,10 @@ async function main(): Promise<void> {
   const contractFile = arg('contract')
   const resolve = contractResolver(contractFile ? fs.readFileSync(contractFile, 'utf8') : null)
   const limit = arg('limit')
+  if (limit !== null && !Number.isFinite(Number(limit))) {
+    console.error(`--limit must be a finite number, got: ${limit}`)
+    process.exit(2)
+  }
   let lines = loadCorpus(corpus)
   if (limit) lines = lines.slice(0, Number(limit))
   const model = arg('model') ?? undefined

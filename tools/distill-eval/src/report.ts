@@ -27,11 +27,11 @@ export function writeReport(
     `Parse: ok ${parse('ok')} · improved ${parse('parse-improved')} · REGRESSED ${parse('parse-regressed')} · still-failing ${parse('still-failing')}`,
     `Item verdicts: improved ${count('improved')} · unchanged ${count('unchanged')} · regressed ${count('regressed')} · needs-human ${count('needs-human')}`,
     '',
-    '## By reject tag (improved / total)',
-    ...[...byTag.entries()].map(([tag, e]) => `- ${tag}: ${e.improved}/${e.total}`),
-    '',
     '## Needs human review (read these first)',
     ...needsHuman.map((v) => `- [${v.caseSlug} #${v.jobId}] ${v.item.title}: ${v.verdict.reason}`),
+    '',
+    '## By reject tag (improved / total)',
+    ...[...byTag.entries()].map(([tag, e]) => `- ${tag}: ${e.improved}/${e.total}`),
     ''
   ].join('\n')
   const reportPath = path.join(outDir, 'report.md')
