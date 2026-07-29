@@ -95,7 +95,7 @@ describe('accept / reject', () => {
       type: 'skill-edit',
       target: 'rca',
       title: 'Sharpen',
-      content: '---\ndescription: better\n---\n# rca v2\n'
+      content: '---\nname: rca\ndescription: better\n---\n# rca v2\n'
     })
     acceptProposal(home, f)
     expect(fs.readFileSync(path.join(home, 'skills-user', 'rca', 'SKILL.md'), 'utf8')).toContain(
@@ -221,5 +221,39 @@ describe('rejectProposal reasons', () => {
   it('throws on an invalid tag (IPC args are untyped at runtime)', () => {
     const f = writeOne()
     expect(() => rejectProposal(home, f, { tag: 'meh' as never })).toThrow(/Invalid reject reason/)
+  })
+})
+
+describe('accept validates skill bodies', () => {
+  it('refuses a skill proposal whose description is empty', () => {
+    const file = writeProposal(home, 'case-1', {
+      type: 'skill-new',
+      target: 'hollow',
+      title: 'Hollow skill',
+      content: '---\nname: hollow\ndescription:\n---\n\n# hollow\nBody.'
+    })
+    expect(() => acceptProposal(home, file)).toThrow(/description/i)
+    expect(fs.existsSync(path.join(home, 'skills-user', 'hollow'))).toBe(false)
+  })
+
+  it('refuses a skill proposal with no frontmatter at all', () => {
+    const file = writeProposal(home, 'case-1', {
+      type: 'skill-new',
+      target: 'bare',
+      title: 'Bare skill',
+      content: '# bare\nBody.'
+    })
+    expect(() => acceptProposal(home, file)).toThrow(/frontmatter/i)
+  })
+
+  it('still accepts a well-formed skill proposal', () => {
+    const file = writeProposal(home, 'case-1', {
+      type: 'skill-new',
+      target: 'sound',
+      title: 'Sound skill',
+      content:
+        '---\nname: sound\ndescription: Use when the body is well formed.\n---\n\n# sound\nBody.'
+    })
+    expect(acceptProposal(home, file)).toEqual({ kind: 'skill', name: 'sound' })
   })
 })

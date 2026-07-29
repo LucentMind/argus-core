@@ -5,7 +5,7 @@ import { memoryDir, proposalsArchiveDir, proposalsDir, userSkillsDir } from './p
 import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
-import { ASSET_NAME_RE } from '../../shared/assetValidation'
+import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
 import {
   PROPOSAL_TYPES,
@@ -289,6 +289,14 @@ export function acceptProposal(
     upsertCaseSummary(opts.db, argusHome, p.target, summary, resolution, body)
     accepted = { kind: 'case-summary', name: p.target }
   } else if (p.type === 'skill-new' || p.type === 'skill-edit') {
+    // An empty description makes the skill un-triggerable and nothing downstream complains,
+    // so the accept path is the last place to catch it. Same gate the in-app editor uses.
+    const issues = validateSkill({ name: p.target, content: body })
+    if (hasErrors(issues)) {
+      throw new Error(
+        `Cannot accept "${p.target}": ${issues.find((i) => i.severity === 'error')!.message}`
+      )
+    }
     const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
     fs.writeFileSync(path.join(dest, 'SKILL.md'), body)
