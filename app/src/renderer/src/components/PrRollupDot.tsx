@@ -11,7 +11,14 @@ import type { PrRollup } from '../../../shared/prStatus'
 const TONE: Record<PrRollup, { className: string; label: string }> = {
   passing: { className: 'bg-signal', label: 'Checks passing' },
   failing: { className: 'bg-danger', label: 'Checks failing' },
-  running: { className: 'bg-defect animate-pulse', label: 'Checks running' },
+  // Amber like `running`, so it must differ in shape as well: solid here, a ring there. The
+  // app has no prefers-reduced-motion rule, and a pulse should not be the only difference
+  // between "still going" and "something already failed".
+  unstable: { className: 'bg-defect', label: 'Checks failing (not blocking merge)' },
+  running: {
+    className: 'border border-defect bg-transparent animate-pulse',
+    label: 'Checks running'
+  },
   none: { className: 'bg-hair2', label: 'No checks' },
   unavailable: { className: 'border border-mute bg-transparent', label: 'Status unavailable' }
 }
