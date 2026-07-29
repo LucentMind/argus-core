@@ -39,7 +39,7 @@ export function Chip({
     )
   }
   return (
-    <span title={title} className={cls}>
+    <span title={title} aria-label={ariaLabel} className={cls}>
       {children}
     </span>
   )
