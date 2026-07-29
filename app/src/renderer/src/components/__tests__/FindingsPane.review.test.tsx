@@ -36,7 +36,8 @@ beforeEach(() => {
   list.mockReset()
   window.argus = {
     findings: { list, review: vi.fn(), clear: vi.fn() },
-    cases: { readFindings: vi.fn().mockResolvedValue('') }
+    cases: { readFindings: vi.fn().mockResolvedValue('') },
+    review: { worktreeHead: vi.fn().mockResolvedValue(null) }
   } as never // test double for the preload bridge
 })
 

@@ -51,6 +51,7 @@ export function FindingsPane({
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -62,6 +63,9 @@ export function FindingsPane({
   ).names
   useEffect(() => {
     void window.argus.findings.list(slug).then(setFindings)
+    // Loaded once per findingsBump (not per finding) — the stale check compares every row's
+    // recorded head_sha against this one shared value.
+    void window.argus.review.worktreeHead(slug).then(setWorktreeHead)
   }, [slug, sessionId, bump])
 
   // Toggle semantics: clicking the active thumb returns the finding to pending.
@@ -290,6 +294,7 @@ export function FindingsPane({
                         onCite={onCite}
                         caseSlug={slug}
                         repoNames={repoNames}
+                        repoCiteSha={f.headSha ?? undefined}
                       />
                     </div>
                   )}
@@ -332,6 +337,17 @@ export function FindingsPane({
                         {f.severity}
                       </span>
                     )}
+                    {f.mode === 'review' &&
+                      f.headSha &&
+                      worktreeHead &&
+                      f.headSha !== worktreeHead && (
+                        <span
+                          className="rounded-r1 border border-warn/50 bg-warn/10 px-1 text-[10px] text-warn"
+                          title={`Recorded at ${f.headSha.slice(0, 12)} — the checked-out PR head is now ${worktreeHead.slice(0, 12)}. The preview is pinned to the recorded commit; re-verify before acting.`}
+                        >
+                          code moved
+                        </span>
+                      )}
                     {f.commentUrl && (
                       <a
                         href={f.commentUrl}

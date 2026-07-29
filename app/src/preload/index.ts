@@ -352,9 +352,10 @@ const argus = {
       repoName: string,
       relPath: string,
       start: number,
-      end?: number
+      end?: number,
+      atSha?: string
     ): Promise<RepoSnippetResult> =>
-      ipcRenderer.invoke(IPC.workspacesReadSnippet, caseSlug, repoName, relPath, start, end),
+      ipcRenderer.invoke(IPC.workspacesReadSnippet, caseSlug, repoName, relPath, start, end, atSha),
     readText: (
       caseSlug: string,
       repoName: string,
@@ -665,7 +666,10 @@ const argus = {
       sessionId: number,
       findingId: number
     ): Promise<{ ok: boolean; reason?: string }> =>
-      ipcRenderer.invoke(IPC.reviewPostFindingComment, slug, sessionId, findingId)
+      ipcRenderer.invoke(IPC.reviewPostFindingComment, slug, sessionId, findingId),
+    /** The PR worktree's current head, for the findings pane's stale-finding chip. */
+    worktreeHead: (slug: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.reviewWorktreeHead, slug)
   },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */

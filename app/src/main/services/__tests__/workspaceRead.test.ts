@@ -132,6 +132,51 @@ describe('readRepoSnippet', () => {
   })
 })
 
+describe('readRepoSnippet at a pinned sha', () => {
+  it('reads the content as of atSha, not the working tree', async () => {
+    const oldSha = git(repo, 'rev-parse', 'HEAD').trim()
+    fs.writeFileSync(
+      path.join(repo, 'src', 'camera.ts'),
+      Array.from({ length: 60 }, (_, i) => (i === 19 ? 'REWRITTEN' : `code line ${i + 1}`)).join(
+        '\n'
+      ) + '\n'
+    )
+    git(repo, 'commit', '-am', 'c2')
+    const pinned = await readRepoSnippet(
+      db,
+      argusHome,
+      'NAV-1',
+      'myrepo',
+      'src/camera.ts',
+      20,
+      20,
+      oldSha
+    )
+    expect(pinned.ok).toBe(true)
+    if (!pinned.ok) return
+    expect(pinned.lines.join('\n')).toContain('code line 20')
+    expect(pinned.lines.join('\n')).not.toContain('REWRITTEN')
+    expect(pinned.ref).toBe(oldSha.slice(0, 12))
+    const live = await readRepoSnippet(db, argusHome, 'NAV-1', 'myrepo', 'src/camera.ts', 20, 20)
+    if (!live.ok) return
+    expect(live.lines.join('\n')).toContain('REWRITTEN')
+  })
+
+  it('falls back to the live file when the sha is unknown', async () => {
+    const r = await readRepoSnippet(
+      db,
+      argusHome,
+      'NAV-1',
+      'myrepo',
+      'src/camera.ts',
+      3,
+      3,
+      'feedbeefcafefeedbeefcafefeedbeefcafefeed'
+    )
+    expect(r.ok).toBe(true) // live-file fallback, not an error
+  })
+})
+
 describe('readRepoText', () => {
   it('reads the whole file with startLine 1 for small files', async () => {
     const r = await readRepoText(db, argusHome, 'NAV-1', 'myrepo', 'src/camera.ts', 30)

@@ -76,6 +76,58 @@ export function resolveRepoAbs(root: string, relPath: string): string | null {
 
 const resolveRepoFile = resolveRepoAbs
 
+/** Path-math-only containment for a pinned (`git show <sha>:<path>`) read: reject absolute
+ *  paths and `..` segments, same discipline as `resolveCommentTarget`'s check in
+ *  reviewWrites.ts. Deliberately does NOT require the file to exist in the working tree — a
+ *  file later deleted or renamed still existed at `atSha`, and `resolveRepoAbs`'s
+ *  `fs.existsSync` would wrongly reject it. */
+function safeRelPath(relPath: string): boolean {
+  return !path.isAbsolute(relPath) && !relPath.split(/[\\/]/).includes('..')
+}
+
+/** `git show <atSha>:<relPath>` in `root`, sliced to the same snippet window as the live path.
+ *  Null on ANY failure (unknown sha, path not at that commit, unsafe path, no git) so the
+ *  caller falls back to the live-file read unchanged — a pinned preview must never be WORSE
+ *  than an unpinned one. */
+async function readPinnedSnippet(
+  root: string,
+  relPath: string,
+  atSha: string,
+  start: number,
+  end: number
+): Promise<Extract<RepoSnippetResult, { ok: true }> | null> {
+  if (!safeRelPath(relPath)) return null
+  try {
+    const gitPath = relPath.split(path.sep).join('/')
+    const { stdout } = await execFileAsync('git', ['show', `${atSha}:${gitPath}`], {
+      cwd: root,
+      maxBuffer: 8 * 1024 * 1024
+    })
+    const s = start > 0 ? start : 1
+    const e = Math.max(end, s)
+    const windowStart = Math.max(1, s - SNIPPET_BEFORE)
+    const windowEnd = Math.min(e + SNIPPET_AFTER, windowStart + MAX_SNIPPET_LINES - 1)
+    // git show's stdout ends in a trailing newline for a normally-terminated file, which would
+    // otherwise split into a phantom empty "line" past EOF — strip it so line counting matches
+    // the live readLineWindow path exactly.
+    const allLines = stdout === '' ? [] : stdout.replace(/\n$/, '').split('\n')
+    const lines = allLines.slice(windowStart - 1, windowEnd)
+    return {
+      ok: true,
+      repoName: '', // filled in by the caller, which knows repoName
+      relPath,
+      startLine: windowStart,
+      lines,
+      lang: langForPath(relPath).lang,
+      eof: windowEnd >= allLines.length,
+      truncated: e + SNIPPET_AFTER > windowEnd,
+      ref: atSha.slice(0, 12)
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function readRepoSnippet(
   db: DatabaseSync,
   argusHome: string,
@@ -83,10 +135,15 @@ export async function readRepoSnippet(
   repoName: string,
   relPath: string,
   start: number,
-  end: number = start
+  end: number = start,
+  atSha?: string
 ): Promise<RepoSnippetResult> {
   const root = resolveRepoTree(db, argusHome, caseSlug, repoName)
   if (!root) return { ok: false, reason: 'repo-not-linked' }
+  if (atSha) {
+    const pinned = await readPinnedSnippet(root, relPath, atSha, start, end)
+    if (pinned) return { ...pinned, repoName }
+  }
   const abs = resolveRepoFile(root, relPath)
   if (!abs) return { ok: false, reason: 'not-found' }
   const s = start > 0 ? start : 1
