@@ -729,6 +729,28 @@ describe('CaseWorkspace mode switching', () => {
   })
 })
 
+// Product decision (conversation with the user, 2026-07-29): PR-linking controls (Link PR /
+// Find PRs) are reachable only in review mode — "We don't need PR in investigation mode." This
+// is deliberate, not an incidental consequence of where PrCompanionSection happens to sit in
+// the layout. PrCompanionSection.test.tsx pins the same rule at the component level; this one
+// exercises the real composition (CaseWorkspace always passes onPrsFound, so a future change
+// that renders the section's header regardless of mode — a plausible refactor — would slip
+// past the component-level test if it also loosened the mode gate there, but not past this one).
+describe('CaseWorkspace PR linking is review-mode only', () => {
+  it('shows neither Link PR nor Find PRs anywhere in investigation mode', async () => {
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    await screen.findByText('Evidence') // wait for the workspace to settle before asserting absence
+    expect(screen.queryByRole('button', { name: 'Link PR' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Find PRs' })).not.toBeInTheDocument()
+  })
+
+  it('shows both Link PR and Find PRs in review mode', async () => {
+    render(workspace('NAV-1', { activeMode: 'review' }))
+    expect(await screen.findByRole('button', { name: 'Link PR' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Find PRs' })).toBeInTheDocument()
+  })
+})
+
 describe('CaseWorkspace findings pane', () => {
   it('drag on the separator resizes the pane (leftwards widens)', () => {
     const { container } = renderWorkspace()
