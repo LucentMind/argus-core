@@ -36,6 +36,11 @@ describe('mode registry', () => {
     expect(MODES.review.personaFragment).not.toMatch(/\[<path>:<line>\]/)
   })
 
+  it("review's citation guidance distinguishes review artifacts from investigation evidence", () => {
+    expect(MODES.review.personaFragment).toContain('[artifacts/')
+    expect(MODES.review.personaFragment).toContain('evidence/')
+  })
+
   it('MODE_ORDER (via availableModes) covers every key of MODES', () => {
     const allAvailable = availableModes({ linkedRepoCount: Infinity })
     expect(new Set(allAvailable)).toEqual(new Set(Object.keys(MODES)))
