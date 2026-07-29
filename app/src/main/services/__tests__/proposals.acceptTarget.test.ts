@@ -38,7 +38,8 @@ describe('acceptProposal return value', () => {
       type: 'skill-new',
       target: 'my-skill',
       title: 'T',
-      content: 'b'
+      content:
+        '---\nname: my-skill\ndescription: Use when testing accept routing.\n---\n\n# my-skill\nBody.'
     })
     expect(acceptProposal(home, f)).toEqual({ kind: 'skill', name: 'my-skill' })
   })
