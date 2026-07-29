@@ -340,4 +340,28 @@ describe('FindingsPane', () => {
       expect(scroller!.contains(screen.getByText(/Findings · 1/))).toBe(false)
     })
   })
+
+  it('separates the destructive header control from the benign one', async () => {
+    ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
+      {
+        id: 1,
+        summary: 'Root cause X',
+        reviewState: 'pending',
+        sessionId: 4,
+        mode: 'investigation'
+      }
+    ])
+    render(<FindingsPane slug="NAV-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    const clear = await screen.findByRole('button', { name: 'Clear findings' })
+    const collapse = screen.getByRole('button', { name: 'Collapse findings' })
+    const cluster = clear.parentElement as HTMLElement
+    expect(cluster.contains(collapse)).toBe(true)
+    // A rule between them — the one control here with consequences reads as separate.
+    // Queried by testid, not by [aria-hidden]: lucide-react stamps aria-hidden="true" on every
+    // icon svg it renders (lucide-react.js:92), so an attribute query matches the Trash2 glyph
+    // inside the clear button first.
+    const rule = screen.getByTestId('clear-rule')
+    expect(clear.compareDocumentPosition(rule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rule.compareDocumentPosition(collapse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })

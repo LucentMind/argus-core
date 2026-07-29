@@ -175,22 +175,6 @@ export function FindingsPane({
     .slice()
     .sort((a, b) => rank(a) - rank(b))
 
-  // Rendered in two mutually-exclusive slots below (with/without layer chips) so it sits next
-  // to the chips when there are any, and stands alone when there aren't — same button either
-  // way, hoisted once rather than duplicated.
-  const applySelectedButton =
-    effectiveSelected.length > 0 ? (
-      <button
-        type="button"
-        disabled={sessionId === null || actingId !== null}
-        title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
-        className="self-start rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
-        onClick={() => void applySelected()}
-      >
-        Apply selected ({effectiveSelected.length})
-      </button>
-    ) : null
-
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -199,14 +183,23 @@ export function FindingsPane({
         </SectionLabel>
         <div className="flex items-center gap-1">
           {modeFindings.length > 0 && (
-            <button
-              aria-label="Clear findings"
-              title="Clear all findings"
-              className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-danger"
-              onClick={() => void clearAll()}
-            >
-              <Trash2 size={14} strokeWidth={1.5} />
-            </button>
+            <>
+              <button
+                aria-label="Clear findings"
+                title="Clear all findings"
+                className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-danger"
+                onClick={() => void clearAll()}
+              >
+                <Trash2 size={14} strokeWidth={1.5} />
+              </button>
+              {/* Clear-findings is the only control in this cluster with consequences; the rule
+                  keeps it from reading as a peer of the panel toggle. */}
+              <span
+                aria-hidden="true"
+                data-testid="clear-rule"
+                className="mx-0.5 h-3 w-px bg-hair2"
+              />
+            </>
           )}
           <button
             aria-label="Collapse findings"
@@ -240,11 +233,7 @@ export function FindingsPane({
               {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
             </button>
           ))}
-          {applySelectedButton}
         </div>
-      )}
-      {effectiveSelected.length > 0 && presentLayers.length === 0 && (
-        <div className="flex items-center gap-1">{applySelectedButton}</div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {shown.length > 0 ? (
@@ -284,6 +273,33 @@ export function FindingsPane({
           </p>
         )}
       </div>
+      {/* Selection is a batch action, not a filter — it gets its own row below the list, and it
+          only exists while something is selected. Footer, not header: it summarizes the list
+          above it. */}
+      {effectiveSelected.length > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-hair pt-2">
+          <span className="font-mono text-[11px] text-mute">
+            <span className="text-ink">{effectiveSelected.length}</span> selected
+          </span>
+          <button
+            type="button"
+            className="rounded-r1 px-1 font-mono text-[10.5px] text-mute transition-colors hover:text-ink"
+            onClick={() => setSelected(new Set())}
+          >
+            clear
+          </button>
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled={sessionId === null || actingId !== null}
+            title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
+            className="rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
+            onClick={() => void applySelected()}
+          >
+            Apply selected ({effectiveSelected.length})
+          </button>
+        </div>
+      )}
     </div>
   )
 }

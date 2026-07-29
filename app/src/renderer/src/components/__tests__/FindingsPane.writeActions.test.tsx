@@ -254,4 +254,29 @@ describe('FindingsPane write actions', () => {
       expect.stringContaining('deny')
     )
   })
+
+  it('puts the selection footer after the list, not inside the filter row', async () => {
+    list.mockResolvedValue([reviewRow({ id: 7 })])
+    const { container } = render(
+      <FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />
+    )
+    await userEvent.click(await screen.findByLabelText('Select finding 7 for batch apply'))
+    const apply = screen.getByRole('button', { name: 'Apply selected (1)' })
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLElement
+    expect(scroller).not.toBeNull()
+    // It used to render inside the filter-chip row, which PRECEDES the scroller.
+    expect(scroller.compareDocumentPosition(apply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('clears the selection from the footer', async () => {
+    list.mockResolvedValue([reviewRow({ id: 7 })])
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Select finding 7 for batch apply'))
+    expect(screen.getByRole('button', { name: 'Apply selected (1)' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'clear' }))
+    expect(screen.queryByRole('button', { name: /Apply selected/ })).toBeNull()
+    expect(
+      (screen.getByLabelText('Select finding 7 for batch apply') as HTMLInputElement).checked
+    ).toBe(false)
+  })
 })
