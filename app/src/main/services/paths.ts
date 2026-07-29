@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { ARTIFACTS_DIR, EVIDENCE_DIR, dirForMode } from '../../shared/evidenceScope'
+import type { ModeId } from '../../shared/modes'
 
 /** User-chosen data-root override, persisted outside argusHome (chicken/egg: it names argusHome). */
 export function rootOverridePath(userDataDir: string): string {
@@ -118,4 +120,17 @@ export function refSyncStatePath(argusHome: string): string {
 
 export function deletionAuditPath(argusHome: string): string {
   return path.join(argusHome, '.audit', 'deletions.jsonl')
+}
+
+export function evidenceDir(argusHome: string, slug: string): string {
+  return path.join(caseDir(argusHome, slug), EVIDENCE_DIR)
+}
+
+export function artifactsDir(argusHome: string, slug: string): string {
+  return path.join(caseDir(argusHome, slug), ARTIFACTS_DIR)
+}
+
+/** Where material ingested in `mode` is stored. */
+export function modeDir(argusHome: string, slug: string, mode: ModeId): string {
+  return path.join(caseDir(argusHome, slug), dirForMode(mode))
 }
