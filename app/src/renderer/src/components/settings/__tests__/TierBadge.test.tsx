@@ -7,11 +7,11 @@ import { TierBadge } from '../TierBadge'
 describe('TierBadge', () => {
   it('renders the tier label with its explanation as tooltip', () => {
     render(<TierBadge tier="team-knowledge" />)
-    const chip = screen.getByText('team knowledge')
+    const chip = screen.getByText('proposed')
     expect(chip).toBeInTheDocument()
     expect(chip.closest('[title]')).toHaveAttribute(
       'title',
-      'Accepted from an agent proposal. Can be shared to the HiveMind.'
+      'An agent drafted this; you accepted it. Yours to edit, delete, or share.'
     )
   })
 
