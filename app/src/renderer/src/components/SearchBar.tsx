@@ -89,11 +89,15 @@ export function SearchBar({ caseSlug, onOpen }: Props): React.JSX.Element {
 
   async function run(e: React.FormEvent): Promise<void> {
     e.preventDefault()
+    // Investigation-only surface: CaseWorkspace renders SearchBar only when
+    // activeMode !== 'review'. Stated explicitly rather than relying on the
+    // searchEvidence default, so a future review search UI has one place to change.
+    const base: SearchFilters = { evidenceScope: 'investigation' }
     const filters: SearchFilters = caseSlug
       ? scope === 'case'
-        ? { caseSlug }
-        : {}
-      : { sources: ['evidence', 'chat', 'summaries'] }
+        ? { ...base, caseSlug }
+        : base
+      : { ...base, sources: ['evidence', 'chat', 'summaries'] }
     setHits(await window.argus.search.query(q, filters))
     setSearched(true)
   }

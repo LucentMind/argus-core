@@ -62,6 +62,55 @@ describe('searchEvidence', () => {
   })
 })
 
+describe('searchEvidence evidence scope', () => {
+  beforeEach(() => {
+    const artifact = path.join(home, 'ci-verify.log')
+    fs.writeFileSync(artifact, 'TileStore error inside a review artifact\n')
+    ingestArtifact(db, home, detection, 'NAVAPI-1', artifact, 'upload', {}, 'review')
+  })
+
+  it('excludes the review artifacts tree by default', () => {
+    const hits = searchEvidence(db, 'TileStore', { caseSlug: 'NAVAPI-1' })
+    expect(hits.map((h) => h.relPath)).toEqual(['evidence/sample-applog.txt'])
+  })
+
+  it('returns only artifacts for the review scope', () => {
+    const hits = searchEvidence(db, 'TileStore', {
+      caseSlug: 'NAVAPI-1',
+      evidenceScope: 'review'
+    })
+    expect(hits.map((h) => h.relPath)).toEqual(['artifacts/ci-verify.log'])
+  })
+
+  it('returns both trees for the all scope', () => {
+    const hits = searchEvidence(db, 'TileStore', {
+      caseSlug: 'NAVAPI-1',
+      evidenceScope: 'all'
+    })
+    expect(hits.map((h) => h.relPath).sort()).toEqual([
+      'artifacts/ci-verify.log',
+      'evidence/sample-applog.txt'
+    ])
+  })
+
+  it('composes with the case and artifact-type filters', () => {
+    // the artifact lives in NAVAPI-1, so an all-scope NAVAPI-2 search must not see it
+    const other = searchEvidence(db, 'TileStore', {
+      caseSlug: 'NAVAPI-2',
+      evidenceScope: 'all'
+    })
+    expect(other.map((h) => h.relPath)).toEqual(['evidence/sample-applog.txt'])
+    expect(other.every((h) => h.caseSlug === 'NAVAPI-2')).toBe(true)
+
+    const wrongType = searchEvidence(db, 'TileStore', {
+      caseSlug: 'NAVAPI-1',
+      evidenceScope: 'review',
+      artifactType: 'screenshot'
+    })
+    expect(wrongType).toEqual([])
+  })
+})
+
 describe('readEvidenceText', () => {
   it('reads content by evidence id', () => {
     const [hit] = searchEvidence(db, 'NoRoute', { caseSlug: 'NAVAPI-1' })

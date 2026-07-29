@@ -1,5 +1,6 @@
 import type { ActionItem } from './triage'
 import type { ModeId } from './modes'
+import type { EvidenceScope } from './evidenceScope'
 
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
@@ -163,6 +164,12 @@ export interface SearchFilters {
   artifactType?: ArtifactType
   /** Which FTS backends to hit; omitted = evidence only (back-compat for existing callers). */
   sources?: SearchSource[]
+  /**
+   * Which mode's material to search; omitted = investigation. The default is the
+   * anti-leak property: a caller nobody audits under-shows (misses review artifacts,
+   * visible and harmless) rather than leaking artifacts into an investigation surface.
+   */
+  evidenceScope?: EvidenceScope
 }
 
 export interface SearchHit {

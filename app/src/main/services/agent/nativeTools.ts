@@ -297,10 +297,15 @@ export function argusToolHandlers(
 
   return {
     async search_evidence(args) {
-      const scope = args.scope === 'all' ? undefined : caseSlug
+      // Two independent axes. `args.scope` is case breadth (this case vs all cases);
+      // evidenceScope is the mode axis, and follows this session's own mode exactly as
+      // list_evidence does. Read at call time, not construction time, so a deps object
+      // built without a real sessions row (a driver test double) doesn't pay for it here.
+      const caseFilter = args.scope === 'all' ? undefined : caseSlug
       const hits = searchEvidence(db, String(args.query ?? ''), {
-        caseSlug: scope,
-        artifactType: args.artifact_type as never
+        caseSlug: caseFilter,
+        artifactType: args.artifact_type as never,
+        evidenceScope: sessionMode(db, deps.sessionId)
       })
       return JSON.stringify(hits.slice(0, 25), null, 2)
     },
