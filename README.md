@@ -113,6 +113,46 @@ npm run dev
 Requires Node.js 22.13+ and at least one agent backend available: the Claude Code CLI installed
 and logged in, or GitHub Copilot via `gh auth login` (see [Agent backends](#agent-backends)).
 
+## Findings layout probe
+
+The findings-pane sidebar (`app/src/renderer/src/components/FindingCard.tsx`,
+`FindingsPane.tsx`) is styled with Tailwind classes that `vitest`'s jsdom environment never
+applies — jsdom loads no stylesheet, so a green renderer test suite proves nothing about
+whether the action cluster is actually invisible-but-focusable at rest, whether the severity
+token is actually visible, or whether the meta row actually reflows without clipping at the
+sidebar's minimum width. **A green vitest run is not a layout gate.** The unit suite (see
+`FindingCard.styles.test.tsx`) only pins class *names*; two scripts drive the real, rendered
+app over Chrome DevTools Protocol to check what those classes actually do:
+
+```bash
+cd app
+# 1. Boot once with a scratch home to create + migrate argus.db, then quit the app.
+ARGUS_HOME=/path/to/scratch-home npm run dev
+
+# 2. Seed the worst-case findings fixture into that home (requires git on PATH).
+ARGUS_HOME=/path/to/scratch-home node scripts/findings-layout-fixture.mjs
+
+# 3. Relaunch with a CDP debug port open (electron-vite's own flag, not an electron passthrough).
+ARGUS_HOME=/path/to/scratch-home npx electron-vite dev --remoteDebuggingPort 9223
+
+# 4. Run the probe (separate terminal). Exits 1 and lists every failing assertion on a regression.
+node scripts/findings-layout-probe.mjs
+```
+
+The probe sweeps pane widths 240/384/640px and asserts: no meta row overflows or reports a
+falsely-narrow height; the severity token never collapses to 0px; the action cluster is
+invisible and click-inert at rest (never `display:none`, or the buttons — the only keyboard
+path to comment/apply — would drop out of the tab order), reveals on hover and on keyboard
+focus, reverts on mouse-out, and does **not** reveal from a mere mouse click on the card title;
+and the batch-apply selection footer renders and doesn't overflow once a finding is ticked.
+
+**Tailwind does not regenerate CSS for a newly-introduced class name under Vite HMR in this
+setup.** If you change a class name (a severity color, a reveal class) while the dev server from
+step 3 is already running, restart it before trusting a probe run — otherwise the new class
+exists in the DOM with no rules behind it, and the probe reports a false negative. This cost
+four debugging cycles before it was tracked down; both scripts repeat the warning in their own
+header comments.
+
 ## Status
 
 Argus is in active development and currently in its supervised-capture phase: single-team

@@ -48,5 +48,15 @@ export default defineConfig(
       '@typescript-eslint/no-require-imports': 'off'
     }
   },
+  // Plain Node .mjs utility scripts (fixtures, smoke checks, runtime probes) run directly under
+  // `node`, never compiled — TypeScript return-type annotations aren't valid syntax here.
+  // @electron-toolkit/eslint-config-ts already turns this rule off for `*.mjs`, but that glob is
+  // root-only in flat config and doesn't reach nested `scripts/**`, so restate it for this dir.
+  {
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
   eslintConfigPrettier
 )
