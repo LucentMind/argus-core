@@ -105,7 +105,7 @@ export function FindingCard({
           {f.summary}
         </button>
       </div>
-      <div className="flex items-center gap-2 pr-2 pb-1.5 pl-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-1.5 pl-3">
         {selectable && (
           <input
             type="checkbox"
@@ -117,7 +117,9 @@ export function FindingCard({
         )}
         {(f.severity || f.layer) && (
           <span className="flex min-w-0 items-center gap-1 whitespace-nowrap font-mono text-[10px]">
-            {f.severity && <span className={SEVERITY_TEXT[f.severity]}>{f.severity}</span>}
+            {f.severity && (
+              <span className={`shrink-0 ${SEVERITY_TEXT[f.severity]}`}>{f.severity}</span>
+            )}
             {f.severity && f.layer && <span className="text-faint">·</span>}
             {/* The only shrinkable cell in the row. At FINDINGS_MIN_WIDTH (216px of content)
                 "Design conformance" ellipsizes; it used to wrap inside its own pill instead. */}
@@ -157,9 +159,9 @@ export function FindingCard({
             comment/apply. */}
         <div
           data-testid="finding-trailing"
-          className="relative ml-auto flex h-6 shrink-0 items-center"
+          className="relative ml-auto flex h-6 min-w-0 items-center"
         >
-          <span className="whitespace-nowrap font-mono text-[10px] text-mute transition-opacity group-hover/f:opacity-0 group-focus-within/f:opacity-0">
+          <span className="min-w-0 truncate font-mono text-[10px] text-mute transition-opacity group-hover/f:opacity-0 group-focus-within/f:opacity-0">
             {formatWhen(f.createdAt)}
             {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
           </span>
