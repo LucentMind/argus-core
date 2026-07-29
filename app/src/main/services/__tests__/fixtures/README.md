@@ -98,3 +98,36 @@ Two details worth knowing:
 136 KB is comfortably under the 2 MB truncation threshold, so the truncation path is exercised by
 the unit test rather than by a real capture. This log was not committed — it is large, it is
 somebody else's build output, and no test asserts against it.
+
+## 2026-07-29 captures — check vocabulary (cancelled / required)
+
+Same posture as the Plan 5 capture above: real `gh` (2.96.0) against public repositories,
+read-only, no write of any kind. Two of the three pin a commit OID, because check runs on a
+completed commit do not change.
+
+### `prStatus.required.json` — `isRequired` on both node types
+
+`cli/cli#14003`, `contexts(first: 8)`. Six check runs: the three `build (…)` matrix jobs carry
+`isRequired: true`, the three `integration-tests (…)` jobs `false`. Also the first capture of
+`mergeStateStatus` (`CLEAN` here).
+
+`isRequired` needs **no admin rights** — this was read with ordinary public-repo access, which
+settles the question of whether Argus can ask it for a repository the user does not own.
+
+### `prStatus.cancelled.json` — cancelled alongside a genuine failure
+
+`home-assistant/core@becc3107`, `contexts(first: 20)`. `Check hassfest` failed; `Check pylint`
+and `Check pylint on tests` were `CANCELLED` as collateral (the concurrency group killed them).
+The full commit reports `CANCELLED=2 FAILURE=1 SKIPPED=7 SUCCESS=16`. Before this change all
+three of the non-green runs rendered as identical red rows with equally prominent Analyze
+buttons, though two of their logs contain only the cancellation.
+
+### `prStatus.nullNodes.json` — what a field-level error does to the response
+
+Captured by deliberately omitting `isRequired`'s required argument. The finding that shaped
+`fetchPrStatuses`: GraphQL returns **the pull request node intact and every context node as
+`null`**, with one error per node. `gh` exits 1 and still prints the whole body.
+
+The `if (!pr)` guard does not fire for this shape, so mapping the contexts without a null check
+would throw inside `targets.forEach` and take down every other target in the batch. One error
+per node also means a 100-check PR yields 100 identical messages, so only the first is kept.
