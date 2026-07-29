@@ -7,7 +7,7 @@ import { assertSlug } from './caseFiles'
 import { ARTIFACTS_DIR, EVIDENCE_DIR } from '../../shared/evidenceScope'
 
 const DEBOUNCE_MS = 300
-const WATCHED_DIRS = [`${EVIDENCE_DIR}/`, `${ARTIFACTS_DIR}/`]
+const WATCHED_DIRS = [EVIDENCE_DIR, ARTIFACTS_DIR]
 
 export interface CaseWatchHub {
   watch(slug: string): void
@@ -39,10 +39,13 @@ export function createCaseWatchHub(
   // output — none of which the rescan button can reconcile. Dot-segments
   // (.meta/.derived) are pipeline-managed sidecars/derived text, so skipping
   // them also kills self-triggers from our own ingest writes structurally.
+  // A bare tree name (no trailing segment) is also relevant: deleting the whole
+  // evidence/ or artifacts/ dir out from under the watcher reports a single rename
+  // event named for the dir itself, with no per-file events to fall back on.
   const isRelevant = (filename: string | Buffer | null): boolean => {
     if (!filename || String(filename).length === 0) return true // platform gave no path — be conservative
     const rel = String(filename).replace(/\\/g, '/')
-    if (!WATCHED_DIRS.some((d) => rel.startsWith(d))) return false
+    if (!WATCHED_DIRS.some((d) => rel === d || rel.startsWith(`${d}/`))) return false
     return !rel.split('/').some((seg) => seg.startsWith('.'))
   }
 

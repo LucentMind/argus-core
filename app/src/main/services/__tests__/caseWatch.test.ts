@@ -23,9 +23,10 @@ afterEach(() => {
 // macOS FSEvents replays changes made shortly before a watch starts. Probed on a CI
 // runner: the beforeEach mkdir of evidence/ arrives at the fresh watcher as a real
 // `rename` event named "evidence", which isRelevant() deliberately treats as relevant
-// (the evidence dir itself changing counts). Windows delivers no such backlog, which is
-// why this only ever failed on macOS. Drain the burst so the "nothing fires" tests
-// assert about the write under exercise instead of setup noise.
+// (the evidence or artifacts dir itself changing counts — see the bare-dirname tests
+// below, which cover this deliberately for both trees). Windows delivers no such
+// backlog, which is why this only ever failed on macOS. Drain the burst so the
+// "nothing fires" tests assert about the write under exercise instead of setup noise.
 const watchAndSettle = async (slug: string): Promise<void> => {
   hub.watch(slug)
   await new Promise((r) => setTimeout(r, 500)) // > DEBOUNCE_MS (300)
@@ -98,5 +99,30 @@ describe('caseWatch hub', () => {
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'evidence', 'm.txt'), 'hi')
     await new Promise((r) => setTimeout(r, 800)) // > debounce; inside the 5000ms window
     expect(events).toEqual([])
+  })
+
+  // Watcher coverage for the second tree: review-mode material lives under artifacts/,
+  // and the staleness dot must react to it exactly like evidence/.
+  it('broadcasts (debounced) on a file change in artifacts/', async () => {
+    fs.mkdirSync(path.join(caseDir(argusHome, 'C1'), 'artifacts'), { recursive: true })
+    await watchAndSettle('C1')
+    fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'artifacts', 'ci-5.log'), 'hi')
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
+  })
+
+  // The bare-dirname case, for both trees: deleting the whole tracked dir reports a
+  // single rename event named for the dir itself (verified on this platform), with no
+  // per-file events to fall back on — isRelevant() must still treat that as relevant.
+  it('treats a whole-directory delete (bare "evidence") as relevant', async () => {
+    await watchAndSettle('C1')
+    fs.rmSync(path.join(caseDir(argusHome, 'C1'), 'evidence'), { recursive: true, force: true })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
+  })
+
+  it('treats a whole-directory delete (bare "artifacts") as relevant', async () => {
+    fs.mkdirSync(path.join(caseDir(argusHome, 'C1'), 'artifacts'), { recursive: true })
+    await watchAndSettle('C1')
+    fs.rmSync(path.join(caseDir(argusHome, 'C1'), 'artifacts'), { recursive: true, force: true })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
   })
 })
