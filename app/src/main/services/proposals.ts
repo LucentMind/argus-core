@@ -8,10 +8,12 @@ import { defaultAgentAccess } from '../../shared/agentAccess'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
 import {
   PROPOSAL_TYPES,
+  REJECT_REASON_TAGS,
   type AcceptedTarget,
   type ProposalCounts,
   type ProposalRecord,
-  type ProposalType
+  type ProposalType,
+  type RejectReason
 } from '../../shared/proposals'
 import type { TrustTier } from '../../shared/trustTiers'
 import { applyMemoryWrite } from './memory'
@@ -237,11 +239,21 @@ export function removePendingProposal(argusHome: string, file: string): void {
   }
 }
 
-function archive(argusHome: string, file: string, status: 'accepted' | 'rejected'): void {
+function archive(
+  argusHome: string,
+  file: string,
+  status: 'accepted' | 'rejected',
+  extraFm: Record<string, string> = {}
+): void {
   const src = path.join(proposalsDir(argusHome), file)
   const dir = proposalsArchiveDir(argusHome)
   fs.mkdirSync(dir, { recursive: true })
-  const updated = fs.readFileSync(src, 'utf8').replace(/^status: pending\r?$/m, `status: ${status}`)
+  const extra = Object.entries(extraFm)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
+  const updated = fs
+    .readFileSync(src, 'utf8')
+    .replace(/^status: pending\r?$/m, `status: ${status}${extra ? `\n${extra}` : ''}`)
   fs.writeFileSync(path.join(dir, file), updated)
   fs.rmSync(src)
 }
@@ -298,9 +310,23 @@ export function acceptProposal(
   return accepted
 }
 
-export function rejectProposal(argusHome: string, file: string): void {
+export function rejectProposal(argusHome: string, file: string, reason?: RejectReason): void {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
-  archive(argusHome, p.file, 'rejected')
+  const extra: Record<string, string> = {}
+  if (reason) {
+    // IPC arguments are untyped at runtime — validate before the tag joins frontmatter.
+    if (!REJECT_REASON_TAGS.includes(reason.tag)) {
+      throw new Error(`Invalid reject reason: ${JSON.stringify(reason.tag)}`)
+    }
+    extra.reject_reason = reason.tag
+    const note = (reason.note ?? '')
+      .split(/\r\n|\r|\n/)
+      .find((l) => l.trim())
+      ?.trim()
+      .slice(0, 200)
+    if (note) extra.reject_note = note
+  }
+  archive(argusHome, p.file, 'rejected', extra)
   announceChanged()
 }

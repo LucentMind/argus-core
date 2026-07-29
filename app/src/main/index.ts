@@ -54,6 +54,7 @@ import {
   setProposalsChangedNotifier,
   proposalCounts
 } from './services/proposals'
+import type { RejectReason } from '../shared/proposals'
 import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
 import { McpService } from './services/mcp'
@@ -1539,8 +1540,8 @@ function registerIpc(): void {
     const accepted = acceptProposal(argusHome, file, { db, editedContent })
     return { proposals: listProposals(argusHome), accepted }
   })
-  ipcMain.handle(IPC.proposalsReject, (_e, file: string) => {
-    rejectProposal(argusHome, file)
+  ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
+    rejectProposal(argusHome, file, reason)
     return { proposals: listProposals(argusHome) }
   })
   const announceProposals = (): void => broadcast(IPC.proposalsChanged, proposalCounts(argusHome))

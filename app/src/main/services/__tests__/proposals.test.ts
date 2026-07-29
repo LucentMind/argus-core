@@ -185,3 +185,41 @@ describe('accept / reject', () => {
     expect(fs.existsSync(decoyPath)).toBe(true)
   })
 })
+
+describe('rejectProposal reasons', () => {
+  function writeOne(): string {
+    return writeProposal(home, 'NAV-100', {
+      type: 'skill-edit',
+      target: 'rca',
+      title: 'Sharpen step 4',
+      content: '# rca v2\n'
+    })
+  }
+  function archivedRaw(file: string): string {
+    return fs.readFileSync(path.join(home, 'proposals', 'archive', file), 'utf8')
+  }
+
+  it('stamps reject_reason and a single-line capped reject_note', () => {
+    const f = writeOne()
+    rejectProposal(home, f, { tag: 'overgeneric', note: 'first line\nsecond line' })
+    const raw = archivedRaw(f)
+    expect(raw).toContain('status: rejected')
+    expect(raw).toContain('reject_reason: overgeneric')
+    expect(raw).toContain('reject_note: first line')
+    expect(raw).not.toContain('second line')
+  })
+
+  it('reject without reason leaves frontmatter exactly as before', () => {
+    const f = writeOne()
+    rejectProposal(home, f)
+    const raw = archivedRaw(f)
+    expect(raw).toContain('status: rejected')
+    expect(raw).not.toContain('reject_reason')
+    expect(raw).not.toContain('reject_note')
+  })
+
+  it('throws on an invalid tag (IPC args are untyped at runtime)', () => {
+    const f = writeOne()
+    expect(() => rejectProposal(home, f, { tag: 'meh' as never })).toThrow(/Invalid reject reason/)
+  })
+})
