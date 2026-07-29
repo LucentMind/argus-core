@@ -85,6 +85,14 @@ function safeRelPath(relPath: string): boolean {
   return !path.isAbsolute(relPath) && !relPath.split(/[\\/]/).includes('..')
 }
 
+/** A valid git abbreviated-or-full sha: hex only, 7-40 chars. `atSha` is renderer-supplied and
+ *  reaches `execFile('git', ['show', \`${atSha}:...\`])` verbatim — anything starting with `-`
+ *  (e.g. `--output=pwn`) would be parsed by git as an option rather than a revision. Reject
+ *  before it ever reaches git; the caller falls back to the live-file read unchanged. */
+function safeSha(atSha: string): boolean {
+  return /^[0-9a-f]{7,40}$/i.test(atSha)
+}
+
 /** `git show <atSha>:<relPath>` in `root`, sliced to the same snippet window as the live path.
  *  Null on ANY failure (unknown sha, path not at that commit, unsafe path, no git) so the
  *  caller falls back to the live-file read unchanged — a pinned preview must never be WORSE
@@ -96,7 +104,7 @@ async function readPinnedSnippet(
   start: number,
   end: number
 ): Promise<Extract<RepoSnippetResult, { ok: true }> | null> {
-  if (!safeRelPath(relPath)) return null
+  if (!safeRelPath(relPath) || !safeSha(atSha)) return null
   try {
     const gitPath = relPath.split(path.sep).join('/')
     const { stdout } = await execFileAsync('git', ['show', `${atSha}:${gitPath}`], {

@@ -116,26 +116,29 @@ describe('buildReviewRunPrompt', () => {
     )
   })
 
-  it('emits valid markdown: every list line follows a blank line, a heading, or another list line', () => {
-    const prompt = buildReviewRunPrompt({
-      support: 'configurable',
-      pinnedLayers: [],
-      prLabel: 'acme/widget#42',
-      prUrl: 'https://github.com/acme/widget/pull/42',
-      worktreePath: 'C:\\wt\\widget-case-pr42',
-      repoName: 'widget'
-    })
-    const lines = prompt.split('\n')
-    lines.forEach((line, i) => {
-      if (/^\s*([-*] |\d+\. )/.test(line) && i > 0) {
-        const prev = lines[i - 1]
-        expect(
-          prev.trim() === '' || /^\s*([-*] |\d+\. |#)/.test(prev),
-          `list item at line ${i + 1} lazily continues: ${JSON.stringify(prev)}`
-        ).toBe(true)
-      }
-    })
-  })
+  it.each(['configurable', 'promptable'] as const)(
+    'emits valid markdown on the %s driver: every list line follows a blank line, a heading, or another list line',
+    (support) => {
+      const prompt = buildReviewRunPrompt({
+        support,
+        pinnedLayers: [],
+        prLabel: 'acme/widget#42',
+        prUrl: 'https://github.com/acme/widget/pull/42',
+        worktreePath: 'C:\\wt\\widget-case-pr42',
+        repoName: 'widget'
+      })
+      const lines = prompt.split('\n')
+      lines.forEach((line, i) => {
+        if (/^\s*([-*] |\d+\. )/.test(line) && i > 0) {
+          const prev = lines[i - 1]
+          expect(
+            prev.trim() === '' || /^\s*([-*] |\d+\. |#)/.test(prev),
+            `list item at line ${i + 1} lazily continues: ${JSON.stringify(prev)}`
+          ).toBe(true)
+        }
+      })
+    }
+  )
 
   it("no longer restates the persona's method in the triage step", () => {
     const prompt = buildReviewRunPrompt({

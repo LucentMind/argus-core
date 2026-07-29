@@ -7,6 +7,7 @@ import { FindingsPane } from '../FindingsPane'
 import { uiStore } from '../../lib/uiStore'
 import { clearSnippetCache } from '../../lib/snippetCache'
 import { confirm } from '../../lib/confirmStore'
+import { reposStore } from '../../lib/reposStore'
 import type { FindingRow } from '../../../../shared/observability'
 
 vi.mock('../../lib/confirmStore', () => ({
@@ -41,6 +42,7 @@ const list = vi.fn()
 beforeEach(() => {
   localStorage.clear()
   clearSnippetCache()
+  reposStore.clearForTests()
   uiStore.setFindingsCollapsed(false)
   list.mockReset()
   list.mockResolvedValue([])
@@ -64,7 +66,21 @@ beforeEach(() => {
       review: vi.fn(),
       clear: vi.fn(async () => ({ cleared: 1 }))
     },
-    workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) },
+    workspaces: {
+      list: vi.fn(async () => []),
+      refs: vi.fn(async () => []),
+      readSnippet: vi.fn(async () => ({
+        ok: true,
+        repoName: 'widget',
+        relPath: 'src/foo.ts',
+        startLine: 1,
+        lines: ['a', 'b', 'c'],
+        lang: null,
+        eof: false,
+        truncated: false,
+        ref: 'main'
+      }))
+    },
     review: { worktreeHead: vi.fn(async () => null) }
   } as never
 })
@@ -95,6 +111,73 @@ describe('FindingsPane', () => {
     // clicking the chip opens the snippet preview
     fireEvent.click(chip)
     expect(await screen.findByText('boom')).toBeTruthy()
+  })
+
+  // Finding 2 (final-review hardening): a repo citation preview must only be pinned to
+  // `head_sha` for a REVIEW-mode finding. An investigation finding bound to a PR-bound case
+  // still gets a best-effort headSha stamp (nativeTools.ts), but pinning its preview would
+  // render `git show <head>:path` content its author never read, with no "code moved" chip to
+  // flag it — the citation must fall through to the live worktree instead.
+  it('pins a repo citation preview to headSha only for a review-mode finding', async () => {
+    ;(window.argus.workspaces as unknown as { list: unknown }).list = vi.fn(async () => [
+      { path: 'widget', remote: null }
+    ])
+    await reposStore.load('c1')
+    ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
+      {
+        id: 1,
+        summary: 'Review finding',
+        reviewState: 'pending',
+        sessionId: 4,
+        mode: 'review',
+        headSha: 'deadbeefcafe',
+        body: 'see [widget/src/foo.ts:5]'
+      }
+    ])
+    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    const summary = await screen.findByText('Review finding')
+    summary.click()
+    const chip = await screen.findByRole('button', { name: /foo\.ts:5/ })
+    fireEvent.click(chip)
+    await waitFor(() => {
+      const readSnippet = (
+        window.argus.workspaces as unknown as { readSnippet: ReturnType<typeof vi.fn> }
+      ).readSnippet
+      expect(readSnippet).toHaveBeenCalledWith('c1', 'widget', 'src/foo.ts', 5, 5, 'deadbeefcafe')
+    })
+  })
+
+  it('does not pin a repo citation preview for a non-review finding even with headSha set', async () => {
+    ;(window.argus.workspaces as unknown as { list: unknown }).list = vi.fn(async () => [
+      { path: 'widget', remote: null }
+    ])
+    await reposStore.load('c1')
+    ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
+      {
+        id: 1,
+        summary: 'Investigation finding',
+        reviewState: 'pending',
+        sessionId: 4,
+        mode: 'investigation',
+        headSha: 'deadbeefcafe',
+        body: 'see [widget/src/foo.ts:5]'
+      }
+    ])
+    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    const summary = await screen.findByText('Investigation finding')
+    summary.click()
+    const chip = await screen.findByRole('button', { name: /foo\.ts:5/ })
+    fireEvent.click(chip)
+    await waitFor(() => {
+      const readSnippet = (
+        window.argus.workspaces as unknown as { readSnippet: ReturnType<typeof vi.fn> }
+      ).readSnippet
+      expect(readSnippet).toHaveBeenCalledWith('c1', 'widget', 'src/foo.ts', 5, 5)
+    })
+    const readSnippet = (
+      window.argus.workspaces as unknown as { readSnippet: ReturnType<typeof vi.fn> }
+    ).readSnippet
+    expect(readSnippet.mock.calls[0]).toHaveLength(5)
   })
 
   it('collapse button collapses the pane via the ui store', () => {

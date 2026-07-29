@@ -1208,16 +1208,19 @@ function registerIpc(): void {
   // Button-initiated comment post (Plan 6 §1, Task 4): main-owned mechanism, no model turn.
   ipcMain.handle(
     IPC.reviewPostFindingComment,
-    (_e, slug: string, sessionId: number, findingId: number) =>
-      agentService!.postFindingComment(slug, sessionId, findingId)
+    (_e, slug: string, sessionId: number, findingId: number) => {
+      assertSlug(slug)
+      return agentService!.postFindingComment(slug, sessionId, findingId)
+    }
   )
 
   // The PR worktree's current head, for the findings pane's stale-finding chip (Task 7b): a
   // finding's citation preview is pinned to `head_sha`, and this tells the renderer when that
   // no longer matches what's actually checked out.
-  ipcMain.handle(IPC.reviewWorktreeHead, (_e, slug: string) =>
-    prWorktreeHead({ db, argusHome }, slug)
-  )
+  ipcMain.handle(IPC.reviewWorktreeHead, (_e, slug: string) => {
+    assertSlug(slug)
+    return prWorktreeHead({ db, argusHome }, slug)
+  })
 
   // The companion's Analyze button. Same posture as the two above — main owns the binding and
   // the worktree path — but no framing deps: a CI triage turn is single-pass, so it never asks

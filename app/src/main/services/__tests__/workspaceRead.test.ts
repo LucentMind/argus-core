@@ -175,6 +175,39 @@ describe('readRepoSnippet at a pinned sha', () => {
     )
     expect(r.ok).toBe(true) // live-file fallback, not an error
   })
+
+  // atSha is renderer-supplied and reaches `execFile('git', ['show', `${atSha}:...`])`
+  // verbatim — a leading `-` would be parsed by git as an option instead of a revision.
+  // Reject before it ever reaches git and fall back to the live file, same as an unknown sha.
+  it('falls back to the live file when atSha looks like a git option', async () => {
+    const r = await readRepoSnippet(
+      db,
+      argusHome,
+      'NAV-1',
+      'myrepo',
+      'src/camera.ts',
+      3,
+      3,
+      '--output=pwn'
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.lines.join('\n')).toContain('code line 3')
+  })
+
+  // safeRelPath (the pinned path's own containment check, separate from resolveRepoAbs) must
+  // reject the same shapes the live path already rejects — an unsafe relPath at a pinned sha
+  // falls through to the live-file lookup below it, which then applies its own containment and
+  // lands on the same not-found result. The pinned path must never be WORSE than the live one.
+  it('rejects traversal and absolute relPaths at a pinned sha, same as the live path', async () => {
+    const oldSha = git(repo, 'rev-parse', 'HEAD').trim()
+    expect(
+      await readRepoSnippet(db, argusHome, 'NAV-1', 'myrepo', '../outside.txt', 1, 1, oldSha)
+    ).toEqual({ ok: false, reason: 'not-found' })
+    expect(
+      await readRepoSnippet(db, argusHome, 'NAV-1', 'myrepo', path.join(tmp, 'x.txt'), 1, 1, oldSha)
+    ).toEqual({ ok: false, reason: 'not-found' })
+  })
 })
 
 describe('readRepoText', () => {

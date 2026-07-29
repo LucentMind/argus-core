@@ -114,6 +114,43 @@ describe('FindingsPane write actions', () => {
     expect(await screen.findByText('No pull request is bound to this case.')).toBeInTheDocument()
   })
 
+  // 'no-body' is the mechanism discovering there is in fact no stored prose (e.g. the finding
+  // was edited out from under us) — the plan's stated behavior is to fall through to the
+  // composed-turn path silently, not to show the internal token as an error.
+  it('falls through to the composed turn when the mechanism reports no-body', async () => {
+    list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
+    postFindingComment.mockResolvedValue({ ok: false, reason: 'no-body' })
+    composeActionPrompt.mockResolvedValue('COMPOSED COMMENT')
+    send.mockResolvedValue(undefined)
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Post as PR comment'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
+    expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'comment')
+    expect(screen.queryByText('no-body')).not.toBeInTheDocument()
+  })
+
+  // 'session-dead' is an internal token, not a sentence — map it to something readable instead
+  // of showing it raw.
+  it('maps a session-dead mechanism failure to a readable sentence', async () => {
+    list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
+    postFindingComment.mockResolvedValue({ ok: false, reason: 'session-dead' })
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Post as PR comment'))
+    expect(await screen.findByText('The session is no longer running.')).toBeInTheDocument()
+    expect(screen.queryByText('session-dead')).not.toBeInTheDocument()
+  })
+
+  // 'denied' is the user's own click at the approval card, not an error — stays silent.
+  it('stays silent when the mechanism reports denied', async () => {
+    list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
+    postFindingComment.mockResolvedValue({ ok: false, reason: 'denied' })
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Post as PR comment'))
+    await waitFor(() => expect(postFindingComment).toHaveBeenCalled())
+    expect(composeActionPrompt).not.toHaveBeenCalled()
+    expect(screen.queryByText('denied')).not.toBeInTheDocument()
+  })
+
   it('composes the apply turn and sends it', async () => {
     list.mockResolvedValue([reviewRow()])
     composeActionPrompt.mockResolvedValue('COMPOSED APPLY')
