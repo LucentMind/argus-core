@@ -90,10 +90,25 @@ export function FindingsPane({
       const finding = findings.find((f) => f.id === id)
       if (action === 'comment' && finding?.commentBody) {
         // Plan 6 §1: the finding already carries author-facing prose — post it through the
-        // approval card directly, no model turn. 'denied' is the user's own click, not an error.
+        // approval card directly, no model turn. 'denied' is the user's own click, not an
+        // error, so it stays silent. 'no-body' means the mechanism found no stored prose after
+        // all (e.g. edited out from under us) — the plan's stated behavior is to fall through
+        // to the composed-turn path below, not to surface the internal token as an error.
         const res = await window.argus.review.postFindingComment(slug, sessionId, id)
-        if (!res.ok && res.reason !== 'denied') setActionError(res.reason ?? 'Post failed.')
-        return
+        if (res.ok) return
+        if (res.reason === 'denied') return
+        if (res.reason !== 'no-body') {
+          // Other reasons are already author-facing sentences (the throw text from
+          // findingForCase/resolveCommentTarget) — 'session-dead' is the one internal token
+          // left, mapped to a sentence here rather than shown raw.
+          setActionError(
+            res.reason === 'session-dead'
+              ? 'The session is no longer running.'
+              : (res.reason ?? 'Post failed.')
+          )
+          return
+        }
+        // 'no-body': fall through to compose the turn.
       }
       const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, [id], action)
       await window.argus.agent.send(slug, sessionId, prompt)
@@ -179,6 +194,22 @@ export function FindingsPane({
     .slice()
     .sort((a, b) => rank(a) - rank(b))
 
+  // Rendered in two mutually-exclusive slots below (with/without layer chips) so it sits next
+  // to the chips when there are any, and stands alone when there aren't — same button either
+  // way, hoisted once rather than duplicated.
+  const applySelectedButton =
+    effectiveSelected.length > 0 ? (
+      <button
+        type="button"
+        disabled={sessionId === null || actingId !== null}
+        title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
+        className="self-start rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
+        onClick={() => void applySelected()}
+      >
+        Apply selected ({effectiveSelected.length})
+      </button>
+    ) : null
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -228,31 +259,11 @@ export function FindingsPane({
               {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
             </button>
           ))}
-          {effectiveSelected.length > 0 && (
-            <button
-              type="button"
-              disabled={sessionId === null || actingId !== null}
-              title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
-              className="self-start rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
-              onClick={() => void applySelected()}
-            >
-              Apply selected ({effectiveSelected.length})
-            </button>
-          )}
+          {applySelectedButton}
         </div>
       )}
       {effectiveSelected.length > 0 && presentLayers.length === 0 && (
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            disabled={sessionId === null || actingId !== null}
-            title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
-            className="self-start rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
-            onClick={() => void applySelected()}
-          >
-            Apply selected ({effectiveSelected.length})
-          </button>
-        </div>
+        <div className="flex items-center gap-1">{applySelectedButton}</div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {shown.length > 0 ? (
@@ -294,7 +305,7 @@ export function FindingsPane({
                         onCite={onCite}
                         caseSlug={slug}
                         repoNames={repoNames}
-                        repoCiteSha={f.headSha ?? undefined}
+                        repoCiteSha={f.mode === 'review' ? (f.headSha ?? undefined) : undefined}
                       />
                     </div>
                   )}

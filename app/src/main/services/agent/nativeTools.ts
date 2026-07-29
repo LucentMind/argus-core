@@ -382,8 +382,10 @@ export function argusToolHandlers(
     },
 
     async append_finding(args) {
-      // Best-effort staleness stamp: in review mode with a materialized PR worktree this is
-      // the sha under review; everywhere else it resolves to null and costs one no-op lookup.
+      // Best-effort staleness stamp: any case with a materialized PR worktree gets the sha it
+      // resolves to here, regardless of the session's mode — the renderer, not this call, is
+      // what restricts pinning to review-mode findings (FindingsPane only passes headSha into
+      // the citation preview when f.mode === 'review'). No worktree just costs one no-op lookup.
       const headSha = await prWorktreeHead(
         { db, argusHome, git: deps.git, resolve: deps.resolve },
         caseSlug
