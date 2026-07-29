@@ -178,8 +178,41 @@ describe('PrCompanionSection', () => {
     })
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getByText('⊘')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Analyze pylint failure' })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Analyze pylint failure' })).not.toBeInTheDocument()
+  })
+
+  const mixed = (): PrStatus['checks'] => [
+    { name: 'lint', bucket: 'pass', required: false, url: null, jobId: null },
+    { name: 'build', bucket: 'fail', required: true, url: null, jobId: null },
+    { name: 'codeql', bucket: 'pass', required: false, url: null, jobId: null },
+    { name: 'build-mac', bucket: 'pass', required: true, url: null, jobId: null }
+  ]
+
+  it('leads with the checks that block the merge, under labelled groups', () => {
+    prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText(/^required$/i)).toBeInTheDocument()
+    expect(screen.getByText(/not blocking merge/i)).toBeInTheDocument()
+    const names = screen.getAllByText(/^(lint|build|codeql|build-mac)$/).map((el) => el.textContent)
+    // Required first, GitHub's order preserved inside each group.
+    expect(names).toEqual(['build', 'build-mac', 'lint', 'codeql'])
+  })
+
+  it('keeps every row in the one divided panel, headers included', () => {
+    prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const panel = screen.getByText('build').closest('div')?.parentElement
+    expect(panel).toHaveClass('divide-y')
+    expect(screen.getByText(/not blocking merge/i).parentElement).toBe(panel)
+  })
+
+  it('shows no group headers when nothing is required', () => {
+    // A repository with no branch protection has no required checks. A lone "not blocking
+    // merge" header over the whole list would read as a claim about policy rather than the
+    // absence of one, so that case stays the flat list it is today.
+    prStatusStore.hydrate({ c1: status() })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.queryByText(/not blocking merge/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^required$/i)).not.toBeInTheDocument()
   })
 })
