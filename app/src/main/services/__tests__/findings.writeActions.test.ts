@@ -75,3 +75,24 @@ describe('recordFindingWrite', () => {
     expect(row?.commentUrl).toBeNull()
   })
 })
+
+describe('comment_body and head_sha columns', () => {
+  it('carries comment_body and head_sha through listFindings', () => {
+    const { findingId } = appendFinding(ctx(), { title: 'Test', markdown: 'test content' })
+    db.prepare(
+      `UPDATE findings SET comment_body = 'Author-facing prose.', head_sha = 'abc123' WHERE id = ?`
+    ).run(findingId)
+    const rows = listFindings(db, home, 'c1')
+    const row = rows.find((r) => r.id === findingId)!
+    expect(row.commentBody).toBe('Author-facing prose.')
+    expect(row.headSha).toBe('abc123')
+  })
+
+  it('defaults comment_body and head_sha to null on old rows', () => {
+    const { findingId } = appendFinding(ctx(), { title: 'Test', markdown: 'test content' })
+    const rows = listFindings(db, home, 'c1')
+    const row = rows.find((r) => r.id === findingId)!
+    expect(row.commentBody).toBeNull()
+    expect(row.headSha).toBeNull()
+  })
+})

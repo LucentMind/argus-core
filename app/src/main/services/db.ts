@@ -327,6 +327,16 @@ export function openDb(file: string): DatabaseSync {
   if (!findingCols.some((c) => c.name === 'pushed_sha')) {
     db.exec(`ALTER TABLE findings ADD COLUMN pushed_sha TEXT`)
   }
+  // Plan 6 (review-action-ergonomics §1/§6). comment_body is the author-facing prose the agent
+  // writes at record time — what the Post-comment button publishes without a model turn.
+  // head_sha is the PR head the finding was recorded against, so the approval card and the
+  // apply turn can say the PR has moved since.
+  if (!findingCols.some((c) => c.name === 'comment_body')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN comment_body TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'head_sha')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN head_sha TEXT`)
+  }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)

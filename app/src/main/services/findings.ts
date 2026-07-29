@@ -29,6 +29,8 @@ interface Raw {
   suggested_change: string | null
   comment_url: string | null
   pushed_sha: string | null
+  comment_body: string | null
+  head_sha: string | null
   mode: string | null
 }
 
@@ -49,6 +51,8 @@ function toRow(r: Raw): FindingRow {
     suggestedChange: r.suggested_change,
     commentUrl: r.comment_url,
     pushedSha: r.pushed_sha,
+    commentBody: r.comment_body ?? null,
+    headSha: r.head_sha ?? null,
     // A finding whose session was deleted, or one written before the mode axis, has no mode
     // to join — it is investigation by the same rule that made investigation the implicit
     // default for every pre-existing case (spec §3).

@@ -23,6 +23,8 @@ function row(over: Partial<FindingRow>): FindingRow {
     suggestedChange: null,
     commentUrl: null,
     pushedSha: null,
+    commentBody: null,
+    headSha: null,
     mode: 'investigation',
     ...over
   }
