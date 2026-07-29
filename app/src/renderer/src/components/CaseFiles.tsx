@@ -288,6 +288,11 @@ export function CaseFiles({
       <div className="flex items-center gap-2">
         <SectionLabel>{label}</SectionLabel>
         <span className="h-px flex-1 bg-hair" />
+        {scanNote && (
+          <span className="max-w-[140px] shrink truncate text-[10.5px] text-mute" title={scanNote}>
+            {scanNote}
+          </span>
+        )}
         <button
           aria-label="Rescan evidence folder"
           title={scanNote ? `Rescan — last run: ${scanNote}` : 'Rescan evidence folder'}
