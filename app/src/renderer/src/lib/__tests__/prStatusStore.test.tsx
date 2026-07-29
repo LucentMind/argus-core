@@ -72,6 +72,32 @@ describe('anyRunning', () => {
   })
 })
 
+describe('forget', () => {
+  it('drops a cached slug and notifies subscribers', () => {
+    prStatusStore.hydrate({ c1: status(), c2: status() })
+    const cb = vi.fn()
+    const off = prStatusStore.subscribe(cb)
+
+    prStatusStore.forget('c1')
+
+    expect(prStatusStore.get('c1')).toBeNull()
+    expect(prStatusStore.get('c2')).not.toBeNull()
+    expect(cb).toHaveBeenCalledTimes(1)
+    off()
+  })
+
+  it('is a no-op when the slug is not cached', () => {
+    prStatusStore.hydrate({ c2: status() })
+    const cb = vi.fn()
+    const off = prStatusStore.subscribe(cb)
+
+    prStatusStore.forget('c1')
+
+    expect(cb).not.toHaveBeenCalled()
+    off()
+  })
+})
+
 describe('usePrStatuses', () => {
   it('loads the cache and refreshes once on mount', async () => {
     render(<Probe slugs={['c1']} interval={20_000} />)
