@@ -31,9 +31,11 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    # The suite takes ~34s, but 31 test files spawn subprocesses and a wedged
-    # child would otherwise hold the runner for six hours. A backstop, not a budget.
-    timeout-minutes: 20
+    # A backstop, not a budget: a wedged subprocess-spawning test would otherwise
+    # hold the runner for six hours. The Windows job normally finishes in ~9
+    # minutes but has been observed at 17+ on a starved runner, so 20 was close
+    # enough to convert runner slowness into a job kill.
+    timeout-minutes: 30
     defaults:
       run:
         # Every script must run from app/. vitest invoked from the repo root
