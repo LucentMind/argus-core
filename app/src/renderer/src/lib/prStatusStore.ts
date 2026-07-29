@@ -60,9 +60,17 @@ class PrStatusStore {
 
 export const prStatusStore = new PrStatusStore()
 
-/** Is any of these PRs still waiting on CI? The single condition that arms the poll. */
+/**
+ * Is any of these PRs still waiting on CI? The single condition that arms the fast poll.
+ *
+ * Reads the checks rather than the rollup: a pull request with one red check reports `failing`
+ * (or `unstable`) while a dozen jobs are still running, and keying off the dot would drop to
+ * the idle cadence exactly when the state is changing fastest. Wherever a `running` rollup
+ * exists at all it implies a pending check, so this is strictly the same condition plus the
+ * cases the dot was hiding.
+ */
 export function anyRunning(statuses: (PrStatus | null)[]): boolean {
-  return statuses.some((s) => s?.rollup === 'running')
+  return statuses.some((s) => s?.checks.some((c) => c.bucket === 'pending') ?? false)
 }
 
 /**

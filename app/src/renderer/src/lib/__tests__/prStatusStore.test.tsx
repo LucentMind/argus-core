@@ -53,11 +53,21 @@ function Probe({ slugs, interval }: { slugs: string[]; interval: number }): Reac
 }
 
 describe('anyRunning', () => {
-  it('is true only for a running rollup', () => {
-    expect(anyRunning([status({ rollup: 'running' })])).toBe(true)
-    expect(anyRunning([status({ rollup: 'failing' }), status({ rollup: 'passing' })])).toBe(false)
+  it('is true when any check is pending', () => {
+    const pending = [
+      { name: 'build', bucket: 'pending' as const, required: false, url: null, jobId: null }
+    ]
+    const done = [
+      { name: 'build', bucket: 'pass' as const, required: false, url: null, jobId: null }
+    ]
+
+    expect(anyRunning([status({ rollup: 'running', checks: pending })])).toBe(true)
+    expect(anyRunning([status({ rollup: 'passing', checks: done })])).toBe(false)
+    // The point of the change: a red or amber dot with jobs still in flight keeps the fast
+    // cadence, where reading the rollup would have idled it.
+    expect(anyRunning([status({ rollup: 'failing', checks: [...done, ...pending] })])).toBe(true)
+    expect(anyRunning([status({ rollup: 'unstable', checks: [...done, ...pending] })])).toBe(true)
     expect(anyRunning([null])).toBe(false)
-    expect(anyRunning([])).toBe(false)
   })
 })
 
@@ -96,7 +106,10 @@ describe('usePrStatuses', () => {
     await act(async () => {})
     expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
 
-    statusRefresh.mockResolvedValueOnce({ c1: status({ rollup: 'running' }) })
+    const pending = [
+      { name: 'build', bucket: 'pending' as const, required: false, url: null, jobId: null }
+    ]
+    statusRefresh.mockResolvedValueOnce({ c1: status({ rollup: 'running', checks: pending }) })
     await act(async () => {
       vi.advanceTimersByTime(60_000)
     })
@@ -110,7 +123,10 @@ describe('usePrStatuses', () => {
   })
 
   it('polls fast while a check is running and slows once it settles', async () => {
-    statusRefresh.mockResolvedValueOnce({ c1: status({ rollup: 'running' }) })
+    const pending = [
+      { name: 'build', bucket: 'pending' as const, required: false, url: null, jobId: null }
+    ]
+    statusRefresh.mockResolvedValueOnce({ c1: status({ rollup: 'running', checks: pending }) })
     render(<Probe slugs={['c1']} interval={20_000} />)
     await act(async () => {})
     expect(statusRefresh).toHaveBeenCalledTimes(1)
@@ -143,7 +159,10 @@ describe('usePrStatuses', () => {
   })
 
   it('stops polling on unmount', async () => {
-    statusRefresh.mockResolvedValue({ c1: status({ rollup: 'running' }) })
+    const pending = [
+      { name: 'build', bucket: 'pending' as const, required: false, url: null, jobId: null }
+    ]
+    statusRefresh.mockResolvedValue({ c1: status({ rollup: 'running', checks: pending }) })
     const view = render(<Probe slugs={['c1']} interval={20_000} />)
     await act(async () => {})
     const before = statusRefresh.mock.calls.length
