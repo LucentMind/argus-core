@@ -89,7 +89,7 @@ function safeRelPath(relPath: string): boolean {
  *  reaches `execFile('git', ['show', \`${atSha}:...\`])` verbatim — anything starting with `-`
  *  (e.g. `--output=pwn`) would be parsed by git as an option rather than a revision. Reject
  *  before it ever reaches git; the caller falls back to the live-file read unchanged. */
-function safeSha(atSha: string): boolean {
+export function safeSha(atSha: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(atSha)
 }
 

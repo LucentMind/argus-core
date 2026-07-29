@@ -6,7 +6,7 @@ import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
 import { linkWorkspace, ensureWorktree } from '../workspaces'
-import { readRepoSnippet, readRepoText, resolveRepoTree } from '../workspaceRead'
+import { readRepoSnippet, readRepoText, resolveRepoTree, safeSha } from '../workspaceRead'
 import { WINDOW_LINES_BEFORE } from '../search'
 import { MAX_SNIPPET_LINES, SNIPPET_BEFORE, SNIPPET_AFTER } from '../../../shared/snippets'
 import type { DatabaseSync } from 'node:sqlite'
@@ -62,6 +62,23 @@ describe('resolveRepoTree', () => {
     expect(resolveRepoTree(db, argusHome, 'NAV-2', 'WidgetFactory')).toBe(repo)
     expect(resolveRepoTree(db, argusHome, 'NAV-2', 'widgetfactory')).toBe(repo)
     expect(resolveRepoTree(db, argusHome, 'NAV-2', 'myrepo')).toBe(repo) // basename still works
+  })
+})
+
+describe('safeSha', () => {
+  it('rejects git-option-shaped and non-sha strings', () => {
+    expect(safeSha('--output=pwn')).toBe(false)
+    expect(safeSha('HEAD')).toBe(false)
+    expect(safeSha('main')).toBe(false)
+    expect(safeSha('abc12')).toBe(false) // 5 chars, too short
+    expect(safeSha('a'.repeat(41))).toBe(false) // 41 chars, too long
+    expect(safeSha('')).toBe(false)
+  })
+
+  it('accepts valid abbreviated and full shas, any case', () => {
+    expect(safeSha('a1b2c3d')).toBe(true) // 7-char lowercase hex
+    expect(safeSha('a'.repeat(40))).toBe(true) // 40-char hex
+    expect(safeSha('A1B2C3D')).toBe(true) // uppercase hex
   })
 })
 
