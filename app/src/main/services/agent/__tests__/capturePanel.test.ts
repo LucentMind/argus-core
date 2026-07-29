@@ -44,6 +44,7 @@ describe('capturePanelToEvidence', () => {
         db,
         argusHome: home,
         detection: createDetection(),
+        mode: 'investigation',
         clock: () => new Date('2026-07-14T15:30:12.000Z')
       },
       'CASE-A',
@@ -72,7 +73,7 @@ describe('capturePanelToEvidence', () => {
       })
     }
     const res = await capturePanelToEvidence(
-      { panelHost, db, argusHome: home, detection: createDetection() },
+      { panelHost, db, argusHome: home, detection: createDetection(), mode: 'investigation' },
       'CASE-A',
       'sample-pack',
       'text-viewer'

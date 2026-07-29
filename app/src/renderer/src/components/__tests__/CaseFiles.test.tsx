@@ -179,7 +179,7 @@ describe('CaseFiles', () => {
   })
 
   it('renders the derived chip for evidence with a derivedFrom parent', async () => {
-    window.argus.evidence.list = vi.fn(async () => [
+    window.argus.evidence.list = vi.fn(async (): Promise<EvidenceRecord[]> => [
       ...evidenceFixture,
       {
         id: 3,
@@ -200,7 +200,7 @@ describe('CaseFiles', () => {
 
   it('Delete confirms with the derived count and calls evidence.delete', async () => {
     vi.mocked(confirm).mockResolvedValue(true)
-    window.argus.evidence.list = vi.fn(async () => [
+    window.argus.evidence.list = vi.fn(async (): Promise<EvidenceRecord[]> => [
       ...evidenceFixture,
       {
         id: 3,
@@ -279,7 +279,7 @@ describe('CaseFiles', () => {
   })
 
   it('rows with meta.missing render a missing badge', async () => {
-    window.argus.evidence.list = vi.fn(async () => [
+    window.argus.evidence.list = vi.fn(async (): Promise<EvidenceRecord[]> => [
       {
         id: 1,
         caseId: 1,

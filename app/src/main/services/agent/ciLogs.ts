@@ -142,7 +142,8 @@ export async function fetchCheckLogs(
     `ci-${binding.number}-${safeName}.log`,
     text,
     'ci',
-    { prNumber: binding.number, checkName: check.name, jobId: check.jobId, url: check.url }
+    { prNumber: binding.number, checkName: check.name, jobId: check.jobId, url: check.url },
+    'review'
   )
   return { evidenceId: rec.id, relPath: rec.relPath, text }
 }

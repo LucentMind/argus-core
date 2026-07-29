@@ -43,6 +43,7 @@ import {
 import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
 import { parseFindingBodies } from '../findings'
+import { sessionMode } from './sessionStore'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -305,7 +306,11 @@ export function argusToolHandlers(
     },
 
     async list_evidence() {
-      return JSON.stringify(listEvidence(db, caseSlug), null, 2)
+      // Follows the session's own mode axis: a review session must not see the
+      // investigation tree, and vice versa. Read at call time, not construction time — a
+      // deps object built without a real sessions row (e.g. a driver test double) must not
+      // pay for this unless list_evidence is actually invoked.
+      return JSON.stringify(listEvidence(db, caseSlug, sessionMode(db, deps.sessionId)), null, 2)
     },
 
     async search_case_history(args) {
@@ -318,7 +323,8 @@ export function argusToolHandlers(
     },
 
     async get_artifact_meta(args) {
-      const rec = listEvidence(db, caseSlug).find((e) => e.id === Number(args.evidence_id))
+      // 'all': an explicit id lookup must not 404 because the id belongs to the other tree.
+      const rec = listEvidence(db, caseSlug, 'all').find((e) => e.id === Number(args.evidence_id))
       if (!rec) throw new Error(`Unknown evidence_id: ${args.evidence_id}`)
       return JSON.stringify(rec, null, 2)
     },
@@ -377,7 +383,16 @@ export function argusToolHandlers(
       if (!p.startsWith(dir + path.sep)) {
         throw new Error(fb('ingest_artifact.outside-case-dir', { dir }))
       }
-      const rec = ingestArtifact(db, argusHome, detection, caseSlug, p, 'agent')
+      const rec = ingestArtifact(
+        db,
+        argusHome,
+        detection,
+        caseSlug,
+        p,
+        'agent',
+        {},
+        sessionMode(db, deps.sessionId)
+      )
       return JSON.stringify(rec, null, 2)
     },
 

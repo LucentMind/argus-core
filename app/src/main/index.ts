@@ -109,6 +109,7 @@ import {
 } from './services/agent/sessionStore'
 import { modeContextForCase, demoteIfModeUnavailable } from './services/modeContext'
 import { availableModes, MODES, type ModeId } from '../shared/modes'
+import type { EvidenceScope } from '../shared/evidenceScope'
 import { SessionMirror, readSessionEvents } from './services/agent/mirror'
 import {
   getActiveDriver,
@@ -620,7 +621,12 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.evidenceIngest, (_e, caseSlug: string, absPaths: string[]) => {
     caseWatch.suppress(caseSlug) // pre-write: our own copies must not light the staleness dot
-    const records = absPaths.map((p) => ingestArtifact(db, argusHome, detection, caseSlug, p))
+    // A drop carries only a case slug, not a session — file it into the case's own mode.
+    const kase = getCase(db, caseSlug)
+    if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
+    const records = absPaths.map((p) =>
+      ingestArtifact(db, argusHome, detection, caseSlug, p, 'upload', {}, kase.activeMode)
+    )
     // fire-and-forget: derived text appears via evidence:changed when ready
     for (const rec of records) {
       broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: rec.id, active: true })
@@ -646,6 +652,9 @@ function registerIpc(): void {
     (_e, caseSlug: string, fileName: string, bytes: Uint8Array) => {
       assertSlug(caseSlug)
       caseWatch.suppress(caseSlug) // our own write must not light the staleness dot
+      // A paste carries only a case slug, not a session — file it into the case's own mode.
+      const kase = getCase(db, caseSlug)
+      if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
       const { record, deduped } = ingestBytes(
         db,
         argusHome,
@@ -653,7 +662,9 @@ function registerIpc(): void {
         caseSlug,
         path.basename(fileName), // defence in depth: no traversal out of evidence/
         Buffer.from(bytes),
-        'paste'
+        'paste',
+        {},
+        kase.activeMode
       )
       if (!deduped) {
         broadcast(IPC.evidenceParsing, { slug: caseSlug, evidenceId: record.id, active: true })
@@ -676,10 +687,12 @@ function registerIpc(): void {
       return { record, deduped }
     }
   )
-  ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string) => {
+  ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string, scope?: EvidenceScope) => {
     // start the staleness watcher on first listing; unknown slugs stay unwatched
     if (getCase(db, caseSlug)) caseWatch.watch(caseSlug)
-    return listEvidence(db, caseSlug)
+    if (scope !== undefined && scope !== 'investigation' && scope !== 'review' && scope !== 'all')
+      throw new Error(`Invalid evidence scope: ${JSON.stringify(scope)}`)
+    return listEvidence(db, caseSlug, scope)
   })
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
     readEvidenceText(db, argusHome, evidenceId, focusLine)
@@ -718,8 +731,10 @@ function registerIpc(): void {
     evidenceChangedB(caseSlug)
     return r
   })
-  ipcMain.handle(IPC.evidenceScan, (_e, caseSlug: string) => {
+  ipcMain.handle(IPC.evidenceScan, (_e, caseSlug: string, mode?: ModeId) => {
     assertSlug(caseSlug)
+    if (mode !== undefined && mode !== 'investigation' && mode !== 'review')
+      throw new Error(`Invalid mode: ${JSON.stringify(mode)}`)
     caseWatch.suppress(caseSlug, 5000) // hashing a large folder outlives the default window
     return scanEvidence(
       db,
@@ -731,7 +746,8 @@ function registerIpc(): void {
         parsing: (slug, id, active) =>
           broadcast(IPC.evidenceParsing, { slug, evidenceId: id, active })
       },
-      caseSlug
+      caseSlug,
+      mode
     )
   })
   ipcMain.handle(IPC.searchQuery, (_e, q: string, filters?: SearchFilters) => {
@@ -836,11 +852,12 @@ function registerIpc(): void {
   const capturePanelFor = (
     caseSlug: string,
     packId: string,
-    windowId: string
+    windowId: string,
+    mode: ModeId
   ): Promise<CapturePanelEvidence> => {
     caseWatch.suppress(caseSlug) // pre-write: capture writes a screenshot into evidence/
     return capturePanelToEvidence(
-      { panelHost: panelHost!, db, argusHome, detection },
+      { panelHost: panelHost!, db, argusHome, detection, mode },
       caseSlug,
       packId,
       windowId
