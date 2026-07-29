@@ -305,4 +305,36 @@ describe('FindingsPane write actions', () => {
     expect(title.compareDocumentPosition(severity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(severity.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  it('parks the actions in the provenance slot, reachable without a pointer', async () => {
+    list.mockResolvedValue([reviewRow({ id: 7 })])
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
+    const comment = await screen.findByLabelText('Post as PR comment')
+    const item = comment.closest('li') as HTMLElement
+    const slot = within(item).getByTestId('finding-trailing')
+    // one cell holds both: the row costs max(provenance, actions), not their sum
+    expect(slot).toContainElement(comment)
+    expect(slot).toContainElement(within(item).getByLabelText('Apply change and push'))
+    expect(slot).toContainElement(within(item).getByLabelText('Mark finding good'))
+    expect(slot).toContainElement(within(item).getByLabelText('Mark finding not useful'))
+    expect(slot.textContent).toMatch(/sess 1/)
+    // The cluster must stay focusable — it is the only keyboard path to comment/apply, and
+    // `hidden`/`display:none` would drop it from the tab order. jsdom applies no CSS, so this
+    // pins the structural half only; Task 7 step 6 checks that focus actually reveals it.
+    comment.focus()
+    expect(document.activeElement).toBe(comment)
+  })
+
+  it('separates the write actions from the feedback votes', async () => {
+    list.mockResolvedValue([reviewRow({ id: 7 })])
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
+    const apply = await screen.findByLabelText('Apply change and push')
+    const good = screen.getByLabelText('Mark finding good')
+    // By testid, not [aria-hidden] — lucide-react puts aria-hidden="true" on every icon svg
+    // (lucide-react.js:92), which an attribute query would match first.
+    const rule = screen.getByTestId('votes-rule')
+    // acting on a finding and rating one are not peers: [comment apply] | [good bad]
+    expect(apply.compareDocumentPosition(rule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rule.compareDocumentPosition(good) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
