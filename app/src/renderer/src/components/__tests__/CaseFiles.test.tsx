@@ -374,7 +374,7 @@ describe('CaseFiles', () => {
     await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalledTimes(2))
   })
 
-  it('Refresh scans and puts the summary on the control, not a list row', async () => {
+  it('Refresh scans and shows the summary in the header, not a list row or paragraph', async () => {
     window.argus.evidence.scan = vi.fn(async () => ({
       added: ['evidence/a.txt', 'evidence/b.txt'],
       modified: ['evidence/c.txt'],
@@ -388,7 +388,13 @@ describe('CaseFiles', () => {
     await waitFor(() =>
       expect(rescanBtn).toHaveAttribute('title', expect.stringContaining('2 added · 1 updated'))
     )
-    expect(screen.queryByText('2 added · 1 updated')).not.toBeInTheDocument()
+    // visible in the header row, not just on the tooltip
+    const note = screen.getByText('2 added · 1 updated')
+    expect(note).toBeInTheDocument()
+    expect(note.tagName).not.toBe('P')
+    // not the old paragraph-above-the-list form, and not a list row
+    expect(note.closest('li')).toBeNull()
+    expect(note.closest('ul')).toBeNull()
   })
 
   it('files.onChanged for this case lights the staleness dot; scanning clears it', async () => {
