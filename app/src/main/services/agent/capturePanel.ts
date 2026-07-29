@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PanelHost } from '../panels/panelHost'
 import type { Detection } from '../packs/detection'
 import { ingestContent } from '../ingest'
+import type { ModeId } from '../../../shared/modes'
 
 const slug = (s: string): string =>
   s
@@ -31,6 +32,9 @@ export interface CapturePanelDeps {
   db: DatabaseSync
   argusHome: string
   detection: Detection
+  /** The capturing session's mode — a review session's capture must land in artifacts/,
+   *  an investigation session's in evidence/. */
+  mode: ModeId
   clock?: () => Date
 }
 
@@ -57,7 +61,8 @@ export async function capturePanelToEvidence(
       packId,
       windowId,
       panelTitle: cap.title
-    }
+    },
+    deps.mode
   )
   return { ok: true, evidenceId: rec.id, relPath: rec.relPath, artifactType: rec.artifactType }
 }

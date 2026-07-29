@@ -621,7 +621,8 @@ export class CaseSession {
       filename,
       content,
       'panel',
-      extraMeta
+      extraMeta,
+      this.mode
     )
     this.emit(
       makeEvent(this.ctx(), 'case.evidence.ingested', { evidenceId: rec.id, relPath: rec.relPath })

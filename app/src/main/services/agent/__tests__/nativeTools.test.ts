@@ -6,6 +6,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { ingestArtifact } from '../../ingest'
 import { createDetection } from '../../packs/detection'
+import { createSession } from '../sessionStore'
 import { argusToolHandlers, NATIVE_TOOL_SPECS } from '../nativeTools'
 import { agentAccessSchema } from '../../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
@@ -164,6 +165,36 @@ describe('argus native tools', () => {
     expect(idx).toContain('- [binder-crashes](binder-crashes.md) — VHAL/binder crash triage order')
     const topic = fs.readFileSync(path.join(argusHome, 'memory', 'binder-crashes.md'), 'utf8')
     expect(topic).toContain('binder thread pool')
+  })
+
+  it('list_evidence shows a review session only artifacts', async () => {
+    const src2 = path.join(tmp, 'ci-5.log')
+    fs.writeFileSync(src2, 'log body\n')
+    ingestArtifact(db, argusHome, detection, 'NAV-1', src2, 'ci', {}, 'review')
+    const reviewSession = createSession(db, 'NAV-1', {
+      driverKind: 'claude-agent-sdk',
+      mode: 'review'
+    })
+    const reviewHandlers = argusToolHandlers({
+      db,
+      argusHome,
+      detection,
+      caseId,
+      caseSlug: 'NAV-1',
+      sessionId: reviewSession.id,
+      emitFinding
+    })
+    const out = JSON.parse(await reviewHandlers.list_evidence({})) as Array<{ relPath: string }>
+    expect(out.map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
+  })
+
+  it('get_artifact_meta resolves an id from either tree', async () => {
+    const src2 = path.join(tmp, 'ci-5.log')
+    fs.writeFileSync(src2, 'log body\n')
+    // ingested into the review tree, while `handlers` runs on the default investigation session
+    const rec = ingestArtifact(db, argusHome, detection, 'NAV-1', src2, 'ci', {}, 'review')
+    const out = JSON.parse(await handlers.get_artifact_meta({ evidence_id: rec.id }))
+    expect(out.relPath).toBe('artifacts/ci-5.log')
   })
 
   it('every native tool spec has a matching handler and vice versa', () => {
