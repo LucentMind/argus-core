@@ -44,7 +44,8 @@ beforeEach(() => {
       onBuilding: vi.fn(() => () => {}),
       onChanged: vi.fn(() => () => undefined),
       onProgress: vi.fn(() => () => {})
-    }
+    },
+    openExternal: vi.fn(async () => undefined)
   } as never
 })
 
@@ -68,6 +69,16 @@ describe('ReposSection pull requests', () => {
     prApi().list = vi.fn(async () => [BINDING])
     render(<ReposSection slug="C-1" />)
     expect(await screen.findByText(/JiaweiHan88\/hivemindtest#16315/)).toBeTruthy()
+  })
+
+  it('opens the pull request in the browser when the chip is clicked', async () => {
+    prApi().list = vi.fn(async () => [BINDING])
+    render(<ReposSection slug="C-1" />)
+    const chip = await screen.findByRole('button', {
+      name: 'Open pull request JiaweiHan88/hivemindtest#16315 on GitHub'
+    })
+    fireEvent.click(chip)
+    expect(window.argus.openExternal).toHaveBeenCalledWith(BINDING.url)
   })
 
   it('renders no PR section at all when nothing is bound', async () => {
