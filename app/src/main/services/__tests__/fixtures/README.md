@@ -105,16 +105,28 @@ Same posture as the Plan 5 capture above: real `gh` (2.96.0) against public repo
 read-only, no write of any kind. Two of the three pin a commit OID, because check runs on a
 completed commit do not change.
 
-### `prStatus.required.json` — `isRequired` on both node types
+### `prStatus.required.json` — `isRequired` on a real pull request
+
+```bash
+gh api graphql -f query='{ t0: repository(owner: "cli", name: "cli") { pullRequest(number: 14003) { number url state isDraft mergeable mergeStateStatus reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 8) { nodes { __typename ... on CheckRun { name status conclusion isRequired(pullRequestNumber: 14003) detailsUrl } ... on StatusContext { context state isRequired(pullRequestNumber: 14003) targetUrl } } } } } } } } } }'
+```
 
 `cli/cli#14003`, `contexts(first: 8)`. Six check runs: the three `build (…)` matrix jobs carry
 `isRequired: true`, the three `integration-tests (…)` jobs `false`. Also the first capture of
 `mergeStateStatus` (`CLEAN` here).
 
+The query requests `isRequired` on both the `CheckRun` and `StatusContext` fragments, but this
+pull request carries only check runs, so the captured payload exercises the field on `CheckRun`
+alone.
+
 `isRequired` needs **no admin rights** — this was read with ordinary public-repo access, which
 settles the question of whether Argus can ask it for a repository the user does not own.
 
 ### `prStatus.cancelled.json` — cancelled alongside a genuine failure
+
+```bash
+gh api graphql -f query='{ t0: repository(owner: "home-assistant", name: "core") { object(oid: "becc3107c5318698df6ebdec91bb1cce0b77edbd") { ... on Commit { statusCheckRollup { contexts(first: 20) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } } } } } } } }'
+```
 
 `home-assistant/core@becc3107`, `contexts(first: 20)`. `Check hassfest` failed; `Check pylint`
 and `Check pylint on tests` were `CANCELLED` as collateral (the concurrency group killed them).
@@ -123,6 +135,12 @@ three of the non-green runs rendered as identical red rows with equally prominen
 buttons, though two of their logs contain only the cancellation.
 
 ### `prStatus.nullNodes.json` — what a field-level error does to the response
+
+```bash
+gh api graphql -f query='{ t0: repository(owner: "cli", name: "cli") { pullRequest(number: 14003) { number url state isDraft mergeable mergeStateStatus reviewDecision commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 2) { nodes { __typename ... on CheckRun { name status conclusion isRequired detailsUrl } } } } } } } } } }'
+```
+
+**This command exits 1** because `gh` exits non-zero whenever GraphQL reports errors, but the response body is printed to stdout and captured by the redirect regardless.
 
 Captured by deliberately omitting `isRequired`'s required argument. The finding that shaped
 `fetchPrStatuses`: GraphQL returns **the pull request node intact and every context node as
