@@ -21,18 +21,26 @@ export const NON_PACK_TIERS: readonly TrustTier[] = [
   'hivemind'
 ]
 
+/**
+ * Badge copy. Each value names WHERE an asset came from; the Library group it sits in
+ * already states what may be done with it, so these must not repeat the rights.
+ * One word each: `Chip` uppercases in CSS, and a row already carries a kind chip plus
+ * usage/stale/receipt chips.
+ */
 export const TIER_LABELS: Record<TrustTier, string> = {
-  bundled: 'bundled',
-  confluence: 'confluence',
-  hivemind: 'hivemind',
-  'team-knowledge': 'team knowledge',
-  user: 'user'
+  bundled: 'pack',
+  confluence: 'Confluence',
+  hivemind: 'HiveMind',
+  'team-knowledge': 'proposed',
+  user: 'you'
 }
 
 export const TIER_EXPLANATIONS: Record<TrustTier, string> = {
-  bundled: 'Shipped by a pack.',
-  confluence: 'Synced from Confluence. Owned by reference sync.',
-  hivemind: "Downloaded from your team's HiveMind, pinned to a commit. Claim it to make it yours.",
-  'team-knowledge': 'Accepted from an agent proposal. Can be shared to the HiveMind.',
-  user: 'Authored or accepted by you. Can be shared to the HiveMind.'
+  bundled: 'Ships with an installed pack. Restored when the pack updates.',
+  confluence:
+    'Rebuilt from its Confluence page on every sync — local edits are overwritten.',
+  hivemind:
+    "Installed from your team's HiveMind, pinned to a commit. Claim it to make it yours.",
+  'team-knowledge': 'An agent drafted this; you accepted it. Yours to edit, delete, or share.',
+  user: 'You wrote or claimed this. Yours to edit, delete, or share.'
 }
