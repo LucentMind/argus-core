@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   case_slug TEXT NOT NULL,
   state TEXT NOT NULL DEFAULT 'queued',
   input_snapshot TEXT NOT NULL,
+  prompt_hash TEXT,
   raw_output TEXT,
   error TEXT,
   item_count INTEGER,
@@ -346,6 +347,10 @@ export function openDb(file: string): DatabaseSync {
     // Usage-stats capture: skill name / memory topic / reference relpath for the calls that
     // have one (see agent/toolDetail.ts); NULL for everything else.
     db.exec(`ALTER TABLE tool_calls ADD COLUMN detail TEXT`)
+  }
+  const distillCols = db.prepare(`PRAGMA table_info(distill_jobs)`).all() as { name: string }[]
+  if (!distillCols.some((c) => c.name === 'prompt_hash')) {
+    db.exec(`ALTER TABLE distill_jobs ADD COLUMN prompt_hash TEXT`)
   }
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).
