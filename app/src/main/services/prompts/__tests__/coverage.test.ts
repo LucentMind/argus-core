@@ -88,6 +88,10 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   {
     text: '${b.owner}/${b.repo}#${b.number}',
     why: "prIdentity() in reviewWrites.ts: the case's one binding as owner/repo#number, for the {bound} placeholder in review_write.unknown-pr (so the model can copy a value straight into `pr`) — pure interpolation, no words of its own. Kept as this one longer/specific pattern rather than also carrying a short '#${b.number}' entry: a short generic fragment would silently waive any FUTURE literal in reviewWrites.ts that merely happens to interpolate a PR number, e.g. a hypothetical `PR #${b.number} is closed — reopen it first` — exactly the rot this file's own comment warns about."
+  },
+  {
+    text: '## Finding ${id} — ${row.summary}\\n${meta}${suggested}\\n\\n${body}',
+    why: "read_findings in nativeTools.ts: one finding's section assembled from the findings row (id, summary, severity/layer/anchor, suggested_change) plus its stored body — a markdown header and field list glued around DB data, same class as the '#${b.number}' PR identity above. \"## Finding\" and \"Suggested change:\" are fixed labels, not instructions, and every variable part is read straight out of the row."
   }
 ]
 
