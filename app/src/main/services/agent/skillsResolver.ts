@@ -4,6 +4,7 @@ import { caseDir, hivemindSkillsDir, userSkillsDir } from '../paths'
 import { sharedSkillsDir } from '../skillsDir'
 import { skillEnabled, type AgentAccess } from '../../../shared/agentAccess'
 import type { ModeRole } from '../../../shared/modes'
+import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -54,53 +55,10 @@ const TIERS: Array<{ tier: SkillTier; root: (home: string) => string }> = [
  *  fields but must not read the file twice per skill. */
 function readFrontmatter(skillDir: string): string | null {
   try {
-    const raw = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8')
-    return raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? null
+    return frontmatterOf(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'))
   } catch {
     return null
   }
-}
-
-function parseDescription(fm: string | null): string {
-  if (!fm) return ''
-  const m = fm.match(/^description:\s*(.+)$/m)
-  return m ? m[1].replace(/\r$/, '').trim() : ''
-}
-
-const stripQuotes = (s: string): string => s.trim().replace(/^["']|["']$/g, '')
-
-/**
- * Parse the `roles:` frontmatter tag, supporting both YAML forms:
- *   inline: `roles: [review, triage]` / `roles: review, triage` / `roles: review` /
- *            `roles: "review"` / `roles: []`
- *   block:  `roles:\n  - review\n  - triage`
- *
- * The previous implementation used `/^roles:\s*(.+)$/m`, but `\s` matches newlines too, so
- * for the block form it consumed the line break after `roles:` and `(.+)` captured only the
- * first list item's raw text (`"- review"`) as a single mangled role — silently deranking
- * the skill in every mode. Scanning line-by-line (no `\s*` crossing a newline) avoids that.
- */
-function parseRoles(fm: string | null): string[] {
-  if (!fm) return []
-  const lines = fm.split(/\r?\n/)
-  const idx = lines.findIndex((l) => /^roles:\s*/.test(l))
-  if (idx === -1) return []
-  const inline = lines[idx].replace(/^roles:\s*/, '').trim()
-  if (inline) {
-    return inline
-      .replace(/^\[|\]$/g, '')
-      .split(',')
-      .map(stripQuotes)
-      .filter(Boolean)
-  }
-  // Block form: consume subsequent indented `- item` lines until one doesn't match.
-  const items: string[] = []
-  for (let i = idx + 1; i < lines.length; i++) {
-    const m = lines[i].match(/^\s+-\s*(.+)$/)
-    if (!m) break
-    items.push(stripQuotes(m[1]))
-  }
-  return items.filter(Boolean)
 }
 
 export function frontmatterDescription(skillDir: string): string {

@@ -5,6 +5,7 @@ import { memoryDir, proposalsArchiveDir, proposalsDir, userSkillsDir } from './p
 import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
+import { ASSET_NAME_RE } from '../../shared/assetValidation'
 import { fmBlock, fmField, withFrontmatter } from './frontmatter'
 import {
   PROPOSAL_TYPES,
@@ -74,9 +75,6 @@ export function proposalCounts(argusHome: string): ProposalCounts {
   return { pendingCount, byType }
 }
 
-/** Target names: a skill dir name or a reference file name. Same shape as case slugs. */
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
-
 /** Frontmatter keys writeProposal already owns — extraFm may not shadow these. */
 const RESERVED_FM = new Set(['type', 'target', 'case', 'date', 'title', 'status'])
 const EXTRA_FM_KEY_RE = /^[a-z_]+$/
@@ -87,7 +85,7 @@ function refFileName(target: string): string {
 
 /** Target names: a skill dir name or a reference file name. Same shape as case slugs. */
 export function isValidProposalTarget(target: string): boolean {
-  return NAME_RE.test(target)
+  return ASSET_NAME_RE.test(target)
 }
 
 export function writeProposal(
@@ -268,7 +266,7 @@ export function acceptProposal(
   if (!p) throw new Error(`Unknown proposal: ${file}`)
   // defense-in-depth: p.target came from on-disk frontmatter (trusted only because
   // writeProposal validated it at write time) — re-validate before it joins a write path.
-  if (!NAME_RE.test(p.target)) {
+  if (!ASSET_NAME_RE.test(p.target)) {
     throw new Error(`Invalid proposal target: ${JSON.stringify(p.target)}`)
   }
   const body = opts.editedContent?.trim() ? opts.editedContent : p.content
