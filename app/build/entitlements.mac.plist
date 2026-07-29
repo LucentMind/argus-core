@@ -8,5 +8,19 @@
     <true/>
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+    <!-- REQUIRED, and verified by removing it: the bundled provider CLIs are signed with OUR
+         Developer ID (electron-builder applies entitlementsInherit to them), but they dlopen
+         native addons shipped by their own vendors. Under hardened runtime, library validation
+         refuses that cross-team load:
+
+           code signature in 'runtime.node' not valid for use in process:
+           mapping process and mapped file (non-platform) have different Team IDs
+
+         GitHub Copilot then discards its extracted cache and dies with a misleading
+         "Native addon not found". Not reachable in ad-hoc builds, which have no hardened
+         runtime and so never enforce library validation. `npm run smoke:packaged` is the
+         check that catches a regression here. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
   </dict>
 </plist>

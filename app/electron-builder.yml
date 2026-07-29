@@ -2,9 +2,10 @@ appId: com.argus.core
 productName: Argus
 directories:
   buildResources: build
-# Ad-hoc signs the macOS bundle after packing (we have no Developer ID, and electron-builder
-# skips signing rather than ad-hoc signing). Without this the DMG reads as "damaged" on
-# Apple Silicon. See build/afterPack.cjs for the full rationale.
+# Ad-hoc signs the macOS bundle after packing, but only for credential-less builds (no
+# CSC_LINK / CSC_NAME). Without a signature the DMG reads as "damaged" on Apple Silicon.
+# When signing credentials are present the hook stands down and electron-builder's real
+# Developer ID signing takes over. See build/afterPack.cjs for the full rationale.
 afterPack: build/afterPack.cjs
 files:
   - '!**/.vscode/*'
@@ -53,18 +54,33 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  # No Apple Developer ID yet, so we cannot Developer-ID-sign or notarize. We rely on
-  # electron-builder 26's default ad-hoc signing (no `identity` key = ad-hoc when no cert
-  # is present), which produces a VALID bundle signature. Do NOT set `identity: null` here:
-  # that disables signing entirely, leaving the bundle with only the linker's stub sig and
-  # no _CodeSignature/CodeResources — which macOS reports as "damaged, move to Trash" on a
-  # quarantined download. A valid ad-hoc signature instead yields the ordinary "unidentified
-  # developer" prompt users clear with right-click -> Open. This is not notarization.
+  # Release builds are Developer-ID-signed and notarized. The certificate, its password and the
+  # notarization credentials all come from the environment, never from this file — see the
+  # "Configure macOS signing and notarization" step in .github/workflows/build.yml.
+  #
+  # `identity` is deliberately NOT pinned here. electron-builder discovers the identity from
+  # whatever CSC_LINK imports (or from the local login keychain), so a contributor without the
+  # cert still gets a working ad-hoc-signed build instead of a hard "identity is not valid"
+  # failure. Do NOT set `identity: null`: that disables signing entirely, leaving the bundle
+  # with only the linker's stub sig and no _CodeSignature/CodeResources — which macOS reports
+  # as "damaged, move to Trash" on a quarantined download.
+  #
+  # hardenedRuntime is electron-builder's non-MAS default, but notarization is rejected
+  # outright without it, so it is stated explicitly rather than inherited.
+  hardenedRuntime: true
+  # Both keys are needed: `entitlements` covers the outer app, `entitlementsInherit` the
+  # nested helpers. Setting only the latter silently left the app on electron-builder's
+  # default plist, which lacks the JIT/unsigned-memory exceptions Electron needs.
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
+  # Typed `boolean` in electron-builder 26 — it only gates the integration. The actual
+  # credentials are read from APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER. With none
+  # of those set, electron-builder logs "skipped macOS notarization" and carries on, so local
+  # builds are unaffected.
+  notarize: true
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
