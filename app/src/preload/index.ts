@@ -521,8 +521,10 @@ const argus = {
       trimmed: string[]
       skipped: Array<{ target: string; reason: string }>
     }> => ipcRenderer.invoke(IPC.refsyncPrune, syncId, targets),
-    readRef: (file: string): Promise<{ file: string; content: string }> =>
+    readRef: (file: string): Promise<{ file: string; content: string; hash: string }> =>
       ipcRenderer.invoke(IPC.refsyncReadRef, file),
+    writeRef: (file: string, content: string, baseHash: string | null): Promise<void> =>
+      ipcRenderer.invoke(IPC.refsyncWriteRef, file, content, baseHash),
     searchRefs: (query: string): Promise<string[]> =>
       ipcRenderer.invoke(IPC.refsyncSearchRefs, query),
     deleteRef: (file: string): Promise<void> => ipcRenderer.invoke(IPC.refsyncDeleteRef, file),
