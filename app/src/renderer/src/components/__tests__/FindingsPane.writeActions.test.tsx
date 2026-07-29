@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FindingsPane } from '../FindingsPane'
 import type { FindingRow } from '../../../../shared/observability'
@@ -321,6 +321,36 @@ describe('FindingsPane write actions', () => {
     // pins the structural half only; Task 7 step 6 checks that focus actually reveals it.
     comment.focus()
     expect(document.activeElement).toBe(comment)
+  })
+
+  it('reveals the action cluster via React state on focus, not a CSS focus-within variant', async () => {
+    // The previous mechanism used `group/act` + `group-focus-within/act:` Tailwind variants.
+    // Measured in a real browser after a clean dev-server restart: focusing a button inside the
+    // trailing cell left the cluster's computed opacity at 0 — the named-group focus-within
+    // variant does not fire. Replaced with plain React state (onFocus/onBlur on the trailing
+    // cell) and conditional utility classes, which jsdom's class-string assertions can pin even
+    // though jsdom applies no CSS at all.
+    list.mockResolvedValue([reviewRow({ id: 7 })])
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
+    const comment = await screen.findByLabelText('Post as PR comment')
+    const item = comment.closest('li') as HTMLElement
+    const slot = within(item).getByTestId('finding-trailing')
+    const cluster = slot.querySelector(':scope > div') as HTMLElement
+    expect(cluster).not.toBeNull()
+
+    expect(cluster).toHaveClass('opacity-0')
+    expect(cluster).toHaveClass('pointer-events-none')
+
+    fireEvent.focus(comment)
+    expect(cluster).toHaveClass('opacity-100')
+    expect(cluster).toHaveClass('pointer-events-auto')
+    expect(cluster).not.toHaveClass('opacity-0')
+
+    fireEvent.blur(comment)
+    expect(cluster).toHaveClass('opacity-0')
+    expect(cluster).toHaveClass('pointer-events-none')
+
+    expect(cluster).not.toHaveClass('hidden')
   })
 
   it('offers write actions in review mode and votes in investigation mode, never both', async () => {

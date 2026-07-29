@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   ChevronRight,
   GitCommitVertical,
@@ -76,6 +77,7 @@ export function FindingCard({
 }): React.JSX.Element {
   const accepted = f.reviewState === 'accepted'
   const rejected = f.reviewState === 'rejected'
+  const [actFocus, setActFocus] = useState(false)
   return (
     <li
       className={`group/f relative rounded-r2 border bg-panel ${
@@ -160,13 +162,21 @@ export function FindingCard({
             subtree is untabbable, and these buttons are the only keyboard path to comment/apply. */}
         <div
           data-testid="finding-trailing"
-          className="group/act relative ml-auto flex h-6 min-w-0 items-center"
+          className="relative ml-auto flex h-6 min-w-0 items-center"
+          onFocus={() => setActFocus(true)}
+          onBlur={() => setActFocus(false)}
         >
-          <span className="min-w-0 truncate font-mono text-[10px] text-mute transition-opacity group-hover/f:opacity-0 group-focus-within/act:opacity-0">
+          <span
+            className={`min-w-0 truncate font-mono text-[10px] text-mute transition-opacity group-hover/f:opacity-0 ${actFocus ? 'opacity-0' : ''}`}
+          >
             {formatWhen(f.createdAt)}
             {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
           </span>
-          <div className="pointer-events-none absolute right-0 flex items-center gap-0.5 rounded-r1 bg-panel opacity-0 transition-opacity group-hover/f:pointer-events-auto group-hover/f:opacity-100 group-focus-within/act:pointer-events-auto group-focus-within/act:opacity-100">
+          <div
+            className={`absolute right-0 flex items-center gap-0.5 rounded-r1 bg-panel transition-opacity ${
+              actFocus ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+            } group-hover/f:pointer-events-auto group-hover/f:opacity-100`}
+          >
             {f.mode === 'review' ? (
               <>
                 <button
