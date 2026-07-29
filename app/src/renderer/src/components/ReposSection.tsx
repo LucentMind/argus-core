@@ -181,7 +181,7 @@ export function ReposSection({
       </div>
       {workspaces.map((w) => (
         <div key={w.path} className="flex items-center gap-1">
-          <div className="min-w-0 flex-1 rounded-r2 border border-defect/30 bg-hair/40 px-2 py-1.5">
+          <div className="min-w-0 flex-1 rounded-r2 border border-defect/30 bg-hair/50 px-2 py-1.5">
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="truncate font-mono text-xs font-medium text-defect">
                 {w.path.split(/[\\/]/).pop()}
@@ -210,7 +210,6 @@ export function ReposSection({
               <span dir="ltr">{w.currentRef}</span>
             </div>
           </div>
-          <span className="flex-1" />
           {mode !== 'review' && (
             <>
               <IconBtn
