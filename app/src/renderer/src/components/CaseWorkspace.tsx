@@ -93,10 +93,11 @@ export function CaseWorkspace({
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [prPicker, setPrPicker] = useState<PrSearchResult | null>(null)
   // The binding the picker was opened over, so it can warn before silently replacing one —
-  // the picker is reachable via "Find PRs" (ReposSection) regardless of whether a PR is
+  // the picker is reachable via "Find PRs" (PrCompanionSection) regardless of whether a PR is
   // already bound, unlike the auto-open-on-review-entry path below (which only fires when
   // nothing is bound yet). Fetched fresh each time the picker opens rather than mirroring
-  // ReposSection's own `prs` state, so it is correct whichever caller opened the dialog.
+  // PrCompanionSection's own `binding` state, so it is correct whichever caller opened the
+  // dialog.
   const [prPickerCurrent, setPrPickerCurrent] = useState<PrBinding | null>(null)
   const [prSearching, setPrSearching] = useState(false)
   const [focusTurn, setFocusTurn] = useState<{
@@ -120,15 +121,15 @@ export function CaseWorkspace({
     // renders it with no `key`), so without this an already-open dialog would keep showing
     // A's candidates/binding while `slug` (and so `<PrPickerDialog slug={slug} …/>`, and any
     // "Link selected" click) has already moved on to B — silently retargeting B's binding
-    // to a PR found via A's repos. `handlePrsFound`'s own stale-guard (below) covers the
-    // still-in-flight case; this covers the already-resolved, dialog-already-open case.
+    // to a PR found via A's linked repos. `handlePrsFound`'s own stale-guard (below) covers
+    // the still-in-flight case; this covers the already-resolved, dialog-already-open case.
     setPrPicker(null)
     setPrPickerCurrent(null)
   }
   // The current slug, read by `handlePrsFound`'s async chain once it resolves — a ref kept
   // current via its own effect (refs may not be written during render) rather than the
   // `sessions.list` effect's cleanup `stale` flag below, because this chain starts from an
-  // event callback (ReposSection's "Find PRs"), not from an effect keyed on `[slug]`.
+  // event callback (PrCompanionSection's "Find PRs"), not from an effect keyed on `[slug]`.
   const currentSlugRef = useRef(slug)
   useEffect(() => {
     currentSlugRef.current = slug
@@ -221,8 +222,8 @@ export function CaseWorkspace({
    * the picker with it already known — never the reverse — and never for a case the user has
    * since switched away from. Both places that can open `PrPickerDialog` (the auto-search
    * below, on entering review mode with nothing bound, and `handlePrsFound`, from
-   * `ReposSection`'s "Find PRs") funnel through this so neither has to remember the guard on
-   * its own; a future third caller inherits it too just by calling this.
+   * `PrCompanionSection`'s "Find PRs") funnel through this so neither has to remember the
+   * guard on its own; a future third caller inherits it too just by calling this.
    *
    * `pr.list` is a genuine IPC round trip, not a microtask; opening the dialog first and
    * setting `currentBinding` only once it resolves would leave a real window where "Link
@@ -245,7 +246,7 @@ export function CaseWorkspace({
    * lookup alone can't reach.
    *
    * Returns its promise so a caller that wants "busy until the dialog is actually up" (like
-   * `ReposSection`'s `searching` flag, via `handlePrsFound`) can await it — otherwise a
+   * `PrCompanionSection`'s `searching` flag, via `handlePrsFound`) can await it — otherwise a
    * second search could start (and later resolve) before the first one's dialog had opened,
    * swapping `result`/`currentBinding` out from under an already-rendered picker.
    */
@@ -279,7 +280,7 @@ export function CaseWorkspace({
       .catch(() => setSessionsError('Could not load chat sessions.'))
     // Entering review with nothing bound yet is the one moment discovery is worth ~5s of
     // gh: offer the picker. It runs AFTER the switch resolved, so the chat opens
-    // immediately and a failed search degrades to manual linking in the Repos rail.
+    // immediately and a failed search degrades to manual linking in the Pull request rail.
     // Later entries go straight to the chat; "Link PR" there is the re-run path.
     if (mode !== 'review') return
     const forSlug = slug
@@ -319,8 +320,8 @@ export function CaseWorkspace({
     }
   }
 
-  /** ReposSection's "Find PRs" result handler — see `openPrPicker`'s doc comment for what
-   *  this guards against. */
+  /** PrCompanionSection's "Find PRs" result handler — see `openPrPicker`'s doc comment for
+   *  what this guards against. */
   function handlePrsFound(result: PrSearchResult): Promise<void> {
     return openPrPicker(slug, result)
   }
@@ -474,7 +475,6 @@ export function CaseWorkspace({
               <ReposSection
                 slug={slug}
                 mode={activeMode}
-                onPrsFound={handlePrsFound}
                 headerExtra={
                   <button
                     aria-label="Collapse evidence"
@@ -490,6 +490,7 @@ export function CaseWorkspace({
                 slug={slug}
                 mode={activeMode}
                 onAnalyze={(checkName) => void analyzeCheck(checkName)}
+                onPrsFound={handlePrsFound}
               />
               {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
               {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
