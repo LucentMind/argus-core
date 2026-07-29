@@ -314,9 +314,14 @@ export class AgentService {
     return session
   }
 
-  async send(caseSlug: string, sessionId: number, text: string): Promise<number> {
+  async send(
+    caseSlug: string,
+    sessionId: number,
+    text: string,
+    opts?: { composed?: boolean }
+  ): Promise<number> {
     const s = await this.getOrCreate(caseSlug, sessionId)
-    return s.send(text)
+    return s.send(text, opts)
   }
 
   async emitPanelFinding(

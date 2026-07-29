@@ -35,7 +35,7 @@ export function ReviewRunButton({
       // Ordered by the registry, not by click order, so the prompt reads consistently.
       const layers = REVIEW_LAYER_ORDER.filter((id) => pinned.includes(id))
       const prompt = await window.argus.review.composeRunPrompt(slug, sessionId, layers)
-      await window.argus.agent.send(slug, sessionId, prompt)
+      await window.argus.agent.send(slug, sessionId, prompt, true)
     } catch (err) {
       onError((err as Error).message)
     } finally {

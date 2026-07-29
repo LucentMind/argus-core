@@ -72,6 +72,35 @@ describe('ChatPane', () => {
     expect(screen.getByText(/search_evidence/)).toBeTruthy()
   })
 
+  // Argus-composed turns (review run, apply, CI analyze prompts) render as markdown;
+  // typed turns stay literal text. Mirrors CitedText.test.tsx's plain-text protection
+  // (`3*4=12` must never be touched by a markdown/citation pass).
+  it('renders a composed user turn as markdown', () => {
+    const slug = 'NAV-COMPOSED'
+    const at = (type: string, payload: unknown): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+    agentStore.apply(at('turn.started', { userText: '**Bold** turn', composed: true }))
+    const { container } = render(
+      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+    )
+    const strong = container.querySelector('strong')
+    expect(strong).toBeTruthy()
+    expect(strong?.textContent).toBe('Bold')
+    expect(container.textContent).not.toContain('**Bold**')
+  })
+
+  it('keeps a plain typed user turn as literal text (no markdown, no field)', () => {
+    const slug = 'NAV-PLAIN'
+    const at = (type: string, payload: unknown): AgentEvent =>
+      ({ ...base, caseSlug: slug, type, payload }) as AgentEvent
+    agentStore.apply(at('turn.started', { userText: '3*4=12' }))
+    const { container } = render(
+      <ChatPane slug={slug} sessionId={1} onSwitchSession={vi.fn()} onCite={vi.fn()} />
+    )
+    expect(container.querySelector('strong')).toBeNull()
+    expect(screen.getByText('3*4=12')).toBeTruthy()
+  })
+
   it('hides tool cards when tool-call visibility is off, but keeps pending approvals', () => {
     const slug = 'NAV-TOGGLE'
     const at = (type: string, payload: unknown): AgentEvent =>

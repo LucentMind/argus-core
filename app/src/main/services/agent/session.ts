@@ -402,7 +402,7 @@ export class CaseSession {
     return { ...e, payload: { requestId, tool, risk, grantKey, argsPreview } }
   }
 
-  send(text: string): number {
+  send(text: string, opts?: { composed?: boolean }): number {
     if (this.state === 'dead') throw new Error('session is dead')
     this.turnIndex++
     this.activeTurn = true
@@ -417,7 +417,12 @@ export class CaseSession {
     maybeAdvanceToAnalyzing(this.deps.db, this.deps.argusHome, this.deps.caseId)
     setTitleIfEmpty(this.deps.db, this.sessionId, text)
     this.deps.mirror?.indexText('user', text, this.currentTurnRow)
-    this.emit(makeEvent(this.ctx(), 'turn.started', { userText: text }))
+    this.emit(
+      makeEvent(this.ctx(), 'turn.started', {
+        userText: text,
+        ...(opts?.composed ? { composed: true } : {})
+      })
+    )
     this.driverSession.send(text)
     return this.turnIndex
   }

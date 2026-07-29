@@ -302,16 +302,25 @@ export function ChatPane({
                   key={i}
                   data-turn-id={item.turnId ?? undefined}
                   data-item-index={i}
-                  className={`ml-12 min-w-0 whitespace-pre-wrap break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
+                  className={`ml-12 min-w-0 ${item.composed ? '' : 'whitespace-pre-wrap'} break-words rounded-r3 border border-hair p-3 text-sm text-ink transition-colors ${
                     i === flashIndex ? 'bg-signal/20' : 'bg-hi'
                   } ${findRingClass(i)}`}
                 >
-                  <CitedText
-                    text={item.text}
-                    onCite={onCite}
-                    caseSlug={slug}
-                    repoNames={repoNames}
-                  />
+                  {item.composed ? (
+                    <MessageView
+                      markdown={item.text}
+                      onCite={onCite}
+                      caseSlug={slug}
+                      repoNames={repoNames}
+                    />
+                  ) : (
+                    <CitedText
+                      text={item.text}
+                      onCite={onCite}
+                      caseSlug={slug}
+                      repoNames={repoNames}
+                    />
+                  )}
                 </div>
               )
             }

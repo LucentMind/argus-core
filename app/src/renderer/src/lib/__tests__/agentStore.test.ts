@@ -146,6 +146,22 @@ describe('AgentStore', () => {
     expect(st.items[0]).toMatchObject({ kind: 'user', text: 'live' })
   })
 
+  // Argus-composed turns (review run, apply, CI analyze) carry composed:true on
+  // turn.started so ChatPane can render them as markdown; typed turns lack the field
+  // entirely and must resolve to undefined (falsy), not false — old mirrored events
+  // predate this flag and must still render plain.
+  it('carries composed:true from turn.started onto the user item', () => {
+    store.apply(ev('turn.started', { userText: '**Bold** turn', composed: true }))
+    const st = store.get('NAV-1', 1)
+    expect(st.items[0]).toMatchObject({ kind: 'user', text: '**Bold** turn', composed: true })
+  })
+
+  it('leaves composed undefined for a typed turn.started (no field on the payload)', () => {
+    store.apply(ev('turn.started', { userText: 'plain text' }))
+    const st = store.get('NAV-1', 1)
+    expect((st.items[0] as { composed?: boolean }).composed).toBeUndefined()
+  })
+
   it('keeps transcripts of two sessions in the same case separate', () => {
     store.apply({
       ...base,

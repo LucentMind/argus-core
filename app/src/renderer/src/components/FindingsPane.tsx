@@ -111,7 +111,7 @@ export function FindingsPane({
         // 'no-body': fall through to compose the turn.
       }
       const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, [id], action)
-      await window.argus.agent.send(slug, sessionId, prompt)
+      await window.argus.agent.send(slug, sessionId, prompt, true)
     } catch (err) {
       setActionError((err as Error).message)
     } finally {
@@ -154,7 +154,7 @@ export function FindingsPane({
         effectiveSelected,
         'apply'
       )
-      await window.argus.agent.send(slug, sessionId, prompt)
+      await window.argus.agent.send(slug, sessionId, prompt, true)
       setSelected(new Set())
     } catch (err) {
       setActionError((err as Error).message)

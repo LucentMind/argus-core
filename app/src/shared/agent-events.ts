@@ -17,7 +17,14 @@ export type AgentEvent = AgentEventBase &
         payload: { reason: 'stopped' | 'reaped' | 'crashed' | 'reconfigured' }
       }
     | { type: 'session.error'; payload: { message: string; raw?: unknown } }
-    | { type: 'turn.started'; payload: { userText: string } }
+    | {
+        type: 'turn.started'
+        // composed is set only for Argus-composed turns (review run, apply, CI analyze
+        // prompts) so the renderer can markdown-render them; typed turns omit it entirely
+        // (not `false`) so pre-Part-3 mirrored events — which lack the field — replay as
+        // falsy and keep rendering plain, with zero schema migration.
+        payload: { userText: string; composed?: boolean }
+      }
     | {
         type: 'turn.completed'
         payload: {

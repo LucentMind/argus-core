@@ -20,7 +20,7 @@ describe('ReviewRunButton', () => {
     render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
     await waitFor(() => expect(composeRunPrompt).toHaveBeenCalledWith('c1', 3, []))
-    expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED')
+    expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED', true)
   })
 
   it('sends only the pinned layers', async () => {
