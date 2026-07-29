@@ -109,6 +109,10 @@ export function bucketOfStatusContext(state: string | null): CheckBucket {
  * reverts to the old one: any failure is red. Where protection does exist, the required/optional
  * split above is unchanged.
  *
+ * That fallback applies to cancellations too, since `gates` is one predicate: on an unprotected
+ * repository a lone cancelled check reports `unstable` rather than `passing`. Intended — a run
+ * GitHub killed is exactly as unconfirmed as one that failed, and green would claim otherwise.
+ *
  * A failure outranks a pending check: with one job red and three still running, the actionable
  * fact is the red one, and waiting for the rest to finish before saying so helps nobody. The
  * poll's cadence does not follow this ordering — see `anyRunning`, which reads the checks.
