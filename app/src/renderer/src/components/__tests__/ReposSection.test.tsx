@@ -249,6 +249,27 @@ describe('ReposSection pull requests', () => {
   })
 })
 
+describe('ReposSection mode gating', () => {
+  it('hides unlink-repo and code-graph icons in review mode', async () => {
+    render(<ReposSection slug="C-1" mode="review" />)
+    await screen.findByText(/hivemindtest @ main/)
+    expect(screen.queryByRole('button', { name: 'Unlink repo' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Code graph' })).toBeNull()
+  })
+
+  it('keeps both icons in investigation mode', async () => {
+    render(<ReposSection slug="C-1" mode="investigation" />)
+    await screen.findByText(/hivemindtest @ main/)
+    expect(screen.getByRole('button', { name: 'Unlink repo' })).toBeInTheDocument()
+  })
+
+  it('keeps the unlink-PR button in review mode (switching PRs is a review operation)', async () => {
+    prApi().list = vi.fn(async () => [BINDING])
+    render(<ReposSection slug="C-1" mode="review" />)
+    expect(await screen.findByRole('button', { name: 'Unlink PR' })).toBeInTheDocument()
+  })
+})
+
 describe('ReposSection', () => {
   it('renders linked repo chips with ref and dirty marker', async () => {
     render(<ReposSection slug="C-1" />)

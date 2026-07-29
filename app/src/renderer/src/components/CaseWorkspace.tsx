@@ -456,6 +456,7 @@ export function CaseWorkspace({
           <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
             <ReposSection
               slug={slug}
+              mode={activeMode}
               onPrsFound={handlePrsFound}
               headerExtra={
                 <button
