@@ -1,6 +1,6 @@
-// electron-builder afterPack hook: ad-hoc sign the macOS bundle.
+// electron-builder afterPack hook: ad-hoc sign the macOS bundle, for credential-less builds only.
 //
-// We have no Apple Developer ID, so electron-builder skips code signing entirely
+// Without an Apple Developer ID, electron-builder skips code signing entirely
 // ("skipped macOS application code signing — cannot find valid Developer ID identity").
 // It does NOT ad-hoc sign as a fallback. An unsigned (or only linker-stub-signed) bundle
 // with a download-quarantine flag is reported by macOS as "damaged, move to Trash" on
@@ -9,19 +9,28 @@
 // A VALID ad-hoc signature fixes that: the app then reads as an ordinary "unidentified
 // developer" that users clear with right-click -> Open. This is not notarization and does
 // not remove the Gatekeeper prompt — it only makes the signature valid so macOS stops
-// calling the app damaged.
+// calling the app damaged. That is the fallback contributors get.
+//
+// Release builds DO have a Developer ID (supplied via CSC_LINK in CI) and are signed and
+// notarized by electron-builder itself, so this hook stands down there. afterPack
+// runs before electron-builder's signing phase, so ad-hoc signing first would only be
+// overwritten moments later — wasted work whose `--deep` traversal is also exactly the thing
+// Apple advises against for notarized bundles. Skipping is not merely an optimization.
 //
 // afterPack runs after the app is packed and before the .dmg/.zip targets are assembled,
-// so both artifacts pick up the signed bundle. It also runs before electron-builder's own
-// signing phase; that phase is a no-op here (no cert), so our signature survives. If a real
-// Developer ID cert is ever configured, electron-builder's signing would run afterward and
-// legitimately supersede this ad-hoc signature.
+// so both artifacts pick up whichever signature applies.
 const { execFileSync } = require('node:child_process')
 const path = require('node:path')
 
 exports.default = async function afterPack(context) {
   const { electronPlatformName, appOutDir, packager } = context
   if (electronPlatformName !== 'darwin') return
+
+  // Real signing credentials present => electron-builder handles signing (and notarization).
+  if (process.env.CSC_LINK || process.env.CSC_NAME) {
+    console.log('[afterPack] signing credentials detected; leaving signing to electron-builder')
+    return
+  }
 
   const appPath = path.join(appOutDir, `${packager.appInfo.productFilename}.app`)
   console.log(`[afterPack] ad-hoc signing ${appPath}`)
