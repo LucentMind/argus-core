@@ -206,6 +206,13 @@ describe('PrCompanionSection', () => {
     expect(screen.getByText(/not blocking merge/i).parentElement).toBe(panel)
   })
 
+  it('exposes the group labels as headings, not loose text', () => {
+    prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByRole('heading', { name: /^required$/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /not blocking merge/i })).toBeInTheDocument()
+  })
+
   it('shows no group headers when nothing is required', () => {
     // A repository with no branch protection has no required checks. A lone "not blocking
     // merge" header over the whole list would read as a claim about policy rather than the

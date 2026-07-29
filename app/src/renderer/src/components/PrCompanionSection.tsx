@@ -124,6 +124,8 @@ export function PrCompanionSection({
                   ? [
                       <div
                         key={`group:${group.label}`}
+                        role="heading"
+                        aria-level={3}
                         className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute"
                       >
                         {group.label}
