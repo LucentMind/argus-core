@@ -1,7 +1,7 @@
-// Manual evidence-folder scan (spec §2): reconciles evidence/ on disk with the
-// DB. Untracked files register in place, modified files re-hash/re-index with
-// priorSha256 kept for audit, missing files are flagged (never deleted).
-// Dot-directories (.meta, .derived) are pipeline-managed and skipped.
+// Manual evidence-folder scan (spec §2): reconciles one mode's directory (evidence/
+// or artifacts/) on disk with the DB. Untracked files register in place, modified
+// files re-hash/re-index with priorSha256 kept for audit, missing files are flagged
+// (never deleted). Dot-directories (.meta, .derived) are pipeline-managed and skipped.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'

@@ -199,4 +199,34 @@ describe('scan is scoped to one mode', () => {
     const inv = listEvidence(db, 'C1').find((e) => e.relPath === 'evidence/inv.txt')
     expect(inv?.meta.missing).toBeUndefined()
   })
+
+  // rescanModified's sidecar path is still derived via the 'evidence/'-length slice
+  // (left untouched by design — see task report); this pins down that it also produces
+  // the correct sidecar path for an artifacts/ row, not just evidence/ ones.
+  it('detects a modified artifacts/ file: re-hash, priorSha256, re-index — not flagged missing', () => {
+    const rec = ingestContent(
+      db,
+      argusHome,
+      detection,
+      'C1',
+      'ci.log',
+      'original words',
+      'upload',
+      {},
+      'review'
+    )
+    expect(rec.relPath).toBe('artifacts/ci.log')
+    fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), rec.relPath), 'replaced entirely zzqy')
+    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    expect(s.modified).toEqual(['artifacts/ci.log'])
+    expect(s.missing).toEqual([])
+    const after = listEvidence(db, 'C1', 'review').find((e) => e.id === rec.id)!
+    expect(after.sha256).not.toBe(rec.sha256)
+    expect(after.meta.priorSha256).toBe(rec.sha256)
+    expect(after.meta.missing).toBeUndefined()
+    // sidecar written at the correct (artifacts-relative) path, not a mangled one
+    expect(
+      fs.existsSync(path.join(caseDir(argusHome, 'C1'), 'artifacts', '.meta', 'ci.log.json'))
+    ).toBe(true)
+  })
 })
