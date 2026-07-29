@@ -22,6 +22,17 @@ export const CASE_RESOLUTIONS: readonly CaseResolution[] = [
  */
 export type ArtifactType = string
 
+/** The types Core's fallback detection can produce; everything else came from a
+ * pack detector. Callers gate on "did a pack claim this file?" — the auto-unzip
+ * trigger and the evidence-click routing both do. */
+export const GENERIC_ARTIFACT_TYPES = ['archive', 'screenshot', 'text', 'unknown'] as const
+
+export type GenericArtifactType = (typeof GENERIC_ARTIFACT_TYPES)[number]
+
+export function isPackClaimedType(type: ArtifactType): boolean {
+  return !(GENERIC_ARTIFACT_TYPES as readonly string[]).includes(type)
+}
+
 export interface ArtifactTypeMeta {
   type: string
   displayName: string
