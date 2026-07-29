@@ -16,6 +16,8 @@ export interface DistillQueueDeps {
   distill: (input: CaseDistillInput) => Promise<CaseDistillRun>
   stage: (caseSlug: string, jobId: number, output: CaseDistillOutput) => StageResult
   broadcast: (payload: DistillStatusPayload) => void
+  /** Version hash of the static distill prompt parts, stamped at enqueue. Absent in tests. */
+  promptHash?: () => string
 }
 
 interface JobDbRow {
@@ -86,9 +88,9 @@ export class DistillQueue {
     const snapshot = JSON.stringify(this.deps.assembleInput(slug))
     const res = this.deps.db
       .prepare(
-        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES (?, 'queued', ?, ?)`
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, prompt_hash, created_at) VALUES (?, 'queued', ?, ?, ?)`
       )
-      .run(slug, snapshot, new Date().toISOString())
+      .run(slug, snapshot, this.deps.promptHash?.() ?? null, new Date().toISOString())
     const job = this.get(Number(res.lastInsertRowid))!
     this.emit(job)
     this.kick()

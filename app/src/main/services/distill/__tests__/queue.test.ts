@@ -170,4 +170,24 @@ describe('DistillQueue', () => {
     expect(job.state).toBe('failed')
     expect(job.error).toBe('no provider configured for distillation')
   })
+
+  it('stamps prompt_hash at enqueue when the dep is provided', async () => {
+    const { q } = makeQueue({ promptHash: () => 'abc123def456' })
+    const job = q.enqueue('case-a')
+    const row = db.prepare(`SELECT prompt_hash FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      prompt_hash: string | null
+    }
+    expect(row.prompt_hash).toBe('abc123def456')
+    await q.idle()
+  })
+
+  it('prompt_hash is null when the dep is absent', async () => {
+    const { q } = makeQueue()
+    const job = q.enqueue('case-a')
+    const row = db.prepare(`SELECT prompt_hash FROM distill_jobs WHERE id = ?`).get(job.id) as {
+      prompt_hash: string | null
+    }
+    expect(row.prompt_hash).toBeNull()
+    await q.idle()
+  })
 })
