@@ -26,6 +26,7 @@ import { sha256File } from './ingest'
 import { SLUG_RE, scaffoldCaseLinks } from './caseService'
 import { indexEvidenceFile } from './indexer'
 import { deleteEvidenceFtsForCase } from './ftsIndex'
+import { ARTIFACTS_DIR, EVIDENCE_DIR } from '../../shared/evidenceScope'
 
 const execFileAsync = promisify(execFile)
 
@@ -210,29 +211,32 @@ function reindexImportedEvidence(
   caseId: number,
   dir: string
 ): void {
-  const metaRoot = path.join(dir, 'evidence', '.meta')
-  const sidecars: string[] = []
-  const walk = (rel: string): void => {
-    const abs = rel ? path.join(metaRoot, ...rel.split('/')) : metaRoot
-    if (!fs.existsSync(abs)) return
-    for (const ent of fs.readdirSync(abs, { withFileTypes: true })) {
-      const childRel = rel ? `${rel}/${ent.name}` : ent.name
-      if (ent.isDirectory()) walk(childRel)
-      else if (ent.name.endsWith('.json')) sidecars.push(childRel)
+  // Both trees are re-registered from their own sidecars; a case may hold either or both,
+  // and a directory that does not exist simply contributes nothing.
+  const records = [EVIDENCE_DIR, ARTIFACTS_DIR].flatMap((top) => {
+    const metaRoot = path.join(dir, top, '.meta')
+    const sidecars: string[] = []
+    const walk = (rel: string): void => {
+      const abs = rel ? path.join(metaRoot, ...rel.split('/')) : metaRoot
+      if (!fs.existsSync(abs)) return
+      for (const ent of fs.readdirSync(abs, { withFileTypes: true })) {
+        const childRel = rel ? `${rel}/${ent.name}` : ent.name
+        if (ent.isDirectory()) walk(childRel)
+        else if (ent.name.endsWith('.json')) sidecars.push(childRel)
+      }
     }
-  }
-  walk('')
-  const records = sidecars.flatMap((rel) => {
-    try {
-      const rec = JSON.parse(
-        fs.readFileSync(path.join(metaRoot, ...rel.split('/')), 'utf8')
-      ) as EvidenceRecord
-      return typeof rec.relPath === 'string' && safeRelPath(rec.relPath, 'evidence/')
-        ? [{ rel, rec }]
-        : []
-    } catch {
-      return [] // orphan/corrupt sidecar — the evidence file stays on disk, just unindexed
-    }
+    walk('')
+    return sidecars.flatMap((rel) => {
+      const sidecarAbs = path.join(metaRoot, ...rel.split('/'))
+      try {
+        const rec = JSON.parse(fs.readFileSync(sidecarAbs, 'utf8')) as EvidenceRecord
+        return typeof rec.relPath === 'string' && safeRelPath(rec.relPath, `${top}/`)
+          ? [{ sidecarAbs, rec }]
+          : []
+      } catch {
+        return [] // orphan/corrupt sidecar — the file stays on disk, just unindexed
+      }
+    })
   })
   const idMap = new Map<number, number>()
   const insert = db.prepare(
@@ -242,7 +246,7 @@ function reindexImportedEvidence(
   const isDerived = (r: EvidenceRecord): boolean => r.meta?.derivedFrom != null
   // two passes: parents first, then derived rows with derivedFrom remapped
   for (const pass of [0, 1] as const) {
-    for (const { rel, rec } of records) {
+    for (const { sidecarAbs, rec } of records) {
       if ((pass === 0) === isDerived(rec)) continue
       const meta = { ...rec.meta }
       if (pass === 1) {
@@ -263,10 +267,7 @@ function reindexImportedEvidence(
       idMap.set(rec.id, newId)
       const abs = path.join(dir, ...rec.relPath.split('/'))
       if (meta.indexed && fs.existsSync(abs)) indexEvidenceFile(db, newId, abs, 400, argusHome)
-      fs.writeFileSync(
-        path.join(metaRoot, ...rel.split('/')),
-        JSON.stringify({ ...rec, id: newId, caseId, meta }, null, 2)
-      )
+      fs.writeFileSync(sidecarAbs, JSON.stringify({ ...rec, id: newId, caseId, meta }, null, 2))
     }
   }
 }
