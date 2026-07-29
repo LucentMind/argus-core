@@ -71,6 +71,12 @@ export function PrCompanionSection({
           <GitPullRequest size={12} />
           Pull request
           {status && <PrRollupDot rollup={status.rollup} />}
+          {status && (
+            <Chip tone={STATE_TONE[status.state]}>
+              {status.isDraft ? 'draft · ' : ''}
+              {status.state === 'UNKNOWN' ? 'state unknown' : status.state.toLowerCase()}
+            </Chip>
+          )}
           <span className="flex-1" />
           <IconBtn
             aria-label="Refresh pull request status"
@@ -90,25 +96,21 @@ export function PrCompanionSection({
 
       {status && (
         <>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Chip tone={STATE_TONE[status.state]}>
-              {status.isDraft ? 'draft · ' : ''}
-              {status.state === 'UNKNOWN' ? 'state unknown' : status.state.toLowerCase()}
-            </Chip>
-            {(status.reviewDecision !== null ||
-              status.mergeable === 'CONFLICTING' ||
-              status.mergeStateStatus === 'BLOCKED') && (
-              <span className="text-[11px] text-mute">
-                {[
-                  status.reviewDecision ? DECISION_LABEL[status.reviewDecision] : null,
-                  status.mergeable === 'CONFLICTING' ? 'conflicts' : null,
-                  status.mergeStateStatus === 'BLOCKED' ? 'merge blocked' : null
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-            )}
-          </div>
+          {/* The state tag rides in the header beside "Pull request"; only the qualifiers that
+              do not fit a one-word tag stay down here. */}
+          {(status.reviewDecision !== null ||
+            status.mergeable === 'CONFLICTING' ||
+            status.mergeStateStatus === 'BLOCKED') && (
+            <p className="text-[11px] text-mute">
+              {[
+                status.reviewDecision ? DECISION_LABEL[status.reviewDecision] : null,
+                status.mergeable === 'CONFLICTING' ? 'conflicts' : null,
+                status.mergeStateStatus === 'BLOCKED' ? 'merge blocked' : null
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
 
           {status.rollup === 'unavailable' && (
             <p className="text-[11px] text-danger">
@@ -142,9 +144,11 @@ export function PrCompanionSection({
                     // requests (the Task 1 capture found one PR listing "Semantic Pull Request"
                     // twice and another with 46 contexts under 20 names), and a duplicate React
                     // key drops rows silently.
+                    // Fixed row height, not padding: only failed checks carry the Analyze button,
+                    // and letting it size the row made those rows visibly taller than the rest.
                     <div
                       key={`${group.label ?? ''}:${c.name}#${i}`}
-                      className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]"
+                      className="flex h-7 items-center gap-1.5 px-2 text-[11px]"
                     >
                       <span
                         aria-hidden="true"
@@ -179,6 +183,7 @@ export function PrCompanionSection({
                               ? 'Pull this job log as evidence and analyze the failure'
                               : 'Not a GitHub Actions job — Argus cannot read this check’s log'
                           }
+                          className="h-5 w-5"
                           disabled={!analyzable}
                           onClick={() => onAnalyze(c.name)}
                         >
