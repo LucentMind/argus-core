@@ -68,6 +68,7 @@ describe('anyRunning', () => {
     expect(anyRunning([status({ rollup: 'failing', checks: [...done, ...pending] })])).toBe(true)
     expect(anyRunning([status({ rollup: 'unstable', checks: [...done, ...pending] })])).toBe(true)
     expect(anyRunning([null])).toBe(false)
+    expect(anyRunning([])).toBe(false)
   })
 })
 
