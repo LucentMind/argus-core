@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  ARTIFACTS_PREFIX,
-  dirForMode,
-  scopeOfRelPath,
-  sidecarRelPath
-} from '../evidenceScope'
+import { ARTIFACTS_PREFIX, dirForMode, scopeOfRelPath, sidecarRelPath } from '../evidenceScope'
 
 describe('dirForMode', () => {
   it('maps each mode to its directory', () => {

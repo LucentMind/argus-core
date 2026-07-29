@@ -347,14 +347,18 @@ export function listEvidence(
   scope: EvidenceScope = 'investigation'
 ): EvidenceRecord[] {
   const predicate =
-    scope === 'all' ? '' : scope === 'review' ? ' AND e.rel_path LIKE ?' : ' AND e.rel_path NOT LIKE ?'
+    scope === 'all'
+      ? ''
+      : scope === 'review'
+        ? ' AND e.rel_path LIKE ?'
+        : ' AND e.rel_path NOT LIKE ?'
   const stmt = db.prepare(
     `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
      WHERE c.slug = ?${predicate} ORDER BY e.created_at DESC, e.id DESC`
   )
-  const rows = (
-    scope === 'all' ? stmt.all(caseSlug) : stmt.all(caseSlug, `${ARTIFACTS_PREFIX}%`)
-  ) as unknown as EvidenceRow[]
+  const rows = (scope === 'all'
+    ? stmt.all(caseSlug)
+    : stmt.all(caseSlug, `${ARTIFACTS_PREFIX}%`)) as unknown as EvidenceRow[]
   return rows.map(rowToEvidence)
 }
 
