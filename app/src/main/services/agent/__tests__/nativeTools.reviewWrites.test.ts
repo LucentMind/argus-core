@@ -198,7 +198,7 @@ describe('review write tools via argusToolHandlers', () => {
     ).rejects.toThrow(/acme\/widget#99/i)
   })
 
-  it('push_review_change coerces finding_id, commits+pushes to a real remote, and notifies the listener', async () => {
+  it('push_review_change coerces finding_ids, commits+pushes to a real remote, and notifies the listener once per id', async () => {
     const origin = path.join(home, 'origin.git')
     execFileSync('git', ['init', '--bare', '-b', 'main', origin])
     const seed = path.join(home, 'seed')
@@ -237,16 +237,19 @@ describe('review write tools via argusToolHandlers', () => {
       gh,
       emitFindingUpdated
     })
-    const id = seedFinding()
-    // finding_id arrives as a string to pin Number(args.finding_id); commit_message is real
+    const idA = seedFinding()
+    const idB = seedFinding()
+    // finding_ids arrives as strings to pin the ids.map(Number) coercion; commit_message is real
     // since `git commit -m ''` fails, unlike the comment tool's body it cannot be exercised empty.
     const out = await handlers.push_review_change({
-      finding_id: String(id),
+      finding_ids: [String(idA), String(idB)],
       commit_message: 'fix: flip the inverted guard'
     })
     expect(out).toContain('feature/guard')
-    expect(emitFindingUpdated).toHaveBeenCalledOnce()
-    expect(emitFindingUpdated).toHaveBeenCalledWith(id)
+    // emitFindingUpdated fires once PER id, not once per call.
+    expect(emitFindingUpdated).toHaveBeenCalledTimes(2)
+    expect(emitFindingUpdated).toHaveBeenNthCalledWith(1, idA)
+    expect(emitFindingUpdated).toHaveBeenNthCalledWith(2, idB)
     const remoteLog = execFileSync(
       'git',
       ['log', '-1', '--format=%s', 'refs/heads/feature/guard'],
@@ -255,7 +258,9 @@ describe('review write tools via argusToolHandlers', () => {
       .toString()
       .trim()
     expect(remoteLog).toBe('fix: flip the inverted guard')
-    const row = listFindings(db, home, 'c1').find((f) => f.id === id)
-    expect(row?.pushedSha).toHaveLength(40)
+    for (const id of [idA, idB]) {
+      const row = listFindings(db, home, 'c1').find((f) => f.id === id)
+      expect(row?.pushedSha).toHaveLength(40)
+    }
   }, 30_000)
 })

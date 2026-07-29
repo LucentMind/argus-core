@@ -5,7 +5,12 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
-import { appendFinding, type FindingWriteCtx, argusToolHandlers, type NativeToolDeps } from '../nativeTools'
+import {
+  appendFinding,
+  type FindingWriteCtx,
+  argusToolHandlers,
+  type NativeToolDeps
+} from '../nativeTools'
 import type { Detection } from '../../packs/detection'
 
 let home: string, db: DatabaseSync, caseId: number, otherCaseId: number
@@ -126,7 +131,9 @@ it('rejects an empty id list', async () => {
   }
 
   const handlers = argusToolHandlers(toolDeps)
-  await expect(handlers.read_findings({ finding_ids: [] })).rejects.toThrow(/at least one finding id/i)
+  await expect(handlers.read_findings({ finding_ids: [] })).rejects.toThrow(
+    /at least one finding id/i
+  )
 })
 
 it('rejects a non-integer id with the same at-least-one-finding-id error', async () => {

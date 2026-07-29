@@ -654,10 +654,10 @@ const argus = {
     composeActionPrompt: (
       slug: string,
       sessionId: number,
-      findingId: number,
+      findingIds: number[],
       action: 'comment' | 'apply'
     ): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingId, action),
+      ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingIds, action),
     composeCiPrompt: (slug: string, sessionId: number, checkName: string): Promise<string> =>
       ipcRenderer.invoke(IPC.reviewComposeCiPrompt, slug, sessionId, checkName),
     postFindingComment: (

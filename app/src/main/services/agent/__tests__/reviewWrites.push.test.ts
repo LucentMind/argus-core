@@ -112,7 +112,7 @@ describe('pushReviewChange', () => {
     const { git, calls } = scriptedGit()
     const id = seedFinding()
     const out = await pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-      findingId: id,
+      findingIds: [id],
       commitMessage: 'fix: flip the inverted guard'
     })
     expect(out).toMatch(/newsha1/)
@@ -131,7 +131,7 @@ describe('pushReviewChange', () => {
     }
     await expect(
       pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
-        findingId: seedFinding(),
+        findingIds: [seedFinding()],
         commitMessage: '   '
       })
     ).rejects.toThrow(/empty/i)
@@ -143,7 +143,7 @@ describe('pushReviewChange', () => {
     const gh: Runner = async () => headJson({ isCrossRepository: true })
     await expect(
       pushReviewChange({ db, argusHome: home, gh, git }, 'c1', {
-        findingId: seedFinding(),
+        findingIds: [seedFinding()],
         commitMessage: 'm'
       })
     ).rejects.toThrow(/fork/i)
@@ -157,7 +157,7 @@ describe('pushReviewChange', () => {
     const { git, calls } = scriptedGit({ status: '', 'rev-parse': 'abc123' })
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: seedFinding(),
+        findingIds: [seedFinding()],
         commitMessage: 'm'
       })
     ).rejects.toThrow(/no uncommitted changes/i)
@@ -168,7 +168,7 @@ describe('pushReviewChange', () => {
     const { git, calls } = scriptedGit({ 'merge-base': '!not an ancestor' })
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: seedFinding(),
+        findingIds: [seedFinding()],
         commitMessage: 'm'
       })
     ).rejects.toThrow(/behind PR #42/i)
@@ -182,7 +182,7 @@ describe('pushReviewChange', () => {
     )
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: seedFinding(),
+        findingIds: [seedFinding()],
         commitMessage: 'm'
       })
     ).rejects.toThrow(/unable to resolve ref/)
@@ -195,7 +195,7 @@ describe('pushReviewChange', () => {
     const { git, calls } = scriptedGit({ status: '', 'rev-parse': 'aheadsha1' })
     const id = seedFinding()
     const out = await pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-      findingId: id,
+      findingIds: [id],
       commitMessage: 'm'
     })
     expect(calls.map((c) => c[0])).not.toContain('add')
@@ -210,7 +210,7 @@ describe('pushReviewChange', () => {
     const { git } = scriptedGit()
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: seedFinding(),
+        findingIds: [seedFinding()],
         commitMessage: 'm'
       })
     ).rejects.toThrow(/no local checkout/i)
@@ -223,7 +223,7 @@ describe('pushReviewChange', () => {
     const id = seedFinding()
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: id,
+        findingIds: [id],
         commitMessage: 'm'
       })
     ).rejects.toThrow(/rejected/)
@@ -236,7 +236,7 @@ describe('pushReviewChange — pr argument', () => {
     const { git, calls } = scriptedGit()
     const id = seedFinding()
     const out = await pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-      findingId: id,
+      findingIds: [id],
       commitMessage: 'm',
       expectPr: 'acme/widget#42'
     })
@@ -249,11 +249,61 @@ describe('pushReviewChange — pr argument', () => {
     const id = seedFinding()
     await expect(
       pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
-        findingId: id,
+        findingIds: [id],
         commitMessage: 'm',
         expectPr: 'acme/widget#999'
       })
     ).rejects.toThrow(/acme\/widget#999/i)
+    expect(calls).toEqual([])
+  })
+})
+
+describe('pushReviewChange — batch finding ids', () => {
+  it('stamps the pushed sha on every finding id', async () => {
+    const { git } = scriptedGit({ 'rev-parse': 'newsha000000' })
+    const idA = seedFinding()
+    const idB = seedFinding()
+    await pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+      findingIds: [idA, idB],
+      commitMessage: 'fix: both',
+      expectPr: 'acme/widget#42'
+    })
+    for (const id of [idA, idB]) {
+      expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.pushedSha).toBe('newsha000000')
+    }
+  })
+
+  it("rejects the whole call when ANY id is not this case's", async () => {
+    const { git, calls } = scriptedGit()
+    const idA = seedFinding()
+    createCase(db, home, { slug: 'c2', title: 'Case 2' })
+    const otherCaseId = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at)
+           VALUES (?, NULL, NULL, 'other', 'pending', ?)`
+        )
+        .run(getCase(db, 'c2')!.id, new Date().toISOString()).lastInsertRowid
+    )
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingIds: [idA, otherCaseId],
+        commitMessage: 'm',
+        expectPr: 'acme/widget#42'
+      })
+    ).rejects.toThrow('Unknown finding id.')
+    // and nothing was pushed
+    expect(calls.filter((c) => c[0] === 'push')).toEqual([])
+  })
+
+  it('rejects an empty findingIds list before any git work', async () => {
+    const { git, calls } = scriptedGit()
+    await expect(
+      pushReviewChange({ db, argusHome: home, gh: ghOk, git }, 'c1', {
+        findingIds: [],
+        commitMessage: 'm'
+      })
+    ).rejects.toThrow(/at least one finding/i)
     expect(calls).toEqual([])
   })
 })
@@ -288,7 +338,7 @@ describe('pushReviewChange against real git', () => {
       })
     const id = seedFinding()
     const out = await pushReviewChange({ db, argusHome: home, gh }, 'c1', {
-      findingId: id,
+      findingIds: [id],
       commitMessage: 'fix: flip the inverted guard'
     })
 
