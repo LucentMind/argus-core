@@ -62,6 +62,8 @@ export const IPC = {
   skillsRead: 'skills:read',
   skillsWrite: 'skills:write',
   skillsFork: 'skills:fork',
+  authoringDraft: 'authoring:draft',
+  authoringImprove: 'authoring:improve',
   settingsGet: 'settings:get',
   settingsPatch: 'settings:patch',
   settingsChanged: 'settings:changed',

@@ -205,6 +205,8 @@ import { runCaseDistill } from './services/distill/caseDistiller'
 import { stageDistillOutput } from './services/distill/staging'
 import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
+import { draftAsset, improveAsset } from './services/authoring/service'
+import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -1515,6 +1517,20 @@ function registerIpc(): void {
     const created = forkSkill(argusHome, name, newName)
     return { name: created, skills: skillsPayload().skills }
   })
+
+  // — authoring assist (skill/reference editor Draft + Improve) —
+  ipcMain.handle(
+    IPC.authoringDraft,
+    async (_e, req: AuthoringRequest): Promise<AuthoringResult> => ({
+      content: await draftAsset(req, headlessRun, resolvePrompt)
+    })
+  )
+  ipcMain.handle(
+    IPC.authoringImprove,
+    async (_e, req: AuthoringRequest): Promise<AuthoringResult> => ({
+      content: await improveAsset(req, headlessRun, resolvePrompt)
+    })
+  )
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({

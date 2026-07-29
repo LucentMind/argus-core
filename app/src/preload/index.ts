@@ -93,6 +93,7 @@ import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../s
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
+import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -442,6 +443,12 @@ const argus = {
       ipcRenderer.invoke(IPC.skillsWrite, name, content, baseHash),
     fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
       ipcRenderer.invoke(IPC.skillsFork, name, newName)
+  },
+  authoring: {
+    draft: (req: AuthoringRequest): Promise<AuthoringResult> =>
+      ipcRenderer.invoke(IPC.authoringDraft, req),
+    improve: (req: AuthoringRequest): Promise<AuthoringResult> =>
+      ipcRenderer.invoke(IPC.authoringImprove, req)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>

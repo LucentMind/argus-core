@@ -3,6 +3,7 @@ import { resolveToolSpecs, NATIVE_TOOL_SPECS } from '../../agent/nativeTools'
 import { buildCaseDistillPrompt, CASE_DISTILL_SECTIONS } from '../../distill/contract'
 import { CASE_DISTILL_CONTRACT } from '../../distill/caseDistillContract'
 import { buildDistillPrompt, DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../../refSync/distill'
+import { AUTHORING_SECTIONS } from '../../authoring/prompts'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import { PROMPT_ENTRIES } from '../registry'
 
@@ -86,7 +87,8 @@ describe('distill scaffolding honours an injected resolver', () => {
     expect(ids.sort()).toEqual(
       [
         ...Object.keys(CASE_DISTILL_SECTIONS).map((k) => `headless.case-distill.section.${k}`),
-        ...Object.keys(REF_DISTILL_SECTIONS).map((k) => `headless.ref-distill.section.${k}`)
+        ...Object.keys(REF_DISTILL_SECTIONS).map((k) => `headless.ref-distill.section.${k}`),
+        ...Object.keys(AUTHORING_SECTIONS).map((k) => `headless.authoring.section.${k}`)
       ].sort()
     )
   })

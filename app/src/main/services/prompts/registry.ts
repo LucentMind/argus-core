@@ -15,6 +15,11 @@ import { CASE_WORKING_RULES } from '../caseService'
 import { CASE_DISTILL_CONTRACT } from '../distill/caseDistillContract'
 import { CASE_DISTILL_SECTIONS } from '../distill/contract'
 import { DISTILL_CONTRACT, REF_DISTILL_SECTIONS } from '../refSync/distill'
+import {
+  SKILL_AUTHORING_CONTRACT,
+  REFERENCE_AUTHORING_CONTRACT,
+  AUTHORING_SECTIONS
+} from '../authoring/prompts'
 import { JIRA_PROMPTS } from '../jiraPrompts'
 import { PANEL_DRAFTS } from '../panels/draftMessages'
 import { TOUR_PROMPTS } from '../../../shared/tourPrompts'
@@ -271,6 +276,24 @@ const HEADLESS_ENTRIES: PromptEntry[] = [
     reaches: 'all',
     editable: true,
     default: () => DISTILL_CONTRACT
+  },
+  {
+    id: 'headless.authoring.skill-contract',
+    category: 'headless',
+    title: 'Skill authoring contract (Draft / Improve)',
+    source: 'app/src/main/services/authoring/prompts.ts:5',
+    reaches: 'all',
+    editable: true,
+    default: () => SKILL_AUTHORING_CONTRACT
+  },
+  {
+    id: 'headless.authoring.reference-contract',
+    category: 'headless',
+    title: 'Reference authoring contract (Draft / Improve)',
+    source: 'app/src/main/services/authoring/prompts.ts:17',
+    reaches: 'all',
+    editable: true,
+    default: () => REFERENCE_AUTHORING_CONTRACT
   }
 ]
 
@@ -286,6 +309,13 @@ const REF_DISTILL_SECTION_ENTRIES: PromptEntry[] = specEntries(REF_DISTILL_SECTI
   prefix: 'headless.ref-distill.section',
   category: 'headless',
   source: 'app/src/main/services/refSync/distill.ts',
+  reaches: 'all'
+})
+
+const AUTHORING_SECTION_ENTRIES: PromptEntry[] = specEntries(AUTHORING_SECTIONS, {
+  prefix: 'headless.authoring.section',
+  category: 'headless',
+  source: 'app/src/main/services/authoring/prompts.ts',
   reaches: 'all'
 })
 
@@ -372,6 +402,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...HEADLESS_ENTRIES,
   ...CASE_DISTILL_SECTION_ENTRIES,
   ...REF_DISTILL_SECTION_ENTRIES,
+  ...AUTHORING_SECTION_ENTRIES,
   ...GENERATED_FILE_ENTRIES,
   ...JIRA_ENTRIES,
   ...SYNTHESIZED_ENTRIES,
