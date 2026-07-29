@@ -11,6 +11,7 @@ import {
 import type { SnippetResult } from '../../shared/snippets'
 import { MAX_WHOLE_FILE_BYTES } from '../../shared/textdoc'
 import { caseDir } from './paths'
+import { scopeClause } from './evidenceScopeSql'
 
 export const MAX_READ_BYTES = MAX_WHOLE_FILE_BYTES
 // window around a citation's target line, for files too big to load whole
@@ -68,6 +69,10 @@ export function searchEvidence(
   if (!query.trim()) return []
   const caseSlug = filters.caseSlug ?? null
   const artifactType = filters.artifactType ?? null
+  // Default 'investigation': see SearchFilters.evidenceScope. The clause sits inside the
+  // WHERE rather than filtering the result array, so an investigation search never spends
+  // its 50 slots on artifact rows that are then discarded.
+  const scope = scopeClause(filters.evidenceScope ?? 'investigation')
   const rows = db
     .prepare(
       `SELECT evidence_fts.evidence_id AS evidenceId,
@@ -83,7 +88,7 @@ export function searchEvidence(
        JOIN cases c    ON c.id = e.case_id
        WHERE evidence_fts MATCH ?
          AND (? IS NULL OR c.slug = ?)
-         AND (? IS NULL OR e.artifact_type = ?)
+         AND (? IS NULL OR e.artifact_type = ?)${scope.sql}
        ORDER BY bm25(evidence_fts)
        LIMIT 50`
     )
@@ -92,7 +97,8 @@ export function searchEvidence(
       caseSlug,
       caseSlug,
       artifactType,
-      artifactType
+      artifactType,
+      ...scope.params
     ) as unknown as HitRow[]
   return rows.map((r) => ({
     evidenceId: Number(r.evidenceId),
