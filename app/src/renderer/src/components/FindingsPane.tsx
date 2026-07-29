@@ -15,6 +15,7 @@ import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
+import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
@@ -33,10 +34,14 @@ function formatWhen(iso: string): string {
 export function FindingsPane({
   slug,
   sessionId,
+  activeMode,
   onCite
 }: {
   slug: string
   sessionId: number | null
+  /** Findings are case-scoped in the DB but mode-scoped on screen: investigation findings do
+   *  not bleed into a review and vice versa (spec §6). */
+  activeMode: ModeId
   onCite: (cite: CiteTarget) => void
 }): React.JSX.Element {
   const [md, setMd] = useState('')
@@ -92,17 +97,19 @@ export function FindingsPane({
   }
 
   async function clearAll(): Promise<void> {
-    const count = findings.length
+    const count = findings.filter((f) => f.mode === activeMode).length
     const ok = await confirm({
-      title: 'Clear all findings for this case?',
-      message: `${count} finding${count === 1 ? '' : 's'} and findings.md are reset.`,
+      title: `Clear all ${activeMode} findings for this case?`,
+      message: `${count} finding${count === 1 ? '' : 's'} and their findings.md entries are removed. ${
+        activeMode === 'review' ? 'Investigation' : 'Review'
+      } findings are untouched.`,
       confirmLabel: 'Clear all',
       danger: true
     })
     if (!ok) return
     setClearError(null)
     try {
-      await window.argus.findings.clear(slug)
+      await window.argus.findings.clear(slug, activeMode)
     } catch (err) {
       setClearError((err as Error).message)
     } finally {
@@ -121,10 +128,14 @@ export function FindingsPane({
   const rank = (f: FindingRow): number =>
     f.severity ? SEVERITY_RANK[f.severity] : Object.keys(SEVERITY_RANK).length
 
+  // Findings are case-scoped in the DB but mode-scoped on screen: an investigation finding must
+  // not bleed into a review pane and vice versa.
+  const modeFindings = findings.filter((f) => f.mode === activeMode)
+
   // Chips for layers actually present: a filter for a layer with no findings is a dead control.
-  const presentLayers = REVIEW_LAYER_ORDER.filter((id) => findings.some((f) => f.layer === id))
+  const presentLayers = REVIEW_LAYER_ORDER.filter((id) => modeFindings.some((f) => f.layer === id))
   const layerCounts = new Map(
-    presentLayers.map((id) => [id, findings.filter((f) => f.layer === id).length])
+    presentLayers.map((id) => [id, modeFindings.filter((f) => f.layer === id).length])
   )
   // Derived, not authoritative: layerFilter is only state that *asked* to filter. If the
   // finding set changes underneath it (session/mode switch, clear-all, a new run — this pane
@@ -132,7 +143,7 @@ export function FindingsPane({
   // present, the filter self-clears here with no extra effect and no dead-end empty state.
   const effectiveFilter =
     layerFilter !== null && presentLayers.includes(layerFilter) ? layerFilter : null
-  const shown = findings
+  const shown = modeFindings
     .filter((f) => effectiveFilter === null || f.layer === effectiveFilter)
     .slice()
     .sort((a, b) => rank(a) - rank(b))
@@ -141,10 +152,10 @@ export function FindingsPane({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <SectionLabel>
-          {findings.length > 0 ? `Findings · ${findings.length}` : 'Findings'}
+          {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
         </SectionLabel>
         <div className="flex items-center gap-1">
-          {(findings.length > 0 || hasBody) && (
+          {(modeFindings.length > 0 || hasBody) && (
             <button
               aria-label="Clear findings"
               title="Clear all findings"
@@ -337,7 +348,7 @@ export function FindingsPane({
         </ul>
       ) : (
         <p className="text-xs text-mute">
-          {findings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
+          {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
         </p>
       )}
     </div>

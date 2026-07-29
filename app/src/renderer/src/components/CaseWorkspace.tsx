@@ -577,7 +577,12 @@ export function CaseWorkspace({
               className="overflow-y-auto border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
-              <FindingsPane slug={slug} sessionId={sessionId} onCite={(c) => void handleCite(c)} />
+              <FindingsPane
+                slug={slug}
+                sessionId={sessionId}
+                activeMode={activeMode}
+                onCite={(c) => void handleCite(c)}
+              />
             </aside>
           </>
         )}

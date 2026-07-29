@@ -1,20 +1,49 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FindingsPane } from '../FindingsPane'
 import { uiStore } from '../../lib/uiStore'
 import { clearSnippetCache } from '../../lib/snippetCache'
 import { confirm } from '../../lib/confirmStore'
+import type { FindingRow } from '../../../../shared/observability'
 
 vi.mock('../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
   alert: vi.fn(() => Promise.resolve())
 }))
 
+function row(over: Partial<FindingRow>): FindingRow {
+  return {
+    id: 1,
+    caseId: 1,
+    sessionId: 1,
+    turnId: null,
+    summary: 's',
+    reviewState: 'pending',
+    reviewedAt: null,
+    createdAt: '2026-07-27T10:00:00.000Z',
+    layer: null,
+    severity: null,
+    diffPath: null,
+    diffLine: null,
+    suggestedChange: null,
+    commentUrl: null,
+    pushedSha: null,
+    mode: 'investigation',
+    ...over
+  }
+}
+
+const list = vi.fn()
+
 beforeEach(() => {
   localStorage.clear()
   clearSnippetCache()
   uiStore.setFindingsCollapsed(false)
+  list.mockReset()
+  list.mockResolvedValue([])
   window.argus = {
     cases: { readFindings: vi.fn(async () => '# Findings — NAV-1\n') },
     agent: { onEvent: vi.fn(() => () => undefined) },
@@ -31,7 +60,7 @@ beforeEach(() => {
       onChanged: vi.fn(() => () => undefined)
     },
     findings: {
-      list: vi.fn(async () => []),
+      list,
       review: vi.fn(),
       clear: vi.fn(async () => ({ cleared: 1 }))
     },
@@ -47,10 +76,11 @@ describe('FindingsPane', () => {
         summary: 'Tile crash',
         reviewState: 'pending',
         sessionId: 4,
+        mode: 'investigation',
         body: 'see [evidence/log.txt:3]'
       }
     ])
-    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     // body is collapsed until the summary is clicked
     const summary = await screen.findByText('Tile crash')
     expect(screen.queryByRole('button', { name: /log\.txt:3/ })).toBeNull()
@@ -67,7 +97,7 @@ describe('FindingsPane', () => {
   })
 
   it('collapse button collapses the pane via the ui store', () => {
-    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse findings' }))
     expect(uiStore.get().findingsCollapsed).toBe(true)
   })
@@ -75,10 +105,18 @@ describe('FindingsPane', () => {
   it('thumbs-up marks a pending finding accepted', async () => {
     const review = vi.fn().mockResolvedValue({ id: 1, reviewState: 'accepted' })
     ;(window.argus.findings as unknown as { list: unknown; review: unknown }).list = vi.fn(
-      async () => [{ id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }]
+      async () => [
+        {
+          id: 1,
+          summary: 'Root cause X',
+          reviewState: 'pending',
+          sessionId: 4,
+          mode: 'investigation'
+        }
+      ]
     )
     ;(window.argus.findings as unknown as { review: unknown }).review = review
-    render(<FindingsPane slug="c1" sessionId={1} onCite={() => {}} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={() => {}} />)
     const good = await screen.findByRole('button', { name: /mark finding good/i })
     good.click()
     expect(review).toHaveBeenCalledWith(1, 'accepted')
@@ -87,10 +125,16 @@ describe('FindingsPane', () => {
   it('clicking the active thumb toggles the finding back to pending', async () => {
     const review = vi.fn().mockResolvedValue({ id: 1, reviewState: 'pending' })
     ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
-      { id: 1, summary: 'Root cause X', reviewState: 'accepted', sessionId: 4 }
+      {
+        id: 1,
+        summary: 'Root cause X',
+        reviewState: 'accepted',
+        sessionId: 4,
+        mode: 'investigation'
+      }
     ])
     ;(window.argus.findings as unknown as { review: unknown }).review = review
-    render(<FindingsPane slug="c1" sessionId={1} onCite={() => {}} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={() => {}} />)
     const good = await screen.findByRole('button', { name: /mark finding good/i })
     good.click()
     expect(review).toHaveBeenCalledWith(1, 'pending')
@@ -101,22 +145,29 @@ describe('FindingsPane', () => {
     const list = vi
       .fn()
       .mockResolvedValueOnce([
-        { id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }
+        {
+          id: 1,
+          summary: 'Root cause X',
+          reviewState: 'pending',
+          sessionId: 4,
+          mode: 'investigation'
+        }
       ])
       .mockResolvedValue([])
     ;(window.argus.findings as unknown as { list: unknown }).list = list
-    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Clear findings' }))
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Clear all findings for this case?',
-        message: '1 finding and findings.md are reset.'
+        title: 'Clear all investigation findings for this case?',
+        message:
+          '1 finding and their findings.md entries are removed. Review findings are untouched.'
       })
     )
     await waitFor(() =>
       expect(
         (window.argus.findings as unknown as { clear: ReturnType<typeof vi.fn> }).clear
-      ).toHaveBeenCalledWith('NAV-1')
+      ).toHaveBeenCalledWith('NAV-1', 'investigation')
     )
     expect(await screen.findByText('No findings yet.')).toBeTruthy()
   })
@@ -124,14 +175,20 @@ describe('FindingsPane', () => {
   it('shows an inline error and still refetches when clear rejects', async () => {
     vi.mocked(confirm).mockResolvedValue(true)
     const list = vi.fn(async () => [
-      { id: 1, summary: 'Root cause X', reviewState: 'pending', sessionId: 4 }
+      {
+        id: 1,
+        summary: 'Root cause X',
+        reviewState: 'pending',
+        sessionId: 4,
+        mode: 'investigation'
+      }
     ])
     const clear = vi.fn(async () => {
       throw new Error('fs busy')
     })
     ;(window.argus.findings as unknown as { list: unknown; clear: unknown }).list = list
     ;(window.argus.findings as unknown as { clear: unknown }).clear = clear
-    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     await screen.findByText('Root cause X')
     fireEvent.click(screen.getByRole('button', { name: 'Clear findings' }))
     expect(await screen.findByText('fs busy')).toBeTruthy()
@@ -142,8 +199,40 @@ describe('FindingsPane', () => {
     ;(window.argus.cases as unknown as { readFindings: unknown }).readFindings = vi.fn(
       async () => ''
     )
-    render(<FindingsPane slug="NAV-1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="NAV-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     expect(await screen.findByText('No findings yet.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Clear findings' })).toBeNull()
+  })
+
+  describe('mode scoping', () => {
+    it('shows only findings of the active mode, and counts only them', async () => {
+      list.mockResolvedValue([
+        row({ id: 1, summary: 'review finding', mode: 'review' }),
+        row({ id: 2, summary: 'triage finding', mode: 'investigation' })
+      ])
+      const view = render(
+        <FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />
+      )
+      expect(await screen.findByText('review finding')).toBeInTheDocument()
+      expect(screen.queryByText('triage finding')).not.toBeInTheDocument()
+      expect(screen.getByText('Findings · 1')).toBeInTheDocument()
+
+      view.rerender(
+        <FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />
+      )
+      expect(await screen.findByText('triage finding')).toBeInTheDocument()
+      expect(screen.queryByText('review finding')).not.toBeInTheDocument()
+    })
+
+    it('clear-all names the mode and passes it to the IPC call', async () => {
+      list.mockResolvedValue([row({ id: 1, summary: 'review finding', mode: 'review' })])
+      render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
+      await screen.findByText('review finding')
+      await userEvent.click(screen.getByRole('button', { name: 'Clear findings' }))
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Clear all review findings for this case?' })
+      )
+      expect(window.argus.findings.clear).toHaveBeenCalledWith('c1', 'review')
+    })
   })
 })
