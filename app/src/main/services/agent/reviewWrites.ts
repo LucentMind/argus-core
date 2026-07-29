@@ -135,6 +135,11 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
   'review_write.no-finding-ids': {
     title: 'review writes — empty finding_ids',
     text: 'Pass at least one finding id in finding_ids — the ids this push applies.'
+  },
+  'review_write.push-ok-not-recorded': {
+    title: 'review writes — pushed, local record failed',
+    text: 'Pushed {sha} to {ref} on PR #{number}.\n\nThis could not be recorded locally for some findings (a bug in Argus, not in the push). The push is already live — do not call push_review_change again for these findings, it would push a duplicate/empty commit or force an unwanted retry.',
+    placeholders: ['sha', 'ref', 'number']
   }
 }
 
@@ -436,6 +441,14 @@ function gitExitCode(err: unknown): number | string | undefined {
  * call committed locally but the push itself failed (rejected, network drop), the worktree is
  * clean AND ahead of the last-seen PR head. Re-running must not mistake that for "nothing to
  * do" (the dirty-tree guard) — it commits nothing and retries only the push.
+ *
+ * The `recordFindingWrite` loop below is wrapped in its OWN try/catch, separate from the push
+ * above: by the time it runs, the push has already landed on the PR branch, so a failure here
+ * (e.g. a SQLite error partway through the batch) must never be reported as a push failure —
+ * that would tell the model the push failed while it is actually live, and a retry would push
+ * an empty or duplicate commit. Instead the call still returns success (push-ok) with a note
+ * that some findings could not be stamped locally, so the model neither retries nor believes
+ * nothing happened. Same posture as `postReviewComment`'s `recordFindingWrite` wrap above.
  */
 export async function pushReviewChange(
   deps: ReviewWriteDeps,
@@ -496,7 +509,18 @@ export async function pushReviewChange(
     timeoutMs: GIT_PUSH_TIMEOUT_MS
   })
 
-  for (const id of input.findingIds) recordFindingWrite(deps.db, id, { pushedSha: sha })
+  try {
+    for (const id of input.findingIds) recordFindingWrite(deps.db, id, { pushedSha: sha })
+  } catch (err) {
+    console.warn(
+      `[review] recordFindingWrite failed after a live push for case ${caseSlug}: ${(err as Error).message}`
+    )
+    return wf(deps, 'review_write.push-ok-not-recorded', {
+      sha,
+      ref: head.ref,
+      number: String(binding.number)
+    })
+  }
   return wf(deps, 'review_write.push-ok', {
     sha,
     ref: head.ref,
