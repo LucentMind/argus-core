@@ -414,7 +414,7 @@ export async function importCase(
     const dir = caseDir(argusHome, slug)
     try {
       fs.renameSync(staged, dir)
-      for (const sub of ['evidence/.meta', 'sessions', '.rca']) {
+      for (const sub of ['evidence/.meta', 'artifacts/.meta', 'sessions', '.rca']) {
         fs.mkdirSync(path.join(dir, sub), { recursive: true })
       }
       scaffoldCaseLinks(argusHome, dir)
