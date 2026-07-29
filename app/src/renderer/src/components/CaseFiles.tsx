@@ -227,7 +227,12 @@ export function CaseFiles({
     const targets = panelHandlesType(panelDecls, r.artifactType)
     const name = displayName(r.relPath)
     return (
-      <li key={r.id} className="group flex flex-col gap-1 border-t border-hair py-2">
+      // `first:border-t-0`: the rule separates rows from each other, so the top one has nothing
+      // above it to separate from — it read as a stray line under the card's own edge.
+      <li
+        key={r.id}
+        className="group flex flex-col gap-1 border-t border-hair py-2 first:border-t-0"
+      >
         <div className="flex items-center gap-2">
           <button
             className="max-w-[220px] min-w-0 truncate text-left font-mono text-xs text-dim hover:text-ink"
