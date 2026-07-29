@@ -90,6 +90,14 @@ describe('CaseFiles', () => {
     expect(screen.queryByLabelText('type-filter')).not.toBeInTheDocument()
   })
 
+  it('keeps the header outside the scrolling file region', async () => {
+    const { container } = render(<CaseFiles caseSlug="c1" label="Evidence" {...requiredProps} />)
+    await screen.findByText('Evidence')
+    const scroller = container.querySelector('.overflow-y-auto')
+    expect(scroller).not.toBeNull()
+    expect(scroller!.contains(screen.getByText('Evidence'))).toBe(false)
+  })
+
   it('reports the rescan result on the control, not as a list row', async () => {
     render(<CaseFiles caseSlug="c1" label="Evidence" {...requiredProps} />)
     await userEvent.click(screen.getByRole('button', { name: 'Rescan evidence folder' }))

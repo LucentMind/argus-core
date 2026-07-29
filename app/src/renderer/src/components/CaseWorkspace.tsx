@@ -453,29 +453,45 @@ export function CaseWorkspace({
             </span>
           </button>
         ) : (
-          <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
-            <ReposSection
-              slug={slug}
-              mode={activeMode}
-              onPrsFound={handlePrsFound}
-              headerExtra={
-                <button
-                  aria-label="Collapse evidence"
-                  title="Collapse evidence"
-                  className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
-                  onClick={() => uiStore.setEvidenceCollapsed(true)}
-                >
-                  <PanelLeft size={14} strokeWidth={1.5} />
-                </button>
-              }
-            />
-            <PrCompanionSection
-              slug={slug}
-              mode={activeMode}
-              onAnalyze={(checkName) => void analyzeCheck(checkName)}
-            />
-            {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
-            {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
+          <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair bg-deep p-3">
+            {/* The rail itself no longer scrolls (CaseFiles below needs flex-1 to mean
+                something), so this wrapper keeps these naturally-growing sections — an
+                unbounded repo list, PR checks, similar-case hits — reachable on a short
+                window or a case with a lot of any of them, instead of silently clipping
+                against the rail's overflow-hidden.
+                Deliberately NOT shrink-0: flex-shrink:0 would pin this box to its full
+                content height, so it would never become shorter than its content and
+                overflow-y-auto would never have anything to scroll — verified live over
+                CDP (see task-6-report.md) that content past the rail's height was then
+                clipped by the aside's overflow-hidden with no way to reach it. Leaving
+                the default shrink lets this box get bounded by the available space, at
+                which point overflow-y-auto genuinely scrolls; CaseFiles' own min-h-0
+                flex-1 (below) is what lets it give up space first before this box
+                does. */}
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+              <ReposSection
+                slug={slug}
+                mode={activeMode}
+                onPrsFound={handlePrsFound}
+                headerExtra={
+                  <button
+                    aria-label="Collapse evidence"
+                    title="Collapse evidence"
+                    className="rounded-r1 px-1.5 py-0.5 text-mute transition-colors hover:bg-hair hover:text-ink"
+                    onClick={() => uiStore.setEvidenceCollapsed(true)}
+                  >
+                    <PanelLeft size={14} strokeWidth={1.5} />
+                  </button>
+                }
+              />
+              <PrCompanionSection
+                slug={slug}
+                mode={activeMode}
+                onAnalyze={(checkName) => void analyzeCheck(checkName)}
+              />
+              {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
+              {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
+            </div>
             {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when switching cases */}
             <CaseFiles
               key={slug}
