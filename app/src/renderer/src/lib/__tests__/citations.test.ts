@@ -84,4 +84,8 @@ describe('citation grammar', () => {
     expect(classifyCitePath('other/src/a.ts', names)).toBeNull()
     expect(classifyCitePath('noslash', names)).toBeNull()
   })
+
+  it('classifies an artifacts path as an evidence citation', () => {
+    expect(classifyCitePath('artifacts/ci-5-verify.log', toRepoNameSet([]))).toBe('evidence')
+  })
 })

@@ -1,9 +1,14 @@
+import { ARTIFACTS_PREFIX, EVIDENCE_DIR } from '../../../shared/evidenceScope'
+
+const EVIDENCE_PREFIX = `${EVIDENCE_DIR}/`
+
 /** Display name for an evidence record: hides the storage-layout prefixes
- * (`evidence/`, and `.derived/` for extraction outputs) without touching the
- * underlying relPath used by the DB and skill suggestions. */
+ * (`evidence/` or `artifacts/`, and `.derived/` for extraction outputs) without
+ * touching the underlying relPath used by the DB and skill suggestions. */
 export function displayName(relPath: string): string {
   let name = relPath
-  if (name.startsWith('evidence/')) name = name.slice('evidence/'.length)
+  if (name.startsWith(EVIDENCE_PREFIX)) name = name.slice(EVIDENCE_PREFIX.length)
+  if (name.startsWith(ARTIFACTS_PREFIX)) name = name.slice(ARTIFACTS_PREFIX.length)
   if (name.startsWith('.derived/')) name = name.slice('.derived/'.length)
   return name
 }
