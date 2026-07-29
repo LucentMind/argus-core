@@ -363,4 +363,12 @@ describe('ReposSection repo chip layout', () => {
     render(<ReposSection slug="C-1" />)
     expect(await screen.findByText('worktree')).toBeInTheDocument()
   })
+
+  it('omits the worktree badge for a plain (non-worktree) checkout', async () => {
+    // default beforeEach mock has worktreePath: null — only the positive case above was
+    // covered before, so a regression that always renders the badge would have passed.
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText('hivemindtest')
+    expect(screen.queryByText('worktree')).toBeNull()
+  })
 })
