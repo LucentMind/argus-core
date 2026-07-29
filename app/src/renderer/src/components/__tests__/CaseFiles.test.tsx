@@ -46,7 +46,7 @@ const artifactMetaFixture: ArtifactTypeMeta[] = [
 
 let parsingCb: (p: { slug: string; evidenceId: number; active: boolean }) => void
 
-// the props every render needs beyond caseSlug/label, which each test sets explicitly
+// the props every render needs beyond caseSlug/label/mode, which each test sets explicitly
 const requiredProps = { onOpenFile: vi.fn() }
 
 beforeEach(() => {
@@ -78,7 +78,14 @@ beforeEach(() => {
 
 describe('CaseFiles', () => {
   it('renders the section title itself, with the actions beside it', () => {
-    render(<CaseFiles caseSlug="c1" label="Code review artifacts" {...requiredProps} />)
+    render(
+      <CaseFiles
+        caseSlug="c1"
+        label="Code review artifacts"
+        mode="investigation"
+        {...requiredProps}
+      />
+    )
     expect(screen.getByText('Code review artifacts')).toBeInTheDocument()
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Rescan evidence folder' })).toBeInTheDocument()
@@ -86,12 +93,14 @@ describe('CaseFiles', () => {
   })
 
   it('drops the type filter', () => {
-    render(<CaseFiles caseSlug="c1" label="Evidence" {...requiredProps} />)
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
     expect(screen.queryByLabelText('type-filter')).not.toBeInTheDocument()
   })
 
   it('keeps the header outside the scrolling file region', async () => {
-    const { container } = render(<CaseFiles caseSlug="c1" label="Evidence" {...requiredProps} />)
+    const { container } = render(
+      <CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />
+    )
     await screen.findByText('Evidence')
     const scroller = container.querySelector('.overflow-y-auto')
     expect(scroller).not.toBeNull()
@@ -99,7 +108,7 @@ describe('CaseFiles', () => {
   })
 
   it('reports the rescan result on the control, not as a list row', async () => {
-    render(<CaseFiles caseSlug="c1" label="Evidence" {...requiredProps} />)
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
     await userEvent.click(screen.getByRole('button', { name: 'Rescan evidence folder' }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Rescan evidence folder' })).toHaveAttribute(
@@ -110,12 +119,16 @@ describe('CaseFiles', () => {
   })
 
   it('fetches artifact type meta once on mount', async () => {
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await waitFor(() => expect(window.argus.packs.artifactMeta).toHaveBeenCalledTimes(1))
   })
 
   it('renders evidence rows with type badges and MB sizes', async () => {
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     expect(await screen.findByText('trace.binlog')).toBeTruthy()
     expect(screen.getByText('binlog')).toBeTruthy()
     expect(screen.getByText('2.1 MB')).toBeTruthy()
@@ -125,7 +138,13 @@ describe('CaseFiles', () => {
   it('Analyze suggests the skill with the real relPath', async () => {
     const onSuggest = vi.fn()
     render(
-      <CaseFiles caseSlug="NAV-1" label="Evidence" onSuggest={onSuggest} onOpenFile={vi.fn()} />
+      <CaseFiles
+        caseSlug="NAV-1"
+        label="Evidence"
+        mode="investigation"
+        onSuggest={onSuggest}
+        onOpenFile={vi.fn()}
+      />
     )
     await screen.findByText('trace.binlog')
     fireEvent.click(screen.getAllByRole('button', { name: 'Analyze' })[0])
@@ -133,13 +152,17 @@ describe('CaseFiles', () => {
   })
 
   it('truncated title carries the full filename as a tooltip', async () => {
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     const title = await screen.findByText('trace.binlog')
     expect(title.getAttribute('title')).toBe('trace.binlog')
   })
 
   it('shows size and a "D Mon, HH:MM" date in the meta row', async () => {
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await screen.findByText('trace.binlog')
     const d = new Date('2026-03-14T09:32:00.000Z')
     const expected = `${d.getDate()} ${d.toLocaleString(undefined, { month: 'short' })}, ${String(
@@ -149,13 +172,17 @@ describe('CaseFiles', () => {
   })
 
   it('delete is an icon-only button with no visible "Delete" text', async () => {
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     const btn = await screen.findByRole('button', { name: 'Delete trace.binlog' })
     expect(btn.textContent?.trim()).toBe('')
   })
 
   it('shows a parsing indicator while extraction is active', async () => {
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await screen.findByText('trace.binlog')
     act(() => parsingCb({ slug: 'NAV-1', evidenceId: 1, active: true }))
     expect(screen.getByText('parsing…')).toBeTruthy()
@@ -163,9 +190,11 @@ describe('CaseFiles', () => {
     expect(screen.queryByText('parsing…')).toBeNull()
   })
 
-  it('text evidence goes to onOpenFile; binaries to files.open; header button reveals', async () => {
+  it('text evidence goes to onOpenFile; binaries reveal; header button reveals', async () => {
     const onOpenFile = vi.fn()
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={onOpenFile} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={onOpenFile} />
+    )
     fireEvent.click(await screen.findByText('notes.md'))
     expect(onOpenFile).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -175,19 +204,76 @@ describe('CaseFiles', () => {
         evidence: expect.objectContaining({ id: 2 })
       })
     )
+    // a detected binary (parsed into derived text) must not hand the raw file to
+    // whatever program owns its extension — reveal it in the explorer instead
     fireEvent.click(screen.getByText('trace.binlog'))
     await waitFor(() =>
-      expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/trace.binlog')
+      expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1', 'evidence/trace.binlog')
     )
+    expect(window.argus.files.open).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Open in file explorer' }))
     expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1')
+  })
+
+  it('archives reveal in the explorer; screenshots and videos open externally', async () => {
+    window.argus.evidence.list = vi.fn(async () => [
+      { ...evidenceFixture[0], id: 10, relPath: 'evidence/logs.zip', artifactType: 'archive' },
+      { ...evidenceFixture[0], id: 11, relPath: 'evidence/logs.dlt', artifactType: 'dlt_log' },
+      { ...evidenceFixture[0], id: 12, relPath: 'evidence/shot.png', artifactType: 'screenshot' },
+      { ...evidenceFixture[0], id: 13, relPath: 'evidence/repro.mp4', artifactType: 'unknown' },
+      // magic-byte detection, no usable extension — still a viewable image
+      {
+        ...evidenceFixture[0],
+        id: 14,
+        relPath: 'evidence/Screenshot_042',
+        artifactType: 'screenshot'
+      }
+    ])
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
+
+    fireEvent.click(await screen.findByText('logs.zip'))
+    fireEvent.click(screen.getByText('logs.dlt'))
+    await waitFor(() => expect(window.argus.files.reveal).toHaveBeenCalledTimes(2))
+    expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1', 'evidence/logs.zip')
+    expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1', 'evidence/logs.dlt')
+    expect(window.argus.files.open).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('shot.png'))
+    fireEvent.click(screen.getByText('repro.mp4'))
+    fireEvent.click(screen.getByText('Screenshot_042'))
+    await waitFor(() => expect(window.argus.files.open).toHaveBeenCalledTimes(3))
+    expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/shot.png')
+    expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/repro.mp4')
+    expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/Screenshot_042')
+    expect(window.argus.files.reveal).toHaveBeenCalledTimes(2)
+  })
+
+  it('a pack-claimed type reveals even with a media extension', async () => {
+    // Same question the auto-unzip gate asks: did a pack detector claim this
+    // file? If so it is a domain artifact with its own extractor — reveal it,
+    // never hand it to the program that owns the extension.
+    window.argus.evidence.list = vi.fn(async () => [
+      { ...evidenceFixture[0], id: 20, relPath: 'evidence/drive.mp4', artifactType: 'video_trace' },
+      { ...evidenceFixture[0], id: 21, relPath: 'evidence/frame.png', artifactType: 'hmi_dump' }
+    ])
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
+    fireEvent.click(await screen.findByText('drive.mp4'))
+    fireEvent.click(screen.getByText('frame.png'))
+    await waitFor(() => expect(window.argus.files.reveal).toHaveBeenCalledTimes(2))
+    expect(window.argus.files.open).not.toHaveBeenCalled()
   })
 
   it('shows "No evidence yet." when the list rejects, without an unhandled rejection', async () => {
     window.argus.evidence.list = vi.fn(async () => {
       throw new Error('case dir gone')
     })
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalled())
     expect(screen.getByText('No evidence yet.')).toBeTruthy()
   })
@@ -202,13 +288,15 @@ describe('CaseFiles', () => {
         createdAt: '2026-03-14T09:34:00.000Z'
       }
     ])
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     const badge = await screen.findByText('a-very-long-artifact-type-name-indeed')
     expect(badge.classList.contains('line-clamp-2')).toBe(true)
   })
 
   it('renders the derived chip for evidence with a derivedFrom parent', async () => {
-    window.argus.evidence.list = vi.fn(async () => [
+    window.argus.evidence.list = vi.fn(async (): Promise<EvidenceRecord[]> => [
       ...evidenceFixture,
       {
         id: 3,
@@ -222,14 +310,16 @@ describe('CaseFiles', () => {
         createdAt: '2026-03-14T09:33:00.000Z'
       }
     ])
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     expect(await screen.findByText('trace.binlog.txt')).toBeTruthy()
     expect(screen.getByText('derived')).toBeTruthy()
   })
 
   it('Delete confirms with the derived count and calls evidence.delete', async () => {
     vi.mocked(confirm).mockResolvedValue(true)
-    window.argus.evidence.list = vi.fn(async () => [
+    window.argus.evidence.list = vi.fn(async (): Promise<EvidenceRecord[]> => [
       ...evidenceFixture,
       {
         id: 3,
@@ -243,7 +333,9 @@ describe('CaseFiles', () => {
         createdAt: '2026-03-14T09:33:00.000Z'
       }
     ])
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await screen.findByText('trace.binlog')
     fireEvent.click(screen.getByRole('button', { name: 'Delete trace.binlog' }))
     await waitFor(() =>
@@ -258,7 +350,9 @@ describe('CaseFiles', () => {
 
   it('cancelling the confirm deletes nothing', async () => {
     vi.mocked(confirm).mockResolvedValue(false)
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await screen.findByText('notes.md')
     fireEvent.click(screen.getByRole('button', { name: 'Delete notes.md' }))
     await waitFor(() => expect(confirm).toHaveBeenCalled())
@@ -270,7 +364,9 @@ describe('CaseFiles', () => {
     window.argus.evidence.delete = vi.fn(async () => {
       throw new Error('evidence locked')
     })
-    render(<CaseFiles caseSlug="NAV-1" label="Evidence" onOpenFile={vi.fn()} />)
+    render(
+      <CaseFiles caseSlug="NAV-1" label="Evidence" mode="investigation" onOpenFile={vi.fn()} />
+    )
     await screen.findByText('trace.binlog')
     fireEvent.click(screen.getByRole('button', { name: 'Delete trace.binlog' }))
     expect(await screen.findByText('evidence locked')).toBeTruthy()
@@ -285,10 +381,10 @@ describe('CaseFiles', () => {
       missing: [],
       errors: []
     }))
-    render(<CaseFiles caseSlug="C1" label="Evidence" onOpenFile={() => {}} />)
+    render(<CaseFiles caseSlug="C1" label="Evidence" mode="investigation" onOpenFile={() => {}} />)
     const rescanBtn = screen.getByRole('button', { name: /rescan evidence folder/i })
     await userEvent.click(rescanBtn)
-    expect(window.argus.evidence.scan).toHaveBeenCalledWith('C1')
+    expect(window.argus.evidence.scan).toHaveBeenCalledWith('C1', 'investigation')
     await waitFor(() =>
       expect(rescanBtn).toHaveAttribute('title', expect.stringContaining('2 added · 1 updated'))
     )
@@ -307,7 +403,7 @@ describe('CaseFiles', () => {
       onFiles = cb
       return () => {}
     })
-    render(<CaseFiles caseSlug="C1" label="Evidence" onOpenFile={() => {}} />)
+    render(<CaseFiles caseSlug="C1" label="Evidence" mode="investigation" onOpenFile={() => {}} />)
     await waitFor(() => expect(onFiles).not.toBeNull())
     act(() => onFiles!('OTHER'))
     expect(screen.queryByTestId('files-stale-dot')).toBeNull()
@@ -318,7 +414,7 @@ describe('CaseFiles', () => {
   })
 
   it('rows with meta.missing render a missing badge', async () => {
-    window.argus.evidence.list = vi.fn(async () => [
+    window.argus.evidence.list = vi.fn(async (): Promise<EvidenceRecord[]> => [
       {
         id: 1,
         caseId: 1,
@@ -331,8 +427,38 @@ describe('CaseFiles', () => {
         createdAt: '2026-07-17T00:00:00Z'
       }
     ])
-    render(<CaseFiles caseSlug="C1" label="Evidence" onOpenFile={() => {}} />)
+    render(<CaseFiles caseSlug="C1" label="Evidence" mode="investigation" onOpenFile={() => {}} />)
     await screen.findByText('missing')
+  })
+
+  it('lists the active mode and ingests a drop into it', async () => {
+    render(
+      <CaseFiles caseSlug="c1" label="Code review artifacts" mode="review" {...requiredProps} />
+    )
+    await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'review'))
+
+    fireEvent.click(screen.getByRole('button', { name: /rescan|refresh/i }))
+    await waitFor(() => expect(window.argus.evidence.scan).toHaveBeenCalledWith('c1', 'review'))
+  })
+
+  it('lists investigation by default', async () => {
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await waitFor(() =>
+      expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'investigation')
+    )
+  })
+
+  it('switching modes refetches the list for the new mode', async () => {
+    const { rerender } = render(
+      <CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />
+    )
+    await waitFor(() =>
+      expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'investigation')
+    )
+    rerender(
+      <CaseFiles caseSlug="c1" label="Code review artifacts" mode="review" {...requiredProps} />
+    )
+    await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'review'))
   })
 })
 
@@ -385,6 +511,7 @@ describe('CaseFiles "Open in"', () => {
       <CaseFiles
         caseSlug="CASE-1"
         label="Evidence"
+        mode="investigation"
         onOpenFile={vi.fn()}
         panelDecls={openInDecls}
         onOpenInPanel={onOpenInPanel}
@@ -416,6 +543,7 @@ describe('CaseFiles "Open in"', () => {
       <CaseFiles
         caseSlug="CASE-1"
         label="Evidence"
+        mode="investigation"
         onOpenFile={onOpenFile}
         panelDecls={openInDecls}
         onOpenInPanel={onOpenInPanel}
@@ -446,6 +574,7 @@ describe('CaseFiles "Open in"', () => {
       <CaseFiles
         caseSlug="CASE-1"
         label="Evidence"
+        mode="investigation"
         onOpenFile={vi.fn()}
         panelDecls={[]}
         onOpenInPanel={vi.fn()}

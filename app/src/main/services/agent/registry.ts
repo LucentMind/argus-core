@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision, CaseRecord, DialogAnswer } from '../../../shared/types'
+import type { ModeId } from '../../../shared/modes'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import {
   activeInstanceConfig,
@@ -70,11 +71,13 @@ export interface AgentServiceDeps {
     windowId: string,
     evidenceId?: number
   ) => { ok: boolean; reason?: string; panel?: unknown }
-  /** Capture a panel to evidence for a given case; AgentService binds the case per session. */
+  /** Capture a panel to evidence for a given case; AgentService binds the case + mode per
+   *  session (a review session's capture must land in artifacts/, not evidence/). */
   capturePanel?: (
     caseSlug: string,
     packId: string,
-    windowId: string
+    windowId: string,
+    mode: ModeId
   ) => Promise<import('./capturePanel').CapturePanelEvidence>
   /** Live pack-declared panel commands (3b-2); read at each session construction. */
   panelCommandDecls?: () => PanelCommandDecl[]
@@ -267,7 +270,7 @@ export class AgentService {
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)
         : undefined,
       capturePanel: this.deps.capturePanel
-        ? (packId, windowId) => this.deps.capturePanel!(caseSlug, packId, windowId)
+        ? (packId, windowId) => this.deps.capturePanel!(caseSlug, packId, windowId, mode)
         : undefined,
       onCaseClosed: this.deps.onCaseClosed,
       onWorktreeChanged: this.deps.onWorktreeChanged,

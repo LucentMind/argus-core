@@ -494,11 +494,14 @@ export function CaseWorkspace({
               {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
               {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
             </div>
-            {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when switching cases */}
+            {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
+                switching cases or modes — investigation evidence and review artifacts are
+                disjoint lists */}
             <CaseFiles
-              key={slug}
+              key={`${slug}:${activeMode}`}
               caseSlug={slug}
               label={activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
+              mode={activeMode}
               onSuggest={setPrefill}
               onOpenFile={onOpenFile}
               panelDecls={panels.decls}

@@ -171,3 +171,62 @@ describe('scanEvidence', () => {
     expect(listEvidence(db, 'C1')).toHaveLength(0)
   })
 })
+
+describe('scan is scoped to one mode', () => {
+  it('registers an artifacts file only under a review scan, and never touches the other tree', () => {
+    const caseRoot = caseDir(argusHome, 'C1')
+    fs.mkdirSync(path.join(caseRoot, 'artifacts'), { recursive: true })
+    fs.writeFileSync(path.join(caseRoot, 'evidence', 'inv.txt'), 'investigation')
+    fs.writeFileSync(path.join(caseRoot, 'artifacts', 'rev.log'), 'review')
+
+    const inv = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    expect(inv.added).toEqual(['evidence/inv.txt'])
+
+    const rev = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    expect(rev.added).toEqual(['artifacts/rev.log'])
+    expect(listEvidence(db, 'C1', 'review').map((e) => e.relPath)).toEqual(['artifacts/rev.log'])
+  })
+
+  // The anti-leak property: a scan of one tree must not decide the other tree's rows are gone.
+  it('does not flag the other mode rows as missing', () => {
+    const caseRoot = caseDir(argusHome, 'C1')
+    fs.mkdirSync(path.join(caseRoot, 'artifacts'), { recursive: true })
+    fs.writeFileSync(path.join(caseRoot, 'evidence', 'inv.txt'), 'investigation')
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+
+    const inv = listEvidence(db, 'C1').find((e) => e.relPath === 'evidence/inv.txt')
+    expect(inv?.meta.missing).toBeUndefined()
+  })
+
+  // rescanModified's sidecar path is derived via sidecarRelPath (no hardcoded prefix
+  // slicing); this pins down that it produces the correct sidecar path for an
+  // artifacts/ row, not just evidence/ ones.
+  it('detects a modified artifacts/ file: re-hash, priorSha256, re-index — not flagged missing', () => {
+    const rec = ingestContent(
+      db,
+      argusHome,
+      detection,
+      'C1',
+      'ci.log',
+      'original words',
+      'upload',
+      {},
+      'review'
+    )
+    expect(rec.relPath).toBe('artifacts/ci.log')
+    fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), rec.relPath), 'replaced entirely zzqy')
+    const s = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    expect(s.modified).toEqual(['artifacts/ci.log'])
+    expect(s.missing).toEqual([])
+    const after = listEvidence(db, 'C1', 'review').find((e) => e.id === rec.id)!
+    expect(after.sha256).not.toBe(rec.sha256)
+    expect(after.meta.priorSha256).toBe(rec.sha256)
+    expect(after.meta.missing).toBeUndefined()
+    // sidecar written at the correct (artifacts-relative) path, not a mangled one
+    expect(
+      fs.existsSync(path.join(caseDir(argusHome, 'C1'), 'artifacts', '.meta', 'ci.log.json'))
+    ).toBe(true)
+  })
+})

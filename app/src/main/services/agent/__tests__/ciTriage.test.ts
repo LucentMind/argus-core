@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase, getCase } from '../../caseService'
 import { addBinding } from '../../prBindings'
-import { buildCiTriagePrompt } from '../ciTriage'
+import { buildCiTriagePrompt, CI_TRIAGE_PROMPTS } from '../ciTriage'
 import { composeCiTriagePrompt } from '../ciTriageCompose'
 
 let db: DatabaseSync
@@ -48,6 +48,12 @@ describe('buildCiTriagePrompt', () => {
     })
     expect(text).not.toContain('null')
     expect(text).toMatch(/no local checkout/i)
+  })
+
+  it('shows the agent an artifacts path in its citation example', () => {
+    const text = JSON.stringify(CI_TRIAGE_PROMPTS)
+    expect(text).toContain('[artifacts/ci-4-lint.log:12]')
+    expect(text).not.toContain('[evidence/ci-4-lint.log:12]')
   })
 })
 

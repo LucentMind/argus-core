@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { ingestArtifact, listEvidence } from '../ingest'
+import { ingestArtifact, ingestDerived, listEvidence } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry, stubExtractors } from '../packs/__tests__/fixtures'
 import { extractDerivedText } from '../extraction'
@@ -103,5 +103,23 @@ describe('extraction pipeline', () => {
     await expect(
       extractDerivedText(db, argusHome, rec, stubExtractors('binlog'))
     ).resolves.toBeNull()
+  })
+
+  it('files derived text beside its parent artifact, not under evidence/', () => {
+    const src = path.join(tmp, 'ci.log')
+    fs.writeFileSync(src, 'stack trace here')
+    const parent = ingestArtifact(db, argusHome, detection, 'NAV-1', src, 'ci', {}, 'review')
+
+    const derivedAbs = path.join(argusHome, 'cases', 'NAV-1', 'artifacts', '.derived', 'ci.log.txt')
+    fs.mkdirSync(path.dirname(derivedAbs), { recursive: true })
+    fs.writeFileSync(derivedAbs, 'stack trace here')
+    const rec = ingestDerived(db, argusHome, 'NAV-1', derivedAbs, parent.id)
+
+    expect(rec.relPath).toBe('artifacts/.derived/ci.log.txt')
+    expect(
+      fs.existsSync(
+        path.join(argusHome, 'cases', 'NAV-1', 'artifacts', '.meta', '.derived', 'ci.log.txt.json')
+      )
+    ).toBe(true)
   })
 })

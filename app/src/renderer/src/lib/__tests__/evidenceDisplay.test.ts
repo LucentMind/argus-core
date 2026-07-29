@@ -17,6 +17,10 @@ describe('displayName', () => {
   it('keeps subdirectories below evidence/ visible', () => {
     expect(displayName('evidence/sub/log.txt')).toBe('sub/log.txt')
   })
+
+  it('strips the artifacts prefix like the evidence one', () => {
+    expect(displayName('artifacts/ci-5-verify.log')).toBe('ci-5-verify.log')
+  })
 })
 
 describe('formatMb', () => {

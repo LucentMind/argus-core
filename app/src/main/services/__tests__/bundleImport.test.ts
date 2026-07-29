@@ -86,6 +86,36 @@ it('writes a line-index sidecar for large imported text evidence (ingest parity)
   expect(fs.existsSync(sidecarPath(homeB, abs))).toBe(true)
 })
 
+it('round-trips review artifacts alongside investigation evidence', async () => {
+  ingestContent(dbA, homeA, detection, 'NAV-100', 'ci-5.log', 'boom\n', 'ci', {}, 'review')
+  const bothBundle = path.join(homeA, 'NAV-100-both.arguscase')
+  await exportCase(
+    dbA,
+    homeA,
+    'NAV-100',
+    bothBundle,
+    { includeTranscripts: false },
+    { argusVersion: '1.0.0' }
+  )
+
+  await importCase(dbB, homeB, bothBundle, 'NAV-100')
+
+  const reviewEvs = listEvidence(dbB, 'NAV-100', 'review')
+  expect(reviewEvs.map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
+  expect(listEvidence(dbB, 'NAV-100').map((e) => e.relPath)).toContain('evidence/boot.txt')
+  expect(listEvidence(dbB, 'NAV-100').map((e) => e.relPath)).not.toContain('artifacts/ci-5.log')
+  expect(fs.existsSync(path.join(homeB, 'cases', 'NAV-100', 'artifacts', 'ci-5.log'))).toBe(true)
+  // sidecar rewritten with the new id, mirroring the evidence/ side's assertion above
+  const ciLog = reviewEvs.find((e) => e.relPath === 'artifacts/ci-5.log')!
+  const sidecar = JSON.parse(
+    fs.readFileSync(
+      path.join(homeB, 'cases', 'NAV-100', 'artifacts', '.meta', 'ci-5.log.json'),
+      'utf8'
+    )
+  )
+  expect(sidecar.id).toBe(ciLog.id)
+})
+
 /**
  * Stage a copy of the base `bundle` with `case.json` patched (e.g. status/
  * resolution), re-hashing the manifest entry for the swapped file so the

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ArtifactTypeMeta } from '../../../shared/types'
+import type { ArtifactTypeMeta, GenericArtifactType } from '../../../shared/types'
 import type { MatchRule, PackDetector } from './manifest'
 import type { PackRegistry } from './registry'
 
@@ -100,14 +100,17 @@ function ruleMatches(rule: CompiledRule, filePath: string, facts: FileFacts): bo
   return true
 }
 
-const GENERIC_META: ArtifactTypeMeta[] = [
-  { type: 'archive', displayName: 'archive', analyzeSkill: null, isText: false },
-  { type: 'screenshot', displayName: 'screenshot', analyzeSkill: null, isText: false },
-  { type: 'text', displayName: 'text', analyzeSkill: null, isText: true },
-  { type: 'unknown', displayName: 'unknown', analyzeSkill: null, isText: false }
-]
+// Keyed by GenericArtifactType so adding a fallback type here without telling
+// shared/types (whose isPackClaimedType gates auto-unzip and click routing)
+// fails the typecheck instead of silently drifting.
+const GENERIC_META: Record<GenericArtifactType, ArtifactTypeMeta> = {
+  archive: { type: 'archive', displayName: 'archive', analyzeSkill: null, isText: false },
+  screenshot: { type: 'screenshot', displayName: 'screenshot', analyzeSkill: null, isText: false },
+  text: { type: 'text', displayName: 'text', analyzeSkill: null, isText: true },
+  unknown: { type: 'unknown', displayName: 'unknown', analyzeSkill: null, isText: false }
+}
 
-function genericType(facts: FileFacts): string {
+function genericType(facts: FileFacts): GenericArtifactType {
   const h = facts.head
   if (h.length >= 2 && h[0] === 0x1f && h[1] === 0x8b) return 'archive' // gzip
   if (h.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) return 'archive' // zip
@@ -155,7 +158,7 @@ export function createDetection(registry?: PackRegistry): Detection {
         analyzeSkill: d.decl.analyzeSkill ?? null,
         isText: d.decl.isText
       })),
-      ...GENERIC_META
+      ...Object.values(GENERIC_META)
     ]
   }
 }

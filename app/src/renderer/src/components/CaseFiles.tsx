@@ -4,11 +4,36 @@ import { Chip, MenuButton, SectionLabel } from './ui'
 import { confirm } from '../lib/confirmStore'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
-import type { ArtifactTypeMeta, EvidenceRecord, FileNode } from '../../../shared/types'
+import {
+  isPackClaimedType,
+  type ArtifactType,
+  type ArtifactTypeMeta,
+  type EvidenceRecord,
+  type FileNode
+} from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 import { MAX_WHOLE_FILE_BYTES } from '../../../shared/textdoc'
+import type { ModeId } from '../../../shared/modes'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
+
+// Non-text evidence a default OS app renders usefully — clicking these opens
+// them externally. Everything else non-text (archives, trace containers like
+// .dlt that were parsed into derived text) reveals in the file explorer
+// instead: handing the raw container to whatever program owns its extension
+// either shows nothing useful or pops an unwanted handler.
+const MEDIA_LIKE =
+  /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|avif|tiff?|mp4|mov|webm|mkv|avi|m4v|wmv|mp3|wav|m4a|ogg|pdf)$/i
+
+function opensExternally(name: string, artifactType: ArtifactType): boolean {
+  // A pack-claimed type is a domain artifact with its own extractor, whatever it
+  // is named — same gate the zip auto-extraction uses, so `demotrace.zip` and a
+  // pack's `.mp4`-named trace both stay out of the OS handler.
+  if (isPackClaimedType(artifactType)) return false
+  // 'screenshot' comes from magic-byte detection, so an image with a missing or
+  // odd extension still opens in the viewer rather than the explorer
+  return MEDIA_LIKE.test(name) || artifactType === 'screenshot'
+}
 
 // derived rows (meta.derivedFrom) sort directly below their source row
 function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?: boolean })[] {
@@ -40,6 +65,7 @@ function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?:
 export function CaseFiles({
   caseSlug,
   label,
+  mode,
   onSuggest,
   onOpenFile,
   panelDecls = [],
@@ -49,6 +75,9 @@ export function CaseFiles({
   /** The section title this card renders in its own header — the rail no longer renders one
    *  above it, so every section's controls sit in exactly one place. */
   label: string
+  /** Which mode's material this list shows. Investigation evidence and review artifacts
+   *  live in separate directories and are never mixed. */
+  mode: ModeId
   onSuggest?: (text: string) => void
   onOpenFile: (node: FileNode) => void
   panelDecls?: PanelDecl[]
@@ -72,11 +101,11 @@ export function CaseFiles({
 
   const reload = useCallback(
     (): Promise<void> =>
-      window.argus.evidence.list(caseSlug).then(setRows, (err) => {
+      window.argus.evidence.list(caseSlug, mode).then(setRows, (err) => {
         console.warn(`[evidence] list failed for ${caseSlug}: ${(err as Error).message}`)
         setRows([])
       }),
-    [caseSlug]
+    [caseSlug, mode]
   )
 
   useEffect(() => {
@@ -101,13 +130,13 @@ export function CaseFiles({
       offParsing?.()
       offFiles()
     }
-  }, [reload, caseSlug])
+  }, [reload, caseSlug, mode])
 
   async function scan(): Promise<void> {
     setScanning(true)
     setScanNote(null)
     try {
-      const s = await window.argus.evidence.scan(caseSlug)
+      const s = await window.argus.evidence.scan(caseSlug, mode)
       const parts: string[] = []
       if (s.added.length) parts.push(`${s.added.length} added`)
       if (s.modified.length) parts.push(`${s.modified.length} updated`)
@@ -146,8 +175,10 @@ export function CaseFiles({
           derived: typeof r.meta.derivedFrom === 'number'
         }
       })
-    } else {
+    } else if (opensExternally(name, r.artifactType)) {
       void window.argus.files.open(caseSlug, r.relPath)
+    } else {
+      void window.argus.files.reveal(caseSlug, r.relPath)
     }
   }
 

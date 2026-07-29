@@ -80,16 +80,18 @@ describe('fetchCheckLogs', () => {
     const out = await fetchCheckLogs(deps(gh), 'c1', 'build')
     expect(out.text).toContain('expected true, got false')
 
-    const ev = listEvidence(db, 'c1').find((e) => e.id === out.evidenceId)!
+    // review-scoped: a CI job log is review material by construction (Task 7), so it lives
+    // under artifacts/ and the default (investigation-scoped) listEvidence no longer sees it.
+    const ev = listEvidence(db, 'c1', 'all').find((e) => e.id === out.evidenceId)!
     expect(ev.origin).toBe('ci')
     expect(ev.relPath).toMatch(/build/)
     expect(ev.meta.checkName).toBe('build')
     expect(seen[1]).toEqual(['api', 'repos/acme/widget/actions/jobs/99/logs'])
-    // The stored path is what the tool feedback tells the agent to cite ([evidence/...:line] —
+    // The stored path is what the tool feedback tells the agent to cite ([artifacts/...:line] —
     // the renderer's citation grammar). An evidence_id-based citation renders as dead text,
     // which is exactly what the 2026-07-29 acceptance run produced before this was returned.
     expect(out.relPath).toBe(ev.relPath)
-    expect(out.relPath).toMatch(/^evidence\//)
+    expect(out.relPath).toMatch(/^artifacts\//)
   })
 
   it('matches the check name case-insensitively', async () => {
@@ -132,6 +134,15 @@ describe('fetchCheckLogs', () => {
     expect(out.text).toMatch(/truncated/i)
     // the TAIL is kept: a build log's failure is at the end
     expect(out.text.endsWith('x')).toBe(true)
+  })
+
+  it('files the job log as a review artifact', async () => {
+    const gh: Runner = async (_cmd, args) =>
+      args[1] === 'graphql' ? statusPayload([BUILD]) : 'log body'
+    const out = await fetchCheckLogs(deps(gh), 'c1', 'build')
+    expect(out.relPath).toMatch(/^artifacts\//)
+    expect(listEvidence(db, 'c1', 'review')).toHaveLength(1)
+    expect(listEvidence(db, 'c1')).toHaveLength(0)
   })
 
   it('prefers the FAILING run when several checks share a name', async () => {

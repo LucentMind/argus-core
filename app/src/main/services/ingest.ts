@@ -3,7 +3,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/types'
-import { caseDir } from './paths'
+import {
+  ARTIFACTS_PREFIX,
+  dirForMode,
+  scopeOfRelPath,
+  sidecarRelPath,
+  type CaseSubdir,
+  type EvidenceScope
+} from '../../shared/evidenceScope'
+import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
+import { caseDir, modeDir } from './paths'
 import { getCase, maybeAdvanceToAnalyzing } from './caseService'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
@@ -74,20 +83,21 @@ function registerEvidenceFile(
   argusHome: string,
   detection: Detection,
   caseId: number,
-  evidenceDir: string,
+  destDir: string,
+  topDir: CaseSubdir,
   destName: string,
   originalName: string,
   origin: EvidenceOrigin,
   extraMeta: Record<string, unknown>
 ): EvidenceRecord {
-  const destPath = path.join(evidenceDir, destName)
+  const destPath = path.join(destDir, destName)
   const sha256 = sha256File(destPath)
   const artifactType: ArtifactType = detection.detectType(destPath)
   const size = fs.statSync(destPath).size
   const now = new Date().toISOString()
   const indexable = detection.isText(artifactType)
   const meta: Record<string, unknown> = { originalName, indexed: indexable, ...extraMeta }
-  const relPath = `evidence/${destName}`
+  const relPath = `${topDir}/${destName}`
 
   const res = db
     .prepare(
@@ -109,10 +119,9 @@ function registerEvidenceFile(
     meta,
     createdAt: now
   }
-  fs.writeFileSync(
-    path.join(evidenceDir, '.meta', `${destName}.json`),
-    JSON.stringify(record, null, 2)
-  )
+  const metaDir = path.join(destDir, '.meta')
+  fs.mkdirSync(metaDir, { recursive: true })
+  fs.writeFileSync(path.join(metaDir, `${destName}.json`), JSON.stringify(record, null, 2))
   return record
 }
 
@@ -123,23 +132,22 @@ export function ingestArtifact(
   caseSlug: string,
   sourcePath: string,
   origin: EvidenceOrigin = 'upload',
-  extraMeta: Record<string, unknown> = {}
+  extraMeta: Record<string, unknown> = {},
+  mode: ModeId = DEFAULT_MODE
 ): EvidenceRecord {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const destName = collisionFreeName(
-    evidenceDir,
-    path.basename(sourcePath),
-    detection.compoundExts()
-  )
-  fs.copyFileSync(sourcePath, path.join(evidenceDir, destName))
+  const destDir = modeDir(argusHome, caseSlug, mode)
+  fs.mkdirSync(destDir, { recursive: true })
+  const destName = collisionFreeName(destDir, path.basename(sourcePath), detection.compoundExts())
+  fs.copyFileSync(sourcePath, path.join(destDir, destName))
   const rec = registerEvidenceFile(
     db,
     argusHome,
     detection,
     kase.id,
-    evidenceDir,
+    destDir,
+    dirForMode(mode),
     destName,
     path.basename(sourcePath),
     origin,
@@ -158,19 +166,22 @@ export function ingestContent(
   fileName: string,
   content: string | Buffer,
   origin: EvidenceOrigin,
-  extraMeta: Record<string, unknown> = {}
+  extraMeta: Record<string, unknown> = {},
+  mode: ModeId = DEFAULT_MODE
 ): EvidenceRecord {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const destName = collisionFreeName(evidenceDir, fileName, detection.compoundExts())
-  fs.writeFileSync(path.join(evidenceDir, destName), content)
+  const destDir = modeDir(argusHome, caseSlug, mode)
+  fs.mkdirSync(destDir, { recursive: true })
+  const destName = collisionFreeName(destDir, fileName, detection.compoundExts())
+  fs.writeFileSync(path.join(destDir, destName), content)
   const rec = registerEvidenceFile(
     db,
     argusHome,
     detection,
     kase.id,
-    evidenceDir,
+    destDir,
+    dirForMode(mode),
     destName,
     fileName,
     origin,
@@ -196,7 +207,8 @@ export function ingestBytes(
   fileName: string,
   bytes: Buffer,
   origin: EvidenceOrigin,
-  extraMeta: Record<string, unknown> = {}
+  extraMeta: Record<string, unknown> = {},
+  mode: ModeId = DEFAULT_MODE
 ): { record: EvidenceRecord; deduped: boolean } {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
@@ -217,7 +229,8 @@ export function ingestBytes(
     fileName,
     bytes,
     origin,
-    extraMeta
+    extraMeta,
+    mode
   )
   return { record, deduped: false }
 }
@@ -255,17 +268,19 @@ export function updateEvidenceContent(
   if (indexable) indexEvidenceFile(db, evidenceId, absPath, 400, argusHome)
 
   const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
-  const destName = rec.relPath.slice('evidence/'.length)
-  fs.writeFileSync(
-    path.join(caseDir(argusHome, row.case_slug), 'evidence', '.meta', `${destName}.json`),
-    JSON.stringify(updated, null, 2)
+  const sidecarAbs = path.join(
+    caseDir(argusHome, row.case_slug),
+    ...sidecarRelPath(rec.relPath).split('/')
   )
+  fs.mkdirSync(path.dirname(sidecarAbs), { recursive: true })
+  fs.writeFileSync(sidecarAbs, JSON.stringify(updated, null, 2))
   return updated
 }
 
 /**
- * Register a file already living under evidence/ (e.g. evidence/.derived/<name>)
- * in place — no copy. Used by the extraction pipeline for derived text.
+ * Register a file already living in the parent's tree (e.g. evidence/.derived/<name> or
+ * artifacts/.derived/<name>) in place — no copy. Used by the extraction pipeline for
+ * derived text.
  */
 export function ingestDerived(
   db: DatabaseSync,
@@ -276,15 +291,21 @@ export function ingestDerived(
 ): EvidenceRecord {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const rel = path.relative(evidenceDir, absPath)
-  if (rel.startsWith('..')) throw new Error(`Derived file must live under evidence/: ${absPath}`)
+  // The derived file belongs to whichever tree its parent lives in — a CI log's extracted
+  // text is review material exactly as the log is.
+  const parent = listEvidence(db, caseSlug, 'all').find((e) => e.id === derivedFromId)
+  if (!parent) throw new Error(`Unknown parent evidence ${derivedFromId} for case ${caseSlug}`)
+  const parentDir = dirForMode(scopeOfRelPath(parent.relPath))
+  const baseDir = path.join(caseDir(argusHome, caseSlug), parentDir)
+  const rel = path.relative(baseDir, absPath)
+  if (rel.startsWith('..'))
+    throw new Error(`Derived file must live under ${parentDir}/: ${absPath}`)
 
   const sha256 = sha256File(absPath)
   const size = fs.statSync(absPath).size
   const now = new Date().toISOString()
   const meta = { derivedFrom: derivedFromId, indexed: true }
-  const relPath = `evidence/${rel.split(path.sep).join('/')}`
+  const relPath = `${parentDir}/${rel.split(path.sep).join('/')}`
 
   const res = db
     .prepare(
@@ -306,18 +327,38 @@ export function ingestDerived(
     meta,
     createdAt: now
   }
-  fs.mkdirSync(path.join(evidenceDir, '.meta', path.dirname(rel)), { recursive: true })
-  fs.writeFileSync(path.join(evidenceDir, '.meta', `${rel}.json`), JSON.stringify(record, null, 2))
+  const sidecarAbs = path.join(caseDir(argusHome, caseSlug), ...sidecarRelPath(relPath).split('/'))
+  fs.mkdirSync(path.dirname(sidecarAbs), { recursive: true })
+  fs.writeFileSync(sidecarAbs, JSON.stringify(record, null, 2))
   return record
 }
 
-export function listEvidence(db: DatabaseSync, caseSlug: string): EvidenceRecord[] {
-  const rows = db
-    .prepare(
-      `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
-       WHERE c.slug = ? ORDER BY e.created_at DESC, e.id DESC`
-    )
-    .all(caseSlug) as unknown as EvidenceRow[]
+/**
+ * Case evidence, newest first.
+ *
+ * `scope` defaults to `'investigation'` deliberately: every caller that predates the
+ * artifacts split keeps returning exactly what it returned before, and a caller nobody
+ * audits under-shows rather than leaking review material into an investigation list.
+ * Callers that genuinely span both modes pass `'all'` explicitly.
+ */
+export function listEvidence(
+  db: DatabaseSync,
+  caseSlug: string,
+  scope: EvidenceScope = 'investigation'
+): EvidenceRecord[] {
+  const predicate =
+    scope === 'all'
+      ? ''
+      : scope === 'review'
+        ? ' AND e.rel_path LIKE ?'
+        : ' AND e.rel_path NOT LIKE ?'
+  const stmt = db.prepare(
+    `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
+     WHERE c.slug = ?${predicate} ORDER BY e.created_at DESC, e.id DESC`
+  )
+  const rows = (scope === 'all'
+    ? stmt.all(caseSlug)
+    : stmt.all(caseSlug, `${ARTIFACTS_PREFIX}%`)) as unknown as EvidenceRow[]
   return rows.map(rowToEvidence)
 }
 
@@ -380,11 +421,8 @@ export function deleteEvidence(
 
   const caseRoot = caseDir(argusHome, caseSlug)
   for (const r of doomed) {
-    const relUnderEvidence = r.rel_path.slice('evidence/'.length)
     fs.rmSync(path.join(caseRoot, ...r.rel_path.split('/')), { force: true })
-    fs.rmSync(path.join(caseRoot, 'evidence', '.meta', ...`${relUnderEvidence}.json`.split('/')), {
-      force: true
-    })
+    fs.rmSync(path.join(caseRoot, ...sidecarRelPath(r.rel_path).split('/')), { force: true })
   }
   return { deleted }
 }

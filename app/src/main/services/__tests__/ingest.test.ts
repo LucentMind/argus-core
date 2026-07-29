@@ -5,7 +5,13 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { ingestArtifact, ingestContent, listEvidence, updateEvidenceContent } from '../ingest'
+import {
+  deleteEvidence,
+  ingestArtifact,
+  ingestContent,
+  listEvidence,
+  updateEvidenceContent
+} from '../ingest'
 import { createDetection } from '../packs/detection'
 import { samplePackRegistry } from '../packs/__tests__/fixtures'
 import type { DatabaseSync } from 'node:sqlite'
@@ -134,5 +140,78 @@ describe('ingestArtifact', () => {
       .get() as { c: number }
     expect(stale.c).toBe(0)
     expect(fresh.c).toBe(1)
+  })
+})
+
+describe('listEvidence scoping', () => {
+  function addRow(relPath: string): void {
+    const caseId = Number(db.prepare(`SELECT id FROM cases WHERE slug='NAVAPI-1'`).get()!.id)
+    db.prepare(
+      `INSERT INTO evidence (case_id, rel_path, sha256, artifact_type, size, origin, created_at)
+       VALUES (?, ?, 'sha', 'text', 1, 'upload', '2026-07-29T00:00:00.000Z')`
+    ).run(caseId, relPath)
+  }
+
+  it('defaults to investigation, so an unedited caller never sees artifacts', () => {
+    addRow('evidence/ticket.md')
+    addRow('artifacts/ci-5.log')
+    expect(listEvidence(db, 'NAVAPI-1').map((e) => e.relPath)).toEqual(['evidence/ticket.md'])
+  })
+
+  it('returns only artifacts for the review scope', () => {
+    addRow('evidence/ticket.md')
+    addRow('artifacts/ci-5.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'review').map((e) => e.relPath)).toEqual([
+      'artifacts/ci-5.log'
+    ])
+  })
+
+  it('returns both for the all scope', () => {
+    addRow('evidence/ticket.md')
+    addRow('artifacts/ci-5.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'all')).toHaveLength(2)
+  })
+
+  // The prefix must anchor at the start: a nested dir with the same name stays investigation.
+  it('does not treat evidence/artifacts/... as review', () => {
+    addRow('evidence/artifacts/x.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'review')).toHaveLength(0)
+    expect(listEvidence(db, 'NAVAPI-1')).toHaveLength(1)
+  })
+})
+
+describe('ingest destination by mode', () => {
+  it('writes review material into artifacts/ with a matching sidecar', () => {
+    const src = path.join(home, 'ci.log')
+    fs.writeFileSync(src, 'boom')
+    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', src, 'ci', {}, 'review')
+
+    expect(rec.relPath).toBe('artifacts/ci.log')
+    expect(fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', 'ci.log'))).toBe(true)
+    expect(
+      fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', '.meta', 'ci.log.json'))
+    ).toBe(true)
+    // and it is invisible to the investigation list
+    expect(listEvidence(db, 'NAVAPI-1').map((e) => e.relPath)).not.toContain('artifacts/ci.log')
+    expect(listEvidence(db, 'NAVAPI-1', 'review').map((e) => e.relPath)).toEqual([
+      'artifacts/ci.log'
+    ])
+  })
+
+  it('defaults to evidence/ when no mode is given', () => {
+    const src = path.join(home, 'shot.png')
+    fs.writeFileSync(src, 'x')
+    expect(ingestArtifact(db, home, detection, 'NAVAPI-1', src).relPath).toBe('evidence/shot.png')
+  })
+
+  it('deletes an artifact together with its sidecar', () => {
+    const src = path.join(home, 'ci2.log')
+    fs.writeFileSync(src, 'boom')
+    const rec = ingestArtifact(db, home, detection, 'NAVAPI-1', src, 'ci', {}, 'review')
+    deleteEvidence(db, home, 'NAVAPI-1', rec.id)
+    expect(fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', 'ci2.log'))).toBe(false)
+    expect(
+      fs.existsSync(path.join(home, 'cases', 'NAVAPI-1', 'artifacts', '.meta', 'ci2.log.json'))
+    ).toBe(false)
   })
 })

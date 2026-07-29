@@ -80,6 +80,7 @@ import type {
 import type { DistillJobRow, SummarySearchHit, DistillStatusPayload } from '../shared/distill'
 import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared/snippets'
 import type { ModeId } from '../shared/modes'
+import type { EvidenceScope } from '../shared/evidenceScope'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -110,7 +111,8 @@ const argus = {
       bytes: Uint8Array
     ): Promise<{ record: EvidenceRecord; deduped: boolean }> =>
       ipcRenderer.invoke(IPC.evidenceIngestContent, caseSlug, fileName, bytes),
-    list: (caseSlug: string) => ipcRenderer.invoke(IPC.evidenceList, caseSlug),
+    list: (caseSlug: string, scope?: EvidenceScope): Promise<EvidenceRecord[]> =>
+      ipcRenderer.invoke(IPC.evidenceList, caseSlug, scope),
     read: (evidenceId: number, focusLine?: number) =>
       ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
     readSnippet: (
@@ -125,8 +127,8 @@ const argus = {
       evidenceId: number
     ): Promise<{ deleted: Array<{ id: number; relPath: string; sha256: string }> }> =>
       ipcRenderer.invoke(IPC.evidenceDelete, caseSlug, evidenceId),
-    scan: (caseSlug: string): Promise<ScanSummary> =>
-      ipcRenderer.invoke(IPC.evidenceScan, caseSlug),
+    scan: (caseSlug: string, mode?: ModeId): Promise<ScanSummary> =>
+      ipcRenderer.invoke(IPC.evidenceScan, caseSlug, mode),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.evidenceChanged, listener)
