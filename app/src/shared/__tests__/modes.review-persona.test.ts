@@ -11,4 +11,8 @@ describe('REVIEW_PERSONA citation guidance', () => {
   it('warns that the worktree directory name is NOT the repo name', () => {
     expect(persona).toMatch(/NOT the name of the worktree directory/)
   })
+
+  it('the persona owns the dedup rule the run turn dropped', () => {
+    expect(MODES.review.personaFragment).toMatch(/merge (them|those) into one finding/i)
+  })
 })

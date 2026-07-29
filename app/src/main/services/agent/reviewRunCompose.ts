@@ -53,6 +53,7 @@ export async function composeReviewRunPrompt(
   return buildReviewRunPrompt({
     support: framing.support,
     pinnedLayers: layers,
+    prLabel: `${binding.owner}/${binding.repo}#${binding.number}`,
     prUrl: binding.url,
     worktreePath: worktree,
     repoName: binding.repo,
