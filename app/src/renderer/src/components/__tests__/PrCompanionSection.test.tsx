@@ -94,12 +94,28 @@ describe('PrCompanionSection', () => {
     expect(screen.getByText(/conflicts/)).toBeInTheDocument()
   })
 
+  it('puts the state tag on the header line, beside "Pull request"', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('open').parentElement?.textContent).toContain('Pull request')
+  })
+
   it('lists checks inside a single divided panel', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     const row = screen.getByText('build').closest('div')
     expect(row?.parentElement).toHaveClass('divide-y')
     // all three rows share that one container
     expect(screen.getByText('lint').closest('div')?.parentElement).toBe(row?.parentElement)
+  })
+
+  // Only failed checks carry the Analyze button, so anything that lets the button size its row
+  // makes failures visibly taller than the checks around them.
+  it('lays every check row out identically, button or not', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const panel = screen.getByText('build').closest('div')?.parentElement
+    const rowClasses = new Set(Array.from(panel!.children).map((r) => r.className))
+    expect(panel!.children).toHaveLength(3) // build (fail+button), lint (pass), ci/circleci (fail)
+    expect(rowClasses.size).toBe(1)
+    expect([...rowClasses][0]).toContain('h-7')
   })
 
   it('offers Analyze only on a failed GitHub Actions check', () => {
