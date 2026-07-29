@@ -37,14 +37,7 @@ export interface PrStatus {
    *  protected repository amber. It earns its place as text, where the ambiguity is harmless
    *  and the alternative is a green dot on a pull request that cannot merge. */
   mergeStateStatus:
-    | 'BLOCKED'
-    | 'BEHIND'
-    | 'CLEAN'
-    | 'DIRTY'
-    | 'DRAFT'
-    | 'HAS_HOOKS'
-    | 'UNSTABLE'
-    | 'UNKNOWN'
+    'BLOCKED' | 'BEHIND' | 'CLEAN' | 'DIRTY' | 'DRAFT' | 'HAS_HOOKS' | 'UNSTABLE' | 'UNKNOWN'
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   rollup: PrRollup
   checks: PrCheck[]

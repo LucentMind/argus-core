@@ -95,7 +95,9 @@ describe('refreshPrStatuses', () => {
     let calls = 0
     const gh: Runner = async () => {
       calls++
-      return JSON.stringify({ data: { t0: prNode(42, 'SUCCESS'), t1: prNode(43, 'FAILURE', true) } })
+      return JSON.stringify({
+        data: { t0: prNode(42, 'SUCCESS'), t1: prNode(43, 'FAILURE', true) }
+      })
     }
     const out = await refreshPrStatuses({ db, gh, now }, ['c1', 'c2'])
     expect(calls).toBe(1)

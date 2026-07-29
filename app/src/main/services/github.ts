@@ -262,7 +262,9 @@ interface RawPr {
   mergeStateStatus: string
   reviewDecision: string | null
   commits: {
-    nodes: { commit: { statusCheckRollup: { contexts: { nodes: (RawContext | null)[] } } | null } }[]
+    nodes: {
+      commit: { statusCheckRollup: { contexts: { nodes: (RawContext | null)[] } } | null }
+    }[]
   }
 }
 
