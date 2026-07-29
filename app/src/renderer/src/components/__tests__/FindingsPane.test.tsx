@@ -32,6 +32,8 @@ function row(over: Partial<FindingRow>): FindingRow {
     suggestedChange: null,
     commentUrl: null,
     pushedSha: null,
+    commentBody: null,
+    headSha: null,
     mode: 'investigation',
     ...over
   }
@@ -134,7 +136,7 @@ describe('FindingsPane', () => {
         body: 'see [widget/src/foo.ts:5]'
       }
     ])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     const summary = await screen.findByText('Review finding')
     summary.click()
     const chip = await screen.findByRole('button', { name: /foo\.ts:5/ })
@@ -163,7 +165,7 @@ describe('FindingsPane', () => {
         body: 'see [widget/src/foo.ts:5]'
       }
     ])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     const summary = await screen.findByText('Investigation finding')
     summary.click()
     const chip = await screen.findByRole('button', { name: /foo\.ts:5/ })
