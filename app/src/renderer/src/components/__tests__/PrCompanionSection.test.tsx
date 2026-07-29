@@ -75,12 +75,14 @@ describe('PrCompanionSection', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows decision and checks alongside the subject line', () => {
+  it('shows decision and checks alongside the subject line', async () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getByText(/review required/i)).toBeInTheDocument()
     expect(screen.getByText('build')).toBeInTheDocument()
-    expect(screen.getByText('lint')).toBeInTheDocument()
     expect(screen.getByText('ci/circleci')).toBeInTheDocument()
+    // lint passed, so it starts folded behind the disclosure rather than sitting loose.
+    await userEvent.click(screen.getByRole('button', { name: /passed/i }))
+    expect(await screen.findByText('lint')).toBeInTheDocument()
   })
 
   it('names the PR as the section subject and opens it', async () => {
@@ -148,23 +150,29 @@ describe('PrCompanionSection', () => {
     expect(screen.getByText('open').parentElement?.textContent).toContain('acme/widget#42')
   })
 
-  it('lists checks inside a single divided panel', () => {
+  it('lists checks inside a single container, undivided', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     const row = screen.getByText('build').closest('div')
-    expect(row?.parentElement).toHaveClass('divide-y')
-    // all three rows share that one container
-    expect(screen.getByText('lint').closest('div')?.parentElement).toBe(row?.parentElement)
+    expect(row?.parentElement?.className ?? '').not.toContain('divide-y')
+    // build and ci/circleci (both fail) share that one container; lint (pass) is folded
+    expect(screen.getByText('ci/circleci').closest('div')?.parentElement).toBe(row?.parentElement)
   })
 
   // Only failed checks carry the Analyze button, so anything that lets the button size its row
   // makes failures visibly taller than the checks around them.
-  it('lays every check row out identically, button or not', () => {
+  it('lays every visible check row out identically, button or not', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     const panel = screen.getByText('build').closest('div')?.parentElement
-    const rowClasses = new Set(Array.from(panel!.children).map((r) => r.className))
-    expect(panel!.children).toHaveLength(3) // build (fail+button), lint (pass), ci/circleci (fail)
-    expect(rowClasses.size).toBe(1)
-    expect([...rowClasses][0]).toContain('h-7')
+    // fixture: build (fail+button), ci/circleci (fail) are the visible check rows; lint (pass)
+    // is folded behind the "passed" disclosure, itself a third sibling in the same container.
+    expect(panel!.children).toHaveLength(3)
+    const checkRows = [screen.getByText('build'), screen.getByText('ci/circleci')].map(
+      (el) => el.closest('div')!.className
+    )
+    expect(new Set(checkRows).size).toBe(1)
+    expect(checkRows[0]).toContain('h-7')
+    // the disclosure is a row too, sized to match rather than standing out
+    expect(screen.getByRole('button', { name: /passed/i })).toHaveClass('h-7')
   })
 
   it('offers Analyze only on a failed GitHub Actions check', () => {
@@ -194,7 +202,7 @@ describe('PrCompanionSection', () => {
     expect(screen.queryByText('build')).not.toBeInTheDocument()
   })
 
-  it('renders every same-named check as its own row — real PRs repeat check names', () => {
+  it('renders every same-named check as its own row — real PRs repeat check names', async () => {
     // Observed in the Task 1 capture (see main/services/__tests__/fixtures/README.md): a real PR
     // listed "Semantic Pull Request" twice, another had 46 contexts under 20 names. Keying the
     // list on the name alone would silently drop the duplicates.
@@ -219,7 +227,11 @@ describe('PrCompanionSection', () => {
       })
     })
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.getAllByText('build')).toHaveLength(2)
+    // The passing "build" folds behind the disclosure, so only the failing one shows at first —
+    // open it before checking that same-named rows are not deduplicated.
+    expect(screen.getAllByText('build')).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: /passed/i }))
+    expect(await screen.findAllByText('build')).toHaveLength(2)
   })
 
   it('marks a cancelled check apart from a failure and offers it no Analyze button', () => {
@@ -248,22 +260,29 @@ describe('PrCompanionSection', () => {
     { name: 'build-mac', bucket: 'pass', required: true, url: null, jobId: null }
   ]
 
-  it('leads with the checks that block the merge, under labelled groups', () => {
+  it('leads with the checks that block the merge, under labelled groups', async () => {
     prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getByText(/^required$/i)).toBeInTheDocument()
     expect(screen.getByText(/not blocking merge/i)).toBeInTheDocument()
-    const names = screen.getAllByText(/^(lint|build|codeql|build-mac)$/).map((el) => el.textContent)
+    // build-mac, lint and codeql all passed, so they start folded — open both groups' disclosures
+    // to see the full order.
+    for (const btn of screen.getAllByRole('button', { name: /passed/i })) {
+      await userEvent.click(btn)
+    }
+    const names = await screen.findAllByText(/^(lint|build|codeql|build-mac)$/)
     // Required first, GitHub's order preserved inside each group.
-    expect(names).toEqual(['build', 'build-mac', 'lint', 'codeql'])
+    expect(names.map((el) => el.textContent)).toEqual(['build', 'build-mac', 'lint', 'codeql'])
   })
 
-  it('keeps every row in the one divided panel, headers included', () => {
+  it('keeps every group inside the one check list container, headers included', () => {
     prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    const panel = screen.getByText('build').closest('div')?.parentElement
-    expect(panel).toHaveClass('divide-y')
-    expect(screen.getByText(/not blocking merge/i).parentElement).toBe(panel)
+    // Each group nests its own heading and rows; the list of groups itself is the one container.
+    const requiredGroup = screen.getByText('build').closest('div')?.parentElement
+    const container = requiredGroup?.parentElement
+    expect(container?.className ?? '').not.toContain('divide-y')
+    expect(screen.getByText(/not blocking merge/i).parentElement?.parentElement).toBe(container)
   })
 
   it('exposes the group labels as headings, not loose text', () => {
@@ -295,6 +314,69 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.queryByText(/not blocking merge/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/^required$/i)).not.toBeInTheDocument()
+  })
+
+  it('folds each group’s passing checks separately, keeping failures visible', async () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          { name: 'gate-fail', bucket: 'fail', required: true, url: null, jobId: null },
+          { name: 'gate-pass', bucket: 'pass', required: true, url: null, jobId: null },
+          { name: 'extra-pass', bucket: 'pass', required: false, url: null, jobId: null }
+        ]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+
+    expect(screen.getByText('gate-fail')).toBeInTheDocument()
+    expect(screen.queryByText('gate-pass')).not.toBeInTheDocument()
+    expect(screen.queryByText('extra-pass')).not.toBeInTheDocument()
+    // one disclosure per group that has passing checks — not one for the whole list
+    expect(screen.getAllByRole('button', { name: /passed/i })).toHaveLength(2)
+
+    await userEvent.click(screen.getAllByRole('button', { name: /passed/i })[0])
+    expect(await screen.findByText('gate-pass')).toBeInTheDocument()
+    expect(screen.queryByText('extra-pass')).not.toBeInTheDocument() // other group unaffected
+  })
+
+  it('keeps the required / not-blocking headings', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          { name: 'gate', bucket: 'fail', required: true, url: null, jobId: null },
+          { name: 'extra', bucket: 'fail', required: false, url: null, jobId: null }
+        ]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByRole('heading', { name: 'Required' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Not blocking merge' })).toBeInTheDocument()
+  })
+
+  it('does not offer a disclosure when a group has nothing passing', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [{ name: 'build', bucket: 'fail', required: false, url: null, jobId: null }]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.queryByRole('button', { name: /passed/i })).not.toBeInTheDocument()
+  })
+
+  it('dims a skipped check rather than giving it a third result colour', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [{ name: 'docs-check', bucket: 'skipped', required: false, url: null, jobId: null }]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('docs-check').closest('div')).toHaveClass('opacity-50')
+  })
+
+  it('separates rows without dividers', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const row = screen.getByText('build').closest('div')
+    expect(row?.parentElement?.className ?? '').not.toContain('divide-y')
   })
 
   it('summarises the checks by bucket, leading with failures', () => {
