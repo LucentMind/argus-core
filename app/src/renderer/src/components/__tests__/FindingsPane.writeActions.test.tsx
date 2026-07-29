@@ -47,16 +47,19 @@ const list = vi.fn()
 const composeActionPrompt = vi.fn()
 const send = vi.fn()
 const postFindingComment = vi.fn()
+const worktreeHead = vi.fn()
 
 beforeEach(() => {
   list.mockReset()
   composeActionPrompt.mockReset()
   send.mockReset()
   postFindingComment.mockReset()
+  worktreeHead.mockReset()
+  worktreeHead.mockResolvedValue(null)
   window.argus = {
     findings: { list, review: vi.fn(), clear: vi.fn() },
     cases: { readFindings: vi.fn().mockResolvedValue('') },
-    review: { composeActionPrompt, postFindingComment },
+    review: { composeActionPrompt, postFindingComment, worktreeHead },
     agent: { send }
   } as never // test double for the preload bridge
 })
@@ -176,6 +179,33 @@ describe('FindingsPane write actions', () => {
     render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
     await screen.findByText('Inverted guard')
     expect(screen.queryByLabelText('Select finding 7 for batch apply')).toBeNull()
+  })
+
+  it('marks a finding stale when its head_sha is behind the worktree', async () => {
+    worktreeHead.mockResolvedValue('54af8776e37c29084ad9454ab4a71166a9606138')
+    list.mockResolvedValue([
+      reviewRow({ id: 7, headSha: 'b994f1a61e2ea27c9c0ae9ec8a94f8a3d4302427' })
+    ])
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    const chip = await screen.findByText('code moved')
+    expect(chip).toHaveAttribute(
+      'title',
+      expect.stringMatching(/recorded at b994f1a61e2e.*now 54af8776e37c/i)
+    )
+  })
+
+  it('shows no stale chip when the shas match or head_sha is null', async () => {
+    worktreeHead.mockResolvedValue('54af8776e37c29084ad9454ab4a71166a9606138')
+    list.mockResolvedValue([
+      reviewRow({ id: 7, headSha: '54af8776e37c29084ad9454ab4a71166a9606138' }),
+      reviewRow({ id: 9, headSha: null })
+    ])
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    // waits for both rows to render before asserting absence (brief's `/summary/i` never
+    // matches this fixture's summary text — 'Inverted guard' — so it would hang; this waits on
+    // the same rendered rows by their actual text instead)
+    await screen.findAllByText('Inverted guard')
+    expect(screen.queryByText('code moved')).toBeNull()
   })
 
   it('states the deny-and-redo consequence on the batch button', async () => {

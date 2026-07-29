@@ -77,6 +77,9 @@ beforeEach(() => {
       list: vi.fn(async () => []),
       review: vi.fn()
     },
+    review: {
+      worktreeHead: vi.fn(async () => null)
+    },
     evidence: {
       list: vi.fn(async () => []),
       ingest: vi.fn(async () => []),

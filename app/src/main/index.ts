@@ -144,6 +144,7 @@ import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
+import { prWorktreeHead } from './services/agent/reviewWrites'
 import { ReferenceSyncStore } from './services/referenceSyncStore'
 import { RefSyncService } from './services/refSync/service'
 import { createHeadlessRunner } from './services/agent/headless'
@@ -1211,6 +1212,13 @@ function registerIpc(): void {
       agentService!.postFindingComment(slug, sessionId, findingId)
   )
 
+  // The PR worktree's current head, for the findings pane's stale-finding chip (Task 7b): a
+  // finding's citation preview is pinned to `head_sha`, and this tells the renderer when that
+  // no longer matches what's actually checked out.
+  ipcMain.handle(IPC.reviewWorktreeHead, (_e, slug: string) =>
+    prWorktreeHead({ db, argusHome }, slug)
+  )
+
   // The companion's Analyze button. Same posture as the two above — main owns the binding and
   // the worktree path — but no framing deps: a CI triage turn is single-pass, so it never asks
   // which driver the session runs on.
@@ -1344,9 +1352,17 @@ function registerIpc(): void {
   })
   ipcMain.handle(
     IPC.workspacesReadSnippet,
-    (_e, caseSlug: string, repoName: string, relPath: string, start: number, end?: number) => {
+    (
+      _e,
+      caseSlug: string,
+      repoName: string,
+      relPath: string,
+      start: number,
+      end?: number,
+      atSha?: string
+    ) => {
       assertSlug(caseSlug)
-      return readRepoSnippet(db, argusHome, caseSlug, repoName, relPath, start, end ?? start)
+      return readRepoSnippet(db, argusHome, caseSlug, repoName, relPath, start, end ?? start, atSha)
     }
   )
   ipcMain.handle(

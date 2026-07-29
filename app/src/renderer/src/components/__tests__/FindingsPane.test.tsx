@@ -64,7 +64,8 @@ beforeEach(() => {
       review: vi.fn(),
       clear: vi.fn(async () => ({ cleared: 1 }))
     },
-    workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) }
+    workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) },
+    review: { worktreeHead: vi.fn(async () => null) }
   } as never
 })
 

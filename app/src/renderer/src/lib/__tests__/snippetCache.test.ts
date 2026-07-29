@@ -137,6 +137,24 @@ describe('snippetCache', () => {
     expect(readSnippet).toHaveBeenCalledTimes(1) // distinct keys, no cross-talk
   })
 
+  it('two atSha values for the same repo citation are two cache entries and two IPC calls', async () => {
+    const { wsReadSnippet } = stubArgus()
+    const repoSrc = {
+      kind: 'repo',
+      caseSlug: 'C-1',
+      repoName: 'myrepo',
+      relPath: 'src/a.ts',
+      atSha: 'aaa111'
+    } as const
+    const repoSrc2 = { ...repoSrc, atSha: 'bbb222' }
+    await fetchSnippet(repoSrc, 1, 1)
+    await fetchSnippet(repoSrc2, 1, 1)
+    await fetchSnippet(repoSrc, 1, 1) // repeat: still cached, no extra call
+    expect(wsReadSnippet).toHaveBeenCalledTimes(2)
+    expect(wsReadSnippet).toHaveBeenNthCalledWith(1, 'C-1', 'myrepo', 'src/a.ts', 1, 1, 'aaa111')
+    expect(wsReadSnippet).toHaveBeenNthCalledWith(2, 'C-1', 'myrepo', 'src/a.ts', 1, 1, 'bbb222')
+  })
+
   it('invalidateRepoSnippets clears repo keys but not evidence keys', async () => {
     const { readSnippet, wsReadSnippet } = stubArgus()
     const repoSrc = {

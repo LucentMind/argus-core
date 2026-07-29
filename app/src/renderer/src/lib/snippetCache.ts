@@ -4,7 +4,7 @@ import type { RepoSnippetResult, SnippetResult } from '../../../shared/snippets'
  *  workspace code, resolved main-side against the tree the case sees. */
 export type CiteSource =
   | { kind: 'evidence'; caseSlug: string; relPath: string }
-  | { kind: 'repo'; caseSlug: string; repoName: string; relPath: string }
+  | { kind: 'repo'; caseSlug: string; repoName: string; relPath: string; atSha?: string }
 
 export type AnySnippetResult = SnippetResult | RepoSnippetResult
 
@@ -17,7 +17,7 @@ let subscribed = false
 function keyOf(source: CiteSource, start: number, end: number): string {
   return source.kind === 'evidence'
     ? `e|${source.caseSlug}|${source.relPath}|${start}-${end}`
-    : `r|${source.caseSlug}|${source.repoName}|${source.relPath}|${start}-${end}`
+    : `r|${source.caseSlug}|${source.repoName}|${source.relPath}|${start}-${end}|${source.atSha ?? 'live'}`
 }
 
 export function fetchSnippet(
@@ -35,13 +35,22 @@ export function fetchSnippet(
   const request: Promise<AnySnippetResult> =
     source.kind === 'evidence'
       ? window.argus.evidence.readSnippet(source.caseSlug, source.relPath, start, end)
-      : window.argus.workspaces.readSnippet(
-          source.caseSlug,
-          source.repoName,
-          source.relPath,
-          start,
-          end
-        )
+      : source.atSha
+        ? window.argus.workspaces.readSnippet(
+            source.caseSlug,
+            source.repoName,
+            source.relPath,
+            start,
+            end,
+            source.atSha
+          )
+        : window.argus.workspaces.readSnippet(
+            source.caseSlug,
+            source.repoName,
+            source.relPath,
+            start,
+            end
+          )
   const p: Promise<AnySnippetResult> = request.catch(() => {
     // Transient IPC failures shouldn't stick, but only evict our own entry:
     // the key may have been invalidated and re-fetched while we were pending.

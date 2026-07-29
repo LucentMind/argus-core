@@ -13,16 +13,23 @@ import { CitationCard } from './CitationCard'
 import { MermaidBlock } from './MermaidBlock'
 import type { CiteSource } from '../lib/snippetCache'
 
-function citeSource(caseSlug: string, cite: CiteTarget, names: ReadonlySet<string>): CiteSource {
+function citeSource(
+  caseSlug: string,
+  cite: CiteTarget,
+  names: ReadonlySet<string>,
+  repoCiteSha?: string
+): CiteSource {
   if (classifyCitePath(cite.relPath, names) === 'repo') {
     const slash = cite.relPath.indexOf('/')
     return {
       kind: 'repo',
       caseSlug,
       repoName: cite.relPath.slice(0, slash),
-      relPath: cite.relPath.slice(slash + 1)
+      relPath: cite.relPath.slice(slash + 1),
+      atSha: repoCiteSha
     }
   }
+  // Evidence citations are immutable files — never pinned.
   return { kind: 'evidence', caseSlug, relPath: cite.relPath }
 }
 
@@ -32,6 +39,8 @@ type MessageCtx = {
   citationMode: 'collapsed' | 'expanded'
   names: ReadonlySet<string>
   streaming: boolean
+  /** Pins repo-kind citation previews to this commit; evidence citations are never pinned. */
+  repoCiteSha?: string
 }
 
 const Ctx = createContext<MessageCtx>({
@@ -76,12 +85,12 @@ function Pre({
 }
 
 function Anchor({ href, children }: ComponentProps<'a'>): React.JSX.Element {
-  const { onCite, caseSlug, citationMode, names } = useContext(Ctx)
+  const { onCite, caseSlug, citationMode, names, repoCiteSha } = useContext(Ctx)
   const cite = href ? parseCiteHref(href) : null
   if (cite && caseSlug) {
     return (
       <CitationCard
-        source={citeSource(caseSlug, cite, names)}
+        source={citeSource(caseSlug, cite, names, repoCiteSha)}
         start={cite.start}
         end={cite.end}
         defaultExpanded={citationMode === 'expanded'}
@@ -122,7 +131,8 @@ export function MessageView({
   caseSlug,
   citationMode = 'collapsed',
   repoNames = [],
-  streaming = false
+  streaming = false,
+  repoCiteSha
 }: {
   markdown: string
   onCite: (cite: CiteTarget) => void
@@ -135,11 +145,14 @@ export function MessageView({
   /** True while this message is still streaming — mermaid fences stay as code
    *  blocks until the fence is guaranteed complete. */
   streaming?: boolean
+  /** Pins repo-kind citation previews to this commit (a review finding's `head_sha`) instead of
+   *  the live worktree. Evidence citations are never pinned — see `citeSource`. */
+  repoCiteSha?: string
 }): React.JSX.Element {
   const names = toRepoNameSet(repoNames)
   return (
     <div className="markdown-body max-w-none text-sm leading-relaxed text-ink">
-      <Ctx.Provider value={{ onCite, caseSlug, citationMode, names, streaming }}>
+      <Ctx.Provider value={{ onCite, caseSlug, citationMode, names, streaming, repoCiteSha }}>
         <ReactMarkdown
           remarkPlugins={REMARK_PLUGINS}
           urlTransform={urlTransform}

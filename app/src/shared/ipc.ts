@@ -174,6 +174,7 @@ export const IPC = {
   reviewComposeActionPrompt: 'review:compose-action-prompt',
   reviewPostFindingComment: 'review:post-finding-comment',
   reviewComposeCiPrompt: 'review:compose-ci-prompt',
+  reviewWorktreeHead: 'review:worktree-head',
   graphBuild: 'graph:build',
   graphStatus: 'graph:status',
   graphInstall: 'graph:install',
