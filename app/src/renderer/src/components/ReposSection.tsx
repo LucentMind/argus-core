@@ -199,11 +199,14 @@ export function ReposSection({
             </div>
             <div
               title={w.currentRef}
-              className="mt-0.5 truncate font-mono text-[11px] text-mute"
+              className="mt-0.5 truncate text-left font-mono text-[11px] text-mute"
               dir="rtl"
             >
               {/* dir=rtl truncates the START of the ref, keeping the topic segment that
-                  carries the meaning — branch names here read <prefix>/<topic>. */}
+                  carries the meaning — branch names here read <prefix>/<topic>. text-left
+                  keeps the line pinned to the left at any length: direction picks which end
+                  the ellipsis lands on, text-align is a separate axis and defaults to
+                  following direction (right, for rtl) unless overridden. */}
               <span dir="ltr">{w.currentRef}</span>
             </div>
           </div>
