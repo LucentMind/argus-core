@@ -34,7 +34,10 @@ describe('SearchBar', () => {
     })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() => expect(screen.getByText(/evidence\/log\.txt/)).toBeTruthy())
-    expect(window.argus.search.query).toHaveBeenCalledWith('TileStore', { caseSlug: 'NAVAPI-1' })
+    expect(window.argus.search.query).toHaveBeenCalledWith('TileStore', {
+      caseSlug: 'NAVAPI-1',
+      evidenceScope: 'investigation'
+    })
     fireEvent.click(screen.getByText(/evidence\/log\.txt/))
     expect(onOpen).toHaveBeenCalledWith(hit)
   })
@@ -70,7 +73,11 @@ describe('SearchBar', () => {
       target: { value: 'TileStore' }
     })
     fireEvent.submit(screen.getByRole('search'))
-    await waitFor(() => expect(window.argus.search.query).toHaveBeenCalledWith('TileStore', {}))
+    await waitFor(() =>
+      expect(window.argus.search.query).toHaveBeenCalledWith('TileStore', {
+        evidenceScope: 'investigation'
+      })
+    )
     const headers = await screen.findAllByText(/NAV(API)?-\d/, { selector: 'span,div,h3' })
     expect(headers.length).toBeGreaterThan(0)
     // current case group renders before the other case
@@ -102,7 +109,8 @@ describe('SearchBar', () => {
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() =>
       expect(window.argus.search.query).toHaveBeenCalledWith('braking', {
-        sources: ['evidence', 'chat', 'summaries']
+        sources: ['evidence', 'chat', 'summaries'],
+        evidenceScope: 'investigation'
       })
     )
     // grouped by case: both case slugs appear as section labels
@@ -128,7 +136,8 @@ describe('SearchBar', () => {
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() =>
       expect(window.argus.search.query).toHaveBeenCalledWith('braking', {
-        sources: ['evidence', 'chat', 'summaries']
+        sources: ['evidence', 'chat', 'summaries'],
+        evidenceScope: 'investigation'
       })
     )
     expect(await screen.findByText(/closed case/)).toBeTruthy()
