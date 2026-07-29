@@ -293,19 +293,34 @@ describe('LibraryPage toggle', () => {
 })
 
 describe('LibraryPage merged list', () => {
-  it('groups both kinds by tier, kind mixed within a group', async () => {
+  it('groups both kinds by rights, kind mixed within a group', async () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
-    // user group holds user skills AND the user-tier reference
-    const userSection = screen.getByText('User').closest('section') ?? document.body
+    expect(screen.getByText('Yours')).toBeInTheDocument()
+    expect(screen.getByText('Subscribed')).toBeInTheDocument()
+    expect(screen.getByText('Built-in')).toBeInTheDocument()
+    // the two hand-owned tiers share one group
     expect(await screen.findByText('team-tips.md')).toBeInTheDocument()
     expect(screen.getByText('my-notes')).toBeInTheDocument()
-    // confluence-tier reference lands in its own group
-    expect(screen.getByText('Confluence')).toBeInTheDocument()
+    // hivemind and confluence share the next
+    expect(screen.getByText('hive-probe')).toBeInTheDocument()
     expect(screen.getByText('nav-runbook.md')).toBeInTheDocument()
-    // bundled skill grouped under Bundled
-    expect(screen.getByText('Bundled')).toBeInTheDocument()
-    expect(userSection).toBeTruthy()
+    // no five-way vocabulary survives as a group heading
+    expect(screen.queryByText('User')).toBeNull()
+    expect(screen.queryByText('Team knowledge')).toBeNull()
+    expect(screen.queryByText('Bundled')).toBeNull()
+  })
+
+  it('each group states the rights it confers', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    expect(
+      screen.getByText('You own these. Edit, delete, or share them with your team.')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Owned upstream and kept current. Claim one to make it yours.')
+    ).toBeInTheDocument()
+    expect(screen.getByText('Ships with an installed pack.')).toBeInTheDocument()
   })
 
   it('user skill shadowing lower tiers carries an overrides chip', async () => {
@@ -349,13 +364,13 @@ describe('LibraryPage merged list', () => {
     expect(await screen.findByText(/never read/)).toBeInTheDocument()
   })
 
-  it('empty user group teaches where content comes from', async () => {
+  it('empty Yours group teaches where content comes from', async () => {
     argus.skills.list.mockResolvedValue({ skills: [] })
     argus.refsync.get.mockResolvedValue({ ...refPayload, references: [] })
     render(<LibraryPage />)
     expect(
       await screen.findByText(
-        'Nothing here yet — skills and references you accept from agent proposals land here.'
+        "Nothing yet — accept an agent proposal, or claim something from your team's HiveMind."
       )
     ).toBeInTheDocument()
   })

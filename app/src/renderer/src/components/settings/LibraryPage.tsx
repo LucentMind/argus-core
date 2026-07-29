@@ -9,7 +9,7 @@ import { RefViewer, MarkdownViewer } from '../references/RefViewer'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
-import { PUSHABLE_TIERS } from '../../../../shared/trustTiers'
+import { PUSHABLE_TIERS, HIVE_MANAGED_TIERS } from '../../../../shared/trustTiers'
 import type { SkillListItem } from '../../../../shared/memoryIpc'
 import type { ReferenceStatus } from '../../../../shared/referenceSync'
 import type { SkillUsageRow, ReferenceUsageRow } from '../../../../shared/observability'
@@ -26,28 +26,24 @@ export const LIBRARY_TYPES: readonly ProposalType[] = [
 
 export type LibraryKind = 'skill' | 'reference'
 
-/** Tier-group order: yours first, then proposal-derived, then externally owned, then pack-shipped. */
-const GROUP_ORDER = [
-  'user',
-  'team-knowledge',
-  'hivemind',
-  'confluence',
-  'bundled',
-  'untiered'
-] as const
+/** Group order: what you own, then what you subscribe to, then what ships with a pack. */
+const GROUP_ORDER = ['yours', 'subscribed', 'built-in'] as const
 type GroupId = (typeof GROUP_ORDER)[number]
 const GROUP_TITLE: Record<GroupId, string> = {
-  user: 'User',
-  'team-knowledge': 'Team knowledge',
-  hivemind: 'HiveMind',
-  confluence: 'Confluence',
-  bundled: 'Bundled',
-  untiered: 'Untiered'
+  yours: 'Yours',
+  subscribed: 'Subscribed',
+  'built-in': 'Built-in'
 }
-/** Teaching empty states (spec §1.5 vocabulary, hub-era wording). Groups without an entry are hidden when empty. */
+/** Each subtitle states the group's rights — the same rights its rows' buttons express. */
+const GROUP_SUBTITLE: Record<GroupId, string> = {
+  yours: 'You own these. Edit, delete, or share them with your team.',
+  subscribed: 'Owned upstream and kept current. Claim one to make it yours.',
+  'built-in': 'Ships with an installed pack.'
+}
+/** Teaching empty states. Groups without an entry are hidden when empty. */
 const GROUP_EMPTY: Partial<Record<GroupId, string>> = {
-  user: 'Nothing here yet — skills and references you accept from agent proposals land here.',
-  hivemind: "No HiveMind content downloaded — browse your team's HiveMind under Settings → Team."
+  yours: "Nothing yet — accept an agent proposal, or claim something from your team's HiveMind.",
+  subscribed: "Nothing subscribed — browse your team's HiveMind under Settings → Team."
 }
 
 /** Collapses its destructive child to 0 width until the row is hovered or focused (spec §3). */
@@ -67,10 +63,15 @@ function errorAlert(message: string): React.JSX.Element {
   )
 }
 
+/**
+ * Tier → group. Derived from the shared sets rather than re-listing tiers: `PUSHABLE_TIERS`
+ * is exactly what the user may share, `HIVE_MANAGED_TIERS` exactly what an upstream owns.
+ * Anything else — `bundled`, an unknown tier, a reference with no frontmatter — is built-in.
+ */
 function groupOf(tier: string | null): GroupId {
-  return tier !== null && (GROUP_ORDER as readonly string[]).includes(tier)
-    ? (tier as GroupId)
-    : 'untiered'
+  if (tier !== null && (PUSHABLE_TIERS as readonly string[]).includes(tier)) return 'yours'
+  if (tier !== null && (HIVE_MANAGED_TIERS as readonly string[]).includes(tier)) return 'subscribed'
+  return 'built-in'
 }
 
 /**
@@ -352,7 +353,7 @@ export function LibraryPage({
             </>
           }
         >
-          {groupOf(r.tier) !== 'bundled' && groupOf(r.tier) !== 'untiered' && (
+          {groupOf(r.tier) !== 'built-in' && (
             <Reveal>
               <Btn
                 variant="dangerSolid"
@@ -444,6 +445,7 @@ export function LibraryPage({
           <SettingsSection
             key={g}
             title={GROUP_TITLE[g]}
+            subtitle={GROUP_SUBTITLE[g]}
             count={groupSkills.length + groupRefs.length}
             collapsed={isCollapsed}
             onToggle={
