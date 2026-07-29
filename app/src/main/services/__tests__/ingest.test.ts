@@ -161,7 +161,9 @@ describe('listEvidence scoping', () => {
   it('returns only artifacts for the review scope', () => {
     addRow('evidence/ticket.md')
     addRow('artifacts/ci-5.log')
-    expect(listEvidence(db, 'NAVAPI-1', 'review').map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
+    expect(listEvidence(db, 'NAVAPI-1', 'review').map((e) => e.relPath)).toEqual([
+      'artifacts/ci-5.log'
+    ])
   })
 
   it('returns both for the all scope', () => {
