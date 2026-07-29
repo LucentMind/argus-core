@@ -171,3 +171,32 @@ describe('scanEvidence', () => {
     expect(listEvidence(db, 'C1')).toHaveLength(0)
   })
 })
+
+describe('scan is scoped to one mode', () => {
+  it('registers an artifacts file only under a review scan, and never touches the other tree', () => {
+    const caseRoot = caseDir(argusHome, 'C1')
+    fs.mkdirSync(path.join(caseRoot, 'artifacts'), { recursive: true })
+    fs.writeFileSync(path.join(caseRoot, 'evidence', 'inv.txt'), 'investigation')
+    fs.writeFileSync(path.join(caseRoot, 'artifacts', 'rev.log'), 'review')
+
+    const inv = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+    expect(inv.added).toEqual(['evidence/inv.txt'])
+
+    const rev = scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+    expect(rev.added).toEqual(['artifacts/rev.log'])
+    expect(listEvidence(db, 'C1', 'review').map((e) => e.relPath)).toEqual(['artifacts/rev.log'])
+  })
+
+  // The anti-leak property: a scan of one tree must not decide the other tree's rows are gone.
+  it('does not flag the other mode rows as missing', () => {
+    const caseRoot = caseDir(argusHome, 'C1')
+    fs.mkdirSync(path.join(caseRoot, 'artifacts'), { recursive: true })
+    fs.writeFileSync(path.join(caseRoot, 'evidence', 'inv.txt'), 'investigation')
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
+
+    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1', 'review')
+
+    const inv = listEvidence(db, 'C1').find((e) => e.relPath === 'evidence/inv.txt')
+    expect(inv?.meta.missing).toBeUndefined()
+  })
+})
