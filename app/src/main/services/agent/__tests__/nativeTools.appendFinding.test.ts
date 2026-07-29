@@ -1,12 +1,16 @@
-import { it, expect, beforeEach, afterEach } from 'vitest'
+import { it, expect, beforeEach, afterEach, describe, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
-import { createCase } from '../../caseService'
+import { createCase, getCase } from '../../caseService'
 import { caseDir } from '../../paths'
-import { appendFinding, type FindingWriteCtx } from '../nativeTools'
+import { createDetection } from '../../packs/detection'
+import { addBinding } from '../../prBindings'
+import { casePrWorktreeDir } from '../../prWorktree'
+import { appendFinding, argusToolHandlers, type FindingWriteCtx } from '../nativeTools'
+import type { GitRunner } from '../reviewWrites'
 
 let home: string, db: DatabaseSync, ctx: FindingWriteCtx
 
@@ -100,4 +104,87 @@ it('routes the bad-layer error through ctx.resolve so an override actually bites
   expect(() =>
     appendFinding(resolvingCtx, { title: 't', markdown: 'm', layer: 'vibes' as never })
   ).toThrow(/CUSTOM OVERRIDE: layer "vibes" not in/)
+})
+
+describe('append_finding via argusToolHandlers records comment_body and head_sha', () => {
+  let ntHome: string
+  let ntDb: DatabaseSync
+  const detection = createDetection()
+  const emitFinding = vi.fn()
+
+  beforeEach(() => {
+    ntHome = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-af-comment-'))
+    ntDb = openDb(path.join(ntHome, 'argus.db'))
+    createCase(ntDb, ntHome, { slug: 'c1', title: 'Case 1' })
+  })
+  afterEach(() => {
+    ntDb.close()
+    fs.rmSync(ntHome, { recursive: true, force: true })
+  })
+
+  function makeHandlers(git?: GitRunner): ReturnType<typeof argusToolHandlers> {
+    return argusToolHandlers({
+      db: ntDb,
+      argusHome: ntHome,
+      detection,
+      caseId: getCase(ntDb, 'c1')!.id,
+      caseSlug: 'c1',
+      sessionId: 1,
+      emitFinding,
+      git
+    })
+  }
+
+  it('stores comment_body on the findings row', async () => {
+    const handlers = makeHandlers()
+    await handlers.append_finding({
+      title: 'T',
+      markdown: 'body [Repo/src/a.ts:3]',
+      layer: 'correctness',
+      severity: 'major',
+      comment_body: 'This breaks when the input is empty.'
+    })
+    const row = ntDb
+      .prepare(`SELECT comment_body FROM findings ORDER BY id DESC LIMIT 1`)
+      .get() as {
+      comment_body: string | null
+    }
+    expect(row.comment_body).toBe('This breaks when the input is empty.')
+  })
+
+  it('stamps head_sha from the PR worktree HEAD when a binding + worktree exist', async () => {
+    // deps.git is the injected GitRunner; the fake returns a fixed sha for rev-parse HEAD
+    const fakeGit: GitRunner = async (_cwd, args) => {
+      if (args[0] === 'rev-parse') return 'feedbeefcafe'
+      throw new Error(`unexpected git ${args.join(' ')}`)
+    }
+    const repoPath = path.join(ntHome, 'clones', 'widget')
+    fs.mkdirSync(repoPath, { recursive: true })
+    addBinding(ntDb, 'c1', {
+      repoPath,
+      owner: 'acme',
+      repo: 'widget',
+      number: 42,
+      url: 'https://github.com/acme/widget/pull/42',
+      source: 'manual'
+    })
+    const worktree = casePrWorktreeDir(ntHome, 'c1', repoPath, 42)
+    fs.mkdirSync(worktree, { recursive: true })
+
+    const handlers = makeHandlers(fakeGit)
+    await handlers.append_finding({ title: 'T', markdown: 'body [Repo/src/a.ts:3]' })
+    const row = ntDb.prepare(`SELECT head_sha FROM findings ORDER BY id DESC LIMIT 1`).get() as {
+      head_sha: string | null
+    }
+    expect(row.head_sha).toBe('feedbeefcafe')
+  })
+
+  it('leaves head_sha null when the case has no PR binding', async () => {
+    const handlers = makeHandlers()
+    await handlers.append_finding({ title: 'T', markdown: 'body' })
+    const row = ntDb.prepare(`SELECT head_sha FROM findings ORDER BY id DESC LIMIT 1`).get() as {
+      head_sha: string | null
+    }
+    expect(row.head_sha).toBeNull()
+  })
 })
