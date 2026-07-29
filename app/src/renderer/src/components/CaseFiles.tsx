@@ -315,12 +315,12 @@ export function CaseFiles({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-2">
+    <section className="flex min-h-32 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <SectionLabel>{label}</SectionLabel>
         <span className="h-px flex-1 bg-hair" />
         {scanNote && (
-          <span className="max-w-[140px] shrink truncate text-[10.5px] text-mute" title={scanNote}>
+          <span className="max-w-36 shrink truncate text-[10.5px] text-mute" title={scanNote}>
             {scanNote}
           </span>
         )}
