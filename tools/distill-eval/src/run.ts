@@ -33,10 +33,14 @@ export async function runEval(
     if (parseOutcome === 'ok') {
       for (const item of line.items) {
         let verdict: JudgeVerdict
-        try {
-          verdict = parseJudgeVerdict(await judgeRun(buildJudgePrompt(item, line.job.rawOutput, r.raw)))
-        } catch (e) {
-          verdict = { verdict: 'needs-human', reason: `judge output unusable: ${(e as Error).message}` }
+        if (r.reused) {
+          verdict = { verdict: 'unchanged', reason: 'prompt unchanged — baseline output reused' }
+        } else {
+          try {
+            verdict = parseJudgeVerdict(await judgeRun(buildJudgePrompt(item, line.job.rawOutput, r.raw)))
+          } catch (e) {
+            verdict = { verdict: 'needs-human', reason: `judge output unusable: ${(e as Error).message}` }
+          }
         }
         itemVerdicts.push({ item, verdict })
       }

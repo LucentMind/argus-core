@@ -86,6 +86,8 @@ export function ProposalsPage({
   type Accepted = { file: string; title: string; target: AcceptedTarget }
   const [justAccepted, setJustAccepted] = useState<Accepted[]>([])
   const [sharing, setSharing] = useState<string | null>(null)
+  // A successful reject clears this panel via row unmount (the payload refresh drops the row
+  // this state was keyed to), so no explicit reset of `rejecting` is needed on success.
   const [rejecting, setRejecting] = useState<string | null>(null)
   const [rejectNote, setRejectNote] = useState('')
   const settings = useSettingsPayload()

@@ -107,6 +107,13 @@ describe('buildEvalBundle', () => {
     expect(skipped).toEqual([]) // the older job is superseded, not "skipped"
   })
 
+  it('skips a queued job (latest for its case) as not finished', () => {
+    const id = insertJob({ state: 'queued', raw_output: null, prompt_hash: null })
+    const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
+    expect(lines).toEqual([])
+    expect(skipped).toEqual([{ jobId: id, caseSlug: 'nav-1', reason: 'not finished' }])
+  })
+
   it('ignores contribute-back archives (no job stamp)', () => {
     insertJob()
     const f = writeProposal(home, 'nav-1', {

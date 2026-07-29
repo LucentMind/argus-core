@@ -456,6 +456,7 @@ export function PromptsDevPage(): React.JSX.Element {
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [tab, setTab] = useState<'catalog' | 'preview' | 'capture'>('catalog')
   const [exportResult, setExportResult] = useState<DistillEvalExportResult | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     const reload = (): void => {
@@ -544,13 +545,16 @@ export function PromptsDevPage(): React.JSX.Element {
           </p>
           <div className="flex items-center gap-2">
             <button
-              className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink"
-              onClick={() =>
+              className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink disabled:text-faint"
+              disabled={exporting}
+              onClick={() => {
+                setExporting(true)
                 void window.argus.devPrompts
                   .exportDistillEval()
                   .then((r) => setExportResult(r))
                   .catch((e: Error) => setMutationError(e.message))
-              }
+                  .finally(() => setExporting(false))
+              }}
             >
               Export distill eval bundle
             </button>

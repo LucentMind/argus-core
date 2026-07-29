@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { runEval } from '../src/run'
 import { writeReport } from '../src/report'
 import { line } from './fixtures'
+import { caseDistillPromptHash } from '../../../app/src/main/services/distill/promptHash'
 
 describe('runEval', () => {
   it('classifies parse transitions and judges reviewed items', async () => {
@@ -36,6 +37,23 @@ describe('runEval', () => {
 
     const flaky = await runEval(cases, async () => '```json\n{}\n```', async () => 'not a verdict')
     expect(flaky[0].itemVerdicts[0].verdict.verdict).toBe('needs-human')
+  })
+
+  it('short-circuits to unchanged without calling the judge when the prompt hash is unchanged (reused baseline)', async () => {
+    const cases = [
+      {
+        ...line({ promptHash: caseDistillPromptHash() }),
+        items: [{ type: 'skill-new', target: 's', title: 't', outcome: 'rejected' as const, rejectReason: 'overfit' }]
+      }
+    ]
+    const judgeRun = vi.fn(async () => '```json\n{"verdict": "improved", "reason": "r"}\n```')
+    const results = await runEval(cases, async () => 'unused — reused replay skips the candidate run too', judgeRun)
+    expect(judgeRun).not.toHaveBeenCalled()
+    expect(results[0].itemVerdicts).toHaveLength(1)
+    expect(results[0].itemVerdicts[0].verdict).toEqual({
+      verdict: 'unchanged',
+      reason: 'prompt unchanged — baseline output reused'
+    })
   })
 })
 
