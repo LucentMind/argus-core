@@ -7,6 +7,7 @@ import type { EvidenceRecord } from '../../shared/types'
 import type { Extractors } from './packs/extractors'
 import { ingestDerived } from './ingest'
 import { caseDir } from './paths'
+import { dirForMode, scopeOfRelPath } from '../../shared/evidenceScope'
 
 const execFileAsync = promisify(execFile)
 const EXTRACT_TIMEOUT_MS = 10 * 60 * 1000
@@ -32,7 +33,7 @@ export async function extractDerivedText(
   if (!slugRow) return null
   const dir = caseDir(argusHome, slugRow.slug)
   const srcAbs = path.join(dir, rec.relPath)
-  const derivedDir = path.join(dir, 'evidence', '.derived')
+  const derivedDir = path.join(dir, dirForMode(scopeOfRelPath(rec.relPath)), '.derived')
   fs.mkdirSync(derivedDir, { recursive: true })
   const outAbs = path.join(derivedDir, `${path.basename(rec.relPath)}.txt`)
 
