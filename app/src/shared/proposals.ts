@@ -46,3 +46,18 @@ export interface AcceptedTarget {
   kind: 'skill' | 'reference' | 'memory' | 'case-summary'
   name: string
 }
+
+/** Why a proposal was rejected — the label the distill-eval corpus trains on. */
+export const REJECT_REASON_TAGS = ['overfit', 'overgeneric', 'wrong', 'duplicate', 'other'] as const
+export type RejectReasonTag = (typeof REJECT_REASON_TAGS)[number]
+export interface RejectReason {
+  tag: RejectReasonTag
+  note?: string
+}
+export const REJECT_REASON_LABELS: Record<RejectReasonTag, string> = {
+  overfit: 'Too case-specific',
+  overgeneric: 'Too generic',
+  wrong: 'Wrong',
+  duplicate: 'Duplicate',
+  other: 'Other'
+}
