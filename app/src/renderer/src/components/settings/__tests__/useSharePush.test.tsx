@@ -57,9 +57,8 @@ describe('useSharePush', () => {
     // failing get() is left unhandled — the hook doesn't reset any state on failure — so
     // that's what this test has to catch directly.
     const getSpy = vi.fn().mockRejectedValue(new TypeError('hivemind namespace is missing'))
-    ;(
-      window as unknown as { argus: { hivemind: { get: typeof getSpy } } }
-    ).argus.hivemind.get = getSpy
+    ;(window as unknown as { argus: { hivemind: { get: typeof getSpy } } }).argus.hivemind.get =
+      getSpy
 
     const unhandledReasons: unknown[] = []
     const onUnhandledRejection = (reason: unknown): void => {
