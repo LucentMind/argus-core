@@ -100,12 +100,20 @@ it('round-trips review artifacts alongside investigation evidence', async () => 
 
   await importCase(dbB, homeB, bothBundle, 'NAV-100')
 
-  expect(listEvidence(dbB, 'NAV-100', 'review').map((e) => e.relPath)).toEqual([
-    'artifacts/ci-5.log'
-  ])
+  const reviewEvs = listEvidence(dbB, 'NAV-100', 'review')
+  expect(reviewEvs.map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
   expect(listEvidence(dbB, 'NAV-100').map((e) => e.relPath)).toContain('evidence/boot.txt')
   expect(listEvidence(dbB, 'NAV-100').map((e) => e.relPath)).not.toContain('artifacts/ci-5.log')
   expect(fs.existsSync(path.join(homeB, 'cases', 'NAV-100', 'artifacts', 'ci-5.log'))).toBe(true)
+  // sidecar rewritten with the new id, mirroring the evidence/ side's assertion above
+  const ciLog = reviewEvs.find((e) => e.relPath === 'artifacts/ci-5.log')!
+  const sidecar = JSON.parse(
+    fs.readFileSync(
+      path.join(homeB, 'cases', 'NAV-100', 'artifacts', '.meta', 'ci-5.log.json'),
+      'utf8'
+    )
+  )
+  expect(sidecar.id).toBe(ciLog.id)
 })
 
 /**
