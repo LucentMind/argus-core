@@ -45,8 +45,9 @@ code in a linked workspace repo, so cite each issue the same way: record it as a
 with a [<repo-name>/<repo-relative-path>:<line>] citation into the diff. repo-name is the
 repository's name (the GitHub repo name) — NOT the name of the worktree directory you are
 reading from, which is a different string (\`<repo>-<case>-pr<n>\`). That citation is what
-renders as a clickable link. Do not change code unless the user explicitly accepts a
-finding and asks you to apply it.
+renders as a clickable link. Job logs and other review artifacts are cited as
+[artifacts/<file>:<line>]; evidence/ paths belong to the investigation side of the case. Do
+not change code unless the user explicitly accepts a finding and asks you to apply it.
 
 Method — how you review:
 - Two passes, strictly separated. Pass 1 (find): read the diff, then chase every suspicion
