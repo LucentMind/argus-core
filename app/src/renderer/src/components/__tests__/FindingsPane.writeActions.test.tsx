@@ -46,15 +46,17 @@ const reviewRow = (over: Partial<FindingRow> = {}): FindingRow =>
 const list = vi.fn()
 const composeActionPrompt = vi.fn()
 const send = vi.fn()
+const postFindingComment = vi.fn()
 
 beforeEach(() => {
   list.mockReset()
   composeActionPrompt.mockReset()
   send.mockReset()
+  postFindingComment.mockReset()
   window.argus = {
     findings: { list, review: vi.fn(), clear: vi.fn() },
     cases: { readFindings: vi.fn().mockResolvedValue('') },
-    review: { composeActionPrompt },
+    review: { composeActionPrompt, postFindingComment },
     agent: { send }
   } as never // test double for the preload bridge
 })
@@ -76,6 +78,37 @@ describe('FindingsPane write actions', () => {
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, 7, 'comment')
+  })
+
+  it('posts through the mechanism when the finding carries comment_body', async () => {
+    list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
+    postFindingComment.mockResolvedValue({ ok: true })
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Post as PR comment'))
+    await waitFor(() => expect(postFindingComment).toHaveBeenCalledWith('c1', 3, 7))
+    expect(composeActionPrompt).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the composed turn when comment_body is absent', async () => {
+    list.mockResolvedValue([reviewRow({ commentBody: null })])
+    composeActionPrompt.mockResolvedValue('COMPOSED COMMENT')
+    send.mockResolvedValue(undefined)
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Post as PR comment'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
+    expect(postFindingComment).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a mechanism failure reason', async () => {
+    list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
+    postFindingComment.mockResolvedValue({
+      ok: false,
+      reason: 'No pull request is bound to this case.'
+    })
+    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    await userEvent.click(await screen.findByLabelText('Post as PR comment'))
+    expect(await screen.findByText('No pull request is bound to this case.')).toBeInTheDocument()
   })
 
   it('composes the apply turn and sends it', async () => {

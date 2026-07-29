@@ -659,7 +659,13 @@ const argus = {
     ): Promise<string> =>
       ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingId, action),
     composeCiPrompt: (slug: string, sessionId: number, checkName: string): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeCiPrompt, slug, sessionId, checkName)
+      ipcRenderer.invoke(IPC.reviewComposeCiPrompt, slug, sessionId, checkName),
+    postFindingComment: (
+      slug: string,
+      sessionId: number,
+      findingId: number
+    ): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke(IPC.reviewPostFindingComment, slug, sessionId, findingId)
   },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */

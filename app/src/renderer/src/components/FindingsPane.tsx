@@ -82,6 +82,14 @@ export function FindingsPane({
     setActingId(id)
     setActionError(null)
     try {
+      const finding = findings.find((f) => f.id === id)
+      if (action === 'comment' && finding?.commentBody) {
+        // Plan 6 §1: the finding already carries author-facing prose — post it through the
+        // approval card directly, no model turn. 'denied' is the user's own click, not an error.
+        const res = await window.argus.review.postFindingComment(slug, sessionId, id)
+        if (!res.ok && res.reason !== 'denied') setActionError(res.reason ?? 'Post failed.')
+        return
+      }
       const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, id, action)
       await window.argus.agent.send(slug, sessionId, prompt)
     } catch (err) {

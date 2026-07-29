@@ -35,7 +35,13 @@ import { compileLayerAgents, type SubagentDefinition } from './reviewSubagents'
 import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { SubagentSupport } from '../../../shared/drivers'
 import { reviewSubagentSupport } from './reviewFraming'
-import type { Runner } from '../github'
+import { prHead, defaultGhRunner, type Runner } from '../github'
+import {
+  findingForCase,
+  resolveCommentTarget,
+  postReviewComment,
+  type ReviewWriteDeps
+} from './reviewWrites'
 
 export interface SessionMirrorLike {
   append(e: AgentEvent): void
@@ -462,6 +468,82 @@ export class CaseSession {
     )
     this.emit(makeEvent(this.ctx(), 'case.finding.added', { markdown: block }))
     return { ok: true, findingId }
+  }
+
+  /** Button-initiated comment post (Plan 6 §1): no model turn. Reads the stored comment_body,
+   *  raises the SAME editable MEDIUM card the agent's post_review_comment tool would (the tool
+   *  name is reused so risk display, editability and renderer handling are identical), and on
+   *  approval calls postReviewComment directly. Validation failures (no anchor, no binding,
+   *  path outside the repo) surface as { ok:false, reason } for the pane to display. */
+  async postFindingComment(findingId: number): Promise<{ ok: boolean; reason?: string }> {
+    if (this.state === 'dead') return { ok: false, reason: 'session-dead' }
+    const wdeps: ReviewWriteDeps = {
+      db: this.deps.db,
+      argusHome: this.deps.argusHome,
+      gh: this.deps.gh,
+      resolve: this.deps.resolvePrompt
+    }
+    let input: Record<string, unknown>
+    let body: string
+    try {
+      const row = findingForCase(wdeps, this.deps.caseSlug, findingId)
+      if (!row.comment_body?.trim()) return { ok: false, reason: 'no-body' }
+      body = row.comment_body
+      const target = resolveCommentTarget(wdeps, this.deps.caseSlug, findingId)
+      const b = target.binding
+      const head = await prHead(this.deps.gh ?? defaultGhRunner, `${b.owner}/${b.repo}`, b.number)
+      // Non-string on purpose: ApprovalCard renders non-string input fields read-only, so the
+      // staleness note is visible on the editable card without becoming an editable field.
+      const stale =
+        row.head_sha && row.head_sha !== head.sha
+          ? { pr_advanced: { recorded: row.head_sha.slice(0, 12), now: head.sha.slice(0, 12) } }
+          : {}
+      input = {
+        finding_id: findingId,
+        pr: `${b.owner}/${b.repo}#${b.number}`,
+        body,
+        ...stale
+      }
+    } catch (err) {
+      return { ok: false, reason: (err as Error).message }
+    }
+    const requestId = crypto.randomUUID()
+    const argsPreview = JSON.stringify(input).slice(0, 400)
+    this.emit(
+      makeEvent(this.ctx(), 'request.opened', {
+        requestId,
+        tool: 'mcp__argus__post_review_comment',
+        risk: 'MEDIUM',
+        grantKey: null,
+        argsPreview,
+        input
+      })
+    )
+    const outcome = await this.approvals.open({
+      requestId,
+      tool: 'mcp__argus__post_review_comment',
+      risk: 'MEDIUM',
+      grantKey: null,
+      argsPreview
+    })
+    this.emit(makeEvent(this.ctx(), 'request.resolved', { requestId, decision: outcome.decision }))
+    if (outcome.decision !== 'allow' && outcome.decision !== 'allow-session') {
+      return { ok: false, reason: 'denied' }
+    }
+    const edited = outcome.updatedInput as { body?: string; pr?: string } | undefined
+    try {
+      await postReviewComment(wdeps, this.deps.caseSlug, {
+        findingId,
+        body: String(edited?.body ?? body),
+        // An edited pr is re-validated against the case's one binding, exactly as on the
+        // tool path (resolveBindingForFinding) — it cannot retarget the write.
+        expectPr: String(edited?.pr ?? input.pr)
+      })
+    } catch (err) {
+      return { ok: false, reason: (err as Error).message }
+    }
+    this.emit(makeEvent(this.ctx(), 'case.finding.updated', { findingId }))
+    return { ok: true }
   }
 
   /** Panel-initiated evidence ingest (3d-2): raise a MEDIUM editable approval card showing the

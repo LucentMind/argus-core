@@ -23,6 +23,7 @@ import { assembleMode } from './modeAssembly'
 import type { Detection } from '../packs/detection'
 import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 import { driverForSession } from './reviewFraming'
+import type { Runner } from '../github'
 
 export interface AgentServiceDeps {
   db: DatabaseSync
@@ -95,6 +96,9 @@ export interface AgentServiceDeps {
   activeOverrides?: () => string[]
   /** Sink for session prompt captures; absent when the dev-tools gate is off. */
   recordPromptCapture?: (c: SessionPromptCapture) => void
+  /** gh runner for the review write tools (nativeTools + postFindingComment). Injected in
+   *  tests; production leaves it undefined so every call falls back to `defaultGhRunner`. */
+  gh?: Runner
 }
 
 export class AgentService {
@@ -257,6 +261,7 @@ export class AgentService {
       mcpFingerprint: fingerprint,
       onAuthFailure: this.deps.onAuthFailure,
       onAuthVerified: this.deps.onAuthVerified,
+      gh: this.deps.gh,
       openPanel: this.deps.openPanel
         ? (packId, windowId, evidenceId) =>
             this.deps.openPanel!(caseSlug, sessionId, packId, windowId, evidenceId)
@@ -321,6 +326,15 @@ export class AgentService {
   ): Promise<{ ok: boolean; findingId?: number }> {
     const s = await this.getOrCreate(caseSlug, sessionId)
     return s.emitPanelFinding(input)
+  }
+
+  async postFindingComment(
+    caseSlug: string,
+    sessionId: number,
+    findingId: number
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const s = await this.getOrCreate(caseSlug, sessionId)
+    return s.postFindingComment(findingId)
   }
 
   async ingestPanelEvidence(
