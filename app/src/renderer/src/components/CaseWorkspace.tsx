@@ -574,7 +574,7 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className="overflow-y-auto border-l border-hair bg-deep p-3"
+              className="flex flex-col border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               <FindingsPane

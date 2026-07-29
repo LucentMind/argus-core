@@ -149,7 +149,7 @@ export function FindingsPane({
     .sort((a, b) => rank(a) - rank(b))
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center justify-between">
         <SectionLabel>
           {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
@@ -199,158 +199,160 @@ export function FindingsPane({
           ))}
         </div>
       )}
-      {shown.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {shown.map((f) => {
-            const open = expandedId === f.id
-            const accepted = f.reviewState === 'accepted'
-            const rejected = f.reviewState === 'rejected'
-            const toggle = (): void => {
-              if (f.body) setExpandedId(open ? null : f.id)
-            }
-            return (
-              <li
-                key={f.id}
-                className={`rounded-r2 border bg-panel ${
-                  accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
-                }`}
-              >
-                <div className="flex items-start gap-1.5 px-2 py-1.5">
-                  <ChevronRight
-                    size={13}
-                    className={`mt-0.5 shrink-0 text-mute transition-transform ${
-                      open ? 'rotate-90' : ''
-                    } ${f.body ? '' : 'opacity-0'}`}
-                  />
-                  <button
-                    className="flex-1 text-left text-xs leading-snug text-ink disabled:cursor-default"
-                    disabled={!f.body}
-                    aria-expanded={f.body ? open : undefined}
-                    onClick={toggle}
-                  >
-                    {f.summary}
-                  </button>
-                </div>
-                {open && f.body && (
-                  <div className="border-t border-hair px-2 py-1.5 text-xs">
-                    <MessageView
-                      markdown={f.body}
-                      onCite={onCite}
-                      caseSlug={slug}
-                      repoNames={repoNames}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {shown.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {shown.map((f) => {
+              const open = expandedId === f.id
+              const accepted = f.reviewState === 'accepted'
+              const rejected = f.reviewState === 'rejected'
+              const toggle = (): void => {
+                if (f.body) setExpandedId(open ? null : f.id)
+              }
+              return (
+                <li
+                  key={f.id}
+                  className={`rounded-r2 border bg-panel ${
+                    accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
+                  }`}
+                >
+                  <div className="flex items-start gap-1.5 px-2 py-1.5">
+                    <ChevronRight
+                      size={13}
+                      className={`mt-0.5 shrink-0 text-mute transition-transform ${
+                        open ? 'rotate-90' : ''
+                      } ${f.body ? '' : 'opacity-0'}`}
                     />
+                    <button
+                      className="flex-1 text-left text-xs leading-snug text-ink disabled:cursor-default"
+                      disabled={!f.body}
+                      aria-expanded={f.body ? open : undefined}
+                      onClick={toggle}
+                    >
+                      {f.summary}
+                    </button>
                   </div>
-                )}
-                <div className="flex items-center gap-2 px-2 pb-1.5">
-                  <span className="font-mono text-[10px] text-mute">
-                    {formatWhen(f.createdAt)}
-                    {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
-                  </span>
-                  {f.layer && (
-                    <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
-                      {REVIEW_LAYERS[f.layer].label}
-                    </span>
+                  {open && f.body && (
+                    <div className="border-t border-hair px-2 py-1.5 text-xs">
+                      <MessageView
+                        markdown={f.body}
+                        onCite={onCite}
+                        caseSlug={slug}
+                        repoNames={repoNames}
+                      />
+                    </div>
                   )}
-                  {f.severity && (
-                    <span
-                      className={`rounded-r1 px-1 text-[10px] ${
-                        f.severity === 'critical'
-                          ? 'bg-danger/15 text-danger'
-                          : f.severity === 'major'
-                            ? 'bg-signal/15 text-ink'
-                            : 'text-mute'
+                  <div className="flex items-center gap-2 px-2 pb-1.5">
+                    <span className="font-mono text-[10px] text-mute">
+                      {formatWhen(f.createdAt)}
+                      {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
+                    </span>
+                    {f.layer && (
+                      <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
+                        {REVIEW_LAYERS[f.layer].label}
+                      </span>
+                    )}
+                    {f.severity && (
+                      <span
+                        className={`rounded-r1 px-1 text-[10px] ${
+                          f.severity === 'critical'
+                            ? 'bg-danger/15 text-danger'
+                            : f.severity === 'major'
+                              ? 'bg-signal/15 text-ink'
+                              : 'text-mute'
+                        }`}
+                      >
+                        {f.severity}
+                      </span>
+                    )}
+                    {f.commentUrl && (
+                      <a
+                        href={f.commentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+                      >
+                        commented
+                      </a>
+                    )}
+                    {f.pushedSha && (
+                      <span
+                        title={`Pushed ${f.pushedSha}`}
+                        className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
+                      >
+                        {f.pushedSha.slice(0, 7)}
+                      </span>
+                    )}
+                    <span className="flex-1" />
+                    {f.mode === 'review' && (
+                      <>
+                        <button
+                          aria-label="Post as PR comment"
+                          title={
+                            f.diffPath
+                              ? 'Post this finding as an inline PR comment'
+                              : 'No diff anchor — this finding cannot be an inline comment'
+                          }
+                          disabled={sessionId === null || actingId !== null || !f.diffPath}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                          onClick={() => void runAction(f.id, 'comment')}
+                        >
+                          <MessageSquarePlus size={13} />
+                        </button>
+                        <button
+                          aria-label="Apply change and push"
+                          title={
+                            !f.diffPath
+                              ? 'No diff anchor — this finding cites no code to change'
+                              : f.suggestedChange
+                                ? 'Apply the suggested change in the PR worktree and push it'
+                                : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
+                          }
+                          disabled={sessionId === null || actingId !== null || !f.diffPath}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                          onClick={() => void runAction(f.id, 'apply')}
+                        >
+                          <GitCommitVertical size={13} />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      aria-label="Mark finding good"
+                      aria-pressed={accepted}
+                      title="Good finding"
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                        accepted
+                          ? 'border-review bg-review/15 text-review'
+                          : 'border-hair2 text-mute hover:text-ink'
                       }`}
+                      onClick={() => void setReview(f.id, 'accepted')}
                     >
-                      {f.severity}
-                    </span>
-                  )}
-                  {f.commentUrl && (
-                    <a
-                      href={f.commentUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+                      <ThumbsUp size={13} />
+                    </button>
+                    <button
+                      aria-label="Mark finding not useful"
+                      aria-pressed={rejected}
+                      title="Not useful"
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                        rejected
+                          ? 'border-danger bg-danger/15 text-danger'
+                          : 'border-hair2 text-mute hover:text-ink'
+                      }`}
+                      onClick={() => void setReview(f.id, 'rejected')}
                     >
-                      commented
-                    </a>
-                  )}
-                  {f.pushedSha && (
-                    <span
-                      title={`Pushed ${f.pushedSha}`}
-                      className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
-                    >
-                      {f.pushedSha.slice(0, 7)}
-                    </span>
-                  )}
-                  <span className="flex-1" />
-                  {f.mode === 'review' && (
-                    <>
-                      <button
-                        aria-label="Post as PR comment"
-                        title={
-                          f.diffPath
-                            ? 'Post this finding as an inline PR comment'
-                            : 'No diff anchor — this finding cannot be an inline comment'
-                        }
-                        disabled={sessionId === null || actingId !== null || !f.diffPath}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
-                        onClick={() => void runAction(f.id, 'comment')}
-                      >
-                        <MessageSquarePlus size={13} />
-                      </button>
-                      <button
-                        aria-label="Apply change and push"
-                        title={
-                          !f.diffPath
-                            ? 'No diff anchor — this finding cites no code to change'
-                            : f.suggestedChange
-                              ? 'Apply the suggested change in the PR worktree and push it'
-                              : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
-                        }
-                        disabled={sessionId === null || actingId !== null || !f.diffPath}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
-                        onClick={() => void runAction(f.id, 'apply')}
-                      >
-                        <GitCommitVertical size={13} />
-                      </button>
-                    </>
-                  )}
-                  <button
-                    aria-label="Mark finding good"
-                    aria-pressed={accepted}
-                    title="Good finding"
-                    className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                      accepted
-                        ? 'border-review bg-review/15 text-review'
-                        : 'border-hair2 text-mute hover:text-ink'
-                    }`}
-                    onClick={() => void setReview(f.id, 'accepted')}
-                  >
-                    <ThumbsUp size={13} />
-                  </button>
-                  <button
-                    aria-label="Mark finding not useful"
-                    aria-pressed={rejected}
-                    title="Not useful"
-                    className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                      rejected
-                        ? 'border-danger bg-danger/15 text-danger'
-                        : 'border-hair2 text-mute hover:text-ink'
-                    }`}
-                    onClick={() => void setReview(f.id, 'rejected')}
-                  >
-                    <ThumbsDown size={13} />
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      ) : (
-        <p className="text-xs text-mute">
-          {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
-        </p>
-      )}
+                      <ThumbsDown size={13} />
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="text-xs text-mute">
+            {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
