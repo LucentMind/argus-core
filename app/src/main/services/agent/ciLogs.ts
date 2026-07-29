@@ -32,8 +32,8 @@ export const CI_LOG_FEEDBACK: PromptTextSpecs = {
   },
   'ci_logs.ok': {
     title: 'ci logs — fetched',
-    text: 'Fetched the log for "{name}" as evidence_id {id}. Read it with read_lines or grep_lines — do not paste it back in full.',
-    placeholders: ['name', 'id']
+    text: 'Fetched the log for "{name}" as evidence_id {id}, stored at {path}. Read it with read_lines or grep_lines — do not paste it back in full. Cite lines from it as [{path}:<line>] — that exact path prefix, not the evidence_id.',
+    placeholders: ['name', 'id', 'path']
   }
 }
 
@@ -94,7 +94,7 @@ export async function fetchCheckLogs(
   deps: CiLogDeps,
   caseSlug: string,
   checkName: string
-): Promise<{ evidenceId: number; text: string }> {
+): Promise<{ evidenceId: number; relPath: string; text: string }> {
   const binding = getBinding(deps.db, caseSlug)
   if (!binding) throw new Error(cf(deps, 'ci_logs.no-binding'))
 
@@ -144,5 +144,5 @@ export async function fetchCheckLogs(
     'ci',
     { prNumber: binding.number, checkName: check.name, jobId: check.jobId, url: check.url }
   )
-  return { evidenceId: rec.id, text }
+  return { evidenceId: rec.id, relPath: rec.relPath, text }
 }
