@@ -52,7 +52,18 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
     error: null,
     headCommit: null,
     lastSynced: null,
-    items: [],
+    items: [
+      {
+        kind: 'reference',
+        name: 'adasis.md',
+        description: '',
+        commit: 'abc',
+        installed: true,
+        installedCommit: 'abc',
+        localTier: 'hivemind',
+        updateAvailable: true
+      }
+    ],
     pushable: [],
     pushes
   }
@@ -70,6 +81,13 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-20T00:00:00.000Z',
       sourceCount: 3,
       stale: true
+    },
+    {
+      file: 'adasis.md',
+      tier: 'hivemind',
+      lastSynced: '2026-07-25T00:00:00.000Z',
+      sourceCount: 0,
+      stale: false
     }
   ]
 }
@@ -88,6 +106,7 @@ function mockArgus(): {
     push: ReturnType<typeof vi.fn>
     uninstallSkill: ReturnType<typeof vi.fn>
     uninstallReference: ReturnType<typeof vi.fn>
+    claimReference: ReturnType<typeof vi.fn>
   }
   sourceControl: { status: ReturnType<typeof vi.fn> }
   refsync: {
@@ -145,7 +164,8 @@ function mockArgus(): {
         .fn()
         .mockResolvedValue({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/12' }),
       uninstallSkill: vi.fn().mockResolvedValue(hivePayload({})),
-      uninstallReference: vi.fn().mockResolvedValue(hivePayload({}))
+      uninstallReference: vi.fn().mockResolvedValue(hivePayload({})),
+      claimReference: vi.fn().mockResolvedValue(hivePayload({}))
     },
     sourceControl: { status: vi.fn().mockResolvedValue(ghOk) },
     access: {
@@ -335,7 +355,7 @@ describe('LibraryPage merged list', () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
     expect(screen.getAllByText('skill').length).toBeGreaterThanOrEqual(4)
-    expect(screen.getAllByText('reference').length).toBe(2)
+    expect(screen.getAllByText('reference').length).toBe(3)
   })
 
   it('clicking a reference row opens the markdown viewer', async () => {
@@ -398,5 +418,41 @@ describe('LibraryPage merged list', () => {
     render(<LibraryPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'open · team-tips.md' }))
     expect(await screen.findByText('Team tips')).toBeInTheDocument()
+  })
+})
+
+describe('LibraryPage claim', () => {
+  it('a hivemind reference offers Claim and calls through after confirm', async () => {
+    render(<LibraryPage />)
+    const btn = await screen.findByRole('button', { name: 'Claim · adasis.md' })
+    fireEvent.click(btn)
+    await waitFor(() => expect(argus.hivemind.claimReference).toHaveBeenCalledWith('adasis.md'))
+    expect(confirm).toHaveBeenCalled()
+  })
+
+  it('a declined confirm claims nothing', async () => {
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim · adasis.md' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(argus.hivemind.claimReference).not.toHaveBeenCalled()
+  })
+
+  it('a confluence reference offers no Claim', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('nav-runbook.md')
+    expect(screen.queryByRole('button', { name: 'Claim · nav-runbook.md' })).toBeNull()
+  })
+
+  it('an upstream update shows on the row', async () => {
+    render(<LibraryPage />)
+    expect(await screen.findByText('update')).toBeInTheDocument()
+  })
+
+  it('a failed claim surfaces in the alert banner', async () => {
+    argus.hivemind.claimReference = vi.fn().mockRejectedValue(new Error('claim exploded'))
+    render(<LibraryPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim · adasis.md' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/claim exploded/)
   })
 })
