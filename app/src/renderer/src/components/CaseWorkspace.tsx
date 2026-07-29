@@ -14,7 +14,7 @@ import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraRefreshButton } from './JiraRefreshButton'
-import { MenuButton, SectionLabel } from './ui'
+import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
@@ -474,17 +474,15 @@ export function CaseWorkspace({
               mode={activeMode}
               onAnalyze={(checkName) => void analyzeCheck(checkName)}
             />
-            <SectionLabel>
-              {activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
-            </SectionLabel>
             {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
             {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
-            {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when
+            {/* key: reset per-case state (scan result, collapsed dirs, parsing set) when
                 switching cases or modes — investigation evidence and review artifacts are
                 disjoint lists */}
             <CaseFiles
               key={`${slug}:${activeMode}`}
               caseSlug={slug}
+              label={activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
               mode={activeMode}
               onSuggest={setPrefill}
               onOpenFile={onOpenFile}
