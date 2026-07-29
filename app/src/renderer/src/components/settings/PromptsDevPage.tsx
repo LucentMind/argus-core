@@ -8,6 +8,7 @@ import {
   type PromptEntryView,
   type PromptPreview
 } from '../../../../shared/promptsIpc'
+import type { DistillEvalExportResult } from '../../../../shared/distillEval'
 import { SettingsSection, SelectField, TEXTAREA_FIELD } from './settingsLayout'
 import { Chip } from '../ui'
 import { confirm } from '../../lib/confirmStore'
@@ -454,6 +455,7 @@ export function PromptsDevPage(): React.JSX.Element {
   // hiding the entries they're looking at.
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [tab, setTab] = useState<'catalog' | 'preview' | 'capture'>('catalog')
+  const [exportResult, setExportResult] = useState<DistillEvalExportResult | null>(null)
 
   useEffect(() => {
     const reload = (): void => {
@@ -532,6 +534,36 @@ export function PromptsDevPage(): React.JSX.Element {
       {tab === 'catalog' && <CatalogTab catalog={catalog} onSave={save} onReset={reset} />}
       {tab === 'preview' && <PreviewTab modes={catalog.modes} />}
       {tab === 'capture' && <CaptureTab />}
+      <SettingsSection title="Distill eval export">
+        <div className="flex flex-col gap-2 px-2 py-2 text-xs">
+          <p className="text-dim">
+            Bundles each case&apos;s latest fully-reviewed distill job — full input snapshot, raw
+            output, prompt hash, and accept/reject labels — into an NDJSON file for the in-repo eval
+            harness (tools/distill-eval). Snapshots contain raw case data: treat the file as
+            sensitive and commit it only to the private evals repo.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-r2 border border-hair px-2 py-1 text-xs text-ink"
+              onClick={() =>
+                void window.argus.devPrompts
+                  .exportDistillEval()
+                  .then((r) => setExportResult(r))
+                  .catch((e: Error) => setMutationError(e.message))
+              }
+            >
+              Export distill eval bundle
+            </button>
+            {exportResult && (
+              <span className="font-mono text-[11px] text-mute">
+                {exportResult.exported} job{exportResult.exported === 1 ? '' : 's'} →{' '}
+                {exportResult.path}
+                {exportResult.skipped.length > 0 && ` · ${exportResult.skipped.length} skipped`}
+              </span>
+            )}
+          </div>
+        </div>
+      </SettingsSection>
     </div>
   )
 }

@@ -33,6 +33,7 @@ import type {
   PromptCaptureListPayload,
   PromptCaptureDetail
 } from '../shared/promptsIpc'
+import type { DistillEvalExportResult } from '../shared/distillEval'
 import type {
   JiraAttachmentInfo,
   JiraAttachmentProgress,
@@ -48,7 +49,12 @@ import type {
   BundleWorkspaceRef
 } from '../shared/bundle'
 import type { HivemindCheckResult, HivemindPayload, HivemindPushResult } from '../shared/hivemind'
-import type { AcceptedTarget, ProposalCounts, ProposalsPayload, RejectReason } from '../shared/proposals'
+import type {
+  AcceptedTarget,
+  ProposalCounts,
+  ProposalsPayload,
+  RejectReason
+} from '../shared/proposals'
 import type {
   RefSyncPayload,
   SyncReport,
@@ -551,6 +557,8 @@ const argus = {
     captures: (): Promise<PromptCaptureListPayload> => ipcRenderer.invoke(IPC.devPromptsCaptures),
     capture: (caseSlug: string, sessionId: number): Promise<PromptCaptureDetail | null> =>
       ipcRenderer.invoke(IPC.devPromptsCapture, caseSlug, sessionId),
+    exportDistillEval: (): Promise<DistillEvalExportResult | null> =>
+      ipcRenderer.invoke(IPC.devPromptsExportDistillEval),
     onChanged: (cb: (ids: string[]) => void): (() => void) => {
       const listener = (_e: unknown, ids: string[]): void => cb(ids)
       ipcRenderer.on(IPC.devPromptsChanged, listener)

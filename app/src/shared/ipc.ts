@@ -111,6 +111,7 @@ export const IPC = {
   devPromptsResolve: 'dev-prompts:resolve',
   devPromptsCaptures: 'dev-prompts:captures',
   devPromptsCapture: 'dev-prompts:capture',
+  devPromptsExportDistillEval: 'dev-prompts:export-distill-eval',
   /** main → renderer: active override ids changed; the banner and the page both re-read. */
   devPromptsChanged: 'dev-prompts:changed',
   bundleExport: 'bundle:export',
