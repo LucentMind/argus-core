@@ -315,17 +315,7 @@ export function CaseFiles({
   }
 
   return (
-    <section
-      onDragOver={(e) => {
-        e.preventDefault()
-        setDragOver(true)
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => void handleDrop(e)}
-      className={`flex flex-col gap-2 rounded-r3 border bg-panel p-3 transition-colors ${
-        dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
-      }`}
-    >
+    <section className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <SectionLabel>{label}</SectionLabel>
         <span className="h-px flex-1 bg-hair" />
@@ -359,14 +349,28 @@ export function CaseFiles({
         </button>
       </div>
       {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
-      <ul className="text-xs">
-        {visible.map(renderRow)}
-        {visible.length === 0 && (
-          <li className="border-t border-hair py-2 text-mute">No evidence yet.</li>
-        )}
-      </ul>
-      <div className="mt-1 border-t border-dashed border-hair pt-2 text-center text-[11px] text-mute">
-        Drop files here to add evidence
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => void handleDrop(e)}
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 border bg-panel transition-colors ${
+          dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
+        }`}
+      >
+        <ul className="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
+          {visible.map(renderRow)}
+          {visible.length === 0 && <li className="py-2 text-mute">No evidence yet.</li>}
+        </ul>
+        <div
+          className={`flex h-6 shrink-0 items-center justify-center border-t border-dashed text-[10px] transition-colors ${
+            dragOver ? 'border-signal/60 text-signal' : 'border-hair text-mute'
+          }`}
+        >
+          drop files to add evidence
+        </div>
       </div>
     </section>
   )
