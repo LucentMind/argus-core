@@ -6,6 +6,7 @@ import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/
 import {
   ARTIFACTS_PREFIX,
   dirForMode,
+  scopeOfRelPath,
   sidecarRelPath,
   type CaseSubdir,
   type EvidenceScope
@@ -277,8 +278,9 @@ export function updateEvidenceContent(
 }
 
 /**
- * Register a file already living under evidence/ (e.g. evidence/.derived/<name>)
- * in place — no copy. Used by the extraction pipeline for derived text.
+ * Register a file already living in the parent's tree (e.g. evidence/.derived/<name> or
+ * artifacts/.derived/<name>) in place — no copy. Used by the extraction pipeline for
+ * derived text.
  */
 export function ingestDerived(
   db: DatabaseSync,
@@ -289,15 +291,21 @@ export function ingestDerived(
 ): EvidenceRecord {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-  const evidenceDir = path.join(caseDir(argusHome, caseSlug), 'evidence')
-  const rel = path.relative(evidenceDir, absPath)
-  if (rel.startsWith('..')) throw new Error(`Derived file must live under evidence/: ${absPath}`)
+  // The derived file belongs to whichever tree its parent lives in — a CI log's extracted
+  // text is review material exactly as the log is.
+  const parent = listEvidence(db, caseSlug, 'all').find((e) => e.id === derivedFromId)
+  if (!parent) throw new Error(`Unknown parent evidence ${derivedFromId} for case ${caseSlug}`)
+  const parentDir = dirForMode(scopeOfRelPath(parent.relPath))
+  const baseDir = path.join(caseDir(argusHome, caseSlug), parentDir)
+  const rel = path.relative(baseDir, absPath)
+  if (rel.startsWith('..'))
+    throw new Error(`Derived file must live under ${parentDir}/: ${absPath}`)
 
   const sha256 = sha256File(absPath)
   const size = fs.statSync(absPath).size
   const now = new Date().toISOString()
   const meta = { derivedFrom: derivedFromId, indexed: true }
-  const relPath = `evidence/${rel.split(path.sep).join('/')}`
+  const relPath = `${parentDir}/${rel.split(path.sep).join('/')}`
 
   const res = db
     .prepare(
@@ -319,8 +327,9 @@ export function ingestDerived(
     meta,
     createdAt: now
   }
-  fs.mkdirSync(path.join(evidenceDir, '.meta', path.dirname(rel)), { recursive: true })
-  fs.writeFileSync(path.join(evidenceDir, '.meta', `${rel}.json`), JSON.stringify(record, null, 2))
+  const sidecarAbs = path.join(caseDir(argusHome, caseSlug), ...sidecarRelPath(relPath).split('/'))
+  fs.mkdirSync(path.dirname(sidecarAbs), { recursive: true })
+  fs.writeFileSync(sidecarAbs, JSON.stringify(record, null, 2))
   return record
 }
 
