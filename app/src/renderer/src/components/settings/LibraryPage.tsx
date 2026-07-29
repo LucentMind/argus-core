@@ -1,5 +1,5 @@
 import { useEffect, useState, Fragment } from 'react'
-import { Share2, Trash2 } from 'lucide-react'
+import { HandGrab, Share2, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { ProposalsBanner } from './ProposalsBanner'
@@ -98,7 +98,7 @@ export function LibraryPage({
   // one dialog serves both kinds — keyed `${kind}/${name}` like push receipts
   const [sharing, setSharing] = useState<string | null>(null)
   const [sharePushing, setSharePushing] = useState(false)
-  const { shareReady, shareTip, pushes, refresh: refreshShare } = useSharePush()
+  const { shareReady, shareTip, pushes, hiveItems, refresh: refreshShare } = useSharePush()
   const [kind, setKind] = useState<'all' | LibraryKind>(initialKind ?? 'all')
   const [query, setQuery] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<GroupId>>(new Set())
@@ -212,6 +212,25 @@ export function LibraryPage({
       if (handOwned) await window.argus.refsync.deleteRef(r.file)
       else await window.argus.hivemind.uninstallReference(r.file)
       // list refresh arrives via the refsync:changed broadcast (main-side, Task 2)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  /** Restamp a hive-installed reference as the user's own — it moves to Yours and becomes pushable. */
+  async function claimReference(r: ReferenceStatus): Promise<void> {
+    const ok = await confirm({
+      title: `Claim "${r.file}"?`,
+      message:
+        'It becomes yours: editable, deletable, and shareable — and it stops tracking HiveMind updates.',
+      confirmLabel: 'Claim'
+    })
+    if (!ok) return
+    setError(null)
+    try {
+      await window.argus.hivemind.claimReference(r.file)
+      refreshShare()
+      // the reference list refresh arrives via the refsync:changed broadcast
     } catch (err) {
       setError((err as Error).message)
     }
@@ -334,6 +353,8 @@ export function LibraryPage({
     const receipt = pushes[`reference/${r.file}`]
     const canShare = r.tier !== null && (PUSHABLE_TIERS as readonly string[]).includes(r.tier)
     const u = refUsage?.get(r.file)
+    const hive = hiveItems.get(`reference/${r.file}`)
+    const canClaim = r.tier === 'hivemind' && (hive?.installed ?? true)
     return (
       <Fragment key={`reference/${r.file}`}>
         <SettingRow
@@ -356,11 +377,23 @@ export function LibraryPage({
             <>
               <Chip tone="neutral">reference</Chip>
               {r.tier !== null && groupOf(r.tier) !== 'built-in' && <TierBadge tier={r.tier} />}
+              {hive?.updateAvailable && <Chip tone="review">update</Chip>}
               {r.stale && <Chip tone="danger">stale</Chip>}
               {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
             </>
           }
         >
+          {canClaim && (
+            <Btn
+              variant="outline"
+              aria-label={`Claim · ${r.file}`}
+              title="Make this yours — editable, deletable, shareable"
+              onClick={() => void claimReference(r)}
+            >
+              <HandGrab size={13} aria-hidden="true" />
+              Claim
+            </Btn>
+          )}
           {groupOf(r.tier) !== 'built-in' && (
             <Reveal>
               <Btn
