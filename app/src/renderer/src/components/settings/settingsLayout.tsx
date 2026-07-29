@@ -48,6 +48,7 @@ export function DisclosureBtn({
 
 export function SettingsSection({
   title,
+  subtitle,
   action,
   count,
   collapsed,
@@ -55,6 +56,8 @@ export function SettingsSection({
   children
 }: {
   title: string
+  /** Supporting copy under the header — states what the section's rows have in common. */
+  subtitle?: string
   /** Controls rendered on the section header line, right-aligned (e.g. a refresh button). */
   action?: ReactNode
   /** Item count shown beside the title in collapsible mode. */
@@ -94,6 +97,7 @@ export function SettingsSection({
         )}
         {action}
       </div>
+      {subtitle && <p className="text-xs text-mute">{subtitle}</p>}
       {!collapsed && <Card className="flex flex-col divide-y divide-hair">{children}</Card>}
     </section>
   )

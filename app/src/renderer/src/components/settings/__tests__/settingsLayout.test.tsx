@@ -49,4 +49,32 @@ describe('SettingsSection collapse', () => {
     expect(screen.queryByText('row content')).toBeNull()
     expect(btn).toHaveAttribute('aria-expanded', 'false')
   })
+
+  it('renders a subtitle below the header when given one', () => {
+    render(
+      <SettingsSection title="Yours" subtitle="You own these." collapsed={false} onToggle={vi.fn()}>
+        <div>child</div>
+      </SettingsSection>
+    )
+    expect(screen.getByText('You own these.')).toBeInTheDocument()
+  })
+
+  it('renders no subtitle element when the prop is omitted', () => {
+    const { container } = render(
+      <SettingsSection title="Yours" collapsed={false} onToggle={vi.fn()}>
+        <div>child</div>
+      </SettingsSection>
+    )
+    expect(container.querySelector('p.text-xs')).toBeNull()
+  })
+
+  it('keeps the subtitle visible while the section is collapsed', () => {
+    render(
+      <SettingsSection title="Yours" subtitle="You own these." collapsed onToggle={vi.fn()}>
+        <div>child</div>
+      </SettingsSection>
+    )
+    expect(screen.getByText('You own these.')).toBeInTheDocument()
+    expect(screen.queryByText('child')).toBeNull()
+  })
 })
