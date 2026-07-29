@@ -51,6 +51,18 @@ describe('resolveRepoTree', () => {
     const wt = await ensureWorktree(argusHome, 'NAV-1', repo, 'main')
     expect(resolveRepoTree(db, argusHome, 'NAV-1', 'myrepo')).toBe(wt)
   })
+
+  // Findings cite the remote-derived repo name (the review prompt pins it), but a clone can
+  // live in any folder. Found live 2026-07-29: folder `hmt-clone`, citations `HiveMindTest/...`
+  // → every preview said "repo not linked". Renderer twin of this rule: reposStore.ts.
+  it('matches the remote-derived repo name when the folder is named differently', async () => {
+    git(repo, 'remote', 'add', 'origin', 'https://github.com/acme/WidgetFactory.git')
+    createCase(db, argusHome, { slug: 'NAV-2', title: 'remote name' })
+    await linkWorkspace(db, argusHome, 'NAV-2', repo)
+    expect(resolveRepoTree(db, argusHome, 'NAV-2', 'WidgetFactory')).toBe(repo)
+    expect(resolveRepoTree(db, argusHome, 'NAV-2', 'widgetfactory')).toBe(repo)
+    expect(resolveRepoTree(db, argusHome, 'NAV-2', 'myrepo')).toBe(repo) // basename still works
+  })
 })
 
 describe('readRepoSnippet', () => {

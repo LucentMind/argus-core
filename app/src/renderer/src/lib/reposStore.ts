@@ -1,25 +1,10 @@
-import { remoteToOwnerRepo } from '../../../shared/pr'
+import { remoteRepoName } from '../../../shared/pr'
 
 export interface CaseRepos {
   names: string[]
 }
 
 const EMPTY: CaseRepos = { names: [] }
-
-/** The repo name a remote url implies: `HiveMindTest` for
- *  `https://github.com/JiaweiHan88/HiveMindTest.git` (any GitHub remote shape via
- *  remoteToOwnerRepo), last path segment minus `.git` for other hosts. */
-function remoteRepoName(remote: string | null | undefined): string | null {
-  if (!remote) return null
-  const gh = remoteToOwnerRepo(remote)
-  if (gh) return gh.repo
-  const base =
-    remote
-      .split('/')
-      .pop()
-      ?.replace(/\.git$/, '') ?? ''
-  return base.length > 0 ? base : null
-}
 
 /** Per-case linked-repo names — the dynamic citation domain. For each linked
  *  workspace this carries BOTH the directory basename and the remote-derived
