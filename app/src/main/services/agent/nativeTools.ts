@@ -33,7 +33,7 @@ import {
   type ReviewSeverity
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
-import { postReviewComment, pushReviewChange } from './reviewWrites'
+import { postReviewComment, prWorktreeHead, pushReviewChange, type GitRunner } from './reviewWrites'
 import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
 
@@ -67,6 +67,8 @@ export interface NativeToolDeps {
   onWorktreeChanged?: (caseSlug: string) => void
   /** gh runner for the review write tools. Injected in tests; production uses the default. */
   gh?: Runner
+  /** git runner for head_sha stamping at record time. Injected in tests; production default. */
+  git?: GitRunner
   /** Fired after a write action mutates a finding row, so the findings pane refetches. */
   emitFindingUpdated?: (findingId: number) => void
 }
@@ -182,6 +184,10 @@ export function appendFinding(
     severity?: ReviewSeverity
     /** The concrete fix, when the agent has one. Null on a finding that only reports. */
     suggestedChange?: string
+    /** Author-facing prose for the Post-comment mechanism (Plan 6 §1). */
+    commentBody?: string
+    /** PR head sha this finding was recorded against; computed by the async caller. */
+    headSha?: string
   }
 ): { findingId: number; block: string } {
   // Validate BEFORE the insert: a rejected finding must leave no row and no findings.md block.
@@ -216,8 +222,8 @@ export function appendFinding(
   // FindingsPane an exact row↔block join (see findings.ts parseFindingBodies).
   const res = ctx.db
     .prepare(
-      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line, suggested_change)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line, suggested_change, comment_body, head_sha)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       ctx.caseId,
@@ -229,7 +235,9 @@ export function appendFinding(
       input.severity ?? null,
       anchor?.path ?? null,
       anchor?.line ?? null,
-      input.suggestedChange ?? null
+      input.suggestedChange ?? null,
+      input.commentBody ?? null,
+      input.headSha ?? null
     )
   const findingId = Number(res.lastInsertRowid)
   const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
@@ -359,6 +367,12 @@ export function argusToolHandlers(
     },
 
     async append_finding(args) {
+      // Best-effort staleness stamp: in review mode with a materialized PR worktree this is
+      // the sha under review; everywhere else it resolves to null and costs one no-op lookup.
+      const headSha = await prWorktreeHead(
+        { db, argusHome, git: deps.git, resolve: deps.resolve },
+        caseSlug
+      )
       const { block } = appendFinding(
         {
           db,
@@ -376,7 +390,9 @@ export function argusToolHandlers(
           ...(args.severity === undefined ? {} : { severity: args.severity as ReviewSeverity }),
           ...(args.suggested_change === undefined
             ? {}
-            : { suggestedChange: String(args.suggested_change) })
+            : { suggestedChange: String(args.suggested_change) }),
+          ...(args.comment_body === undefined ? {} : { commentBody: String(args.comment_body) }),
+          ...(headSha === null ? {} : { headSha })
         }
       )
       deps.emitFinding(block)
@@ -612,13 +628,14 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — and suggested_change when you know the concrete fix, which is what the user's Apply action will implement.",
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment.",
     schema: {
       title: z.string(),
       markdown: z.string(),
       layer: z.enum(REVIEW_LAYER_ORDER as [string, ...string[]]).optional(),
       severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional(),
-      suggested_change: z.string().optional()
+      suggested_change: z.string().optional(),
+      comment_body: z.string().optional()
     }
   },
   {

@@ -186,6 +186,28 @@ export function worktreeFor(
 }
 
 /**
+ * The PR worktree's current HEAD — the sha a review-mode finding is recorded against
+ * (Plan 6 staleness). Null (never a throw) when the case has no binding, the binding has no
+ * materialized worktree, or git fails: a finding must still record without it.
+ */
+export async function prWorktreeHead(
+  deps: ReviewWriteDeps,
+  caseSlug: string
+): Promise<string | null> {
+  const binding = getBinding(deps.db, caseSlug)
+  if (!binding) return null
+  const wt = worktreeFor(deps, caseSlug, binding)
+  if (!wt) return null
+  const git = deps.git ?? defaultGitRunner
+  try {
+    return await git(wt, ['rev-parse', 'HEAD'], { timeoutMs: GIT_TIMEOUT_MS })
+  } catch (err) {
+    console.warn(`[review] prWorktreeHead failed for ${caseSlug}: ${(err as Error).message}`)
+    return null
+  }
+}
+
+/**
  * Parse `pr` into `{owner, repo, number}`. The composed prompt tells the agent `owner/repo#number`
  * (reviewActions.ts), but reuses `shared/pr.ts`'s `parsePrRef` rather than a bespoke regex — it
  * already accepts that form AND a full PR url (the exact string the prompt hands the agent to
