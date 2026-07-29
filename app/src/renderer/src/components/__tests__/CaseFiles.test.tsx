@@ -314,6 +314,15 @@ describe('CaseFiles', () => {
       expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'investigation')
     )
   })
+
+  it('switching modes refetches the list for the new mode', async () => {
+    const { rerender } = render(<CaseFiles caseSlug="c1" mode="investigation" {...requiredProps} />)
+    await waitFor(() =>
+      expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'investigation')
+    )
+    rerender(<CaseFiles caseSlug="c1" mode="review" {...requiredProps} />)
+    await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'review'))
+  })
 })
 
 const openInFixture: EvidenceRecord[] = [
