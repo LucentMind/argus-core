@@ -44,7 +44,6 @@ export function FindingsPane({
   activeMode: ModeId
   onCite: (cite: CiteTarget) => void
 }): React.JSX.Element {
-  const [md, setMd] = useState('')
   const [findings, setFindings] = useState<FindingRow[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
@@ -61,10 +60,6 @@ export function FindingsPane({
     () => reposStore.get(slug)
   ).names
   useEffect(() => {
-    // readFindings is kept only to gate the Clear button (stray findings.md
-    // content with no rows should still be clearable); per-finding bodies come
-    // from findings.list now, not this blob.
-    void window.argus.cases.readFindings(slug).then(setMd)
     void window.argus.findings.list(slug).then(setFindings)
   }, [slug, sessionId, bump])
 
@@ -96,11 +91,14 @@ export function FindingsPane({
     }
   }
 
+  // Findings are case-scoped in the DB but mode-scoped on screen (see the activeMode prop doc).
+  const modeFindings = findings.filter((f) => f.mode === activeMode)
+
   async function clearAll(): Promise<void> {
-    const count = findings.filter((f) => f.mode === activeMode).length
+    const count = modeFindings.length
     const ok = await confirm({
       title: `Clear all ${activeMode} findings for this case?`,
-      message: `${count} finding${count === 1 ? '' : 's'} and their findings.md entries are removed. ${
+      message: `${count} finding${count === 1 ? '' : 's'} and the matching findings.md sections are removed. ${
         activeMode === 'review' ? 'Investigation' : 'Review'
       } findings are untouched.`,
       confirmLabel: 'Clear all',
@@ -114,12 +112,8 @@ export function FindingsPane({
       setClearError((err as Error).message)
     } finally {
       await window.argus.findings.list(slug).then(setFindings)
-      await window.argus.cases.readFindings(slug).then(setMd)
     }
   }
-
-  // the seeded file is just "# Findings — <slug>" — nothing worth clearing
-  const hasBody = md.split('\n').some((l) => l.trim() !== '' && !/^#\s/.test(l.trim()))
 
   // Most-severe first, matching how the review persona is told to rank. Unflavored
   // (investigation) findings sort after every severity, then newest-first as before — the list
@@ -127,10 +121,6 @@ export function FindingsPane({
   const SEVERITY_RANK: Record<string, number> = { critical: 0, major: 1, minor: 2 }
   const rank = (f: FindingRow): number =>
     f.severity ? SEVERITY_RANK[f.severity] : Object.keys(SEVERITY_RANK).length
-
-  // Findings are case-scoped in the DB but mode-scoped on screen: an investigation finding must
-  // not bleed into a review pane and vice versa.
-  const modeFindings = findings.filter((f) => f.mode === activeMode)
 
   // Chips for layers actually present: a filter for a layer with no findings is a dead control.
   const presentLayers = REVIEW_LAYER_ORDER.filter((id) => modeFindings.some((f) => f.layer === id))
@@ -155,7 +145,7 @@ export function FindingsPane({
           {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
         </SectionLabel>
         <div className="flex items-center gap-1">
-          {(modeFindings.length > 0 || hasBody) && (
+          {modeFindings.length > 0 && (
             <button
               aria-label="Clear findings"
               title="Clear all findings"

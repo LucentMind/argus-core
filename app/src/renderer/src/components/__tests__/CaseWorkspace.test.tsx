@@ -819,6 +819,8 @@ describe('evidence section per mode', () => {
     expect(await screen.findByText('Code review artifacts')).toBeInTheDocument()
     expect(screen.queryByText('Evidence')).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/search evidence/i)).not.toBeInTheDocument()
+    // CaseFiles itself (the files list) still renders under the relabeled section.
+    expect(screen.getByLabelText('type-filter')).toBeInTheDocument()
   })
 
   it('investigation mode: Evidence label and search stay', async () => {

@@ -161,7 +161,7 @@ describe('FindingsPane', () => {
       expect.objectContaining({
         title: 'Clear all investigation findings for this case?',
         message:
-          '1 finding and their findings.md entries are removed. Review findings are untouched.'
+          '1 finding and the matching findings.md sections are removed. Review findings are untouched.'
       })
     )
     await waitFor(() =>
@@ -233,6 +233,13 @@ describe('FindingsPane', () => {
         expect.objectContaining({ title: 'Clear all review findings for this case?' })
       )
       expect(window.argus.findings.clear).toHaveBeenCalledWith('c1', 'review')
+    })
+
+    it('shows no clear button when the active mode has no findings, even if the other mode does', async () => {
+      list.mockResolvedValue([row({ id: 1, summary: 'triage finding', mode: 'investigation' })])
+      render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
+      await screen.findByText('No findings yet.')
+      expect(screen.queryByRole('button', { name: 'Clear findings' })).not.toBeInTheDocument()
     })
 
     it('keeps the header and filter chips outside the scrolling list region', async () => {
