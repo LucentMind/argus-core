@@ -65,26 +65,11 @@ const prApi = (): Record<string, ReturnType<typeof vi.fn>> =>
   window.argus.pr as unknown as Record<string, ReturnType<typeof vi.fn>>
 
 describe('ReposSection pull requests', () => {
-  it('renders a bound PR as an owner/repo#N chip', async () => {
+  it('does not list bound pull requests — the Pull request section owns that', async () => {
     prApi().list = vi.fn(async () => [BINDING])
     render(<ReposSection slug="C-1" />)
-    expect(await screen.findByText(/JiaweiHan88\/hivemindtest#16315/)).toBeTruthy()
-  })
-
-  it('opens the pull request in the browser when the chip is clicked', async () => {
-    prApi().list = vi.fn(async () => [BINDING])
-    render(<ReposSection slug="C-1" />)
-    const chip = await screen.findByRole('button', {
-      name: 'Open pull request JiaweiHan88/hivemindtest#16315 on GitHub'
-    })
-    fireEvent.click(chip)
-    expect(window.argus.openExternal).toHaveBeenCalledWith(BINDING.url)
-  })
-
-  it('renders no PR section at all when nothing is bound', async () => {
-    render(<ReposSection slug="C-1" />)
-    await screen.findByText('hivemindtest') // section rendered, PRs empty
-    expect(screen.queryByText(/pull requests/i)).toBeNull()
+    await screen.findByText('hivemindtest')
+    expect(screen.queryByText(/JiaweiHan88\/hivemindtest#16315/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Unlink PR' })).toBeNull()
   })
 
@@ -237,16 +222,6 @@ describe('ReposSection pull requests', () => {
     await waitFor(() => expect(prApi().search).toHaveBeenCalledWith('C-1'))
     await waitFor(() => expect(onFound).toHaveBeenCalledWith(result))
   })
-
-  it('unlinks a PR by its binding id and refreshes', async () => {
-    prApi().list = vi.fn(async () => [BINDING])
-    render(<ReposSection slug="C-1" />)
-    await screen.findByText(/JiaweiHan88\/hivemindtest#16315/)
-    const before = prApi().list.mock.calls.length
-    fireEvent.click(screen.getByRole('button', { name: 'Unlink PR' }))
-    await waitFor(() => expect(prApi().unlink).toHaveBeenCalledWith('C-1', 3))
-    await waitFor(() => expect(prApi().list.mock.calls.length).toBeGreaterThan(before))
-  })
 })
 
 describe('ReposSection mode gating', () => {
@@ -261,12 +236,6 @@ describe('ReposSection mode gating', () => {
     render(<ReposSection slug="C-1" mode="investigation" />)
     await screen.findByText('hivemindtest')
     expect(screen.getByRole('button', { name: 'Unlink repo' })).toBeInTheDocument()
-  })
-
-  it('keeps the unlink-PR button in review mode (switching PRs is a review operation)', async () => {
-    prApi().list = vi.fn(async () => [BINDING])
-    render(<ReposSection slug="C-1" mode="review" />)
-    expect(await screen.findByRole('button', { name: 'Unlink PR' })).toBeInTheDocument()
   })
 })
 
