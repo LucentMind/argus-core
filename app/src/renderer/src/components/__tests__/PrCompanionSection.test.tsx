@@ -80,8 +80,11 @@ describe('PrCompanionSection', () => {
     expect(screen.getByText(/review required/i)).toBeInTheDocument()
     expect(screen.getByText('build')).toBeInTheDocument()
     expect(screen.getByText('ci/circleci')).toBeInTheDocument()
-    // lint passed, so it starts folded behind the disclosure rather than sitting loose.
-    await userEvent.click(screen.getByRole('button', { name: /passed/i }))
+    // lint passed, so it starts folded behind the disclosure rather than sitting loose. The
+    // fixture has no required checks, so groupChecks emits the single unlabelled group — the
+    // accessible name has no "in <group>" suffix to name.
+    const disclosure = screen.getByRole('button', { name: 'Show 1 passed checks' })
+    await userEvent.click(disclosure)
     expect(await screen.findByText('lint')).toBeInTheDocument()
   })
 
@@ -100,6 +103,26 @@ describe('PrCompanionSection', () => {
     expect(window.argus.pr.unlink).toHaveBeenCalledWith('c1', 3)
   })
 
+  // Whether the bound PR has a local checkout governs analyze and checkout flows in review
+  // mode — the old ReposSection chip said so via "· no local clone"; PrStatus (what the subject
+  // line renders from) carries no repoPath, so the qualifier has to come from the binding.
+  it('notes when the bound pull request has no local clone', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    // BINDING (the beforeEach default) has repoPath: null; wait for the binding fetch to
+    // resolve via a control that only renders once it has (the unlink button).
+    await screen.findByRole('button', { name: 'Unlink pull request' })
+    expect(screen.getByText('no local clone')).toBeInTheDocument()
+  })
+
+  it('omits the no-local-clone note once the bound pull request has a local clone', async () => {
+    ;(window.argus as unknown as { pr: { list: ReturnType<typeof vi.fn> } }).pr.list = vi.fn(
+      async () => [{ ...BINDING, repoPath: 'C:\\repos\\widget' }]
+    )
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    await screen.findByRole('button', { name: 'Unlink pull request' })
+    expect(screen.queryByText('no local clone')).not.toBeInTheDocument()
+  })
+
   // beforeEach stubs statusRefresh to return {} — exactly what the real service does for a case
   // with no binding (refreshPrStatuses skips it rather than caching empty). That's what exposed
   // the bug: refresh([slug]) after unlink left the stale cached status in place because
@@ -113,10 +136,16 @@ describe('PrCompanionSection', () => {
     expect(await screen.findByText(/no pull request bound/i)).toBeInTheDocument()
   })
 
-  it('puts the empty state where the subject line goes', () => {
+  it('puts the empty state where the subject line goes', async () => {
     prStatusStore.hydrate({})
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getByText(/no pull request bound/i)).toBeInTheDocument()
+    // beforeEach's pr.list resolves a binding even though no status is cached yet — exactly
+    // the contradictory state this test used to render without noticing. Flush the binding
+    // fetch so this checks the state once it has actually loaded, not just before the promise
+    // settles: the unlink control must not show beside a message saying nothing is bound.
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole('button', { name: 'Unlink pull request' })).not.toBeInTheDocument()
   })
 
   // One render per test: every mount subscribes to the shared prStatusStore, so a re-hydrate
@@ -273,6 +302,20 @@ describe('PrCompanionSection', () => {
     const names = await screen.findAllByText(/^(lint|build|codeql|build-mac)$/)
     // Required first, GitHub's order preserved inside each group.
     expect(names.map((el) => el.textContent)).toEqual(['build', 'build-mac', 'lint', 'codeql'])
+  })
+
+  // With both groups holding passes, a screen-reader user otherwise meets two buttons both
+  // named "passed · N" — distinguishable only by the preceding heading, which an accessible
+  // name must not depend on.
+  it('gives each group’s disclosure a distinct accessible name naming its group', () => {
+    prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(
+      screen.getByRole('button', { name: 'Show 1 passed checks in Required' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Show 2 passed checks in Not blocking merge' })
+    ).toBeInTheDocument()
   })
 
   it('keeps every group inside the one check list container, headers included', () => {

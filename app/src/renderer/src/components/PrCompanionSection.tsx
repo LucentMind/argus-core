@@ -158,6 +158,11 @@ function CheckGroup({
           <button
             type="button"
             aria-expanded={showPassed}
+            aria-label={
+              label
+                ? `Show ${passed.length} passed checks in ${label}`
+                : `Show ${passed.length} passed checks`
+            }
             className="flex h-7 items-center gap-1.5 rounded-r1 px-1.5 text-[11px] text-mute transition-colors hover:bg-hair/60"
             onClick={() => setShowPassed((v) => !v)}
           >
@@ -238,7 +243,7 @@ export function PrCompanionSection({
           Pull request
           {status && <PrRollupDot rollup={status.rollup} />}
           <span className="flex-1" />
-          {binding && (
+          {binding && status && (
             <IconBtn
               aria-label="Unlink pull request"
               title="Unlink pull request"
@@ -279,6 +284,9 @@ export function PrCompanionSection({
               {status.isDraft ? 'draft · ' : ''}
               {status.state === 'UNKNOWN' ? 'state unknown' : status.state.toLowerCase()}
             </Chip>
+            {binding && binding.repoPath === null && (
+              <span className="shrink-0 text-[11px] text-mute">no local clone</span>
+            )}
             <span className="flex-1" />
             <IconBtn
               aria-label="Open pull request on GitHub"
