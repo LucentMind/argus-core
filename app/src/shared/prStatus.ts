@@ -32,6 +32,19 @@ export interface PrStatus {
   state: 'OPEN' | 'CLOSED' | 'MERGED' | 'UNKNOWN'
   isDraft: boolean
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  /** GitHub's own merge verdict. Never feeds the rollup dot: `BLOCKED` covers "a required check
+   *  is red or missing" AND "review required", so it would paint most open pull requests in a
+   *  protected repository amber. It earns its place as text, where the ambiguity is harmless
+   *  and the alternative is a green dot on a pull request that cannot merge. */
+  mergeStateStatus:
+    | 'BLOCKED'
+    | 'BEHIND'
+    | 'CLEAN'
+    | 'DIRTY'
+    | 'DRAFT'
+    | 'HAS_HOOKS'
+    | 'UNSTABLE'
+    | 'UNKNOWN'
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   rollup: PrRollup
   checks: PrCheck[]

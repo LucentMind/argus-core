@@ -36,6 +36,7 @@ function prNode(number: number, conclusion: string, isRequired = false): unknown
       state: 'OPEN',
       isDraft: false,
       mergeable: 'MERGEABLE',
+      mergeStateStatus: 'CLEAN',
       reviewDecision: null,
       commits: {
         nodes: [
@@ -71,6 +72,7 @@ const cached = (over: Partial<PrStatus> = {}): PrStatus => ({
   state: 'OPEN',
   isDraft: false,
   mergeable: 'MERGEABLE',
+  mergeStateStatus: 'CLEAN',
   reviewDecision: null,
   rollup: 'passing',
   checks: [],

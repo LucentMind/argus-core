@@ -25,10 +25,17 @@ export function writePrStatus(db: DatabaseSync, caseSlug: string, status: PrStat
  * keeps every consumer free of `?? false` guards.
  */
 type CachedCheck = Omit<PrCheck, 'required'> & { required?: boolean }
-type CachedStatus = Omit<PrStatus, 'checks'> & { checks: CachedCheck[] }
+type CachedStatus = Omit<PrStatus, 'checks' | 'mergeStateStatus'> & {
+  checks: CachedCheck[]
+  mergeStateStatus?: PrStatus['mergeStateStatus']
+}
 
 function normalize(s: CachedStatus): PrStatus {
-  return { ...s, checks: s.checks.map((c) => ({ ...c, required: c.required ?? false })) }
+  return {
+    ...s,
+    mergeStateStatus: s.mergeStateStatus ?? 'UNKNOWN',
+    checks: s.checks.map((c) => ({ ...c, required: c.required ?? false }))
+  }
 }
 
 /**

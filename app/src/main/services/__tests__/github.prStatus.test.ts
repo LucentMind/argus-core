@@ -262,6 +262,23 @@ describe('fetchPrStatuses', () => {
     expect(s.error).toMatch(/no data/i)
   })
 
+  it('narrows mergeStateStatus, from a real capture', async () => {
+    const captured = fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'prStatus.required.json'),
+      'utf8'
+    )
+    const run: Runner = async () => captured
+    const target = { owner: 'cli', repo: 'cli', number: 14003 }
+    const s = (await fetchPrStatuses(run, [target], NOW)).get(prTargetKey(target))!
+    expect(s.mergeStateStatus).toBe('CLEAN')
+  })
+
+  it('falls back to UNKNOWN for an unrecognized or absent merge state', async () => {
+    const run: Runner = async () => payload({ mergeStateStatus: 'SOMETHING_NEW' })
+    const s = (await fetchPrStatuses(run, [T0], NOW)).get(prTargetKey(T0))!
+    expect(s.mergeStateStatus).toBe('UNKNOWN')
+  })
+
   it('parses the real capture from Task 1 without throwing', async () => {
     const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'prStatus.graphql.json'), 'utf8')
     const run: Runner = async () => raw
