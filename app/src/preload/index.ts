@@ -26,7 +26,13 @@ import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
 import type { AgentAccessPayload } from '../shared/agentAccess'
-import type { MemoryTopicsPayload, MemoryAuditEntry, SkillsPayload } from '../shared/memoryIpc'
+import type {
+  MemoryTopicsPayload,
+  MemoryAuditEntry,
+  SkillsPayload,
+  SkillReadPayload,
+  SkillListItem
+} from '../shared/memoryIpc'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -431,8 +437,11 @@ const argus = {
     list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList),
     deleteUser: (name: string): Promise<SkillsPayload> =>
       ipcRenderer.invoke(IPC.skillsDeleteUser, name),
-    read: (name: string): Promise<{ name: string; content: string }> =>
-      ipcRenderer.invoke(IPC.skillsRead, name)
+    read: (name: string): Promise<SkillReadPayload> => ipcRenderer.invoke(IPC.skillsRead, name),
+    write: (name: string, content: string, baseHash: string | null): Promise<SkillsPayload> =>
+      ipcRenderer.invoke(IPC.skillsWrite, name, content, baseHash),
+    fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
+      ipcRenderer.invoke(IPC.skillsFork, name, newName)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>

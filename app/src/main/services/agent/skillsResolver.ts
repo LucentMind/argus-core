@@ -2,9 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { caseDir, hivemindSkillsDir, userSkillsDir } from '../paths'
 import { sharedSkillsDir } from '../skillsDir'
-import { skillEnabled, type AgentAccess } from '../../../shared/agentAccess'
+import { skillEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { ModeRole } from '../../../shared/modes'
 import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
+import { contentHash } from '../contentHash'
+import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -108,10 +110,7 @@ export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedS
  * override so a lower-precedence tier (hivemind, bundled) wins resolution again.
  */
 export function deleteUserSkill(argusHome: string, name: string): void {
-  // path.basename only splits on '\' under win32 — reject it explicitly for parity
-  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) {
-    throw new Error(`Invalid skill name: ${name}`)
-  }
+  assertSkillName(name)
   const dir = path.join(userSkillsDir(argusHome), name)
   if (!fs.existsSync(path.join(dir, 'SKILL.md'))) {
     throw new Error(`No user skill: ${name}`)
@@ -119,16 +118,84 @@ export function deleteUserSkill(argusHome: string, name: string): void {
   fs.rmSync(dir, { recursive: true, force: true })
 }
 
-/** Read the tier-winning SKILL.md for the in-app viewer (same precedence as resolveSkills). */
-export function readSkill(argusHome: string, name: string): { name: string; content: string } {
-  if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) {
-    throw new Error(`Invalid skill name: ${name}`)
-  }
+/** Read the tier-winning SKILL.md for the in-app viewer/editor (same precedence as resolveSkills). */
+export function readSkill(
+  argusHome: string,
+  name: string
+): { name: string; content: string; hash: string } {
+  assertSkillName(name)
   for (const { root } of TIERS) {
     const file = path.join(root(argusHome), name, 'SKILL.md')
-    if (fs.existsSync(file)) return { name, content: fs.readFileSync(file, 'utf8') }
+    if (fs.existsSync(file)) {
+      const content = fs.readFileSync(file, 'utf8')
+      return { name, content, hash: contentHash(content) }
+    }
   }
   throw new Error(`No such skill: ${name}`)
+}
+
+/** path.basename only splits on '\' under win32 — reject it explicitly for parity. */
+function assertSkillName(name: string): void {
+  if (!name || name === '.' || name === '..' || /[\\/]/.test(name) || !ASSET_NAME_RE.test(name)) {
+    throw new Error(`Invalid skill name: ${name}`)
+  }
+}
+
+/**
+ * Write `<argusHome>/skills-user/<name>/SKILL.md`.
+ *
+ * `baseHash` is the hash the editor received from `readSkill`; null means "I believe no file
+ * exists". Either way it must describe what is on disk right now, or the write is refused —
+ * proposal-accept writes this exact path, so a stale editor buffer really can clobber a
+ * just-accepted proposal.
+ *
+ * Validation runs here, not only in the renderer: IPC is a trust boundary.
+ */
+export function writeUserSkill(
+  argusHome: string,
+  name: string,
+  content: string,
+  baseHash: string | null
+): void {
+  assertSkillName(name)
+  const issues = validateSkill({ name, content })
+  if (hasErrors(issues)) {
+    throw new Error(issues.find((i) => i.severity === 'error')!.message)
+  }
+  const dir = path.join(userSkillsDir(argusHome), name)
+  const file = path.join(dir, 'SKILL.md')
+  const onDisk = fs.existsSync(file) ? contentHash(fs.readFileSync(file, 'utf8')) : null
+  if (onDisk !== baseHash) {
+    throw new Error(`"${name}" changed on disk since you opened it.`)
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(file, content)
+}
+
+/**
+ * Copy the tier-winning copy of `name` into skills-user so it shadows the lower tier — the
+ * skill-side equivalent of hivemind's `claimReference`, which has no skill counterpart.
+ * `deleteUserSkill` ("Adopt upstream") is the undo.
+ *
+ * Copies the whole directory, not just SKILL.md: hivemind push already round-trips multi-file
+ * skill dirs, so dropping sibling files here would lose content on a fork.
+ */
+export function forkSkill(argusHome: string, name: string, newName?: string): string {
+  assertSkillName(name)
+  const target = newName ?? name
+  assertSkillName(target)
+  const winner = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === name)
+  if (!winner) throw new Error(`No such skill: ${name}`)
+  if (winner.tier === 'user') throw new Error(`"${name}" is already yours.`)
+  const dest = path.join(userSkillsDir(argusHome), target)
+  if (fs.existsSync(dest)) throw new Error(`"${target}" already exists in your skills.`)
+  fs.cpSync(winner.dir, dest, { recursive: true })
+  if (target !== name) {
+    const file = path.join(dest, 'SKILL.md')
+    const raw = fs.readFileSync(file, 'utf8')
+    fs.writeFileSync(file, raw.replace(/^name:\s*.+$/m, `name: ${target}`))
+  }
+  return target
 }
 
 /**

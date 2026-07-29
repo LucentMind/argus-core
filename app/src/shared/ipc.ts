@@ -60,6 +60,8 @@ export const IPC = {
   skillsList: 'skills:list',
   skillsDeleteUser: 'skills:delete-user',
   skillsRead: 'skills:read',
+  skillsWrite: 'skills:write',
+  skillsFork: 'skills:fork',
   settingsGet: 'settings:get',
   settingsPatch: 'settings:patch',
   settingsChanged: 'settings:changed',

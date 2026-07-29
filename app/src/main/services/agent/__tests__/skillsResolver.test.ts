@@ -6,8 +6,11 @@ import {
   deleteUserSkill,
   materializeSessionSkills,
   readSkill,
-  resolveSkills
+  resolveSkills,
+  writeUserSkill,
+  forkSkill
 } from '../skillsResolver'
+import { contentHash } from '../../contentHash'
 import { caseDir } from '../../paths'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
 import { validateSkill, hasErrors } from '../../../../shared/assetValidation'
@@ -166,5 +169,102 @@ describe('validator and resolver agree', () => {
     const resolved = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === 'agreed')
     expect(resolved?.description).toBe('Use when the resolver and validator must not drift.')
     expect(resolved?.roles).toEqual(['review', 'triage'])
+  })
+})
+
+const body = (name: string): string =>
+  [
+    '---',
+    `name: ${name}`,
+    `description: Use when testing ${name}.`,
+    '---',
+    '',
+    `# ${name}`,
+    'Body.'
+  ].join('\n')
+
+describe('writeUserSkill', () => {
+  it('writes a new user skill and it resolves at the user tier', () => {
+    writeUserSkill(argusHome, 'fresh', body('fresh'), null)
+    const s = resolveSkills(argusHome, defaultAgentAccess()).find((x) => x.name === 'fresh')
+    expect(s?.tier).toBe('user')
+    expect(s?.description).toBe('Use when testing fresh.')
+  })
+
+  it('refuses invalid content even though it arrived straight over IPC', () => {
+    expect(() => writeUserSkill(argusHome, 'bad', '# no frontmatter\n', null)).toThrow(
+      /frontmatter/i
+    )
+    expect(fs.existsSync(path.join(argusHome, 'skills-user', 'bad'))).toBe(false)
+  })
+
+  it('refuses a traversal name', () => {
+    expect(() => writeUserSkill(argusHome, '../evil', body('evil'), null)).toThrow()
+  })
+
+  it('overwrites when the base hash matches the file on disk', () => {
+    const before = readSkill(argusHome, 'rca')
+    writeUserSkill(argusHome, 'rca', body('rca'), before.hash)
+    expect(readSkill(argusHome, 'rca').content).toBe(body('rca'))
+  })
+
+  it('refuses when the file changed under the editor', () => {
+    expect(() =>
+      writeUserSkill(argusHome, 'rca', body('rca'), contentHash('something else'))
+    ).toThrow(/changed on disk/i)
+  })
+
+  it('allows a first write with a null base hash only when no file exists', () => {
+    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), null)).toThrow(/changed on disk/i)
+  })
+})
+
+describe('forkSkill', () => {
+  it('copies a bundled skill into the user tier so it shadows the pack', () => {
+    expect(forkSkill(argusHome, 'analyze-applog')).toBe('analyze-applog')
+    const s = resolveSkills(argusHome, defaultAgentAccess()).find(
+      (x) => x.name === 'analyze-applog'
+    )
+    expect(s?.tier).toBe('user')
+    expect(s?.shadows).toEqual(['bundled'])
+  })
+
+  it('copies a hivemind skill into the user tier so it shadows the pin', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'team-rca', 'hive rca')
+    expect(forkSkill(argusHome, 'team-rca')).toBe('team-rca')
+    const s = resolveSkills(argusHome, defaultAgentAccess()).find((x) => x.name === 'team-rca')
+    expect(s?.tier).toBe('user')
+    expect(s?.shadows).toEqual(['hivemind'])
+  })
+
+  it('copies non-SKILL.md files in the skill directory', () => {
+    const src = path.join(argusHome, 'skills', 'analyze-applog', 'references')
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, 'notes.md'), 'notes')
+    forkSkill(argusHome, 'analyze-applog')
+    expect(
+      fs.readFileSync(
+        path.join(argusHome, 'skills-user', 'analyze-applog', 'references', 'notes.md'),
+        'utf8'
+      )
+    ).toBe('notes')
+  })
+
+  it('renames on request and rewrites the frontmatter name to match', () => {
+    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog')).toBe('my-applog')
+    const content = fs.readFileSync(
+      path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
+      'utf8'
+    )
+    expect(content).toContain('name: my-applog')
+    expect(hasErrors(validateSkill({ name: 'my-applog', content }))).toBe(false)
+  })
+
+  it('refuses when the target name already exists in the user tier', () => {
+    expect(() => forkSkill(argusHome, 'analyze-applog', 'rca')).toThrow(/already/i)
+  })
+
+  it('refuses to fork a skill that already resolves at the user tier', () => {
+    expect(() => forkSkill(argusHome, 'rca')).toThrow(/already yours/i)
   })
 })
