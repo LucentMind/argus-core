@@ -10,7 +10,8 @@ import { TierBadge } from './TierBadge'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
-import { PUSHABLE_TIERS, HIVE_MANAGED_TIERS } from '../../../../shared/trustTiers'
+import { PUSHABLE_TIERS, HIVE_MANAGED_TIERS, TIER_LABELS } from '../../../../shared/trustTiers'
+import type { TrustTier } from '../../../../shared/trustTiers'
 import type { SkillListItem } from '../../../../shared/memoryIpc'
 import type { ReferenceStatus } from '../../../../shared/referenceSync'
 import type { SkillUsageRow, ReferenceUsageRow } from '../../../../shared/observability'
@@ -253,7 +254,11 @@ export function LibraryPage({
             <>
               <Chip tone="neutral">skill</Chip>
               {groupOf(s.tier) !== 'built-in' && <TierBadge tier={s.tier} />}
-              {s.shadows.length > 0 && <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>}
+              {s.shadows.length > 0 && (
+                <Chip tone="review">
+                  overrides {s.shadows.map((t) => TIER_LABELS[t as TrustTier]).join(', ')}
+                </Chip>
+              )}
               {u &&
                 (u.activationCount > 0 ? (
                   <Chip tone="neutral">
