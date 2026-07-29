@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
-import type { PrBinding, PrSearchResult } from '../../../shared/pr'
+import type { PrSearchResult } from '../../../shared/pr'
 import { parsePrRef } from '../../../shared/pr'
 import { FolderGit2, GitPullRequest, Search, Unlink } from 'lucide-react'
 import { Chip, IconBtn, SectionLabel } from './ui'
@@ -48,7 +48,6 @@ export function ReposSection({
 }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [refs, setRefs] = useState<BundleWorkspaceRef[]>([])
-  const [prs, setPrs] = useState<PrBinding[]>([])
   const [prDraft, setPrDraft] = useState<string | null>(null)
   const [prError, setPrError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
@@ -61,7 +60,6 @@ export function ReposSection({
     // keep the citation domain + snippet cache in sync with link state
     invalidateRepoSnippets(slug)
     void reposStore.load(slug)
-    void window.argus.pr.list(slug).then(setPrs)
     return window.argus.workspaces.list(slug).then(setWorkspaces)
   }, [slug])
 
@@ -91,23 +89,25 @@ export function ReposSection({
   async function linkPr(input: string): Promise<void> {
     const value = input.trim()
     if (!value || linkingPr) return
+    // `linkingPr` gates BEFORE the fresh query and the confirm await, not just the IPC call
+    // after it — same restructuring PrPickerDialog's `confirm()` got this round, for the same
+    // reason: a double-click could otherwise race the awaits below and raise the confirm dialog
+    // twice. It never bypasses the confirmation itself either way — confirmStore.request()
+    // cancels (resolves `false`) a still-pending prompt when a newer one arrives — but a second
+    // prompt flashing on screen is still worth closing.
+    setLinkingPr(true)
     // A case has at most one bound PR (addBinding replaces, never adds); findings carry no PR
     // reference of their own — they resolve against whatever is bound NOW. Swapping the binding
     // out from under existing findings would silently retarget any "comment"/"push" action on
     // them to the new PR, so a replacement (as opposed to the first link, or re-linking the
-    // SAME pr — addBinding is idempotent there and nothing retargets) is confirmed.
-    const current = prs[0]
+    // SAME pr — addBinding is idempotent there and nothing retargets) is confirmed. Read fresh
+    // rather than trusting `prs`: the Pull request section owns unlink now (Task 2) and does not
+    // broadcast, so cached `prs` can name a PR that is no longer bound.
+    const current = (await window.argus.pr.list(slug))[0]
     if (current) {
       const parsed = parsePrRef(value)
       const sameAsCurrent = parsed !== null && sameIdentity(parsed, current)
       if (!sameAsCurrent) {
-        // `linkingPr` gates BEFORE the confirm await, not just the IPC call after it — same
-        // restructuring PrPickerDialog's `confirm()` got this round, for the same reason: a
-        // double-click could otherwise race the await and raise the confirm dialog twice.
-        // It never bypasses the confirmation itself either way — confirmStore.request()
-        // cancels (resolves `false`) a still-pending prompt when a newer one arrives — but a
-        // second prompt flashing on screen is still worth closing.
-        setLinkingPr(true)
         const ok = await confirm({
           title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
           message:
@@ -121,7 +121,6 @@ export function ReposSection({
         }
       }
     }
-    setLinkingPr(true)
     try {
       await window.argus.pr.link(slug, value)
       setPrDraft(null)
@@ -244,8 +243,9 @@ export function ReposSection({
         </form>
       )}
       {/* Bound PRs are not listed here: the Pull request section is their home, and naming
-          them twice was the problem this rail had. Linking still lives here — `prs` is read
-          above so a replacement link can be confirmed. */}
+          them twice was the problem this rail had. Linking still lives here — `linkPr` queries
+          the current binding fresh (rather than caching it) so a replacement link can be
+          confirmed against the truth, not a copy that can go stale behind an unlink elsewhere. */}
       {refs.map((r, i) => (
         <Chip
           key={`${r.remote ?? 'ref'}-${i}`}
