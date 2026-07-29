@@ -80,11 +80,19 @@ beforeEach(() => {
 })
 
 describe('PrCompanionSection', () => {
+  // Product decision (conversation with the user, 2026-07-29): PR-linking controls (Link PR /
+  // Find PRs) are reachable only in review mode — "We don't need PR in investigation mode."
+  // That is deliberate, not an incidental side effect of this component returning null outside
+  // review mode — name the two controls explicitly so a future change that hoists this
+  // section's header out from under the `mode !== 'review'` gate (rendering it in every mode)
+  // fails with a message that points at the decision, not just "container not empty".
   it('renders nothing outside review mode', () => {
     const { container } = render(
       <PrCompanionSection slug="c1" mode="triage" onAnalyze={() => {}} />
     )
     expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByRole('button', { name: 'Link PR' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Find PRs' })).not.toBeInTheDocument()
   })
 
   it('shows decision and checks alongside the subject line', async () => {
