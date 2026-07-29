@@ -4,17 +4,33 @@ import {
   ExternalLink,
   GitPullRequest,
   RefreshCw,
+  Search,
   Stethoscope,
   Unlink
 } from 'lucide-react'
 import type { CheckBucket, PrCheck, PrStatus } from '../../../shared/prStatus'
-import type { PrBinding } from '../../../shared/pr'
+import type { PrBinding, PrSearchResult } from '../../../shared/pr'
+import { parsePrRef } from '../../../shared/pr'
 import { prStatusStore, usePrStatuses } from '../lib/prStatusStore'
+import { confirm } from '../lib/confirmStore'
 import { PrRollupDot } from './PrRollupDot'
 import { Chip, IconBtn, SectionLabel } from './ui'
 
 /** Review mode refreshes fast because the user is watching this exact PR. */
 const REVIEW_POLL_MS = 20_000
+
+/** Same `owner/repo#number` identity, case-insensitive — used to skip the replace-confirmation
+ *  when the typed reference already names the currently bound PR. */
+function sameIdentity(
+  a: { owner: string; repo: string; number: number },
+  b: { owner: string; repo: string; number: number }
+): boolean {
+  return (
+    a.owner.toLowerCase() === b.owner.toLowerCase() &&
+    a.repo.toLowerCase() === b.repo.toLowerCase() &&
+    a.number === b.number
+  )
+}
 
 const BUCKET_MARK: Record<PrCheck['bucket'], string> = {
   pass: '✓',
@@ -192,18 +208,25 @@ function CheckGroup({
 export function PrCompanionSection({
   slug,
   mode,
-  onAnalyze
+  onAnalyze,
+  onPrsFound
 }: {
   slug: string
   mode: string
   onAnalyze: (checkName: string) => void
+  /** "Find PRs" result, handed up so the parent can open the picker over the chat. May
+   *  return a promise (CaseWorkspace's handler does, so it can look up the case's current
+   *  binding before opening the dialog) — `searching` below stays true until it settles, so
+   *  a second search cannot start while the first result is still being turned into an open
+   *  dialog. */
+  onPrsFound?: (result: PrSearchResult) => void | Promise<void>
 }): React.JSX.Element | null {
   // Hooks must run unconditionally, so the mode gate is applied to the RESULT, not the call.
   const all = usePrStatuses(mode === 'review' ? [slug] : [], REVIEW_POLL_MS)
-  // ReposSection's "Link PR" control isn't mode-gated, so the bound PR can be replaced without
-  // leaving review mode. Keying the binding effect on the bound PR's identity (not just slug and
-  // mode) makes a mid-review relink refetch the binding instead of keeping the old one — an
-  // unlink after that would otherwise target a binding id that no longer exists.
+  // "Link PR" isn't mode-gated internally, so the bound PR can be replaced without leaving
+  // review mode. Keying the binding effect on the bound PR's identity (not just slug and mode)
+  // makes a mid-review relink refetch the binding instead of keeping the old one — an unlink
+  // after that would otherwise target a binding id that no longer exists.
   const boundUrl = all[slug]?.url ?? null
 
   const [binding, setBinding] = useState<PrBinding | null>(null)
@@ -218,11 +241,76 @@ export function PrCompanionSection({
     }
   }, [slug, mode, boundUrl])
 
+  const [prDraft, setPrDraft] = useState<string | null>(null)
+  const [prError, setPrError] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
+  // `pr:link` now does real network work (a `git fetch` + `worktree add` under a repo lock,
+  // since materialize+broadcast run unconditionally — see prLink.ts), not just a DB write —
+  // without this the input stays enabled and shows nothing while it runs.
+  const [linkingPr, setLinkingPr] = useState(false)
+
   async function unlink(): Promise<void> {
     if (!binding) return
     await window.argus.pr.unlink(slug, binding.id)
     setBinding(null)
     prStatusStore.forget(slug)
+  }
+
+  async function linkPr(input: string): Promise<void> {
+    const value = input.trim()
+    if (!value || linkingPr) return
+    // `linkingPr` gates BEFORE the fresh query and the confirm await, not just the IPC call
+    // after it — same restructuring PrPickerDialog's `confirm()` got this round, for the same
+    // reason: a double-click could otherwise race the awaits below and raise the confirm dialog
+    // twice. It never bypasses the confirmation itself either way — confirmStore.request()
+    // cancels (resolves `false`) a still-pending prompt when a newer one arrives — but a second
+    // prompt flashing on screen is still worth closing.
+    setLinkingPr(true)
+    // A case has at most one bound PR (addBinding replaces, never adds); findings carry no PR
+    // reference of their own — they resolve against whatever is bound NOW. Swapping the binding
+    // out from under existing findings would silently retarget any "comment"/"push" action on
+    // them to the new PR, so a replacement (as opposed to the first link, or re-linking the
+    // SAME pr — addBinding is idempotent there and nothing retargets) is confirmed. Read fresh
+    // rather than trusting `binding`: it is refetched only on slug/mode/boundUrl changes, so it
+    // can lag an unlink or relink that happened elsewhere.
+    // One outer finally covers every exit from here on, including a rejected pr.list: without it
+    // a failed lookup would leave the input stuck disabled on "Linking…" until remount.
+    try {
+      const current = (await window.argus.pr.list(slug))[0]
+      if (current) {
+        const parsed = parsePrRef(value)
+        const sameAsCurrent = parsed !== null && sameIdentity(parsed, current)
+        if (!sameAsCurrent) {
+          const ok = await confirm({
+            title: `Replace ${current.owner}/${current.repo}#${current.number} with ${value}?`,
+            message:
+              'This case already has a pull request linked. Findings already recorded here will be attributed to the new pull request — any "comment" or "push" action on them will target it, not the one they were found against.',
+            confirmLabel: 'Replace',
+            danger: true
+          })
+          if (!ok) return
+        }
+      }
+      try {
+        await window.argus.pr.link(slug, value)
+        setPrDraft(null)
+        setPrError(null)
+        // Refresh what this section owns: the binding (for unlink) and the status (so the
+        // newly linked PR's subject line/checks appear without a manual refresh click).
+        // prStatusStore.refresh hits GitHub — same call the header's own Refresh button makes.
+        const list = await window.argus.pr.list(slug)
+        setBinding(list[0] ?? null)
+        void prStatusStore.refresh([slug])
+      } catch {
+        // main throws on anything parsePrRef can't read — say so instead of failing silently.
+        // (A CLAUDE.md write failure AFTER the binding committed no longer reaches here — see
+        // materializePrBindings's own try/catch — so this message stays honest: it only fires
+        // when the link genuinely never happened.)
+        setPrError('Not a pull request reference.')
+      }
+    } finally {
+      setLinkingPr(false)
+    }
   }
 
   if (mode !== 'review') return null
@@ -245,6 +333,31 @@ export function PrCompanionSection({
           Pull request
           {status && <PrRollupDot rollup={status.rollup} />}
           <span className="flex-1" />
+          <IconBtn
+            aria-label="Link PR"
+            title="Link a pull request"
+            className="h-5 w-5"
+            onClick={() => setPrDraft((d) => (d === null ? '' : null))}
+          >
+            <GitPullRequest size={13} />
+          </IconBtn>
+          {onPrsFound && (
+            <IconBtn
+              aria-label="Find PRs"
+              title="Search linked repos for this ticket's pull requests"
+              className="h-5 w-5"
+              disabled={searching}
+              onClick={() => {
+                setSearching(true)
+                void window.argus.pr
+                  .search(slug)
+                  .then(onPrsFound)
+                  .finally(() => setSearching(false))
+              }}
+            >
+              <Search size={13} />
+            </IconBtn>
+          )}
           {binding && status && (
             <IconBtn
               aria-label="Unlink pull request"
@@ -264,6 +377,25 @@ export function PrCompanionSection({
           </IconBtn>
         </span>
       </SectionLabel>
+
+      {prDraft !== null && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void linkPr(prDraft)
+          }}
+        >
+          <input
+            autoFocus
+            value={prDraft}
+            disabled={linkingPr}
+            onChange={(e) => setPrDraft(e.target.value)}
+            placeholder={linkingPr ? 'Linking…' : 'PR url, owner/repo#N, or number'}
+            className="w-full rounded border border-line bg-transparent px-1.5 py-0.5 text-xs disabled:opacity-60"
+          />
+          {prError && <div className="mt-0.5 text-[11px] text-danger">{prError}</div>}
+        </form>
+      )}
 
       {!status && (
         <p className="text-[11px] text-mute">

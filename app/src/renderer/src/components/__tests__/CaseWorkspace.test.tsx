@@ -513,7 +513,8 @@ describe('CaseWorkspace mode switching', () => {
         searchedRepos: ['acme/widget']
       })
     )
-    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    // Find PRs now lives in PrCompanionSection, which renders only in review mode.
+    render(workspace('NAV-1', { activeMode: 'review' }))
 
     fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
     await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
@@ -566,12 +567,13 @@ describe('CaseWorkspace mode switching', () => {
   // the in-flight half of the fix (the `currentSlugRef` guard inside `handlePrsFound`); the
   // next test exercises the already-resolved half (clearing an open dialog on switch).
   it('drops a Find-PRs lookup that resolves after switching to a different case', async () => {
-    // ReposSection's own `reload()` effect ALSO calls `pr.list(slug)` (on mount, and again
-    // when `slug` changes) — a single shared resolver would get silently reassigned to
-    // whichever of those calls happens to be pending, defeating the point of this test.
-    // Track every call instead, so the ONE this test cares about (handlePrsFound's, for
-    // case A) can be resolved on its own, independent of ReposSection's mount-time call and
-    // its own reload for case B triggered by the switch below.
+    // Find PRs lives in PrCompanionSection now, which renders only in review mode — and its
+    // own binding effect ALSO calls `pr.list(slug)` (on mount, and again when `slug` changes)
+    // — a single shared resolver would get silently reassigned to whichever of those calls
+    // happens to be pending, defeating the point of this test. Track every call instead, so
+    // the ONE this test cares about (handlePrsFound's, for case A) can be resolved on its
+    // own, independent of PrCompanionSection's mount-time call and its own refetch for case B
+    // triggered by the switch below.
     const listResolvers: Array<(bound: unknown[]) => void> = []
     ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(
       () => new Promise((r) => listResolvers.push(r))
@@ -579,9 +581,9 @@ describe('CaseWorkspace mode switching', () => {
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
       async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
     )
-    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    const view = render(workspace('NAV-1', { activeMode: 'review' }))
     await screen.findByRole('button', { name: 'Find PRs' })
-    // resolve ReposSection's own mount-time pr.list('NAV-1') call — irrelevant to this test
+    // resolve PrCompanionSection's own mount-time pr.list('NAV-1') call — irrelevant to this test
     listResolvers.shift()?.([])
 
     fireEvent.click(screen.getByRole('button', { name: 'Find PRs' }))
@@ -592,7 +594,7 @@ describe('CaseWorkspace mode switching', () => {
     const resolveCaseA = listResolvers[0]
 
     // switch case BEFORE case A's in-flight lookup resolves
-    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+    view.rerender(workspace('NAV-2', { activeMode: 'review' }))
 
     resolveCaseA([]) // case A's lookup resolves late, after the switch
     await new Promise((r) => setTimeout(r, 0))
@@ -605,12 +607,12 @@ describe('CaseWorkspace mode switching', () => {
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
       async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
     )
-    const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    const view = render(workspace('NAV-1', { activeMode: 'review' }))
 
     fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
     await screen.findByRole('button', { name: /link selected/i }) // dialog is up for A
 
-    view.rerender(workspace('NAV-2', { activeMode: 'investigation' }))
+    view.rerender(workspace('NAV-2', { activeMode: 'review' }))
     expect(screen.queryByRole('button', { name: /link selected/i })).toBeNull()
     expect(window.argus.pr.link).not.toHaveBeenCalled()
   })
@@ -648,7 +650,7 @@ describe('CaseWorkspace mode switching', () => {
     expect(window.argus.pr.link).not.toHaveBeenCalled()
   })
 
-  // Re-review fix: `handlePrsFound` used to be `void`-ed, so ReposSection's
+  // Re-review fix: `handlePrsFound` used to be `void`-ed, so PrCompanionSection's
   // `.then(onPrsFound).finally(() => setSearching(false))` did not actually wait for it —
   // `onPrsFound` returned synchronously (`void`), so `finally` ran as soon as `pr.search`
   // itself resolved, re-enabling "Find PRs" while the picker's own `pr.list` lookup (and so
@@ -662,7 +664,7 @@ describe('CaseWorkspace mode switching', () => {
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
       async () => ({ candidates: oneCandidate, error: null, searchedRepos: ['acme/widget'] })
     )
-    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    render(workspace('NAV-1', { activeMode: 'review' }))
     const findBtn = await screen.findByRole('button', { name: 'Find PRs' })
 
     fireEvent.click(findBtn)
