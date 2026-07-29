@@ -226,7 +226,6 @@ export function FindingsPane({
                       markdown={f.body}
                       onCite={onCite}
                       caseSlug={slug}
-                      citationMode="expanded"
                       repoNames={repoNames}
                     />
                   </div>

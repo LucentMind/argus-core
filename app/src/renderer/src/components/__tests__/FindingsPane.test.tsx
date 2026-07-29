@@ -40,7 +40,7 @@ beforeEach(() => {
 })
 
 describe('FindingsPane', () => {
-  it('expands a finding to show its body with auto-expanded citation cards', async () => {
+  it('expands a finding to show its body with citation cards collapsed until clicked', async () => {
     ;(window.argus.findings as unknown as { list: unknown }).list = vi.fn(async () => [
       {
         id: 1,
@@ -55,10 +55,14 @@ describe('FindingsPane', () => {
     const summary = await screen.findByText('Tile crash')
     expect(screen.queryByRole('button', { name: /log\.txt:3/ })).toBeNull()
     summary.click()
-    // citation renders as a chip that is ALREADY expanded (findings default)
+    // the citation renders as a chip that starts COLLAPSED — a finding often carries several
+    // citations, and auto-expanding every preview buried the finding text (changed 2026-07-29
+    // on owner feedback; it used to auto-expand)
     const chip = await screen.findByRole('button', { name: /log\.txt:3/ })
-    expect(chip.getAttribute('aria-expanded')).toBe('true')
-    // and the snippet preview around line 3 is visible without any further click
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('boom')).toBeNull()
+    // clicking the chip opens the snippet preview
+    fireEvent.click(chip)
     expect(await screen.findByText('boom')).toBeTruthy()
   })
 
