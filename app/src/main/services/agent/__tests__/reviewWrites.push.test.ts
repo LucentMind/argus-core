@@ -107,6 +107,25 @@ function scriptedGit(
   return { git, calls, cwds }
 }
 
+/**
+ * A DatabaseSync whose `prepare` throws for the finding-update statement only — every other
+ * query (the ownership SELECT, getBinding) goes to the real db untouched. Mirrors
+ * `dbThatFailsFindingUpdate` in reviewWrites.comment.test.ts: `Object.create` rather than a
+ * `Proxy` because our own `prepare` property shadows the inherited one and is called with
+ * `this = wrapper`, but its body only closes over `real` and never reads `this`, so it never
+ * risks an "illegal invocation" against the native DatabaseSync internals the way rebinding the
+ * real method to a different receiver would.
+ */
+function dbThatFailsFindingUpdate(real: DatabaseSync, message: string): DatabaseSync {
+  const wrapper = Object.create(real) as DatabaseSync
+  const fakePrepare = (sql: string, ...rest: unknown[]): unknown => {
+    if (/^\s*UPDATE\s+findings/i.test(sql)) throw new Error(message)
+    return (real.prepare as (...a: unknown[]) => unknown)(sql, ...rest)
+  }
+  Object.defineProperty(wrapper, 'prepare', { value: fakePrepare })
+  return wrapper
+}
+
 describe('pushReviewChange', () => {
   it('commits the worktree and pushes an explicit refspec to the PR branch', async () => {
     const { git, calls } = scriptedGit()
@@ -305,6 +324,32 @@ describe('pushReviewChange — batch finding ids', () => {
       })
     ).rejects.toThrow(/at least one finding/i)
     expect(calls).toEqual([])
+  })
+
+  it('a recordFindingWrite failure after a landed push still reports push-ok, not a failure', async () => {
+    // Was: the stamping loop ran unguarded AFTER the push landed. A recordFindingWrite failure
+    // partway through the batch used to reject pushReviewChange entirely — telling the model the
+    // push had failed while it was actually live on the PR branch, inviting a retry that would
+    // push again. The fix wraps the loop (mirroring postReviewComment's recordFindingWrite wrap)
+    // so this still returns success with a note instead of throwing.
+    const { git, calls } = scriptedGit({ 'rev-parse': 'newsha000000' })
+    const idA = seedFinding()
+    const idB = seedFinding()
+    const failingDb = dbThatFailsFindingUpdate(db, 'db write failed')
+    const out = await pushReviewChange({ db: failingDb, argusHome: home, gh: ghOk, git }, 'c1', {
+      findingIds: [idA, idB],
+      commitMessage: 'fix: both',
+      expectPr: 'acme/widget#42'
+    })
+    expect(out).toMatch(/newsha000000/)
+    expect(out).toContain('feature/guard')
+    expect(out).toMatch(/could not be recorded locally/i)
+    // The push actually happened — the refspec was recorded before the (failing) stamping loop.
+    expect(calls).toContainEqual(['push', 'origin', 'HEAD:refs/heads/feature/guard'])
+    // neither finding got stamped, since the very first recordFindingWrite call already throws
+    for (const id of [idA, idB]) {
+      expect(listFindings(db, home, 'c1').find((f) => f.id === id)?.pushedSha).toBeNull()
+    }
   })
 })
 

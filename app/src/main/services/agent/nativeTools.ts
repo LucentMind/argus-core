@@ -465,7 +465,11 @@ export function argusToolHandlers(
     async push_review_change(args) {
       const ids = Array.isArray(args.finding_ids)
         ? args.finding_ids.map(Number)
-        : args.finding_id !== undefined // defensive: models mid-conversation may use the old name
+        : // The schema requires finding_ids (min 1), so the SDK rejects a call missing it before
+          // this handler ever runs — this branch is unreachable through the real tool path. It
+          // only fires on a direct handler call (tests) or a transport that skips schema
+          // validation.
+          args.finding_id !== undefined
           ? [Number(args.finding_id)]
           : []
       const out = await pushReviewChange(
