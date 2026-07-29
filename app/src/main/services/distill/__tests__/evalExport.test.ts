@@ -75,14 +75,23 @@ describe('buildEvalBundle', () => {
 
   it('skips a done job that still has a pending job-stamped item', () => {
     const id = insertJob()
-    writeProposal(home, 'nav-1', { type: 'skill-new', target: 's1', title: 't', content: '# s\n' }, { job: String(id) })
+    writeProposal(
+      home,
+      'nav-1',
+      { type: 'skill-new', target: 's1', title: 't', content: '# s\n' },
+      { job: String(id) }
+    )
     const { lines, skipped } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toEqual([])
     expect(skipped).toEqual([{ jobId: id, caseSlug: 'nav-1', reason: 'items pending review' }])
   })
 
   it('exports a parse-failed job with empty items', () => {
-    const id = insertJob({ state: 'failed', raw_output: 'NOT JSON', error: 'expected exactly 1 json fence, got 0' })
+    const id = insertJob({
+      state: 'failed',
+      raw_output: 'NOT JSON',
+      error: 'expected exactly 1 json fence, got 0'
+    })
     const { lines } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toHaveLength(1)
     expect(lines[0].job.id).toBe(id)
@@ -100,7 +109,12 @@ describe('buildEvalBundle', () => {
 
   it('ignores contribute-back archives (no job stamp)', () => {
     insertJob()
-    const f = writeProposal(home, 'nav-1', { type: 'skill-new', target: 'user-authored', title: 't', content: '# s\n' })
+    const f = writeProposal(home, 'nav-1', {
+      type: 'skill-new',
+      target: 'user-authored',
+      title: 't',
+      content: '# s\n'
+    })
     rejectProposal(home, f, { tag: 'wrong' })
     const { lines } = buildEvalBundle(db, home, '1.0.0')
     expect(lines).toHaveLength(1)
