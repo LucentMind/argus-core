@@ -213,8 +213,9 @@ export function FindingsPane({
       </div>
       {clearError && <p className="text-xs text-danger">{clearError}</p>}
       {actionError && <p className="text-xs text-danger">{actionError}</p>}
-      {/* A count suffix (the same "field · value" idiom as the " · sess N" tag below) makes
-          the chip read as a control with its own state, not a copy of the finding badge. */}
+      {/* A count suffix (the same "field · value" idiom as the " · sess N" stamp in
+          FindingCard.tsx) makes the chip read as a control with its own state, not a copy of
+          another element on the card — there is no finding badge any more. */}
       {presentLayers.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           {presentLayers.map((id) => (
@@ -277,23 +278,23 @@ export function FindingsPane({
           only exists while something is selected. Footer, not header: it summarizes the list
           above it. */}
       {effectiveSelected.length > 0 && (
-        <div className="flex shrink-0 items-center gap-2 border-t border-hair pt-2">
-          <span className="font-mono text-[11px] text-mute">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-hair pt-2">
+          <span className="whitespace-nowrap font-mono text-[11px] text-mute">
             <span className="text-ink">{effectiveSelected.length}</span> selected
           </span>
           <button
             type="button"
-            className="rounded-r1 px-1 font-mono text-[10.5px] text-mute transition-colors hover:text-ink"
+            aria-label="Clear selection"
+            className="whitespace-nowrap rounded-r1 px-1 font-mono text-[10.5px] text-mute transition-colors hover:text-ink"
             onClick={() => setSelected(new Set())}
           >
             clear
           </button>
-          <span className="flex-1" />
           <button
             type="button"
             disabled={sessionId === null || actingId !== null}
             title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
-            className="rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
+            className="ml-auto whitespace-nowrap rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
             onClick={() => void applySelected()}
           >
             Apply selected ({effectiveSelected.length})

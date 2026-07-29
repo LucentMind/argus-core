@@ -121,8 +121,9 @@ export function FindingCard({
               <span className={`shrink-0 ${SEVERITY_TEXT[f.severity]}`}>{f.severity}</span>
             )}
             {f.severity && f.layer && <span className="text-faint">·</span>}
-            {/* The only shrinkable cell in the row. At FINDINGS_MIN_WIDTH (216px of content)
-                "Design conformance" ellipsizes; it used to wrap inside its own pill instead. */}
+            {/* Not the only shrinkable cell — the timestamp in the trailing cell is too, and it
+                yields first. "Design conformance" does not ellipsize at any pane width, measured:
+                `flex-wrap` breaks the row onto a new line before this cell gives up any width. */}
             {f.layer && <span className="truncate text-mute">{REVIEW_LAYERS[f.layer].label}</span>}
           </span>
         )}
@@ -153,20 +154,20 @@ export function FindingCard({
           </span>
         )}
         {/* Provenance and actions share one cell: provenance in flow, the cluster absolutely
-            positioned over it. The row costs max(the two) rather than their sum, which is what
-            makes it fit at FINDINGS_MIN_WIDTH. `opacity-0` and not `hidden` on purpose — a
-            display-none subtree is untabbable, and these buttons are the only keyboard path to
-            comment/apply. */}
+            positioned over it. The two never sum — the cell shares one slot between them — but
+            what actually makes the row fit at FINDINGS_MIN_WIDTH is `flex-wrap` on the meta row,
+            not the shared slot alone. `opacity-0` and not `hidden` on purpose — a display-none
+            subtree is untabbable, and these buttons are the only keyboard path to comment/apply. */}
         <div
           data-testid="finding-trailing"
-          className="relative ml-auto flex h-6 min-w-0 items-center"
+          className="group/act relative ml-auto flex h-6 min-w-0 items-center"
         >
-          <span className="min-w-0 truncate font-mono text-[10px] text-mute transition-opacity group-hover/f:opacity-0 group-focus-within/f:opacity-0">
+          <span className="min-w-0 truncate font-mono text-[10px] text-mute transition-opacity group-hover/f:opacity-0 group-focus-within/act:opacity-0">
             {formatWhen(f.createdAt)}
             {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
           </span>
-          <div className="pointer-events-none absolute right-0 flex items-center gap-0.5 rounded-r1 bg-panel opacity-0 transition-opacity group-hover/f:pointer-events-auto group-hover/f:opacity-100 group-focus-within/f:pointer-events-auto group-focus-within/f:opacity-100">
-            {f.mode === 'review' && (
+          <div className="pointer-events-none absolute right-0 flex items-center gap-0.5 rounded-r1 bg-panel opacity-0 transition-opacity group-hover/f:pointer-events-auto group-hover/f:opacity-100 group-focus-within/act:pointer-events-auto group-focus-within/act:opacity-100">
+            {f.mode === 'review' ? (
               <>
                 <button
                   aria-label="Post as PR comment"
@@ -196,40 +197,37 @@ export function FindingCard({
                 >
                   <GitCommitVertical size={13} />
                 </button>
-                {/* Acting on a finding and rating one are not peers. */}
-                <span
-                  aria-hidden="true"
-                  data-testid="votes-rule"
-                  className="mx-0.5 h-3 w-px bg-hair2"
-                />
+              </>
+            ) : (
+              <>
+                <button
+                  aria-label="Mark finding good"
+                  aria-pressed={accepted}
+                  title="Good finding"
+                  className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                    accepted
+                      ? 'border-review bg-review/15 text-review'
+                      : 'border-hair2 text-mute hover:text-ink'
+                  }`}
+                  onClick={() => onReview('accepted')}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  aria-label="Mark finding not useful"
+                  aria-pressed={rejected}
+                  title="Not useful"
+                  className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                    rejected
+                      ? 'border-danger bg-danger/15 text-danger'
+                      : 'border-hair2 text-mute hover:text-ink'
+                  }`}
+                  onClick={() => onReview('rejected')}
+                >
+                  <ThumbsDown size={13} />
+                </button>
               </>
             )}
-            <button
-              aria-label="Mark finding good"
-              aria-pressed={accepted}
-              title="Good finding"
-              className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                accepted
-                  ? 'border-review bg-review/15 text-review'
-                  : 'border-hair2 text-mute hover:text-ink'
-              }`}
-              onClick={() => onReview('accepted')}
-            >
-              <ThumbsUp size={13} />
-            </button>
-            <button
-              aria-label="Mark finding not useful"
-              aria-pressed={rejected}
-              title="Not useful"
-              className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                rejected
-                  ? 'border-danger bg-danger/15 text-danger'
-                  : 'border-hair2 text-mute hover:text-ink'
-              }`}
-              onClick={() => onReview('rejected')}
-            >
-              <ThumbsDown size={13} />
-            </button>
           </div>
         </div>
       </div>

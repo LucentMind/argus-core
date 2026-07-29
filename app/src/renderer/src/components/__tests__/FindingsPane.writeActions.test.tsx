@@ -285,7 +285,7 @@ describe('FindingsPane write actions', () => {
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Select finding 7 for batch apply'))
     expect(screen.getByRole('button', { name: 'Apply selected (1)' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'clear' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
     expect(screen.queryByRole('button', { name: /Apply selected/ })).toBeNull()
     expect(
       (screen.getByLabelText('Select finding 7 for batch apply') as HTMLInputElement).checked
@@ -315,8 +315,6 @@ describe('FindingsPane write actions', () => {
     // one cell holds both: the row costs max(provenance, actions), not their sum
     expect(slot).toContainElement(comment)
     expect(slot).toContainElement(within(item).getByLabelText('Apply change and push'))
-    expect(slot).toContainElement(within(item).getByLabelText('Mark finding good'))
-    expect(slot).toContainElement(within(item).getByLabelText('Mark finding not useful'))
     expect(slot.textContent).toMatch(/sess 1/)
     // The cluster must stay focusable — it is the only keyboard path to comment/apply, and
     // `hidden`/`display:none` would drop it from the tab order. jsdom applies no CSS, so this
@@ -325,16 +323,28 @@ describe('FindingsPane write actions', () => {
     expect(document.activeElement).toBe(comment)
   })
 
-  it('separates the write actions from the feedback votes', async () => {
-    list.mockResolvedValue([reviewRow({ id: 7 })])
-    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
-    const apply = await screen.findByLabelText('Apply change and push')
-    const good = screen.getByLabelText('Mark finding good')
-    // By testid, not [aria-hidden] — lucide-react puts aria-hidden="true" on every icon svg
-    // (lucide-react.js:92), which an attribute query would match first.
-    const rule = screen.getByTestId('votes-rule')
-    // acting on a finding and rating one are not peers: [comment apply] | [good bad]
-    expect(apply.compareDocumentPosition(rule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(rule.compareDocumentPosition(good) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  it('offers write actions in review mode and votes in investigation mode, never both', async () => {
+    // Both rows come back from the one fetch — findings are case-scoped in the DB and only
+    // filtered by mode client-side (the effect's deps are [slug, sessionId, bump], not
+    // activeMode), so a mode-only rerender must not require a second .list() resolution.
+    list.mockResolvedValue([
+      reviewRow({ id: 7 }),
+      row({ id: 8, summary: 'triage finding', mode: 'investigation' })
+    ])
+    const view = render(
+      <FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />
+    )
+    await screen.findByLabelText('Post as PR comment')
+    expect(screen.getByLabelText('Apply change and push')).toBeInTheDocument()
+    // rating a finding is an investigation-mode concern; review mode acts on it instead
+    expect(screen.queryByLabelText('Mark finding good')).toBeNull()
+    expect(screen.queryByLabelText('Mark finding not useful')).toBeNull()
+
+    view.rerender(
+      <FindingsPane slug="c1" sessionId={3} activeMode="investigation" onCite={vi.fn()} />
+    )
+    await screen.findByText('triage finding')
+    expect(screen.getByLabelText('Mark finding good')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Post as PR comment')).toBeNull()
   })
 })
