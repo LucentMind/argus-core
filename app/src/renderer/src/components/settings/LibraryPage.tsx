@@ -6,6 +6,7 @@ import { ProposalsBanner } from './ProposalsBanner'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
 import { RefViewer, MarkdownViewer } from '../references/RefViewer'
+import { TierBadge } from './TierBadge'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
@@ -251,6 +252,7 @@ export function LibraryPage({
           badge={
             <>
               <Chip tone="neutral">skill</Chip>
+              {groupOf(s.tier) !== 'built-in' && <TierBadge tier={s.tier} />}
               {s.shadows.length > 0 && <Chip tone="review">overrides {s.shadows.join(', ')}</Chip>}
               {u &&
                 (u.activationCount > 0 ? (
@@ -348,6 +350,7 @@ export function LibraryPage({
           badge={
             <>
               <Chip tone="neutral">reference</Chip>
+              {r.tier !== null && groupOf(r.tier) !== 'built-in' && <TierBadge tier={r.tier} />}
               {r.stale && <Chip tone="danger">stale</Chip>}
               {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
             </>

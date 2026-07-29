@@ -375,14 +375,16 @@ describe('LibraryPage merged list', () => {
     ).toBeInTheDocument()
   })
 
-  it('rows carry no tier badge — the group header names the tier', async () => {
+  it('rows in Yours and Subscribed badge their origin; Built-in rows do not', async () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
-    // TIER_LABELS text ('user', 'hivemind', 'team knowledge'…) must not render as row chips —
-    // scoped to <span> since group headers legitimately render this text (as a heading, not a span)
-    expect(screen.queryByText('user', { selector: 'span' })).toBeNull()
-    expect(screen.queryByText('hivemind', { selector: 'span' })).toBeNull()
-    expect(screen.queryByText('confluence', { selector: 'span' })).toBeNull()
+    // user-tier skill + user-tier reference
+    expect(screen.getAllByText('you').length).toBe(3)
+    // hivemind skill, confluence reference
+    expect(screen.getAllByText('HiveMind').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Confluence')).toBeInTheDocument()
+    // the bundled skill sits alone in Built-in and carries no origin badge
+    expect(screen.queryByText('pack')).toBeNull()
   })
 
   it('clicking a skill name opens the skill viewer with SKILL.md content', async () => {
