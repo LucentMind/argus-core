@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { PrCompanionSection } from '../PrCompanionSection'
 import { prStatusStore } from '../../lib/prStatusStore'
 import type { PrStatus } from '../../../../shared/prStatus'
+import type { PrBinding } from '../../../../shared/pr'
 
 const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   owner: 'acme',
@@ -40,14 +41,29 @@ const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   ...over
 })
 
+const BINDING: PrBinding = {
+  id: 3,
+  caseId: 1,
+  repoPath: null,
+  owner: 'acme',
+  repo: 'widget',
+  number: 42,
+  url: 'https://github.com/acme/widget/pull/42',
+  source: 'search',
+  detectedAt: '2026-07-29T00:00:00Z'
+}
+
 beforeEach(() => {
   prStatusStore.hydrate({ c1: status() })
   ;(window as unknown as { argus: unknown }).argus = {
     pr: {
       statusList: vi.fn(async () => ({})),
       statusRefresh: vi.fn(async () => ({})),
-      onStatusChanged: () => () => {}
-    }
+      onStatusChanged: () => () => {},
+      list: vi.fn(async () => [BINDING]),
+      unlink: vi.fn(async () => undefined)
+    },
+    openExternal: vi.fn(async () => undefined)
   }
 })
 
@@ -59,13 +75,33 @@ describe('PrCompanionSection', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('names the PR nowhere (the Repos chip owns the identity) but shows decision and checks', () => {
+  it('shows decision and checks alongside the subject line', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.queryByText('acme/widget#42')).not.toBeInTheDocument()
     expect(screen.getByText(/review required/i)).toBeInTheDocument()
     expect(screen.getByText('build')).toBeInTheDocument()
     expect(screen.getByText('lint')).toBeInTheDocument()
     expect(screen.getByText('ci/circleci')).toBeInTheDocument()
+  })
+
+  it('names the PR as the section subject and opens it', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const ref = await screen.findByRole('button', {
+      name: 'Open pull request acme/widget#42 on GitHub'
+    })
+    await userEvent.click(ref)
+    expect(window.argus.openExternal).toHaveBeenCalledWith('https://github.com/acme/widget/pull/42')
+  })
+
+  it('offers unlink from the section header once a binding is loaded', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Unlink pull request' }))
+    expect(window.argus.pr.unlink).toHaveBeenCalledWith('c1', 3)
+  })
+
+  it('puts the empty state where the subject line goes', () => {
+    prStatusStore.hydrate({})
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText(/no pull request bound/i)).toBeInTheDocument()
   })
 
   // One render per test: every mount subscribes to the shared prStatusStore, so a re-hydrate
@@ -94,9 +130,9 @@ describe('PrCompanionSection', () => {
     expect(screen.getByText(/conflicts/)).toBeInTheDocument()
   })
 
-  it('puts the state tag on the header line, beside "Pull request"', () => {
+  it('puts the state tag beside the PR identity, not the header', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.getByText('open').parentElement?.textContent).toContain('Pull request')
+    expect(screen.getByText('open').parentElement?.textContent).toContain('acme/widget#42')
   })
 
   it('lists checks inside a single divided panel', () => {
@@ -143,12 +179,6 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getByText(/HTTP 404: Not Found/)).toBeInTheDocument()
     expect(screen.queryByText('build')).not.toBeInTheDocument()
-  })
-
-  it('prompts to bind a PR when the case has no cached status', () => {
-    prStatusStore.hydrate({})
-    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.getByText(/no pull request bound/i)).toBeInTheDocument()
   })
 
   it('renders every same-named check as its own row — real PRs repeat check names', () => {

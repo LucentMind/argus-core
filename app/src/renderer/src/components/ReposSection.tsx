@@ -243,29 +243,9 @@ export function ReposSection({
           {prError && <div className="mt-0.5 text-[11px] text-danger">{prError}</div>}
         </form>
       )}
-      {/* Invisible until useful — same rule ModeSwitcher follows for a single mode. */}
-      {prs.map((p) => (
-        <div key={p.id} className="flex items-center gap-1">
-          <Chip
-            tone={p.repoPath ? 'defect' : 'neutral'}
-            title={p.url}
-            aria-label={`Open pull request ${p.owner}/${p.repo}#${p.number} on GitHub`}
-            onClick={() => void window.argus.openExternal(p.url)}
-          >
-            {p.owner}/{p.repo}#{p.number}
-            {p.repoPath ? '' : ' · no local clone'}
-          </Chip>
-          <span className="flex-1" />
-          <IconBtn
-            aria-label="Unlink PR"
-            title="Unlink pull request"
-            className="h-5 w-5 hover:text-danger"
-            onClick={() => void window.argus.pr.unlink(slug, p.id).then(reload)}
-          >
-            <Unlink size={12} />
-          </IconBtn>
-        </div>
-      ))}
+      {/* Bound PRs are not listed here: the Pull request section is their home, and naming
+          them twice was the problem this rail had. Linking still lives here — `prs` is read
+          above so a replacement link can be confirmed. */}
       {refs.map((r, i) => (
         <Chip
           key={`${r.remote ?? 'ref'}-${i}`}
