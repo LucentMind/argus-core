@@ -271,6 +271,17 @@ describe('CaseWorkspace case switching', () => {
     rerender(workspace('NAV-2'))
     expect((screen.getByLabelText('type-filter') as HTMLSelectElement).value).toBe('')
   })
+
+  it('remounts CaseFiles on mode change so per-case state (type filter) resets', async () => {
+    const { rerender } = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    const select = (await screen.findByLabelText('type-filter')) as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'binlog' } })
+    expect(select.value).toBe('binlog')
+    // investigation evidence and review artifacts are disjoint lists — a mode switch must
+    // not leak investigation's filter/collapse/parsing state into review's list
+    rerender(workspace('NAV-1', { activeMode: 'review' }))
+    expect((screen.getByLabelText('type-filter') as HTMLSelectElement).value).toBe('')
+  })
 })
 
 describe('CaseWorkspace session bootstrap', () => {
