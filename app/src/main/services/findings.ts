@@ -169,8 +169,10 @@ export function clearFindings(
   appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared: ids.length, mode })
   try {
     fs.writeFileSync(mdPath, removeFindingBodies(fs.readFileSync(mdPath, 'utf8'), new Set(ids)))
-  } catch {
-    // no findings.md yet — nothing to strip, and a full-file reset would be wrong here
+  } catch (err) {
+    // Only a MISSING findings.md is fine to skip (nothing to strip, and a full-file reset
+    // would be wrong here). Any other failure means DB and file are now out of sync — say so.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
   }
   return { cleared: ids.length }
 }
