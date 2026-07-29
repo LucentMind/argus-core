@@ -80,17 +80,6 @@ export function FindingCard({
           {f.summary}
         </button>
       </div>
-      {open && f.body && (
-        <div className="border-t border-hair px-2 py-1.5 text-xs">
-          <MessageView
-            markdown={f.body}
-            onCite={onCite}
-            caseSlug={slug}
-            repoNames={repoNames}
-            repoCiteSha={f.mode === 'review' ? (f.headSha ?? undefined) : undefined}
-          />
-        </div>
-      )}
       <div className="flex items-center gap-2 px-2 pb-1.5">
         {selectable && (
           <input
@@ -209,6 +198,17 @@ export function FindingCard({
           <ThumbsDown size={13} />
         </button>
       </div>
+      {open && f.body && (
+        <div className="border-t border-hair px-2 py-2 text-xs">
+          <MessageView
+            markdown={f.body}
+            onCite={onCite}
+            caseSlug={slug}
+            repoNames={repoNames}
+            repoCiteSha={f.mode === 'review' ? (f.headSha ?? undefined) : undefined}
+          />
+        </div>
+      )}
     </li>
   )
 }

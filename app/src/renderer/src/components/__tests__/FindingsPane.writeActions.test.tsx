@@ -279,4 +279,18 @@ describe('FindingsPane write actions', () => {
       (screen.getByLabelText('Select finding 7 for batch apply') as HTMLInputElement).checked
     ).toBe(false)
   })
+
+  it('keeps the meta row between the title and the expanded body', async () => {
+    list.mockResolvedValue([reviewRow({ id: 7, body: 'why it matters' })])
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
+    const title = await screen.findByText('Inverted guard')
+    await userEvent.click(title)
+    const item = title.closest('li') as HTMLElement
+    const body = await screen.findByText('why it matters')
+    const severity = within(item).getByText('major')
+    expect(item.contains(severity)).toBe(true)
+    // title → meta → body. Expanded, the meta row used to sit under the whole prose block.
+    expect(title.compareDocumentPosition(severity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(severity.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
