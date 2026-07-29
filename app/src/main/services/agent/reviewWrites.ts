@@ -104,7 +104,7 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
   },
   'review_write.stale-worktree': {
     title: 'review writes — worktree is behind the PR',
-    text: "The PR worktree is behind PR #{number}'s head ({sha}). Re-enter review mode to refresh it, redo the change, then push.",
+    text: "The PR worktree is behind PR #{number}'s head ({sha}). Bring it to that head, redo the change, then push. Either re-enter review mode (Argus refreshes the worktree) or update it yourself: `git fetch origin` then `git checkout {sha}` in the worktree. Do NOT `git pull` — on this detached worktree a pull manufactures a merge commit, and the next push would put that merge on the PR branch.",
     placeholders: ['number', 'sha']
   },
   'review_write.comment-ok': {
