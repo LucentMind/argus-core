@@ -812,3 +812,18 @@ describe('CaseWorkspace case-id menu', () => {
     expect(await screen.findByText(/exported 3 files/i)).toBeTruthy()
   })
 })
+
+describe('evidence section per mode', () => {
+  it('review mode: relabeled to Code review artifacts, no search, no similar cases', async () => {
+    render(workspace('NAV-1', { activeMode: 'review' }))
+    expect(await screen.findByText('Code review artifacts')).toBeInTheDocument()
+    expect(screen.queryByText('Evidence')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/search evidence/i)).not.toBeInTheDocument()
+  })
+
+  it('investigation mode: Evidence label and search stay', async () => {
+    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    expect(await screen.findByText('Evidence')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/search evidence/i)).toBeInTheDocument()
+  })
+})

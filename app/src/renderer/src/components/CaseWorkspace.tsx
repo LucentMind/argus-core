@@ -474,9 +474,11 @@ export function CaseWorkspace({
               mode={activeMode}
               onAnalyze={(checkName) => void analyzeCheck(checkName)}
             />
-            <SectionLabel>Evidence</SectionLabel>
-            <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
-            <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+            <SectionLabel>
+              {activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
+            </SectionLabel>
+            {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
+            {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
             {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
             <CaseFiles
               key={slug}
