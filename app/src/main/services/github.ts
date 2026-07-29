@@ -234,7 +234,7 @@ export function buildPrStatusQuery(targets: PrTarget[]): string {
     }
     return `  t${i}: repository(owner: "${t.owner}", name: "${t.repo}") {
     pullRequest(number: ${t.number}) {
-      number url state isDraft mergeable reviewDecision
+      number url state isDraft mergeable mergeStateStatus reviewDecision
       commits(last: 1) { nodes { commit { statusCheckRollup {
         contexts(first: 100) { nodes {
           __typename
@@ -259,6 +259,7 @@ interface RawPr {
   state: string
   isDraft: boolean
   mergeable: string
+  mergeStateStatus: string
   reviewDecision: string | null
   commits: {
     nodes: { commit: { statusCheckRollup: { contexts: { nodes: (RawContext | null)[] } } | null } }[]
@@ -313,6 +314,16 @@ function checksOf(pr: RawPr): PrCheck[] | null {
   })
 }
 
+const MERGE_STATES = new Set([
+  'BLOCKED',
+  'BEHIND',
+  'CLEAN',
+  'DIRTY',
+  'DRAFT',
+  'HAS_HOOKS',
+  'UNSTABLE'
+])
+
 function unavailable(t: PrTarget, now: string, error: string): PrStatus {
   return {
     owner: t.owner,
@@ -322,6 +333,7 @@ function unavailable(t: PrTarget, now: string, error: string): PrStatus {
     state: 'UNKNOWN',
     isDraft: false,
     mergeable: 'UNKNOWN',
+    mergeStateStatus: 'UNKNOWN',
     reviewDecision: null,
     rollup: 'unavailable',
     checks: [],
@@ -401,6 +413,9 @@ export async function fetchPrStatuses(
       mergeable: (['MERGEABLE', 'CONFLICTING'].includes(pr.mergeable)
         ? pr.mergeable
         : 'UNKNOWN') as PrStatus['mergeable'],
+      mergeStateStatus: (MERGE_STATES.has(pr.mergeStateStatus)
+        ? pr.mergeStateStatus
+        : 'UNKNOWN') as PrStatus['mergeStateStatus'],
       reviewDecision: (pr.reviewDecision ?? null) as PrStatus['reviewDecision'],
       rollup: rollupOf(checks),
       checks,

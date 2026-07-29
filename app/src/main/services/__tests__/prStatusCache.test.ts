@@ -19,6 +19,7 @@ const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   state: 'OPEN',
   isDraft: false,
   mergeable: 'MERGEABLE',
+  mergeStateStatus: 'CLEAN',
   reviewDecision: null,
   rollup: 'passing',
   checks: [{ name: 'build', bucket: 'pass', required: false, url: null, jobId: null }],

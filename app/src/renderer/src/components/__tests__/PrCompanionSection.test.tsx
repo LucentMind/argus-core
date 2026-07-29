@@ -15,6 +15,7 @@ const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   state: 'OPEN',
   isDraft: false,
   mergeable: 'MERGEABLE',
+  mergeStateStatus: 'CLEAN',
   reviewDecision: 'REVIEW_REQUIRED',
   rollup: 'failing',
   checks: [
@@ -211,6 +212,20 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getByRole('heading', { name: /^required$/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /not blocking merge/i })).toBeInTheDocument()
+  })
+
+  it('says the merge is blocked when GitHub says so', () => {
+    prStatusStore.hydrate({ c1: status({ mergeStateStatus: 'BLOCKED' }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText(/merge blocked/i)).toBeInTheDocument()
+  })
+
+  it('says nothing about the merge state when it is clean', () => {
+    prStatusStore.hydrate({
+      c1: status({ mergeStateStatus: 'CLEAN', reviewDecision: null })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.queryByText(/merge blocked/i)).not.toBeInTheDocument()
   })
 
   it('shows no group headers when nothing is required', () => {

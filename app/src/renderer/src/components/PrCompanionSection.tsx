@@ -95,11 +95,14 @@ export function PrCompanionSection({
               {status.isDraft ? 'draft · ' : ''}
               {status.state === 'UNKNOWN' ? 'state unknown' : status.state.toLowerCase()}
             </Chip>
-            {(status.reviewDecision !== null || status.mergeable === 'CONFLICTING') && (
+            {(status.reviewDecision !== null ||
+              status.mergeable === 'CONFLICTING' ||
+              status.mergeStateStatus === 'BLOCKED') && (
               <span className="text-[11px] text-mute">
                 {[
                   status.reviewDecision ? DECISION_LABEL[status.reviewDecision] : null,
-                  status.mergeable === 'CONFLICTING' ? 'conflicts' : null
+                  status.mergeable === 'CONFLICTING' ? 'conflicts' : null,
+                  status.mergeStateStatus === 'BLOCKED' ? 'merge blocked' : null
                 ]
                   .filter(Boolean)
                   .join(' · ')}
