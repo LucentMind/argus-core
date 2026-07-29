@@ -84,7 +84,8 @@ beforeEach(() => {
       list: vi.fn(async () => []),
       ingest: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {}),
-      onParsing: vi.fn(() => () => {})
+      onParsing: vi.fn(() => () => {}),
+      scan: vi.fn(async () => ({ added: [], modified: [], missing: [], errors: [] }))
     },
     textdoc: {
       open: vi.fn(async () => ({ ok: true, title: '', lang: null, ref: null, totalLines: 0 })),
@@ -262,14 +263,19 @@ describe('CaseWorkspace composer prefill', () => {
 })
 
 describe('CaseWorkspace case switching', () => {
-  it('remounts CaseFiles on slug change so per-case state (type filter) resets', async () => {
+  it('remounts CaseFiles on slug change so per-case state (rescan result) resets', async () => {
     const { rerender } = render(workspace('NAV-1'))
-    const select = (await screen.findByLabelText('type-filter')) as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'binlog' } })
-    expect(select.value).toBe('binlog')
-    // switching tabs must not leak case A's filter/collapse/parsing state into case B
+    const rescanBtn = await screen.findByRole('button', { name: 'Rescan evidence folder' })
+    fireEvent.click(rescanBtn)
+    await waitFor(() =>
+      expect(rescanBtn).toHaveAttribute('title', expect.stringContaining('no changes'))
+    )
+    // switching tabs must not leak case A's scan-result/collapse/parsing state into case B
     rerender(workspace('NAV-2'))
-    expect((screen.getByLabelText('type-filter') as HTMLSelectElement).value).toBe('')
+    expect(await screen.findByRole('button', { name: 'Rescan evidence folder' })).toHaveAttribute(
+      'title',
+      'Rescan evidence folder'
+    )
   })
 })
 
@@ -823,7 +829,13 @@ describe('evidence section per mode', () => {
     expect(screen.queryByText('Evidence')).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/search evidence/i)).not.toBeInTheDocument()
     // CaseFiles itself (the files list) still renders under the relabeled section.
-    expect(screen.getByLabelText('type-filter')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rescan evidence folder' })).toBeInTheDocument()
+  })
+
+  it('does not render a second files header inside the section', async () => {
+    render(workspace('NAV-1', { activeMode: 'review' }))
+    await screen.findByText('Code review artifacts')
+    expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
   it('investigation mode: Evidence label and search stay', async () => {

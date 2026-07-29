@@ -4,12 +4,7 @@ import { Chip, MenuButton, SectionLabel } from './ui'
 import { confirm } from '../lib/confirmStore'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
-import type {
-  ArtifactType,
-  ArtifactTypeMeta,
-  EvidenceRecord,
-  FileNode
-} from '../../../shared/types'
+import type { ArtifactTypeMeta, EvidenceRecord, FileNode } from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 import { MAX_WHOLE_FILE_BYTES } from '../../../shared/textdoc'
 
@@ -44,19 +39,22 @@ function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?:
 
 export function CaseFiles({
   caseSlug,
+  label,
   onSuggest,
   onOpenFile,
   panelDecls = [],
   onOpenInPanel
 }: {
   caseSlug: string
+  /** The section title this card renders in its own header — the rail no longer renders one
+   *  above it, so every section's controls sit in exactly one place. */
+  label: string
   onSuggest?: (text: string) => void
   onOpenFile: (node: FileNode) => void
   panelDecls?: PanelDecl[]
   onOpenInPanel?: (evidenceId: number, packId: string, windowId: string) => void
 }): React.JSX.Element {
   const [rows, setRows] = useState<EvidenceRecord[]>([])
-  const [typeFilter, setTypeFilter] = useState<ArtifactType | ''>('')
   const [parsing, setParsing] = useState<Set<number>>(new Set())
   const [dragOver, setDragOver] = useState(false)
   const [artifactMeta, setArtifactMeta] = useState<ArtifactTypeMeta[]>([])
@@ -190,9 +188,7 @@ export function CaseFiles({
     }
   }
 
-  const visible = orderWithDerived(
-    typeFilter ? rows.filter((r) => r.artifactType === typeFilter) : rows
-  )
+  const visible = orderWithDerived(rows)
 
   function renderRow(r: EvidenceRecord & { derived?: boolean }): React.JSX.Element {
     const skill = artifactMeta.find((m) => m.type === r.artifactType)?.analyzeSkill
@@ -299,54 +295,39 @@ export function CaseFiles({
         dragOver ? 'border-signal/60 bg-signal/10' : 'border-hair'
       }`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <SectionLabel>Files</SectionLabel>
-        <div className="flex items-center gap-1.5">
-          <select
-            aria-label="type-filter"
-            className="rounded-r1 border border-hair bg-overlay px-1 py-0.5 text-xs text-dim"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as ArtifactType | '')}
-          >
-            <option value="">all types</option>
-            {artifactMeta.map((m) => (
-              <option key={m.type} value={m.type}>
-                {m.displayName}
-              </option>
-            ))}
-          </select>
-          <button
-            aria-label="Rescan evidence folder"
-            title="Rescan evidence folder"
-            disabled={scanning}
-            className="relative inline-flex h-6 w-6 items-center justify-center rounded-r1 border border-hair text-dim transition-colors hover:bg-overlay hover:text-ink"
-            onClick={() => void scan()}
-          >
-            <RefreshCw
-              size={14}
-              strokeWidth={1.5}
-              className={scanning ? 'animate-spin' : undefined}
+      <div className="flex items-center gap-2">
+        <SectionLabel>{label}</SectionLabel>
+        <span className="h-px flex-1 bg-hair" />
+        <button
+          aria-label="Rescan evidence folder"
+          title={scanNote ? `Rescan — last run: ${scanNote}` : 'Rescan evidence folder'}
+          disabled={scanning}
+          className="relative inline-flex h-6 w-6 items-center justify-center rounded-r1 text-dim transition-colors hover:bg-hair hover:text-ink"
+          onClick={() => void scan()}
+        >
+          <RefreshCw
+            size={14}
+            strokeWidth={1.5}
+            className={scanning ? 'animate-spin' : undefined}
+          />
+          {stale && (
+            <span
+              data-testid="files-stale-dot"
+              title="Folder changed on disk — rescan to update"
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-signal"
             />
-            {stale && (
-              <span
-                data-testid="files-stale-dot"
-                title="Folder changed on disk — rescan to update"
-                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-signal"
-              />
-            )}
-          </button>
-          <button
-            aria-label="Open in file explorer"
-            title="Open in file explorer"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-r1 border border-hair text-dim transition-colors hover:bg-overlay hover:text-ink"
-            onClick={() => void window.argus.files.reveal(caseSlug)}
-          >
-            <FolderOpen size={14} strokeWidth={1.5} />
-          </button>
-        </div>
+          )}
+        </button>
+        <button
+          aria-label="Open in file explorer"
+          title="Open in file explorer"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-r1 text-dim transition-colors hover:bg-hair hover:text-ink"
+          onClick={() => void window.argus.files.reveal(caseSlug)}
+        >
+          <FolderOpen size={14} strokeWidth={1.5} />
+        </button>
       </div>
       {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
-      {scanNote && <p className="text-xs text-dim">{scanNote}</p>}
       <ul className="text-xs">
         {visible.map(renderRow)}
         {visible.length === 0 && (
