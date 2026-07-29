@@ -77,6 +77,52 @@ describe('buildPrStatusQuery', () => {
 })
 
 describe('fetchPrStatuses', () => {
+  it('asks whether each context is required, naming the pull request', () => {
+    const q = buildPrStatusQuery([T0])
+    expect(q).toContain('isRequired(pullRequestNumber: 42)')
+    // Both node types carry it — a required check can be a third-party commit status.
+    expect(q.match(/isRequired\(pullRequestNumber: 42\)/g)).toHaveLength(2)
+  })
+
+  it('carries isRequired through to the check, from a real capture', async () => {
+    const captured = fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'prStatus.required.json'),
+      'utf8'
+    )
+    const run: Runner = async () => captured
+    const target = { owner: 'cli', repo: 'cli', number: 14003 }
+    const s = (await fetchPrStatuses(run, [target], NOW)).get(prTargetKey(target))!
+    expect(s.checks.filter((c) => c.required).map((c) => c.name)).toEqual([
+      'build (ubuntu-latest)',
+      'build (windows-latest)',
+      'build (macos-latest)'
+    ])
+    expect(s.checks.filter((c) => !c.required)).toHaveLength(3)
+  })
+
+  it('defaults required to false when the field is absent', async () => {
+    const run: Runner = async () => payload()
+    const s = (await fetchPrStatuses(run, [T0], NOW)).get(prTargetKey(T0))!
+    expect(s.checks.every((c) => c.required === false)).toBe(true)
+  })
+
+  it('marks the target unavailable when a context node came back null', async () => {
+    // A field-level GraphQL error nulls every context node while leaving the pull request node
+    // intact (fixtures/prStatus.nullNodes.json). Mapping the survivors would under-report —
+    // possibly hiding the one red check — so the whole target goes unavailable instead.
+    const captured = fs.readFileSync(
+      path.join(__dirname, 'fixtures', 'prStatus.nullNodes.json'),
+      'utf8'
+    )
+    const run: Runner = async () => captured
+    const target = { owner: 'cli', repo: 'cli', number: 14003 }
+    const s = (await fetchPrStatuses(run, [target], NOW)).get(prTargetKey(target))!
+    expect(s.rollup).toBe('unavailable')
+    expect(s.checks).toEqual([])
+    // One error per node, so the message is taken once rather than repeated per check.
+    expect(s.error).toBe('A pull request ID or pull request number is required.')
+  })
+
   it('returns an empty map without calling gh when there are no targets', async () => {
     const run: Runner = async () => {
       throw new Error('gh must not be called')
@@ -97,12 +143,14 @@ describe('fetchPrStatuses', () => {
       {
         name: 'build',
         bucket: 'fail',
+        required: false,
         url: 'https://github.com/acme/widget/actions/runs/1/job/99',
         jobId: 99
       },
       {
         name: 'ci/circleci',
         bucket: 'pass',
+        required: false,
         url: 'https://circleci.com/gh/acme/widget/7',
         jobId: null
       }

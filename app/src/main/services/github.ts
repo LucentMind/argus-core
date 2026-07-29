@@ -238,8 +238,8 @@ export function buildPrStatusQuery(targets: PrTarget[]): string {
       commits(last: 1) { nodes { commit { statusCheckRollup {
         contexts(first: 100) { nodes {
           __typename
-          ... on CheckRun { name status conclusion detailsUrl }
-          ... on StatusContext { context state targetUrl }
+          ... on CheckRun { name status conclusion isRequired(pullRequestNumber: ${t.number}) detailsUrl }
+          ... on StatusContext { context state isRequired(pullRequestNumber: ${t.number}) targetUrl }
         } }
       } } } }
     }
@@ -261,7 +261,7 @@ interface RawPr {
   mergeable: string
   reviewDecision: string | null
   commits: {
-    nodes: { commit: { statusCheckRollup: { contexts: { nodes: RawContext[] } } | null } }[]
+    nodes: { commit: { statusCheckRollup: { contexts: { nodes: (RawContext | null)[] } } | null } }[]
   }
 }
 
@@ -270,6 +270,7 @@ interface RawContext {
   name?: string
   status?: string | null
   conclusion?: string | null
+  isRequired?: boolean | null
   detailsUrl?: string | null
   context?: string
   state?: string | null
@@ -281,15 +282,23 @@ interface RawContext {
  * check names freely — the Task 1 capture found "Semantic Pull Request" twice on one PR and 46
  * contexts under 20 distinct names on another — and each repeat is a separate run with its own
  * job id and its own verdict. Collapsing them would hide a red run behind a green one.
+ *
+ * Returns null when any context node is null. GraphQL reports a field-level error by nulling
+ * the node it occurred on while leaving the pull request node intact (captured in
+ * `fixtures/prStatus.nullNodes.json`), so the `if (!pr)` guard in the caller never fires for
+ * that shape. Mapping the survivors would silently under-report — the missing node could be
+ * the only red check — so the caller marks the whole target unavailable instead.
  */
-function checksOf(pr: RawPr): PrCheck[] {
+function checksOf(pr: RawPr): PrCheck[] | null {
   const nodes = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []
-  return nodes.map((n) => {
+  if (nodes.some((n) => n === null)) return null
+  return (nodes as RawContext[]).map((n) => {
     if (n.__typename === 'CheckRun') {
       const url = n.detailsUrl ?? null
       return {
         name: n.name ?? '(unnamed check)',
         bucket: bucketOfCheckRun(n.status ?? null, n.conclusion ?? null),
+        required: n.isRequired === true,
         url,
         jobId: actionsJobId(url)
       }
@@ -297,6 +306,7 @@ function checksOf(pr: RawPr): PrCheck[] {
     return {
       name: n.context ?? '(unnamed status)',
       bucket: bucketOfStatusContext(n.state ?? null),
+      required: n.isRequired === true,
       url: n.targetUrl ?? null,
       jobId: null
     }
@@ -369,6 +379,16 @@ export async function fetchPrStatuses(
       return
     }
     const checks = checksOf(pr)
+    if (checks === null) {
+      // `.find`, not `.map`: GraphQL emits one error per nulled node, so a 100-check pull
+      // request would otherwise write 100 identical sentences into the cache.
+      const own = body?.errors?.find((e) => e.path?.[0] === `t${i}`)?.message
+      out.set(
+        key,
+        unavailable(t, now, own || failure || 'This pull request’s checks could not be read.')
+      )
+      return
+    }
     out.set(key, {
       owner: t.owner,
       repo: t.repo,

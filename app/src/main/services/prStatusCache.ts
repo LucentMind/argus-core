@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { PrStatus } from '../../shared/prStatus'
+import type { PrCheck, PrStatus } from '../../shared/prStatus'
 
 /**
  * The DB half of the PR/CI companion: no network, no orchestration. Everything that renders a
@@ -19,6 +19,19 @@ export function writePrStatus(db: DatabaseSync, caseSlug: string, status: PrStat
 }
 
 /**
+ * A cached row is whatever shape `PrStatus` had when it was written. `pr_status_cache` holds
+ * JSON, so a field added later is simply absent from older rows — and the dashboard renders
+ * the cache before the first refresh lands, so those rows do reach the UI. Normalizing here
+ * keeps every consumer free of `?? false` guards.
+ */
+type CachedCheck = Omit<PrCheck, 'required'> & { required?: boolean }
+type CachedStatus = Omit<PrStatus, 'checks'> & { checks: CachedCheck[] }
+
+function normalize(s: CachedStatus): PrStatus {
+  return { ...s, checks: s.checks.map((c) => ({ ...c, required: c.required ?? false })) }
+}
+
+/**
  * Cached statuses for the given cases, keyed by slug. A case with no cached row is ABSENT from
  * the result rather than mapped to null, so a caller cannot accidentally render "unknown" and
  * "not fetched yet" as the same thing.
@@ -34,7 +47,7 @@ export function readPrStatuses(db: DatabaseSync, caseSlugs: string[]): Record<st
     )
     .all(...caseSlugs) as { slug: string; status_json: string }[]
   const out: Record<string, PrStatus> = {}
-  for (const r of rows) out[r.slug] = JSON.parse(r.status_json) as PrStatus
+  for (const r of rows) out[r.slug] = normalize(JSON.parse(r.status_json) as CachedStatus)
   return out
 }
 
