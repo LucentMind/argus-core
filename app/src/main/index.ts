@@ -24,6 +24,7 @@ import { overrideBootWarnings } from './services/prompts/bootWarnings'
 import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
+import { exportEvalBundle } from './services/distill/evalExport'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -31,6 +32,7 @@ import type {
   PromptCaptureListPayload,
   PromptCaptureDetail
 } from '../shared/promptsIpc'
+import type { DistillEvalExportResult } from '../shared/distillEval'
 import { SecretStore } from './services/secrets'
 import { ConnectorRegistry } from './services/connectors'
 import { ToolRiskStore } from './services/toolRisk'
@@ -1675,6 +1677,22 @@ function registerIpc(): void {
             personaAppend: settingsService.get().agent.personaAppend || undefined
           }).text
       })
+    }
+  )
+
+  /** Bundles each case's latest fully-reviewed distill job into an NDJSON eval corpus file.
+   *  Gated like every dev-prompts handler; snapshots contain raw case data, so the write goes
+   *  only where the user's save dialog points — nothing is uploaded. */
+  ipcMain.handle(
+    IPC.devPromptsExportDistillEval,
+    async (): Promise<DistillEvalExportResult | null> => {
+      assertDevTools(devTools)
+      const r = await dialog.showSaveDialog({
+        defaultPath: `distill-eval-${new Date().toISOString().slice(0, 10)}.ndjson`,
+        filters: [{ name: 'NDJSON', extensions: ['ndjson'] }]
+      })
+      if (r.canceled || !r.filePath) return null
+      return exportEvalBundle(db, argusHome, r.filePath, app.getVersion())
     }
   )
 

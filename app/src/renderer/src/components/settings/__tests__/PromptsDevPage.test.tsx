@@ -128,7 +128,12 @@ beforeEach(() => {
       overrides: vi.fn(async () => []),
       onChanged: vi.fn(() => () => {}),
       captures: vi.fn(async () => captureList),
-      capture: vi.fn(async () => captureDetail)
+      capture: vi.fn(async () => captureDetail),
+      exportDistillEval: vi.fn().mockResolvedValue({
+        path: 'C:\\out.ndjson',
+        exported: 3,
+        skipped: [{ jobId: 9, caseSlug: 'nav-2', reason: 'items pending review' }]
+      })
     }
   }
 })
@@ -495,5 +500,36 @@ describe('PromptsDevPage — session capture', () => {
     // The list must stay visible and clickable — the user needs to be able to pick another row.
     expect(screen.getByText('c-1 · session 7')).toBeInTheDocument()
     expect(screen.getByText('c-2 · session 3')).toBeInTheDocument()
+  })
+})
+
+describe('PromptsDevPage — distill eval export', () => {
+  it('export section calls the IPC and reports the result', async () => {
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export distill eval bundle' }))
+    await waitFor(() => expect(screen.getByText(/3 job/)).toBeInTheDocument())
+    expect(screen.getByText(/1 skipped/)).toBeInTheDocument()
+  })
+
+  it('a cancelled save dialog (null) reports nothing', async () => {
+    ;(
+      window as unknown as {
+        argus: { devPrompts: { exportDistillEval: ReturnType<typeof vi.fn> } }
+      }
+    ).argus.devPrompts.exportDistillEval = vi.fn().mockResolvedValue(null)
+    render(<PromptsDevPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export distill eval bundle' }))
+    await waitFor(() =>
+      expect(
+        (
+          window as unknown as {
+            argus: { devPrompts: { exportDistillEval: ReturnType<typeof vi.fn> } }
+          }
+        ).argus.devPrompts.exportDistillEval
+      ).toHaveBeenCalled()
+    )
+    // The section description itself contains the word "job" — match the result line's
+    // count pattern specifically, not the substring.
+    expect(screen.queryByText(/\d+ jobs? →/)).not.toBeInTheDocument()
   })
 })
