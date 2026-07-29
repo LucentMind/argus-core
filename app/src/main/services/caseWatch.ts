@@ -4,8 +4,10 @@
 import fs from 'node:fs'
 import { caseDir } from './paths'
 import { assertSlug } from './caseFiles'
+import { ARTIFACTS_DIR, EVIDENCE_DIR } from '../../shared/evidenceScope'
 
 const DEBOUNCE_MS = 300
+const WATCHED_DIRS = [`${EVIDENCE_DIR}/`, `${ARTIFACTS_DIR}/`]
 
 export interface CaseWatchHub {
   watch(slug: string): void
@@ -40,7 +42,7 @@ export function createCaseWatchHub(
   const isRelevant = (filename: string | Buffer | null): boolean => {
     if (!filename || String(filename).length === 0) return true // platform gave no path — be conservative
     const rel = String(filename).replace(/\\/g, '/')
-    if (rel !== 'evidence' && !rel.startsWith('evidence/')) return false
+    if (!WATCHED_DIRS.some((d) => rel.startsWith(d))) return false
     return !rel.split('/').some((seg) => seg.startsWith('.'))
   }
 
