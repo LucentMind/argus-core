@@ -83,7 +83,7 @@ describe('ReposSection pull requests', () => {
 
   it('renders no PR section at all when nothing is bound', async () => {
     render(<ReposSection slug="C-1" />)
-    await screen.findByText(/hivemindtest @ main/) // section rendered, PRs empty
+    await screen.findByText('hivemindtest') // section rendered, PRs empty
     expect(screen.queryByText(/pull requests/i)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Unlink PR' })).toBeNull()
   })
@@ -252,14 +252,14 @@ describe('ReposSection pull requests', () => {
 describe('ReposSection mode gating', () => {
   it('hides unlink-repo and code-graph icons in review mode', async () => {
     render(<ReposSection slug="C-1" mode="review" />)
-    await screen.findByText(/hivemindtest @ main/)
+    await screen.findByText('hivemindtest')
     expect(screen.queryByRole('button', { name: 'Unlink repo' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Code graph' })).toBeNull()
   })
 
   it('keeps both icons in investigation mode', async () => {
     render(<ReposSection slug="C-1" mode="investigation" />)
-    await screen.findByText(/hivemindtest @ main/)
+    await screen.findByText('hivemindtest')
     expect(screen.getByRole('button', { name: 'Unlink repo' })).toBeInTheDocument()
   })
 
@@ -273,7 +273,8 @@ describe('ReposSection mode gating', () => {
 describe('ReposSection', () => {
   it('renders linked repo chips with ref and dirty marker', async () => {
     render(<ReposSection slug="C-1" />)
-    expect(await screen.findByText(/hivemindtest @ main/)).toBeTruthy()
+    expect(await screen.findByText('hivemindtest')).toBeTruthy()
+    expect(screen.getByTitle('main')).toBeTruthy()
     expect(screen.getByText(/●/)).toBeTruthy()
   })
 
@@ -334,5 +335,32 @@ describe('ReposSection', () => {
     fire!('OTHER-CASE')
     await new Promise((r) => setTimeout(r, 0))
     expect(list.mock.calls.length).toBe(after)
+  })
+})
+
+describe('ReposSection repo chip layout', () => {
+  it('shows the repo name and branch on separate lines, with the full branch in a tooltip', async () => {
+    render(<ReposSection slug="C-1" />)
+    const name = await screen.findByText('hivemindtest')
+    const branch = screen.getByTitle('main')
+    expect(name).toBeInTheDocument()
+    // separate elements, not one run-on string
+    expect(branch).not.toBe(name)
+    expect(name.textContent).not.toContain('main')
+  })
+
+  it('marks a worktree checkout with its own badge rather than a text suffix', async () => {
+    ;(window.argus.workspaces.list as ReturnType<typeof vi.fn>) = vi.fn(async () => [
+      {
+        path: 'C:\\repos\\hivemindtest',
+        remote: null,
+        branch: 'main',
+        currentRef: 'main',
+        dirty: false,
+        worktreePath: 'C:\\wt\\x'
+      }
+    ])
+    render(<ReposSection slug="C-1" />)
+    expect(await screen.findByText('worktree')).toBeInTheDocument()
   })
 })
