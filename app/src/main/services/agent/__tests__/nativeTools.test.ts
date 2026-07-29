@@ -188,6 +188,37 @@ describe('argus native tools', () => {
     expect(out.map((e) => e.relPath)).toEqual(['artifacts/ci-5.log'])
   })
 
+  it('search_evidence follows the session mode in both directions', async () => {
+    const src2 = path.join(tmp, 'ci-5.log')
+    fs.writeFileSync(src2, 'FATAL Navigator crashed inside the review artifact\n')
+    ingestArtifact(db, argusHome, detection, 'NAV-1', src2, 'ci', {}, 'review')
+
+    // Both sessions are created explicitly: the beforeEach `handlers` uses a hardcoded
+    // sessionId of 1 with no sessions row, and createSession would claim that id.
+    const mk = (mode: 'investigation' | 'review'): ReturnType<typeof argusToolHandlers> => {
+      const session = createSession(db, 'NAV-1', { driverKind: 'claude-agent-sdk', mode })
+      return argusToolHandlers({
+        db,
+        argusHome,
+        detection,
+        caseId,
+        caseSlug: 'NAV-1',
+        sessionId: session.id,
+        emitFinding
+      })
+    }
+
+    const review = JSON.parse(
+      await mk('review').search_evidence({ query: 'Navigator crashed' })
+    ) as Array<{ relPath: string }>
+    expect(review.map((h) => h.relPath)).toEqual(['artifacts/ci-5.log'])
+
+    const investigation = JSON.parse(
+      await mk('investigation').search_evidence({ query: 'Navigator crashed' })
+    ) as Array<{ relPath: string }>
+    expect(investigation.map((h) => h.relPath)).toEqual(['evidence/log.txt'])
+  })
+
   it('get_artifact_meta resolves an id from either tree', async () => {
     const src2 = path.join(tmp, 'ci-5.log')
     fs.writeFileSync(src2, 'log body\n')
