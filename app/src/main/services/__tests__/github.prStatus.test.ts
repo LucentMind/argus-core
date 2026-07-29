@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { buildPrStatusQuery, fetchPrStatuses, prTargetKey, type Runner } from '../github'
+import { bucketOfCheckRun } from '../../../shared/prStatus'
 
 const NOW = '2026-07-27T12:00:00.000Z'
 const T0 = { owner: 'acme', repo: 'widget', number: 42 }
@@ -148,6 +149,9 @@ describe('fetchPrStatuses', () => {
       })
     const s = (await fetchPrStatuses(run, [T0], NOW)).get(prTargetKey(T0))!
     expect(s.checks.every((c) => c.required === false)).toBe(true)
+    // This payload also omits mergeStateStatus entirely — the absent-field half of "falls back
+    // to UNKNOWN for an unrecognized or absent merge state", below.
+    expect(s.mergeStateStatus).toBe('UNKNOWN')
   })
 
   it('marks the target unavailable when a context node came back null', async () => {
@@ -289,8 +293,34 @@ describe('fetchPrStatuses', () => {
     expect(s.rollup).not.toBe('unavailable')
     for (const c of s.checks) {
       expect(c.name.length).toBeGreaterThan(0)
-      expect(['pass', 'fail', 'pending', 'skipped']).toContain(c.bucket)
+      expect(['pass', 'fail', 'cancelled', 'pending', 'skipped']).toContain(c.bucket)
     }
+  })
+
+  it('buckets a real commit where one job broke and the concurrency group killed two others as exactly one fail, not three', () => {
+    // fixtures/prStatus.cancelled.json is an object(oid:) commit payload, not a pull request —
+    // it cannot go through fetchPrStatuses. Read its nodes directly and map each through
+    // bucketOfCheckRun, the same function the headline change (CANCELLED/STALE leaving `fail`) lives in.
+    const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'prStatus.cancelled.json'), 'utf8')
+    const nodes = (
+      JSON.parse(raw) as {
+        data: {
+          t0: {
+            object: {
+              statusCheckRollup: {
+                contexts: { nodes: { status: string; conclusion: string | null }[] }
+              }
+            }
+          }
+        }
+      }
+    ).data.t0.object.statusCheckRollup.contexts.nodes
+    const buckets = nodes.map((n) => bucketOfCheckRun(n.status, n.conclusion))
+    const tally = buckets.reduce<Record<string, number>>((acc, b) => {
+      acc[b] = (acc[b] ?? 0) + 1
+      return acc
+    }, {})
+    expect(tally).toEqual({ pass: 14, fail: 1, cancelled: 2, skipped: 3 })
   })
 
   it('keeps same-named checks as separate rows — real PRs repeat check names', async () => {
