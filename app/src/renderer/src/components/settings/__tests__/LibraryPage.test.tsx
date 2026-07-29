@@ -326,7 +326,7 @@ describe('LibraryPage merged list', () => {
   it('user skill shadowing lower tiers carries an overrides chip', async () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
-    expect(screen.getByText('overrides hivemind, bundled')).toBeInTheDocument()
+    expect(screen.getByText('overrides HiveMind, pack')).toBeInTheDocument()
     // non-shadowing rows get no such chip
     expect(screen.getAllByText(/^overrides /)).toHaveLength(1)
   })
