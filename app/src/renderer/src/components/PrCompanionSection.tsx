@@ -29,6 +29,23 @@ const STATE_TONE: Record<PrStatus['state'], 'signal' | 'defect' | 'neutral'> = {
 }
 
 /**
+ * Required first, optional second, GitHub's order preserved inside each group so a pull
+ * request that repeats a check name keeps those runs adjacent.
+ *
+ * Headers appear only when something is required. On a repository with no branch protection
+ * nothing is, and a lone "Not blocking merge" heading over the entire list would read as a
+ * claim about policy rather than the absence of one.
+ */
+function groupChecks(checks: PrCheck[]): { label: string | null; items: PrCheck[] }[] {
+  const required = checks.filter((c) => c.required)
+  if (required.length === 0) return [{ label: null, items: checks }]
+  return [
+    { label: 'Required', items: required },
+    { label: 'Not blocking merge', items: checks.filter((c) => !c.required) }
+  ].filter((g) => g.items.length > 0)
+}
+
+/**
  * Spec §7's PR/CI companion: the bound pull request's state and its checks, live while review
  * mode is open. Renders from `prStatusStore` (which mirrors the DB cache) and never fetches
  * directly — `usePrStatuses` owns the one refresh and the conditional poll.
@@ -102,59 +119,71 @@ export function PrCompanionSection({
 
           {status.rollup !== 'unavailable' && status.checks.length > 0 && (
             <div className="divide-y divide-hair overflow-hidden rounded-r2 border border-hair bg-panel">
-              {status.checks.map((c, i) => {
-                const analyzable = c.bucket === 'fail' && c.jobId !== null
-                return (
-                  // Keyed on name AND index: check names are NOT unique on real pull requests
-                  // (the Task 1 capture found one PR listing "Semantic Pull Request" twice and
-                  // another with 46 contexts under 20 names), and a duplicate React key drops
-                  // rows silently.
-                  <div
-                    key={`${c.name}#${i}`}
-                    className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={
-                        c.bucket === 'fail'
-                          ? 'text-danger'
-                          : c.bucket === 'pass'
-                            ? 'text-signal'
-                            : 'text-mute'
-                      }
+              {groupChecks(status.checks).flatMap((group) => [
+                ...(group.label
+                  ? [
+                      <div
+                        key={`group:${group.label}`}
+                        className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute"
+                      >
+                        {group.label}
+                      </div>
+                    ]
+                  : []),
+                ...group.items.map((c, i) => {
+                  const analyzable = c.bucket === 'fail' && c.jobId !== null
+                  return (
+                    // Keyed on group, name AND index: check names are NOT unique on real pull
+                    // requests (the Task 1 capture found one PR listing "Semantic Pull Request"
+                    // twice and another with 46 contexts under 20 names), and a duplicate React
+                    // key drops rows silently.
+                    <div
+                      key={`${group.label ?? ''}:${c.name}#${i}`}
+                      className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]"
                     >
-                      {BUCKET_MARK[c.bucket]}
-                    </span>
-                    {c.url ? (
-                      <a
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate text-ink hover:underline"
-                      >
-                        {c.name}
-                      </a>
-                    ) : (
-                      <span className="truncate text-ink">{c.name}</span>
-                    )}
-                    <span className="flex-1" />
-                    {c.bucket === 'fail' && (
-                      <IconBtn
-                        aria-label={`Analyze ${c.name} failure`}
-                        title={
-                          analyzable
-                            ? 'Pull this job log as evidence and analyze the failure'
-                            : 'Not a GitHub Actions job — Argus cannot read this check’s log'
+                      <span
+                        aria-hidden="true"
+                        className={
+                          c.bucket === 'fail'
+                            ? 'text-danger'
+                            : c.bucket === 'pass'
+                              ? 'text-signal'
+                              : 'text-mute'
                         }
-                        disabled={!analyzable}
-                        onClick={() => onAnalyze(c.name)}
                       >
-                        <Stethoscope size={12} />
-                      </IconBtn>
-                    )}
-                  </div>
-                )
-              })}
+                        {BUCKET_MARK[c.bucket]}
+                      </span>
+                      {c.url ? (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="truncate text-ink hover:underline"
+                        >
+                          {c.name}
+                        </a>
+                      ) : (
+                        <span className="truncate text-ink">{c.name}</span>
+                      )}
+                      <span className="flex-1" />
+                      {c.bucket === 'fail' && (
+                        <IconBtn
+                          aria-label={`Analyze ${c.name} failure`}
+                          title={
+                            analyzable
+                              ? 'Pull this job log as evidence and analyze the failure'
+                              : 'Not a GitHub Actions job — Argus cannot read this check’s log'
+                          }
+                          disabled={!analyzable}
+                          onClick={() => onAnalyze(c.name)}
+                        >
+                          <Stethoscope size={12} />
+                        </IconBtn>
+                      )}
+                    </div>
+                  )
+                })
+              ])}
             </div>
           )}
         </>
