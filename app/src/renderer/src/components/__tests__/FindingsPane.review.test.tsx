@@ -164,4 +164,23 @@ describe('FindingsPane review flavor', () => {
     expect(layer.className).not.toMatch(/border-hair2/)
     expect(layer).toHaveClass('truncate')
   })
+
+  it('rails each card by severity and leaves unflavored findings unrailed', async () => {
+    list.mockResolvedValue([
+      row({ id: 1, summary: 'crit', layer: 'security', severity: 'critical', mode: 'review' }),
+      row({ id: 2, summary: 'maj', layer: 'tests', severity: 'major', mode: 'review' }),
+      row({ id: 3, summary: 'min', layer: 'tests', severity: 'minor', mode: 'review' }),
+      row({ id: 4, summary: 'plain', mode: 'review' })
+    ])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
+    await screen.findByText('crit')
+    const items = screen.getAllByRole('listitem')
+    // list is sorted critical → major → minor → unflavored
+    expect(items[0].querySelector('[data-severity="critical"]')).not.toBeNull()
+    expect(items[1].querySelector('[data-severity="major"]')).not.toBeNull()
+    expect(items[2].querySelector('[data-severity="minor"]')).not.toBeNull()
+    expect(items[3].querySelector('[data-severity]')).toBeNull()
+    // decoration only — never announced
+    expect(items[0].querySelector('[data-severity]')).toHaveAttribute('aria-hidden', 'true')
+  })
 })

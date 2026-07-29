@@ -33,6 +33,14 @@ const SEVERITY_TEXT: Record<ReviewSeverity, string> = {
   minor: 'text-dim'
 }
 
+/** Severity as a vertical scan line. 2px on the card edge costs no horizontal space, which the
+ *  meta row cannot spare at FINDINGS_MIN_WIDTH. */
+const SEVERITY_RAIL: Record<ReviewSeverity, string> = {
+  critical: 'bg-danger',
+  major: 'bg-defect',
+  minor: 'bg-mute'
+}
+
 /** One finding in the sidebar list. Presentational: every mutation goes back up through a
  *  callback so FindingsPane keeps sole ownership of state and IPC. */
 export function FindingCard({
@@ -70,11 +78,18 @@ export function FindingCard({
   const rejected = f.reviewState === 'rejected'
   return (
     <li
-      className={`rounded-r2 border bg-panel ${
+      className={`relative rounded-r2 border bg-panel ${
         accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
       }`}
     >
-      <div className="flex items-start gap-1.5 px-2 py-1.5">
+      {f.severity && (
+        <span
+          aria-hidden="true"
+          data-severity={f.severity}
+          className={`absolute top-0 bottom-0 left-0 w-[2px] rounded-l-r2 ${SEVERITY_RAIL[f.severity]}`}
+        />
+      )}
+      <div className="flex items-start gap-1.5 py-1.5 pr-2 pl-3">
         <ChevronRight
           size={13}
           className={`mt-0.5 shrink-0 text-mute transition-transform ${open ? 'rotate-90' : ''} ${
@@ -90,7 +105,7 @@ export function FindingCard({
           {f.summary}
         </button>
       </div>
-      <div className="flex items-center gap-2 px-2 pb-1.5">
+      <div className="flex items-center gap-2 pr-2 pb-1.5 pl-3">
         {selectable && (
           <input
             type="checkbox"
@@ -200,7 +215,7 @@ export function FindingCard({
         </button>
       </div>
       {open && f.body && (
-        <div className="border-t border-hair px-2 py-2 text-xs">
+        <div className="border-t border-hair py-2 pr-2 pl-3 text-xs">
           <MessageView
             markdown={f.body}
             onCite={onCite}
