@@ -1204,6 +1204,13 @@ function registerIpc(): void {
       )
   )
 
+  // Button-initiated comment post (Plan 6 §1, Task 4): main-owned mechanism, no model turn.
+  ipcMain.handle(
+    IPC.reviewPostFindingComment,
+    (_e, slug: string, sessionId: number, findingId: number) =>
+      agentService!.postFindingComment(slug, sessionId, findingId)
+  )
+
   // The companion's Analyze button. Same posture as the two above — main owns the binding and
   // the worktree path — but no framing deps: a CI triage turn is single-pass, so it never asks
   // which driver the session runs on.

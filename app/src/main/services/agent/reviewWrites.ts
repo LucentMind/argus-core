@@ -146,6 +146,8 @@ interface FindingAnchorRow {
   diff_line: number | null
   summary: string
   suggested_change: string | null
+  comment_body: string | null
+  head_sha: string | null
 }
 
 /** Case-scoped by construction: the join is the ownership check. */
@@ -156,7 +158,7 @@ export function findingForCase(
 ): FindingAnchorRow {
   const row = deps.db
     .prepare(
-      `SELECT f.id, f.diff_path, f.diff_line, f.summary, f.suggested_change
+      `SELECT f.id, f.diff_path, f.diff_line, f.summary, f.suggested_change, f.comment_body, f.head_sha
          FROM findings f JOIN cases c ON c.id = f.case_id
         WHERE c.slug = ? AND f.id = ?`
     )
