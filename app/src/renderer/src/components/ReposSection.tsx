@@ -181,11 +181,32 @@ export function ReposSection({
       </div>
       {workspaces.map((w) => (
         <div key={w.path} className="flex items-center gap-1">
-          <Chip tone={w.worktreePath ? 'defect' : 'signal'}>
-            {w.path.split(/[\\/]/).pop()} @ {w.currentRef}
-            {w.dirty ? ' ●' : ''}
-            {w.worktreePath ? ' · worktree' : ''}
-          </Chip>
+          <div className="min-w-0 flex-1 rounded-r2 border border-defect/30 bg-hair/40 px-2 py-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-mono text-xs font-medium text-defect">
+                {w.path.split(/[\\/]/).pop()}
+              </span>
+              {w.dirty && (
+                <span title="Uncommitted changes" className="shrink-0 text-[10px] text-signal">
+                  ●
+                </span>
+              )}
+              {w.worktreePath && (
+                <span className="shrink-0 rounded-r1 border border-hair2 px-1 font-mono text-[9.5px] uppercase tracking-wide text-mute">
+                  worktree
+                </span>
+              )}
+            </div>
+            <div
+              title={w.currentRef}
+              className="mt-0.5 truncate font-mono text-[11px] text-mute"
+              dir="rtl"
+            >
+              {/* dir=rtl truncates the START of the ref, keeping the topic segment that
+                  carries the meaning — branch names here read <prefix>/<topic>. */}
+              <span dir="ltr">{w.currentRef}</span>
+            </div>
+          </div>
           <span className="flex-1" />
           {mode !== 'review' && (
             <>
