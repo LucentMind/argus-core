@@ -86,7 +86,7 @@ describe('FindingsPane write actions', () => {
   it('posts through the mechanism when the finding carries comment_body', async () => {
     list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
     postFindingComment.mockResolvedValue({ ok: true })
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(postFindingComment).toHaveBeenCalledWith('c1', 3, 7))
     expect(composeActionPrompt).not.toHaveBeenCalled()
@@ -97,7 +97,7 @@ describe('FindingsPane write actions', () => {
     list.mockResolvedValue([reviewRow({ commentBody: null })])
     composeActionPrompt.mockResolvedValue('COMPOSED COMMENT')
     send.mockResolvedValue(undefined)
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
     expect(postFindingComment).not.toHaveBeenCalled()
@@ -109,7 +109,7 @@ describe('FindingsPane write actions', () => {
       ok: false,
       reason: 'No pull request is bound to this case.'
     })
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     expect(await screen.findByText('No pull request is bound to this case.')).toBeInTheDocument()
   })
@@ -122,7 +122,7 @@ describe('FindingsPane write actions', () => {
     postFindingComment.mockResolvedValue({ ok: false, reason: 'no-body' })
     composeActionPrompt.mockResolvedValue('COMPOSED COMMENT')
     send.mockResolvedValue(undefined)
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'comment')
@@ -134,7 +134,7 @@ describe('FindingsPane write actions', () => {
   it('maps a session-dead mechanism failure to a readable sentence', async () => {
     list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
     postFindingComment.mockResolvedValue({ ok: false, reason: 'session-dead' })
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     expect(await screen.findByText('The session is no longer running.')).toBeInTheDocument()
     expect(screen.queryByText('session-dead')).not.toBeInTheDocument()
@@ -144,7 +144,7 @@ describe('FindingsPane write actions', () => {
   it('stays silent when the mechanism reports denied', async () => {
     list.mockResolvedValue([reviewRow({ commentBody: 'Stored prose.' })])
     postFindingComment.mockResolvedValue({ ok: false, reason: 'denied' })
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(postFindingComment).toHaveBeenCalled())
     expect(composeActionPrompt).not.toHaveBeenCalled()
@@ -203,7 +203,7 @@ describe('FindingsPane write actions', () => {
     list.mockResolvedValue([reviewRow({ id: 7 }), reviewRow({ id: 9 })])
     composeActionPrompt.mockResolvedValue('BATCH APPLY')
     send.mockResolvedValue(undefined)
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Select finding 7 for batch apply'))
     await userEvent.click(await screen.findByLabelText('Select finding 9 for batch apply'))
     await userEvent.click(screen.getByRole('button', { name: 'Apply selected (2)' }))
@@ -213,7 +213,7 @@ describe('FindingsPane write actions', () => {
 
   it('offers no checkbox on a finding without a diff anchor', async () => {
     list.mockResolvedValue([reviewRow({ id: 7, diffPath: null, diffLine: null })])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await screen.findByText('Inverted guard')
     expect(screen.queryByLabelText('Select finding 7 for batch apply')).toBeNull()
   })
@@ -223,7 +223,7 @@ describe('FindingsPane write actions', () => {
     list.mockResolvedValue([
       reviewRow({ id: 7, headSha: 'b994f1a61e2ea27c9c0ae9ec8a94f8a3d4302427' })
     ])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     const chip = await screen.findByText('code moved')
     expect(chip).toHaveAttribute(
       'title',
@@ -237,7 +237,7 @@ describe('FindingsPane write actions', () => {
       reviewRow({ id: 7, headSha: '54af8776e37c29084ad9454ab4a71166a9606138' }),
       reviewRow({ id: 9, headSha: null })
     ])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     // waits for both rows to render before asserting absence (brief's `/summary/i` never
     // matches this fixture's summary text — 'Inverted guard' — so it would hang; this waits on
     // the same rendered rows by their actual text instead)
@@ -247,7 +247,7 @@ describe('FindingsPane write actions', () => {
 
   it('states the deny-and-redo consequence on the batch button', async () => {
     list.mockResolvedValue([reviewRow({ id: 7 })])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Select finding 7 for batch apply'))
     expect(screen.getByRole('button', { name: 'Apply selected (1)' })).toHaveAttribute(
       'title',
