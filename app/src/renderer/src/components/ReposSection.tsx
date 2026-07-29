@@ -9,6 +9,7 @@ import { RepoGraphControl } from './RepoGraphControl'
 import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
 import { confirm } from '../lib/confirmStore'
+import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 
 /** Same `owner/repo#number` identity, case-insensitive — used to skip the replace-confirmation
  *  when the typed reference already names the currently bound PR. */
@@ -28,10 +29,14 @@ function sameIdentity(
  *  cited per line via [repo/path:line] citations. */
 export function ReposSection({
   slug,
+  mode = DEFAULT_MODE,
   headerExtra,
   onPrsFound
 }: {
   slug: string
+  /** Review mode drops repo-management affordances (unlink, code graph): the repo under
+   *  review is not the user's to manage from here. Defaults to investigation behavior. */
+  mode?: ModeId
   /** rendered at the right edge of the Repos header (e.g. the pane-collapse button) */
   headerExtra?: React.ReactNode
   /** "Find PRs" result, handed up so the parent can open the picker over the chat. May
@@ -182,15 +187,19 @@ export function ReposSection({
             {w.worktreePath ? ' · worktree' : ''}
           </Chip>
           <span className="flex-1" />
-          <IconBtn
-            aria-label="Unlink repo"
-            title="Unlink repo"
-            className="h-5 w-5 hover:text-danger"
-            onClick={() => void window.argus.workspaces.unlink(slug, w.path).then(reload)}
-          >
-            <Unlink size={12} />
-          </IconBtn>
-          <RepoGraphControl repoPath={w.path} />
+          {mode !== 'review' && (
+            <>
+              <IconBtn
+                aria-label="Unlink repo"
+                title="Unlink repo"
+                className="h-5 w-5 hover:text-danger"
+                onClick={() => void window.argus.workspaces.unlink(slug, w.path).then(reload)}
+              >
+                <Unlink size={12} />
+              </IconBtn>
+              <RepoGraphControl repoPath={w.path} />
+            </>
+          )}
         </div>
       ))}
       {prDraft !== null && (
@@ -214,7 +223,12 @@ export function ReposSection({
       {/* Invisible until useful — same rule ModeSwitcher follows for a single mode. */}
       {prs.map((p) => (
         <div key={p.id} className="flex items-center gap-1">
-          <Chip tone={p.repoPath ? 'defect' : 'neutral'} title={p.url}>
+          <Chip
+            tone={p.repoPath ? 'defect' : 'neutral'}
+            title={p.url}
+            aria-label={`Open pull request ${p.owner}/${p.repo}#${p.number} on GitHub`}
+            onClick={() => void window.argus.openExternal(p.url)}
+          >
             {p.owner}/{p.repo}#{p.number}
             {p.repoPath ? '' : ' · no local clone'}
           </Chip>

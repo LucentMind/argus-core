@@ -1253,9 +1253,12 @@ function registerIpc(): void {
     langfuseExporter?.scoreFinding(row)
     return row
   })
-  ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string) => {
+  ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
     assertSlug(caseSlug)
-    return clearFindings(db, argusHome, caseSlug)
+    // IPC args are untrusted: an unknown mode must not silently no-op or clear everything.
+    if (mode !== undefined && mode !== 'investigation' && mode !== 'review')
+      throw new Error(`Invalid mode: ${JSON.stringify(mode)}`)
+    return clearFindings(db, argusHome, caseSlug, mode)
   })
 
   // — workspaces —
