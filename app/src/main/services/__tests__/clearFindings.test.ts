@@ -21,11 +21,23 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-function addFinding(summary: string): void {
+function addSession(mode: 'investigation' | 'review'): number {
+  const now = new Date().toISOString()
+  db.prepare(`INSERT INTO sessions (case_id, mode, created_at, updated_at) VALUES (?,?,?,?)`).run(
+    caseId,
+    mode,
+    now,
+    now
+  )
+  return Number(db.prepare(`SELECT last_insert_rowid() AS id`).get()!.id)
+}
+
+function addFinding(summary: string, sessionId: number | null = null): number {
   const now = new Date().toISOString()
   db.prepare(
-    `INSERT INTO findings (case_id, summary, review_state, created_at) VALUES (?, ?, 'pending', ?)`
-  ).run(caseId, summary, now)
+    `INSERT INTO findings (case_id, session_id, summary, review_state, created_at) VALUES (?, ?, ?, 'pending', ?)`
+  ).run(caseId, sessionId, summary, now)
+  return Number(db.prepare(`SELECT last_insert_rowid() AS id`).get()!.id)
 }
 
 describe('clearFindings', () => {
@@ -57,5 +69,54 @@ describe('clearFindings', () => {
 
   it('throws for an unknown case', () => {
     expect(() => clearFindings(db, argusHome, 'NOPE')).toThrow(/unknown case/i)
+  })
+})
+
+describe('clearFindings scoped to a mode', () => {
+  it('deletes only that mode, strips only its findings.md sections, audits the mode', () => {
+    const inv = addSession('investigation')
+    const rev = addSession('review')
+    const invId = addFinding('Root cause A', inv)
+    const revId = addFinding('Bad guard', rev)
+    const md = path.join(argusHome, 'cases', 'NAV-1', 'findings.md')
+    fs.appendFileSync(
+      md,
+      `\n<!-- finding:${invId} -->\n## Root cause A\ninv body\n<!-- finding:${revId} -->\n## Bad guard\nrev body\n`
+    )
+
+    const r = clearFindings(db, argusHome, 'NAV-1', 'review')
+
+    expect(r.cleared).toBe(1)
+    const left = listFindings(db, argusHome, 'NAV-1')
+    expect(left).toHaveLength(1)
+    expect(left[0].summary).toBe('Root cause A')
+    const after = fs.readFileSync(md, 'utf8')
+    expect(after).toContain('inv body')
+    expect(after).not.toContain('rev body')
+    expect(readDeletionAudit(argusHome)[0]).toMatchObject({
+      op: 'findings.clear',
+      caseSlug: 'NAV-1',
+      detail: { cleared: 1, mode: 'review' }
+    })
+  })
+
+  it('treats session-less findings as investigation (the toRow rule)', () => {
+    addFinding('orphan') // no session
+    const rev = addSession('review')
+    addFinding('review one', rev)
+
+    expect(clearFindings(db, argusHome, 'NAV-1', 'investigation').cleared).toBe(1)
+    const left = listFindings(db, argusHome, 'NAV-1')
+    expect(left).toHaveLength(1)
+    expect(left[0].summary).toBe('review one')
+  })
+
+  it('mode-scoped clear with no findings.md is fine', () => {
+    const rev = addSession('review')
+    addFinding('review one', rev)
+    const md = path.join(argusHome, 'cases', 'NAV-1', 'findings.md')
+    fs.rmSync(md, { force: true })
+    expect(clearFindings(db, argusHome, 'NAV-1', 'review').cleared).toBe(1)
+    expect(fs.existsSync(md)).toBe(false) // not resurrected
   })
 })

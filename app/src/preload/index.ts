@@ -645,8 +645,8 @@ const argus = {
     list: (slug: string): Promise<FindingRow[]> => ipcRenderer.invoke(IPC.findingsList, slug),
     review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
       ipcRenderer.invoke(IPC.findingsReview, id, state),
-    clear: (caseSlug: string): Promise<{ cleared: number }> =>
-      ipcRenderer.invoke(IPC.findingsClear, caseSlug)
+    clear: (caseSlug: string, mode?: ModeId): Promise<{ cleared: number }> =>
+      ipcRenderer.invoke(IPC.findingsClear, caseSlug, mode)
   },
   review: {
     composeRunPrompt: (slug: string, sessionId: number, layerIds: string[]): Promise<string> =>
