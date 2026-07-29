@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { LibraryPage } from '../LibraryPage'
@@ -61,6 +61,19 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installed: true,
         installedCommit: 'abc',
         localTier: 'hivemind',
+        updateAvailable: true
+      },
+      // regression fixture for Finding 2: a user-tier reference whose hive entry
+      // (stale from a prior claim) still reports updateAvailable — the chip must
+      // not follow it once the row is no longer hivemind-tracked.
+      {
+        kind: 'reference',
+        name: 'team-tips.md',
+        description: '',
+        commit: 'def',
+        installed: true,
+        installedCommit: 'def',
+        localTier: 'user',
         updateAvailable: true
       }
     ],
@@ -421,13 +434,21 @@ describe('LibraryPage merged list', () => {
   })
 })
 
+/** The row `<div class="group/row …">` ancestor of a labelled row's open button, for scoped assertions. */
+async function findRow(label: string): Promise<HTMLElement> {
+  const opener = await screen.findByRole('button', { name: `open · ${label}` })
+  const row = opener.closest('[class*="group/row"]')
+  if (!row) throw new Error(`no row container found for ${label}`)
+  return row as HTMLElement
+}
+
 describe('LibraryPage claim', () => {
   it('a hivemind reference offers Claim and calls through after confirm', async () => {
     render(<LibraryPage />)
     const btn = await screen.findByRole('button', { name: 'Claim · adasis.md' })
     fireEvent.click(btn)
     await waitFor(() => expect(argus.hivemind.claimReference).toHaveBeenCalledWith('adasis.md'))
-    expect(confirm).toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Claim' }))
   })
 
   it('a declined confirm claims nothing', async () => {
@@ -444,9 +465,18 @@ describe('LibraryPage claim', () => {
     expect(screen.queryByRole('button', { name: 'Claim · nav-runbook.md' })).toBeNull()
   })
 
-  it('an upstream update shows on the row', async () => {
+  it('an upstream update shows on the hivemind row, scoped to that row', async () => {
     render(<LibraryPage />)
-    expect(await screen.findByText('update')).toBeInTheDocument()
+    const row = await findRow('adasis.md')
+    expect(within(row).getByText('update')).toBeInTheDocument()
+    // exactly one row in the whole page carries the chip
+    expect(screen.getAllByText('update')).toHaveLength(1)
+  })
+
+  it('a claimed (user-tier) reference with a stale updateAvailable hive entry shows no update chip', async () => {
+    render(<LibraryPage />)
+    const row = await findRow('team-tips.md')
+    expect(within(row).queryByText('update')).toBeNull()
   })
 
   it('a failed claim surfaces in the alert banner', async () => {

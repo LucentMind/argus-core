@@ -1527,7 +1527,11 @@ function registerIpc(): void {
     broadcast(IPC.refsyncChanged, refSync.payload())
     return p
   })
-  ipcMain.handle(IPC.hivemindClaimReference, (_e, name: string) => hivemind.claimReference(name))
+  ipcMain.handle(IPC.hivemindClaimReference, async (_e, name: string) => {
+    const p = await hivemind.claimReference(name)
+    broadcast(IPC.refsyncChanged, refSync.payload())
+    return p
+  })
   ipcMain.handle(IPC.hivemindDiff, (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.diff(kind, name)
   )
