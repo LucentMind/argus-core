@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/types'
+import { ARTIFACTS_PREFIX, type EvidenceScope } from '../../shared/evidenceScope'
 import { caseDir } from './paths'
 import { getCase, maybeAdvanceToAnalyzing } from './caseService'
 import type { Detection } from './packs/detection'
@@ -311,13 +312,28 @@ export function ingestDerived(
   return record
 }
 
-export function listEvidence(db: DatabaseSync, caseSlug: string): EvidenceRecord[] {
-  const rows = db
-    .prepare(
-      `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
-       WHERE c.slug = ? ORDER BY e.created_at DESC, e.id DESC`
-    )
-    .all(caseSlug) as unknown as EvidenceRow[]
+/**
+ * Case evidence, newest first.
+ *
+ * `scope` defaults to `'investigation'` deliberately: every caller that predates the
+ * artifacts split keeps returning exactly what it returned before, and a caller nobody
+ * audits under-shows rather than leaking review material into an investigation list.
+ * Callers that genuinely span both modes pass `'all'` explicitly.
+ */
+export function listEvidence(
+  db: DatabaseSync,
+  caseSlug: string,
+  scope: EvidenceScope = 'investigation'
+): EvidenceRecord[] {
+  const predicate =
+    scope === 'all' ? '' : scope === 'review' ? ' AND e.rel_path LIKE ?' : ' AND e.rel_path NOT LIKE ?'
+  const stmt = db.prepare(
+    `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
+     WHERE c.slug = ?${predicate} ORDER BY e.created_at DESC, e.id DESC`
+  )
+  const rows = (
+    scope === 'all' ? stmt.all(caseSlug) : stmt.all(caseSlug, `${ARTIFACTS_PREFIX}%`)
+  ) as unknown as EvidenceRow[]
   return rows.map(rowToEvidence)
 }
 
