@@ -10,6 +10,7 @@ import {
 } from '../skillsResolver'
 import { caseDir } from '../../paths'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
+import { validateSkill, hasErrors } from '../../../../shared/assetValidation'
 
 let tmp: string, argusHome: string
 
@@ -139,5 +140,31 @@ describe('readSkill', () => {
     for (const evil of ['../skills/rca', '..\\skills\\rca', '..', '.', '']) {
       expect(() => readSkill(argusHome, evil)).toThrow(/Invalid skill name/)
     }
+  })
+})
+
+describe('validator and resolver agree', () => {
+  it('a validator-accepted skill resolves with the same description and roles', () => {
+    const content = [
+      '---',
+      'name: agreed',
+      'description: Use when the resolver and validator must not drift.',
+      'roles:',
+      '  - review',
+      '  - triage',
+      '---',
+      '',
+      '# agreed',
+      'Body.'
+    ].join('\n')
+    expect(hasErrors(validateSkill({ name: 'agreed', content }))).toBe(false)
+
+    const dir = path.join(argusHome, 'skills-user', 'agreed')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), content)
+
+    const resolved = resolveSkills(argusHome, defaultAgentAccess()).find((s) => s.name === 'agreed')
+    expect(resolved?.description).toBe('Use when the resolver and validator must not drift.')
+    expect(resolved?.roles).toEqual(['review', 'triage'])
   })
 })
