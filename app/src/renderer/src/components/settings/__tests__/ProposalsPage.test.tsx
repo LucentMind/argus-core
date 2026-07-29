@@ -89,11 +89,51 @@ describe('ProposalsPage', () => {
   it('reject archives without applying', async () => {
     render(<ProposalsPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
     await waitFor(() =>
       expect(
         (window as unknown as { argus: { proposals: { reject: ReturnType<typeof vi.fn> } } }).argus
           .proposals.reject
       ).toHaveBeenCalled()
+    )
+  })
+  it('Reject opens the reason panel instead of rejecting immediately', async () => {
+    render(<ProposalsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
+    const rejectMock = (
+      window as unknown as { argus: { proposals: { reject: ReturnType<typeof vi.fn> } } }
+    ).argus.proposals.reject
+    expect(rejectMock).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Reject as overgeneric' })).toBeInTheDocument()
+  })
+
+  it('a reason chip rejects with the tag and typed note', async () => {
+    render(<ProposalsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
+    fireEvent.change(screen.getByLabelText('Reject note'), {
+      target: { value: 'have this already' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Reject as overgeneric' }))
+    const rejectMock = (
+      window as unknown as { argus: { proposals: { reject: ReturnType<typeof vi.fn> } } }
+    ).argus.proposals.reject
+    await waitFor(() =>
+      expect(rejectMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md', {
+        tag: 'overgeneric',
+        note: 'have this already'
+      })
+    )
+  })
+
+  it('Skip reason rejects with no reason argument', async () => {
+    render(<ProposalsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject Sharpen step 4' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reject without a reason' }))
+    const rejectMock = (
+      window as unknown as { argus: { proposals: { reject: ReturnType<typeof vi.fn> } } }
+    ).argus.proposals.reject
+    await waitFor(() =>
+      expect(rejectMock).toHaveBeenCalledWith('2026-07-10-NAV-100-rca.md', undefined)
     )
   })
 

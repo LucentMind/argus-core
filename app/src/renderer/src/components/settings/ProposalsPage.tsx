@@ -6,12 +6,17 @@ import { MessageView } from '../MessageView'
 import { SharePushDialog } from './SharePushDialog'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useProposalCounts } from '../../lib/proposalsStore'
-import { PROPOSAL_TYPE_LABELS } from '../../../../shared/proposals'
+import {
+  PROPOSAL_TYPE_LABELS,
+  REJECT_REASON_TAGS,
+  REJECT_REASON_LABELS
+} from '../../../../shared/proposals'
 import type {
   AcceptedTarget,
   ProposalRecord,
   ProposalsPayload,
-  ProposalType
+  ProposalType,
+  RejectReasonTag
 } from '../../../../shared/proposals'
 
 const noop = (): void => undefined
@@ -81,6 +86,8 @@ export function ProposalsPage({
   type Accepted = { file: string; title: string; target: AcceptedTarget }
   const [justAccepted, setJustAccepted] = useState<Accepted[]>([])
   const [sharing, setSharing] = useState<string | null>(null)
+  const [rejecting, setRejecting] = useState<string | null>(null)
+  const [rejectNote, setRejectNote] = useState('')
   const settings = useSettingsPayload()
   const repoSet = (settings?.settings.hivemind.repo ?? '').trim() !== ''
   const counts = useProposalCounts()
@@ -301,7 +308,10 @@ export function ProposalsPage({
                       variant="dangerSolid"
                       aria-label={`Reject ${p.title}`}
                       disabled={busy}
-                      onClick={() => void act(() => window.argus.proposals.reject(p.file))}
+                      onClick={() => {
+                        setRejectNote('')
+                        setRejecting(rejecting === p.file ? null : p.file)
+                      }}
                     >
                       Reject
                     </Btn>
@@ -313,6 +323,48 @@ export function ProposalsPage({
                       Edit
                     </Btn>
                   </div>
+                  {rejecting === p.file && (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-hair px-4 py-3">
+                      <span className="text-xs text-mute">
+                        Why? (labels the distill-eval corpus)
+                      </span>
+                      {REJECT_REASON_TAGS.map((tag: RejectReasonTag) => (
+                        <button
+                          key={tag}
+                          aria-label={`Reject as ${tag}`}
+                          disabled={busy}
+                          className="rounded-full border border-hair px-2 py-0.5 text-xs text-dim hover:text-ink"
+                          onClick={() =>
+                            void act(() =>
+                              window.argus.proposals.reject(p.file, {
+                                tag,
+                                ...(rejectNote.trim() ? { note: rejectNote.trim() } : {})
+                              })
+                            )
+                          }
+                        >
+                          {REJECT_REASON_LABELS[tag]}
+                        </button>
+                      ))}
+                      <input
+                        aria-label="Reject note"
+                        placeholder="optional note"
+                        value={rejectNote}
+                        onChange={(e) => setRejectNote(e.target.value)}
+                        className="min-w-40 rounded-r2 border border-hair bg-transparent px-2 py-0.5 text-xs text-ink"
+                      />
+                      <Btn
+                        variant="ghost"
+                        aria-label="Reject without a reason"
+                        disabled={busy}
+                        onClick={() =>
+                          void act(() => window.argus.proposals.reject(p.file, undefined))
+                        }
+                      >
+                        Skip reason
+                      </Btn>
+                    </div>
+                  )}
                 </SettingsSection>
               )
             })}
