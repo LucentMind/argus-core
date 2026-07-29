@@ -5,7 +5,7 @@ import { makeCitationRe } from '../../../shared/citations'
  *  - dynamic domain: linked workspace repos — the first path segment matches a
  *    repo name supplied by the caller (per case).
  *  Anything else stays plain text. */
-const STATIC_PREFIX_RE = /^(?:evidence\/|findings\.md|\.rca\/)/
+const STATIC_PREFIX_RE = /^(?:evidence\/|artifacts\/|findings\.md|\.rca\/)/
 
 /** What a citation points at, with an inclusive line range (end === start for
  *  single-line citations). */

@@ -12,6 +12,7 @@ import type {
 } from '../../../shared/types'
 import { panelHandlesType, type PanelDecl } from '../../../shared/panels'
 import { MAX_WHOLE_FILE_BYTES } from '../../../shared/textdoc'
+import type { ModeId } from '../../../shared/modes'
 
 const TEXT_LIKE = /\.(md|txt|log|json|jsonl|yaml|yml|csv)$/i
 
@@ -44,12 +45,16 @@ function orderWithDerived(rows: EvidenceRecord[]): (EvidenceRecord & { derived?:
 
 export function CaseFiles({
   caseSlug,
+  mode,
   onSuggest,
   onOpenFile,
   panelDecls = [],
   onOpenInPanel
 }: {
   caseSlug: string
+  /** Which mode's material this list shows. Investigation evidence and review artifacts
+   *  live in separate directories and are never mixed. */
+  mode: ModeId
   onSuggest?: (text: string) => void
   onOpenFile: (node: FileNode) => void
   panelDecls?: PanelDecl[]
@@ -74,11 +79,11 @@ export function CaseFiles({
 
   const reload = useCallback(
     (): Promise<void> =>
-      window.argus.evidence.list(caseSlug).then(setRows, (err) => {
+      window.argus.evidence.list(caseSlug, mode).then(setRows, (err) => {
         console.warn(`[evidence] list failed for ${caseSlug}: ${(err as Error).message}`)
         setRows([])
       }),
-    [caseSlug]
+    [caseSlug, mode]
   )
 
   useEffect(() => {
@@ -103,13 +108,13 @@ export function CaseFiles({
       offParsing?.()
       offFiles()
     }
-  }, [reload, caseSlug])
+  }, [reload, caseSlug, mode])
 
   async function scan(): Promise<void> {
     setScanning(true)
     setScanNote(null)
     try {
-      const s = await window.argus.evidence.scan(caseSlug)
+      const s = await window.argus.evidence.scan(caseSlug, mode)
       const parts: string[] = []
       if (s.added.length) parts.push(`${s.added.length} added`)
       if (s.modified.length) parts.push(`${s.modified.length} updated`)
