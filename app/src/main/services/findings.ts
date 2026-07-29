@@ -121,25 +121,58 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   return row ? toRow(row) : null
 }
 
+/** findings.md minus the marker segments for `ids` — mode-scoped clear must leave the other
+ *  mode's bodies intact. Everything before the first `<!-- finding:N -->` marker (the seeded
+ *  header, any pre-marker prose) is always kept. */
+export function removeFindingBodies(md: string, ids: ReadonlySet<number>): string {
+  const parts = md.split(/<!-- finding:(\d+) -->/)
+  let out = parts[0]
+  for (let i = 1; i < parts.length; i += 2) {
+    if (ids.has(Number(parts[i]))) continue
+    out += `<!-- finding:${parts[i]} -->${parts[i + 1] ?? ''}`
+  }
+  return out
+}
+
 /**
- * Clear-all per case: delete every findings row and reset findings.md to the
- * seeded header createCase writes. Order: DB → audit → filesystem.
+ * Clear findings per case: with no `mode`, delete every row and reset findings.md to the seeded
+ * header createCase writes. With a `mode`, delete only findings whose session-derived mode
+ * matches (same COALESCE rule as toRow: session-less rows are investigation) and strip only
+ * their findings.md sections. Order: DB → audit → filesystem.
  */
 export function clearFindings(
   db: DatabaseSync,
   argusHome: string,
-  caseSlug: string
+  caseSlug: string,
+  mode?: ModeId
 ): { cleared: number } {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-  const res = db.prepare(`DELETE FROM findings WHERE case_id = ?`).run(kase.id)
-  const cleared = Number(res.changes)
-  appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared })
-  fs.writeFileSync(
-    path.join(caseDir(argusHome, caseSlug), 'findings.md'),
-    `# Findings — ${caseSlug}\n`
-  )
-  return { cleared }
+  const mdPath = path.join(caseDir(argusHome, caseSlug), 'findings.md')
+  if (mode === undefined) {
+    const res = db.prepare(`DELETE FROM findings WHERE case_id = ?`).run(kase.id)
+    const cleared = Number(res.changes)
+    appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared })
+    fs.writeFileSync(mdPath, `# Findings — ${caseSlug}\n`)
+    return { cleared }
+  }
+  const ids = (
+    db
+      .prepare(
+        `SELECT f.id FROM ${FINDINGS_WITH_MODE}
+         WHERE f.case_id = ? AND COALESCE(s.mode, ?) = ?`
+      )
+      .all(kase.id, DEFAULT_MODE, mode) as { id: number }[]
+  ).map((r) => r.id)
+  if (ids.length > 0)
+    db.prepare(`DELETE FROM findings WHERE id IN (${ids.map(() => '?').join(', ')})`).run(...ids)
+  appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared: ids.length, mode })
+  try {
+    fs.writeFileSync(mdPath, removeFindingBodies(fs.readFileSync(mdPath, 'utf8'), new Set(ids)))
+  } catch {
+    // no findings.md yet — nothing to strip, and a full-file reset would be wrong here
+  }
+  return { cleared: ids.length }
 }
 
 /**
