@@ -416,7 +416,7 @@ export function argusToolHandlers(
     },
 
     async fetch_check_logs(args) {
-      const { evidenceId } = await fetchCheckLogs(
+      const { evidenceId, relPath } = await fetchCheckLogs(
         {
           db,
           argusHome,
@@ -429,7 +429,8 @@ export function argusToolHandlers(
       )
       return ciFeedback(deps, 'ci_logs.ok', {
         name: String(args.check_name ?? ''),
-        id: String(evidenceId)
+        id: String(evidenceId),
+        path: relPath
       })
     },
 

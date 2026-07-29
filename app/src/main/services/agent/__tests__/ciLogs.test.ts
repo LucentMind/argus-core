@@ -85,6 +85,11 @@ describe('fetchCheckLogs', () => {
     expect(ev.relPath).toMatch(/build/)
     expect(ev.meta.checkName).toBe('build')
     expect(seen[1]).toEqual(['api', 'repos/acme/widget/actions/jobs/99/logs'])
+    // The stored path is what the tool feedback tells the agent to cite ([evidence/...:line] —
+    // the renderer's citation grammar). An evidence_id-based citation renders as dead text,
+    // which is exactly what the 2026-07-29 acceptance run produced before this was returned.
+    expect(out.relPath).toBe(ev.relPath)
+    expect(out.relPath).toMatch(/^evidence\//)
   })
 
   it('matches the check name case-insensitively', async () => {

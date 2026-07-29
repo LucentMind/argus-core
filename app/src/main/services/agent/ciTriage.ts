@@ -21,9 +21,12 @@ export const CI_TRIAGE_PROMPTS: PromptTextSpecs = {
 2. Find the FIRST real error, not the last line of output. A build log's tail is usually the
    runner tearing down; the cause is above it.
 3. {worktreeLine}
-4. Call append_finding with a severity and a citation to the evidence line the failure is on.
-   Leave layer unset — this is a CI failure, not one of the diff-review layers. If the failure is
-   in the pull request's own code, cite that code as well, using [<repo-name>/<path>:<line>].
+4. Call append_finding with a severity and a citation to the evidence line the failure is on,
+   written as [evidence/<file>:<line>] using the stored path fetch_check_logs reported — NOT the
+   evidence_id ("[evidence 3:12]" renders as dead text; "[evidence/ci-4-lint.log:12]" is a
+   working citation). Leave layer unset — this is a CI failure, not one of the diff-review
+   layers. If the failure is in the pull request's own code, cite that code as well, using
+   [<repo-name>/<path>:<line>].
 5. If the log shows the failure is unrelated to this pull request (a flaky test, an infrastructure
    error, a dependency outage), say so and record it as a minor finding. Do not invent a code
    defect to explain an infrastructure failure.`,
