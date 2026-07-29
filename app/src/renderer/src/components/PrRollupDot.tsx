@@ -14,7 +14,12 @@ const TONE: Record<PrRollup, { className: string; label: string }> = {
   // Amber like `running`, so it must differ in shape as well: solid here, a ring there. The
   // app has no prefers-reduced-motion rule, and a pulse should not be the only difference
   // between "still going" and "something already failed".
-  unstable: { className: 'bg-defect', label: 'Checks failing (not blocking merge)' },
+  //
+  // The label is deliberately vague: `unstable` covers two different causes — a non-gating
+  // failure, and a gating check that was cancelled (which neither failed nor is unblocked) —
+  // and this component only receives the rollup, not the checks, so it cannot tell which one
+  // applies. The list beneath the dot can; it names each check's own state.
+  unstable: { className: 'bg-defect', label: 'Some checks did not pass' },
   running: {
     className: 'border border-defect bg-transparent animate-pulse',
     label: 'Checks running'

@@ -80,10 +80,12 @@ describe('rollupOf', () => {
     expect(rollupOf([])).toBe('none')
   })
 
+  // The cancellation is only truly optional when the pull request has a required check at all
+  // (protection exists) — with none, the fallback below makes even a cancellation gate.
   it('is passing when every check passed, was skipped, or was an optional cancellation', () => {
     expect(
       rollupOf([
-        check({ bucket: 'pass' }),
+        check({ bucket: 'pass', required: true }),
         check({ bucket: 'skipped' }),
         check({ bucket: 'cancelled' })
       ])
@@ -120,9 +122,23 @@ describe('rollupOf', () => {
     ).toBe('failing')
   })
 
-  // A repository with no branch protection has no required checks, so nothing can be red.
-  // Intended: with nothing gating the merge, a failure is information rather than a verdict.
-  it('never reports failing on a repository with no required checks', () => {
-    expect(rollupOf([check({ bucket: 'fail' }), check({ bucket: 'fail' })])).toBe('unstable')
+  // A repository with no branch protection has no required checks at all, so a literal
+  // required-only rule would make `failing` unreachable there. Instead everything gates.
+  it('is failing when nothing on the pull request is required and a check fails', () => {
+    expect(rollupOf([check({ bucket: 'fail' }), check({ bucket: 'pass' })])).toBe('failing')
+  })
+
+  it('is unstable, not failing, when nothing is required and a check is only cancelled', () => {
+    expect(rollupOf([check({ bucket: 'cancelled' }), check({ bucket: 'pass' })])).toBe('unstable')
+  })
+
+  it('is unstable, not failing, when a non-required check fails alongside multiple required checks', () => {
+    expect(
+      rollupOf([
+        check({ bucket: 'fail' }),
+        check({ bucket: 'pass', required: true }),
+        check({ bucket: 'pass', required: true })
+      ])
+    ).toBe('unstable')
   })
 })
