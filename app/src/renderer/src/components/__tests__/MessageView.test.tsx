@@ -70,6 +70,16 @@ describe('MessageView citations', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
+  it('uses the latest onCite after a re-render (no stale closure)', () => {
+    const stale = vi.fn()
+    const fresh = vi.fn()
+    const { rerender } = render(<MessageView markdown="see [evidence/app.log:2]" onCite={stale} />)
+    rerender(<MessageView markdown="see [evidence/app.log:2]" onCite={fresh} />)
+    screen.getByRole('link', { name: 'evidence/app.log:2' }).click()
+    expect(fresh).toHaveBeenCalledTimes(1)
+    expect(stale).not.toHaveBeenCalled()
+  })
+
   it('leaves external links untouched', () => {
     render(<MessageView markdown="[docs](https://example.com)" onCite={vi.fn()} caseSlug="C-1" />)
     const a = screen.getByRole('link', { name: 'docs' })
@@ -132,6 +142,27 @@ describe('MessageView mermaid fences', () => {
     expect(screen.getByText(/flowchart TD/)).toBeTruthy()
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.queryByRole('button', { name: 'Expand diagram' })).toBeNull()
+  })
+
+  it('a rendered diagram survives parent re-renders (sibling message streaming)', async () => {
+    const { rerender } = render(<MessageView markdown={FENCE} onCite={vi.fn()} caseSlug="C-1" />)
+    await screen.findByRole('button', { name: 'Expand diagram' }, { timeout: 2000 })
+    // ChatPane re-renders every transcript item on each streamed token of another
+    // message; the finished diagram must not fall back to its source in between.
+    rerender(<MessageView markdown={FENCE} onCite={vi.fn()} caseSlug="C-1" />)
+    expect(screen.queryByRole('button', { name: 'Expand diagram' })).not.toBeNull()
+    expect(screen.queryByText(/flowchart TD/)).toBeNull()
+  })
+
+  it('renders once the message finishes streaming', async () => {
+    const { rerender } = render(
+      <MessageView markdown={FENCE} onCite={vi.fn()} caseSlug="C-1" streaming />
+    )
+    expect(screen.queryByRole('button', { name: 'Expand diagram' })).toBeNull()
+    rerender(<MessageView markdown={FENCE} onCite={vi.fn()} caseSlug="C-1" />)
+    expect(
+      await screen.findByRole('button', { name: 'Expand diagram' }, { timeout: 2000 })
+    ).toBeTruthy()
   })
 
   it('non-mermaid fences render as ordinary pre/code', () => {
