@@ -286,8 +286,8 @@ const argus = {
       ipcRenderer.invoke(IPC.chatSearch, caseSlug, q)
   },
   agent: {
-    send: (caseSlug: string, sessionId: number, text: string) =>
-      ipcRenderer.invoke(IPC.agentSend, caseSlug, sessionId, text),
+    send: (caseSlug: string, sessionId: number, text: string, composed?: boolean) =>
+      ipcRenderer.invoke(IPC.agentSend, caseSlug, sessionId, text, composed),
     interrupt: (caseSlug: string, sessionId: number) =>
       ipcRenderer.invoke(IPC.agentInterrupt, caseSlug, sessionId),
     respond: (caseSlug: string, sessionId: number, d: ApprovalDecision) =>

@@ -1,7 +1,7 @@
 import type { AgentEvent } from '../../../shared/agent-events'
 
 export type TranscriptItem =
-  | { kind: 'user'; text: string; turnId: number | null }
+  | { kind: 'user'; text: string; turnId: number | null; composed?: boolean }
   | { kind: 'assistant'; text: string; streaming: boolean; turnId: number | null }
   | {
       kind: 'tool'
@@ -110,7 +110,15 @@ export class AgentStore {
           return {
             ...s,
             running: true,
-            items: [...items, { kind: 'user', text: e.payload.userText, turnId: e.turnId }]
+            items: [
+              ...items,
+              {
+                kind: 'user',
+                text: e.payload.userText,
+                turnId: e.turnId,
+                composed: e.payload.composed
+              }
+            ]
           }
         case 'content.delta': {
           if (last?.kind === 'assistant' && last.streaming) {

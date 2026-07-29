@@ -313,7 +313,7 @@ export function CaseWorkspace({
     if (sessionId === null) return
     try {
       const prompt = await window.argus.review.composeCiPrompt(slug, sessionId, checkName)
-      await window.argus.agent.send(slug, sessionId, prompt)
+      await window.argus.agent.send(slug, sessionId, prompt, true)
     } catch (err) {
       handleModeError((err as Error).message)
     }

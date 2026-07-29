@@ -1034,9 +1034,12 @@ function registerIpc(): void {
         }
       )
   })
-  ipcMain.handle(IPC.agentSend, (_e, caseSlug: string, sessionId: number, text: string) => {
-    return agentService!.send(caseSlug, sessionId, text)
-  })
+  ipcMain.handle(
+    IPC.agentSend,
+    (_e, caseSlug: string, sessionId: number, text: string, composed?: boolean) => {
+      return agentService!.send(caseSlug, sessionId, text, { composed: composed === true })
+    }
+  )
   ipcMain.handle(IPC.agentInterrupt, (_e, caseSlug: string, sessionId: number) => {
     return agentService!.interrupt(caseSlug, sessionId)
   })

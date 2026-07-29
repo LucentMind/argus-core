@@ -79,7 +79,7 @@ describe('FindingsPane write actions', () => {
     send.mockResolvedValue(undefined)
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
-    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT', true))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'comment')
   })
 
@@ -99,7 +99,7 @@ describe('FindingsPane write actions', () => {
     send.mockResolvedValue(undefined)
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
-    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT', true))
     expect(postFindingComment).not.toHaveBeenCalled()
   })
 
@@ -124,7 +124,7 @@ describe('FindingsPane write actions', () => {
     send.mockResolvedValue(undefined)
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
-    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT', true))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'comment')
     expect(screen.queryByText('no-body')).not.toBeInTheDocument()
   })
@@ -157,7 +157,7 @@ describe('FindingsPane write actions', () => {
     send.mockResolvedValue(undefined)
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Apply change and push'))
-    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED APPLY'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED APPLY', true))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'apply')
   })
 
@@ -207,7 +207,7 @@ describe('FindingsPane write actions', () => {
     await userEvent.click(await screen.findByLabelText('Select finding 7 for batch apply'))
     await userEvent.click(await screen.findByLabelText('Select finding 9 for batch apply'))
     await userEvent.click(screen.getByRole('button', { name: 'Apply selected (2)' }))
-    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'BATCH APPLY'))
+    await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'BATCH APPLY', true))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7, 9], 'apply')
   })
 
