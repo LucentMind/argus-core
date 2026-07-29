@@ -1,4 +1,4 @@
-﻿import crypto from 'node:crypto'
+import crypto from 'node:crypto'
 import { CASE_DISTILL_CONTRACT, CASE_DISTILL_SECTIONS } from './contract'
 
 /**
@@ -18,5 +18,9 @@ export function caseDistillPromptHash(resolve?: (id: string) => string): string 
         resolve ? resolve(`headless.case-distill.section.${k}`) : CASE_DISTILL_SECTIONS[k].text
       )
   ]
-  return crypto.createHash('sha256').update(parts.join('\n'+String.fromCharCode(0)+'\n')).digest('hex').slice(0, 12)
+  return crypto
+    .createHash('sha256')
+    .update(parts.join('\n' + String.fromCharCode(0) + '\n'))
+    .digest('hex')
+    .slice(0, 12)
 }

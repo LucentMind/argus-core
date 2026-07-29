@@ -115,6 +115,9 @@ export function exportEvalBundle(
   argusVersion: string
 ): DistillEvalExportResult {
   const { lines, skipped } = buildEvalBundle(db, argusHome, argusVersion)
-  fs.writeFileSync(destPath, lines.map((l) => JSON.stringify(l)).join('\n') + (lines.length ? '\n' : ''))
+  fs.writeFileSync(
+    destPath,
+    lines.map((l) => JSON.stringify(l)).join('\n') + (lines.length ? '\n' : '')
+  )
   return { path: destPath, exported: lines.length, skipped }
 }
