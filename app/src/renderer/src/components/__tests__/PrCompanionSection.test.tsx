@@ -1,12 +1,21 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PrCompanionSection } from '../PrCompanionSection'
 import { prStatusStore } from '../../lib/prStatusStore'
+import { confirm } from '../../lib/confirmStore'
 import type { PrStatus } from '../../../../shared/prStatus'
 import type { PrBinding } from '../../../../shared/pr'
+
+// ConfirmHost (which confirm() talks to) is mounted at the app root (App.tsx), not inside
+// PrCompanionSection — mock the store directly, same pattern as CaseWorkspace.test.tsx and
+// PrPickerDialog.test.tsx.
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   owner: 'acme',
@@ -54,6 +63,7 @@ const BINDING: PrBinding = {
 }
 
 beforeEach(() => {
+  vi.mocked(confirm).mockReset().mockResolvedValue(true)
   prStatusStore.hydrate({ c1: status() })
   ;(window as unknown as { argus: unknown }).argus = {
     pr: {
@@ -61,7 +71,9 @@ beforeEach(() => {
       statusRefresh: vi.fn(async () => ({})),
       onStatusChanged: () => () => {},
       list: vi.fn(async () => [BINDING]),
-      unlink: vi.fn(async () => undefined)
+      link: vi.fn(async () => undefined),
+      unlink: vi.fn(async () => undefined),
+      search: vi.fn(async () => ({ candidates: [], error: null, searchedRepos: [] }))
     },
     openExternal: vi.fn(async () => undefined)
   }
@@ -446,5 +458,188 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     // PrRollupDot renders role="img" with a state-specific name (PrRollupDot.tsx:10-22).
     expect(screen.getByRole('img', { name: 'Checks failing' })).toBeInTheDocument()
+  })
+})
+
+// Moved from ReposSection.test.tsx's "ReposSection pull requests" block: Link PR / Find PRs
+// now live in this section's header instead. beforeEach's default binds acme/widget#42
+// (BINDING/status()) — tests that need a case with nothing bound yet override both
+// prStatusStore and pr.list before rendering.
+describe('PrCompanionSection pull request linking', () => {
+  it('links a typed PR reference', async () => {
+    prStatusStore.hydrate({})
+    window.argus.pr.list = vi.fn(async (): Promise<PrBinding[]> => [])
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'acme/widget#42' } })
+    fireEvent.submit(box)
+    await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#42'))
+    // no PR was bound yet, so replacing nothing needs no confirmation
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  // After a successful link, PrCompanionSection must refresh what it owns — the binding (so
+  // Unlink targets the right id) and the status (so the subject line/checks appear without a
+  // manual refresh click). The first two `pr.list` calls (mount's binding effect, then linkPr's
+  // own pre-check) see nothing bound yet; only the post-link refetch sees the new binding.
+  it('shows the newly linked pull request without a manual refresh click', async () => {
+    prStatusStore.hydrate({})
+    let listCalls = 0
+    window.argus.pr.list = vi.fn(async (): Promise<PrBinding[]> => {
+      listCalls += 1
+      return listCalls <= 2 ? [] : [BINDING]
+    })
+    window.argus.pr.link = vi.fn(async (): Promise<PrBinding> => BINDING)
+    window.argus.pr.statusRefresh = vi.fn(async () => ({ c1: status() }))
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'acme/widget#42' } })
+    fireEvent.submit(box)
+    await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#42'))
+
+    // status: prStatusStore.refresh([slug]) hit statusRefresh and merged the result in
+    expect(
+      await screen.findByRole('button', { name: 'Open pull request acme/widget#42 on GitHub' })
+    ).toBeInTheDocument()
+    // binding: refetched directly (not left waiting on the status round trip), so Unlink
+    // already targets the real id
+    expect(screen.getByRole('button', { name: 'Unlink pull request' })).toBeInTheDocument()
+  })
+
+  // addBinding replaces rather than adds: linking a second PR over an already-bound one
+  // silently retargets any existing findings' comment/push actions unless the user is warned.
+  describe('replacing an already-bound PR', () => {
+    async function openDraftAndSubmit(value: string): Promise<void> {
+      render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+      const box = screen.getByPlaceholderText(/pr url/i)
+      fireEvent.change(box, { target: { value } })
+      fireEvent.submit(box)
+    }
+
+    it('raises a confirm naming the current and new pull request', async () => {
+      await openDraftAndSubmit('acme/widget#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: expect.stringContaining('acme/widget#42')
+        })
+      )
+      expect(vi.mocked(confirm).mock.calls[0][0].title).toContain('acme/widget#99')
+    })
+
+    it('declining leaves the binding untouched and calls no IPC', async () => {
+      vi.mocked(confirm).mockResolvedValue(false)
+      await openDraftAndSubmit('acme/widget#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      // give any (incorrect) fire-and-forget link() call a chance to have happened
+      await new Promise((r) => setTimeout(r, 0))
+      expect(window.argus.pr.link).not.toHaveBeenCalled()
+    })
+
+    it('accepting proceeds to link the new pull request', async () => {
+      vi.mocked(confirm).mockResolvedValue(true)
+      await openDraftAndSubmit('acme/widget#99')
+      await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#99'))
+    })
+
+    // Re-review fix: `linkingPr` (and so the disabled input) now gates BEFORE the confirm
+    // await, matching the restructuring PrPickerDialog's `confirm()` got this round — a
+    // double-click could otherwise race the await and raise the confirm dialog twice.
+    it('disables the input while the replace-confirm itself is pending, not just the link', async () => {
+      let resolveConfirm!: (v: boolean) => void
+      vi.mocked(confirm).mockImplementation(() => new Promise((r) => (resolveConfirm = r)))
+      await openDraftAndSubmit('acme/widget#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+      expect(screen.getByPlaceholderText(/linking/i)).toBeDisabled()
+
+      resolveConfirm(true)
+      await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#99'))
+    })
+  })
+
+  // Re-review fix: retyping the ALREADY-bound PR (a no-op for addBinding, which is
+  // idempotent on identity) must not scare the user with a "replace" warning about
+  // findings retargeting — nothing retargets when the identity doesn't change.
+  describe('re-linking the SAME pull request', () => {
+    async function openDraftAndSubmit(value: string): Promise<void> {
+      render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+      const box = screen.getByPlaceholderText(/pr url/i)
+      fireEvent.change(box, { target: { value } })
+      fireEvent.submit(box)
+    }
+
+    it('no confirm for the canonical url spelling', async () => {
+      await openDraftAndSubmit(BINDING.url)
+      await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', BINDING.url))
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('no confirm for the owner/repo#n spelling', async () => {
+      await openDraftAndSubmit('acme/widget#42')
+      await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#42'))
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    it('still confirms a spelling of a genuinely different pull request', async () => {
+      await openDraftAndSubmit('acme/widget#99')
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    })
+  })
+
+  // Re-review fix: pr:link now runs a git fetch + worktree add unconditionally (see
+  // prLink.ts), not just a DB write — the input must show it is busy and refuse a second
+  // submit while the first is still in flight.
+  it('disables the input while a link is in flight and re-enables after', async () => {
+    // nothing bound yet, so linkPr proceeds straight to pr.link with no confirm in the way
+    prStatusStore.hydrate({})
+    window.argus.pr.list = vi.fn(async (): Promise<PrBinding[]> => [])
+    let resolveLink: ((binding: PrBinding) => void) | undefined
+    window.argus.pr.link = vi.fn(
+      () =>
+        new Promise<PrBinding>((resolve) => {
+          resolveLink = resolve
+        })
+    )
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'acme/widget#42' } })
+    fireEvent.submit(box)
+    await waitFor(() => expect(box).toBeDisabled())
+
+    // a second submit while linking is in flight must not fire a second IPC call
+    fireEvent.change(box, { target: { value: 'acme/widget#77' } })
+    fireEvent.submit(box)
+    expect(window.argus.pr.link).toHaveBeenCalledTimes(1)
+
+    // a successful link clears the draft and closes the form (setPrDraft(null)), so the
+    // input itself unmounts — assert re-enablement indirectly via the form disappearing
+    // rather than the (by-then-detached) input node.
+    resolveLink!(BINDING)
+    await waitFor(() => expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull())
+  })
+
+  // The only way to reopen the picker once PRs are bound, and the recovery path for a
+  // search that failed or found nothing.
+  it('re-runs the search on demand and hands the result to the picker', async () => {
+    const onFound = vi.fn()
+    const result = { candidates: [], error: null, searchedRepos: ['acme/widget'] }
+    window.argus.pr.search = vi.fn(async () => result)
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} onPrsFound={onFound} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Find PRs' }))
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('c1'))
+    await waitFor(() => expect(onFound).toHaveBeenCalledWith(result))
+  })
+
+  // The Find PRs button is opt-in (only rendered when the parent hands a handler), same as
+  // it was on ReposSection — a caller with no picker to open should not show a dead control.
+  it('omits Find PRs when no onPrsFound handler is supplied', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    await screen.findByRole('button', { name: 'Link PR' })
+    expect(screen.queryByRole('button', { name: 'Find PRs' })).toBeNull()
   })
 })
