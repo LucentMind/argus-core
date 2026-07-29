@@ -4,7 +4,6 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceOrigin, EvidenceRecord } from '../../shared/types'
 import {
-  ARTIFACTS_PREFIX,
   dirForMode,
   scopeOfRelPath,
   sidecarRelPath,
@@ -17,6 +16,7 @@ import { getCase, maybeAdvanceToAnalyzing } from './caseService'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 import { appendDeletionAudit } from './deletionAudit'
+import { scopeClause } from './evidenceScopeSql'
 
 function splitName(baseName: string, compoundExts: string[]): { stem: string; ext: string } {
   const lower = baseName.toLowerCase()
@@ -346,19 +346,13 @@ export function listEvidence(
   caseSlug: string,
   scope: EvidenceScope = 'investigation'
 ): EvidenceRecord[] {
-  const predicate =
-    scope === 'all'
-      ? ''
-      : scope === 'review'
-        ? ' AND e.rel_path LIKE ?'
-        : ' AND e.rel_path NOT LIKE ?'
-  const stmt = db.prepare(
-    `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
-     WHERE c.slug = ?${predicate} ORDER BY e.created_at DESC, e.id DESC`
-  )
-  const rows = (scope === 'all'
-    ? stmt.all(caseSlug)
-    : stmt.all(caseSlug, `${ARTIFACTS_PREFIX}%`)) as unknown as EvidenceRow[]
+  const { sql, params } = scopeClause(scope)
+  const rows = db
+    .prepare(
+      `SELECT e.* FROM evidence e JOIN cases c ON c.id = e.case_id
+       WHERE c.slug = ?${sql} ORDER BY e.created_at DESC, e.id DESC`
+    )
+    .all(caseSlug, ...params) as unknown as EvidenceRow[]
   return rows.map(rowToEvidence)
 }
 
