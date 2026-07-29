@@ -377,7 +377,7 @@ export function LibraryPage({
             <>
               <Chip tone="neutral">reference</Chip>
               {r.tier !== null && groupOf(r.tier) !== 'built-in' && <TierBadge tier={r.tier} />}
-              {hive?.updateAvailable && <Chip tone="review">update</Chip>}
+              {r.tier === 'hivemind' && hive?.updateAvailable && <Chip tone="review">update</Chip>}
               {r.stale && <Chip tone="danger">stale</Chip>}
               {receipt && <PushReceiptChip name={r.file} receipt={receipt} />}
             </>
