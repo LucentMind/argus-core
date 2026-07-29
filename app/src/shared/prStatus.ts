@@ -4,7 +4,7 @@
  * vocabulary. (`src/shared` may not import from `src/main` — see the layering rule.)
  */
 
-export type CheckBucket = 'pass' | 'fail' | 'pending' | 'skipped'
+export type CheckBucket = 'pass' | 'fail' | 'cancelled' | 'pending' | 'skipped'
 
 /** `unavailable` is not a CI state: it means we could not read this PR at all (deleted, access
  *  lost, network). It exists so a case never sits on a stale green dot. */
@@ -57,10 +57,20 @@ export function actionsJobId(url: string | null): number | null {
 
 const CHECK_RUN_PASS = new Set(['SUCCESS', 'NEUTRAL'])
 
+/**
+ * Runs GitHub threw away rather than verdicts it reached: `CANCELLED` is a concurrency group,
+ * a re-push or a sibling job dying; `STALE` is a run GitHub itself discarded. Collapsing them
+ * into `fail` made a single broken job render as three red rows — see the capture in
+ * `main/services/__tests__/fixtures/prStatus.cancelled.json` — and handed two of them an
+ * Analyze button whose log contains only the cancellation.
+ */
+const CHECK_RUN_CANCELLED = new Set(['CANCELLED', 'STALE'])
+
 export function bucketOfCheckRun(status: string | null, conclusion: string | null): CheckBucket {
   // Anything GitHub has not marked COMPLETED is still running, whatever its conclusion says.
   if (status !== 'COMPLETED') return 'pending'
   if (conclusion === 'SKIPPED') return 'skipped'
+  if (conclusion && CHECK_RUN_CANCELLED.has(conclusion)) return 'cancelled'
   if (conclusion && CHECK_RUN_PASS.has(conclusion)) return 'pass'
   // Deliberately NOT a default of 'pass': a conclusion we do not recognize (a new GitHub value,
   // a completed run with a null conclusion) must show as needing attention, never as green.

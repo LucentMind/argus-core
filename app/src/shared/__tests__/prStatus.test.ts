@@ -41,9 +41,15 @@ describe('bucketOfCheckRun', () => {
     expect(bucketOfCheckRun('COMPLETED', 'SKIPPED')).toBe('skipped')
     expect(bucketOfCheckRun('COMPLETED', 'FAILURE')).toBe('fail')
     expect(bucketOfCheckRun('COMPLETED', 'TIMED_OUT')).toBe('fail')
-    expect(bucketOfCheckRun('COMPLETED', 'CANCELLED')).toBe('fail')
     expect(bucketOfCheckRun('COMPLETED', 'ACTION_REQUIRED')).toBe('fail')
     expect(bucketOfCheckRun('COMPLETED', 'STARTUP_FAILURE')).toBe('fail')
+  })
+
+  // GitHub discarded these runs — a newer push, a concurrency group, a sibling job failing.
+  // Neither is a verdict on the code, and neither log holds a cause worth reading.
+  it('separates the runs GitHub discarded from the runs that failed', () => {
+    expect(bucketOfCheckRun('COMPLETED', 'CANCELLED')).toBe('cancelled')
+    expect(bucketOfCheckRun('COMPLETED', 'STALE')).toBe('cancelled')
   })
 
   it('treats anything not yet completed as pending', () => {

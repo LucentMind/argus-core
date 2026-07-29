@@ -152,4 +152,24 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.getAllByText('build')).toHaveLength(2)
   })
+
+  it('marks a cancelled check apart from a failure and offers it no Analyze button', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          {
+            name: 'pylint',
+            bucket: 'cancelled',
+            url: 'https://github.com/acme/widget/actions/runs/1/job/9',
+            jobId: 9
+          }
+        ]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('⊘')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Analyze pylint failure' })
+    ).not.toBeInTheDocument()
+  })
 })
