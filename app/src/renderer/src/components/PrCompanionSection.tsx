@@ -10,6 +10,7 @@ const REVIEW_POLL_MS = 20_000
 const BUCKET_MARK: Record<PrCheck['bucket'], string> = {
   pass: '✓',
   fail: '✗',
+  cancelled: '⊘',
   pending: '…',
   skipped: '–'
 }

@@ -153,4 +153,22 @@ describe('fetchCheckLogs', () => {
     await fetchCheckLogs(deps(gh), 'c1', 'build')
     expect(seen[1]).toEqual(['api', 'repos/acme/widget/actions/jobs/99/logs'])
   })
+
+  it('prefers the run that failed over a same-named run GitHub cancelled', async () => {
+    const CANCELLED = {
+      __typename: 'CheckRun',
+      name: 'build',
+      status: 'COMPLETED',
+      conclusion: 'CANCELLED',
+      detailsUrl: 'https://github.com/acme/widget/actions/runs/1/job/11'
+    }
+    const seen: string[][] = []
+    const gh: Runner = async (_cmd, args) => {
+      seen.push(args)
+      if (args[1] === 'graphql') return statusPayload([CANCELLED, BUILD])
+      return 'log'
+    }
+    await fetchCheckLogs(deps(gh), 'c1', 'build')
+    expect(seen[1]).toEqual(['api', 'repos/acme/widget/actions/jobs/99/logs'])
+  })
 })
