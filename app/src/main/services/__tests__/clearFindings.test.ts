@@ -119,4 +119,13 @@ describe('clearFindings scoped to a mode', () => {
     expect(clearFindings(db, argusHome, 'NAV-1', 'review').cleared).toBe(1)
     expect(fs.existsSync(md)).toBe(false) // not resurrected
   })
+
+  it('propagates a non-ENOENT findings.md failure instead of swallowing it', () => {
+    const rev = addSession('review')
+    addFinding('review one', rev)
+    const md = path.join(argusHome, 'cases', 'NAV-1', 'findings.md')
+    fs.rmSync(md, { force: true })
+    fs.mkdirSync(md) // readFileSync now throws EISDIR, which must NOT be swallowed
+    expect(() => clearFindings(db, argusHome, 'NAV-1', 'review')).toThrow()
+  })
 })
