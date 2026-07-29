@@ -15,6 +15,7 @@ import { uiStore } from '../lib/uiStore'
 import type { FindingRow, ReviewState } from '../../../shared/observability'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
+import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
 import { SectionLabel } from './ui'
@@ -33,13 +34,16 @@ function formatWhen(iso: string): string {
 export function FindingsPane({
   slug,
   sessionId,
+  activeMode,
   onCite
 }: {
   slug: string
   sessionId: number | null
+  /** Findings are case-scoped in the DB but mode-scoped on screen: investigation findings do
+   *  not bleed into a review and vice versa (spec §6). */
+  activeMode: ModeId
   onCite: (cite: CiteTarget) => void
 }): React.JSX.Element {
-  const [md, setMd] = useState('')
   const [findings, setFindings] = useState<FindingRow[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
@@ -56,10 +60,6 @@ export function FindingsPane({
     () => reposStore.get(slug)
   ).names
   useEffect(() => {
-    // readFindings is kept only to gate the Clear button (stray findings.md
-    // content with no rows should still be clearable); per-finding bodies come
-    // from findings.list now, not this blob.
-    void window.argus.cases.readFindings(slug).then(setMd)
     void window.argus.findings.list(slug).then(setFindings)
   }, [slug, sessionId, bump])
 
@@ -91,28 +91,29 @@ export function FindingsPane({
     }
   }
 
+  // Findings are case-scoped in the DB but mode-scoped on screen (see the activeMode prop doc).
+  const modeFindings = findings.filter((f) => f.mode === activeMode)
+
   async function clearAll(): Promise<void> {
-    const count = findings.length
+    const count = modeFindings.length
     const ok = await confirm({
-      title: 'Clear all findings for this case?',
-      message: `${count} finding${count === 1 ? '' : 's'} and findings.md are reset.`,
+      title: `Clear all ${activeMode} findings for this case?`,
+      message: `${count} finding${count === 1 ? '' : 's'} and the matching findings.md sections are removed. ${
+        activeMode === 'review' ? 'Investigation' : 'Review'
+      } findings are untouched.`,
       confirmLabel: 'Clear all',
       danger: true
     })
     if (!ok) return
     setClearError(null)
     try {
-      await window.argus.findings.clear(slug)
+      await window.argus.findings.clear(slug, activeMode)
     } catch (err) {
       setClearError((err as Error).message)
     } finally {
       await window.argus.findings.list(slug).then(setFindings)
-      await window.argus.cases.readFindings(slug).then(setMd)
     }
   }
-
-  // the seeded file is just "# Findings — <slug>" — nothing worth clearing
-  const hasBody = md.split('\n').some((l) => l.trim() !== '' && !/^#\s/.test(l.trim()))
 
   // Most-severe first, matching how the review persona is told to rank. Unflavored
   // (investigation) findings sort after every severity, then newest-first as before — the list
@@ -122,9 +123,9 @@ export function FindingsPane({
     f.severity ? SEVERITY_RANK[f.severity] : Object.keys(SEVERITY_RANK).length
 
   // Chips for layers actually present: a filter for a layer with no findings is a dead control.
-  const presentLayers = REVIEW_LAYER_ORDER.filter((id) => findings.some((f) => f.layer === id))
+  const presentLayers = REVIEW_LAYER_ORDER.filter((id) => modeFindings.some((f) => f.layer === id))
   const layerCounts = new Map(
-    presentLayers.map((id) => [id, findings.filter((f) => f.layer === id).length])
+    presentLayers.map((id) => [id, modeFindings.filter((f) => f.layer === id).length])
   )
   // Derived, not authoritative: layerFilter is only state that *asked* to filter. If the
   // finding set changes underneath it (session/mode switch, clear-all, a new run — this pane
@@ -132,19 +133,19 @@ export function FindingsPane({
   // present, the filter self-clears here with no extra effect and no dead-end empty state.
   const effectiveFilter =
     layerFilter !== null && presentLayers.includes(layerFilter) ? layerFilter : null
-  const shown = findings
+  const shown = modeFindings
     .filter((f) => effectiveFilter === null || f.layer === effectiveFilter)
     .slice()
     .sort((a, b) => rank(a) - rank(b))
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center justify-between">
         <SectionLabel>
-          {findings.length > 0 ? `Findings · ${findings.length}` : 'Findings'}
+          {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
         </SectionLabel>
         <div className="flex items-center gap-1">
-          {(findings.length > 0 || hasBody) && (
+          {modeFindings.length > 0 && (
             <button
               aria-label="Clear findings"
               title="Clear all findings"
@@ -188,158 +189,160 @@ export function FindingsPane({
           ))}
         </div>
       )}
-      {shown.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {shown.map((f) => {
-            const open = expandedId === f.id
-            const accepted = f.reviewState === 'accepted'
-            const rejected = f.reviewState === 'rejected'
-            const toggle = (): void => {
-              if (f.body) setExpandedId(open ? null : f.id)
-            }
-            return (
-              <li
-                key={f.id}
-                className={`rounded-r2 border bg-panel ${
-                  accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
-                }`}
-              >
-                <div className="flex items-start gap-1.5 px-2 py-1.5">
-                  <ChevronRight
-                    size={13}
-                    className={`mt-0.5 shrink-0 text-mute transition-transform ${
-                      open ? 'rotate-90' : ''
-                    } ${f.body ? '' : 'opacity-0'}`}
-                  />
-                  <button
-                    className="flex-1 text-left text-xs leading-snug text-ink disabled:cursor-default"
-                    disabled={!f.body}
-                    aria-expanded={f.body ? open : undefined}
-                    onClick={toggle}
-                  >
-                    {f.summary}
-                  </button>
-                </div>
-                {open && f.body && (
-                  <div className="border-t border-hair px-2 py-1.5 text-xs">
-                    <MessageView
-                      markdown={f.body}
-                      onCite={onCite}
-                      caseSlug={slug}
-                      repoNames={repoNames}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {shown.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {shown.map((f) => {
+              const open = expandedId === f.id
+              const accepted = f.reviewState === 'accepted'
+              const rejected = f.reviewState === 'rejected'
+              const toggle = (): void => {
+                if (f.body) setExpandedId(open ? null : f.id)
+              }
+              return (
+                <li
+                  key={f.id}
+                  className={`rounded-r2 border bg-panel ${
+                    accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
+                  }`}
+                >
+                  <div className="flex items-start gap-1.5 px-2 py-1.5">
+                    <ChevronRight
+                      size={13}
+                      className={`mt-0.5 shrink-0 text-mute transition-transform ${
+                        open ? 'rotate-90' : ''
+                      } ${f.body ? '' : 'opacity-0'}`}
                     />
+                    <button
+                      className="flex-1 text-left text-xs leading-snug text-ink disabled:cursor-default"
+                      disabled={!f.body}
+                      aria-expanded={f.body ? open : undefined}
+                      onClick={toggle}
+                    >
+                      {f.summary}
+                    </button>
                   </div>
-                )}
-                <div className="flex items-center gap-2 px-2 pb-1.5">
-                  <span className="font-mono text-[10px] text-mute">
-                    {formatWhen(f.createdAt)}
-                    {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
-                  </span>
-                  {f.layer && (
-                    <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
-                      {REVIEW_LAYERS[f.layer].label}
-                    </span>
+                  {open && f.body && (
+                    <div className="border-t border-hair px-2 py-1.5 text-xs">
+                      <MessageView
+                        markdown={f.body}
+                        onCite={onCite}
+                        caseSlug={slug}
+                        repoNames={repoNames}
+                      />
+                    </div>
                   )}
-                  {f.severity && (
-                    <span
-                      className={`rounded-r1 px-1 text-[10px] ${
-                        f.severity === 'critical'
-                          ? 'bg-danger/15 text-danger'
-                          : f.severity === 'major'
-                            ? 'bg-signal/15 text-ink'
-                            : 'text-mute'
+                  <div className="flex items-center gap-2 px-2 pb-1.5">
+                    <span className="font-mono text-[10px] text-mute">
+                      {formatWhen(f.createdAt)}
+                      {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
+                    </span>
+                    {f.layer && (
+                      <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
+                        {REVIEW_LAYERS[f.layer].label}
+                      </span>
+                    )}
+                    {f.severity && (
+                      <span
+                        className={`rounded-r1 px-1 text-[10px] ${
+                          f.severity === 'critical'
+                            ? 'bg-danger/15 text-danger'
+                            : f.severity === 'major'
+                              ? 'bg-signal/15 text-ink'
+                              : 'text-mute'
+                        }`}
+                      >
+                        {f.severity}
+                      </span>
+                    )}
+                    {f.commentUrl && (
+                      <a
+                        href={f.commentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+                      >
+                        commented
+                      </a>
+                    )}
+                    {f.pushedSha && (
+                      <span
+                        title={`Pushed ${f.pushedSha}`}
+                        className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
+                      >
+                        {f.pushedSha.slice(0, 7)}
+                      </span>
+                    )}
+                    <span className="flex-1" />
+                    {f.mode === 'review' && (
+                      <>
+                        <button
+                          aria-label="Post as PR comment"
+                          title={
+                            f.diffPath
+                              ? 'Post this finding as an inline PR comment'
+                              : 'No diff anchor — this finding cannot be an inline comment'
+                          }
+                          disabled={sessionId === null || actingId !== null || !f.diffPath}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                          onClick={() => void runAction(f.id, 'comment')}
+                        >
+                          <MessageSquarePlus size={13} />
+                        </button>
+                        <button
+                          aria-label="Apply change and push"
+                          title={
+                            !f.diffPath
+                              ? 'No diff anchor — this finding cites no code to change'
+                              : f.suggestedChange
+                                ? 'Apply the suggested change in the PR worktree and push it'
+                                : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
+                          }
+                          disabled={sessionId === null || actingId !== null || !f.diffPath}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
+                          onClick={() => void runAction(f.id, 'apply')}
+                        >
+                          <GitCommitVertical size={13} />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      aria-label="Mark finding good"
+                      aria-pressed={accepted}
+                      title="Good finding"
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                        accepted
+                          ? 'border-review bg-review/15 text-review'
+                          : 'border-hair2 text-mute hover:text-ink'
                       }`}
+                      onClick={() => void setReview(f.id, 'accepted')}
                     >
-                      {f.severity}
-                    </span>
-                  )}
-                  {f.commentUrl && (
-                    <a
-                      href={f.commentUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+                      <ThumbsUp size={13} />
+                    </button>
+                    <button
+                      aria-label="Mark finding not useful"
+                      aria-pressed={rejected}
+                      title="Not useful"
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
+                        rejected
+                          ? 'border-danger bg-danger/15 text-danger'
+                          : 'border-hair2 text-mute hover:text-ink'
+                      }`}
+                      onClick={() => void setReview(f.id, 'rejected')}
                     >
-                      commented
-                    </a>
-                  )}
-                  {f.pushedSha && (
-                    <span
-                      title={`Pushed ${f.pushedSha}`}
-                      className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
-                    >
-                      {f.pushedSha.slice(0, 7)}
-                    </span>
-                  )}
-                  <span className="flex-1" />
-                  {f.mode === 'review' && (
-                    <>
-                      <button
-                        aria-label="Post as PR comment"
-                        title={
-                          f.diffPath
-                            ? 'Post this finding as an inline PR comment'
-                            : 'No diff anchor — this finding cannot be an inline comment'
-                        }
-                        disabled={sessionId === null || actingId !== null || !f.diffPath}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
-                        onClick={() => void runAction(f.id, 'comment')}
-                      >
-                        <MessageSquarePlus size={13} />
-                      </button>
-                      <button
-                        aria-label="Apply change and push"
-                        title={
-                          !f.diffPath
-                            ? 'No diff anchor — this finding cites no code to change'
-                            : f.suggestedChange
-                              ? 'Apply the suggested change in the PR worktree and push it'
-                              : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
-                        }
-                        disabled={sessionId === null || actingId !== null || !f.diffPath}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
-                        onClick={() => void runAction(f.id, 'apply')}
-                      >
-                        <GitCommitVertical size={13} />
-                      </button>
-                    </>
-                  )}
-                  <button
-                    aria-label="Mark finding good"
-                    aria-pressed={accepted}
-                    title="Good finding"
-                    className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                      accepted
-                        ? 'border-review bg-review/15 text-review'
-                        : 'border-hair2 text-mute hover:text-ink'
-                    }`}
-                    onClick={() => void setReview(f.id, 'accepted')}
-                  >
-                    <ThumbsUp size={13} />
-                  </button>
-                  <button
-                    aria-label="Mark finding not useful"
-                    aria-pressed={rejected}
-                    title="Not useful"
-                    className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                      rejected
-                        ? 'border-danger bg-danger/15 text-danger'
-                        : 'border-hair2 text-mute hover:text-ink'
-                    }`}
-                    onClick={() => void setReview(f.id, 'rejected')}
-                  >
-                    <ThumbsDown size={13} />
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      ) : (
-        <p className="text-xs text-mute">
-          {findings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
-        </p>
-      )}
+                      <ThumbsDown size={13} />
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="text-xs text-mute">
+            {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

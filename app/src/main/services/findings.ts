@@ -10,6 +10,8 @@ import { appendDeletionAudit } from './deletionAudit'
 
 export type { FindingRow, ReviewState }
 const REVIEW_STATES: ReviewState[] = ['pending', 'accepted', 'rejected']
+// Non-global, so it is safe to share between the two `split` call sites below.
+const FINDING_MARKER_SPLIT = /<!-- finding:(\d+) -->/
 
 interface Raw {
   id: number
@@ -64,7 +66,7 @@ const FINDINGS_WITH_MODE = `findings f LEFT JOIN sessions s ON s.id = f.session_
  *  `_meta_` lines. Findings written before markers existed simply won't match. */
 export function parseFindingBodies(md: string): Map<number, string> {
   const map = new Map<number, string>()
-  const parts = md.split(/<!-- finding:(\d+) -->/)
+  const parts = md.split(FINDING_MARKER_SPLIT)
   // parts = [before, id1, segment1, id2, segment2, ...]
   for (let i = 1; i < parts.length; i += 2) {
     const id = Number(parts[i])
@@ -121,25 +123,62 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   return row ? toRow(row) : null
 }
 
+/** findings.md minus the marker segments for `ids` — mode-scoped clear must leave the other
+ *  mode's bodies intact. Everything before the first `<!-- finding:N -->` marker (the seeded
+ *  header, any pre-marker prose) is always kept. */
+export function removeFindingBodies(md: string, ids: ReadonlySet<number>): string {
+  const parts = md.split(FINDING_MARKER_SPLIT)
+  let out = parts[0]
+  for (let i = 1; i < parts.length; i += 2) {
+    if (ids.has(Number(parts[i]))) continue
+    out += `<!-- finding:${parts[i]} -->${parts[i + 1] ?? ''}`
+  }
+  return out
+}
+
 /**
- * Clear-all per case: delete every findings row and reset findings.md to the
- * seeded header createCase writes. Order: DB → audit → filesystem.
+ * Clear findings per case: with no `mode`, delete every row and reset findings.md to the seeded
+ * header createCase writes. With a `mode`, delete only findings whose session-derived mode
+ * matches (same COALESCE rule as toRow: session-less rows are investigation) and strip only
+ * their findings.md sections. Order: DB → audit → filesystem.
  */
 export function clearFindings(
   db: DatabaseSync,
   argusHome: string,
-  caseSlug: string
+  caseSlug: string,
+  mode?: ModeId
 ): { cleared: number } {
   const kase = getCase(db, caseSlug)
   if (!kase) throw new Error(`Unknown case: ${caseSlug}`)
-  const res = db.prepare(`DELETE FROM findings WHERE case_id = ?`).run(kase.id)
-  const cleared = Number(res.changes)
-  appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared })
-  fs.writeFileSync(
-    path.join(caseDir(argusHome, caseSlug), 'findings.md'),
-    `# Findings — ${caseSlug}\n`
-  )
-  return { cleared }
+  const mdPath = path.join(caseDir(argusHome, caseSlug), 'findings.md')
+  if (mode === undefined) {
+    const res = db.prepare(`DELETE FROM findings WHERE case_id = ?`).run(kase.id)
+    const cleared = Number(res.changes)
+    appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared })
+    fs.writeFileSync(mdPath, `# Findings — ${caseSlug}\n`)
+    return { cleared }
+  }
+  const ids = (
+    db
+      .prepare(
+        `SELECT f.id FROM ${FINDINGS_WITH_MODE}
+         WHERE f.case_id = ? AND COALESCE(s.mode, ?) = ?`
+      )
+      .all(kase.id, DEFAULT_MODE, mode) as { id: number }[]
+  ).map((r) => r.id)
+  if (ids.length > 0)
+    db.prepare(`DELETE FROM findings WHERE id IN (${ids.map(() => '?').join(', ')})`).run(...ids)
+  appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared: ids.length, mode })
+  if (ids.length > 0) {
+    try {
+      fs.writeFileSync(mdPath, removeFindingBodies(fs.readFileSync(mdPath, 'utf8'), new Set(ids)))
+    } catch (err) {
+      // Only a MISSING findings.md is fine to skip (nothing to strip, and a full-file reset
+      // would be wrong here). Any other failure means DB and file are now out of sync — say so.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+  }
+  return { cleared: ids.length }
 }
 
 /**

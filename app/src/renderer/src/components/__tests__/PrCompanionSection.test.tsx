@@ -51,13 +51,47 @@ describe('PrCompanionSection', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows the PR identity, review decision and every check', () => {
+  it('names the PR nowhere (the Repos chip owns the identity) but shows decision and checks', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.getByText('acme/widget#42')).toBeInTheDocument()
+    expect(screen.queryByText('acme/widget#42')).not.toBeInTheDocument()
     expect(screen.getByText(/review required/i)).toBeInTheDocument()
     expect(screen.getByText('build')).toBeInTheDocument()
     expect(screen.getByText('lint')).toBeInTheDocument()
     expect(screen.getByText('ci/circleci')).toBeInTheDocument()
+  })
+
+  // One render per test: every mount subscribes to the shared prStatusStore, so a re-hydrate
+  // inside a single test would update earlier mounts too and getByText would see duplicates.
+  it('renders an open PR as a signal-toned tag', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('open')).toHaveClass('text-signal')
+  })
+
+  it('renders a closed PR as a defect-toned tag', () => {
+    prStatusStore.hydrate({ c1: status({ state: 'CLOSED' }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('closed')).toHaveClass('text-defect')
+  })
+
+  it('renders a merged PR as a neutral-toned tag', () => {
+    prStatusStore.hydrate({ c1: status({ state: 'MERGED' }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('merged')).toHaveClass('text-dim')
+  })
+
+  it('prefixes the tag with draft and keeps conflicts as side text', () => {
+    prStatusStore.hydrate({ c1: status({ isDraft: true, mergeable: 'CONFLICTING' }) })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText('draft · open')).toBeInTheDocument()
+    expect(screen.getByText(/conflicts/)).toBeInTheDocument()
+  })
+
+  it('lists checks inside a single divided panel', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const row = screen.getByText('build').closest('div')
+    expect(row?.parentElement).toHaveClass('divide-y')
+    // all three rows share that one container
+    expect(screen.getByText('lint').closest('div')?.parentElement).toBe(row?.parentElement)
   })
 
   it('offers Analyze only on a failed GitHub Actions check', () => {

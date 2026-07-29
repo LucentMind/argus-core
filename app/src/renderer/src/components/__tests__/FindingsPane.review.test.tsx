@@ -49,7 +49,7 @@ describe('FindingsPane review flavor', () => {
         mode: 'review'
       })
     ])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     // A lone present layer still renders its filter chip (Finding 2), whose visible text
     // shares the layer label with the finding's own badge — scope the badge lookup to the
     // finding's list item instead of a page-wide text query that could match either element.
@@ -61,7 +61,7 @@ describe('FindingsPane review flavor', () => {
 
   it('shows no flavor badges on an investigation finding', async () => {
     list.mockResolvedValue([row({ id: 1, summary: 'Root cause' })])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     expect(await screen.findByText('Root cause')).toBeInTheDocument()
     expect(screen.queryByText('major')).not.toBeInTheDocument()
   })
@@ -69,7 +69,7 @@ describe('FindingsPane review flavor', () => {
   it('orders critical before major before minor, ahead of unflavored findings', async () => {
     list.mockResolvedValue([
       row({ id: 1, summary: 'minor one', layer: 'tests', severity: 'minor', mode: 'review' }),
-      row({ id: 2, summary: 'plain triage' }),
+      row({ id: 2, summary: 'plain triage', mode: 'review' }),
       row({
         id: 3,
         summary: 'critical one',
@@ -78,7 +78,7 @@ describe('FindingsPane review flavor', () => {
         mode: 'review'
       })
     ])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     await screen.findByText('critical one')
     const texts = screen.getAllByRole('listitem').map((li) => li.textContent ?? '')
     expect(texts[0]).toContain('critical one')
@@ -91,7 +91,7 @@ describe('FindingsPane review flavor', () => {
       row({ id: 1, summary: 'sec finding', layer: 'security', severity: 'major', mode: 'review' }),
       row({ id: 2, summary: 'test finding', layer: 'tests', severity: 'minor', mode: 'review' })
     ])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     await screen.findByText('sec finding')
     await userEvent.click(screen.getByRole('button', { name: /filter · security/i }))
     await waitFor(() => expect(screen.queryByText('test finding')).not.toBeInTheDocument())
@@ -103,7 +103,7 @@ describe('FindingsPane review flavor', () => {
     list.mockResolvedValue([
       row({ id: 1, summary: 'sec finding', layer: 'security', severity: 'major', mode: 'review' })
     ])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     await screen.findByText('sec finding')
     expect(screen.getByRole('button', { name: /filter · security/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /filter · tests/i })).not.toBeInTheDocument()
@@ -118,7 +118,9 @@ describe('FindingsPane review flavor', () => {
     list.mockResolvedValueOnce([
       row({ id: 1, summary: 'sec finding', layer: 'security', severity: 'major', mode: 'review' })
     ])
-    const { rerender } = render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    const { rerender } = render(
+      <FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />
+    )
     await screen.findByText('sec finding')
     await userEvent.click(screen.getByRole('button', { name: /filter · security/i }))
     await waitFor(() =>
@@ -131,7 +133,7 @@ describe('FindingsPane review flavor', () => {
     list.mockResolvedValueOnce([
       row({ id: 2, summary: 'tests finding', layer: 'tests', severity: 'minor', mode: 'review' })
     ])
-    rerender(<FindingsPane slug="c1" sessionId={2} onCite={vi.fn()} />)
+    rerender(<FindingsPane slug="c1" sessionId={2} activeMode="review" onCite={vi.fn()} />)
 
     expect(await screen.findByText('tests finding')).toBeInTheDocument()
     expect(screen.queryByText('No findings match this filter.')).not.toBeInTheDocument()

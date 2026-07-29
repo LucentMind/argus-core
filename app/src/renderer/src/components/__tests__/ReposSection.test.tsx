@@ -44,7 +44,8 @@ beforeEach(() => {
       onBuilding: vi.fn(() => () => {}),
       onChanged: vi.fn(() => () => undefined),
       onProgress: vi.fn(() => () => {})
-    }
+    },
+    openExternal: vi.fn(async () => undefined)
   } as never
 })
 
@@ -68,6 +69,16 @@ describe('ReposSection pull requests', () => {
     prApi().list = vi.fn(async () => [BINDING])
     render(<ReposSection slug="C-1" />)
     expect(await screen.findByText(/JiaweiHan88\/hivemindtest#16315/)).toBeTruthy()
+  })
+
+  it('opens the pull request in the browser when the chip is clicked', async () => {
+    prApi().list = vi.fn(async () => [BINDING])
+    render(<ReposSection slug="C-1" />)
+    const chip = await screen.findByRole('button', {
+      name: 'Open pull request JiaweiHan88/hivemindtest#16315 on GitHub'
+    })
+    fireEvent.click(chip)
+    expect(window.argus.openExternal).toHaveBeenCalledWith(BINDING.url)
   })
 
   it('renders no PR section at all when nothing is bound', async () => {
@@ -235,6 +246,27 @@ describe('ReposSection pull requests', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Unlink PR' }))
     await waitFor(() => expect(prApi().unlink).toHaveBeenCalledWith('C-1', 3))
     await waitFor(() => expect(prApi().list.mock.calls.length).toBeGreaterThan(before))
+  })
+})
+
+describe('ReposSection mode gating', () => {
+  it('hides unlink-repo and code-graph icons in review mode', async () => {
+    render(<ReposSection slug="C-1" mode="review" />)
+    await screen.findByText(/hivemindtest @ main/)
+    expect(screen.queryByRole('button', { name: 'Unlink repo' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Code graph' })).toBeNull()
+  })
+
+  it('keeps both icons in investigation mode', async () => {
+    render(<ReposSection slug="C-1" mode="investigation" />)
+    await screen.findByText(/hivemindtest @ main/)
+    expect(screen.getByRole('button', { name: 'Unlink repo' })).toBeInTheDocument()
+  })
+
+  it('keeps the unlink-PR button in review mode (switching PRs is a review operation)', async () => {
+    prApi().list = vi.fn(async () => [BINDING])
+    render(<ReposSection slug="C-1" mode="review" />)
+    expect(await screen.findByRole('button', { name: 'Unlink PR' })).toBeInTheDocument()
   })
 })
 

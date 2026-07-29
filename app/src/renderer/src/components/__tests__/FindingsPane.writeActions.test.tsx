@@ -60,7 +60,7 @@ beforeEach(() => {
 describe('FindingsPane write actions', () => {
   it('shows no write actions on an investigation finding', async () => {
     list.mockResolvedValue([row({ summary: 'Root cause' })])
-    render(<FindingsPane slug="c1" sessionId={1} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
     expect(await screen.findByText('Root cause')).toBeInTheDocument()
     expect(screen.queryByLabelText('Post as PR comment')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Apply change and push')).not.toBeInTheDocument()
@@ -70,7 +70,7 @@ describe('FindingsPane write actions', () => {
     list.mockResolvedValue([reviewRow()])
     composeActionPrompt.mockResolvedValue('COMPOSED COMMENT')
     send.mockResolvedValue(undefined)
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, 7, 'comment')
@@ -80,7 +80,7 @@ describe('FindingsPane write actions', () => {
     list.mockResolvedValue([reviewRow()])
     composeActionPrompt.mockResolvedValue('COMPOSED APPLY')
     send.mockResolvedValue(undefined)
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Apply change and push'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED APPLY'))
     expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, 7, 'apply')
@@ -88,21 +88,21 @@ describe('FindingsPane write actions', () => {
 
   it('disables both actions on a finding with no diff anchor', async () => {
     list.mockResolvedValue([reviewRow({ diffPath: null, diffLine: null })])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     expect(await screen.findByLabelText('Post as PR comment')).toBeDisabled()
     expect(screen.getByLabelText('Apply change and push')).toBeDisabled()
   })
 
   it('enables the apply action on a finding with an anchor but no suggested change', async () => {
     list.mockResolvedValue([reviewRow({ suggestedChange: null })])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     expect(await screen.findByLabelText('Apply change and push')).toBeEnabled()
   })
 
   it('surfaces a compose failure instead of sending', async () => {
     list.mockResolvedValue([reviewRow()])
     composeActionPrompt.mockRejectedValue(new Error('No pull request is bound to this case.'))
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     expect(await screen.findByText('No pull request is bound to this case.')).toBeInTheDocument()
     expect(send).not.toHaveBeenCalled()
@@ -115,7 +115,7 @@ describe('FindingsPane write actions', () => {
         pushedSha: '0123456789abcdef0123456789abcdef01234567'
       })
     ])
-    render(<FindingsPane slug="c1" sessionId={3} onCite={vi.fn()} />)
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     const item = (await screen.findByText('Inverted guard')).closest('li') as HTMLElement
     expect(within(item).getByRole('link', { name: /commented/i })).toHaveAttribute(
       'href',

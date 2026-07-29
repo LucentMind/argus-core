@@ -456,6 +456,7 @@ export function CaseWorkspace({
           <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-r border-hair bg-deep p-3">
             <ReposSection
               slug={slug}
+              mode={activeMode}
               onPrsFound={handlePrsFound}
               headerExtra={
                 <button
@@ -473,9 +474,11 @@ export function CaseWorkspace({
               mode={activeMode}
               onAnalyze={(checkName) => void analyzeCheck(checkName)}
             />
-            <SectionLabel>Evidence</SectionLabel>
-            <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />
-            <SearchBar caseSlug={slug} onOpen={onOpenHit} />
+            <SectionLabel>
+              {activeMode === 'review' ? 'Code review artifacts' : 'Evidence'}
+            </SectionLabel>
+            {activeMode !== 'review' && <SimilarCasesCard slug={slug} onOpenCase={onOpenCase} />}
+            {activeMode !== 'review' && <SearchBar caseSlug={slug} onOpen={onOpenHit} />}
             {/* key: reset per-case state (type filter, collapsed dirs, parsing set) when switching cases */}
             <CaseFiles
               key={slug}
@@ -571,10 +574,15 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className="overflow-y-auto border-l border-hair bg-deep p-3"
+              className="flex flex-col border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
-              <FindingsPane slug={slug} sessionId={sessionId} onCite={(c) => void handleCite(c)} />
+              <FindingsPane
+                slug={slug}
+                sessionId={sessionId}
+                activeMode={activeMode}
+                onCite={(c) => void handleCite(c)}
+              />
             </aside>
           </>
         )}
