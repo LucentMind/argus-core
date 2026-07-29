@@ -38,7 +38,9 @@ describe('mode registry', () => {
 
   it("review's citation guidance distinguishes review artifacts from investigation evidence", () => {
     expect(MODES.review.personaFragment).toContain('[artifacts/')
-    expect(MODES.review.personaFragment).toContain('evidence/')
+    expect(MODES.review.personaFragment).toMatch(
+      /evidence\/ paths belong to the\s+investigation side of the case/
+    )
   })
 
   it('MODE_ORDER (via availableModes) covers every key of MODES', () => {

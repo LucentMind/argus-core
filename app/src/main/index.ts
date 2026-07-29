@@ -660,7 +660,7 @@ function registerIpc(): void {
         argusHome,
         detection,
         caseSlug,
-        path.basename(fileName), // defence in depth: no traversal out of evidence/
+        path.basename(fileName), // defence in depth: no traversal out of the mode's directory
         Buffer.from(bytes),
         'paste',
         {},
@@ -688,10 +688,10 @@ function registerIpc(): void {
     }
   )
   ipcMain.handle(IPC.evidenceList, (_e, caseSlug: string, scope?: EvidenceScope) => {
-    // start the staleness watcher on first listing; unknown slugs stay unwatched
-    if (getCase(db, caseSlug)) caseWatch.watch(caseSlug)
     if (scope !== undefined && scope !== 'investigation' && scope !== 'review' && scope !== 'all')
       throw new Error(`Invalid evidence scope: ${JSON.stringify(scope)}`)
+    // start the staleness watcher on first listing; unknown slugs stay unwatched
+    if (getCase(db, caseSlug)) caseWatch.watch(caseSlug)
     return listEvidence(db, caseSlug, scope)
   })
   ipcMain.handle(IPC.evidenceRead, (_e, evidenceId: number, focusLine?: number) =>
@@ -855,7 +855,7 @@ function registerIpc(): void {
     windowId: string,
     mode: ModeId
   ): Promise<CapturePanelEvidence> => {
-    caseWatch.suppress(caseSlug) // pre-write: capture writes a screenshot into evidence/
+    caseWatch.suppress(caseSlug) // pre-write: capture writes a screenshot into evidence/ or artifacts/, per mode
     return capturePanelToEvidence(
       { panelHost: panelHost!, db, argusHome, detection, mode },
       caseSlug,

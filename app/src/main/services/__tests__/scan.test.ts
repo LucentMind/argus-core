@@ -200,9 +200,9 @@ describe('scan is scoped to one mode', () => {
     expect(inv?.meta.missing).toBeUndefined()
   })
 
-  // rescanModified's sidecar path is still derived via the 'evidence/'-length slice
-  // (left untouched by design — see task report); this pins down that it also produces
-  // the correct sidecar path for an artifacts/ row, not just evidence/ ones.
+  // rescanModified's sidecar path is derived via sidecarRelPath (no hardcoded prefix
+  // slicing); this pins down that it produces the correct sidecar path for an
+  // artifacts/ row, not just evidence/ ones.
   it('detects a modified artifacts/ file: re-hash, priorSha256, re-index — not flagged missing', () => {
     const rec = ingestContent(
       db,

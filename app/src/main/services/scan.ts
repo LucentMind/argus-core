@@ -6,9 +6,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ArtifactType, EvidenceRecord, ScanSummary } from '../../shared/types'
-import { dirForMode, type CaseSubdir } from '../../shared/evidenceScope'
+import { dirForMode, sidecarRelPath, type CaseSubdir } from '../../shared/evidenceScope'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
-import { modeDir } from './paths'
+import { modeDir, caseDir } from './paths'
 import { getCase, maybeAdvanceToAnalyzing } from './caseService'
 import { listEvidence, sha256File, deleteEvidence } from './ingest'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
@@ -92,7 +92,7 @@ function rescanModified(
   db: DatabaseSync,
   argusHome: string,
   detection: Detection,
-  evidenceDir: string,
+  caseSlug: string,
   rec: EvidenceRecord,
   absPath: string,
   sha256: string
@@ -108,8 +108,15 @@ function rescanModified(
   delete meta.missing
   const updated: EvidenceRecord = { ...rec, sha256, artifactType, size, meta }
   // sidecar first: if this throws, nothing has been committed; if the UPDATE below
-  // fails instead, the next scan still sees the old sha and retries cleanly
-  writeSidecar(evidenceDir, rec.relPath.slice('evidence/'.length), updated)
+  // fails instead, the next scan still sees the old sha and retries cleanly. Path is
+  // derived from rec.relPath via sidecarRelPath — not sliced by a hardcoded prefix
+  // length — so it is correct for both evidence/ and artifacts/ rows.
+  const sidecarAbs = path.join(
+    caseDir(argusHome, caseSlug),
+    ...sidecarRelPath(rec.relPath).split('/')
+  )
+  fs.mkdirSync(path.dirname(sidecarAbs), { recursive: true })
+  fs.writeFileSync(sidecarAbs, JSON.stringify(updated, null, 2))
   db.prepare(
     `UPDATE evidence SET sha256 = ?, artifact_type = ?, size = ?, meta = ? WHERE id = ?`
   ).run(sha256, artifactType, size, JSON.stringify(meta), rec.id)
@@ -176,7 +183,7 @@ export function scanEvidence(
             if (e.meta.derivedFrom === existing.id) deleteEvidence(db, argusHome, caseSlug, e.id)
           }
           kickExtraction(
-            rescanModified(db, argusHome, detection, scanDir, existing, absPath, sha256)
+            rescanModified(db, argusHome, detection, caseSlug, existing, absPath, sha256)
           )
           summary.modified.push(relPath)
         } else if (existing.meta.missing) {
