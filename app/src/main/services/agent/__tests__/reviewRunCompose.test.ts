@@ -103,7 +103,7 @@ describe('composeReviewRunPrompt', () => {
     // configurable fan-out text extends the by-name delegation invite, and only the promptable
     // path inlines a layer's own task text (e.g. correctness's "chase every suspicion") into
     // this turn.
-    expect(p).toMatch(/available as a subagent you can delegate to by name/i)
+    expect(p).toMatch(/subagent you can delegate to by name/i)
     expect(p).not.toContain('chase every suspicion')
   })
 
@@ -140,7 +140,7 @@ describe('composeReviewRunPrompt', () => {
       s.id,
       []
     )
-    expect(p).not.toMatch(/available as a subagent you can delegate to by name/i)
+    expect(p).not.toMatch(/subagent you can delegate to by name/i)
     expect(p).toContain('chase every suspicion')
     expect(p).not.toMatch(/no findings tool/i)
   })

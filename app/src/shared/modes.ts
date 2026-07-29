@@ -52,6 +52,8 @@ Method — how you review:
 - Two passes, strictly separated. Pass 1 (find): read the diff, then chase every suspicion
   aggressively — search the repo, read git blame/history of the touched code, run what you
   can in the case worktree. Suspicion is free; collect candidates liberally.
+- Several passes or subagents often surface one issue from different angles:
+  merge those into one finding — never record duplicates.
 - Pass 2 (verify): for each candidate, try to refute it against the actual code before
   recording. Record only what survives, labeled CONFIRMED (refutation failed against cited
   code) or PLAUSIBLE (could not fully verify). Never rate your own severity by feel —

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { buildReviewRunPrompt } from '../reviewRun'
+import { buildReviewRunPrompt, REVIEW_RUN_PROMPTS } from '../reviewRun'
 import { REVIEW_LAYERS, CANDIDATE_CONTRACT } from '../../../../shared/reviewLayers'
 
 const base = {
+  prLabel: 'o/r#7',
   prUrl: 'https://github.com/o/r/pull/7',
   worktreePath: '/wt/r-case-pr7',
   repoName: 'r'
@@ -100,5 +101,67 @@ describe('buildReviewRunPrompt', () => {
     })
     expect(seen).toContain('review.run.header')
     expect(seen).toContain('review.run.triage')
+  })
+
+  it('keeps every review.run.* id — they are permanent override keys', () => {
+    expect(Object.keys(REVIEW_RUN_PROMPTS).sort()).toEqual(
+      [
+        'choose-layers',
+        'fanout-configurable',
+        'fanout-promptable',
+        'header',
+        'pinned-layers',
+        'triage'
+      ].sort()
+    )
+  })
+
+  it('emits valid markdown: every list line follows a blank line, a heading, or another list line', () => {
+    const prompt = buildReviewRunPrompt({
+      support: 'configurable',
+      pinnedLayers: [],
+      prLabel: 'acme/widget#42',
+      prUrl: 'https://github.com/acme/widget/pull/42',
+      worktreePath: 'C:\\wt\\widget-case-pr42',
+      repoName: 'widget'
+    })
+    const lines = prompt.split('\n')
+    lines.forEach((line, i) => {
+      if (/^\s*([-*] |\d+\. )/.test(line) && i > 0) {
+        const prev = lines[i - 1]
+        expect(
+          prev.trim() === '' || /^\s*([-*] |\d+\. |#)/.test(prev),
+          `list item at line ${i + 1} lazily continues: ${JSON.stringify(prev)}`
+        ).toBe(true)
+      }
+    })
+  })
+
+  it("no longer restates the persona's method in the triage step", () => {
+    const prompt = buildReviewRunPrompt({
+      support: 'configurable',
+      pinnedLayers: [],
+      prLabel: 'acme/widget#42',
+      prUrl: 'https://github.com/acme/widget/pull/42',
+      worktreePath: 'C:\\wt\\widget-case-pr42',
+      repoName: 'widget'
+    })
+    expect(prompt).not.toContain('1. Dedup')
+    expect(prompt).not.toContain('Denoise')
+    expect(prompt.length).toBeLessThan(3000) // configurable path: roughly a screen, not a wall
+  })
+
+  it('links the PR and asks for comment_body at record time', () => {
+    const prompt = buildReviewRunPrompt({
+      support: 'configurable',
+      pinnedLayers: [],
+      prLabel: 'acme/widget#42',
+      prUrl: 'https://github.com/acme/widget/pull/42',
+      worktreePath: 'C:\\wt\\widget-case-pr42',
+      repoName: 'widget'
+    })
+    expect(prompt).toContain('[acme/widget#42](https://github.com/acme/widget/pull/42)')
+    expect(prompt).toContain('comment_body')
+    expect(prompt).toContain('NOT the worktree')
   })
 })

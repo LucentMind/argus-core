@@ -14,77 +14,55 @@ import type { PromptTextSpecs } from '../../../shared/promptSpec'
 export const REVIEW_RUN_PROMPTS: PromptTextSpecs = {
   header: {
     title: 'Review run — header',
-    text: `Review pull request {prUrl}.
-
-Its head is checked out at {worktreePath}. Diff it against its merge-base with the target
-branch; that diff is the review's scope. Nothing outside the changed lines is in scope.`,
-    placeholders: ['prUrl', 'worktreePath']
+    text: `Review **[{prLabel}]({prUrl})** — its head is checked out at \`{worktreePath}\`, scoped
+to its diff against the merge-base with the target branch. Nothing outside the changed lines is
+in scope.`,
+    placeholders: ['prLabel', 'prUrl', 'worktreePath']
   },
   'choose-layers': {
     title: 'Review run — layer selection (agent chooses)',
-    text: `Decide which of these review layers this PR actually needs, then run those:
+    text: `**Layers** — decide which of these this PR actually needs, then run those:
 
 {layerMenu}
 
-Skip a layer whose applicability does not hold — a docs-only diff does not need a security
-pass. Say which layers you chose and why, in one line, before you start.`,
+Skip a layer whose applicability does not hold — a docs-only diff needs no security pass. Say
+which you chose and why, in one line, before you start.`,
     placeholders: ['layerMenu']
   },
   'pinned-layers': {
     title: 'Review run — layer selection (user pinned)',
-    text: `The user pinned these layers; run exactly these and no others:
+    text: `**Layers** — the user pinned these; run exactly these and no others:
 
 {layerMenu}`,
     placeholders: ['layerMenu']
   },
   'fanout-configurable': {
     title: 'Review run — fan-out (driver can register agents)',
-    text: `Each layer is available as a subagent you can delegate to by name. A layer subagent
-starts with no context beyond what you send it and cannot read this turn — your delegation
-message to each one must state the worktree path and the diff scope (the PR and its
-merge-base, from above) so it knows what to read. Dispatch the layers you chose in parallel,
-one subagent per layer, and wait for all of them.
-
-Delegate when the diff is large or spans several concerns. For a small, single-concern diff,
-running the passes yourself is faster and cheaper — each subagent re-reads the diff at full
-cost. Use your judgement; do not fan out by reflex.`
+    text: `Each layer is a subagent you can delegate to by name. A layer subagent cannot read this
+turn — your delegation message must state the worktree path and the diff scope. Dispatch your
+chosen layers in parallel and wait for all of them; for a small single-concern diff, running the
+passes yourself is cheaper — use your judgement.`
   },
   'fanout-promptable': {
     title: 'Review run — fan-out (driver cannot register agents)',
-    text: `Run each layer you chose as its own separate pass, in order, finishing one before
-starting the next. You are running each pass yourself — this driver has no way to register a
-separate subagent to delegate to.
-
-The instructions below describe what to look for in each pass — they still apply. You have
-append_finding, and you record survivors with it yourself once you've triaged across all
-passes, per the steps below.
+    text: `Run each layer you chose as its own separate pass, in order — this driver cannot
+register subagents, so you run every pass yourself using the instructions below, and you record
+survivors with append_finding after triaging across all passes.
 
 {layerBodies}`,
     placeholders: ['layerBodies']
   },
   triage: {
     title: 'Review run — triage and record',
-    text: `When every layer has reported, triage the candidates yourself before recording
-anything:
+    text: `When every layer has reported, triage per your review method (dedup across layers,
+refute, denoise), then record each survivor with append_finding:
 
-1. Dedup — several layers often find one issue from different angles. Merge those into a
-   single finding rather than recording each.
-2. Refute — for each surviving candidate, go back to the cited code and try to prove it wrong.
-   Drop what you cannot verify. A short review of real issues beats a long one.
-3. Denoise — drop pre-existing issues, style, anything a linter or CI already catches, and
-   anything a senior engineer would not raise.
-4. Record — call append_finding once per survivor, with layer, severity
-   (critical|major|minor) and a [{repoName}/<path>:<line>] citation into the changed lines.
-   The prefix is exactly {repoName} and the path is relative to the repository root — NOT the
-   name of the worktree directory you are reading from, which is a different string.
-   Every finding states the concrete failure scenario. No scenario, no finding. When you know
-   the concrete fix, pass suggested_change describing it in one or two sentences — that is
-   what the user's Apply action will implement, and a finding without one can only be
-   commented on.
+- layer, severity, and a \`[{repoName}/<path>:<line>]\` citation into the changed lines — the prefix is exactly {repoName}, NOT the worktree directory's name, which is a different string
+- suggested_change when you know the concrete fix (it is what the user's Apply action implements)
+- comment_body: the finding rewritten for the PR author, publishable as-is
 
-Then end with the verdict — ready / ready with fixes / not ready — and one sentence of
-reasoning. Do not change any code; applying a fix happens only when the user accepts a
-finding and asks for it.`,
+End with your verdict — ready / ready with fixes / not ready — and one sentence of reasoning.
+Do not change any code.`,
     placeholders: ['repoName']
   }
 }
@@ -110,6 +88,8 @@ export function buildReviewRunPrompt(opts: {
   support: SubagentSupport
   /** Empty = the agent picks. */
   pinnedLayers: readonly ReviewLayerId[]
+  /** `owner/repo#number` — the header's link text, e.g. `acme/widget#42`. */
+  prLabel: string
   prUrl: string
   worktreePath: string
   /** The GitHub repo name — the citation prefix `resolveCommentTarget` strips. Stated
@@ -142,7 +122,11 @@ export function buildReviewRunPrompt(opts: {
         })
 
   return [
-    fillPrompt(text('header'), { prUrl: opts.prUrl, worktreePath: opts.worktreePath }),
+    fillPrompt(text('header'), {
+      prLabel: opts.prLabel,
+      prUrl: opts.prUrl,
+      worktreePath: opts.worktreePath
+    }),
     selection,
     fanout,
     fillPrompt(text('triage'), { repoName: opts.repoName })
