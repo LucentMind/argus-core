@@ -50,6 +50,7 @@ export function FindingsPane({
   const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -123,6 +124,34 @@ export function FindingsPane({
     }
   }
 
+  async function applySelected(): Promise<void> {
+    if (sessionId === null || actingId !== null || effectiveSelected.length === 0) return
+    setActingId(-1) // batch sentinel: disables the per-finding buttons exactly like a single act
+    setActionError(null)
+    try {
+      const prompt = await window.argus.review.composeActionPrompt(
+        slug,
+        sessionId,
+        effectiveSelected,
+        'apply'
+      )
+      await window.argus.agent.send(slug, sessionId, prompt)
+      setSelected(new Set())
+    } catch (err) {
+      setActionError((err as Error).message)
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  // Selection is only ever a REQUEST: ids that left the list (clear-all, new run, a mode
+  // switch, filter is irrelevant — selection survives filtering) drop out here with no
+  // effect needed.
+  const selectable = new Set(
+    modeFindings.filter((f) => f.mode === 'review' && f.diffPath).map((f) => f.id)
+  )
+  const effectiveSelected = [...selected].filter((id) => selectable.has(id))
+
   // Most-severe first, matching how the review persona is told to rank. Unflavored
   // (investigation) findings sort after every severity, then newest-first as before — the list
   // query already returns id DESC, so a stable sort preserves that inside each bucket.
@@ -178,7 +207,7 @@ export function FindingsPane({
       {/* A count suffix (the same "field · value" idiom as the " · sess N" tag below) makes
           the chip read as a control with its own state, not a copy of the finding badge. */}
       {presentLayers.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           {presentLayers.map((id) => (
             <button
               key={id}
@@ -195,6 +224,30 @@ export function FindingsPane({
               {REVIEW_LAYERS[id].label} · {layerCounts.get(id)}
             </button>
           ))}
+          {effectiveSelected.length > 0 && (
+            <button
+              type="button"
+              disabled={sessionId === null || actingId !== null}
+              title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
+              className="self-start rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
+              onClick={() => void applySelected()}
+            >
+              Apply selected ({effectiveSelected.length})
+            </button>
+          )}
+        </div>
+      )}
+      {effectiveSelected.length > 0 && presentLayers.length === 0 && (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={sessionId === null || actingId !== null}
+            title="One approval card and one push for all selected findings. The card offers approve or deny only — to change which findings go, deny and re-select here."
+            className="self-start rounded-r1 border border-signal/50 bg-signal/10 px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-signal/20 disabled:opacity-40"
+            onClick={() => void applySelected()}
+          >
+            Apply selected ({effectiveSelected.length})
+          </button>
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -241,6 +294,22 @@ export function FindingsPane({
                     </div>
                   )}
                   <div className="flex items-center gap-2 px-2 pb-1.5">
+                    {f.mode === 'review' && f.diffPath && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Select finding ${f.id} for batch apply`}
+                        className="h-3 w-3 accent-signal"
+                        checked={effectiveSelected.includes(f.id)}
+                        onChange={() =>
+                          setSelected((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(f.id)) next.delete(f.id)
+                            else next.add(f.id)
+                            return next
+                          })
+                        }
+                      />
+                    )}
                     <span className="font-mono text-[10px] text-mute">
                       {formatWhen(f.createdAt)}
                       {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
