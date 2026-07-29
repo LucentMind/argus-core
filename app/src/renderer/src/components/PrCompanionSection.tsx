@@ -1,5 +1,7 @@
-import { GitPullRequest, RefreshCw, Stethoscope } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ExternalLink, GitPullRequest, RefreshCw, Stethoscope, Unlink } from 'lucide-react'
 import type { PrCheck, PrStatus } from '../../../shared/prStatus'
+import type { PrBinding } from '../../../shared/pr'
 import { prStatusStore, usePrStatuses } from '../lib/prStatusStore'
 import { PrRollupDot } from './PrRollupDot'
 import { Chip, IconBtn, SectionLabel } from './ui'
@@ -61,6 +63,26 @@ export function PrCompanionSection({
 }): React.JSX.Element | null {
   // Hooks must run unconditionally, so the mode gate is applied to the RESULT, not the call.
   const all = usePrStatuses(mode === 'review' ? [slug] : [], REVIEW_POLL_MS)
+
+  const [binding, setBinding] = useState<PrBinding | null>(null)
+  useEffect(() => {
+    if (mode !== 'review') return
+    let live = true
+    void window.argus.pr.list(slug).then((l) => {
+      if (live) setBinding(l[0] ?? null)
+    })
+    return () => {
+      live = false
+    }
+  }, [slug, mode])
+
+  async function unlink(): Promise<void> {
+    if (!binding) return
+    await window.argus.pr.unlink(slug, binding.id)
+    setBinding(null)
+    void prStatusStore.refresh([slug])
+  }
+
   if (mode !== 'review') return null
   const status = all[slug] ?? null
 
@@ -71,13 +93,17 @@ export function PrCompanionSection({
           <GitPullRequest size={12} />
           Pull request
           {status && <PrRollupDot rollup={status.rollup} />}
-          {status && (
-            <Chip tone={STATE_TONE[status.state]}>
-              {status.isDraft ? 'draft · ' : ''}
-              {status.state === 'UNKNOWN' ? 'state unknown' : status.state.toLowerCase()}
-            </Chip>
-          )}
           <span className="flex-1" />
+          {binding && (
+            <IconBtn
+              aria-label="Unlink pull request"
+              title="Unlink pull request"
+              className="hover:text-danger"
+              onClick={() => void unlink()}
+            >
+              <Unlink size={12} />
+            </IconBtn>
+          )}
           <IconBtn
             aria-label="Refresh pull request status"
             title="Refresh"
@@ -96,7 +122,31 @@ export function PrCompanionSection({
 
       {status && (
         <>
-          {/* The state tag rides in the header beside "Pull request"; only the qualifiers that
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              aria-label={`Open pull request ${status.owner}/${status.repo}#${status.number} on GitHub`}
+              className="min-w-0 truncate font-mono text-xs text-ink transition-colors hover:text-defect hover:underline"
+              onClick={() => void window.argus.openExternal(status.url)}
+            >
+              {status.owner}/{status.repo}#{status.number}
+            </button>
+            <Chip tone={STATE_TONE[status.state]}>
+              {status.isDraft ? 'draft · ' : ''}
+              {status.state === 'UNKNOWN' ? 'state unknown' : status.state.toLowerCase()}
+            </Chip>
+            <span className="flex-1" />
+            <IconBtn
+              aria-label="Open pull request on GitHub"
+              title="Open on GitHub"
+              className="h-5 w-5"
+              onClick={() => void window.argus.openExternal(status.url)}
+            >
+              <ExternalLink size={12} />
+            </IconBtn>
+          </div>
+
+          {/* The state tag now rides beside the PR identity above; only the qualifiers that
               do not fit a one-word tag stay down here. */}
           {(status.reviewDecision !== null ||
             status.mergeable === 'CONFLICTING' ||
