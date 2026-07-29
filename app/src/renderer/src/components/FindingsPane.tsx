@@ -1,13 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import {
-  ChevronRight,
-  GitCommitVertical,
-  MessageSquarePlus,
-  PanelRight,
-  ThumbsDown,
-  ThumbsUp,
-  Trash2
-} from 'lucide-react'
+import { PanelRight, Trash2 } from 'lucide-react'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
@@ -17,19 +9,8 @@ import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
-import { MessageView } from './MessageView'
+import { FindingCard } from './FindingCard'
 import { SectionLabel } from './ui'
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
 
 export function FindingsPane({
   slug,
@@ -268,178 +249,34 @@ export function FindingsPane({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {shown.length > 0 ? (
           <ul className="flex flex-col gap-2">
-            {shown.map((f) => {
-              const open = expandedId === f.id
-              const accepted = f.reviewState === 'accepted'
-              const rejected = f.reviewState === 'rejected'
-              const toggle = (): void => {
-                if (f.body) setExpandedId(open ? null : f.id)
-              }
-              return (
-                <li
-                  key={f.id}
-                  className={`rounded-r2 border bg-panel ${
-                    accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
-                  }`}
-                >
-                  <div className="flex items-start gap-1.5 px-2 py-1.5">
-                    <ChevronRight
-                      size={13}
-                      className={`mt-0.5 shrink-0 text-mute transition-transform ${
-                        open ? 'rotate-90' : ''
-                      } ${f.body ? '' : 'opacity-0'}`}
-                    />
-                    <button
-                      className="flex-1 text-left text-xs leading-snug text-ink disabled:cursor-default"
-                      disabled={!f.body}
-                      aria-expanded={f.body ? open : undefined}
-                      onClick={toggle}
-                    >
-                      {f.summary}
-                    </button>
-                  </div>
-                  {open && f.body && (
-                    <div className="border-t border-hair px-2 py-1.5 text-xs">
-                      <MessageView
-                        markdown={f.body}
-                        onCite={onCite}
-                        caseSlug={slug}
-                        repoNames={repoNames}
-                        repoCiteSha={f.mode === 'review' ? (f.headSha ?? undefined) : undefined}
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 px-2 pb-1.5">
-                    {f.mode === 'review' && f.diffPath && (
-                      <input
-                        type="checkbox"
-                        aria-label={`Select finding ${f.id} for batch apply`}
-                        className="h-3 w-3 accent-signal"
-                        checked={effectiveSelected.includes(f.id)}
-                        onChange={() =>
-                          setSelected((prev) => {
-                            const next = new Set(prev)
-                            if (next.has(f.id)) next.delete(f.id)
-                            else next.add(f.id)
-                            return next
-                          })
-                        }
-                      />
-                    )}
-                    <span className="font-mono text-[10px] text-mute">
-                      {formatWhen(f.createdAt)}
-                      {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
-                    </span>
-                    {f.layer && (
-                      <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
-                        {REVIEW_LAYERS[f.layer].label}
-                      </span>
-                    )}
-                    {f.severity && (
-                      <span
-                        className={`rounded-r1 px-1 text-[10px] ${
-                          f.severity === 'critical'
-                            ? 'bg-danger/15 text-danger'
-                            : f.severity === 'major'
-                              ? 'bg-signal/15 text-ink'
-                              : 'text-mute'
-                        }`}
-                      >
-                        {f.severity}
-                      </span>
-                    )}
-                    {f.mode === 'review' &&
-                      f.headSha &&
-                      worktreeHead &&
-                      f.headSha !== worktreeHead && (
-                        <span
-                          className="rounded-r1 border border-warn/50 bg-warn/10 px-1 text-[10px] text-warn"
-                          title={`Recorded at ${f.headSha.slice(0, 12)} — the checked-out PR head is now ${worktreeHead.slice(0, 12)}. The preview is pinned to the recorded commit; re-verify before acting.`}
-                        >
-                          code moved
-                        </span>
-                      )}
-                    {f.commentUrl && (
-                      <a
-                        href={f.commentUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
-                      >
-                        commented
-                      </a>
-                    )}
-                    {f.pushedSha && (
-                      <span
-                        title={`Pushed ${f.pushedSha}`}
-                        className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
-                      >
-                        {f.pushedSha.slice(0, 7)}
-                      </span>
-                    )}
-                    <span className="flex-1" />
-                    {f.mode === 'review' && (
-                      <>
-                        <button
-                          aria-label="Post as PR comment"
-                          title={
-                            f.diffPath
-                              ? 'Post this finding as an inline PR comment'
-                              : 'No diff anchor — this finding cannot be an inline comment'
-                          }
-                          disabled={sessionId === null || actingId !== null || !f.diffPath}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
-                          onClick={() => void runAction(f.id, 'comment')}
-                        >
-                          <MessageSquarePlus size={13} />
-                        </button>
-                        <button
-                          aria-label="Apply change and push"
-                          title={
-                            !f.diffPath
-                              ? 'No diff anchor — this finding cites no code to change'
-                              : f.suggestedChange
-                                ? 'Apply the suggested change in the PR worktree and push it'
-                                : 'Apply a fix in the PR worktree and push it (no suggested change recorded)'
-                          }
-                          disabled={sessionId === null || actingId !== null || !f.diffPath}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-r2 border border-hair2 text-mute transition-colors hover:text-ink disabled:opacity-40"
-                          onClick={() => void runAction(f.id, 'apply')}
-                        >
-                          <GitCommitVertical size={13} />
-                        </button>
-                      </>
-                    )}
-                    <button
-                      aria-label="Mark finding good"
-                      aria-pressed={accepted}
-                      title="Good finding"
-                      className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                        accepted
-                          ? 'border-review bg-review/15 text-review'
-                          : 'border-hair2 text-mute hover:text-ink'
-                      }`}
-                      onClick={() => void setReview(f.id, 'accepted')}
-                    >
-                      <ThumbsUp size={13} />
-                    </button>
-                    <button
-                      aria-label="Mark finding not useful"
-                      aria-pressed={rejected}
-                      title="Not useful"
-                      className={`inline-flex h-6 w-6 items-center justify-center rounded-r2 border transition-colors ${
-                        rejected
-                          ? 'border-danger bg-danger/15 text-danger'
-                          : 'border-hair2 text-mute hover:text-ink'
-                      }`}
-                      onClick={() => void setReview(f.id, 'rejected')}
-                    >
-                      <ThumbsDown size={13} />
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
+            {shown.map((f) => (
+              <FindingCard
+                key={f.id}
+                finding={f}
+                slug={slug}
+                open={expandedId === f.id}
+                selected={effectiveSelected.includes(f.id)}
+                selectable={selectable.has(f.id)}
+                sessionId={sessionId}
+                actingId={actingId}
+                worktreeHead={worktreeHead}
+                repoNames={repoNames}
+                onToggle={() => {
+                  if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
+                }}
+                onSelect={() =>
+                  setSelected((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(f.id)) next.delete(f.id)
+                    else next.add(f.id)
+                    return next
+                  })
+                }
+                onReview={(next) => void setReview(f.id, next)}
+                onAction={(action) => void runAction(f.id, action)}
+                onCite={onCite}
+              />
+            ))}
           </ul>
         ) : (
           <p className="text-xs text-mute">
