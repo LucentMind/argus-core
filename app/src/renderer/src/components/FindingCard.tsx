@@ -6,6 +6,7 @@ import {
   ThumbsUp
 } from 'lucide-react'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
+import type { ReviewSeverity } from '../../../shared/reviewLayers'
 import type { FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
@@ -26,7 +27,7 @@ function formatWhen(iso: string): string {
 /** Severity is an ordinal axis, so it gets one consistent treatment across all three values —
  *  previously `critical` was a filled red pill, `major` a filled blue one, and `minor` bare
  *  mute text, which made severity impossible to compare down the list. */
-const SEVERITY_TEXT: Record<string, string> = {
+const SEVERITY_TEXT: Record<ReviewSeverity, string> = {
   critical: 'text-danger',
   major: 'text-defect',
   minor: 'text-dim'
