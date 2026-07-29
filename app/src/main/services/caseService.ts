@@ -144,7 +144,7 @@ export function createCase(
   const dir = caseDir(argusHome, input.slug)
 
   try {
-    for (const sub of ['evidence/.meta', 'sessions', '.rca']) {
+    for (const sub of ['evidence/.meta', 'artifacts/.meta', 'sessions', '.rca']) {
       fs.mkdirSync(path.join(dir, sub), { recursive: true })
     }
     const rec: CaseRecord = {
