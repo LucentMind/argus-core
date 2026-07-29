@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, GitPullRequest, RefreshCw, Stethoscope, Unlink } from 'lucide-react'
-import type { PrCheck, PrStatus } from '../../../shared/prStatus'
+import type { CheckBucket, PrCheck, PrStatus } from '../../../shared/prStatus'
 import type { PrBinding } from '../../../shared/pr'
 import { prStatusStore, usePrStatuses } from '../lib/prStatusStore'
 import { PrRollupDot } from './PrRollupDot'
@@ -91,6 +91,15 @@ export function PrCompanionSection({
   if (mode !== 'review') return null
   const status = all[slug] ?? null
 
+  const counts: Record<CheckBucket, number> = {
+    pass: 0,
+    fail: 0,
+    cancelled: 0,
+    pending: 0,
+    skipped: 0
+  }
+  for (const c of status?.checks ?? []) counts[c.bucket]++
+
   return (
     <div className="flex flex-col gap-2">
       <SectionLabel>
@@ -150,6 +159,29 @@ export function PrCompanionSection({
               <ExternalLink size={12} />
             </IconBtn>
           </div>
+
+          {status.checks.length > 0 && (
+            <p className="font-mono text-[10.5px] text-mute">
+              {(
+                [
+                  counts.fail > 0 ? (
+                    <span key="f" className="font-medium text-danger">
+                      {counts.fail} failing
+                    </span>
+                  ) : null,
+                  counts.cancelled > 0 ? <span key="c">{counts.cancelled} cancelled</span> : null,
+                  counts.pending > 0 ? <span key="r">{counts.pending} running</span> : null,
+                  counts.pass > 0 ? <span key="p">{counts.pass} passed</span> : null,
+                  counts.skipped > 0 ? <span key="s">{counts.skipped} skipped</span> : null
+                ].filter(Boolean) as React.JSX.Element[]
+              ).map((el, i) => (
+                <span key={el.key}>
+                  {i > 0 && <span className="px-1 text-hair2">·</span>}
+                  {el}
+                </span>
+              ))}
+            </p>
+          )}
 
           {/* The state tag now rides beside the PR identity above; only the qualifiers that
               do not fit a one-word tag stay down here. */}

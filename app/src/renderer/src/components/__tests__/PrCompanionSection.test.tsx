@@ -296,4 +296,30 @@ describe('PrCompanionSection', () => {
     expect(screen.queryByText(/not blocking merge/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/^required$/i)).not.toBeInTheDocument()
   })
+
+  it('summarises the checks by bucket, leading with failures', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    // fixture: build (fail), lint (pass), ci/circleci (fail)
+    expect(screen.getByText(/2 failing/)).toBeInTheDocument()
+    expect(screen.getByText(/1 passed/)).toBeInTheDocument()
+  })
+
+  it('counts cancelled checks rather than dropping them', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          { name: 'a', bucket: 'cancelled', required: false, url: null, jobId: null },
+          { name: 'b', bucket: 'pass', required: false, url: null, jobId: null }
+        ]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    expect(screen.getByText(/1 cancelled/)).toBeInTheDocument()
+  })
+
+  it('keeps the rollup dot — it says whether failures gate the merge, which a count cannot', () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    // PrRollupDot renders role="img" with a state-specific name (PrRollupDot.tsx:10-22).
+    expect(screen.getByRole('img', { name: 'Checks failing' })).toBeInTheDocument()
+  })
 })
