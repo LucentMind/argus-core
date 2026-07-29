@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.0.8 — 2026-07-30
+
+7 commits since v1.0.7, 36 files changed (+3,507 / −17).
+
+### Added
+
+**Distillation feedback loop**
+
+- **Proposal rejection capture.** Reject reasons are now stamped onto archived
+  proposals via a new `rejectReason` service, surfaced in the ProposalsPage panel,
+  and gated to non-model rejections.
+- **Prompt versioning.** Distill jobs are stamped with a `prompt_hash` computed over
+  prompt parts (persona, system contracts, evidence rules, etc.) to enable tracing
+  which prompt version produced each output; the hash is computed deterministically
+  over null-separated parts.
+- **Eval-bundle export.** A new dev Prompts-page IPC exports distill jobs in NDJSON
+  format (one job per line, with captured prompt hash, proposal model/settings, input
+  text, outputs and metadata) for offline evaluation; export respects the session's
+  distill rules and surfaces to the eval harness.
+- **Distill-eval harness.** A new package at `tools/distill-eval/` provides
+  corpus loading, a Claude runner that streams to a side-channel, replay with hash
+  reuse to avoid recomputing prompts, and a judge that evaluates outputs against
+  ground truth via a configurable rubric. The CLI chains corpus → runner → judge to
+  produce human-readable reports.
+
+### Changed
+
+- `distillProvider` and `activeInstanceId` are initialized by migration to guard
+  against unset distill-config during headless runs and proposal-archive operations.
+
 ## v1.0.7 — 2026-07-27
 
 126 commits since v1.0.5, 199 files changed (+19,872 / −473).
