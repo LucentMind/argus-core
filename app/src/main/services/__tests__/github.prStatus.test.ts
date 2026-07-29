@@ -29,12 +29,14 @@ function payload(over: Record<string, unknown> = {}): string {
                           name: 'build',
                           status: 'COMPLETED',
                           conclusion: 'FAILURE',
+                          isRequired: true,
                           detailsUrl: 'https://github.com/acme/widget/actions/runs/1/job/99'
                         },
                         {
                           __typename: 'StatusContext',
                           context: 'ci/circleci',
                           state: 'SUCCESS',
+                          isRequired: false,
                           targetUrl: 'https://circleci.com/gh/acme/widget/7'
                         }
                       ]
@@ -101,7 +103,49 @@ describe('fetchPrStatuses', () => {
   })
 
   it('defaults required to false when the field is absent', async () => {
-    const run: Runner = async () => payload()
+    // Payload without isRequired fields should default to false
+    const run: Runner = async () =>
+      JSON.stringify({
+        data: {
+          t0: {
+            pullRequest: {
+              number: 42,
+              url: 'https://github.com/acme/widget/pull/42',
+              state: 'OPEN',
+              isDraft: false,
+              mergeable: 'MERGEABLE',
+              reviewDecision: 'REVIEW_REQUIRED',
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      statusCheckRollup: {
+                        contexts: {
+                          nodes: [
+                            {
+                              __typename: 'CheckRun',
+                              name: 'build',
+                              status: 'COMPLETED',
+                              conclusion: 'SUCCESS',
+                              detailsUrl: 'https://github.com/acme/widget/actions/runs/1/job/99'
+                            },
+                            {
+                              __typename: 'StatusContext',
+                              context: 'ci/circleci',
+                              state: 'SUCCESS',
+                              targetUrl: 'https://circleci.com/gh/acme/widget/7'
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      })
     const s = (await fetchPrStatuses(run, [T0], NOW)).get(prTargetKey(T0))!
     expect(s.checks.every((c) => c.required === false)).toBe(true)
   })
@@ -143,7 +187,7 @@ describe('fetchPrStatuses', () => {
       {
         name: 'build',
         bucket: 'fail',
-        required: false,
+        required: true,
         url: 'https://github.com/acme/widget/actions/runs/1/job/99',
         jobId: 99
       },

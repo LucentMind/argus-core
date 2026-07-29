@@ -80,15 +80,49 @@ describe('rollupOf', () => {
     expect(rollupOf([])).toBe('none')
   })
 
-  it('is passing when every check passed or was skipped', () => {
-    expect(rollupOf([check({ bucket: 'pass' }), check({ bucket: 'skipped' })])).toBe('passing')
+  it('is passing when every check passed, was skipped, or was an optional cancellation', () => {
+    expect(
+      rollupOf([
+        check({ bucket: 'pass' }),
+        check({ bucket: 'skipped' }),
+        check({ bucket: 'cancelled' })
+      ])
+    ).toBe('passing')
   })
 
-  it('is running while any check is pending and none failed', () => {
+  it('is failing when a required check failed', () => {
+    expect(rollupOf([check({ bucket: 'fail', required: true }), check({ bucket: 'pass' })])).toBe(
+      'failing'
+    )
+  })
+
+  it('is unstable when the only failure does not block the merge', () => {
+    expect(rollupOf([check({ bucket: 'fail' }), check({ bucket: 'pass', required: true })])).toBe(
+      'unstable'
+    )
+  })
+
+  it('is unstable when a required check was cancelled — it cannot merge until it re-runs', () => {
+    expect(rollupOf([check({ bucket: 'cancelled', required: true })])).toBe('unstable')
+  })
+
+  it('is running while any check is pending and nothing has failed', () => {
     expect(rollupOf([check({ bucket: 'pass' }), check({ bucket: 'pending' })])).toBe('running')
   })
 
-  it('prefers failing over running — a failure is the actionable state', () => {
-    expect(rollupOf([check({ bucket: 'fail' }), check({ bucket: 'pending' })])).toBe('failing')
+  it('prefers a required failure over everything else — it is the actionable state', () => {
+    expect(
+      rollupOf([
+        check({ bucket: 'fail', required: true }),
+        check({ bucket: 'fail' }),
+        check({ bucket: 'pending' })
+      ])
+    ).toBe('failing')
+  })
+
+  // A repository with no branch protection has no required checks, so nothing can be red.
+  // Intended: with nothing gating the merge, a failure is information rather than a verdict.
+  it('never reports failing on a repository with no required checks', () => {
+    expect(rollupOf([check({ bucket: 'fail' }), check({ bucket: 'fail' })])).toBe('unstable')
   })
 })

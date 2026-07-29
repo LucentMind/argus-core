@@ -8,7 +8,7 @@ export type CheckBucket = 'pass' | 'fail' | 'cancelled' | 'pending' | 'skipped'
 
 /** `unavailable` is not a CI state: it means we could not read this PR at all (deleted, access
  *  lost, network). It exists so a case never sits on a stale green dot. */
-export type PrRollup = 'passing' | 'failing' | 'running' | 'none' | 'unavailable'
+export type PrRollup = 'passing' | 'failing' | 'unstable' | 'running' | 'none' | 'unavailable'
 
 export interface PrCheck {
   name: string
@@ -88,12 +88,24 @@ export function bucketOfStatusContext(state: string | null): CheckBucket {
 }
 
 /**
+ * Red means "this cannot merge and the reason is a broken check". Anything else that is not
+ * green is amber:
+ *
+ * - a failure that branch protection does not gate on is real but not a verdict on the merge;
+ * - a REQUIRED check that was cancelled blocks the merge until it re-runs, yet says nothing
+ *   about the code, so it is not red either.
+ *
  * A failure outranks a pending check: with one job red and three still running, the actionable
- * fact is the red one, and waiting for the rest to finish before saying so helps nobody.
+ * fact is the red one, and waiting for the rest to finish before saying so helps nobody. The
+ * poll's cadence does not follow this ordering — see `anyRunning`, which reads the checks.
  */
 export function rollupOf(checks: PrCheck[]): PrRollup {
   if (checks.length === 0) return 'none'
-  if (checks.some((c) => c.bucket === 'fail')) return 'failing'
+  if (checks.some((c) => c.required && c.bucket === 'fail')) return 'failing'
+  // Required failures already returned above, so a bare `fail` here is an optional one.
+  if (checks.some((c) => c.bucket === 'fail' || (c.required && c.bucket === 'cancelled'))) {
+    return 'unstable'
+  }
   if (checks.some((c) => c.bucket === 'pending')) return 'running'
   return 'passing'
 }

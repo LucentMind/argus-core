@@ -28,7 +28,7 @@ function bind(slug: string, repo: string, number: number): void {
   })
 }
 
-function prNode(number: number, conclusion: string): unknown {
+function prNode(number: number, conclusion: string, isRequired = false): unknown {
   return {
     pullRequest: {
       number,
@@ -49,6 +49,7 @@ function prNode(number: number, conclusion: string): unknown {
                       name: 'build',
                       status: 'COMPLETED',
                       conclusion,
+                      isRequired,
                       detailsUrl: 'https://github.com/acme/widget/actions/runs/1/job/9'
                     }
                   ]
@@ -92,7 +93,7 @@ describe('refreshPrStatuses', () => {
     let calls = 0
     const gh: Runner = async () => {
       calls++
-      return JSON.stringify({ data: { t0: prNode(42, 'SUCCESS'), t1: prNode(43, 'FAILURE') } })
+      return JSON.stringify({ data: { t0: prNode(42, 'SUCCESS'), t1: prNode(43, 'FAILURE', true) } })
     }
     const out = await refreshPrStatuses({ db, gh, now }, ['c1', 'c2'])
     expect(calls).toBe(1)
