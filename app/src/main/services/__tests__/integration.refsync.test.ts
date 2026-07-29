@@ -6,6 +6,7 @@ import { RefSyncService } from '../refSync/service'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import { refTier, parseRefSources } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
+import { contentHash } from '../contentHash'
 import type { ConfluenceReader } from '../refSync/engine'
 import type { ConfluencePageNode } from '../../../shared/confluence'
 import type { RoutingRule } from '../../../shared/referenceSync'
@@ -361,4 +362,55 @@ it('deleteReference rejects invalid names and the generated index', () => {
   for (const evil of ['../evil.md', 'no-md-suffix', 'INDEX.md', '']) {
     expect(() => svc.deleteReference(evil)).toThrow(/invalid reference name/)
   }
+})
+
+describe('writeReference', () => {
+  let refsDir: string
+  beforeEach(() => {
+    refsDir = sharedReferencesDir(home)
+  })
+
+  it('creates a hand-authored reference stamped trust_tier: user', () => {
+    svc.writeReference('notes.md', '# Notes\nBody.', null)
+    const raw = fs.readFileSync(path.join(refsDir, 'notes.md'), 'utf8')
+    expect(raw).toContain('trust_tier: user')
+    expect(raw).toContain('# Notes')
+  })
+
+  it('preserves an existing team-knowledge stamp', () => {
+    fs.writeFileSync(path.join(refsDir, 'team.md'), '---\ntrust_tier: team-knowledge\n---\n\nold')
+    const before = svc.readReference('team.md')
+    svc.writeReference('team.md', `${before.content}\nnew`, before.hash)
+    const raw = fs.readFileSync(path.join(refsDir, 'team.md'), 'utf8')
+    expect(raw).toContain('trust_tier: team-knowledge')
+    expect(raw).not.toContain('trust_tier: user')
+  })
+
+  it('refuses a hivemind-tier reference — fork it first', () => {
+    fs.writeFileSync(path.join(refsDir, 'hive.md'), '---\ntrust_tier: hivemind\n---\n\nbody')
+    const before = svc.readReference('hive.md')
+    expect(() => svc.writeReference('hive.md', 'edited', before.hash)).toThrow(/not a hand-owned/i)
+  })
+
+  it('refuses a confluence-tier reference', () => {
+    fs.writeFileSync(path.join(refsDir, 'conf.md'), '---\ntrust_tier: confluence\n---\n\nbody')
+    const before = svc.readReference('conf.md')
+    expect(() => svc.writeReference('conf.md', 'edited', before.hash)).toThrow(/not a hand-owned/i)
+  })
+
+  it('refuses the generated index', () => {
+    expect(() => svc.writeReference('INDEX.md', 'body', null)).toThrow()
+  })
+
+  it('refuses a traversal name', () => {
+    expect(() => svc.writeReference('../evil.md', 'body', null)).toThrow()
+    expect(fs.existsSync(path.join(refsDir, '..', 'evil.md'))).toBe(false)
+  })
+
+  it('refuses when the file changed under the editor', () => {
+    fs.writeFileSync(path.join(refsDir, 'race.md'), 'original')
+    expect(() => svc.writeReference('race.md', 'mine', contentHash('stale'))).toThrow(
+      /changed on disk/i
+    )
+  })
 })

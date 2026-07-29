@@ -2,6 +2,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { sharedReferencesDir } from '../skillsDir'
+import { contentHash } from '../contentHash'
+import { validateReference, hasErrors } from '../../../shared/assetValidation'
+import { withFrontmatter } from '../frontmatter'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import {
   walkSelection,
@@ -121,10 +124,11 @@ export class RefSyncService {
     }
   }
 
-  /** Read one reference file for the in-app viewer (name guarded like applyDrafts). */
-  readReference(file: string): { file: string; content: string } {
+  /** Read one reference file for the in-app viewer/editor (name guarded like applyDrafts). */
+  readReference(file: string): { file: string; content: string; hash: string } {
     if (!REF_TARGET_RE.test(file)) throw new Error(`invalid reference name: ${file}`)
-    return { file, content: fs.readFileSync(path.join(this.refsDir(), file), 'utf8') }
+    const content = fs.readFileSync(path.join(this.refsDir(), file), 'utf8')
+    return { file, content, hash: contentHash(content) }
   }
 
   /**
@@ -142,6 +146,31 @@ export class RefSyncService {
       throw new Error(`not a hand-owned reference: ${file} (${tier})`)
     }
     fs.rmSync(p, { force: true })
+  }
+
+  /**
+   * Write a hand-owned reference (user/team-knowledge/untagged). Mirror image of
+   * `deleteReference`'s guard: hive-managed tiers must be claimed first, so a stale renderer
+   * cannot smuggle an edit past the fork step.
+   *
+   * An untagged file is stamped `trust_tier: user` on save — you just authored it, and without
+   * a stamp `hivemind.pushable()` would never offer it for sharing. An existing stamp is kept.
+   */
+  writeReference(file: string, content: string, baseHash: string | null): void {
+    const issues = validateReference({ file, content })
+    if (hasErrors(issues)) throw new Error(issues.find((i) => i.severity === 'error')!.message)
+
+    const p = path.join(this.refsDir(), file)
+    const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
+    if ((existing === null ? null : contentHash(existing)) !== baseHash) {
+      throw new Error(`"${file}" changed on disk since you opened it.`)
+    }
+    const tier = existing === null ? null : refTier(existing)
+    if (tier === 'hivemind' || tier === 'confluence' || tier === 'bundled') {
+      throw new Error(`not a hand-owned reference: ${file} (${tier})`)
+    }
+    fs.mkdirSync(this.refsDir(), { recursive: true })
+    fs.writeFileSync(p, tier ? content : withFrontmatter(content, { trust_tier: 'user' }))
   }
 
   /** Case-insensitive search over reference file names AND bodies; INDEX.md excluded. */

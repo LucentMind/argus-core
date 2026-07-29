@@ -1982,6 +1982,13 @@ function registerIpc(): void {
     return r
   })
   ipcMain.handle(IPC.refsyncReadRef, (_e, file: string) => refSync.readReference(file))
+  ipcMain.handle(
+    IPC.refsyncWriteRef,
+    (_e, file: string, content: string, baseHash: string | null) => {
+      refSync.writeReference(file, content, baseHash)
+      broadcast(IPC.refsyncChanged, refSync.payload())
+    }
+  )
   ipcMain.handle(IPC.refsyncSearchRefs, (_e, query: string) => refSync.searchReferences(query))
   ipcMain.handle(IPC.refsyncDeleteRef, (_e, file: string) => {
     refSync.deleteReference(file)
