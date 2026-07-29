@@ -23,6 +23,15 @@ function formatWhen(iso: string): string {
   })
 }
 
+/** Severity is an ordinal axis, so it gets one consistent treatment across all three values —
+ *  previously `critical` was a filled red pill, `major` a filled blue one, and `minor` bare
+ *  mute text, which made severity impossible to compare down the list. */
+const SEVERITY_TEXT: Record<string, string> = {
+  critical: 'text-danger',
+  major: 'text-defect',
+  minor: 'text-dim'
+}
+
 /** One finding in the sidebar list. Presentational: every mutation goes back up through a
  *  callback so FindingsPane keeps sole ownership of state and IPC. */
 export function FindingCard({
@@ -85,36 +94,27 @@ export function FindingCard({
           <input
             type="checkbox"
             aria-label={`Select finding ${f.id} for batch apply`}
-            className="h-3 w-3 accent-signal"
+            className="h-3 w-3 shrink-0 accent-signal"
             checked={selected}
             onChange={onSelect}
           />
         )}
-        <span className="font-mono text-[10px] text-mute">
+        <span className="shrink-0 font-mono text-[10px] text-mute">
           {formatWhen(f.createdAt)}
           {f.sessionId != null ? ` · sess ${f.sessionId}` : ''}
         </span>
-        {f.layer && (
-          <span className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute">
-            {REVIEW_LAYERS[f.layer].label}
-          </span>
-        )}
-        {f.severity && (
-          <span
-            className={`rounded-r1 px-1 text-[10px] ${
-              f.severity === 'critical'
-                ? 'bg-danger/15 text-danger'
-                : f.severity === 'major'
-                  ? 'bg-signal/15 text-ink'
-                  : 'text-mute'
-            }`}
-          >
-            {f.severity}
+        {(f.severity || f.layer) && (
+          <span className="flex min-w-0 items-center gap-1 whitespace-nowrap font-mono text-[10px]">
+            {f.severity && <span className={SEVERITY_TEXT[f.severity]}>{f.severity}</span>}
+            {f.severity && f.layer && <span className="text-faint">·</span>}
+            {/* The only shrinkable cell in the row. At FINDINGS_MIN_WIDTH (216px of content)
+                "Design conformance" ellipsizes; it used to wrap inside its own pill instead. */}
+            {f.layer && <span className="truncate text-mute">{REVIEW_LAYERS[f.layer].label}</span>}
           </span>
         )}
         {f.mode === 'review' && f.headSha && worktreeHead && f.headSha !== worktreeHead && (
           <span
-            className="rounded-r1 border border-warn/50 bg-warn/10 px-1 text-[10px] text-warn"
+            className="shrink-0 rounded-r1 border border-defect/50 bg-defect/10 px-1 text-[10px] text-defect"
             title={`Recorded at ${f.headSha.slice(0, 12)} — the checked-out PR head is now ${worktreeHead.slice(0, 12)}. The preview is pinned to the recorded commit; re-verify before acting.`}
           >
             code moved
@@ -125,7 +125,7 @@ export function FindingCard({
             href={f.commentUrl}
             target="_blank"
             rel="noreferrer"
-            className="rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
+            className="shrink-0 rounded-r1 border border-hair2 px-1 text-[10px] text-mute hover:text-ink"
           >
             commented
           </a>
@@ -133,7 +133,7 @@ export function FindingCard({
         {f.pushedSha && (
           <span
             title={`Pushed ${f.pushedSha}`}
-            className="rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
+            className="shrink-0 rounded-r1 border border-review/35 px-1 font-mono text-[10px] text-review"
           >
             {f.pushedSha.slice(0, 7)}
           </span>

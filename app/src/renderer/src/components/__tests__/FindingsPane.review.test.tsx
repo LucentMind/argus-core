@@ -54,7 +54,7 @@ describe('FindingsPane review flavor', () => {
     ])
     render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     // A lone present layer still renders its filter chip (Finding 2), whose visible text
-    // shares the layer label with the finding's own badge — scope the badge lookup to the
+    // shares the layer label with the finding's own meta run — scope the lookup to the
     // finding's list item instead of a page-wide text query that could match either element.
     const item = (await screen.findByText('Inverted guard')).closest('li')
     expect(item).not.toBeNull()
@@ -141,5 +141,27 @@ describe('FindingsPane review flavor', () => {
     expect(await screen.findByText('tests finding')).toBeInTheDocument()
     expect(screen.queryByText('No findings match this filter.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /filter · security/i })).not.toBeInTheDocument()
+  })
+
+  it('renders severity and layer as one non-wrapping run, not two pills', async () => {
+    list.mockResolvedValue([
+      row({
+        id: 1,
+        summary: 'Wrapped badge',
+        layer: 'design-conformance',
+        severity: 'minor',
+        mode: 'review'
+      })
+    ])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
+    const item = (await screen.findByText('Wrapped badge')).closest('li') as HTMLElement
+    const severity = within(item).getByText('minor')
+    const layer = within(item).getByText('Design conformance')
+    // one run: same parent, and that parent refuses to reflow
+    expect(severity.parentElement).toBe(layer.parentElement)
+    expect(severity.parentElement).toHaveClass('whitespace-nowrap')
+    // the pill chrome is gone; only the layer label may ellipsize
+    expect(layer.className).not.toMatch(/border-hair2/)
+    expect(layer).toHaveClass('truncate')
   })
 })
