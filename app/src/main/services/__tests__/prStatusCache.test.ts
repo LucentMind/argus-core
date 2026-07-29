@@ -21,7 +21,7 @@ const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   mergeable: 'MERGEABLE',
   reviewDecision: null,
   rollup: 'passing',
-  checks: [{ name: 'build', bucket: 'pass', url: null, jobId: null }],
+  checks: [{ name: 'build', bucket: 'pass', required: false, url: null, jobId: null }],
   fetchedAt: '2026-07-27T12:00:00.000Z',
   error: null,
   ...over
@@ -82,5 +82,20 @@ describe('prStatusCache', () => {
   it('ignores an unknown slug rather than throwing', () => {
     expect(() => clearPrStatus(db, 'nope')).not.toThrow()
     expect(readPrStatuses(db, ['nope'])).toEqual({})
+  })
+
+  it('fills in required for a row cached before the field existed', () => {
+    // The dashboard renders the cache before the first refresh lands, so a legacy row must not
+    // reach a consumer with `required: undefined`.
+    const legacy = {
+      ...status(),
+      checks: [{ name: 'build', bucket: 'pass', url: null, jobId: null }]
+    }
+    createCase(db, home, { slug: 'c9', title: 'C9' })
+    db.prepare(
+      `INSERT INTO pr_status_cache (case_id, fetched_at, status_json)
+       VALUES ((SELECT id FROM cases WHERE slug = 'c9'), ?, ?)`
+    ).run(legacy.fetchedAt, JSON.stringify(legacy))
+    expect(readPrStatuses(db, ['c9']).c9.checks[0].required).toBe(false)
   })
 })

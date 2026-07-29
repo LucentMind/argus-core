@@ -13,6 +13,10 @@ export type PrRollup = 'passing' | 'failing' | 'running' | 'none' | 'unavailable
 export interface PrCheck {
   name: string
   bucket: CheckBucket
+  /** Does branch protection make this check gate the merge? GitHub answers per pull request
+   *  (`isRequired`), so this is a property of the check ON THIS PR, not of the job. False when
+   *  unknown — a repository with no protection has no required checks at all. */
+  required: boolean
   /** The check's own page. Null for a context that reported none. */
   url: string | null
   /** The GitHub Actions job id, when this check is an Actions job. Null for every third-party

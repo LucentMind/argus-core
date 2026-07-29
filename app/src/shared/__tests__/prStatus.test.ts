@@ -10,6 +10,7 @@ import {
 const check = (over: Partial<PrCheck>): PrCheck => ({
   name: 'c',
   bucket: 'pass',
+  required: false,
   url: null,
   jobId: null,
   ...over

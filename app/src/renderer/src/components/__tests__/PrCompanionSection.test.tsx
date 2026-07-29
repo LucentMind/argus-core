@@ -21,11 +21,18 @@ const status = (over: Partial<PrStatus> = {}): PrStatus => ({
     {
       name: 'build',
       bucket: 'fail',
+      required: false,
       url: 'https://github.com/acme/widget/actions/runs/1/job/9',
       jobId: 9
     },
-    { name: 'lint', bucket: 'pass', url: null, jobId: null },
-    { name: 'ci/circleci', bucket: 'fail', url: 'https://circleci.com/x', jobId: null }
+    { name: 'lint', bucket: 'pass', required: false, url: null, jobId: null },
+    {
+      name: 'ci/circleci',
+      bucket: 'fail',
+      required: false,
+      url: 'https://circleci.com/x',
+      jobId: null
+    }
   ],
   fetchedAt: '2026-07-27T12:00:00.000Z',
   error: null,
@@ -137,12 +144,14 @@ describe('PrCompanionSection', () => {
           {
             name: 'build',
             bucket: 'fail',
+            required: false,
             url: 'https://github.com/acme/widget/actions/runs/1/job/9',
             jobId: 9
           },
           {
             name: 'build',
             bucket: 'pass',
+            required: false,
             url: 'https://github.com/acme/widget/actions/runs/2/job/10',
             jobId: 10
           }
@@ -160,6 +169,7 @@ describe('PrCompanionSection', () => {
           {
             name: 'pylint',
             bucket: 'cancelled',
+            required: false,
             url: 'https://github.com/acme/widget/actions/runs/1/job/9',
             jobId: 9
           }
