@@ -245,6 +245,18 @@ describe('FindingsPane write actions', () => {
     expect(screen.queryByText('code moved')).toBeNull()
   })
 
+  it('colors the staleness chip with a real token', async () => {
+    worktreeHead.mockResolvedValue('54af8776e37c29084ad9454ab4a71166a9606138')
+    list.mockResolvedValue([
+      reviewRow({ id: 7, headSha: 'b994f1a61e2ea27c9c0ae9ec8a94f8a3d4302427' })
+    ])
+    render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
+    const chip = await screen.findByText('code moved')
+    // `warn` is not a token in theme.css — it compiled to nothing and the chip had no color.
+    expect(chip.className).not.toMatch(/warn/)
+    expect(chip).toHaveClass('text-defect')
+  })
+
   it('states the deny-and-redo consequence on the batch button', async () => {
     list.mockResolvedValue([reviewRow({ id: 7 })])
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
