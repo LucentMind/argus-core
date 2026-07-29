@@ -12,6 +12,7 @@ import {
   type RepoTextResult
 } from '../../shared/snippets'
 import { caseWorktreeDir, listStoredWorkspaces } from './workspaces'
+import { remoteRepoName } from '../../shared/pr'
 import { MAX_READ_BYTES, WINDOW_LINES_AFTER, WINDOW_LINES_BEFORE, readLineWindow } from './search'
 
 const execFileAsync = promisify(execFile)
@@ -28,8 +29,9 @@ export async function currentRef(tree: string): Promise<string | null> {
 }
 
 /** repoName → the tree the case sees: the case worktree if one exists, else the
- *  primary checkout (same rule as describeWorkspace). Basename match,
- *  case-insensitive, first match wins. Null when no linked repo matches. */
+ *  primary checkout (same rule as describeWorkspace). Matches the folder
+ *  basename OR the remote-derived repo name, case-insensitive, first match
+ *  wins. Null when no linked repo matches. */
 export function resolveRepoTree(
   db: DatabaseSync,
   argusHome: string,
@@ -42,7 +44,15 @@ export function resolveRepoTree(
   } catch {
     return null // unknown case behaves like an unlinked repo, never throws
   }
-  const match = stored.find((w) => path.basename(w.path).toLowerCase() === repoName.toLowerCase())
+  // Findings cite the REMOTE-derived repo name (the review prompt pins it), while the linked
+  // clone's folder can be named anything — accept both, or a citation preview dead-ends on
+  // "repo not linked" for any custom-named checkout. Renderer twin: reposStore.ts.
+  const wanted = repoName.toLowerCase()
+  const match = stored.find(
+    (w) =>
+      path.basename(w.path).toLowerCase() === wanted ||
+      remoteRepoName(w.remote)?.toLowerCase() === wanted
+  )
   if (!match) return null
   const wt = caseWorktreeDir(argusHome, caseSlug, match.path)
   return fs.existsSync(wt) ? wt : match.path

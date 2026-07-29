@@ -46,6 +46,25 @@ export function remoteToOwnerRepo(remote: string): { owner: string; repo: string
   return m ? { owner: m[1], repo: m[2] } : null
 }
 
+/**
+ * The repo name a remote url implies: `HiveMindTest` for any GitHub shape of
+ * `.../JiaweiHan88/HiveMindTest(.git)`, last path segment minus `.git` for other hosts.
+ * This is the name review findings cite (the run prompt pins it), so every layer that maps a
+ * citation's first segment to a linked workspace must accept it alongside the folder basename —
+ * a clone can live in a directory named anything.
+ */
+export function remoteRepoName(remote: string | null | undefined): string | null {
+  if (!remote) return null
+  const gh = remoteToOwnerRepo(remote)
+  if (gh) return gh.repo
+  const base =
+    remote
+      .split('/')
+      .pop()
+      ?.replace(/\.git$/, '') ?? ''
+  return base.length > 0 ? base : null
+}
+
 function canonicalUrl(owner: string, repo: string, number: number): string {
   return `https://github.com/${owner}/${repo}/pull/${number}`
 }

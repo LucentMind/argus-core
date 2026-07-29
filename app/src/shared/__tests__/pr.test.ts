@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { parsePrRef, remoteToOwnerRepo } from '../pr'
+import { parsePrRef, remoteRepoName, remoteToOwnerRepo } from '../pr'
+
+describe('remoteRepoName', () => {
+  it('returns the repo name for GitHub remotes in any shape', () => {
+    expect(remoteRepoName('https://github.com/JiaweiHan88/HiveMindTest.git')).toBe('HiveMindTest')
+    expect(remoteRepoName('git@github.com:acme/widget.git')).toBe('widget')
+  })
+
+  it('falls back to the last path segment minus .git for other hosts', () => {
+    expect(remoteRepoName('https://gitlab.example.com/team/inner-tool.git')).toBe('inner-tool')
+  })
+
+  it('returns null for null/empty/junk', () => {
+    expect(remoteRepoName(null)).toBeNull()
+    expect(remoteRepoName('')).toBeNull()
+    expect(remoteRepoName('///')).toBeNull()
+  })
+})
 
 describe('remoteToOwnerRepo', () => {
   it('parses ssh, https, and scp-like GitHub remotes', () => {
