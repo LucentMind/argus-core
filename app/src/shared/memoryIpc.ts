@@ -43,3 +43,10 @@ export interface SkillListItem {
 export interface SkillsPayload {
   skills: SkillListItem[]
 }
+
+export interface SkillReadPayload {
+  name: string
+  content: string
+  /** Optimistic-concurrency token; hand it back to `skills:write`. */
+  hash: string
+}

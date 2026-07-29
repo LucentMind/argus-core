@@ -47,7 +47,13 @@ import {
   MEMORY_INDEX_MAX_LINES
 } from './services/memory'
 import { archiveTopic, restoreTopic } from './services/memoryHygiene'
-import { deleteUserSkill, readSkill, resolveSkills } from './services/agent/skillsResolver'
+import {
+  deleteUserSkill,
+  readSkill,
+  resolveSkills,
+  writeUserSkill,
+  forkSkill
+} from './services/agent/skillsResolver'
 import { HivemindService } from './services/hivemind'
 import {
   listProposals,
@@ -1501,6 +1507,14 @@ function registerIpc(): void {
     return skillsPayload()
   })
   ipcMain.handle(IPC.skillsRead, (_e, name: string) => readSkill(argusHome, name))
+  ipcMain.handle(IPC.skillsWrite, (_e, name: string, content: string, baseHash: string | null) => {
+    writeUserSkill(argusHome, name, content, baseHash)
+    return skillsPayload()
+  })
+  ipcMain.handle(IPC.skillsFork, (_e, name: string, newName?: string) => {
+    const created = forkSkill(argusHome, name, newName)
+    return { name: created, skills: skillsPayload().skills }
+  })
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({
