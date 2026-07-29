@@ -90,7 +90,7 @@ export function FindingsPane({
         if (!res.ok && res.reason !== 'denied') setActionError(res.reason ?? 'Post failed.')
         return
       }
-      const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, id, action)
+      const prompt = await window.argus.review.composeActionPrompt(slug, sessionId, [id], action)
       await window.argus.agent.send(slug, sessionId, prompt)
     } catch (err) {
       setActionError((err as Error).message)

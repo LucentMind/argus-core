@@ -33,55 +33,43 @@ and can edit it before it is posted, so write the text you would actually send.`
     placeholders: ['findingId', 'summary', 'prUrl', 'body', 'anchor']
   },
   apply: {
-    title: 'Review action — apply the change and push',
-    text: `Apply finding {findingId} ("{summary}") to {prUrl} and push it.
+    title: 'Review action — apply the selected findings and push',
+    text: `Apply findings {findingIds} to {prUrl} and push them.
 
-The finding says:
+Read each one first with read_findings (finding_ids: [{findingIds}]) — do not work from memory.
 
-{body}
+Work in the PR worktree at \`{worktreePath}\` — that checkout IS the pull request's head; nothing
+you do elsewhere reaches the PR. For each finding, in the order listed:
 
-{suggestedChange}
-
-Work in the PR worktree at {worktreePath} — that checkout IS the pull request's head; nothing
-you do elsewhere reaches the PR. Steps, in order:
-
-1. Read {anchor} and the code around it before changing anything. If the finding is wrong or
-   already fixed, say so and stop — do not invent a change to justify the action.
+1. Read the cited code before changing anything. If the finding is wrong or already fixed, skip
+   it — say why, and do not invent a change to justify the action.
 2. Make the smallest edit that fixes it. Do not reformat, rename, or fix anything the finding
    did not raise.
-3. Show the diff you produced (git diff in the worktree) and say in one line what it does.
-4. Call push_review_change with finding_id {findingId}, pr set to the owner/repo#number that
-   {prUrl} names (e.g. https://github.com/acme/widget/pull/42 is acme/widget#42) — this is
-   checked against the pull request bound to this case and is how the approval card shows which
-   one you mean — and a commit message in the repository's existing style. It commits what
-   is on disk and pushes to the PR branch — it writes no code itself, so nothing you skipped in
-   step 2 will be made up for here.
+3. Commit just that edit in the worktree, one commit per finding, message in the repository's
+   existing style.
 
-The push stops at a confirmation the user must accept. If they decline, leave the worktree as
-it is and say so.`,
-    placeholders: [
-      'findingId',
-      'summary',
-      'prUrl',
-      'body',
-      'suggestedChange',
-      'worktreePath',
-      'anchor'
-    ]
+When all findings are handled, show the combined result (\`git log --oneline\` for your new
+commits and \`git diff\` against where you started) with one line per finding on what it does.
+Then call push_review_change once, with finding_ids listing only the ids you actually fixed,
+pr set to the owner/repo#number that {prUrl} names, and a commit_message for any change you
+left uncommitted (normally none).
+{staleness}
+The push stops at a confirmation the user must accept. The card offers approve or deny only —
+to change WHICH findings are included, the user denies and re-selects, so name the skipped ids
+clearly. If the user declines, leave the worktree as it is and say so.`,
+    placeholders: ['findingIds', 'prUrl', 'worktreePath', 'staleness']
   }
 }
 
 /** Compose one action turn. Pure; `resolve` is the prompt-registry seam. */
 export function buildReviewActionPrompt(opts: {
-  action: ReviewAction
+  action: 'comment'
   findingId: number
   summary: string
   body: string
-  suggestedChange: string | null
-  /** `path:line`, repo-relative — what the comment will anchor to and what to read first. */
+  /** `path:line`, repo-relative — what the comment will anchor to. */
   anchor: string
   prUrl: string
-  worktreePath: string | null
   resolve?: (id: string) => string
 }): string {
   const text = opts.resolve
@@ -91,22 +79,25 @@ export function buildReviewActionPrompt(opts: {
     findingId: String(opts.findingId),
     summary: opts.summary,
     body: opts.body,
-    // A finding with no suggested change is still applicable — the agent derives the fix from
-    // the body — but it must be told that, not handed an empty line that reads as a mistake.
-    // The placeholder carries the WHOLE line (not just a value appended to a label) so the
-    // no-suggestion case doesn't read back as "Suggested change: no suggested change...".
-    suggestedChange: opts.suggestedChange
-      ? `Suggested change: ${opts.suggestedChange}`
-      : 'This finding records no suggested change — derive the fix from the finding body.',
     anchor: opts.anchor,
+    prUrl: opts.prUrl
+  })
+}
+
+/** Compose the batch/single apply turn (Plan 6 §2/§3). Pure; ids are pre-sorted by caller. */
+export function buildApplyActionPrompt(opts: {
+  findingIds: number[]
+  prUrl: string
+  worktreePath: string
+  /** Pre-rendered staleness paragraph, or '' — the placeholder carries the whole block. */
+  staleness: string
+  resolve?: (id: string) => string
+}): string {
+  const text = opts.resolve ? opts.resolve('review.action.apply') : REVIEW_ACTION_PROMPTS.apply.text
+  return fillPrompt(text, {
+    findingIds: opts.findingIds.join(', '),
     prUrl: opts.prUrl,
-    // In production, `action === 'apply'` reaching here always carries a non-null worktreePath:
-    // composeReviewActionPrompt (reviewActionCompose.ts) throws review_write.no-worktree BEFORE
-    // composing rather than calling this with `apply` and no worktree. This fallback is dead on
-    // that path — it only fires if this pure function is called directly with `apply` and a null
-    // worktreePath (as reviewActions.test.ts does), or for a `comment` turn, whose template
-    // never references {worktreePath} at all. Kept (rather than tightening the type) so the
-    // function stays testable/callable independent of the compose-layer guard.
-    worktreePath: opts.worktreePath ?? '(no local checkout — re-enter review mode first)'
+    worktreePath: opts.worktreePath,
+    staleness: opts.staleness ? `\n${opts.staleness}\n` : ''
   })
 }

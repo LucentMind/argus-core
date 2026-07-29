@@ -1183,7 +1183,7 @@ function registerIpc(): void {
   // ordinary agent send path.
   ipcMain.handle(
     IPC.reviewComposeActionPrompt,
-    (_e, caseSlug: string, sessionId: number, findingId: number, action: string) =>
+    (_e, caseSlug: string, sessionId: number, findingIds: number[], action: string) =>
       composeReviewActionPrompt(
         {
           db,
@@ -1199,7 +1199,7 @@ function registerIpc(): void {
         },
         caseSlug,
         sessionId,
-        findingId,
+        findingIds,
         action
       )
   )

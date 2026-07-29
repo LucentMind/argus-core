@@ -131,6 +131,10 @@ export const REVIEW_WRITE_FEEDBACK: PromptTextSpecs = {
     title: 'review writes — pushed',
     text: 'Pushed {sha} to {ref} on PR #{number}.',
     placeholders: ['sha', 'ref', 'number']
+  },
+  'review_write.no-finding-ids': {
+    title: 'review writes — empty finding_ids',
+    text: 'Pass at least one finding id in finding_ids — the ids this push applies.'
   }
 }
 
@@ -436,12 +440,17 @@ function gitExitCode(err: unknown): number | string | undefined {
 export async function pushReviewChange(
   deps: ReviewWriteDeps,
   caseSlug: string,
-  input: { findingId: number; commitMessage: string; expectPr?: string }
+  input: { findingIds: number[]; commitMessage: string; expectPr?: string }
 ): Promise<string> {
   if (!input.commitMessage.trim()) {
     throw new Error(wf(deps, 'review_write.empty-commit-message'))
   }
-  findingForCase(deps, caseSlug, input.findingId) // ownership; throws unknown-finding
+  if (input.findingIds.length === 0) {
+    throw new Error(wf(deps, 'review_write.no-finding-ids'))
+  }
+  // Ownership per id, before any git work; one bad id fails the whole call (the push is
+  // all-or-nothing, so a partially-owned batch must not move the PR at all).
+  for (const id of input.findingIds) findingForCase(deps, caseSlug, id)
   const binding = resolveBindingForFinding(deps, caseSlug, input.expectPr)
   const worktree = worktreeFor(deps, caseSlug, binding)
   if (!worktree) {
@@ -487,7 +496,7 @@ export async function pushReviewChange(
     timeoutMs: GIT_PUSH_TIMEOUT_MS
   })
 
-  recordFindingWrite(deps.db, input.findingId, { pushedSha: sha })
+  for (const id of input.findingIds) recordFindingWrite(deps.db, id, { pushedSha: sha })
   return wf(deps, 'review_write.push-ok', {
     sha,
     ref: head.ref,

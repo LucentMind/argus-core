@@ -1,17 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { buildReviewActionPrompt, REVIEW_ACTION_PROMPTS } from '../reviewActions'
+import {
+  buildReviewActionPrompt,
+  buildApplyActionPrompt,
+  REVIEW_ACTION_PROMPTS
+} from '../reviewActions'
 
 const base = {
   findingId: 7,
   summary: 'Inverted guard',
   body: 'The guard is inverted. See [widget/src/guard.ts:17].',
-  suggestedChange: 'Flip the condition.',
   anchor: 'src/guard.ts:17',
-  prUrl: 'https://github.com/acme/widget/pull/42',
-  worktreePath: 'C:\\home\\worktrees\\widget-c1-pr42'
+  prUrl: 'https://github.com/acme/widget/pull/42'
 }
 
-describe('buildReviewActionPrompt', () => {
+describe('buildReviewActionPrompt (comment)', () => {
   it('names the tool, the finding id and the anchor for a comment', () => {
     const p = buildReviewActionPrompt({ ...base, action: 'comment' })
     expect(p).toContain('post_review_comment')
@@ -19,30 +21,6 @@ describe('buildReviewActionPrompt', () => {
     expect(p).toContain('src/guard.ts:17')
     expect(p).toContain('Inverted guard')
     expect(p).not.toContain('push_review_change')
-  })
-
-  it('tells the apply turn to edit first and push second', () => {
-    const p = buildReviewActionPrompt({ ...base, action: 'apply' })
-    expect(p).toContain(base.worktreePath)
-    expect(p).toContain('Flip the condition.')
-    expect(p).toContain('push_review_change')
-    const editAt = p.indexOf('worktree')
-    const pushAt = p.indexOf('push_review_change')
-    expect(editAt).toBeLessThan(pushAt)
-  })
-
-  it('falls back to a re-enter-review-mode note when worktreePath is null', () => {
-    // In production this only happens for a `comment` turn (whose template never references
-    // {worktreePath} — composeReviewActionPrompt throws before composing `apply` with no
-    // worktree), but buildReviewActionPrompt is pure and callable directly with any
-    // combination, so the fallback string itself still needs to be pinned.
-    const p = buildReviewActionPrompt({ ...base, action: 'apply', worktreePath: null })
-    expect(p).toContain('(no local checkout — re-enter review mode first)')
-  })
-
-  it('says so when the finding carries no suggested change', () => {
-    const p = buildReviewActionPrompt({ ...base, action: 'apply', suggestedChange: null })
-    expect(p).toMatch(/no suggested change/i)
   })
 
   it('routes every string through the resolver when one is supplied', () => {
@@ -60,5 +38,46 @@ describe('buildReviewActionPrompt', () => {
         expect(spec.placeholders ?? [], `${key} declares ${m[1]}`).toContain(m[1])
       }
     }
+  })
+})
+
+describe('buildApplyActionPrompt', () => {
+  const applyBase = {
+    findingIds: [3, 7],
+    prUrl: 'https://github.com/acme/widget/pull/42',
+    worktreePath: 'C:\\home\\worktrees\\widget-c1-pr42',
+    staleness: ''
+  }
+
+  it('names every id, the worktree path, and read_findings, and pushes second', () => {
+    const p = buildApplyActionPrompt(applyBase)
+    expect(p).toContain('Apply findings 3, 7')
+    expect(p).toContain(applyBase.worktreePath)
+    expect(p).toContain('read_findings')
+    expect(p).toContain('push_review_change')
+    const readAt = p.indexOf('read_findings')
+    const pushAt = p.indexOf('push_review_change')
+    expect(readAt).toBeLessThan(pushAt)
+  })
+
+  it('inlines a supplied staleness paragraph', () => {
+    const p = buildApplyActionPrompt({
+      ...applyBase,
+      staleness: 'Finding 7 was recorded at oldhead00000; the PR head is now currenthead0.'
+    })
+    expect(p).toContain('Finding 7 was recorded at oldhead00000; the PR head is now currenthead0.')
+  })
+
+  it('leaves no stray placeholder text when there is no staleness note', () => {
+    const p = buildApplyActionPrompt(applyBase)
+    expect(p).not.toContain('{staleness}')
+  })
+
+  it('routes through the resolver when one is supplied', () => {
+    const p = buildApplyActionPrompt({
+      ...applyBase,
+      resolve: (id) => (id === 'review.action.apply' ? 'OVERRIDDEN {findingIds}' : 'x')
+    })
+    expect(p).toBe('OVERRIDDEN 3, 7')
   })
 })

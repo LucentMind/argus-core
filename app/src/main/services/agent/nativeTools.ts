@@ -436,7 +436,9 @@ export function argusToolHandlers(
           ]
             .filter(Boolean)
             .join(' · ')
-          const suggested = row.suggested_change ? `\nSuggested change: ${row.suggested_change}` : ''
+          const suggested = row.suggested_change
+            ? `\nSuggested change: ${row.suggested_change}`
+            : ''
           const body = bodies.get(id) ?? fb('read_findings.no-body')
           return `## Finding ${id} — ${row.summary}\n${meta}${suggested}\n\n${body}`
         })
@@ -461,17 +463,21 @@ export function argusToolHandlers(
     },
 
     async push_review_change(args) {
-      const findingId = Number(args.finding_id)
+      const ids = Array.isArray(args.finding_ids)
+        ? args.finding_ids.map(Number)
+        : args.finding_id !== undefined // defensive: models mid-conversation may use the old name
+          ? [Number(args.finding_id)]
+          : []
       const out = await pushReviewChange(
         { db, argusHome, gh: deps.gh ?? defaultGhRunner, resolve: deps.resolve },
         caseSlug,
         {
-          findingId,
+          findingIds: ids,
           commitMessage: String(args.commit_message ?? ''),
           expectPr: String(args.pr ?? '')
         }
       )
-      deps.emitFindingUpdated?.(findingId)
+      for (const id of ids) deps.emitFindingUpdated?.(id)
       return out
     },
 
@@ -685,7 +691,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'read_findings',
     description:
-      "Read recorded findings by id: summary, severity/layer, diff anchor, suggested change and the full findings.md body. Use this when a turn names finding ids instead of inlining their text — read them before acting on them.",
+      'Read recorded findings by id: summary, severity/layer, diff anchor, suggested change and the full findings.md body. Use this when a turn names finding ids instead of inlining their text — read them before acting on them.',
     schema: { finding_ids: z.array(z.number()).min(1) }
   },
   {
@@ -697,8 +703,12 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'push_review_change',
     description:
-      "Commit everything currently changed in the PR worktree and push it to the pull request's head branch. Pass pr as owner/repo#number naming EXACTLY the pull request bound to this case (copy it from the prompt — this is checked, not just displayed). Apply the change with your edit tools FIRST — this tool commits what is already on disk and writes nothing itself. Only works on a PR from the same repository, never a fork.",
-    schema: { finding_id: z.number(), pr: z.string().min(1), commit_message: z.string() }
+      "Commit anything still uncommitted in the PR worktree and push it to the pull request's head branch. Pass finding_ids naming EVERY finding this push applies — commit one commit per finding yourself, in file-and-line order, BEFORE calling; this tool writes no code and makes at most one cleanup commit from what is left on disk. Pass pr as owner/repo#number naming EXACTLY the pull request bound to this case (copy it from the prompt — this is checked, not just displayed). Only works on a PR from the same repository, never a fork.",
+    schema: {
+      finding_ids: z.array(z.number()).min(1),
+      pr: z.string().min(1),
+      commit_message: z.string()
+    }
   },
   {
     name: 'fetch_check_logs',

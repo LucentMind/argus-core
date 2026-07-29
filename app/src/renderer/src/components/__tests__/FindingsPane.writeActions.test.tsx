@@ -77,7 +77,7 @@ describe('FindingsPane write actions', () => {
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Post as PR comment'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED COMMENT'))
-    expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, 7, 'comment')
+    expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'comment')
   })
 
   it('posts through the mechanism when the finding carries comment_body', async () => {
@@ -118,7 +118,7 @@ describe('FindingsPane write actions', () => {
     render(<FindingsPane slug="c1" sessionId={3} activeMode="review" onCite={vi.fn()} />)
     await userEvent.click(await screen.findByLabelText('Apply change and push'))
     await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED APPLY'))
-    expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, 7, 'apply')
+    expect(composeActionPrompt).toHaveBeenCalledWith('c1', 3, [7], 'apply')
   })
 
   it('disables both actions on a finding with no diff anchor', async () => {
