@@ -136,7 +136,7 @@ describe('CaseFiles', () => {
     expect(screen.queryByText('parsing…')).toBeNull()
   })
 
-  it('text evidence goes to onOpenFile; binaries to files.open; header button reveals', async () => {
+  it('text evidence goes to onOpenFile; binaries reveal; header button reveals', async () => {
     const onOpenFile = vi.fn()
     render(<CaseFiles caseSlug="NAV-1" mode="investigation" onOpenFile={onOpenFile} />)
     fireEvent.click(await screen.findByText('notes.md'))
@@ -148,12 +148,63 @@ describe('CaseFiles', () => {
         evidence: expect.objectContaining({ id: 2 })
       })
     )
+    // a detected binary (parsed into derived text) must not hand the raw file to
+    // whatever program owns its extension — reveal it in the explorer instead
     fireEvent.click(screen.getByText('trace.binlog'))
     await waitFor(() =>
-      expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/trace.binlog')
+      expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1', 'evidence/trace.binlog')
     )
+    expect(window.argus.files.open).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Open in file explorer' }))
     expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1')
+  })
+
+  it('archives reveal in the explorer; screenshots and videos open externally', async () => {
+    window.argus.evidence.list = vi.fn(async () => [
+      { ...evidenceFixture[0], id: 10, relPath: 'evidence/logs.zip', artifactType: 'archive' },
+      { ...evidenceFixture[0], id: 11, relPath: 'evidence/logs.dlt', artifactType: 'dlt_log' },
+      { ...evidenceFixture[0], id: 12, relPath: 'evidence/shot.png', artifactType: 'screenshot' },
+      { ...evidenceFixture[0], id: 13, relPath: 'evidence/repro.mp4', artifactType: 'unknown' },
+      // magic-byte detection, no usable extension — still a viewable image
+      {
+        ...evidenceFixture[0],
+        id: 14,
+        relPath: 'evidence/Screenshot_042',
+        artifactType: 'screenshot'
+      }
+    ])
+    render(<CaseFiles caseSlug="NAV-1" mode="investigation" onOpenFile={vi.fn()} />)
+
+    fireEvent.click(await screen.findByText('logs.zip'))
+    fireEvent.click(screen.getByText('logs.dlt'))
+    await waitFor(() => expect(window.argus.files.reveal).toHaveBeenCalledTimes(2))
+    expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1', 'evidence/logs.zip')
+    expect(window.argus.files.reveal).toHaveBeenCalledWith('NAV-1', 'evidence/logs.dlt')
+    expect(window.argus.files.open).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('shot.png'))
+    fireEvent.click(screen.getByText('repro.mp4'))
+    fireEvent.click(screen.getByText('Screenshot_042'))
+    await waitFor(() => expect(window.argus.files.open).toHaveBeenCalledTimes(3))
+    expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/shot.png')
+    expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/repro.mp4')
+    expect(window.argus.files.open).toHaveBeenCalledWith('NAV-1', 'evidence/Screenshot_042')
+    expect(window.argus.files.reveal).toHaveBeenCalledTimes(2)
+  })
+
+  it('a pack-claimed type reveals even with a media extension', async () => {
+    // Same question the auto-unzip gate asks: did a pack detector claim this
+    // file? If so it is a domain artifact with its own extractor — reveal it,
+    // never hand it to the program that owns the extension.
+    window.argus.evidence.list = vi.fn(async () => [
+      { ...evidenceFixture[0], id: 20, relPath: 'evidence/drive.mp4', artifactType: 'video_trace' },
+      { ...evidenceFixture[0], id: 21, relPath: 'evidence/frame.png', artifactType: 'hmi_dump' }
+    ])
+    render(<CaseFiles caseSlug="NAV-1" mode="investigation" onOpenFile={vi.fn()} />)
+    fireEvent.click(await screen.findByText('drive.mp4'))
+    fireEvent.click(screen.getByText('frame.png'))
+    await waitFor(() => expect(window.argus.files.reveal).toHaveBeenCalledTimes(2))
+    expect(window.argus.files.open).not.toHaveBeenCalled()
   })
 
   it('shows "No evidence yet." when the list rejects, without an unhandled rejection', async () => {
