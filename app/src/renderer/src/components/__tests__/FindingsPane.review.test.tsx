@@ -183,4 +183,32 @@ describe('FindingsPane review flavor', () => {
     // decoration only — never announced
     expect(items[0].querySelector('[data-severity]')).toHaveAttribute('aria-hidden', 'true')
   })
+
+  it('never lets severity be the cell that yields width', async () => {
+    list.mockResolvedValue([
+      row({
+        id: 1,
+        summary: 'Crowded row',
+        layer: 'design-conformance',
+        severity: 'minor',
+        mode: 'review'
+      })
+    ])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
+    const item = (await screen.findByText('Crowded row')).closest('li') as HTMLElement
+    const severity = within(item).getByText('minor')
+    const layer = within(item).getByText('Design conformance')
+    const stamp = within(item).getByText(/sess 1/)
+    // Severity never yields: it measured 0px wide in the real browser because it was the only
+    // shrinkable child in the row.
+    expect(severity).toHaveClass('shrink-0')
+    // The timestamp yields FIRST — it is the least important thing in the row.
+    expect(stamp).not.toHaveClass('shrink-0')
+    expect(stamp).toHaveClass('truncate')
+    // The layer label still truncates, but only after the timestamp has given up its width.
+    expect(layer).toHaveClass('truncate')
+    // When even that is not enough, the row wraps between elements rather than clipping.
+    const metaRow = within(item).getByTestId('finding-trailing').parentElement as HTMLElement
+    expect(metaRow).toHaveClass('flex-wrap')
+  })
 })
