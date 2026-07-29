@@ -83,7 +83,7 @@ describe('PrCompanionSection', () => {
     // lint passed, so it starts folded behind the disclosure rather than sitting loose. The
     // fixture has no required checks, so groupChecks emits the single unlabelled group — the
     // accessible name has no "in <group>" suffix to name.
-    const disclosure = screen.getByRole('button', { name: 'Show 1 passed checks' })
+    const disclosure = screen.getByRole('button', { name: 'Show 1 passed check' })
     await userEvent.click(disclosure)
     expect(await screen.findByText('lint')).toBeInTheDocument()
   })
@@ -311,7 +311,7 @@ describe('PrCompanionSection', () => {
     prStatusStore.hydrate({ c1: status({ checks: mixed() }) })
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(
-      screen.getByRole('button', { name: 'Show 1 passed checks in Required' })
+      screen.getByRole('button', { name: 'Show 1 passed check in Required' })
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Show 2 passed checks in Not blocking merge' })
