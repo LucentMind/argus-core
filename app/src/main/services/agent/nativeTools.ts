@@ -301,9 +301,9 @@ export function argusToolHandlers(
       // evidenceScope is the mode axis, and follows this session's own mode exactly as
       // list_evidence does. Read at call time, not construction time, so a deps object
       // built without a real sessions row (a driver test double) doesn't pay for it here.
-      const scope = args.scope === 'all' ? undefined : caseSlug
+      const caseFilter = args.scope === 'all' ? undefined : caseSlug
       const hits = searchEvidence(db, String(args.query ?? ''), {
-        caseSlug: scope,
+        caseSlug: caseFilter,
         artifactType: args.artifact_type as never,
         evidenceScope: sessionMode(db, deps.sessionId)
       })
