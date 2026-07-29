@@ -33,9 +33,16 @@ import {
   type ReviewSeverity
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
-import { postReviewComment, prWorktreeHead, pushReviewChange, type GitRunner } from './reviewWrites'
+import {
+  postReviewComment,
+  prWorktreeHead,
+  pushReviewChange,
+  findingForCase,
+  type GitRunner
+} from './reviewWrites'
 import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
+import { parseFindingBodies } from '../findings'
 
 export interface NativeToolDeps {
   db: DatabaseSync
@@ -156,6 +163,14 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     title: 'append_finding — unknown severity',
     text: 'Unknown severity {severity}. Use one of: {expected}.',
     placeholders: ['severity', 'expected']
+  },
+  'read_findings.empty': {
+    title: 'read_findings — no ids passed',
+    text: 'Pass at least one finding id in finding_ids.'
+  },
+  'read_findings.no-body': {
+    title: 'read_findings — finding has no recorded body',
+    text: '(no body recorded in findings.md for this finding)'
   }
 }
 
@@ -399,6 +414,35 @@ export function argusToolHandlers(
       return fb('append_finding.ok')
     },
 
+    async read_findings(args) {
+      const ids = Array.isArray(args.finding_ids) ? args.finding_ids.map(Number) : []
+      if (ids.length === 0 || ids.some((n) => !Number.isInteger(n))) {
+        throw new Error(fb('read_findings.empty'))
+      }
+      let bodies = new Map<number, string>()
+      try {
+        bodies = parseFindingBodies(fs.readFileSync(path.join(dir, 'findings.md'), 'utf8'))
+      } catch {
+        // no findings.md — meta from the rows still answers the call
+      }
+      const wdeps = { db, argusHome, resolve: deps.resolve }
+      return ids
+        .map((id) => {
+          const row = findingForCase(wdeps, caseSlug, id) // throws the opaque unknown-finding
+          const meta = [
+            row.severity ? `severity: ${row.severity}` : null,
+            row.layer ? `layer: ${row.layer}` : null,
+            row.diff_path ? `anchor: ${row.diff_path}:${row.diff_line}` : null
+          ]
+            .filter(Boolean)
+            .join(' · ')
+          const suggested = row.suggested_change ? `\nSuggested change: ${row.suggested_change}` : ''
+          const body = bodies.get(id) ?? fb('read_findings.no-body')
+          return `## Finding ${id} — ${row.summary}\n${meta}${suggested}\n\n${body}`
+        })
+        .join('\n\n')
+    },
+
     async post_review_comment(args) {
       const findingId = Number(args.finding_id)
       const out = await postReviewComment(
@@ -637,6 +681,12 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
       suggested_change: z.string().optional(),
       comment_body: z.string().optional()
     }
+  },
+  {
+    name: 'read_findings',
+    description:
+      "Read recorded findings by id: summary, severity/layer, diff anchor, suggested change and the full findings.md body. Use this when a turn names finding ids instead of inlining their text — read them before acting on them.",
+    schema: { finding_ids: z.array(z.number()).min(1) }
   },
   {
     name: 'post_review_comment',
