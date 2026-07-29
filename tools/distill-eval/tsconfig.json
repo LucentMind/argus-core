@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "__tests__/**/*.ts", "../../app/src/shared/**/*.ts", "../../app/src/main/services/distill/*.ts"],
+  "exclude": ["../../app/src/shared/**/__tests__/**"]
+}
