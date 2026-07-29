@@ -234,5 +234,17 @@ describe('FindingsPane', () => {
       )
       expect(window.argus.findings.clear).toHaveBeenCalledWith('c1', 'review')
     })
+
+    it('keeps the header and filter chips outside the scrolling list region', async () => {
+      list.mockResolvedValue([row({ id: 1, summary: 'scrolls away' })])
+      const { container } = render(
+        <FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />
+      )
+      await screen.findByText('scrolls away')
+      const scroller = container.querySelector('.overflow-y-auto')
+      expect(scroller).not.toBeNull()
+      expect(scroller!.contains(screen.getByText('scrolls away'))).toBe(true)
+      expect(scroller!.contains(screen.getByText(/Findings · 1/))).toBe(false)
+    })
   })
 })
