@@ -38,6 +38,17 @@ class PrStatusStore {
     this.emit()
   }
 
+  /** Drop a slug outright. Unlink is the one transition refresh() cannot express: a case with
+   *  no binding is skipped by the service rather than cached empty, so nothing would overwrite
+   *  the stale entry. */
+  forget(slug: string): void {
+    if (!(slug in this.bySlug)) return
+    const rest = { ...this.bySlug }
+    delete rest[slug]
+    this.bySlug = rest
+    this.emit()
+  }
+
   subscribe(cb: () => void): () => void {
     this.listeners.add(cb)
     return () => {
