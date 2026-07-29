@@ -98,6 +98,19 @@ describe('PrCompanionSection', () => {
     expect(window.argus.pr.unlink).toHaveBeenCalledWith('c1', 3)
   })
 
+  // beforeEach stubs statusRefresh to return {} — exactly what the real service does for a case
+  // with no binding (refreshPrStatuses skips it rather than caching empty). That's what exposed
+  // the bug: refresh([slug]) after unlink left the stale cached status in place because
+  // prStatusStore.merge() no-ops on an empty incoming map.
+  it('returns to the empty state once the pull request is unlinked', async () => {
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Unlink pull request' }))
+    expect(
+      screen.queryByRole('button', { name: 'Open pull request acme/widget#42 on GitHub' })
+    ).not.toBeInTheDocument()
+    expect(await screen.findByText(/no pull request bound/i)).toBeInTheDocument()
+  })
+
   it('puts the empty state where the subject line goes', () => {
     prStatusStore.hydrate({})
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)

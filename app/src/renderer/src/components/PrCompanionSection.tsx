@@ -63,6 +63,11 @@ export function PrCompanionSection({
 }): React.JSX.Element | null {
   // Hooks must run unconditionally, so the mode gate is applied to the RESULT, not the call.
   const all = usePrStatuses(mode === 'review' ? [slug] : [], REVIEW_POLL_MS)
+  // ReposSection's "Link PR" control isn't mode-gated, so the bound PR can be replaced without
+  // leaving review mode. Keying the binding effect on the bound PR's identity (not just slug and
+  // mode) makes a mid-review relink refetch the binding instead of keeping the old one — an
+  // unlink after that would otherwise target a binding id that no longer exists.
+  const boundUrl = all[slug]?.url ?? null
 
   const [binding, setBinding] = useState<PrBinding | null>(null)
   useEffect(() => {
@@ -74,13 +79,13 @@ export function PrCompanionSection({
     return () => {
       live = false
     }
-  }, [slug, mode])
+  }, [slug, mode, boundUrl])
 
   async function unlink(): Promise<void> {
     if (!binding) return
     await window.argus.pr.unlink(slug, binding.id)
     setBinding(null)
-    void prStatusStore.refresh([slug])
+    prStatusStore.forget(slug)
   }
 
   if (mode !== 'review') return null
