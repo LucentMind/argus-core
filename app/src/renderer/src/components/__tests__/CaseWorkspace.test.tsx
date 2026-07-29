@@ -278,15 +278,20 @@ describe('CaseWorkspace case switching', () => {
     )
   })
 
-  it('remounts CaseFiles on mode change so per-case state (type filter) resets', async () => {
+  it('remounts CaseFiles on mode change so per-case state (rescan result) resets', async () => {
     const { rerender } = render(workspace('NAV-1', { activeMode: 'investigation' }))
-    const select = (await screen.findByLabelText('type-filter')) as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'binlog' } })
-    expect(select.value).toBe('binlog')
+    const rescanBtn = await screen.findByRole('button', { name: 'Rescan evidence folder' })
+    fireEvent.click(rescanBtn)
+    await waitFor(() =>
+      expect(rescanBtn).toHaveAttribute('title', expect.stringContaining('no changes'))
+    )
     // investigation evidence and review artifacts are disjoint lists — a mode switch must
-    // not leak investigation's filter/collapse/parsing state into review's list
+    // not leak investigation's scan-result/collapse/parsing state into review's list
     rerender(workspace('NAV-1', { activeMode: 'review' }))
-    expect((screen.getByLabelText('type-filter') as HTMLSelectElement).value).toBe('')
+    expect(await screen.findByRole('button', { name: 'Rescan evidence folder' })).toHaveAttribute(
+      'title',
+      'Rescan evidence folder'
+    )
   })
 })
 
