@@ -61,6 +61,14 @@ describe('createPanelBridge', () => {
     expect(hits.every((h) => h.caseSlug === 'CASE-B')).toBe(true)
   })
 
+  it('requestEvidence excludes the review artifacts tree', () => {
+    const artifact = path.join(home, 'ci-verify.log')
+    fs.writeFileSync(artifact, 'TileStore error inside a review artifact\n')
+    ingestArtifact(db, home, detection, 'CASE-A', artifact, 'upload', {}, 'review')
+    const hits = bind('CASE-A', ['requestEvidence']).requestEvidence!('TileStore')
+    expect(hits.map((h) => h.relPath)).toEqual(['evidence/sample-applog.txt'])
+  })
+
   it('readEvidence returns the text content of an in-case item', () => {
     const aBridge = bind('CASE-A', ['requestEvidence', 'readEvidence'])
     const [hit] = aBridge.requestEvidence!('NoRoute')
