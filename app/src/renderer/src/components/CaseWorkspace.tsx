@@ -465,9 +465,11 @@ export function CaseWorkspace({
                 CDP (see task-6-report.md) that content past the rail's height was then
                 clipped by the aside's overflow-hidden with no way to reach it. Leaving
                 the default shrink lets this box get bounded by the available space, at
-                which point overflow-y-auto genuinely scrolls; CaseFiles' own min-h-0
-                flex-1 (below) is what lets it give up space first before this box
-                does. */}
+                which point overflow-y-auto genuinely scrolls; CaseFiles' own min-h-32
+                flex-1 (below) gives the card a floor it can't be squeezed under (flex
+                distributes negative space by scaled shrink factor, and a flex-basis:0%
+                child would otherwise absorb none of it, i.e. get squeezed to 0), which
+                is what forces this box to give up space first instead. */}
             <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
               <ReposSection
                 slug={slug}
