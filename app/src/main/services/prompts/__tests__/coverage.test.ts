@@ -91,7 +91,7 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   },
   {
     text: '## Finding ${id} — ${row.summary}\\n${meta}${suggested}\\n\\n${body}',
-    why: "read_findings in nativeTools.ts: one finding's section assembled from the findings row (id, summary, severity/layer/anchor, suggested_change) plus its stored body — a markdown header and field list glued around DB data, same class as the '#${b.number}' PR identity above. \"## Finding\" and \"Suggested change:\" are fixed labels, not instructions, and every variable part is read straight out of the row."
+    why: 'read_findings in nativeTools.ts: one finding\'s section assembled from the findings row (id, summary, severity/layer/anchor, suggested_change) plus its stored body — a markdown header and field list glued around DB data, same class as the \'#${b.number}\' PR identity above. "## Finding" and "Suggested change:" are fixed labels, not instructions, and every variable part is read straight out of the row.'
   }
 ]
 
