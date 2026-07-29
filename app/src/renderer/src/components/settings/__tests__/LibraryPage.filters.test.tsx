@@ -140,7 +140,7 @@ describe('LibraryPage filters', () => {
   it('collapsing a group hides its rows; an active filter overrides collapse', async () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle section · User' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle section · Yours' }))
     expect(screen.queryByText('rca')).toBeNull()
     expect(screen.getByText('hive-probe')).toBeInTheDocument() // other groups untouched
     // search overrides collapse so matches can't hide
@@ -207,10 +207,10 @@ describe('LibraryPage filters', () => {
     fireEvent.change(screen.getByLabelText('search library'), { target: { value: 'rca' } })
     await screen.findByText('rca')
     // while filtering, the section header is not a toggle button
-    expect(screen.queryByRole('button', { name: 'Toggle section · User' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Toggle section · Yours' })).toBeNull()
     fireEvent.change(screen.getByLabelText('search library'), { target: { value: '' } })
     // after clearing, the group is still expanded and the toggle is back
     expect(await screen.findByText('rca')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Toggle section · User' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle section · Yours' })).toBeInTheDocument()
   })
 })
