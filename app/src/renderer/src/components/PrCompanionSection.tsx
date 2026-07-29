@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, GitPullRequest, RefreshCw, Stethoscope, Unlink } from 'lucide-react'
+import {
+  ChevronRight,
+  ExternalLink,
+  GitPullRequest,
+  RefreshCw,
+  Stethoscope,
+  Unlink
+} from 'lucide-react'
 import type { CheckBucket, PrCheck, PrStatus } from '../../../shared/prStatus'
 import type { PrBinding } from '../../../shared/pr'
 import { prStatusStore, usePrStatuses } from '../lib/prStatusStore'
@@ -45,6 +52,129 @@ function groupChecks(checks: PrCheck[]): { label: string | null; items: PrCheck[
     { label: 'Required', items: required },
     { label: 'Not blocking merge', items: checks.filter((c) => !c.required) }
   ].filter((g) => g.items.length > 0)
+}
+
+/**
+ * A single check row, shared verbatim by the open list and the folded-passed list so both
+ * render identically.
+ *
+ * Defined at module scope (not nested inside `PrCompanionSection`) and takes `onAnalyze`
+ * explicitly rather than closing over it: a component declared inside another component's body
+ * is a fresh function reference on every parent render, so React remounts it — including its
+ * `useState` in `CheckGroup` below — the moment anything upstream re-renders (here, the
+ * `pr.list` binding effect resolving after the checks are already on screen). A remount mid
+ * click swaps out the DOM node under the user's cursor before the click event reaches it,
+ * silently dropping the Analyze handler.
+ */
+function CheckRow({
+  c,
+  onAnalyze
+}: {
+  c: PrCheck
+  onAnalyze: (checkName: string) => void
+}): React.JSX.Element {
+  const analyzable = c.bucket === 'fail' && c.jobId !== null
+  return (
+    <div
+      className={`flex h-7 items-center gap-1.5 rounded-r1 px-1.5 text-[11px] transition-colors hover:bg-hair/60 ${
+        c.bucket === 'skipped' ? 'opacity-50' : ''
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={
+          c.bucket === 'fail' ? 'text-danger' : c.bucket === 'pass' ? 'text-signal' : 'text-mute'
+        }
+      >
+        {BUCKET_MARK[c.bucket]}
+      </span>
+      {c.url ? (
+        <a
+          href={c.url}
+          target="_blank"
+          rel="noreferrer"
+          className="truncate text-ink hover:underline"
+        >
+          {c.name}
+        </a>
+      ) : (
+        <span className="truncate text-ink">{c.name}</span>
+      )}
+      <span className="flex-1" />
+      {c.bucket === 'fail' && (
+        <IconBtn
+          aria-label={`Analyze ${c.name} failure`}
+          title={
+            analyzable
+              ? 'Pull this job log as evidence and analyze the failure'
+              : 'Not a GitHub Actions job — Argus cannot read this check’s log'
+          }
+          className="h-5 w-5"
+          disabled={!analyzable}
+          onClick={() => onAnalyze(c.name)}
+        >
+          <Stethoscope size={12} />
+        </IconBtn>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One `groupChecks` bucket (Required / Not blocking merge / the unlabelled whole list). The
+ * collapse state lives here, keyed by component instance rather than a shared flag, so opening
+ * one group's passed rows never touches another's. Module-scoped for the same remount-safety
+ * reason as `CheckRow` above.
+ */
+function CheckGroup({
+  label,
+  items,
+  onAnalyze
+}: {
+  label: string | null
+  items: PrCheck[]
+  onAnalyze: (checkName: string) => void
+}): React.JSX.Element {
+  const [showPassed, setShowPassed] = useState(false)
+  // Failures, cancellations, pending and skipped stay visible; only the green rows fold.
+  const passed = items.filter((c) => c.bucket === 'pass')
+  const rest = items.filter((c) => c.bucket !== 'pass')
+  return (
+    <div className="flex flex-col">
+      {label && (
+        <div
+          role="heading"
+          aria-level={3}
+          className="px-1.5 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-mute"
+        >
+          {label}
+        </div>
+      )}
+      {rest.map((c, i) => (
+        <CheckRow key={`${c.name}#${i}`} c={c} onAnalyze={onAnalyze} />
+      ))}
+      {passed.length > 0 && (
+        <>
+          <button
+            type="button"
+            aria-expanded={showPassed}
+            className="flex h-7 items-center gap-1.5 rounded-r1 px-1.5 text-[11px] text-mute transition-colors hover:bg-hair/60"
+            onClick={() => setShowPassed((v) => !v)}
+          >
+            <ChevronRight
+              size={11}
+              className={`transition-transform ${showPassed ? 'rotate-90' : ''}`}
+            />
+            passed
+            <span className="text-hair2">·</span>
+            <span className="font-mono">{passed.length}</span>
+          </button>
+          {showPassed &&
+            passed.map((c, i) => <CheckRow key={`${c.name}#${i}`} c={c} onAnalyze={onAnalyze} />)}
+        </>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -210,77 +340,15 @@ export function PrCompanionSection({
           )}
 
           {status.rollup !== 'unavailable' && status.checks.length > 0 && (
-            <div className="divide-y divide-hair overflow-hidden rounded-r2 border border-hair bg-panel">
-              {groupChecks(status.checks).flatMap((group) => [
-                ...(group.label
-                  ? [
-                      <div
-                        key={`group:${group.label}`}
-                        role="heading"
-                        aria-level={3}
-                        className="px-2 py-1 text-[10px] uppercase tracking-wide text-mute"
-                      >
-                        {group.label}
-                      </div>
-                    ]
-                  : []),
-                ...group.items.map((c, i) => {
-                  const analyzable = c.bucket === 'fail' && c.jobId !== null
-                  return (
-                    // Keyed on group, name AND index: check names are NOT unique on real pull
-                    // requests (the Task 1 capture found one PR listing "Semantic Pull Request"
-                    // twice and another with 46 contexts under 20 names), and a duplicate React
-                    // key drops rows silently.
-                    // Fixed row height, not padding: only failed checks carry the Analyze button,
-                    // and letting it size the row made those rows visibly taller than the rest.
-                    <div
-                      key={`${group.label ?? ''}:${c.name}#${i}`}
-                      className="flex h-7 items-center gap-1.5 px-2 text-[11px]"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={
-                          c.bucket === 'fail'
-                            ? 'text-danger'
-                            : c.bucket === 'pass'
-                              ? 'text-signal'
-                              : 'text-mute'
-                        }
-                      >
-                        {BUCKET_MARK[c.bucket]}
-                      </span>
-                      {c.url ? (
-                        <a
-                          href={c.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="truncate text-ink hover:underline"
-                        >
-                          {c.name}
-                        </a>
-                      ) : (
-                        <span className="truncate text-ink">{c.name}</span>
-                      )}
-                      <span className="flex-1" />
-                      {c.bucket === 'fail' && (
-                        <IconBtn
-                          aria-label={`Analyze ${c.name} failure`}
-                          title={
-                            analyzable
-                              ? 'Pull this job log as evidence and analyze the failure'
-                              : 'Not a GitHub Actions job — Argus cannot read this check’s log'
-                          }
-                          className="h-5 w-5"
-                          disabled={!analyzable}
-                          onClick={() => onAnalyze(c.name)}
-                        >
-                          <Stethoscope size={12} />
-                        </IconBtn>
-                      )}
-                    </div>
-                  )
-                })
-              ])}
+            <div className="flex flex-col">
+              {groupChecks(status.checks).map((g) => (
+                <CheckGroup
+                  key={g.label ?? 'all'}
+                  label={g.label}
+                  items={g.items}
+                  onAnalyze={onAnalyze}
+                />
+              ))}
             </div>
           )}
         </>
