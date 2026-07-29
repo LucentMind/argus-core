@@ -86,6 +86,13 @@ const sessionId = db
   .prepare('SELECT id FROM sessions WHERE case_id = ? ORDER BY id DESC LIMIT 1')
   .get(caseId).id
 
+// A review-mode SESSION is not enough on its own: the pane renders whichever mode the CASE is
+// switched to (`cases.active_mode`, read as `CaseRecord.activeMode` and prop-drilled into
+// FindingsPane), and filters every finding of the other mode out. Left at the 'investigation'
+// default, all five findings below are correctly hidden and the probe times out waiting for
+// cards it can never see.
+db.prepare(`UPDATE cases SET active_mode = 'review', updated_at = ? WHERE id = ?`).run(now, caseId)
+
 // ── 3. PR binding, pointing at the real worktree above. ──
 db.prepare('DELETE FROM pr_bindings WHERE case_id = ?').run(caseId)
 db.prepare(
