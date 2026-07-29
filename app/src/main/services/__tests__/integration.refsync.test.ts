@@ -387,9 +387,11 @@ describe('writeReference', () => {
   })
 
   it('refuses a hivemind-tier reference — fork it first', () => {
-    fs.writeFileSync(path.join(refsDir, 'hive.md'), '---\ntrust_tier: hivemind\n---\n\nbody')
+    const raw = '---\ntrust_tier: hivemind\n---\n\nbody'
+    fs.writeFileSync(path.join(refsDir, 'hive.md'), raw)
     const before = svc.readReference('hive.md')
     expect(() => svc.writeReference('hive.md', 'edited', before.hash)).toThrow(/not a hand-owned/i)
+    expect(fs.readFileSync(path.join(refsDir, 'hive.md'), 'utf8')).toBe(raw)
   })
 
   it('refuses a confluence-tier reference', () => {
@@ -412,5 +414,29 @@ describe('writeReference', () => {
     expect(() => svc.writeReference('race.md', 'mine', contentHash('stale'))).toThrow(
       /changed on disk/i
     )
+    expect(fs.readFileSync(path.join(refsDir, 'race.md'), 'utf8')).toBe('original')
+  })
+
+  it('reports the tier violation, not the stale hash, for a hivemind-tier file with a stale hash', () => {
+    const raw = '---\ntrust_tier: hivemind\n---\n\nbody'
+    fs.writeFileSync(path.join(refsDir, 'hive-stale.md'), raw)
+    // baseHash deliberately stale — a fresh hash would only prove Finding 1's
+    // masking bug in the OTHER direction. We want: stale AND hive-managed ⇒ tier wins.
+    expect(() =>
+      svc.writeReference('hive-stale.md', 'edited', contentHash('some other content'))
+    ).toThrow(/not a hand-owned/i)
+    expect(fs.readFileSync(path.join(refsDir, 'hive-stale.md'), 'utf8')).toBe(raw)
+  })
+
+  it('keeps the on-disk trust_tier when the client sends a spoofed one', () => {
+    fs.writeFileSync(
+      path.join(refsDir, 'spoof.md'),
+      '---\ntrust_tier: team-knowledge\n---\n\noriginal'
+    )
+    const before = svc.readReference('spoof.md')
+    svc.writeReference('spoof.md', '---\ntrust_tier: hivemind\n---\n\nedited', before.hash)
+    const raw = fs.readFileSync(path.join(refsDir, 'spoof.md'), 'utf8')
+    expect(raw).toContain('trust_tier: team-knowledge')
+    expect(raw).not.toContain('trust_tier: hivemind')
   })
 })

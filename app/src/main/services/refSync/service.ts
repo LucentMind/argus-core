@@ -162,15 +162,15 @@ export class RefSyncService {
 
     const p = path.join(this.refsDir(), file)
     const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
-    if ((existing === null ? null : contentHash(existing)) !== baseHash) {
-      throw new Error(`"${file}" changed on disk since you opened it.`)
-    }
     const tier = existing === null ? null : refTier(existing)
     if (tier === 'hivemind' || tier === 'confluence' || tier === 'bundled') {
       throw new Error(`not a hand-owned reference: ${file} (${tier})`)
     }
+    if ((existing === null ? null : contentHash(existing)) !== baseHash) {
+      throw new Error(`"${file}" changed on disk since you opened it.`)
+    }
     fs.mkdirSync(this.refsDir(), { recursive: true })
-    fs.writeFileSync(p, tier ? content : withFrontmatter(content, { trust_tier: 'user' }))
+    fs.writeFileSync(p, withFrontmatter(content, { trust_tier: tier ?? 'user' }))
   }
 
   /** Case-insensitive search over reference file names AND bodies; INDEX.md excluded. */
