@@ -448,7 +448,12 @@ describe('LibraryPage claim', () => {
     const btn = await screen.findByRole('button', { name: 'Claim · adasis.md' })
     fireEvent.click(btn)
     await waitFor(() => expect(argus.hivemind.claimReference).toHaveBeenCalledWith('adasis.md'))
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Claim' }))
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmLabel: 'Claim',
+        message: expect.stringContaining('stops tracking HiveMind updates')
+      })
+    )
   })
 
   it('a declined confirm claims nothing', async () => {
