@@ -101,15 +101,29 @@ export function bucketOfStatusContext(state: string | null): CheckBucket {
  * - a REQUIRED check that was cancelled blocks the merge until it re-runs, yet says nothing
  *   about the code, so it is not red either.
  *
+ * That required/optional split only means something on a repository that has branch protection.
+ * On one that has none, GitHub reports every check as not required, so a literal reading of the
+ * rule above would make `failing` unreachable there — a broken build would sit amber on the
+ * dashboard, right next to a case title, where the dot is read as "is my CI green", not "can
+ * this merge". So when nothing on the pull request is required, everything gates and the rule
+ * reverts to the old one: any failure is red. Where protection does exist, the required/optional
+ * split above is unchanged.
+ *
  * A failure outranks a pending check: with one job red and three still running, the actionable
  * fact is the red one, and waiting for the rest to finish before saying so helps nobody. The
  * poll's cadence does not follow this ordering — see `anyRunning`, which reads the checks.
  */
 export function rollupOf(checks: PrCheck[]): PrRollup {
   if (checks.length === 0) return 'none'
-  if (checks.some((c) => c.required && c.bucket === 'fail')) return 'failing'
-  // Required failures already returned above, so a bare `fail` here is an optional one.
-  if (checks.some((c) => c.bucket === 'fail' || (c.required && c.bucket === 'cancelled'))) {
+  // On a repository with no branch protection NOTHING is required, and a literal
+  // required-only rule would make `failing` unreachable there — a broken build would sit
+  // amber on the dashboard next to a case title, where the dot is read as "is my CI green".
+  // So when nothing is required, everything gates and the rule reverts to the old one.
+  const anyRequired = checks.some((c) => c.required)
+  const gates = (c: PrCheck): boolean => c.required || !anyRequired
+  if (checks.some((c) => gates(c) && c.bucket === 'fail')) return 'failing'
+  // Gating failures already returned above, so a bare `fail` here is a non-gating one.
+  if (checks.some((c) => c.bucket === 'fail' || (gates(c) && c.bucket === 'cancelled'))) {
     return 'unstable'
   }
   if (checks.some((c) => c.bucket === 'pending')) return 'running'
