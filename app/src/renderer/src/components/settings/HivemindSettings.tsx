@@ -145,6 +145,19 @@ function BrowseRow({
               )}
             </>
           )}
+          {/* Independent of `diverged`: a confluence/-prefixed twin can be byte-identical (no
+              content divergence) yet installing it still restamps trust_tier, silently costing
+              the user their ability to push it. Render as a sibling, not nested in the diverged
+              guard, so it still shows when diverged is false. */}
+          {confirm.divergence.tierChange && (
+            <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
+              Updating changes this file&apos;s tier from{' '}
+              <span className="font-mono">{confirm.divergence.tierChange.from || 'none'}</span> to{' '}
+              <span className="font-mono">{confirm.divergence.tierChange.to}</span>
+              {confirm.divergence.tierChange.to === 'confluence' &&
+                ' — it becomes owned by Confluence sync, and you will no longer be able to share it.'}
+            </div>
+          )}
           {confirm.diff ? (
             <>
               <span className="text-xs text-dim">Incoming change from the HiveMind</span>

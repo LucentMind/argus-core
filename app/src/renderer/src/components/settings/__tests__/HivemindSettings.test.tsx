@@ -6,7 +6,7 @@ import { HivemindSettings } from '../HivemindSettings'
 import { settingsStore } from '../../../lib/settingsStore'
 import { confirm } from '../../../lib/confirmStore'
 import { defaultSettings } from '../../../../../shared/settings'
-import type { HivemindPayload } from '../../../../../shared/hivemind'
+import type { HivemindPayload, LocalDivergence } from '../../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../../shared/settings'
 
 // Uninstall/keep-as-mine go through the Argus confirm dialog (imported as askConfirm in the
@@ -64,7 +64,7 @@ const ready: HivemindPayload = {
 // Shared handles so 'update hazards' tests can assert on call args / control resolution
 // without drilling through the window.argus cast on every assertion.
 const installMock = vi.fn()
-const localDivergenceMock = vi.fn()
+const localDivergenceMock = vi.fn<(name: string) => Promise<LocalDivergence>>()
 
 function mockArgus(payload: HivemindPayload): Record<string, unknown> {
   installMock.mockResolvedValue(payload)
@@ -108,7 +108,7 @@ function renderWith(payload: HivemindPayload): ReturnType<typeof render> {
 
 beforeEach(() => {
   installMock.mockClear()
-  localDivergenceMock.mockReset().mockResolvedValue({ diverged: false, diff: '' })
+  localDivergenceMock.mockReset().mockResolvedValue({ diverged: false, diff: '', tierChange: null })
   ;(window as unknown as { argus: unknown }).argus = mockArgus(ready)
   vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined as never)
 })
@@ -530,7 +530,8 @@ describe('update hazards', () => {
     }
     localDivergenceMock.mockResolvedValue({
       diverged: true,
-      diff: 'diff --git a/mine/hive-note.md b/incoming/hive-note.md\n@@ -1,2 +1,1 @@\n-MY UNPUSHED PARAGRAPH\n'
+      diff: 'diff --git a/mine/hive-note.md b/incoming/hive-note.md\n@@ -1,2 +1,1 @@\n-MY UNPUSHED PARAGRAPH\n',
+      tierChange: null
     })
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
@@ -558,7 +559,11 @@ describe('update hazards', () => {
         }
       ]
     }
-    localDivergenceMock.mockResolvedValue({ diverged: true, diff: 'diff --git a/x b/x\n' })
+    localDivergenceMock.mockResolvedValue({
+      diverged: true,
+      diff: 'diff --git a/x b/x\n',
+      tierChange: null
+    })
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
     fireEvent.click(await screen.findByLabelText('Overwrite my copy of hive-note.md'))
@@ -587,7 +592,7 @@ describe('update hazards', () => {
         }
       ]
     }
-    localDivergenceMock.mockResolvedValue({ diverged: true, diff: '' })
+    localDivergenceMock.mockResolvedValue({ diverged: true, diff: '', tierChange: null })
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
     expect(
@@ -616,7 +621,11 @@ describe('update hazards', () => {
         }
       ]
     }
-    localDivergenceMock.mockResolvedValue({ diverged: true, diff: 'diff --git a/x b/x\n' })
+    localDivergenceMock.mockResolvedValue({
+      diverged: true,
+      diff: 'diff --git a/x b/x\n',
+      tierChange: null
+    })
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
     const banner = await screen.findByText(/differs from the version that would be installed/i)
@@ -624,6 +633,39 @@ describe('update hazards', () => {
     expect(banner.className).not.toMatch(/border-hair/)
     const button = screen.getByLabelText('Overwrite my copy of hive-note.md')
     expect(button.className).toMatch(/bg-danger/)
+  })
+
+  it('states a tier restamp even when the content has not diverged', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'reference',
+          name: 'confluence/hive-note.md',
+          description: '',
+          commit: 'sha-3',
+          installed: true,
+          installedCommit: 'sha-2',
+          localTier: 'user',
+          shadowedByUser: false,
+          updateAvailable: true
+        }
+      ]
+    }
+    localDivergenceMock.mockResolvedValue({
+      diverged: false,
+      diff: '',
+      tierChange: { from: 'user', to: 'confluence' }
+    })
+    renderWith(payload)
+    fireEvent.click(await screen.findByLabelText('Update confluence/hive-note.md'))
+    // the tier names sit in nested <span>s, so a single-node getByText can't span them —
+    // anchor on the direct text ("tier from") and assert on the line's full textContent instead.
+    const tierLine = await screen.findByText(/tier from/i)
+    expect(tierLine).toHaveTextContent(/user.*confluence/i)
+    expect(tierLine).toHaveTextContent(/share/i)
+    // not diverged: no overwrite gate, ordinary re-download
+    expect(screen.getByLabelText('Re-download confluence/hive-note.md')).toBeInTheDocument()
   })
 })
 
