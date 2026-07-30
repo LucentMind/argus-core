@@ -212,13 +212,22 @@ import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
 import { EditorWindowService } from './services/editorWindow'
 import { EditorWindowStore } from './services/editorWindowStore'
 import { makeElectronEditorWindowFactory } from './services/electronEditorWindow'
-import { EDITOR_IPC, type EditorOpenRequest } from '../shared/editorIpc'
+import { DraftStore } from './services/drafts'
+import {
+  EDITOR_IPC,
+  type EditorOpenRequest,
+  type DraftChange,
+  type DraftRef
+} from '../shared/editorIpc'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
 let langfuseExporter: LangfuseExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let editorWindowService: EditorWindowService | null = null
+// Module-scope, unlike the store it wraps: `before-quit` lives out here and must be able to
+// flush. See the flush calls in createWindow()'s 'closed' handler and in before-quit.
+let draftStore: DraftStore | null = null
 let panelHost: PanelHost | null = null
 let externalAppHost: ExternalAppHost | null = null
 
@@ -484,6 +493,16 @@ function registerIpc(): void {
     }),
     loadBounds: () => editorWindowStore.load(),
     saveBounds: (b) => editorWindowStore.save(b)
+  })
+  draftStore = new DraftStore({ argusHome })
+  draftStore.onSaved((rec) => {
+    // Persist-before-adopt: this fires after the rename, and it is the only thing that makes
+    // the editor show "Draft". Sent to the editor window only — no other window cares.
+    editorWindowService?.handle()?.send(EDITOR_IPC.draftSaved, {
+      kind: rec.kind,
+      name: rec.name,
+      updatedAt: rec.updatedAt
+    })
   })
   const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
   const mcpService = new McpService({
@@ -1583,6 +1602,16 @@ function registerIpc(): void {
   ipcMain.on(EDITOR_IPC.closeResponse, (_e, allow: boolean) => {
     editorWindowService?.resolveClose(allow)
   })
+  ipcMain.on(EDITOR_IPC.draftChanged, (_e, change: DraftChange) => {
+    draftStore?.queue(change)
+  })
+  ipcMain.handle(
+    EDITOR_IPC.draftRead,
+    (_e, ref: DraftRef) => draftStore?.read(ref.kind, ref.name) ?? null
+  )
+  ipcMain.handle(EDITOR_IPC.draftDiscard, (_e, ref: DraftRef) => {
+    draftStore?.discard(ref.kind, ref.name)
+  })
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({
@@ -2112,11 +2141,14 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // Flush first: forceClose() destroys the editor renderer, and everything it typed since the
+    // last debounce lives in draftStore's pending map, not in the window.
+    draftStore?.flushAll()
     // Spec §3.4: the editor is a dependent child, not a peer. Force-close — a confirm
-    // prompt during teardown would be unanswerable, and from Increment 2 the draft store
-    // makes this non-destructive. The service itself is not torn down: it is an
-    // app-lifetime singleton (constructed in registerIpc(), not here) so it survives a
-    // macOS close-all-windows/dock-reactivate cycle the same way panelHost does.
+    // prompt during teardown would be unanswerable, and the draft store above makes this
+    // non-destructive. The service itself is not torn down: it is an app-lifetime singleton
+    // (constructed in registerIpc(), not here) so it survives a macOS
+    // close-all-windows/dock-reactivate cycle the same way panelHost does.
     editorWindowService?.forceClose()
   })
 
@@ -2195,6 +2227,9 @@ app.on('before-quit', (event) => {
 
   panelHost?.closeAll()
   externalAppHost?.closeAll()
+  // Cmd+Q / app.quit() with the editor still open: the main-window path above never ran, so
+  // this is the only flush that happens. Synchronous by design — nothing here can await.
+  draftStore?.flushAll()
   editorWindowService?.forceClose()
   void agentService?.stopAll()
 

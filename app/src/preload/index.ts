@@ -100,7 +100,14 @@ import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
-import { EDITOR_IPC, type EditorOpenRequest } from '../shared/editorIpc'
+import {
+  EDITOR_IPC,
+  type EditorOpenRequest,
+  type DraftChange,
+  type DraftRecord,
+  type DraftRef,
+  type DraftSaved
+} from '../shared/editorIpc'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -485,7 +492,21 @@ const argus = {
     },
     respondClose: (allow: boolean): void => {
       ipcRenderer.send(EDITOR_IPC.closeResponse, allow)
-    }
+    },
+    /** Fire-and-forget: main owns the debounce, so the renderer never waits on a write. */
+    draftChanged: (change: DraftChange): void => {
+      ipcRenderer.send(EDITOR_IPC.draftChanged, change)
+    },
+    onDraftSaved: (cb: (saved: DraftSaved) => void): (() => void) => {
+      const h = (_e: unknown, saved: DraftSaved): void => cb(saved)
+      ipcRenderer.on(EDITOR_IPC.draftSaved, h)
+      return () => {
+        ipcRenderer.off(EDITOR_IPC.draftSaved, h)
+      }
+    },
+    readDraft: (ref: DraftRef): Promise<DraftRecord | null> =>
+      ipcRenderer.invoke(EDITOR_IPC.draftRead, ref),
+    discardDraft: (ref: DraftRef): Promise<void> => ipcRenderer.invoke(EDITOR_IPC.draftDiscard, ref)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
