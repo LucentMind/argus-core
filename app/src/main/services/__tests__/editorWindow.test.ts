@@ -160,3 +160,81 @@ describe('EditorWindowService.open', () => {
     expect(harness.savedBounds).toEqual([next])
   })
 })
+
+describe('EditorWindowService close handshake', () => {
+  let harness: ReturnType<typeof makeService>
+  let win: FakeEditorWindow
+  beforeEach(() => {
+    harness = makeService()
+    harness.service.open(SKILL)
+    win = harness.created[0]
+    win.sent.length = 0
+  })
+
+  it('closes immediately when nothing is dirty', () => {
+    harness.service.setDirtyCount(0)
+    expect(win.userCloses()).toBe(true)
+    expect(win.destroyed).toBe(true)
+    expect(win.sent).toEqual([])
+  })
+
+  it('vetoes the close and asks the renderer when work is dirty', () => {
+    harness.service.setDirtyCount(2)
+    expect(win.userCloses()).toBe(false)
+    expect(win.destroyed).toBe(false)
+    expect(win.sent).toEqual([{ channel: EDITOR_IPC.closeRequested, payload: { dirtyCount: 2 } }])
+  })
+
+  it('does not re-ask while a prompt is already open', () => {
+    harness.service.setDirtyCount(1)
+    win.userCloses()
+    win.sent.length = 0
+    expect(win.userCloses()).toBe(false)
+    expect(win.sent).toEqual([])
+  })
+
+  it('destroys the window when the renderer allows the close', () => {
+    harness.service.setDirtyCount(1)
+    win.userCloses()
+    harness.service.resolveClose(true)
+    expect(win.destroyed).toBe(true)
+    expect(harness.service.isOpen()).toBe(false)
+  })
+
+  it('keeps the window and re-arms the prompt when the renderer denies', () => {
+    harness.service.setDirtyCount(1)
+    win.userCloses()
+    harness.service.resolveClose(false)
+    expect(win.destroyed).toBe(false)
+
+    win.sent.length = 0
+    expect(win.userCloses()).toBe(false)
+    expect(win.sent).toEqual([{ channel: EDITOR_IPC.closeRequested, payload: { dirtyCount: 1 } }])
+  })
+
+  it('ignores a reply that arrives when no prompt is open', () => {
+    harness.service.setDirtyCount(1)
+    harness.service.resolveClose(true)
+    expect(win.destroyed).toBe(false)
+  })
+
+  it('forceClose destroys the window without asking, however dirty', () => {
+    harness.service.setDirtyCount(3)
+    harness.service.forceClose()
+    expect(win.destroyed).toBe(true)
+    expect(win.sent).toEqual([])
+  })
+
+  it('forceClose on a closed service is a no-op', () => {
+    harness.service.forceClose()
+    expect(() => harness.service.forceClose()).not.toThrow()
+  })
+
+  it('resets dirty state for a freshly opened window', () => {
+    harness.service.setDirtyCount(2)
+    harness.service.forceClose()
+    harness.service.open(SKILL)
+    const next = harness.created[1]
+    expect(next.userCloses()).toBe(true)
+  })
+})
