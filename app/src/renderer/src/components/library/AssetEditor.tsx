@@ -6,7 +6,7 @@ import { Btn } from '../ui'
 import { ModalShell } from '../ModalShell'
 import { AssistProgress } from './AssistProgress'
 import { useAssistProvider } from './assistProvider'
-import { diffLines } from '../../lib/lineDiff'
+import { DiffView } from '../editor/DiffView'
 import { confirm } from '../../lib/confirmStore'
 import {
   validateSkill,
@@ -15,9 +15,6 @@ import {
   type ValidationIssue
 } from '../../../../shared/assetValidation'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
-
-const KIND_PREFIX = { same: '  ', add: '+ ', del: '- ' } as const
-const KIND_CLASS = { same: 'text-dim', add: 'text-signal', del: 'text-danger' } as const
 
 // eslint-disable-next-line react-refresh/only-export-components -- templates co-located with the component that consumes them; Task 8 imports them too, see LibraryPage.tsx for the same pattern
 export function skillTemplate(name: string): string {
@@ -61,15 +58,27 @@ export interface AssetEditorProps {
   chrome?: 'modal' | 'window'
   /** Fires whenever the pristine flag flips, so the window can report dirty state to main. */
   onDirtyChange?: (dirty: boolean) => void
-  /** Absent in create mode. */
-  load?: () => Promise<{ content: string; hash: string }>
+  /** A strip under the header — draft restore, staleness, conflict. Owned by the host so this
+   *  component stays ignorant of the draft store. */
+  banner?: React.ReactNode
+  /** A chip in the window header (sync state). Ignored by the modal chrome. */
+  status?: React.ReactNode
+  /** Autosave hook. `onChange` fires whenever the user has produced something — never for a
+   *  file that was merely opened. **The object identity must be stable across renders**, or the
+   *  effect below re-fires on every render; memoise it in the host. */
+  draft?: { onChange: (content: string, name: string) => void }
+  /** Absent in create mode with nothing to restore. `hash` is null for a create-mode draft;
+   *  `pristine: false` opens the buffer already dirty, which is what a restored draft is. */
+  load?: () => Promise<{ content: string; hash: string | null; pristine?: boolean }>
   /** Resolves to the new base hash — the hash of what was actually written to disk. Both
    *  write paths (`writeUserSkill`, `RefSyncService.writeReference`) already compute this;
    *  the editor must adopt it into `baseHash`, or the very next save is guaranteed to throw
    *  a "changed on disk" conflict caused by this save itself. */
   save: (args: { name: string; content: string; baseHash: string | null }) => Promise<string>
   onClose: () => void
-  onSaved?: (name: string) => void
+  /** Carries what was written and the hash it produced: the host needs both to decide whether
+   *  to discard the draft or re-file it against the new hash. */
+  onSaved?: (name: string, content: string, hash: string) => void
 }
 
 /**
@@ -84,6 +93,9 @@ export function AssetEditor({
   mode,
   chrome = 'modal',
   onDirtyChange,
+  banner,
+  status,
+  draft,
   load,
   save,
   onClose,
@@ -164,11 +176,23 @@ export function AssetEditor({
   // and so this also self-corrects if a host ever swaps to a different asset without unmounting.
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
+  /**
+   * Spec §4.2. Gated on the user having actually produced something: a draft written on load
+   * would mean every file you merely open gets one, and the window would claim "Draft" without
+   * a keystroke. A typed create-mode name counts — it is real work (see `hasUnsavedWork`), and
+   * §4.5's re-key is only reachable through it.
+   */
+  const draftable = loaded && (!bufferPristine || (mode === 'create' && name !== initialName))
+  useEffect(() => {
+    if (!draftable) return
+    draft?.onChange(buffer, name)
+  }, [draftable, buffer, name, draft])
+
   useEffect(() => {
     if (!load) return
     let live = true
     load().then(
-      ({ content, hash }) => {
+      ({ content, hash, pristine }) => {
         // The textarea (the only way to touch `buffer` in edit mode) doesn't render until
         // `loaded` is true, and both flip in this same batched update — so there is no
         // render in which a user edit could be sitting in `buffer` for this to clobber.
@@ -179,6 +203,9 @@ export function AssetEditor({
         // the true current buffer, not a stale snapshot. See the comment on `bufferRef`.
         bufferRef.current = content
         setBaseHash(hash)
+        // A restored draft is by definition unsaved work. Without this the window would report
+        // itself clean to main and the close handshake would let it go without a word.
+        if (pristine === false) setBufferPristine(false)
         setLoaded(true)
       },
       (e: Error) => live && setError(e.message)
@@ -244,7 +271,7 @@ export function AssetEditor({
       // branch below this content really is on disk, and `savedClean` correctly stays false
       // because the buffer has since moved past it.
       setLastSaved({ name, content: savedContent })
-      onSaved?.(name)
+      onSaved?.(name, savedContent, newHash)
       if (bufferRef.current === savedContent) {
         // A window is a place, not a dialog: emptying it after every save would send the user
         // back to the Library just to carry on editing the same file. `savedClean` above now
@@ -380,6 +407,8 @@ export function AssetEditor({
         </div>
       )}
 
+      {banner}
+
       {error && (
         <div
           role="alert"
@@ -396,30 +425,28 @@ export function AssetEditor({
       ) : (
         <>
           {proposed !== null ? (
-            <>
-              <pre className="flex-1 overflow-auto px-4 py-3 font-mono text-xs">
-                {diffLines(buffer, proposed).map((l, i) => (
-                  <div key={i} className={KIND_CLASS[l.kind]}>
-                    {KIND_PREFIX[l.kind]}
-                    {l.text}
-                  </div>
-                ))}
-              </pre>
-              <div className="flex justify-end gap-2 border-t border-hair px-3 py-2">
-                <Btn variant="ghost" onClick={() => setProposed(null)}>
-                  Discard
-                </Btn>
-                <Btn
-                  variant="primary"
-                  onClick={() => {
-                    edit(proposed)
-                    setProposed(null)
-                  }}
-                >
-                  Accept
-                </Btn>
-              </div>
-            </>
+            <DiffView
+              before={buffer}
+              after={proposed}
+              beforeLabel="Current"
+              afterLabel="Proposed"
+              actions={
+                <>
+                  <Btn variant="ghost" onClick={() => setProposed(null)}>
+                    Discard
+                  </Btn>
+                  <Btn
+                    variant="primary"
+                    onClick={() => {
+                      edit(proposed)
+                      setProposed(null)
+                    }}
+                  >
+                    Accept
+                  </Btn>
+                </>
+              }
+            />
           ) : preview ? (
             <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
               <Markdown remarkPlugins={[remarkGfm]}>{buffer}</Markdown>
@@ -483,7 +510,10 @@ export function AssetEditor({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">
           <span className="font-mono text-xs text-dim">{title}</span>
-          <span className="flex items-center gap-2">{actions}</span>
+          <span className="flex items-center gap-3">
+            {status}
+            <span className="flex items-center gap-2">{actions}</span>
+          </span>
         </div>
         {body}
       </div>

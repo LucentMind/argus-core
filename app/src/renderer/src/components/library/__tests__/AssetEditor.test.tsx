@@ -540,4 +540,77 @@ describe('AssetEditor', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^improve/i })).toBeEnabled())
     resolveImprove({ content: 'ignored' })
   })
+
+  it('renders a host-supplied banner', async () => {
+    // Queried by text, not by role: AssetEditor already gives its own validation *warnings*
+    // role="status", so a role query here would be ambiguous the moment a fixture warns.
+    setup({ banner: <div role="status">Restored unsaved draft from 3:42pm.</div> })
+    expect(await screen.findByText(/Restored unsaved draft/)).toBeInTheDocument()
+  })
+
+  it('renders a host-supplied status in the window header', async () => {
+    setup({ chrome: 'window', status: <span>Draft · 3:42 PM</span> })
+    expect(await screen.findByText('Draft · 3:42 PM')).toBeInTheDocument()
+  })
+
+  it('opens a restored draft already dirty', async () => {
+    const onDirtyChange = vi.fn()
+    setup({
+      onDirtyChange,
+      load: async () => ({ content: valid, hash: 'h1', pristine: false })
+    })
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
+  })
+
+  it('does not report a draft change for a file that was only opened', async () => {
+    const onChange = vi.fn()
+    setup({ draft: { onChange } })
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    // A draft written on load would mean every file you merely LOOK at gets one.
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(valid))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('reports every buffer change to the draft host', async () => {
+    const onChange = vi.fn()
+    setup({ draft: { onChange } })
+    const ta = await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.type(ta, 'X')
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(`${valid}X`, 'rca'))
+  })
+
+  it('reports a create-mode rename to the draft host even before the body is touched', async () => {
+    const onChange = vi.fn()
+    render(
+      <AssetEditor
+        kind="skill"
+        name="new-skill"
+        mode="create"
+        draft={{ onChange }}
+        save={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    await userEvent.type(screen.getByLabelText('skill name'), '2')
+    // A typed name is real work (see hasUnsavedWork), and §4.5's re-key needs to see it.
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(expect.any(String), 'new-skill2'))
+  })
+
+  it('hands the saved content and the new hash to onSaved', async () => {
+    const onSaved = vi.fn()
+    setup({ onSaved, save: vi.fn().mockResolvedValue('h2') })
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('rca', valid, 'h2'))
+  })
+
+  it('shows an accepted assist as a two-column diff', async () => {
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    expect(
+      await screen.findByRole('group', { name: /current compared with proposed/i })
+    ).toBeInTheDocument()
+  })
 })
