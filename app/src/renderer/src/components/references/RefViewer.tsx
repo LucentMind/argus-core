@@ -4,6 +4,18 @@ import remarkGfm from 'remark-gfm'
 import { Btn } from '../ui'
 import { ModalShell } from '../ModalShell'
 import { AuthorshipStrip } from './AuthorshipStrip'
+import { fmBlock } from '../../../../shared/frontmatter'
+
+/**
+ * Rendered mode shows the body only. YAML frontmatter is not markdown, so passing the whole file
+ * to react-markdown spilled `name: …`/`description: …` into the page as prose — and once assets
+ * carried authorship, the contributor list rendered as a bulleted list of emails immediately
+ * below the strip that already displays it. Raw mode still shows the file verbatim, which is the
+ * mode you switch to when you want the frontmatter.
+ */
+function renderedBody(raw: string): string {
+  return fmBlock(raw)?.body ?? raw
+}
 
 /** Generic modal markdown viewer (FileViewer idiom) — refs and skills share it. */
 export function MarkdownViewer({
@@ -58,7 +70,7 @@ export function MarkdownViewer({
       ) : !raw ? (
         <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
           {content != null ? (
-            <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{renderedBody(content)}</Markdown>
           ) : (
             'Loading…'
           )}
