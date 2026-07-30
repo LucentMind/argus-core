@@ -6,7 +6,14 @@
  * out of raw file text the renderer already holds, which is what keeps this feature free of a
  * new IPC channel.
  */
-import { fmBlock, fmField, fmList, withFrontmatter, withFrontmatterList } from './frontmatter'
+import {
+  fmBlock,
+  fmField,
+  fmList,
+  removeFrontmatterKeys,
+  withFrontmatter,
+  withFrontmatterList
+} from './frontmatter'
 
 export type Origin = 'authored' | 'proposal' | 'fork'
 export interface Identity {
@@ -96,23 +103,16 @@ export function mergeAuthorship(incoming: string, existing: string | null): stri
   // never removes ones it isn't, so an empty `flat` would otherwise leave the buffer's own
   // author/origin lines in place. withFrontmatterList's empty-array case already IS a removal
   // (see below); flat keys need the explicit strip since there is no such built-in.
-  let out = stripAuthorshipFlat(incoming)
+  // removeFrontmatterKeys goes through splitFm/renderFm rather than a flat-line regex, so it
+  // also removes a key an Improve round-trip re-shaped into a block list (e.g. `author:` followed
+  // by an indented `- Someone Else <…>` item) without orphaning the indented item.
+  let out = removeFrontmatterKeys(incoming, ['author', 'origin'])
   if (Object.keys(flat).length > 0) out = withFrontmatter(out, flat)
   // An empty `contributors` array removes the block outright, so this call is safe unconditionally.
+  // This re-serializes the whole frontmatter block via splitFm/renderFm on every save (not only
+  // when contributors actually change), which also normalizes any CRLF and drops any blank line
+  // inside the block — a wider normalization surface than just the authorship keys.
   return withFrontmatterList(out, 'contributors', contributors)
-}
-
-/**
- * Remove the `author:`/`origin:` flat lines from a frontmatter block outright (not overlay-with-
- * nothing — `withFrontmatter` has no such mode). Both are always single, unindented flat lines,
- * never block lists, so a plain per-line filter is safe and cannot mistake an indented
- * continuation line (e.g. under an unrelated `sources:` list) for one of these two keys.
- */
-function stripAuthorshipFlat(raw: string): string {
-  const block = fmBlock(raw)
-  if (!block) return raw
-  const kept = block.fm.split(/\r?\n/).filter((l) => !/^(?:author|origin):/.test(l))
-  return `---\n${kept.join('\n')}\n---\n${block.body}`
 }
 
 /**
