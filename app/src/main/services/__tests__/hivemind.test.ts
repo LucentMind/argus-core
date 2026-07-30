@@ -351,9 +351,18 @@ describe('pushable + push', () => {
     seedClone()
     seedUserAssets()
     const calls: string[][] = []
-    const git: Runner = async (_c, args) => {
+    let copyExistedAtCommit = false
+    const git: Runner = async (_c, args, opts) => {
       calls.push(args)
       if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      // Positive assertion that the copy actually lands somewhere: a `push` that skipped
+      // `cpSync` entirely would still pass every other assertion in this test, so snapshot
+      // whether the file exists in the worktree at the moment `commit` runs.
+      if (args[0] === 'commit') {
+        copyExistedAtCommit = fs.existsSync(
+          path.join(opts?.cwd ?? '', 'skills', 'my-skill', 'SKILL.md')
+        )
+      }
       return ''
     }
     const gh: Runner = async (_c, args) => {
@@ -363,6 +372,7 @@ describe('pushable + push', () => {
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
     const r = await svc.push('skill', 'my-skill', 'Add my-skill')
     expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' })
+    expect(copyExistedAtCommit).toBe(true)
     // the copy never lands in the shared clone itself — only in the throwaway worktree,
     // which is gone by the time push returns
     expect(fs.existsSync(path.join(home, 'hivemind', 'skills', 'my-skill'))).toBe(false)
@@ -1292,15 +1302,21 @@ describe('install() and unpushed local edits', () => {
 })
 
 describe('push keeps the shared clone checked out', () => {
-  /** A fake git that satisfies push's reads and records every call. */
-  function pushRunner(): { runner: Runner; calls: string[][] } {
+  /** A fake git that satisfies push's reads and records every call, cwd included. */
+  function pushRunner(): {
+    runner: Runner
+    calls: string[][]
+    cwds: (string | undefined)[]
+  } {
     const calls: string[][] = []
-    const runner: Runner = async (_cmd, args) => {
+    const cwds: (string | undefined)[] = []
+    const runner: Runner = async (_cmd, args, opts) => {
       calls.push(args)
+      cwds.push(opts?.cwd)
       if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return 'origin/main'
       return ''
     }
-    return { runner, calls }
+    return { runner, calls, cwds }
   }
 
   function seedUserSkill(): void {
@@ -1357,6 +1373,57 @@ describe('push keeps the shared clone checked out', () => {
     expect(r.ok).toBe(false)
     expect(calls.filter((a) => a[0] === 'worktree' && a[1] === 'remove').length).toBe(1)
     expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
+  })
+
+  it('runs add, commit, and push in the worktree, not the clone', async () => {
+    seedClone()
+    seedUserSkill()
+    const { runner, calls, cwds } = pushRunner()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: runner,
+      gh: async () => 'https://github.com/acme/hivemind/pull/9'
+    })
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    const clone = path.join(home, 'hivemind')
+    const cwdOf = (verb: string): string | undefined => cwds[calls.findIndex((a) => a[0] === verb)]
+    const addCwd = cwdOf('add')
+    const commitCwd = cwdOf('commit')
+    const pushCwd = cwdOf('push')
+    // If any of these regressed back to running in the clone, the whole point of the
+    // worktree rewrite — that the clone's HEAD/working tree never moves — would be silently
+    // undone even though `checkout` is never called.
+    expect(addCwd).toBeDefined()
+    expect(addCwd).not.toBe(clone)
+    expect(commitCwd).toBeDefined()
+    expect(commitCwd).not.toBe(clone)
+    expect(pushCwd).toBeDefined()
+    expect(pushCwd).not.toBe(clone)
+  })
+
+  it('a worktree-removal failure does not turn a successful push into a failure', async () => {
+    seedClone()
+    seedUserSkill()
+    const { runner, calls } = pushRunner()
+    const flakyRunner: Runner = async (cmd, args, opts) => {
+      // Simulate a routine Windows cleanup failure (AV/indexer still holding a handle
+      // right after `worktree add`'s directory was released).
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        calls.push(args)
+        throw new Error('EBUSY: resource busy or locked')
+      }
+      return runner(cmd, args, opts)
+    }
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: flakyRunner,
+      gh: async () => 'https://github.com/acme/hivemind/pull/9'
+    })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/9' })
+    expect(calls.some((a) => a[0] === 'worktree' && a[1] === 'remove')).toBe(true)
   })
 })
 
