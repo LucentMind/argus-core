@@ -1510,8 +1510,8 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.skillsRead, (_e, name: string) => readSkill(argusHome, name))
   ipcMain.handle(IPC.skillsWrite, (_e, name: string, content: string, baseHash: string | null) => {
-    writeUserSkill(argusHome, name, content, baseHash)
-    return skillsPayload()
+    const hash = writeUserSkill(argusHome, name, content, baseHash)
+    return { ...skillsPayload(), hash }
   })
   ipcMain.handle(IPC.skillsFork, (_e, name: string, newName?: string) => {
     const created = forkSkill(argusHome, name, newName)
@@ -2001,8 +2001,9 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.refsyncWriteRef,
     (_e, file: string, content: string, baseHash: string | null) => {
-      refSync.writeReference(file, content, baseHash)
+      const hash = refSync.writeReference(file, content, baseHash)
       broadcast(IPC.refsyncChanged, refSync.payload())
+      return hash
     }
   )
   ipcMain.handle(IPC.refsyncSearchRefs, (_e, query: string) => refSync.searchReferences(query))

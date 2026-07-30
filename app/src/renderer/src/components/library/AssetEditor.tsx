@@ -57,7 +57,11 @@ export interface AssetEditorProps {
   mode: 'edit' | 'create'
   /** Absent in create mode. */
   load?: () => Promise<{ content: string; hash: string }>
-  save: (args: { name: string; content: string; baseHash: string | null }) => Promise<void>
+  /** Resolves to the new base hash — the hash of what was actually written to disk. Both
+   *  write paths (`writeUserSkill`, `RefSyncService.writeReference`) already compute this;
+   *  the editor must adopt it into `baseHash`, or the very next save is guaranteed to throw
+   *  a "changed on disk" conflict caused by this save itself. */
+  save: (args: { name: string; content: string; baseHash: string | null }) => Promise<string>
   onClose: () => void
   onSaved?: (name: string) => void
 }
@@ -168,7 +172,11 @@ export function AssetEditor({
     // out whether that happened.
     const savedContent = buffer
     try {
-      await save({ name, content: savedContent, baseHash })
+      const newHash = await save({ name, content: savedContent, baseHash })
+      // Adopt before deciding whether to close: when the buffer moved during the round trip
+      // and the editor stays open below, the next Save must compare against what's actually
+      // on disk now — not the hash this save started with, which the write just invalidated.
+      setBaseHash(newHash)
       onSaved?.(name)
       if (bufferRef.current === savedContent) {
         onClose()
