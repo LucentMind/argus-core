@@ -3,6 +3,7 @@ import { HandGrab, Pencil, Share2, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
 import { Btn, Chip, MenuButton } from '../ui'
 import { ProposalsBanner } from './ProposalsBanner'
+import { ForkSkillDialog } from './ForkSkillDialog'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
 import { RefViewer, MarkdownViewer } from '../references/RefViewer'
@@ -101,6 +102,8 @@ export function LibraryPage({
     name: string
     mode: 'edit' | 'create'
   } | null>(null)
+  // the skill being forked, while the "Edit a copy" name dialog is open
+  const [forking, setForking] = useState<SkillListItem | null>(null)
   // one dialog serves both kinds — keyed `${kind}/${name}` like push receipts
   const [sharing, setSharing] = useState<string | null>(null)
   const [sharePushing, setSharePushing] = useState(false)
@@ -177,28 +180,19 @@ export function LibraryPage({
     }
   }
 
-  /** Fork a bundled/hivemind skill into skills-user, then edit the copy. */
-  async function forkThenEdit(s: SkillListItem): Promise<void> {
-    const ok = await confirm({
-      title: `Edit your own copy of "${s.name}"?`,
-      message:
-        s.tier === 'hivemind'
-          ? 'A copy lands in your skills and overrides the HiveMind version. "Adopt upstream" undoes it.'
-          : 'A copy lands in your skills and overrides the bundled version. Deleting it restores the pack copy.',
-      confirmLabel: 'Copy'
-    })
-    if (!ok) return
-    setError(null)
+  /** Fork a bundled/hivemind skill into skills-user (optionally under a new name — that's how
+   *  a user gets a private variant instead of a PR against the team's copy), then edit the copy.
+   *  Errors (illegal name, or the collision forkSkill refuses) surface inline in the dialog,
+   *  which is why they are NOT caught here — ForkSkillDialog's submit() does that and keeps
+   *  itself open so the user can retry with a different name. */
+  async function doFork(s: SkillListItem, newName: string): Promise<void> {
     // close the viewer first: a failure below must land on a visible page, not
-    // behind the still-open modal (spec finding 2)
+    // behind the still-open modal (spec finding 2) — the fork dialog itself stays on top
     setViewer(null)
-    try {
-      const { name, skills } = await window.argus.skills.fork(s.name)
-      setSkills(skills)
-      setEditor({ kind: 'skill', name, mode: 'edit' })
-    } catch (err) {
-      setError((err as Error).message)
-    }
+    const { name, skills } = await window.argus.skills.fork(s.name, newName)
+    setSkills(skills)
+    setForking(null)
+    setEditor({ kind: 'skill', name, mode: 'edit' })
   }
 
   /** Claim a hivemind reference (restamp to user tier), then edit it. */
@@ -612,7 +606,7 @@ export function LibraryPage({
               onClose={() => setViewer(null)}
               extraActions={
                 s && s.tier !== 'user' ? (
-                  <Btn variant="outline" onClick={() => void forkThenEdit(s)}>
+                  <Btn variant="outline" onClick={() => setForking(s)}>
                     <Pencil size={13} aria-hidden="true" />
                     Edit a copy
                   </Btn>
@@ -621,6 +615,14 @@ export function LibraryPage({
             />
           )
         })()}
+      {forking && (
+        <ForkSkillDialog
+          sourceName={forking.name}
+          tier={forking.tier}
+          onCancel={() => setForking(null)}
+          onConfirm={(newName) => doFork(forking, newName)}
+        />
+      )}
       {viewer?.kind === 'reference' &&
         (() => {
           const r = references.find((x) => x.file === viewer.name)
