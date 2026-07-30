@@ -3,6 +3,7 @@ import { Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
+import { withByline } from './byline'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
@@ -44,7 +45,7 @@ function BrowseRow({
     <Fragment>
       <SettingRow
         label={it.name}
-        description={it.description || undefined}
+        description={withByline(it.description, it.author)}
         badge={
           <>
             {it.localTier && <TierBadge tier={it.localTier} />}
