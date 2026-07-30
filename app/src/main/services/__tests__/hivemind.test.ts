@@ -141,6 +141,26 @@ describe('HivemindService states', () => {
     expect(calls.some((c) => c[0] === 'rev-parse' && c.includes('origin/HEAD'))).toBe(false)
   })
 
+  it('sync issues no checkout when HEAD is on an unrelated non-default branch', async () => {
+    // Distinct from "HEAD is already the default branch": this proves the guard is keyed on
+    // the argus/share- prefix, not on head !== defaultBranch — a deliberate checkout of some
+    // other branch (e.g. the user inspecting their own work) must survive sync() untouched.
+    seedClone()
+    const calls: string[][] = []
+    const runner: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'remote') return 'https://github.com/acme/hivemind.git'
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD')
+        return 'feature/mine'
+      if (args[0] === 'rev-parse') return 'headsha'
+      if (args[0] === 'log') return 'itemsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.sync()
+    expect(calls.some((c) => c[0] === 'checkout')).toBe(false)
+  })
+
   it('sync does not probe or heal HEAD on a fresh clone (nothing to park)', async () => {
     const calls: string[][] = []
     const runner: Runner = async (_c, args) => {

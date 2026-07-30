@@ -268,9 +268,20 @@ export class HivemindService {
    * localDivergence) stays poisoned indefinitely — including the data-loss guard the whole
    * feature exists to provide.
    *
-   * Scoped narrowly to the exact `argus/share-` prefix `push` generates, so this can never
-   * stomp a deliberate checkout the user made themselves in the clone. Only called when a
-   * clone already exists — a fresh clone has nothing to park on.
+   * Scoped narrowly to the exact `argus/share-` prefix `push` generates: those branches are the
+   * only ones in this app-managed clone a user would plausibly check out deliberately (to
+   * inspect their own pending PR), so the prefix isn't protecting *them* — it's protecting a
+   * deliberate checkout of anything else in the clone from being stomped. A detached HEAD
+   * (`rev-parse --abbrev-ref HEAD` returning the literal `HEAD`) is equally poisoned and is
+   * likewise left unhealed by this check, but it fails safe: `pull --ff-only` errors instead of
+   * silently advancing the wrong branch, so the result is a loud error rather than corruption.
+   * Only called when a clone already exists — a fresh clone has nothing to park on.
+   *
+   * Only called from `sync()`, which is user-initiated (the refresh button): `install()`,
+   * `payload()`/`listItems()`, and the update-preview `diff()` are all HEAD-relative but never
+   * heal, so a parked clone still fools the data-loss guard for any Update performed before the
+   * user next clicks Sync. That window is accepted scope — it's strictly better than the old
+   * behavior, which only healed on the next `push`.
    */
   private async healParkedHead(clone: string): Promise<void> {
     const head = await this.git(['rev-parse', '--abbrev-ref', 'HEAD'], clone).catch(() => '')
