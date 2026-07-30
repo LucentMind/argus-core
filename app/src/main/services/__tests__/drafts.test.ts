@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -180,6 +180,135 @@ describe('DraftStore.onSaved', () => {
     const s = store()
     s.onSaved((r) => seen.push(r))
     s.flushAll()
+    expect(seen).toEqual([])
+  })
+})
+
+describe('DraftStore debounce', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('writes after the idle window, not on the keystroke', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.queue(CHANGE)
+    expect(fs.existsSync(file('skill', 'my-skill'))).toBe(false)
+    vi.advanceTimersByTime(500)
+    expect(fs.existsSync(file('skill', 'my-skill'))).toBe(true)
+  })
+
+  it('coalesces a burst of keystrokes into one write', () => {
+    const seen: DraftRecord[] = []
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.onSaved((r) => seen.push(r))
+    s.queue({ ...CHANGE, content: 'a' })
+    vi.advanceTimersByTime(200)
+    s.queue({ ...CHANGE, content: 'ab' })
+    vi.advanceTimersByTime(200)
+    s.queue({ ...CHANGE, content: 'abc' })
+    vi.advanceTimersByTime(500)
+    expect(seen.map((r) => r.content)).toEqual(['abc'])
+  })
+
+  it('debounces each asset independently', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.queue(CHANGE)
+    s.queue({ kind: 'reference', name: 'notes.md', mode: 'edit', content: 'r', baseHash: 'h' })
+    vi.advanceTimersByTime(500)
+    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+    expect(store().read('reference', 'notes.md')?.content).toBe('r')
+  })
+
+  it('flushAll writes the pending change immediately and cancels its timer', () => {
+    const seen: DraftRecord[] = []
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.onSaved((r) => seen.push(r))
+    s.queue(CHANGE)
+    s.flushAll()
+    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+    // The cancelled timer must not fire a second write after the flush.
+    vi.advanceTimersByTime(2000)
+    expect(seen).toHaveLength(1)
+  })
+
+  it('flushAll on an empty store is a no-op', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    expect(() => s.flushAll()).not.toThrow()
+  })
+})
+
+describe('DraftStore re-key on rename (spec §4.5)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('moves the draft to the new name and removes the old file', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.queue({ ...CHANGE, name: 'old-name' })
+    vi.advanceTimersByTime(500)
+    expect(fs.existsSync(file('skill', 'old-name'))).toBe(true)
+
+    s.queue({ ...CHANGE, name: 'new-name', replaces: { kind: 'skill', name: 'old-name' } })
+    vi.advanceTimersByTime(500)
+
+    expect(fs.existsSync(file('skill', 'old-name'))).toBe(false)
+    expect(store().read('skill', 'new-name')?.content).toBe('# typing\n')
+  })
+
+  it('drops the old name from the queue so it is never written after the rename', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.queue({ ...CHANGE, name: 'old-name' })
+    // Renamed before the old key's timer ever fired.
+    s.queue({ ...CHANGE, name: 'new-name', replaces: { kind: 'skill', name: 'old-name' } })
+    vi.advanceTimersByTime(500)
+    expect(fs.existsSync(file('skill', 'old-name'))).toBe(false)
+    expect(fs.existsSync(file('skill', 'new-name'))).toBe(true)
+  })
+
+  it('ignores a `replaces` that names the same asset', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.queue({ ...CHANGE, replaces: { kind: 'skill', name: 'my-skill' } })
+    vi.advanceTimersByTime(500)
+    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+  })
+})
+
+describe('DraftStore write failure', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keeps the change queued when the write throws, and lands it on the retry', () => {
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    // A file where the drafts directory should be: mkdirSync throws ENOTDIR/EEXIST.
+    fs.writeFileSync(path.join(home, 'drafts'), 'not a directory', 'utf8')
+
+    s.queue(CHANGE)
+    vi.advanceTimersByTime(500)
+    // Persist-before-adopt: nothing on disk, so the queued copy must still be there.
+    expect(s.read('skill', 'my-skill')?.content).toBe('# typing\n')
+
+    fs.rmSync(path.join(home, 'drafts'))
+    s.flushAll()
+    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+  })
+
+  it('does not announce a save that did not happen', () => {
+    const seen: DraftRecord[] = []
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    s.onSaved((r) => seen.push(r))
+    fs.writeFileSync(path.join(home, 'drafts'), 'not a directory', 'utf8')
+    s.queue(CHANGE)
+    vi.advanceTimersByTime(500)
     expect(seen).toEqual([])
   })
 })
