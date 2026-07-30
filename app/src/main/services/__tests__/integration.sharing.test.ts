@@ -8,7 +8,7 @@ import { seedMemoryPair } from './helpers/seedMemoryPair'
 import { exportCase, importCase, inspectBundle } from '../bundle'
 import { searchEvidence } from '../search'
 import { HivemindService, type Runner } from '../hivemind'
-import { resolveSkills } from '../agent/skillsResolver'
+import { resolveSkills, forkSkill, writeUserSkill, readSkill } from '../agent/skillsResolver'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -209,5 +209,63 @@ describe('HiveMind against a local bare repo (no network)', () => {
     po = await other.claimReference('my-tips.md')
     expect(po.items.find((i) => i.name === 'my-tips.md')?.localTier).toBe('user')
     expect(po.pushable).toContainEqual({ kind: 'reference', name: 'my-tips.md' })
+  }, 30_000)
+
+  it('fork → edit → push cuts the branch from the pin, not origin/HEAD — the PR carries only the local edit and does not revert the upstream change made after install (spec §8)', async () => {
+    const gh: Runner = async () => 'https://github.com/acme/hivemind/pull/13'
+    const svc = service(gh)
+    await svc.sync()
+    git(path.join(homeB, 'hivemind'), 'config', 'user.email', 'test@argus.local')
+    git(path.join(homeB, 'hivemind'), 'config', 'user.name', 'Argus Test')
+
+    // install pins hive-probe at its current (v1) upstream commit
+    const p = await svc.install('skill', 'hive-probe')
+    const pinnedCommit = p.items.find((i) => i.name === 'hive-probe')!.installedCommit
+    expect(pinnedCommit).toBeTruthy()
+
+    // upstream advances PAST the pin with a commit touching the SAME skill — the change a
+    // whole-dir-replace push must not silently revert
+    fs.writeFileSync(
+      path.join(work, 'skills', 'hive-probe', 'SKILL.md'),
+      '---\nname: hive-probe\ndescription: probe skill from the hive\n---\n# hive-probe v1\n\nUpstream note added after install.\n'
+    )
+    git(work, 'add', '-A')
+    git(work, 'commit', '-m', 'upstream note added after install')
+    git(work, 'push', 'origin', 'main')
+    const upstreamCommit = git(work, 'rev-parse', 'HEAD')
+    expect(upstreamCommit).not.toBe(pinnedCommit)
+
+    // fork the still-pinned (v1) local copy into skills-user — editing something you don't
+    // own forks it into your tier first
+    expect(forkSkill(homeB, 'hive-probe')).toBe('hive-probe')
+    const beforeEdit = readSkill(homeB, 'hive-probe')
+    expect(beforeEdit.content).not.toContain('Upstream note')
+
+    // edit the fork (same write path the in-app editor uses)
+    const edited =
+      '---\nname: hive-probe\ndescription: probe skill from the hive, with my local fix\n---\n# hive-probe v1\n\nLocal fix applied.\n'
+    writeUserSkill(homeB, 'hive-probe', edited, beforeEdit.hash)
+
+    const r = await svc.push('skill', 'hive-probe', 'Local fix to hive-probe')
+    expect(r.ok).toBe(true)
+
+    const branches = git(bare, 'branch', '--list', 'argus/*')
+    const branch = branches.replace(/^\*?\s+/, '').trim()
+    expect(branch).toMatch(/argus\/share-skill-hive-probe-/)
+
+    // the pushed file carries the local edit …
+    const shown = git(bare, 'show', `${branch}:skills/hive-probe/SKILL.md`)
+    expect(shown).toContain('Local fix applied.')
+
+    // … and THE point of the fix: the branch's parent is the PIN, not origin/HEAD (which
+    // moved to upstreamCommit). If push regressed to branching from origin/HEAD, this
+    // would instead equal upstreamCommit — a whole-dir replace on top of it would produce
+    // a diff that silently reverts "Upstream note added after install." alongside the
+    // intended edit, which is exactly what branching from the pin avoids (the reviewer
+    // sees a clean edit-only diff and any real conflict surfaces upstream on GitHub).
+    expect(git(bare, 'rev-parse', `${branch}^`)).toBe(pinnedCommit)
+    // corroborates the same fact from the other direction: the upstream commit is not an
+    // ancestor of the pushed branch at all — their only common ancestor is the pin.
+    expect(git(bare, 'merge-base', upstreamCommit, branch)).toBe(pinnedCommit)
   }, 30_000)
 })
