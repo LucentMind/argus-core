@@ -184,8 +184,16 @@ export function CaseFiles({
     const ids = files.map((f) => pending.add(f.name))
     try {
       await window.argus.evidence.ingest(caseSlug, paths)
-      pending.resolve(ids)
+      // reload() BEFORE resolve(), not after: resolve() schedules a render, and reload() is a
+      // real IPC round trip React can paint in between — on a case with no evidence yet,
+      // `loaded && visible.length === 0 && pending.items.length === 0` would briefly be all
+      // true (pending row gone, reloaded rows not landed) and "No evidence yet." would flash on
+      // a case that just received a file. Same fix ReposSection.link already has. This relies on
+      // reload() being total — its `.then` supplies both handlers and neither rethrows, so it
+      // cannot reject — if that ever changes, a reload() throw after a successful ingest would
+      // wrongly fall into the catch below and flip these entries to error state.
       await reload()
+      pending.resolve(ids)
     } catch (err) {
       pending.fail(ids, (err as Error).message)
     }

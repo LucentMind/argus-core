@@ -258,7 +258,14 @@ export function FindingsPane({
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {showSkeleton ? (
+        {/* `showSkeleton` alone is not enough to gate the skeleton: `loaded` resets to false on
+            every `bump`, and `bump` fires for EVERY finding an agent emits during a run, not just
+            a case/session switch. If that refetch is slow enough to cross usePendingDisplay's
+            150ms delay, a skeleton-only guard would win ahead of `shown.length > 0` and replace
+            findings the user is reading with grey blocks — a refetch must never blank content
+            already on screen. `shown.length === 0` keeps the skeleton exclusive with the list,
+            same as ReposSection's `workspaces.length === 0` guard. */}
+        {showSkeleton && shown.length === 0 ? (
           <SkeletonRows count={3} />
         ) : shown.length > 0 ? (
           <ul className="flex flex-col gap-2">

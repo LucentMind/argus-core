@@ -372,6 +372,34 @@ describe('CaseWorkspace case switching', () => {
     await waitFor(() => expect(window.argus.workspaces.list).toHaveBeenCalledWith('NAV-2'))
     expect(screen.queryByTitle('worktree is locked')).toBeNull()
   })
+
+  // Regression coverage: PrCompanionSection is the fourth per-case surface in this rail
+  // (alongside ReposSection, CaseFiles, FindingsPane) and holds component-instance state of
+  // its own — `linkingRef`, the PR identity shown while `pr:link` (a `git fetch` + `worktree
+  // add`) is still running. A `PrCompanionSection`-only test cannot reproduce this: the leak
+  // only exists because CaseWorkspace renders it with no `key`, so the SAME instance survives
+  // a slug change and keeps showing case A's in-flight link under case B.
+  it('does not leak case A’s in-flight PR-link identity into case B', async () => {
+    let resolveLink!: (v: unknown) => void
+    ;(window.argus.pr as unknown as { link: ReturnType<typeof vi.fn> }).link = vi.fn(
+      () => new Promise((r) => (resolveLink = r))
+    )
+    const view = render(workspace('NAV-1', { activeMode: 'review' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
+    const box = screen.getByPlaceholderText(/pr url/i)
+    fireEvent.change(box, { target: { value: 'acme/web#42' } })
+    fireEvent.submit(box)
+    await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('NAV-1', 'acme/web#42'))
+    // the optimistic identity is on screen while `pr:link` is still in flight
+    expect(await screen.findByText('acme/web#42')).toBeInTheDocument()
+
+    // switch case BEFORE case A's link resolves
+    view.rerender(workspace('NAV-2', { activeMode: 'review' }))
+
+    expect(screen.queryByText('acme/web#42')).toBeNull()
+    resolveLink(undefined) // let the still-pending promise settle so it doesn't dangle
+  })
 })
 
 describe('CaseWorkspace session bootstrap', () => {
