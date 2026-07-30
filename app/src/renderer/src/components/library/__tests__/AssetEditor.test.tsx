@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -603,6 +604,42 @@ describe('AssetEditor', () => {
     await screen.findByRole('textbox', { name: /skill · rca/i })
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('rca', valid, 'h2'))
+  })
+
+  // The twin of AssetTab's StrictMode regression test (AssetTab.test.tsx, "still raises the
+  // conflict banner under StrictMode double-invoked mount effects"): dev-mode React.StrictMode
+  // double-invokes the mount effect (setup, simulated cleanup, setup again) on the SAME ref —
+  // an empty setup that only returns a cleanup leaves `mounted.current` stuck at `false` for the
+  // component's whole real lifetime, because nothing re-arms it on the second setup. With that
+  // stuck, `assist()`'s `if (runId.current !== myRun || !mounted.current) return` guard drops
+  // every resolution: `setProposed` never fires, and the `finally` that clears `busy`/`phase`
+  // never runs either, so the AssistProgress overlay stays up forever instead of the diff
+  // appearing. jsdom's default `render` never exercises this — it only surfaces under
+  // `<StrictMode>`, same as the AssetTab regression this mirrors.
+  it('still resolves an assist under StrictMode double-invoked mount effects', async () => {
+    let resolveImprove: (v: { content: string }) => void = () => {}
+    window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>((r) => (resolveImprove = r))
+    )
+    render(
+      <StrictMode>
+        <AssetEditor
+          kind="skill"
+          name="rca"
+          mode="edit"
+          load={async () => ({ content: valid, hash: 'h1' })}
+          save={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </StrictMode>
+    )
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+
+    resolveImprove({ content: `${valid}\nimproved` })
+
+    expect(await screen.findByRole('button', { name: /^accept$/i })).toBeInTheDocument()
+    expect(screen.queryByText(/Improving…/)).toBeNull()
   })
 
   it('shows an accepted assist as a two-column diff', async () => {

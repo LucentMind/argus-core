@@ -123,13 +123,23 @@ export function AssetEditor({
    */
   const runId = useRef(0)
   // Guards a resolution landing after unmount; `load()` has the same protection.
+  //
+  // The setup function must set `mounted.current = true`, not just rely on `useRef(true)`'s
+  // initial value. Under dev-mode React.StrictMode (both editor.tsx and main.tsx wrap their
+  // trees in it), React double-invokes every mount effect once: setup, simulated cleanup, setup
+  // again — reusing the same ref, not a fresh one. The simulated cleanup flips `mounted.current`
+  // to false; without re-arming it here, the *second* setup call leaves it false for the
+  // component's entire real lifetime, and `assist()`'s guard permanently takes its "unmounted"
+  // branch — Draft/Improve resolve, but the result is dropped and the `finally` that clears
+  // `busy`/`phase` never runs, so the AssistProgress overlay stays up forever with no escape but
+  // Stop waiting. Production builds never double-invoke, so this is invisible there.
   const mounted = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true
+    return () => {
       mounted.current = false
-    },
-    []
-  )
+    }
+  }, [])
 
   // Read across the `await` in `assist()` so a resolution can tell whether `buffer` moved
   // (typing, or a rename that regenerated the template) while the request was in flight,
