@@ -1,12 +1,13 @@
 import { useEffect, useState, Fragment } from 'react'
-import { HandGrab, Share2, Trash2 } from 'lucide-react'
+import { HandGrab, Pencil, Share2, Trash2 } from 'lucide-react'
 import { SettingsSection, SettingRow, Switch } from './settingsLayout'
-import { Btn, Chip } from '../ui'
+import { Btn, Chip, MenuButton } from '../ui'
 import { ProposalsBanner } from './ProposalsBanner'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
 import { RefViewer, MarkdownViewer } from '../references/RefViewer'
 import { TierBadge } from './TierBadge'
+import { AssetEditor } from '../library/AssetEditor'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
@@ -95,6 +96,11 @@ export function LibraryPage({
   const [skillUsage, setSkillUsage] = useState<Map<string, SkillUsageRow> | null>(null)
   const [refUsage, setRefUsage] = useState<Map<string, ReferenceUsageRow> | null>(null)
   const [viewer, setViewer] = useState<{ kind: LibraryKind; name: string } | null>(null)
+  const [editor, setEditor] = useState<{
+    kind: LibraryKind
+    name: string
+    mode: 'edit' | 'create'
+  } | null>(null)
   // one dialog serves both kinds — keyed `${kind}/${name}` like push receipts
   const [sharing, setSharing] = useState<string | null>(null)
   const [sharePushing, setSharePushing] = useState(false)
@@ -166,6 +172,47 @@ export function LibraryPage({
     setError(null)
     try {
       setSkills((await window.argus.skills.deleteUser(s.name)).skills)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  /** Fork a bundled/hivemind skill into skills-user, then edit the copy. */
+  async function forkThenEdit(s: SkillListItem): Promise<void> {
+    const ok = await confirm({
+      title: `Edit your own copy of "${s.name}"?`,
+      message:
+        s.tier === 'hivemind'
+          ? 'A copy lands in your skills and overrides the HiveMind version. "Adopt upstream" undoes it.'
+          : 'A copy lands in your skills and overrides the bundled version. Deleting it restores the pack copy.',
+      confirmLabel: 'Copy'
+    })
+    if (!ok) return
+    setError(null)
+    try {
+      const { name } = await window.argus.skills.fork(s.name)
+      setSkills((await window.argus.skills.list()).skills)
+      setViewer(null)
+      setEditor({ kind: 'skill', name, mode: 'edit' })
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  /** Claim a hivemind reference (restamp to user tier), then edit it. */
+  async function claimThenEdit(r: ReferenceStatus): Promise<void> {
+    const ok = await confirm({
+      title: `Make "${r.file}" yours?`,
+      message:
+        'It is restamped as your own reference and becomes shareable. Updates no longer track HiveMind.',
+      confirmLabel: 'Claim'
+    })
+    if (!ok) return
+    setError(null)
+    try {
+      await window.argus.hivemind.claimReference(r.file)
+      setViewer(null)
+      setEditor({ kind: 'reference', name: r.file, mode: 'edit' })
     } catch (err) {
       setError((err as Error).message)
     }
@@ -306,6 +353,14 @@ export function LibraryPage({
               </Reveal>
               <Btn
                 variant="outline"
+                aria-label={`Edit · ${s.name}`}
+                onClick={() => setEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
+              >
+                <Pencil size={13} aria-hidden="true" />
+                Edit
+              </Btn>
+              <Btn
+                variant="outline"
                 aria-label={`Share ${s.name} to HiveMind`}
                 title={shareTip}
                 // sharePushing: opening another row's dialog would unmount an
@@ -408,6 +463,17 @@ export function LibraryPage({
               </Btn>
             </Reveal>
           )}
+          {r.tier !== 'bundled' &&
+            !(HIVE_MANAGED_TIERS as readonly string[]).includes(r.tier ?? '') && (
+              <Btn
+                variant="outline"
+                aria-label={`Edit · ${r.file}`}
+                onClick={() => setEditor({ kind: 'reference', name: r.file, mode: 'edit' })}
+              >
+                <Pencil size={13} aria-hidden="true" />
+                Edit
+              </Btn>
+            )}
           {canShare && (
             <Btn
               variant="outline"
@@ -477,6 +543,22 @@ export function LibraryPage({
             </button>
           ))}
         </div>
+        <MenuButton
+          variant="outline"
+          align="right"
+          aria-label="New"
+          label="New"
+          items={[
+            {
+              label: 'New skill',
+              onSelect: () => setEditor({ kind: 'skill', name: 'my-skill', mode: 'create' })
+            },
+            {
+              label: 'New reference',
+              onSelect: () => setEditor({ kind: 'reference', name: 'my-notes.md', mode: 'create' })
+            }
+          ]}
+        />
       </div>
       {GROUP_ORDER.map((g) => {
         const groupSkills = skills.filter((s) => groupOf(s.tier) === g && skillVisible(s))
@@ -514,16 +596,71 @@ export function LibraryPage({
         references.every((r) => !refVisible(r)) && (
           <div className="px-3 py-2 text-xs text-faint">No matches.</div>
         )}
-      {viewer?.kind === 'reference' && (
-        <RefViewer file={viewer.name} onClose={() => setViewer(null)} />
-      )}
-      {viewer?.kind === 'skill' && (
-        <MarkdownViewer
-          key={viewer.name}
-          title={`skills / ${viewer.name}`}
-          ariaLabel={`skill · ${viewer.name}`}
-          load={() => window.argus.skills.read(viewer.name).then((r) => r.content)}
-          onClose={() => setViewer(null)}
+      {viewer?.kind === 'skill' &&
+        (() => {
+          const s = skills.find((x) => x.name === viewer.name)
+          return (
+            <MarkdownViewer
+              key={viewer.name}
+              title={`skills / ${viewer.name}`}
+              ariaLabel={`skill · ${viewer.name}`}
+              load={() => window.argus.skills.read(viewer.name).then((r) => r.content)}
+              onClose={() => setViewer(null)}
+              extraActions={
+                s && s.tier !== 'user' ? (
+                  <Btn variant="outline" onClick={() => void forkThenEdit(s)}>
+                    <Pencil size={13} aria-hidden="true" />
+                    Edit a copy
+                  </Btn>
+                ) : undefined
+              }
+            />
+          )
+        })()}
+      {viewer?.kind === 'reference' &&
+        (() => {
+          const r = references.find((x) => x.file === viewer.name)
+          return (
+            <RefViewer
+              file={viewer.name}
+              onClose={() => setViewer(null)}
+              extraActions={
+                r?.tier === 'hivemind' ? (
+                  <Btn variant="outline" onClick={() => void claimThenEdit(r)}>
+                    <Pencil size={13} aria-hidden="true" />
+                    Edit a copy
+                  </Btn>
+                ) : undefined
+              }
+            />
+          )
+        })()}
+      {editor && (
+        <AssetEditor
+          key={`${editor.kind}/${editor.name}/${editor.mode}`}
+          kind={editor.kind}
+          name={editor.name}
+          mode={editor.mode}
+          load={
+            editor.mode === 'create'
+              ? undefined
+              : editor.kind === 'skill'
+                ? () => window.argus.skills.read(editor.name)
+                : () => window.argus.refsync.readRef(editor.name)
+          }
+          save={async ({ name, content, baseHash }) => {
+            // `save` resolves to the NEW base hash. Both write paths return the hash of the
+            // bytes they actually wrote, so the editor can adopt it and stay usable when it
+            // keeps itself open (text typed during an in-flight save). Returning nothing here
+            // would guarantee the next save throws a bogus "changed on disk".
+            if (editor.kind === 'skill') {
+              const { skills, hash } = await window.argus.skills.write(name, content, baseHash)
+              setSkills(skills)
+              return hash
+            }
+            return window.argus.refsync.writeRef(name, content, baseHash)
+          }}
+          onClose={() => setEditor(null)}
         />
       )}
     </div>
