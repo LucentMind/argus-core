@@ -68,6 +68,11 @@ const STAMP_KEYS = ['trust_tier', 'source_repo', 'source_commit'] as const
  * Drops the three install stamps and normalizes line endings, but keeps every other
  * frontmatter field, so a hand-added `tags:` line counts as an edit. Without the stamp
  * strip a pristine copy never equals its own pinned blob and every update would warn.
+ *
+ * The output is also what `localDivergence` diffs and shows the user, so it reconstructs a
+ * well-formed document with both `---` fences — `fmBlock` returns the frontmatter's inner
+ * text without its delimiters, and a half-fenced document in a data-loss preview reads as
+ * corruption. Both sides are built the same way, so the verdict is unaffected either way.
  */
 export function normalizeForCompare(raw: string): string {
   const lf = raw.replace(/\r\n/g, '\n')
@@ -78,7 +83,7 @@ export function normalizeForCompare(raw: string): string {
     .filter((l) => !STAMP_KEYS.some((k) => l.startsWith(`${k}:`)))
     .join('\n')
     .trim()
-  return fm ? `${fm}\n---\n${block.body}`.trim() : block.body.trim()
+  return fm ? `---\n${fm}\n---\n${block.body}`.trim() : block.body.trim()
 }
 
 /** Bare 'x.md' or exactly 'confluence/x.md' — no traversal, no hidden files, no other subfolders. */
