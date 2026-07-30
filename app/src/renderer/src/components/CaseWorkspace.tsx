@@ -472,7 +472,17 @@ export function CaseWorkspace({
                 child would otherwise absorb none of it, i.e. get squeezed to 0), which
                 is what forces this box to give up space first instead. */}
             <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+              {/* key: remount on case switch. Pending/error chips live in ReposSection's own
+                  usePendingList() state, which is component-instance state, not derived from
+                  props — without a key, a failed unlink in case A (e.g. a locked worktree)
+                  would leave an error chip that survives the switch to case B and renders
+                  underneath case B's freshly reloaded repo list. This keys on `slug` alone, not
+                  `${slug}:${activeMode}` (unlike CaseFiles above): the same repos show in both
+                  modes (only the unlink/graph affordances differ), so keying on mode would
+                  discard a good fetch — and the `git status --porcelain` spawns behind it — on
+                  every mode toggle. */}
               <ReposSection
+                key={slug}
                 slug={slug}
                 mode={activeMode}
                 headerExtra={
