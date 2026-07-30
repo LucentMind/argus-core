@@ -38,6 +38,8 @@ export interface SkillListItem {
   description: string
   enabled: boolean
   shadows: string[]
+  /** Your fork's content differs from the installed HiveMind copy it shadows. */
+  shadowDiverged: boolean
 }
 
 export interface SkillsPayload {

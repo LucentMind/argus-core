@@ -52,7 +52,8 @@ import {
   readSkill,
   resolveSkills,
   writeUserSkill,
-  forkSkill
+  forkSkill,
+  userSkillShadowDiverged
 } from './services/agent/skillsResolver'
 import { HivemindService } from './services/hivemind'
 import {
@@ -1500,7 +1501,11 @@ function registerIpc(): void {
       tier: s.tier,
       description: s.description,
       enabled: s.enabled,
-      shadows: s.shadows
+      shadows: s.shadows,
+      shadowDiverged:
+        s.tier === 'user' && s.shadows.includes('hivemind')
+          ? userSkillShadowDiverged(argusHome, s.name)
+          : false
     }))
   })
   ipcMain.handle(IPC.skillsList, () => skillsPayload())
