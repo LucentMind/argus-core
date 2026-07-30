@@ -391,22 +391,26 @@ export function seedKnowledge(ctx, { repos }) {
   // to CONTENT_DIRS would make every legitimate first seed of a scratch home demand
   // --force — training the user to pass --force reflexively and dissolving the guard's
   // second tier for everyone. Instead, make the overwrite recoverable: snapshot whatever
-  // was there immediately before each of the four files below is replaced. One generation
-  // is kept (overwritten on every run) — a backup from two runs ago is more confusing than
-  // useful, and this is a safety net for the one run that mattered, not a history.
+  // was there immediately BEFORE THE FIRST TIME each of the four files below is replaced.
+  // First-generation-wins, not "latest overwritten one": on a re-seed, the file already on
+  // disk is the seed's own previous literal, not the user's real config, so backing that up
+  // instead would silently replace the one copy of the user's original file with a copy of
+  // the seed's own output — precisely the bug this scheme exists to avoid. Once a backup for
+  // a name exists, it is never touched again by a later run.
   const backupDir = path.join(cfgDir, '.seed-backup')
-  const backupConfigFile = (name) => {
-    const src = path.join(cfgDir, name)
-    if (!fs.existsSync(src)) return
-    fs.mkdirSync(backupDir, { recursive: true })
-    fs.copyFileSync(src, path.join(backupDir, name))
+  const writeConfigFile = (name, body) => {
+    const dest = path.join(cfgDir, name)
+    const backupDest = path.join(backupDir, name)
+    if (fs.existsSync(dest) && !fs.existsSync(backupDest)) {
+      fs.mkdirSync(backupDir, { recursive: true })
+      fs.copyFileSync(dest, backupDest)
+    }
+    fs.writeFileSync(dest, body, 'utf8')
   }
 
-  backupConfigFile('hivemind-state.json')
-  fs.writeFileSync(
-    path.join(cfgDir, 'hivemind-state.json'),
-    `${JSON.stringify({ lastSynced: now, skills: HIVE_PINS.skills, references: HIVE_PINS.references, pushes: {} }, null, 2)}\n`,
-    'utf8'
+  writeConfigFile(
+    'hivemind-state.json',
+    `${JSON.stringify({ lastSynced: now, skills: HIVE_PINS.skills, references: HIVE_PINS.references, pushes: {} }, null, 2)}\n`
   )
 
   // ── Memory. One array is the source of truth for the topic files, the
@@ -465,9 +469,8 @@ export function seedKnowledge(ctx, { repos }) {
   )
 
   // ── Config: several providers enabled at once, non-default access and risk. ──
-  backupConfigFile('settings.json')
-  fs.writeFileSync(
-    path.join(cfgDir, 'settings.json'),
+  writeConfigFile(
+    'settings.json',
     `${JSON.stringify(
       {
         agent: {
@@ -492,21 +495,17 @@ export function seedKnowledge(ctx, { repos }) {
       },
       null,
       2
-    )}\n`,
-    'utf8'
+    )}\n`
   )
-  backupConfigFile('agent-access.json')
-  fs.writeFileSync(
-    path.join(cfgDir, 'agent-access.json'),
+  writeConfigFile(
+    'agent-access.json',
     // Skill keys are tier-qualified ('<tier>/<name>' — skillsResolver.ts's
     // skillEnabled call); 'user/burst-window-review' names a skill this same
     // function creates above, so the override is visibly in effect.
-    `${JSON.stringify({ skills: { 'user/burst-window-review': false }, memory: { 'timezone-note': false } }, null, 2)}\n`,
-    'utf8'
+    `${JSON.stringify({ skills: { 'user/burst-window-review': false }, memory: { 'timezone-note': false } }, null, 2)}\n`
   )
-  backupConfigFile('tool-risk.json')
-  fs.writeFileSync(
-    path.join(cfgDir, 'tool-risk.json'),
+  writeConfigFile(
+    'tool-risk.json',
     // Keys are '<connectorInstanceId>/<toolName>' (toolRisk.ts) and are
     // consulted ONLY for mcp__<server>__<tool> connector calls (agent/risk.ts's
     // classifyToolCall matches `mcp__(.+?)__(.+)` and looks up
@@ -527,8 +526,7 @@ export function seedKnowledge(ctx, { repos }) {
     // uppercase LOW/MEDIUM/HIGH: that's a different axis (the logged verdict
     // for a specific call) that happens to share three level names with this
     // config's override levels — they are read by unrelated code paths.
-    `${JSON.stringify({ 'rovo/getJiraIssue': 'high' }, null, 2)}\n`,
-    'utf8'
+    `${JSON.stringify({ 'rovo/getJiraIssue': 'high' }, null, 2)}\n`
   )
 
   return {

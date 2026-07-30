@@ -124,9 +124,10 @@ function guardHome(home) {
         'response, not a sign of a foreign home.\n\n' +
         'Separately, config/hivemind-state.json, config/settings.json, config/agent-access.json\n' +
         'and config/tool-risk.json are not checked above (and never will be — see CONTENT_DIRS\n' +
-        "comment) but ARE overwritten wholesale on every run. Each file's previous contents are\n" +
-        'backed up first to config/.seed-backup/<name>.json (one generation, overwritten each run)\n' +
-        'if you need to recover something after the fact.'
+        "comment) but ARE overwritten wholesale on every run. Each file's contents from just\n" +
+        'before the FIRST such overwrite are backed up to config/.seed-backup/<name>.json — that\n' +
+        'backup is first-generation-wins and is never replaced by a later run, so it stays the\n' +
+        "thing worth recovering rather than a copy of this seed's own output."
     )
     process.exit(1)
   }
@@ -267,8 +268,9 @@ Evidence rows do not exist until you do — by design.
   ARGUS_HOME=${HOME} npm run dev
 
 Note: config/hivemind-state.json, config/settings.json, config/agent-access.json and
-config/tool-risk.json were overwritten wholesale. Whatever was there before this run is
-backed up at config/.seed-backup/<name>.json (one generation, overwritten each run).
+config/tool-risk.json were overwritten wholesale. Whatever was there immediately before
+the FIRST such overwrite is backed up at config/.seed-backup/<name>.json (first
+generation only — a later run never replaces an existing backup).
 `)
 db.close()
 
@@ -355,9 +357,8 @@ function verify() {
     }
   }
 
-  // Every proposal file parses and declares a valid type, and both the pending and
-  // archived sets are non-empty — a silently no-opped seedKnowledge must not pass just
-  // because an empty directory has no invalid types to find.
+  // Every proposal file parses and declares a valid type. The pending/archived counts
+  // themselves are checked for an exact match against seedKnowledge's return value below.
   const TYPES = new Set([
     'skill-new',
     'skill-edit',
@@ -382,22 +383,47 @@ function verify() {
       if (!TYPES.has(type)) fail(`proposal ${label} has invalid type ${JSON.stringify(type)}`)
     }
   }
-  if (proposalCounts[''] === 0) fail('no pending proposals were written')
-  if (proposalCounts.archive === 0) fail('no archived proposals were written')
+  // Positive, and exact: compare against what THIS run's seedKnowledge actually reported
+  // it wrote, not just "non-zero". Scanning proposals/ on disk and asserting only
+  // count > 0 would also pass on a previous run's leftover files if this run's
+  // seedKnowledge silently no-opped (e.g. threw before writing but after some other step
+  // left the directory populated) — the on-disk count must match the module's own
+  // return value exactly, since that return value is itself derived from the writes it
+  // just performed.
+  if (proposalCounts[''] !== knowledge.proposals) {
+    fail(
+      `pending proposals on disk (${proposalCounts['']}) do not match what seedKnowledge reported (${knowledge.proposals})`
+    )
+  }
+  if (proposalCounts.archive !== knowledge.archived) {
+    fail(
+      `archived proposals on disk (${proposalCounts.archive}) do not match what seedKnowledge reported (${knowledge.archived})`
+    )
+  }
 
-  // Positive: at least one distill job and one case summary exist FOR THE CASES THIS RUN
-  // SEEDED. An unscoped COUNT(*) would pass on rows left behind by a previous run even if
-  // this run's seedDistill did nothing at all — scoping to the roster slugs means only
-  // rows this run could plausibly have produced count as evidence it worked.
+  // Positive, and exact, for the same reason: an unscoped (or even slug-scoped) COUNT(*)
+  // would pass on rows left behind by a previous run even if this run's seedDistill did
+  // nothing at all. seedDistill unconditionally DELETEs both tables before inserting, so
+  // the row count after a real run is always exactly what it reported — comparing against
+  // that return value (rather than merely requiring > 0) is what actually catches a
+  // no-opped module instead of a stale table.
   const slugPlaceholders = ctx.SLUGS.map(() => '?').join(',')
   const jobCount = db
     .prepare(`SELECT COUNT(*) c FROM distill_jobs WHERE case_slug IN (${slugPlaceholders})`)
     .get(...ctx.SLUGS).c
-  if (jobCount === 0) fail('no distill_jobs rows exist for the seeded cases')
+  if (jobCount !== distill.jobs) {
+    fail(
+      `distill_jobs rows for seeded cases (${jobCount}) do not match what seedDistill reported (${distill.jobs})`
+    )
+  }
   const summaryCount = db
     .prepare(`SELECT COUNT(*) c FROM case_summaries WHERE case_slug IN (${slugPlaceholders})`)
     .get(...ctx.SLUGS).c
-  if (summaryCount === 0) fail('no case_summaries rows exist for the seeded cases')
+  if (summaryCount !== distill.summaries) {
+    fail(
+      `case_summaries rows for seeded cases (${summaryCount}) do not match what seedDistill reported (${distill.summaries})`
+    )
+  }
 
   // A failed distill job with no raw_output is a corpus defect evalExport reports.
   const bad = db
