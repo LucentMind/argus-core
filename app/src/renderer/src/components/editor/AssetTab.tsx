@@ -72,6 +72,24 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   const baseHash = useRef<string | null>(null)
   const dirty = useRef(false)
 
+  // The content+name this mount's `init.load` (or `override`) actually handed to AssetEditor.
+  // Finding 3: a restored draft opens with `pristine: false`, which flips AssetEditor's
+  // `bufferPristine` false and thus `draftable` true — firing `draft.onChange` once on mount
+  // with content byte-identical to what was just read. Recording that call would re-persist the
+  // draft (same bytes, bumped `updatedAt`) on every reopen. `null` means "no seed to compare
+  // against" — the create-with-nothing-to-restore branch, where AssetEditor seeds its own
+  // template without going through `init.load` at all.
+  const seeded = useRef<{ content: string; name: string } | null>(null)
+
+  // Whether `draft.onChange` has actually mirrored something new since this mount's `init` was
+  // adopted. Finding 2: create mode with nothing to restore seeds `buffer.current = ''` while
+  // AssetEditor holds the template; `draft.onChange` never fires unless the user types
+  // (`draftable` stays false), so `buffer.current` never catches up to what gets saved. Without
+  // this, `handleSaved`'s `buffer.current === savedContent` compare wrongly takes the "kept
+  // typing during the write" branch and files a draft holding the empty string. Reset alongside
+  // `seeded` so it tracks the current mount, not the tab's lifetime.
+  const everMirrored = useRef(false)
+
   // Guards every async path below (discard, save's error-branch re-read, the focus listener's
   // re-read) so a resolution landing after unmount cannot call setState. AssetTab is not yet
   // mounted by EditorApp, but Task 9 wires it — a tab swap can unmount mid-flight then.
@@ -92,6 +110,8 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
         baseHash.current = forced.hash
         buffer.current = forced.content
         if (!live) return
+        seeded.current = { content: forced.content, name: initialName }
+        everMirrored.current = false
         setInit({
           load: async () => ({
             content: forced.content,
@@ -112,17 +132,24 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
       if (draft) {
         baseHash.current = draft.baseHash
         buffer.current = draft.content
+        seeded.current = { content: draft.content, name: initialName }
+        everMirrored.current = false
         setInit({
           load: async () => ({ content: draft.content, hash: draft.baseHash, pristine: false })
         })
       } else if (disk) {
         baseHash.current = disk.hash
         buffer.current = disk.content
+        seeded.current = { content: disk.content, name: initialName }
+        everMirrored.current = false
         setInit({ load: async () => ({ content: disk.content, hash: disk.hash }) })
       } else if (mode === 'create') {
         // Create mode with nothing to restore: no `load`, so AssetEditor seeds its template.
+        // No seed to compare against — nothing here ever goes through `init.load`.
         baseHash.current = null
         buffer.current = ''
+        seeded.current = null
+        everMirrored.current = false
         setInit({})
       } else {
         // Edit mode with neither a draft nor a readable file. `readAsset` swallows every
@@ -134,6 +161,8 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
         // `load` instead so AssetEditor's existing error path fires and the user is told.
         baseHash.current = null
         buffer.current = ''
+        seeded.current = null
+        everMirrored.current = false
         setInit({
           load: () => Promise.reject(new Error(`Could not read ${kind} "${initialName}".`))
         })
@@ -153,6 +182,22 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
         const renamed = name !== filedAs.current
         const replaces = renamed ? { kind, name: filedAs.current } : undefined
         filedAs.current = name
+        // Finding 3: the one redundant call that fires on mount when a restored draft's
+        // `pristine: false` flips `bufferPristine` (and so `draftable`) even though nothing was
+        // typed — content and name both still match what `init.load` just handed AssetEditor.
+        // Skip it: `buffer.current` above is already correct, but persisting it would rewrite
+        // the draft file with byte-identical content purely to bump `updatedAt`.
+        if (
+          seeded.current !== null &&
+          content === seeded.current.content &&
+          name === seeded.current.name
+        ) {
+          return
+        }
+        // Finding 2: marks that this mount has actually mirrored something, so `handleSaved`
+        // can tell "the buffer never diverged from what got saved" apart from "buffer.current
+        // is stale because nothing was ever typed" (create mode with an untouched template).
+        everMirrored.current = true
         window.argus.editor.draftChanged({
           kind,
           name,
@@ -209,7 +254,11 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
     (savedName: string, savedContent: string, hash: string) => {
       baseHash.current = hash
       setBanner({ kind: 'none' })
-      if (buffer.current === savedContent) {
+      // Finding 2: `!everMirrored.current` covers create mode with an untouched template, where
+      // `buffer.current` was seeded '' and nothing ever made it diverge from that — comparing it
+      // against `savedContent` (the template) would wrongly look like the user kept typing
+      // during the write and file a draft holding the empty string.
+      if (!everMirrored.current || buffer.current === savedContent) {
         setDraftAt(null)
         void window.argus.editor.discardDraft({ kind, name: savedName })
       } else {
@@ -348,49 +397,71 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
     <span className="font-mono text-[11px] text-faint">Draft · {shortTime(draftAt)}</span>
   ) : null
 
-  if (compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')) {
-    return (
-      <DiffView
-        before={banner.disk.content}
-        after={compareSnapshot}
-        beforeLabel="On disk"
-        afterLabel="Yours"
-        actions={
-          <>
-            <Btn variant="ghost" onClick={() => setCompareSnapshot(null)}>
-              Back
-            </Btn>
-            <Btn variant="ghost" onClick={() => apply('use-disk')}>
-              Use disk
-            </Btn>
-            <Btn variant="primary" onClick={() => apply('keep-mine')}>
-              Keep mine
-            </Btn>
-          </>
-        }
-      />
-    )
-  }
-
   if (!init) {
     return <div className="flex flex-1 items-center justify-center text-sm text-dim">Loading…</div>
   }
 
+  // Finding 1 (CRITICAL, data loss): Compare used to be an early `return <DiffView/>`, which
+  // unmounted AssetEditor. Its load effect has an empty dependency array and runs exactly once
+  // per mount — so Back, which only cleared `compareSnapshot`, remounted AssetEditor and re-ran
+  // that effect against the *original* `init.load` closure, silently reverting every keystroke
+  // typed since the tab opened (no banner, no error), and reported the tab clean in the
+  // process. Fix: never unmount AssetEditor to show the diff. Keep it mounted and hide it while
+  // Compare is up, rendering DiffView as a sibling instead — Back then has nothing to revert,
+  // because there is no remount, and the dirty report stays stable across Compare too.
+  //
+  // `compare` bundles the disk snapshot with `compareSnapshot` so both narrow together from one
+  // check — `banner.disk` is still the source for `before` because `compareSnapshot` is only
+  // ever a `buffer.current` snapshot (see its declaration above; reading `buffer.current` live
+  // during render is forbidden by this repo's react-hooks/refs lint rule).
+  const compare =
+    compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')
+      ? { disk: banner.disk, snapshot: compareSnapshot }
+      : null
+
   return (
-    <AssetEditor
-      key={`${kind}/${initialName}/${mode}/${generation}`}
-      kind={kind}
-      name={initialName}
-      mode={mode}
-      chrome="window"
-      banner={bannerNode}
-      status={status}
-      draft={draft}
-      onDirtyChange={handleDirty}
-      load={init.load}
-      save={save}
-      onSaved={handleSaved}
-      onClose={onClose}
-    />
+    <>
+      {compare && (
+        <DiffView
+          before={compare.disk.content}
+          after={compare.snapshot}
+          beforeLabel="On disk"
+          afterLabel="Yours"
+          actions={
+            <>
+              <Btn variant="ghost" onClick={() => setCompareSnapshot(null)}>
+                Back
+              </Btn>
+              <Btn variant="ghost" onClick={() => apply('use-disk')}>
+                Use disk
+              </Btn>
+              <Btn variant="primary" onClick={() => apply('keep-mine')}>
+                Keep mine
+              </Btn>
+            </>
+          }
+        />
+      )}
+      {/* `contents` when not comparing: this wrapper stays transparent to layout so
+          AssetEditor's own top-level flex div is the effective flex item, unchanged from
+          before. `hidden` while comparing removes it from layout without unmounting it. */}
+      <div className={compare ? 'hidden' : 'contents'}>
+        <AssetEditor
+          key={`${kind}/${initialName}/${mode}/${generation}`}
+          kind={kind}
+          name={initialName}
+          mode={mode}
+          chrome="window"
+          banner={bannerNode}
+          status={status}
+          draft={draft}
+          onDirtyChange={handleDirty}
+          load={init.load}
+          save={save}
+          onSaved={handleSaved}
+          onClose={onClose}
+        />
+      </div>
+    </>
   )
 }

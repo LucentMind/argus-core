@@ -169,6 +169,19 @@ describe('AssetTab restoring a draft', () => {
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(SKILL_BODY))
     noBanner()
   })
+
+  // Finding 3 (MINOR): AssetEditor's load effect sets `bufferPristine` false for a restored
+  // draft (`pristine: false`), which flips `draftable` true and fires `draft.onChange` once on
+  // mount with content identical to what was just read. That used to re-persist the draft on
+  // every reopen — same content, but a bumped `updatedAt` — turning "Restored unsaved draft
+  // from …" into "when you last opened this" instead of "when you last typed".
+  it('does not re-persist a restored draft merely by opening it', async () => {
+    readDraft.mockResolvedValue(aDraft())
+    mount()
+    await screen.findByText(BANNERS.restored)
+    expect(await editor()).toHaveValue(`${SKILL_BODY}drafted`)
+    expect(draftChanged).not.toHaveBeenCalled()
+  })
 })
 
 describe('AssetTab after a save', () => {
@@ -224,6 +237,30 @@ describe('AssetTab in create mode', () => {
         })
       )
     )
+  })
+
+  // Finding 2 (IMPORTANT): the mirror is seeded `buffer.current = ''` while AssetEditor holds
+  // the template, and `draft.onChange` is gated on `draftable` (stays false until something is
+  // typed) — so the mirror never catches up. Saving the untouched template used to make
+  // `handleSaved` see `buffer.current ('') !== savedContent (the template)` and take the "user
+  // kept typing during the write" branch, filing an empty draft against the hash just written.
+  it('does not file an empty draft when the untouched template is saved as-is', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: brand-new'))
+    skillsWrite.mockResolvedValue({ skills: [], hash: 'h2' })
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name: 'brand-new', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    await screen.findByRole('textbox', { name: /skill · brand-new/i })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'brand-new' })
+    )
+    expect(draftChanged).not.toHaveBeenCalled()
   })
 })
 
@@ -342,6 +379,27 @@ describe('AssetTab conflict on save', () => {
     await waitFor(() =>
       expect(skillsWrite).toHaveBeenLastCalledWith('my-skill', `${SKILL_BODY}X`, 'h9')
     )
+  })
+
+  // Finding 1 (CRITICAL, data loss): Compare's `return <DiffView/>` used to unmount AssetEditor.
+  // AssetEditor's load effect has an empty dependency array and runs exactly once per mount, so
+  // remounting it on the way back to Back re-ran that effect against the *original* `init.load`
+  // closure and silently reverted every keystroke typed since the tab opened — with no banner,
+  // no error, and a dirty report that had gone back to false.
+  it('Back from Compare does not revert the buffer or clear the dirty report', async () => {
+    const { onDirtyChange } = mount()
+    await userEvent.type(await editor(), 'X')
+    skillsWrite.mockRejectedValue(new Error('"my-skill" changed on disk since you opened it.'))
+    skillsRead.mockResolvedValue({ content: 'someone else\n', hash: 'h9' })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(BANNERS.conflict)
+
+    await userEvent.click(screen.getByRole('button', { name: /compare/i }))
+    await screen.findByRole('group', { name: /on disk compared with yours/i })
+    await userEvent.click(screen.getByRole('button', { name: /back/i }))
+
+    expect(await editor()).toHaveValue(`${SKILL_BODY}X`)
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
   })
 })
 
