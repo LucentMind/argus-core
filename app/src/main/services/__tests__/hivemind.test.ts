@@ -363,16 +363,20 @@ describe('pushable + push', () => {
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
     const r = await svc.push('skill', 'my-skill', 'Add my-skill')
     expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/7' })
-    // the copy landed in the clone before commit
-    expect(fs.existsSync(path.join(home, 'hivemind', 'skills', 'my-skill', 'SKILL.md'))).toBe(true)
+    // the copy never lands in the shared clone itself — only in the throwaway worktree,
+    // which is gone by the time push returns
+    expect(fs.existsSync(path.join(home, 'hivemind', 'skills', 'my-skill'))).toBe(false)
     const flat = calls.map((c) => c.join(' '))
-    expect(flat.some((c) => c.startsWith('checkout -B argus/share-skill-my-skill-'))).toBe(true)
+    expect(flat.some((c) => c.startsWith('worktree add -b argus/share-skill-my-skill-'))).toBe(true)
     expect(flat).toContain('add -A')
     expect(flat.some((c) => c.startsWith('push -u origin argus/share-'))).toBe(true)
-    expect(flat.every((c) => !c.includes('--force'))).toBe(true)
+    // never force-pushes (the worktree-removal step below legitimately carries its own
+    // unrelated --force, so scope this check to the `push` subcommand specifically)
+    expect(calls.every((a) => a[0] !== 'push' || !a.includes('--force'))).toBe(true)
     expect(flat.some((c) => c.startsWith('gh pr create'))).toBe(true)
-    // clone restored to the default branch afterwards
-    expect(flat[flat.length - 1]).toBe('checkout main')
+    // the throwaway worktree is removed afterwards; the clone's HEAD was never moved
+    expect(flat[flat.length - 1]).toMatch(/^worktree remove --force /)
+    expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
   })
 
   it('push branches from the pinned commit when the item came from HiveMind', async () => {
@@ -408,11 +412,11 @@ describe('pushable + push', () => {
     const flat = calls.map((c) => c.join(' '))
     // branch cut from the pin, NOT origin/main — otherwise the PR reverts X→HEAD
     expect(
-      flat.some((c) => /^checkout -B argus\/share-skill-my-skill-\d+ pinnedsha$/.test(c))
+      flat.some((c) => /^worktree add -b argus\/share-skill-my-skill-\d+ \S+ pinnedsha$/.test(c))
     ).toBe(true)
-    expect(flat.every((c) => !/^checkout -B .* origin\/main$/.test(c))).toBe(true)
-    // still restores the clone afterwards
-    expect(flat[flat.length - 1]).toBe('checkout main')
+    expect(flat.every((c) => !/^worktree add -b \S+ \S+ origin\/main$/.test(c))).toBe(true)
+    // the throwaway worktree is removed afterwards; the clone's HEAD was never moved
+    expect(flat[flat.length - 1]).toMatch(/^worktree remove --force /)
   })
 
   it('push still branches from origin default for a locally authored item', async () => {
@@ -428,7 +432,7 @@ describe('pushable + push', () => {
     await svc.push('skill', 'my-skill', 'Add my-skill')
     const flat = calls.map((c) => c.join(' '))
     expect(
-      flat.some((c) => /^checkout -B argus\/share-skill-my-skill-\d+ origin\/main$/.test(c))
+      flat.some((c) => /^worktree add -b argus\/share-skill-my-skill-\d+ \S+ origin\/main$/.test(c))
     ).toBe(true)
   })
 
@@ -459,13 +463,13 @@ describe('pushable + push', () => {
     expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/11' })
     const flat = calls.map((c) => c.join(' '))
     expect(
-      flat.some((c) => /^checkout -B argus\/share-skill-my-skill-\d+ origin\/main$/.test(c))
+      flat.some((c) => /^worktree add -b argus\/share-skill-my-skill-\d+ \S+ origin\/main$/.test(c))
     ).toBe(true)
-    // the bug this guards against: a trailing-empty-arg checkout (`checkout -B <branch> `)
-    expect(flat.every((c) => !/^checkout -B \S+ $/.test(c))).toBe(true)
+    // the bug this guards against: a trailing-empty-arg base (`worktree add -b <branch> <tree> `)
+    expect(flat.every((c) => !/^worktree add -b \S+ \S+ $/.test(c))).toBe(true)
   })
 
-  it('push failures surface as { ok: false } and still restore the branch', async () => {
+  it('push failures surface as { ok: false } and still remove the worktree', async () => {
     seedClone()
     seedUserAssets()
     const calls: string[][] = []
@@ -479,7 +483,8 @@ describe('pushable + push', () => {
     const r = await svc.push('skill', 'my-skill', 'Add my-skill')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toMatch(/remote rejected/)
-    expect(calls[calls.length - 1]).toEqual(['checkout', 'main'])
+    expect(calls[calls.length - 1].slice(0, 3)).toEqual(['worktree', 'remove', '--force'])
+    expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
   })
 
   it('pushPreview returns the user-tier content', () => {
@@ -1282,6 +1287,75 @@ describe('install() and unpushed local edits', () => {
     const dest = path.join(home, 'skills-hivemind', 'hive-probe', 'SKILL.md')
     expect(fs.existsSync(dest)).toBe(true)
     expect(fs.readFileSync(dest, 'utf8')).toContain('probe skill from the hive')
+  })
+})
+
+describe('push keeps the shared clone checked out', () => {
+  /** A fake git that satisfies push's reads and records every call. */
+  function pushRunner(): { runner: Runner; calls: string[][] } {
+    const calls: string[][] = []
+    const runner: Runner = async (_cmd, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return 'origin/main'
+      return ''
+    }
+    return { runner, calls }
+  }
+
+  function seedUserSkill(): void {
+    fs.mkdirSync(path.join(home, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'skills-user', 'my-skill', 'SKILL.md'),
+      '---\nname: my-skill\ndescription: mine\n---\n# my-skill\n'
+    )
+  }
+
+  it('never issues a checkout against the clone', async () => {
+    seedClone()
+    seedUserSkill()
+    const { runner, calls } = pushRunner()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: runner,
+      gh: async () => 'https://github.com/acme/hivemind/pull/9'
+    })
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    // The structural guarantee: HEAD-safety comes from never moving it, not from moving it back.
+    expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
+  })
+
+  it('prunes stale registrations before adding, and removes the worktree after', async () => {
+    seedClone()
+    seedUserSkill()
+    const { runner, calls } = pushRunner()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: runner,
+      gh: async () => 'https://github.com/acme/hivemind/pull/9'
+    })
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    const verbs = calls.filter((a) => a[0] === 'worktree').map((a) => a[1])
+    expect(verbs).toEqual(['prune', 'add', 'remove'])
+  })
+
+  it('removes the worktree even when the PR step fails', async () => {
+    seedClone()
+    seedUserSkill()
+    const { runner, calls } = pushRunner()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: runner,
+      gh: async () => {
+        throw new Error('gh: not authenticated')
+      }
+    })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    expect(r.ok).toBe(false)
+    expect(calls.filter((a) => a[0] === 'worktree' && a[1] === 'remove').length).toBe(1)
+    expect(calls.filter((a) => a[0] === 'checkout')).toEqual([])
   })
 })
 
