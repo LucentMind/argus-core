@@ -254,7 +254,7 @@ export function HivemindSettings({
         window.argus.hivemind.diff(kind, name),
         kind === 'reference'
           ? window.argus.hivemind.localDivergence(name)
-          : Promise.resolve<LocalDivergence>({ diverged: false, diff: '' })
+          : Promise.resolve<LocalDivergence>({ diverged: false, diff: '', tierChange: null })
       ])
       setUpdateConfirm({ kind, name, diff, divergence })
     } catch (e) {
