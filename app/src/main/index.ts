@@ -2166,6 +2166,7 @@ app.on('before-quit', (event) => {
 
   panelHost?.closeAll()
   externalAppHost?.closeAll()
+  editorWindowService?.forceClose()
   void agentService?.stopAll()
 
   // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
