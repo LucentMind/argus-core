@@ -34,7 +34,13 @@ beforeEach(() => {
       },
       respondClose
     },
-    skills: { read: vi.fn().mockResolvedValue({ content: '# hi\n', hash: 'h1' }) },
+    skills: {
+      read: vi.fn().mockResolvedValue({
+        content: '---\nname: my-skill\ndescription: Use when testing.\n---\n\n# hi\n',
+        hash: 'h1'
+      }),
+      write: vi.fn().mockResolvedValue({ hash: 'h2' })
+    },
     refsync: { readRef: vi.fn().mockResolvedValue({ content: '# ref\n', hash: 'h2' }) }
   } as never
 })
@@ -81,6 +87,19 @@ describe('EditorApp', () => {
     const confirmBtn = await screen.findByRole('button', { name: 'Close editor' })
     await userEvent.click(confirmBtn)
     await waitFor(() => expect(respondClose).toHaveBeenCalledWith(true))
+  })
+
+  it('reports clean once a saved editor closes, so main does not keep warning about it', async () => {
+    render(<EditorApp />)
+    openTab!(SKILL)
+    const area = await screen.findByLabelText('skill · my-skill')
+    await userEvent.type(area, 'x')
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(1))
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(screen.getByText(/nothing open/i)).toBeInTheDocument())
+    expect(setDirty).toHaveBeenLastCalledWith(0)
   })
 
   it('answers deny when the user cancels the close', async () => {

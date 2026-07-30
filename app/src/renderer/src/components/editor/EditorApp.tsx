@@ -38,10 +38,13 @@ export function EditorApp(): React.JSX.Element {
           }
           // Spec §3.5: from Increment 2 the draft store makes this non-destructive, so the
           // copy reports rather than warns. Increment 2 revises the message to name the count.
+          // `danger: true` for now: Increment 1 has no draft store, so closing genuinely
+          // discards the buffer. Revert to non-danger once the draft store lands.
           const allow = await confirm({
             title: 'Close the editor?',
             message: 'This asset has unsaved changes.',
-            confirmLabel: 'Close editor'
+            confirmLabel: 'Close editor',
+            danger: true
           })
           window.argus.editor.respondClose(allow)
         })()
