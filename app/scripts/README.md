@@ -81,3 +81,25 @@ Narrow fixture for `findings-layout-probe.mjs`, the committed CDP layout gate. K
 the seed above on purpose: the probe depends on its exact shape (worst-case severity/layer/badge
 combinations at `FINDINGS_MIN_WIDTH`), so folding it into the broader seed would risk the gate
 silently drifting whenever the broader seed's fixture data changes for unrelated reasons.
+
+## library-layout-fixture.mjs / library-layout-probe.mjs
+
+The same pattern for the Settings → Library rows. The fixture seeds one worst-case row — a
+user-tier skill whose name is long and hyphenated and which also exists in the hivemind tier, so
+it carries six chips next to the widest control cluster (Adopt upstream / Edit / Share / toggle).
+The probe sweeps window widths down to the app's own `minWidth` (900px) and asserts the skill
+name never breaks mid-word and nothing overflows the row.
+
+```bash
+ARGUS_HOME=/path/to/home node scripts/library-layout-fixture.mjs
+ARGUS_HOME=/path/to/home npx electron-vite dev --remoteDebuggingPort=9237
+node scripts/library-layout-probe.mjs
+```
+
+Before the fix this gate guards, that row squeezed the name to 44px and broke it across four
+lines (`triage-` / `a-` / `flaky-` / `test`) while the label line still overflowed by 170px.
+
+**Pick a debugging port nothing else holds.** Every worktree's dev instance can be running at
+once, and `/json/list` will happily hand you a *different* checkout's window on a port already
+taken — the probe preflights the renderer over IPC for the fixture skill and refuses to click
+anything if it is not there, but the port collision is silent up to that point.
