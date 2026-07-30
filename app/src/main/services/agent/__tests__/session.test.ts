@@ -833,6 +833,20 @@ describe('CaseSession', () => {
     await s.stop('stopped')
   })
 
+  it('states how to record a memory even when no topics exist yet', async () => {
+    // Regression: the memory block used to be appended ONLY when the index was non-empty, so a
+    // fresh ARGUS_HOME sent no memory guidance at all — and the header that did exist covered
+    // reading only. With nothing telling the model how to SAVE, "remember this" followed the
+    // Claude Code preset's auto-memory instructions and wrote to ~/.claude/... instead. The
+    // empty-index case is exactly when that happens, so it is the case worth pinning.
+    const sdk = fakeSdk()
+    const s = makeSession(sdk)
+    const sys = sdk.captured.options!.systemPrompt as { append: string }
+    expect(sys.append).toContain('## Agent memory')
+    expect(sys.append).toContain('write_memory')
+    await s.stop('stopped')
+  })
+
   it('appends a non-empty skill index to the system prompt', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk, {
@@ -845,11 +859,21 @@ describe('CaseSession', () => {
   })
 
   it('an empty skill index contributes nothing — no stray header or blank lines', async () => {
-    const sdk = fakeSdk()
-    const s = makeSession(sdk, { personaFragments: ['IDENTITY'], skillIndex: '' })
-    const sys = sdk.captured.options!.systemPrompt as { append: string }
-    expect(sys.append).toBe('IDENTITY')
-    await s.stop('stopped')
+    // Compared against the same session WITHOUT a skill index rather than to a literal, so this
+    // stays a statement about the skill index alone. It previously asserted the whole append was
+    // exactly 'IDENTITY', which silently also pinned "no memory block" — a claim that is no
+    // longer true now that the memory header is unconditional.
+    const withEmpty = fakeSdk()
+    const a = makeSession(withEmpty, { personaFragments: ['IDENTITY'], skillIndex: '' })
+    const withNone = fakeSdk()
+    const b = makeSession(withNone, { personaFragments: ['IDENTITY'] })
+    const appendOf = (sdk: typeof withEmpty): string =>
+      (sdk.captured.options!.systemPrompt as { append: string }).append
+    expect(appendOf(withEmpty)).toBe(appendOf(withNone))
+    expect(appendOf(withEmpty)).toContain('IDENTITY')
+    expect(appendOf(withEmpty)).not.toMatch(/\n{3}/)
+    await a.stop('stopped')
+    await b.stop('stopped')
   })
 
   it('memory files are not FS-readable — read_memory is the only read path', async () => {

@@ -53,3 +53,29 @@ function insideAsar(resolve: (id: string) => string): boolean {
   const manifest = resolveManifest(resolve)
   return manifest !== null && isInsideAsar(manifest)
 }
+
+/**
+ * Subprocess environment for every Claude CLI spawn, with Claude Code's own auto-memory OFF.
+ *
+ * The CLI ships a memory subsystem that defaults ON and tells the model to keep memories as
+ * files under `~/.claude/projects/<sanitized-cwd>/memory/` (plus a `MEMORY.md` index) written
+ * with the Write tool. Inside Argus that is a second memory system competing with the
+ * `read_memory`/`write_memory` native tools — and it won, so "remember this" was landing in
+ * `~/.claude/...` instead of ARGUS_HOME, invisible to the Memory settings page.
+ *
+ * Applied at ALL THREE spawn sites (session, headless, probe), not just the session: the other
+ * two cannot write (they pass `allowedTools: []`), but auto-memory also READS, which would
+ * inject unrelated memories into one-shot prompts and create stray `~/.claude/projects/-tmp/`
+ * directories on the user's machine.
+ *
+ * The env var is the correct lever rather than `autoMemoryEnabled` in settings.json: the CLI
+ * reads it BEFORE consulting settings, and the session passes `settingSources: ['project']`,
+ * which drops the user-level settings file the flag would live in.
+ *
+ * The `process.env` spread is load-bearing — the SDK REPLACES the subprocess environment with
+ * this value rather than merging it (see `env` in sdk.d.ts), so omitting the spread would strip
+ * PATH/HOME and the CLI's credentials.
+ */
+export function claudeSpawnEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' }
+}

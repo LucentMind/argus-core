@@ -1,7 +1,7 @@
 import os from 'node:os'
 import type { HeadlessOpts } from '../../driver'
 import type { CreateQueryFn } from '.'
-import { resolveClaudeCliPath } from './cliPath'
+import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 
 // One message, then hold the stream open — the CLI only emits after the prompt
 // stream yields (probe.ts idiom); interrupt() in finally tears the process down.
@@ -65,6 +65,9 @@ export async function runClaudeHeadless(
         cwd: os.tmpdir(),
         maxTurns: 1,
         allowedTools: [],
+        // No auto-memory in a one-shot: it cannot write here (no tools), but it would still
+        // read unrelated memories into the prompt. See claudeSpawnEnv.
+        env: claudeSpawnEnv(),
         ...(opts.model ? { model: opts.model } : {}),
         ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
       }

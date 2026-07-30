@@ -168,9 +168,15 @@ function normalizeQuestions(input: Record<string, unknown>): Array<{
 }
 
 /** Fixed prose of the system-prompt memory block; the index itself is appended after it.
- *  Registered as `session.memory-header`. */
+ *  Registered as `session.memory-header`.
+ *
+ *  Covers BOTH directions on purpose. It used to describe reading only, which left the model
+ *  with no stated way to save — so a "remember this" request fell through to whatever the
+ *  underlying CLI's own memory feature suggested (Claude Code's auto-memory writes .md files
+ *  under ~/.claude/ with the Write tool, which Argus cannot see). Naming write_memory here is
+ *  the positive instruction; disabling that competing feature is handled per-driver. */
 export const MEMORY_HEADER =
-  '## Agent memory\nLessons from previous cases. Load a topic with the read_memory tool when its index line is relevant to this case — memory files are not readable via filesystem tools.'
+  '## Agent memory\nLessons carried across cases, stored by Argus itself. Load a topic with the read_memory tool when its index line is relevant to this case, and record a durable new lesson with the write_memory tool. This is the only memory store Argus can see: memory files are not reachable through filesystem tools, and notes written anywhere else are lost.'
 
 /**
  * Which layer agents a session registers. Split out as a pure function so the mode/capability
@@ -220,7 +226,10 @@ export class CaseSession {
     const access = deps.agentAccess?.() ?? defaultAgentAccess()
     const memIndex = filteredIndex(deps.argusHome, access)
     const header = deps.resolvePrompt?.('session.memory-header') ?? MEMORY_HEADER
-    const memoryAppend = memIndex.trim() ? `\n\n${header}\n\n${memIndex.trim()}` : ''
+    // Unconditional: the header carries the write_memory instruction, which a session needs
+    // most when there is NO index yet (a fresh ARGUS_HOME is exactly when the first "remember
+    // this" arrives). Only the index lines below it are conditional.
+    const memoryAppend = memIndex.trim() ? `\n\n${header}\n\n${memIndex.trim()}` : `\n\n${header}`
     // Mode-scoped skill advertising (assembleMode via registry.ts). The driver allowlist
     // (deps.enabledSkills below) is never filtered by this — a skill missing from the index
     // is still loadable. buildSkillIndex already supplies its own lead line, so no extra
