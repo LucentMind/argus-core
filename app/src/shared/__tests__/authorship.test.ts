@@ -298,6 +298,30 @@ describe('mergeAuthorship', () => {
     expect(parseAuthorship(mergeAuthorship(spoofed, unauthored)).contributors).toEqual([])
   })
 
+  it('strips a block-list-shaped author claim without orphaning its indented item', () => {
+    // Plausible from an Improve round-trip: the model rewrites `author:` from a flat scalar into
+    // block-list shape. A start-anchored flat-line filter removes only the `author:` header and
+    // leaves the indented item behind, where splitFm's next pass reclassifies it as a headerless
+    // top-level flat line — a dangling `  - …` a real YAML parser rejects.
+    const unauthored = '---\nname: x\n---\nold\n'
+    const spoofed = '---\nname: x\nauthor:\n  - Someone Else <x@y.test>\n---\n# rewritten\n'
+    const merged = mergeAuthorship(spoofed, unauthored)
+    expect(merged.split(/\r?\n/).some((l) => /^\s*-\s/.test(l))).toBe(false)
+    expect(merged).not.toContain('Someone Else')
+    expect(parseAuthorship(merged).author).toBeNull()
+    expect(merged).toContain('# rewritten')
+  })
+
+  it('strips a block-list-shaped origin claim without orphaning its indented item', () => {
+    const unauthored = '---\nname: x\n---\nold\n'
+    const spoofed = '---\nname: x\norigin:\n  - authored\n---\n# rewritten\n'
+    const merged = mergeAuthorship(spoofed, unauthored)
+    expect(merged.split(/\r?\n/).some((l) => /^\s*-\s/.test(l))).toBe(false)
+    expect(merged).not.toContain('- authored')
+    expect(parseAuthorship(merged).origin).toBeNull()
+    expect(merged).toContain('# rewritten')
+  })
+
   it('an unauthored disk file plus a buffer claiming a byline yields the saving identity, never the claim', () => {
     const unauthored = '---\nname: x\n---\nold\n'
     const spoofed =
