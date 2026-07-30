@@ -125,9 +125,7 @@ export async function ensurePrWorktree(
       })
     const fetchStart = Date.now()
     await git(repoPath, 'fetch', remote, `pull/${prNumber}/head:${ref}`, '--force')
-    console.log(
-      `[pr] #${prNumber} fetched — lock ${lockMs}ms, fetch ${Date.now() - fetchStart}ms`
-    )
+    console.log(`[pr] #${prNumber} fetched — lock ${lockMs}ms, fetch ${Date.now() - fetchStart}ms`)
 
     if (fs.existsSync(wt)) {
       // Mirrors ensureWorktree's early return: only switch when the head actually moved.
