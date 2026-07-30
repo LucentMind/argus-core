@@ -59,12 +59,18 @@ const ready: HivemindPayload = {
   pushes: {}
 }
 
+// Shared handles so 'update hazards' tests can assert on call args / control resolution
+// without drilling through the window.argus cast on every assertion.
+const installMock = vi.fn()
+const localDivergenceMock = vi.fn()
+
 function mockArgus(payload: HivemindPayload): Record<string, unknown> {
+  installMock.mockResolvedValue(payload)
   return {
     hivemind: {
       get: vi.fn().mockResolvedValue(payload),
       sync: vi.fn().mockResolvedValue(payload),
-      install: vi.fn().mockResolvedValue(payload),
+      install: installMock,
       claimReference: vi.fn().mockResolvedValue(payload),
       uninstallSkill: vi.fn().mockResolvedValue(payload),
       uninstallReference: vi.fn().mockResolvedValue(payload),
@@ -73,6 +79,7 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
         .mockResolvedValue(
           'diff --git a/skills/x b/skills/x\n@@ -1,2 +1,2 @@\n context\n-old\n+new'
         ),
+      localDivergence: localDivergenceMock,
       pushPreview: vi.fn().mockResolvedValue('# my-skill'),
       push: vi
         .fn()
@@ -92,7 +99,14 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
   }
 }
 
+function renderWith(payload: HivemindPayload): ReturnType<typeof render> {
+  ;(window as unknown as { argus: unknown }).argus = mockArgus(payload)
+  return render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+}
+
 beforeEach(() => {
+  installMock.mockClear()
+  localDivergenceMock.mockReset().mockResolvedValue({ diverged: false, diff: '' })
   ;(window as unknown as { argus: unknown }).argus = mockArgus(ready)
   vi.spyOn(settingsStore, 'patch').mockResolvedValue(undefined as never)
 })
@@ -477,5 +491,72 @@ describe('keep as mine', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Keep hive-note.md as mine' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/claim exploded/)
+  })
+})
+
+describe('update hazards', () => {
+  it('warns that a forked skill will keep shadowing after the update', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: ready.items.map((i) => (i.name === 'hive-probe' ? { ...i, shadowedByUser: true } : i))
+    }
+    renderWith(payload)
+    fireEvent.click(await screen.findByLabelText('Update hive-probe'))
+    expect(await screen.findByText(/keep being used after this update/i)).toBeInTheDocument()
+  })
+
+  it('shows the local-vs-incoming diff and relabels the button when a reference diverged', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'reference',
+          name: 'hive-note.md',
+          description: '',
+          commit: 'sha-3',
+          installed: true,
+          installedCommit: 'sha-2',
+          localTier: 'user',
+          shadowedByUser: false,
+          updateAvailable: true
+        }
+      ]
+    }
+    localDivergenceMock.mockResolvedValue({
+      diverged: true,
+      diff: 'diff --git a/mine/hive-note.md b/incoming/hive-note.md\n@@ -1,2 +1,1 @@\n-MY UNPUSHED PARAGRAPH\n'
+    })
+    renderWith(payload)
+    fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
+    expect(await screen.findByText(/edits that are not in the HiveMind/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Overwrite my copy of hive-note.md')).toBeInTheDocument()
+  })
+
+  it('passes the acknowledgement flag when the user confirms the overwrite', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'reference',
+          name: 'hive-note.md',
+          description: '',
+          commit: 'sha-3',
+          installed: true,
+          installedCommit: 'sha-2',
+          localTier: 'user',
+          shadowedByUser: false,
+          updateAvailable: true
+        }
+      ]
+    }
+    localDivergenceMock.mockResolvedValue({ diverged: true, diff: 'diff --git a/x b/x\n' })
+    renderWith(payload)
+    fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
+    fireEvent.click(await screen.findByLabelText('Overwrite my copy of hive-note.md'))
+    await waitFor(() =>
+      expect(installMock).toHaveBeenCalledWith('reference', 'hive-note.md', {
+        overwriteLocalEdits: true
+      })
+    )
   })
 })
