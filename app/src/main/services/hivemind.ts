@@ -48,6 +48,28 @@ function referenceTier(file: string): string {
   return block ? fmField(block.fm, 'trust_tier') : ''
 }
 
+/** Frontmatter keys `install()` stamps into a local copy; upstream blobs never carry them. */
+const STAMP_KEYS = ['trust_tier', 'source_repo', 'source_commit'] as const
+
+/**
+ * Canonical form for "is my copy the same text as upstream's?".
+ *
+ * Drops the three install stamps and normalizes line endings, but keeps every other
+ * frontmatter field, so a hand-added `tags:` line counts as an edit. Without the stamp
+ * strip a pristine copy never equals its own pinned blob and every update would warn.
+ */
+export function normalizeForCompare(raw: string): string {
+  const lf = raw.replace(/\r\n/g, '\n')
+  const block = fmBlock(lf)
+  if (!block) return lf.trim()
+  const fm = block.fm
+    .split('\n')
+    .filter((l) => !STAMP_KEYS.some((k) => l.startsWith(`${k}:`)))
+    .join('\n')
+    .trim()
+  return `${fm}\n---\n${block.body}`.trim()
+}
+
 /** Bare 'x.md' or exactly 'confluence/x.md' — no traversal, no hidden files, no other subfolders. */
 function validReferenceName(name: string): boolean {
   const base = name.startsWith('confluence/') ? name.slice('confluence/'.length) : name
