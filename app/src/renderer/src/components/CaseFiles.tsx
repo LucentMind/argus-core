@@ -113,9 +113,11 @@ export function CaseFiles({
         },
         (err) => {
           console.warn(`[evidence] list failed for ${caseSlug}: ${(err as Error).message}`)
-          setRows([])
-          // loaded on rejection too: a failed list must show "No evidence yet." rather than
-          // leaving the pane skeletal forever.
+          // `loaded` on rejection too, so a failed list does not leave the pane skeletal forever.
+          // But the rows are deliberately NOT cleared: a rejected fetch has not established that
+          // the case is empty, and wiping a list that loaded successfully a moment ago would make
+          // a transient IPC failure read as "no evidence" — the exact false claim this task exists
+          // to remove. Whatever last loaded stays on screen.
           setLoaded(true)
         }
       ),

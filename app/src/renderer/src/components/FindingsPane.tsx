@@ -54,7 +54,11 @@ export function FindingsPane({
         setLoaded(true)
       },
       () => {
-        setFindings([])
+        // `loaded` on rejection too, so a failed fetch does not leave the pane skeletal forever.
+        // The findings are deliberately NOT cleared: a rejected fetch has not established that
+        // there are none, and a `bump`-triggered refetch that fails would otherwise wipe findings
+        // already on screen and replace them with "No findings yet." — the exact false claim this
+        // task exists to remove.
         setLoaded(true)
       }
     )

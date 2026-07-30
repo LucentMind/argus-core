@@ -8,7 +8,9 @@ import { uiStore } from '../../lib/uiStore'
 import { clearSnippetCache } from '../../lib/snippetCache'
 import { confirm } from '../../lib/confirmStore'
 import { reposStore } from '../../lib/reposStore'
+import { agentStore } from '../../lib/agentStore'
 import type { FindingRow } from '../../../../shared/observability'
+import type { AgentEvent } from '../../../../shared/agent-events'
 
 vi.mock('../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -363,6 +365,42 @@ describe('FindingsPane', () => {
     const rule = screen.getByTestId('clear-rule')
     expect(clear.compareDocumentPosition(rule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(rule.compareDocumentPosition(collapse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the last-loaded findings on screen when a bump-triggered refetch rejects', async () => {
+    const slug = 'REJ-1'
+    const sessionId = 42
+    const listFn = vi
+      .fn()
+      .mockResolvedValueOnce([
+        row({ id: 1, summary: 'Root cause X', reviewState: 'pending', mode: 'investigation' })
+      ])
+      .mockRejectedValueOnce(new Error('IPC down'))
+    ;(window.argus.findings as unknown as { list: unknown }).list = listFn
+    render(
+      <FindingsPane slug={slug} sessionId={sessionId} activeMode="investigation" onCite={vi.fn()} />
+    )
+    await screen.findByText('Root cause X')
+    expect(screen.queryByText('No findings yet.')).toBeNull()
+
+    // simulate a finding-added event, which is what bumps `findingsBump` and triggers a refetch
+    const bumpEvent: AgentEvent = {
+      eventId: 'e1',
+      caseId: 1,
+      caseSlug: slug,
+      sessionId,
+      turnId: null,
+      ts: '2026-07-30T00:00:00Z',
+      type: 'case.finding.added',
+      payload: { markdown: '## New finding' }
+    }
+    await act(async () => {
+      agentStore.apply(bumpEvent)
+    })
+    await waitFor(() => expect(listFn).toHaveBeenCalledTimes(2))
+
+    expect(screen.getByText('Root cause X')).toBeInTheDocument()
+    expect(screen.queryByText('No findings yet.')).toBeNull()
   })
 
   it('does not claim there are no findings while the list is still loading', async () => {
