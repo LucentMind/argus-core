@@ -1,7 +1,7 @@
 import os from 'node:os'
 import type { AuthStatus } from '../../../../../shared/types'
 import type { CreateQueryFn } from './index'
-import { resolveClaudeCliPath } from './cliPath'
+import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 
 /** "max*"/"pro*"/"team*"/"enterprise*" prefixes win; apiKey token source overrides all; else title-case. */
 function subscriptionLabel(
@@ -66,6 +66,8 @@ export async function probeAuth(
         cwd: os.tmpdir(),
         maxTurns: 0,
         allowedTools: [],
+        // Auth probe: keep it a pure ping, with no auto-memory read. See claudeSpawnEnv.
+        env: claudeSpawnEnv(),
         ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
       }
     })
