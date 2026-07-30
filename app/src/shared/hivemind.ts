@@ -20,6 +20,11 @@ export interface LocalDivergence {
   /** Unified diff, local → incoming. Empty when not diverged, and also empty in the
    *  fail-closed case (diverged: true but the other side couldn't be read to compare). */
   diff: string
+  /**
+   * Set when installing would restamp the file's trust_tier — independent of `diverged`,
+   * because a confluence/ twin with byte-identical content still costs push rights.
+   */
+  tierChange: { from: string; to: string } | null
 }
 export interface PushableItem {
   kind: 'skill' | 'reference'

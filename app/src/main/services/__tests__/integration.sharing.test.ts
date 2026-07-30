@@ -359,7 +359,11 @@ describe('HiveMind against a local bare repo (no network)', () => {
     await svc.install('reference', 'hive-note.md')
     // install() stamps three frontmatter keys the upstream blob lacks — a byte comparison
     // would report divergence here, and every update would warn.
-    expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+    expect(await svc.localDivergence('hive-note.md')).toEqual({
+      diverged: false,
+      diff: '',
+      tierChange: null
+    })
   }, 30_000)
 
   it('hazard 2: unpushed edits block the update until acknowledged, then survive as a diff', async () => {

@@ -66,6 +66,21 @@ function referenceTier(file: string): string {
 }
 
 /**
+ * The trust_tier `install()` will stamp for `name`, given the tier already on disk.
+ *
+ * Extracted so the update preview cannot drift from what install actually does — the two
+ * disagreeing would mean warning about a change that does not happen, or staying silent about
+ * one that does.
+ */
+export function resolvedTier(name: string, priorTier: string): string {
+  return name.startsWith('confluence/')
+    ? 'confluence'
+    : (PUSHABLE_TIERS as readonly string[]).includes(priorTier)
+      ? priorTier
+      : 'hivemind'
+}
+
+/**
  * Frontmatter the APP writes into a local copy, as opposed to content its author wrote:
  * the three `install()` stamps, plus the authorship trail `claimReference` appends.
  *
@@ -364,11 +379,7 @@ export class HivemindService {
       // tier (and push rights). Hive confluence/ items are refsync-owned: always
       // stamped confluence (un-claimable, un-pushable), a deliberate takeover.
       const prior = referenceTier(dest)
-      const tier = name.startsWith('confluence/')
-        ? 'confluence'
-        : (PUSHABLE_TIERS as readonly string[]).includes(prior)
-          ? prior
-          : 'hivemind'
+      const tier = resolvedTier(name, prior)
       // Typed against STAMP_KEYS so the two can never drift apart: adding a fourth stamp here
       // without adding it there (or vice versa) is now a compile error, not a silent gap in
       // the divergence comparison normalizeForCompare relies on.
@@ -473,11 +484,16 @@ export class HivemindService {
    * and makes the caller acknowledge the possible loss explicitly.
    */
   async localDivergence(name: string): Promise<LocalDivergence> {
-    const none: LocalDivergence = { diverged: false, diff: '' }
-    if (!validReferenceName(name)) return none
+    if (!validReferenceName(name)) return { diverged: false, diff: '', tierChange: null }
     const pin = this.state().references[name]
     const file = path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
-    if (!fs.existsSync(file)) return none
+    if (!fs.existsSync(file)) return { diverged: false, diff: '', tierChange: null }
+    // Computed as soon as a real local file is in play, and carried on every return from here
+    // on — independent of `diverged`, because a confluence/ twin with byte-identical content
+    // still costs push rights, and that must be reported even when there is nothing to diff.
+    const prior = referenceTier(file)
+    const next = resolvedTier(name, prior)
+    const tierChange = next === prior ? null : { from: prior, to: next }
     let local: string
     let head: string
     let pinned: string | null = null
@@ -489,19 +505,26 @@ export class HivemindService {
       // A pinned copy came from the hive and can be re-downloaded, so a check that
       // cannot run must not block the update. A file with no pin exists nowhere
       // else — there, refuse and make the caller acknowledge the loss explicitly.
-      return pin ? none : { diverged: true, diff: '' }
+      return pin
+        ? { diverged: false, diff: '', tierChange }
+        : { diverged: true, diff: '', tierChange }
     }
     const mine = normalizeForCompare(local)
     const normalizedHead = normalizeForCompare(head)
-    if (mine === normalizedHead) return none
-    if (pinned !== null && mine === normalizeForCompare(pinned)) return none
+    if (mine === normalizedHead) return { diverged: false, diff: '', tierChange }
+    if (pinned !== null && mine === normalizeForCompare(pinned))
+      return { diverged: false, diff: '', tierChange }
     // Diff the normalized forms, not the raw files: the raw local file carries the three
     // install stamps (trust_tier/source_repo/source_commit) that the raw upstream blob never
     // does, so a raw-vs-raw diff always shows them as deletions — falsely telling the user
     // they're about to lose the very authorship claim `install()` re-applies. Normalizing
     // both sides keeps the diff in lockstep with the divergence verdict above, and still
     // shows real frontmatter edits (e.g. an added `tags:` line), which normalization preserves.
-    return { diverged: true, diff: await this.noIndexDiff(name, mine, normalizedHead) }
+    return {
+      diverged: true,
+      diff: await this.noIndexDiff(name, mine, normalizedHead),
+      tierChange
+    }
   }
 
   /** Reclaim ownership: restamp a hivemind-tier installed reference as user tier (pushable again). */

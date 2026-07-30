@@ -2,7 +2,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { HivemindService, cloneUrl, normalizeForCompare, type Runner } from '../hivemind'
+import {
+  HivemindService,
+  cloneUrl,
+  normalizeForCompare,
+  resolvedTier,
+  type Runner
+} from '../hivemind'
 import { parseAuthorship } from '../../../shared/authorship'
 
 let home: string
@@ -1153,7 +1159,11 @@ describe('localDivergence', () => {
         throw new Error('must not be called: no local file means no divergence check')
       }
     })
-    expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+    expect(await svc.localDivergence('hive-note.md')).toEqual({
+      diverged: false,
+      diff: '',
+      tierChange: null
+    })
   })
 
   it('with no pin, a local file that differs from HEAD is diverged (first install over a hand-written file)', async () => {
@@ -1180,7 +1190,13 @@ describe('localDivergence', () => {
       repo: () => 'acme/hivemind',
       git: async (_cmd, args) => (args[0] === 'show' ? '# note\n' : '')
     })
-    expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+    expect(await svc.localDivergence('hive-note.md')).toEqual({
+      diverged: false,
+      diff: '',
+      // The file predates any HiveMind install and carries no trust_tier at all — installing
+      // would still stamp it `hivemind`, independent of the content match.
+      tierChange: { from: '', to: 'hivemind' }
+    })
   })
 
   it('fails open (not-diverged) when a pin exists but git cannot read the blobs', async () => {
@@ -1199,7 +1215,13 @@ describe('localDivergence', () => {
         throw new Error('fatal: bad object')
       }
     })
-    expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+    expect(await broken.localDivergence('hive-note.md')).toEqual({
+      diverged: false,
+      diff: '',
+      // The local edit overwrote the file wholesale, dropping the trust_tier install() had
+      // stamped — install would restamp it `hivemind`, independent of the failed git check.
+      tierChange: { from: '', to: 'hivemind' }
+    })
   })
 
   it('the divergence diff never claims the user is losing their authorship stamp', async () => {
@@ -1259,7 +1281,12 @@ describe('localDivergence', () => {
         throw new Error('fatal: bad object')
       }
     })
-    expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: true, diff: '' })
+    expect(await broken.localDivergence('hive-note.md')).toEqual({
+      diverged: true,
+      diff: '',
+      // No frontmatter on the hand-written file — install would stamp it `hivemind`.
+      tierChange: { from: '', to: 'hivemind' }
+    })
   })
 })
 
@@ -1487,5 +1514,52 @@ describe('authorship is app-managed, not a local edit', () => {
     const upstream = '---\ntitle: T\n---\n# body\n'
     const edited = '---\ntitle: T\nauthor: A <a@example.test>\n---\n# body\n\nMY PARAGRAPH\n'
     expect(normalizeForCompare(edited)).not.toBe(normalizeForCompare(upstream))
+  })
+})
+
+describe('resolvedTier', () => {
+  it('force-stamps confluence for a confluence/ name, overriding a pushable prior tier', () => {
+    expect(resolvedTier('confluence/x.md', 'user')).toBe('confluence')
+  })
+  it('keeps a pushable prior tier for a normal name', () => {
+    expect(resolvedTier('x.md', 'user')).toBe('user')
+    expect(resolvedTier('x.md', 'team-knowledge')).toBe('team-knowledge')
+  })
+  it('falls back to hivemind for a tier-less or non-pushable prior', () => {
+    expect(resolvedTier('x.md', '')).toBe('hivemind')
+    expect(resolvedTier('x.md', 'hivemind')).toBe('hivemind')
+  })
+})
+
+describe('localDivergence tierChange', () => {
+  it('is null when install would keep the tier', async () => {
+    const svc = await installedReference({ pinned: '# note\n', head: '# note v2\n' })
+    expect((await svc.localDivergence('hive-note.md')).tierChange).toBeNull()
+  })
+
+  it('reports the restamp even when the content is identical', async () => {
+    // A confluence/ twin over a user-tier local copy: byte-identical content, but install
+    // force-stamps `confluence` and the user silently loses push rights.
+    const clone = seedClone()
+    fs.mkdirSync(path.join(clone, 'references', 'confluence'), { recursive: true })
+    fs.writeFileSync(path.join(clone, 'references', 'confluence', 'hive-note.md'), '# note\n')
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'hive-note.md'),
+      '---\ntrust_tier: user\n---\n# note\n'
+    )
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async (_c, args) => (args[0] === 'show' ? '# note\n' : args[0] === 'log' ? 'pinsha' : '')
+    })
+    await svc.install('reference', 'confluence/hive-note.md', { overwriteLocalEdits: true })
+    fs.writeFileSync(
+      path.join(home, 'references', 'hive-note.md'),
+      '---\ntrust_tier: user\n---\n# note\n'
+    )
+    const d = await svc.localDivergence('confluence/hive-note.md')
+    expect(d.diverged).toBe(false)
+    expect(d.tierChange).toEqual({ from: 'user', to: 'confluence' })
   })
 })
