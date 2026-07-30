@@ -57,6 +57,10 @@ export interface AssetEditorProps {
   /** Skill folder name / reference file name. In create mode, the initial value of the name field. */
   name: string
   mode: 'edit' | 'create'
+  /** 'modal' keeps the ModalShell wrapper; 'window' fills its container instead. */
+  chrome?: 'modal' | 'window'
+  /** Fires whenever the pristine flag flips, so the window can report dirty state to main. */
+  onDirtyChange?: (dirty: boolean) => void
   /** Absent in create mode. */
   load?: () => Promise<{ content: string; hash: string }>
   /** Resolves to the new base hash — the hash of what was actually written to disk. Both
@@ -78,6 +82,8 @@ export function AssetEditor({
   kind,
   name: initialName,
   mode,
+  chrome = 'modal',
+  onDirtyChange,
   load,
   save,
   onClose,
@@ -135,6 +141,12 @@ export function AssetEditor({
     proposed !== null ||
     busy ||
     (mode === 'create' && (name !== initialName || describe.trim() !== ''))
+
+  // Reuse the same signal the close guard uses, rather than deriving a second, weaker one:
+  // in a window the host reports this to main, which asks the same question on window close.
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedWork)
+  }, [hasUnsavedWork, onDirtyChange])
 
   useEffect(() => {
     if (!load) return
@@ -289,31 +301,32 @@ export function AssetEditor({
   }
 
   const label = `${kind} · ${name}`
+  const title = `${kind === 'skill' ? 'skills' : 'references'} / ${name}`
 
-  return (
-    <ModalShell
-      title={`${kind === 'skill' ? 'skills' : 'references'} / ${name}`}
-      ariaLabel={label}
-      onClose={() => void requestClose()}
-      className="h-[80vh] w-[80vw] max-w-4xl"
-      actions={
-        <>
-          <Btn variant="ghost" disabled={proposed !== null} onClick={() => setPreview(!preview)}>
-            {preview ? 'Edit' : 'Preview'}
-          </Btn>
-          <Btn variant="ghost" onClick={() => void requestClose()}>
-            Cancel
-          </Btn>
-          <Btn
-            variant="primary"
-            disabled={busy || !loaded || proposed !== null}
-            onClick={() => void onSave()}
-          >
-            Save
-          </Btn>
-        </>
-      }
-    >
+  const actions = (
+    <>
+      <Btn variant="ghost" disabled={proposed !== null} onClick={() => setPreview(!preview)}>
+        {preview ? 'Edit' : 'Preview'}
+      </Btn>
+      {/* In a window the frame's own close button is the cancel affordance, and it runs the
+          same guard through main's close handshake. */}
+      {chrome === 'modal' && (
+        <Btn variant="ghost" onClick={() => void requestClose()}>
+          Cancel
+        </Btn>
+      )}
+      <Btn
+        variant="primary"
+        disabled={busy || !loaded || proposed !== null}
+        onClick={() => void onSave()}
+      >
+        Save
+      </Btn>
+    </>
+  )
+
+  const body = (
+    <>
       {mode === 'create' && (
         <div className="flex items-center gap-2 border-b border-hair px-3 py-2">
           <input
@@ -438,6 +451,30 @@ export function AssetEditor({
           onStopWaiting={stopWaiting}
         />
       )}
+    </>
+  )
+
+  if (chrome === 'window') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b border-hair px-3 py-2">
+          <span className="font-mono text-xs text-dim">{title}</span>
+          <span className="flex items-center gap-2">{actions}</span>
+        </div>
+        {body}
+      </div>
+    )
+  }
+
+  return (
+    <ModalShell
+      title={title}
+      ariaLabel={label}
+      onClose={() => void requestClose()}
+      className="h-[80vh] w-[80vw] max-w-4xl"
+      actions={actions}
+    >
+      {body}
     </ModalShell>
   )
 }

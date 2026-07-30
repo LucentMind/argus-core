@@ -27,6 +27,16 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
+    build: {
+      rollupOptions: {
+        // Both entries must be listed: naming an explicit input replaces
+        // electron-vite's default (index.html), so omitting it breaks the main window.
+        input: {
+          index: resolve('src/renderer/index.html'),
+          editor: resolve('src/renderer/editor.html')
+        }
+      }
+    },
     plugins: [react(), tailwindcss()]
   }
 })
