@@ -342,16 +342,71 @@ describe('accept stamps authorship', () => {
   })
 
   it('writes no authorship keys when there is no identity', () => {
-    writeProposal(home, 'c1', {
-      type: 'skill-new',
-      target: 'my-skill',
-      title: 't',
-      content: '---\nname: my-skill\ndescription: d\n---\n# body\n'
-    })
+    // the spec's guarantee is byte-identical output, which is both cheaper to assert and
+    // stronger than the absence of two substrings. `name:` is written LAST here so that the
+    // accept path's own name-normalisation re-emits it in place — leaving the stamp as the
+    // only thing this assertion can catch.
+    const content = '---\ndescription: d\nname: my-skill\n---\n# body\n'
+    writeProposal(home, 'c1', { type: 'skill-new', target: 'my-skill', title: 't', content })
     acceptProposal(home, listProposals(home)[0].file, { identity: null, now })
 
     const raw = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
-    expect(raw).not.toContain('author:')
-    expect(raw).not.toContain('contributors:')
+    expect(raw).toBe(content)
+  })
+
+  it('a skill-edit against an authored skill keeps its author and appends the accepter', () => {
+    // The accepter of an agent's EDIT did not write the skill — spec §7 says the accepter
+    // becomes the author, but that rule is for a new asset. Resolved 2026-07-30: disk wins.
+    const dir = path.join(home, 'skills-user', 'my-skill')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      [
+        '---',
+        'name: my-skill',
+        'description: d',
+        'author: Alex Chen <alex@example.test>',
+        'origin: authored',
+        'contributors:',
+        '  - Alex Chen <alex@example.test> 2026-07-01',
+        '---',
+        '# body\n'
+      ].join('\n')
+    )
+    // the agent's draft carries no frontmatter authorship, as agent drafts never do
+    writeProposal(home, 'c1', {
+      type: 'skill-edit',
+      target: 'my-skill',
+      title: 't',
+      content: '---\nname: my-skill\ndescription: d\n---\n# rewritten\n'
+    })
+    acceptProposal(home, listProposals(home)[0].file, { identity: me, now })
+
+    const raw = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8')
+    const a = parseAuthorship(raw)
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors.map((c) => c.email)).toEqual(['alex@example.test', me.email])
+    expect(raw).toContain('# rewritten')
+  })
+
+  it('a reference-edit against an authored reference keeps its author too', () => {
+    const dir = path.join(home, 'references')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'topic.md'),
+      '---\ntrust_tier: team-knowledge\nauthor: Alex Chen <alex@example.test>\norigin: authored\n---\n\nold\n'
+    )
+    writeProposal(home, 'c1', {
+      type: 'reference-edit',
+      target: 'topic',
+      title: 't',
+      content: '# topic\n\nrewritten\n'
+    })
+    acceptProposal(home, listProposals(home)[0].file, { identity: me, now })
+
+    const a = parseAuthorship(fs.readFileSync(path.join(dir, 'topic.md'), 'utf8'))
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.contributors.map((c) => c.email)).toEqual([me.email])
   })
 })
