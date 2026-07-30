@@ -143,7 +143,8 @@ beforeEach(() => {
     },
     skills: {
       list: vi.fn(async () => ({ skills: [] })),
-      deleteUser: vi.fn()
+      deleteUser: vi.fn(),
+      onChanged: vi.fn(() => () => {})
     },
     usage: {
       stats: vi.fn(async () => ({ hygiene: null, skills: [], references: [] }))

@@ -88,7 +88,11 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
 }
 
 function mockArgus(): {
-  skills: { list: ReturnType<typeof vi.fn>; deleteUser: ReturnType<typeof vi.fn> }
+  skills: {
+    list: ReturnType<typeof vi.fn>
+    deleteUser: ReturnType<typeof vi.fn>
+    onChanged: ReturnType<typeof vi.fn>
+  }
   usage: { stats: ReturnType<typeof vi.fn> }
   access: { patch: ReturnType<typeof vi.fn> }
   hivemind: {
@@ -108,7 +112,8 @@ function mockArgus(): {
   return {
     skills: {
       list: vi.fn().mockResolvedValue(initial),
-      deleteUser: vi.fn().mockResolvedValue(initial)
+      deleteUser: vi.fn().mockResolvedValue(initial),
+      onChanged: vi.fn(() => () => {})
     },
     usage: {
       stats: vi.fn().mockResolvedValue({

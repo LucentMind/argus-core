@@ -8,7 +8,6 @@ import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
 import { RefViewer, MarkdownViewer } from '../references/RefViewer'
 import { TierBadge } from './TierBadge'
-import { AssetEditor } from '../library/AssetEditor'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
 import { useRefSyncPayload } from '../../lib/referenceSyncStore'
@@ -97,11 +96,6 @@ export function LibraryPage({
   const [skillUsage, setSkillUsage] = useState<Map<string, SkillUsageRow> | null>(null)
   const [refUsage, setRefUsage] = useState<Map<string, ReferenceUsageRow> | null>(null)
   const [viewer, setViewer] = useState<{ kind: LibraryKind; name: string } | null>(null)
-  const [editor, setEditor] = useState<{
-    kind: LibraryKind
-    name: string
-    mode: 'edit' | 'create'
-  } | null>(null)
   // the skill being forked, while the "Edit a copy" name dialog is open
   const [forking, setForking] = useState<SkillListItem | null>(null)
   // one dialog serves both kinds — keyed `${kind}/${name}` like push receipts
@@ -151,6 +145,11 @@ export function LibraryPage({
     }
   }, [])
 
+  // The editor lives in its own window now, so a save can land in a process this page knows
+  // nothing about. Mirrors what references already get from refsync:changed via
+  // referenceSyncStore — the broadcast payload IS the new list, so no refetch here.
+  useEffect(() => window.argus.skills.onChanged((p) => setSkills(p.skills)), [])
+
   async function toggle(s: SkillListItem, v: boolean): Promise<void> {
     await accessStore.patch({ skills: { [`${s.tier}/${s.name}`]: v } })
     setSkills((await window.argus.skills.list()).skills) // enablement is computed main-side
@@ -193,7 +192,7 @@ export function LibraryPage({
     const { name, skills } = await window.argus.skills.fork(s.name, newName)
     setSkills(skills)
     setForking(null)
-    setEditor({ kind: 'skill', name, mode: 'edit' })
+    void window.argus.editor.open({ kind: 'skill', name, mode: 'edit' })
   }
 
   /** Claim a hivemind reference (restamp to user tier), then edit it. */
@@ -211,7 +210,7 @@ export function LibraryPage({
     setViewer(null)
     try {
       await window.argus.hivemind.claimReference(r.file)
-      setEditor({ kind: 'reference', name: r.file, mode: 'edit' })
+      void window.argus.editor.open({ kind: 'reference', name: r.file, mode: 'edit' })
     } catch (err) {
       setError((err as Error).message)
     }
@@ -369,7 +368,9 @@ export function LibraryPage({
               <Btn
                 variant="outline"
                 aria-label={`Edit · ${s.name}`}
-                onClick={() => setEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
+                onClick={() =>
+                  void window.argus.editor.open({ kind: 'skill', name: s.name, mode: 'edit' })
+                }
               >
                 <Pencil size={13} aria-hidden="true" />
                 Edit
@@ -483,7 +484,9 @@ export function LibraryPage({
               <Btn
                 variant="outline"
                 aria-label={`Edit · ${r.file}`}
-                onClick={() => setEditor({ kind: 'reference', name: r.file, mode: 'edit' })}
+                onClick={() =>
+                  void window.argus.editor.open({ kind: 'reference', name: r.file, mode: 'edit' })
+                }
               >
                 <Pencil size={13} aria-hidden="true" />
                 Edit
@@ -566,11 +569,17 @@ export function LibraryPage({
           items={[
             {
               label: 'New skill',
-              onSelect: () => setEditor({ kind: 'skill', name: 'my-skill', mode: 'create' })
+              onSelect: () =>
+                void window.argus.editor.open({ kind: 'skill', name: 'my-skill', mode: 'create' })
             },
             {
               label: 'New reference',
-              onSelect: () => setEditor({ kind: 'reference', name: 'my-notes.md', mode: 'create' })
+              onSelect: () =>
+                void window.argus.editor.open({
+                  kind: 'reference',
+                  name: 'my-notes.md',
+                  mode: 'create'
+                })
             }
           ]}
         />
@@ -658,34 +667,6 @@ export function LibraryPage({
             />
           )
         })()}
-      {editor && (
-        <AssetEditor
-          key={`${editor.kind}/${editor.name}/${editor.mode}`}
-          kind={editor.kind}
-          name={editor.name}
-          mode={editor.mode}
-          load={
-            editor.mode === 'create'
-              ? undefined
-              : editor.kind === 'skill'
-                ? () => window.argus.skills.read(editor.name)
-                : () => window.argus.refsync.readRef(editor.name)
-          }
-          save={async ({ name, content, baseHash }) => {
-            // `save` resolves to the NEW base hash. Both write paths return the hash of the
-            // bytes they actually wrote, so the editor can adopt it and stay usable when it
-            // keeps itself open (text typed during an in-flight save). Returning nothing here
-            // would guarantee the next save throws a bogus "changed on disk".
-            if (editor.kind === 'skill') {
-              const { skills, hash } = await window.argus.skills.write(name, content, baseHash)
-              setSkills(skills)
-              return hash
-            }
-            return window.argus.refsync.writeRef(name, content, baseHash)
-          }}
-          onClose={() => setEditor(null)}
-        />
-      )}
     </div>
   )
 }
