@@ -138,6 +138,24 @@ describe('workspace service', () => {
     const roots = await workspaceSandboxRoots(db, argusHome, 'NAV-1')
     expect(roots).not.toContain(path.join(argusHome, 'graphs'))
   })
+
+  it('returns workspaces in stored order, not completion order', async () => {
+    const second = path.join(tmp, 'repo2')
+    fs.mkdirSync(second, { recursive: true })
+    git(second, 'init', '-b', 'main')
+    git(second, 'config', 'user.email', 't@t')
+    git(second, 'config', 'user.name', 't')
+    fs.writeFileSync(path.join(second, 'b.txt'), 'two\n')
+    git(second, 'add', '.')
+    git(second, 'commit', '-m', 'c1')
+
+    await linkWorkspace(db, argusHome, 'NAV-1', repo)
+    await linkWorkspace(db, argusHome, 'NAV-1', second)
+
+    const list = await listWorkspaces(db, argusHome, 'NAV-1')
+
+    expect(list.map((w) => w.path)).toEqual([repo, second])
+  })
 })
 
 describe('autoLinkDefaultRepo', () => {
