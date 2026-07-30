@@ -4,6 +4,7 @@ import {
   authorName,
   formatIdentity,
   stampAuthorship,
+  mergeAuthorship,
   CONTRIBUTOR_CAP
 } from '../authorship'
 import type { Identity } from '../authorship'
@@ -220,5 +221,108 @@ describe('stampAuthorship', () => {
     expect(out.startsWith('---\n')).toBe(true)
     expect(out.endsWith('plain body')).toBe(true)
     expect(parseAuthorship(out).author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+  })
+
+  it('upserts an entry whose address differs only in case, not a second one', () => {
+    const first = stampAuthorship(plain, {
+      identity: { name: 'J.Han', email: 'J.Han@corp.test' },
+      origin: 'authored',
+      now: day('2026-07-30')
+    })
+    const again = stampAuthorship(first, {
+      identity: { name: 'Jiawei Han', email: 'j.han@corp.test' },
+      origin: 'authored',
+      now: day('2026-08-05')
+    })
+    expect(parseAuthorship(again).contributors).toEqual([
+      { name: 'Jiawei Han', email: 'j.han@corp.test', date: '2026-08-05' }
+    ])
+    // the byline keeps the casing it was first written in — only the list entry is rewritten
+    expect(parseAuthorship(again).author).toBe('J.Han <J.Han@corp.test>')
+  })
+
+  it('preserves an unrelated block list (roles:) across a stamp', () => {
+    const withRoles = '---\nname: x\ndescription: d\nroles:\n  - engineer\n  - reviewer\n---\nbody\n'
+    const out = stampAuthorship(withRoles, {
+      identity: me,
+      origin: 'authored',
+      now: day('2026-07-30')
+    })
+    expect(out).toContain('roles:\n  - engineer\n  - reviewer')
+    expect(parseAuthorship(out).author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    // and it still survives a second, contributors-only stamp
+    const twice = stampAuthorship(out, { identity: other, origin: null, now: day('2026-08-02') })
+    expect(twice).toContain('roles:\n  - engineer\n  - reviewer')
+  })
+})
+
+describe('mergeAuthorship', () => {
+  const authored = [
+    '---',
+    'name: x',
+    'description: d',
+    'author: Jiawei Han <jiawiehan@gmail.com>',
+    'origin: authored',
+    'contributors:',
+    '  - Jiawei Han <jiawiehan@gmail.com> 2026-07-30',
+    '  - Alex Chen <alex@example.test> 2026-08-02',
+    '---',
+    '# body\n'
+  ].join('\n')
+
+  it('returns the buffer untouched when there is no file on disk', () => {
+    const incoming = '---\nname: x\n---\nbody\n'
+    expect(mergeAuthorship(incoming, null)).toBe(incoming)
+  })
+
+  it('returns the buffer untouched when the disk file carries no authorship keys', () => {
+    const incoming = '---\nname: x\n---\nbody\n'
+    expect(mergeAuthorship(incoming, '---\nname: x\ntrust_tier: user\n---\nold\n')).toBe(incoming)
+  })
+
+  it('restores author, origin, and the full contributor list a buffer dropped', () => {
+    const merged = mergeAuthorship('---\nname: x\ndescription: d\n---\n# rewritten\n', authored)
+    const a = parseAuthorship(merged)
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com', 'alex@example.test'])
+    // the buffer's own content is what survives everywhere else
+    expect(merged).toContain('# rewritten')
+  })
+
+  it('overrules an author the buffer disagrees with — disk wins', () => {
+    const spoofed = '---\nname: x\nauthor: Mallory <mal@example.test>\norigin: fork\n---\nbody\n'
+    const a = parseAuthorship(mergeAuthorship(spoofed, authored))
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.origin).toBe('authored')
+  })
+
+  it('replaces a truncated contributor list with the on-disk trail', () => {
+    const trimmed = '---\nname: x\ncontributors:\n  - Mallory <mal@example.test> 2026-09-09\n---\nb'
+    expect(parseAuthorship(mergeAuthorship(trimmed, authored)).contributors.map((c) => c.email)) //
+      .toEqual(['jiawiehan@gmail.com', 'alex@example.test'])
+  })
+
+  it('creates a frontmatter block when the buffer has none', () => {
+    const a = parseAuthorship(mergeAuthorship('bare body', authored))
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.contributors).toHaveLength(2)
+  })
+
+  it('feeding the merge to a stamp keeps the byline and appends the saver', () => {
+    const merged = mergeAuthorship('---\nname: x\ndescription: d\n---\n# improved\n', authored)
+    const out = stampAuthorship(merged, {
+      identity: { name: 'Sam Doe', email: 'sam@example.test' },
+      origin: 'authored',
+      now: new Date('2026-09-01T12:00:00Z')
+    })
+    const a = parseAuthorship(out)
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors.map((c) => c.email)).toEqual([
+      'jiawiehan@gmail.com',
+      'alex@example.test',
+      'sam@example.test'
+    ])
   })
 })
