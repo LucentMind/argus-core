@@ -39,6 +39,11 @@ import { seedFiles } from './seed/files.mjs'
 import { seedKnowledge } from './seed/knowledge.mjs'
 import { seedDistill } from './seed/distill.mjs'
 
+// Deliberately excludes config/: a freshly booted home always has a fully-configured
+// config/ (provider instances, hivemind repo, tool-risk overrides) while these five are
+// still empty, so guarding config/ here would make every legitimate first seed of a
+// scratch home demand --force — see the backup comment in seed/knowledge.mjs for how the
+// resulting config/ data loss is made recoverable instead.
 const CONTENT_DIRS = ['references', 'skills-user', 'skills-hivemind', 'memory', 'proposals']
 const MARKER_FILE = '.argus-seed-home'
 
@@ -56,9 +61,23 @@ const MARKER_FILE = '.argus-seed-home'
  * ARGUS_HOME and silently deleting someone's real proposals/skills/references/memory.
  */
 function guardHome(home) {
+  // Resolve through the real filesystem entry (symlinks, junctions) before comparing, not
+  // just the textual path, so a junction pointing at the default home from a different
+  // path is still caught. A scratch home that does not exist yet (the common case — this
+  // runs before the seed has created anything) has no realpath to resolve, so fall back to
+  // the plain resolved path rather than letting realpathSync throw past this guard.
   const normalize = (p) => {
     const resolved = path.resolve(p)
-    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+    let real = resolved
+    try {
+      real = fs.realpathSync.native(resolved)
+    } catch {
+      // Target doesn't exist on disk yet — resolved (unresolved-symlink) path is the best
+      // available comparison basis.
+    }
+    // Case-insensitive filesystems: win32 always, and macOS by default (darwin's HFS+/APFS
+    // are case-insensitive out of the box, though not guaranteed to be).
+    return process.platform === 'win32' || process.platform === 'darwin' ? real.toLowerCase() : real
   }
   const defaultHome = path.join(os.homedir(), 'Argus')
   if (normalize(home) === normalize(defaultHome)) {
@@ -98,7 +117,16 @@ function guardHome(home) {
         populated.map((d) => `  - ${d}/`).join('\n') +
         '\nRunning this seed would delete every one of those directories. Re-run with\n' +
         '--force if you are sure this home is disposable:\n' +
-        `  ARGUS_HOME=${home} node --experimental-sqlite app/scripts/seed-test-home.mjs --force`
+        `  ARGUS_HOME=${home} node --experimental-sqlite app/scripts/seed-test-home.mjs --force\n\n` +
+        'Note: this is also exactly the state left by a previous run of this seed that failed\n' +
+        'partway through verify() — content is written before the marker, which is only\n' +
+        'written after verification passes. If that is what happened, --force is the correct\n' +
+        'response, not a sign of a foreign home.\n\n' +
+        'Separately, config/hivemind-state.json, config/settings.json, config/agent-access.json\n' +
+        'and config/tool-risk.json are not checked above (and never will be — see CONTENT_DIRS\n' +
+        "comment) but ARE overwritten wholesale on every run. Each file's previous contents are\n" +
+        'backed up first to config/.seed-backup/<name>.json (one generation, overwritten each run)\n' +
+        'if you need to recover something after the fact.'
     )
     process.exit(1)
   }
@@ -220,7 +248,7 @@ verify()
 // Only written once verification passes: a home carrying this marker is provably
 // seed-owned, so guardHome() lets future re-seeds proceed without --force.
 fs.writeFileSync(
-  path.join(HOME, '.argus-seed-home'),
+  path.join(HOME, MARKER_FILE),
   `seeded_at: ${ctx.nowIso()}\nThis home is managed by seed-test-home.mjs and is safe to overwrite.\n`,
   'utf8'
 )
@@ -237,6 +265,10 @@ Next: boot the app against this home and click Rescan once per case.
 Evidence rows do not exist until you do — by design.
 
   ARGUS_HOME=${HOME} npm run dev
+
+Note: config/hivemind-state.json, config/settings.json, config/agent-access.json and
+config/tool-risk.json were overwritten wholesale. Whatever was there before this run is
+backed up at config/.seed-backup/<name>.json (one generation, overwritten each run).
 `)
 db.close()
 
@@ -258,6 +290,14 @@ function verify() {
   for (const slug of ctx.SLUGS) {
     // Positive: a case row actually exists for every seeded slug.
     if (!caseIds[slug]) fail(`${slug}: no case id was created`)
+
+    // Positive: seedFindings actually created at least one finding row for every seeded
+    // slug. Without this, a builder silently returning [] leaves "slugs with bodies" (and
+    // therefore the marker-count check below) vacuously satisfied — zero ids in, zero
+    // markers expected, check passes even though nothing was seeded.
+    if (!Array.isArray(findingIds[slug]) || findingIds[slug].length === 0) {
+      fail(`${slug}: seedFindings created no finding ids`)
+    }
 
     // Positive: exactly one pull-request binding per seeded case — not "at most one"
     // (a case with zero bindings is a silently missing seed step, not a pass), and
@@ -345,11 +385,19 @@ function verify() {
   if (proposalCounts[''] === 0) fail('no pending proposals were written')
   if (proposalCounts.archive === 0) fail('no archived proposals were written')
 
-  // Positive: at least one distill job and one case summary exist.
-  const jobCount = db.prepare('SELECT COUNT(*) c FROM distill_jobs').get().c
-  if (jobCount === 0) fail('no distill_jobs rows exist')
-  const summaryCount = db.prepare('SELECT COUNT(*) c FROM case_summaries').get().c
-  if (summaryCount === 0) fail('no case_summaries rows exist')
+  // Positive: at least one distill job and one case summary exist FOR THE CASES THIS RUN
+  // SEEDED. An unscoped COUNT(*) would pass on rows left behind by a previous run even if
+  // this run's seedDistill did nothing at all — scoping to the roster slugs means only
+  // rows this run could plausibly have produced count as evidence it worked.
+  const slugPlaceholders = ctx.SLUGS.map(() => '?').join(',')
+  const jobCount = db
+    .prepare(`SELECT COUNT(*) c FROM distill_jobs WHERE case_slug IN (${slugPlaceholders})`)
+    .get(...ctx.SLUGS).c
+  if (jobCount === 0) fail('no distill_jobs rows exist for the seeded cases')
+  const summaryCount = db
+    .prepare(`SELECT COUNT(*) c FROM case_summaries WHERE case_slug IN (${slugPlaceholders})`)
+    .get(...ctx.SLUGS).c
+  if (summaryCount === 0) fail('no case_summaries rows exist for the seeded cases')
 
   // A failed distill job with no raw_output is a corpus defect evalExport reports.
   const bad = db
