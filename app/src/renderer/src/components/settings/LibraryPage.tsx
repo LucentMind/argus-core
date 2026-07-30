@@ -162,7 +162,8 @@ export function LibraryPage({
       ? {
           title: `Adopt the HiveMind version of "${s.name}"?`,
           message:
-            'Your local copy in skills-user is deleted and the downloaded HiveMind skill takes over.',
+            'Your local copy in skills-user is deleted and the downloaded HiveMind skill takes over. ' +
+            'Any edits you have not shared to the HiveMind are lost.',
           confirmLabel: 'Adopt'
         }
       : {
@@ -325,6 +326,11 @@ export function LibraryPage({
                   overrides {s.shadows.map((t) => TIER_LABELS[t as TrustTier]).join(', ')}
                 </Chip>
               )}
+              {adopt && (
+                <Chip tone={s.shadowDiverged ? 'review' : 'neutral'}>
+                  {s.shadowDiverged ? 'differs from hivemind' : 'duplicate of hivemind'}
+                </Chip>
+              )}
               {u &&
                 (u.activationCount > 0 ? (
                   <Chip tone="neutral">
@@ -339,16 +345,27 @@ export function LibraryPage({
         >
           {s.tier === 'user' && (
             <>
-              <Reveal>
+              {adopt ? (
                 <Btn
-                  variant={adopt ? 'outline' : 'dangerSolid'}
-                  aria-label={`${adopt ? 'Adopt upstream' : 'Delete'} · ${s.name}`}
-                  onClick={() => void removeUserSkill(s, adopt)}
+                  variant="outline"
+                  aria-label={`Adopt upstream · ${s.name}`}
+                  title="Delete your copy so the team's version is used again"
+                  onClick={() => void removeUserSkill(s, true)}
                 >
-                  {!adopt && <Trash2 size={13} aria-hidden="true" />}
-                  {adopt ? 'Adopt upstream' : 'Delete'}
+                  Adopt upstream
                 </Btn>
-              </Reveal>
+              ) : (
+                <Reveal>
+                  <Btn
+                    variant="dangerSolid"
+                    aria-label={`Delete · ${s.name}`}
+                    onClick={() => void removeUserSkill(s, false)}
+                  >
+                    <Trash2 size={13} aria-hidden="true" />
+                    Delete
+                  </Btn>
+                </Reveal>
+              )}
               <Btn
                 variant="outline"
                 aria-label={`Edit · ${s.name}`}
