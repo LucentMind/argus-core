@@ -67,7 +67,7 @@ export function normalizeForCompare(raw: string): string {
     .filter((l) => !STAMP_KEYS.some((k) => l.startsWith(`${k}:`)))
     .join('\n')
     .trim()
-  return `${fm}\n---\n${block.body}`.trim()
+  return fm ? `${fm}\n---\n${block.body}`.trim() : block.body.trim()
 }
 
 /** Bare 'x.md' or exactly 'confluence/x.md' — no traversal, no hidden files, no other subfolders. */
