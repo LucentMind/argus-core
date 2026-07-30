@@ -1617,7 +1617,7 @@ function registerIpc(): void {
     return p
   })
   ipcMain.handle(IPC.hivemindClaimReference, async (_e, name: string) => {
-    const p = await hivemind.claimReference(name)
+    const p = await hivemind.claimReference(name, await identity())
     broadcast(IPC.refsyncChanged, refSync.payload())
     return p
   })
@@ -2064,8 +2064,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.refsyncReadRef, (_e, file: string) => refSync.readReference(file))
   ipcMain.handle(
     IPC.refsyncWriteRef,
-    (_e, file: string, content: string, baseHash: string | null) => {
-      const hash = refSync.writeReference(file, content, baseHash)
+    async (_e, file: string, content: string, baseHash: string | null) => {
+      const hash = refSync.writeReference(file, content, baseHash, await identity())
       broadcast(IPC.refsyncChanged, refSync.payload())
       return hash
     }

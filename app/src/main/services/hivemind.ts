@@ -7,6 +7,7 @@ import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir }
 import { sharedReferencesDir } from './skillsDir'
 import { frontmatterDescription } from './agent/skillsResolver'
 import { withFrontmatter, fmBlock, fmField } from '../../shared/frontmatter'
+import { stampAuthorship, type Identity } from '../../shared/authorship'
 import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,
@@ -461,14 +462,20 @@ export class HivemindService {
     return { diverged: true, diff: await this.noIndexDiff(name, mine, normalizedHead) }
   }
 
-  /** Reclaim authorship: restamp a hivemind-tier installed reference as user tier (pushable again). */
-  async claimReference(name: string): Promise<HivemindPayload> {
+  /** Reclaim ownership: restamp a hivemind-tier installed reference as user tier (pushable again). */
+  async claimReference(name: string, identity: Identity | null): Promise<HivemindPayload> {
     if (!name || /[/\\]/.test(name) || name.startsWith('.') || !name.endsWith('.md'))
       throw new Error(`Invalid reference name: ${name}`)
     const file = path.join(sharedReferencesDir(this.deps.argusHome), name)
     if (referenceTier(file) !== 'hivemind')
       throw new Error(`Not an installed HiveMind reference: ${name}`)
-    fs.writeFileSync(file, withFrontmatter(fs.readFileSync(file, 'utf8'), { trust_tier: 'user' }))
+    // origin: null — claiming makes the asset yours to edit and share, but you did not write
+    // it. The claimer joins the contributors; an upstream author (or its absence) is preserved.
+    const claimed = stampAuthorship(
+      withFrontmatter(fs.readFileSync(file, 'utf8'), { trust_tier: 'user' }),
+      { identity, origin: null, now: new Date() }
+    )
+    fs.writeFileSync(file, claimed)
     return this.payload()
   }
 

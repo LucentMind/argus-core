@@ -5,6 +5,7 @@ import { sharedReferencesDir } from '../skillsDir'
 import { contentHash } from '../contentHash'
 import { validateReference, hasErrors } from '../../../shared/assetValidation'
 import { withFrontmatter } from '../../../shared/frontmatter'
+import { stampAuthorship, type Identity } from '../../../shared/authorship'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import {
   walkSelection,
@@ -160,7 +161,12 @@ export class RefSyncService {
    * the caller must adopt this as its next `baseHash`, or its own stamping write would make its
    * next save fail with a misleading "changed on disk" conflict.
    */
-  writeReference(file: string, content: string, baseHash: string | null): string {
+  writeReference(
+    file: string,
+    content: string,
+    baseHash: string | null,
+    identity: Identity | null
+  ): string {
     const issues = validateReference({ file, content })
     if (hasErrors(issues)) throw new Error(issues.find((i) => i.severity === 'error')!.message)
 
@@ -179,7 +185,11 @@ export class RefSyncService {
       throw new Error(`"${file}" changed on disk since you opened it.`)
     }
     fs.mkdirSync(this.refsDir(), { recursive: true })
-    const written = withFrontmatter(content, { trust_tier: tier ?? 'user' })
+    const written = stampAuthorship(withFrontmatter(content, { trust_tier: tier ?? 'user' }), {
+      identity,
+      origin: 'authored',
+      now: this.deps.now?.() ?? new Date()
+    })
     fs.writeFileSync(p, written)
     return contentHash(written)
   }
