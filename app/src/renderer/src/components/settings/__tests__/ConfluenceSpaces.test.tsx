@@ -47,9 +47,17 @@ const payload: RefSyncPayload = {
       tier: 'confluence',
       lastSynced: '2026-06-01T00:00:00.000Z',
       sourceCount: 2,
-      stale: true
+      stale: true,
+      author: null
     },
-    { file: 'glossary.md', tier: 'team-knowledge', lastSynced: null, sourceCount: 0, stale: false }
+    {
+      file: 'glossary.md',
+      tier: 'team-knowledge',
+      lastSynced: null,
+      sourceCount: 0,
+      stale: false,
+      author: null
+    }
   ]
 }
 

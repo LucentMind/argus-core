@@ -51,6 +51,7 @@ function skill(name: string, roles: string[]): ResolvedSkill {
     tier: 'user',
     dir: `/x/${name}`,
     description: '',
+    author: null,
     enabled: true,
     shadows: [],
     roles

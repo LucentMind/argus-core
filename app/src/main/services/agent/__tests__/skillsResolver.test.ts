@@ -73,6 +73,24 @@ describe('resolveSkills', () => {
   })
 })
 
+describe('author on resolveSkills', () => {
+  it('carries the author through, null when absent', () => {
+    const dir = path.join(argusHome, 'skills-user', 'my-skill')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: my-skill\ndescription: d\nauthor: Alex Chen <alex@example.test>\n---\nbody\n'
+    )
+    const bare = path.join(argusHome, 'skills-user', 'bare')
+    fs.mkdirSync(bare, { recursive: true })
+    fs.writeFileSync(path.join(bare, 'SKILL.md'), '---\nname: bare\ndescription: d\n---\nbody\n')
+
+    const skills = resolveSkills(argusHome, defaultAgentAccess())
+    expect(skills.find((s) => s.name === 'my-skill')!.author).toBe('Alex Chen <alex@example.test>')
+    expect(skills.find((s) => s.name === 'bare')!.author).toBeNull()
+  })
+})
+
 describe('deleteUserSkill', () => {
   it('removes the user-tier copy so the next tier wins resolution', () => {
     addSkill(path.join(argusHome, 'skills-hivemind'), 'rca', 'hivemind rca')

@@ -15,6 +15,7 @@ import {
   type VanishedRef
 } from '../../../shared/referenceSync'
 import { refTier, refTitle, refBody, parseRefSources } from './refFrontmatter'
+import { parseAuthorship } from '../../../shared/authorship'
 
 /** Structural subset of AtlassianClient — lets tests inject a fake without HTTP. */
 export interface ConfluenceReader {
@@ -124,7 +125,8 @@ export function referenceStatuses(referencesDir: string, now: Date): ReferenceSt
         tier,
         lastSynced: newest,
         sourceCount: sources.length,
-        stale: tier === 'confluence' && isStale(newest, now)
+        stale: tier === 'confluence' && isStale(newest, now),
+        author: parseAuthorship(raw).author
       }
     })
     .sort((a, b) => a.file.localeCompare(b.file))
