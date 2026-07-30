@@ -151,6 +151,28 @@ describe('DraftStore.discard', () => {
     s.flushAll()
     expect(() => s.discard('skill', 'my-skill')).not.toThrow()
   })
+
+  // Hardening (final-review-fixes-2): the same Finding-4 leak, one key over. A rename whose
+  // write fails at the rename step leaves `<oldKey>.json.tmp` behind under the *ancestor's* key,
+  // not the live one — discard's ancestor loop is the only place that key's lifetime is ever
+  // known to end, so it has to sweep the temp file too, not just `<oldKey>.json`.
+  it("sweeps a stranded ancestor's .tmp file when the live key is discarded before its own write", () => {
+    const s = store()
+    const tmpA = `${file('skill', 'a')}.tmp`
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('EPERM: rename failed')
+    })
+    s.queue({ ...CHANGE, name: 'a' })
+    s.flushAll()
+    renameSpy.mockRestore()
+    // Sanity: 'a' really did leave a temp file behind rather than a fully-written one.
+    expect(fs.existsSync(tmpA)).toBe(true)
+    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
+
+    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
+    s.discard('skill', 'b')
+    expect(fs.existsSync(tmpA)).toBe(false)
+  })
 })
 
 describe('DraftStore rename chains', () => {
@@ -189,6 +211,28 @@ describe('DraftStore rename chains', () => {
 
     expect(fs.existsSync(file('skill', 'a'))).toBe(false)
     expect(fs.existsSync(file('skill', 'b'))).toBe(false)
+  })
+
+  // Hardening (final-review-fixes-2): mirrors the discard-side test above, but for the ancestor
+  // loop that runs after a *successful* write — `writeKey`'s own stranded-ancestor cleanup, not
+  // `discard`'s.
+  it("sweeps a stranded ancestor's .tmp file once the renamed-to key finishes writing", () => {
+    const s = store()
+    const tmpA = `${file('skill', 'a')}.tmp`
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('EPERM: rename failed')
+    })
+    s.queue({ ...CHANGE, name: 'a' })
+    s.flushAll()
+    renameSpy.mockRestore()
+    expect(fs.existsSync(tmpA)).toBe(true)
+    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
+
+    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
+    s.flushAll()
+
+    expect(fs.existsSync(tmpA)).toBe(false)
+    expect(store().read('skill', 'b')?.content).toBe('# typing\n')
   })
 })
 

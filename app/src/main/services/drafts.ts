@@ -120,6 +120,14 @@ export class DraftStore {
       } catch {
         /* never written, or already gone */
       }
+      // Hardening (final-review-fixes-2): the same Finding-4 leak, one key over — a rename
+      // whose write failed at the rename step leaves `<old>.json.tmp` behind, and this ancestor
+      // loop is the only place that key's lifetime is ever known to end.
+      try {
+        fs.rmSync(this.tmpFile(old))
+      } catch {
+        /* never written, or already renamed away */
+      }
     }
     try {
       fs.rmSync(this.file(key))
@@ -202,6 +210,14 @@ export class DraftStore {
           fs.rmSync(this.file(old))
         } catch {
           /* the rename happened before this key was ever written */
+        }
+        // Hardening (final-review-fixes-2): same leak as discard()'s ancestor loop above — a
+        // rename whose write failed at the rename step leaves `<old>.json.tmp` behind, and
+        // nothing else ever sweeps a superseded key's temp file.
+        try {
+          fs.rmSync(this.tmpFile(old))
+        } catch {
+          /* never written, or already renamed away */
         }
       }
       this.superseded.delete(key)
