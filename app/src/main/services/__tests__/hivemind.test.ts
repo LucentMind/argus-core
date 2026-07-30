@@ -1115,3 +1115,35 @@ describe('install() and unpushed local edits', () => {
     expect(fs.readFileSync(dest, 'utf8')).toContain('probe skill from the hive')
   })
 })
+
+describe('shadowedByUser', () => {
+  it('is true for a skill with a skills-user copy and false without one', async () => {
+    seedClone()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async () => ''
+    })
+    expect((await svc.payload()).items.find((i) => i.name === 'hive-probe')?.shadowedByUser).toBe(
+      false
+    )
+
+    fs.mkdirSync(path.join(home, 'skills-user', 'hive-probe'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'skills-user', 'hive-probe', 'SKILL.md'), '# fork\n')
+    expect((await svc.payload()).items.find((i) => i.name === 'hive-probe')?.shadowedByUser).toBe(
+      true
+    )
+  })
+
+  it('is always false for references', async () => {
+    seedClone()
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async () => ''
+    })
+    expect((await svc.payload()).items.find((i) => i.name === 'hive-note.md')?.shadowedByUser).toBe(
+      false
+    )
+  })
+})
