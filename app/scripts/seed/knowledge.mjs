@@ -274,6 +274,28 @@ export function writeProposalFile(dir, p) {
   fs.writeFileSync(path.join(dir, p.file), frontmatter(fm) + p.content, 'utf8')
 }
 
+/**
+ * Writes `name` into `cfgDir`, first snapshotting whatever was already there
+ * into `cfgDir/.seed-backup/name` — but ONLY the first time this name is ever
+ * replaced. First-generation-wins, not "latest overwritten one": on a re-seed,
+ * the file already on disk is the seed's own previous literal, not the user's
+ * real config, so backing that up instead would silently replace the one copy
+ * of the user's original file with a copy of the seed's own output — precisely
+ * the bug this scheme exists to avoid. Once a backup for a name exists, it is
+ * never touched again by a later run. See seedKnowledge's config/ comment for
+ * why config/ can't just be added to guardHome()'s CONTENT_DIRS instead.
+ */
+export function writeConfigFile(cfgDir, name, body) {
+  const backupDir = path.join(cfgDir, '.seed-backup')
+  const dest = path.join(cfgDir, name)
+  const backupDest = path.join(backupDir, name)
+  if (fs.existsSync(dest) && !fs.existsSync(backupDest)) {
+    fs.mkdirSync(backupDir, { recursive: true })
+    fs.copyFileSync(dest, backupDest)
+  }
+  fs.writeFileSync(dest, body, 'utf8')
+}
+
 export function seedKnowledge(ctx, { repos }) {
   const now = ctx.nowIso()
   const home = ctx.argusHome
@@ -390,25 +412,12 @@ export function seedKnowledge(ctx, { repos }) {
   // config/ (provider instances, hivemind repo, tool-risk overrides), so adding config/
   // to CONTENT_DIRS would make every legitimate first seed of a scratch home demand
   // --force — training the user to pass --force reflexively and dissolving the guard's
-  // second tier for everyone. Instead, make the overwrite recoverable: snapshot whatever
-  // was there immediately BEFORE THE FIRST TIME each of the four files below is replaced.
-  // First-generation-wins, not "latest overwritten one": on a re-seed, the file already on
-  // disk is the seed's own previous literal, not the user's real config, so backing that up
-  // instead would silently replace the one copy of the user's original file with a copy of
-  // the seed's own output — precisely the bug this scheme exists to avoid. Once a backup for
-  // a name exists, it is never touched again by a later run.
-  const backupDir = path.join(cfgDir, '.seed-backup')
-  const writeConfigFile = (name, body) => {
-    const dest = path.join(cfgDir, name)
-    const backupDest = path.join(backupDir, name)
-    if (fs.existsSync(dest) && !fs.existsSync(backupDest)) {
-      fs.mkdirSync(backupDir, { recursive: true })
-      fs.copyFileSync(dest, backupDest)
-    }
-    fs.writeFileSync(dest, body, 'utf8')
-  }
+  // second tier for everyone. Instead, make the overwrite recoverable via writeConfigFile
+  // (defined above the top of this function), which snapshots whatever was there
+  // immediately BEFORE THE FIRST TIME each of the four files below is replaced.
 
   writeConfigFile(
+    cfgDir,
     'hivemind-state.json',
     `${JSON.stringify({ lastSynced: now, skills: HIVE_PINS.skills, references: HIVE_PINS.references, pushes: {} }, null, 2)}\n`
   )
@@ -470,6 +479,7 @@ export function seedKnowledge(ctx, { repos }) {
 
   // ── Config: several providers enabled at once, non-default access and risk. ──
   writeConfigFile(
+    cfgDir,
     'settings.json',
     `${JSON.stringify(
       {
@@ -498,6 +508,7 @@ export function seedKnowledge(ctx, { repos }) {
     )}\n`
   )
   writeConfigFile(
+    cfgDir,
     'agent-access.json',
     // Skill keys are tier-qualified ('<tier>/<name>' — skillsResolver.ts's
     // skillEnabled call); 'user/burst-window-review' names a skill this same
@@ -505,6 +516,7 @@ export function seedKnowledge(ctx, { repos }) {
     `${JSON.stringify({ skills: { 'user/burst-window-review': false }, memory: { 'timezone-note': false } }, null, 2)}\n`
   )
   writeConfigFile(
+    cfgDir,
     'tool-risk.json',
     // Keys are '<connectorInstanceId>/<toolName>' (toolRisk.ts) and are
     // consulted ONLY for mcp__<server>__<tool> connector calls (agent/risk.ts's
