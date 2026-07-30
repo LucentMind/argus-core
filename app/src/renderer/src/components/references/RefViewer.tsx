@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Btn } from '../ui'
 import { ModalShell } from '../ModalShell'
+import { AuthorshipStrip } from './AuthorshipStrip'
 
 /** Generic modal markdown viewer (FileViewer idiom) — refs and skills share it. */
 export function MarkdownViewer({
@@ -10,7 +11,8 @@ export function MarkdownViewer({
   ariaLabel,
   load,
   onClose,
-  extraActions
+  extraActions,
+  showAuthorship = false
 }: {
   title: string
   ariaLabel: string
@@ -18,6 +20,8 @@ export function MarkdownViewer({
   onClose: () => void
   /** Extra buttons for the header, left of the Raw/Rendered toggle. */
   extraActions?: React.ReactNode
+  /** Show the author/contributors strip — assets only; a plain file viewer has no authorship. */
+  showAuthorship?: boolean
 }): React.JSX.Element {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState(false)
@@ -46,6 +50,7 @@ export function MarkdownViewer({
         </>
       }
     >
+      {content != null && showAuthorship && <AuthorshipStrip raw={content} />}
       {error ? (
         <div className="flex flex-1 items-center justify-center text-sm text-dim">
           File could not be read.
@@ -71,11 +76,14 @@ export function MarkdownViewer({
 export function RefViewer({
   file,
   onClose,
-  extraActions
+  extraActions,
+  showAuthorship = false
 }: {
   file: string
   onClose: () => void
   extraActions?: React.ReactNode
+  /** Show the author/contributors strip — assets only; a plain file viewer has no authorship. */
+  showAuthorship?: boolean
 }): React.JSX.Element {
   return (
     <MarkdownViewer
@@ -85,6 +93,7 @@ export function RefViewer({
       load={() => window.argus.refsync.readRef(file).then((r) => r.content)}
       onClose={onClose}
       extraActions={extraActions}
+      showAuthorship={showAuthorship}
     />
   )
 }
