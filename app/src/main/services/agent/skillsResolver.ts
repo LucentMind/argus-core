@@ -200,7 +200,6 @@ export function writeUserSkill(
     }
     throw new Error(`"${name}" changed on disk since you opened it.`)
   }
-  fs.mkdirSync(dir, { recursive: true })
   // mergeAuthorship first: the file on disk owns author/origin/contributors, not `content`.
   // Improve hands us a whole file round-tripped through a model and the raw editor lets the
   // `author:` line be deleted — either buffer would otherwise hand the byline to whoever saved.
@@ -217,6 +216,9 @@ export function writeUserSkill(
   if (hasErrors(post)) {
     throw new Error(post.find((i) => i.severity === 'error')!.message)
   }
+  // mkdirSync after the gate, matching acceptProposal: a throw above must not leave an empty
+  // skills-user/<name>/ directory where nothing existed before.
+  fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(file, stamped)
   return contentHash(stamped)
 }

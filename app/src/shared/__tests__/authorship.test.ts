@@ -281,6 +281,37 @@ describe('mergeAuthorship', () => {
     expect(mergeAuthorship(incoming, '---\nname: x\ntrust_tier: user\n---\nold\n')).toBe(incoming)
   })
 
+  it('strips a claimed author/origin when the on-disk file has none — absent means nobody yet, not whatever the buffer says', () => {
+    const unauthored = '---\nname: x\ntrust_tier: user\n---\nold\n'
+    const spoofed =
+      '---\nname: x\nauthor: Someone Else <x@y.test>\norigin: authored\n---\n# rewritten\n'
+    const merged = mergeAuthorship(spoofed, unauthored)
+    const a = parseAuthorship(merged)
+    expect(a.author).toBeNull()
+    expect(a.origin).toBeNull()
+    expect(merged).toContain('# rewritten')
+  })
+
+  it('strips claimed contributors when the on-disk file has none', () => {
+    const unauthored = '---\nname: x\n---\nold\n'
+    const spoofed = '---\nname: x\ncontributors:\n  - Mallory <mal@example.test> 2026-09-09\n---\nb'
+    expect(parseAuthorship(mergeAuthorship(spoofed, unauthored)).contributors).toEqual([])
+  })
+
+  it('an unauthored disk file plus a buffer claiming a byline yields the saving identity, never the claim', () => {
+    const unauthored = '---\nname: x\n---\nold\n'
+    const spoofed =
+      '---\nname: x\nauthor: Someone Else <x@y.test>\norigin: authored\n---\n# rewritten\n'
+    const out = stampAuthorship(mergeAuthorship(spoofed, unauthored), {
+      identity: { name: 'Sam Doe', email: 'sam@example.test' },
+      origin: 'authored',
+      now: new Date('2026-07-30T12:00:00Z')
+    })
+    const a = parseAuthorship(out)
+    expect(a.author).toBe('Sam Doe <sam@example.test>')
+    expect(a.author).not.toContain('Someone Else')
+  })
+
   it('restores author, origin, and the full contributor list a buffer dropped', () => {
     const merged = mergeAuthorship('---\nname: x\ndescription: d\n---\n# rewritten\n', authored)
     const a = parseAuthorship(merged)
