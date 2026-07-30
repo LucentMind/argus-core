@@ -292,8 +292,8 @@ export class HivemindService {
       // renderer's own check, so a stale renderer cannot smuggle the overwrite past it.
       if (!opts?.overwriteLocalEdits && (await this.localDivergence(name)).diverged)
         throw new Error(
-          `Your local copy of ${name} has edits that are not in the HiveMind. ` +
-            `Review them before updating.`
+          `Your local copy of ${name} differs from the version that will be installed. ` +
+            `Review the difference before updating.`
         )
       const sha = await this.itemCommit(`references/${name}`)
       // Installs flatten: confluence/x.md lands at references/x.md, so pack
@@ -392,32 +392,37 @@ export class HivemindService {
   /**
    * Does the installed local reference carry edits that would be lost by an update?
    *
-   * Both clauses matter: differing from the pin means you edited since install, but not if
-   * your text is already what upstream ships — that is the merged-PR case, where the
-   * overwrite is a content no-op and the update is a pure pin bump.
+   * Unified rule: the local file diverges when it differs from every version upstream
+   * knows about. When a pin exists, that means both the pinned commit (differing from it
+   * means you edited since install, but not if your text is already what upstream ships —
+   * the merged-PR case, where the overwrite is a content no-op) and current HEAD. When
+   * there is no pin — a first install of this name — the file is checked against HEAD
+   * alone, so a hand-written `references/<name>.md` that predates any HiveMind install is
+   * gated too, instead of being silently destroyed by the first install.
    *
-   * Anything unreadable reports not-diverged: a guard that failed to run must not block an
-   * update that worked before it existed.
+   * A file that does not exist locally is never diverged: a first install with nothing in
+   * the way proceeds normally. Anything unreadable also reports not-diverged: a guard that
+   * failed to run must not block an update that worked before it existed.
    */
   async localDivergence(name: string): Promise<LocalDivergence> {
     const none: LocalDivergence = { diverged: false, diff: '' }
     if (!validReferenceName(name)) return none
     const pin = this.state().references[name]
-    if (!pin) return none
     const file = path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
     if (!fs.existsSync(file)) return none
     let local: string
-    let pinned: string
     let head: string
+    let pinned: string | null = null
     try {
       local = fs.readFileSync(file, 'utf8')
-      pinned = await this.git(['show', `${pin}:references/${name}`], this.clone())
       head = await this.git(['show', `HEAD:references/${name}`], this.clone())
+      if (pin) pinned = await this.git(['show', `${pin}:references/${name}`], this.clone())
     } catch {
       return none
     }
     const mine = normalizeForCompare(local)
-    if (mine === normalizeForCompare(pinned) || mine === normalizeForCompare(head)) return none
+    if (mine === normalizeForCompare(head)) return none
+    if (pinned !== null && mine === normalizeForCompare(pinned)) return none
     return { diverged: true, diff: await this.noIndexDiff(name, local, head) }
   }
 
