@@ -69,6 +69,10 @@ export function EditorApp(): React.JSX.Element {
                 ? () => window.argus.skills.read(open.name)
                 : () => window.argus.refsync.readRef(open.name)
           }
+          // Must resolve to the new base hash — AssetEditor adopts whatever this returns as its
+          // next baseHash (see the comment on AssetEditor's `save` prop). Returning `undefined`
+          // here would still close the editor on this save, but the next save would then send
+          // baseHash: undefined and get rejected as a bogus "changed on disk" conflict.
           save={async ({ name, content, baseHash }) => {
             if (open.kind === 'skill') {
               const { hash } = await window.argus.skills.write(name, content, baseHash)
