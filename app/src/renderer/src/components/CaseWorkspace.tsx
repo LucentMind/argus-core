@@ -597,7 +597,17 @@ export function CaseWorkspace({
               className="flex flex-col border-l border-hair bg-deep p-3"
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
+              {/* key: remount on case switch. Findings are fetched once per case and filtered
+                  by mode client-side, so this keys on `slug` alone, not `${slug}:${activeMode}`
+                  (unlike CaseFiles above) — keying on mode would discard a good fetch on every
+                  mode toggle. The remount is what guarantees no cross-case findings leak now
+                  that a rejected fetch no longer clears state (see FindingsPane's list().catch
+                  comment): without it, this would stay a single long-lived instance across case
+                  switches, and a failed fetch for the new case would leave the old case's
+                  findings on screen under the new slug. The remount also resets the per-case
+                  expandedId/selected/layerFilter state. */}
               <FindingsPane
+                key={slug}
                 slug={slug}
                 sessionId={sessionId}
                 activeMode={activeMode}

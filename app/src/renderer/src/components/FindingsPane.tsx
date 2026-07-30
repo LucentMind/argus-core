@@ -53,12 +53,14 @@ export function FindingsPane({
         setFindings(rows)
         setLoaded(true)
       },
-      () => {
+      (err) => {
         // `loaded` on rejection too, so a failed fetch does not leave the pane skeletal forever.
         // The findings are deliberately NOT cleared: a rejected fetch has not established that
         // there are none, and a `bump`-triggered refetch that fails would otherwise wipe findings
         // already on screen and replace them with "No findings yet." — the exact false claim this
-        // task exists to remove.
+        // task exists to remove. (Cross-case leak of those stale findings is prevented by the
+        // `key={slug}` at the CaseWorkspace call site, not by anything here.)
+        console.warn(`[findings] list failed for ${slug}: ${(err as Error).message}`)
         setLoaded(true)
       }
     )
