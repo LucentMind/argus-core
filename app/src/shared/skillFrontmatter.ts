@@ -13,7 +13,13 @@ export function frontmatterOf(raw: string): string | null {
 
 export function parseDescription(fm: string | null): string {
   if (!fm) return ''
-  const m = fm.match(/^description:\s*(.+)$/m)
+  // [ \t]*, not \s* — \s matches newlines too, so an EMPTY description line immediately
+  // followed by another key (no blank line between) let \s* skip the line break and capture
+  // the next key's whole line as the "description". That reordering is exactly what
+  // proposals.ts's accept-time `withFrontmatter(body, { name: target })` stamp produces
+  // (existing name: line removed, then re-appended after description:), so this is reachable
+  // in practice, not just a theoretical edge case.
+  const m = fm.match(/^description:[ \t]*(.+)$/m)
   return m ? m[1].replace(/\r$/, '').trim() : ''
 }
 

@@ -95,7 +95,7 @@ describe('accept / reject', () => {
       type: 'skill-edit',
       target: 'rca',
       title: 'Sharpen',
-      content: '---\nname: rca\ndescription: better\n---\n# rca v2\n'
+      content: '---\ndescription: better\n---\n# rca v2\n'
     })
     acceptProposal(home, f)
     expect(fs.readFileSync(path.join(home, 'skills-user', 'rca', 'SKILL.md'), 'utf8')).toContain(
@@ -236,14 +236,18 @@ describe('accept validates skill bodies', () => {
     expect(fs.existsSync(path.join(home, 'skills-user', 'hollow'))).toBe(false)
   })
 
-  it('refuses a skill proposal with no frontmatter at all', () => {
+  it('refuses a skill proposal with no frontmatter at all — stamping name: adds a fence, so it now fails on the still-missing description instead', () => {
+    // withFrontmatter unconditionally prepends a `---` fence when stamping the name in, so a
+    // proposal that had NO frontmatter at all can no longer trip "Missing frontmatter" post-stamp
+    // — it fails validateSkill's next rule instead (empty description). Still refused either way.
     const file = writeProposal(home, 'case-1', {
       type: 'skill-new',
       target: 'bare',
       title: 'Bare skill',
       content: '# bare\nBody.'
     })
-    expect(() => acceptProposal(home, file)).toThrow(/frontmatter/i)
+    expect(() => acceptProposal(home, file)).toThrow(/description/i)
+    expect(fs.existsSync(path.join(home, 'skills-user', 'bare'))).toBe(false)
   })
 
   it('still accepts a well-formed skill proposal', () => {
@@ -255,5 +259,43 @@ describe('accept validates skill bodies', () => {
         '---\nname: sound\ndescription: Use when the body is well formed.\n---\n\n# sound\nBody.'
     })
     expect(acceptProposal(home, file)).toEqual({ kind: 'skill', name: 'sound' })
+  })
+
+  it('refuses a skill proposal with an empty body below the frontmatter', () => {
+    const file = writeProposal(home, 'case-1', {
+      type: 'skill-new',
+      target: 'empty-body',
+      title: 'Empty body',
+      content: '---\ndescription: has a description but nothing else.\n---\n   \n'
+    })
+    expect(() => acceptProposal(home, file)).toThrow(/no body/i)
+    expect(fs.existsSync(path.join(home, 'skills-user', 'empty-body'))).toBe(false)
+  })
+
+  it('accepts a proposal with no name: at all — stamping, not rejecting, the target', () => {
+    // Agent output is never asked for frontmatter name (write_proposal's tool description
+    // only demands full file content), so this is the realistic shape of a proposal.
+    const file = writeProposal(home, 'case-1', {
+      type: 'skill-new',
+      target: 'unnamed',
+      title: 'Unnamed skill',
+      content: '---\ndescription: Use when nothing declares its own name.\n---\n\n# unnamed\nBody.'
+    })
+    expect(acceptProposal(home, file)).toEqual({ kind: 'skill', name: 'unnamed' })
+    const written = fs.readFileSync(path.join(home, 'skills-user', 'unnamed', 'SKILL.md'), 'utf8')
+    expect(written).toContain('name: unnamed')
+  })
+
+  it('corrects a proposal whose name: disagrees with the target, rather than refusing it', () => {
+    const file = writeProposal(home, 'case-1', {
+      type: 'skill-new',
+      target: 'renamed',
+      title: 'Wrong name',
+      content: '---\nname: wrong\ndescription: Use when the declared name is stale.\n---\n\n# x\nBody.'
+    })
+    expect(acceptProposal(home, file)).toEqual({ kind: 'skill', name: 'renamed' })
+    const written = fs.readFileSync(path.join(home, 'skills-user', 'renamed', 'SKILL.md'), 'utf8')
+    expect(written).toContain('name: renamed')
+    expect(written).not.toContain('name: wrong')
   })
 })
