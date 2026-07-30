@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { LibraryPage } from '../LibraryPage'
@@ -113,6 +114,13 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-25T00:00:00.000Z',
       sourceCount: 0,
       stale: false
+    },
+    {
+      file: 'confluence-page.md',
+      tier: 'confluence',
+      lastSynced: '2026-07-20T00:00:00.000Z',
+      sourceCount: 1,
+      stale: false
     }
   ]
 }
@@ -122,9 +130,12 @@ function mockArgus(): {
     list: ReturnType<typeof vi.fn>
     deleteUser: ReturnType<typeof vi.fn>
     read: ReturnType<typeof vi.fn>
+    write: ReturnType<typeof vi.fn>
+    fork: ReturnType<typeof vi.fn>
   }
   usage: { stats: ReturnType<typeof vi.fn> }
   access: { patch: ReturnType<typeof vi.fn> }
+  authoring: { draft: ReturnType<typeof vi.fn>; improve: ReturnType<typeof vi.fn> }
   hivemind: {
     get: ReturnType<typeof vi.fn>
     pushPreview: ReturnType<typeof vi.fn>
@@ -139,6 +150,7 @@ function mockArgus(): {
     onChanged: ReturnType<typeof vi.fn>
     searchRefs: ReturnType<typeof vi.fn>
     readRef: ReturnType<typeof vi.fn>
+    writeRef: ReturnType<typeof vi.fn>
     deleteRef: ReturnType<typeof vi.fn>
   }
   openExternal: ReturnType<typeof vi.fn>
@@ -147,7 +159,13 @@ function mockArgus(): {
     skills: {
       list: vi.fn().mockResolvedValue(initial),
       deleteUser: vi.fn().mockResolvedValue(afterAdopt),
-      read: vi.fn().mockResolvedValue({ name: 'rca', content: '# rca skill body\n' })
+      read: vi.fn().mockResolvedValue({
+        name: 'rca',
+        content: '---\nname: rca\ndescription: local adaptation\n---\n\n# rca skill body\n',
+        hash: 'hash-rca'
+      }),
+      write: vi.fn().mockResolvedValue({ skills: initial.skills, hash: 'hash-rca-2' }),
+      fork: vi.fn().mockResolvedValue({ name: 'analyze-applog', skills: initial.skills })
     },
     usage: {
       stats: vi.fn().mockResolvedValue({
@@ -175,6 +193,10 @@ function mockArgus(): {
         archived: []
       })
     },
+    authoring: {
+      draft: vi.fn().mockResolvedValue({ content: '' }),
+      improve: vi.fn().mockResolvedValue({ content: '' })
+    },
     hivemind: {
       get: vi.fn().mockResolvedValue(
         hivePayload({
@@ -200,7 +222,12 @@ function mockArgus(): {
       get: vi.fn().mockResolvedValue(refPayload),
       onChanged: vi.fn(() => () => {}),
       searchRefs: vi.fn().mockResolvedValue([]),
-      readRef: vi.fn().mockResolvedValue({ file: 'team-tips.md', content: '# Team tips\n' }),
+      readRef: vi.fn().mockResolvedValue({
+        file: 'team-tips.md',
+        content: '# Team tips\n',
+        hash: 'hash-team-tips'
+      }),
+      writeRef: vi.fn().mockResolvedValue('hash-team-tips-2'),
       deleteRef: vi.fn().mockResolvedValue(undefined)
     },
     openExternal: vi.fn()
@@ -520,5 +547,58 @@ describe('LibraryPage claim', () => {
     render(<LibraryPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Claim · adasis.md' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/claim exploded/)
+  })
+})
+
+describe('editing affordances', () => {
+  it('offers Edit on a user-tier skill row', async () => {
+    render(<LibraryPage />)
+    expect(await screen.findByRole('button', { name: /^Edit · rca$/i })).toBeInTheDocument()
+  })
+
+  it('does not offer Edit on a bundled row — forking lives in the viewer', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('analyze-applog')
+    expect(screen.queryByRole('button', { name: /^Edit · analyze-applog$/i })).toBeNull()
+  })
+
+  it('offers Edit a copy inside the viewer for a bundled skill', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('analyze-applog'))
+    expect(await screen.findByRole('button', { name: /edit a copy/i })).toBeInTheDocument()
+  })
+
+  it('forks then opens the editor when Edit a copy is confirmed', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await waitFor(() => expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog'))
+    expect(
+      await screen.findByRole('dialog', { name: /skill · analyze-applog/i })
+    ).toBeInTheDocument()
+  })
+
+  it('offers neither Edit nor Edit a copy for a confluence reference', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('confluence-page.md')
+    expect(screen.queryByRole('button', { name: /^Edit · confluence-page\.md$/i })).toBeNull()
+  })
+
+  it('New skill opens the editor in create mode with the template', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByRole('button', { name: /^new$/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /new skill/i }))
+    const ta = await screen.findByRole('textbox', { name: /^skill · /i })
+    expect((ta as HTMLTextAreaElement).value).toContain('## When to use')
+  })
+
+  it('saving a skill routes to skills.write with the loaded hash', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByRole('button', { name: /^Edit · rca$/i }))
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(window.argus.skills.write).toHaveBeenCalledWith('rca', expect.any(String), 'hash-rca')
+    )
   })
 })
