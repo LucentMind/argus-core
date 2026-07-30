@@ -9,12 +9,15 @@ export function MarkdownViewer({
   title,
   ariaLabel,
   load,
-  onClose
+  onClose,
+  extraActions
 }: {
   title: string
   ariaLabel: string
   load: () => Promise<string>
   onClose: () => void
+  /** Extra buttons for the header, left of the Raw/Rendered toggle. */
+  extraActions?: React.ReactNode
 }): React.JSX.Element {
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState(false)
@@ -33,11 +36,14 @@ export function MarkdownViewer({
       ariaLabel={ariaLabel}
       className="h-[80vh] w-[80vw] max-w-4xl"
       actions={
-        content != null ? (
-          <Btn variant="ghost" onClick={() => setRaw(!raw)}>
-            {raw ? 'Rendered' : 'Raw'}
-          </Btn>
-        ) : null
+        <>
+          {extraActions}
+          {content != null ? (
+            <Btn variant="ghost" onClick={() => setRaw(!raw)}>
+              {raw ? 'Rendered' : 'Raw'}
+            </Btn>
+          ) : null}
+        </>
       }
     >
       {error ? (
@@ -64,10 +70,12 @@ export function MarkdownViewer({
 /** Modal markdown viewer for a reference file (refsync-served). */
 export function RefViewer({
   file,
-  onClose
+  onClose,
+  extraActions
 }: {
   file: string
   onClose: () => void
+  extraActions?: React.ReactNode
 }): React.JSX.Element {
   return (
     <MarkdownViewer
@@ -76,6 +84,7 @@ export function RefViewer({
       ariaLabel={`reference · ${file}`}
       load={() => window.argus.refsync.readRef(file).then((r) => r.content)}
       onClose={onClose}
+      extraActions={extraActions}
     />
   )
 }
