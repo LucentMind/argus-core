@@ -362,6 +362,12 @@ describe('buildProposals', () => {
       'symptoms'
     ])
   })
+
+  it('carries all five reject tags among proposals stamped to job 1', () => {
+    const job1Archived = all.filter((p) => p.status !== 'pending' && p.jobId === '1')
+    const tags = new Set(job1Archived.map((p) => p.rejectTag).filter((t) => t !== null))
+    expect(tags).toEqual(new Set(['overfit', 'overgeneric', 'wrong', 'duplicate', 'other']))
+  })
 })
 
 describe('writeProposalFile', () => {
