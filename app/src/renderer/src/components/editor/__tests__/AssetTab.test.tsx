@@ -1,0 +1,209 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { AssetTab } from '../AssetTab'
+import type { DraftRecord, DraftSaved, EditorOpenRequest } from '../../../../../shared/editorIpc'
+
+vi.mock('../../library/assistProvider', () => ({
+  useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
+}))
+
+const SKILL_BODY = '---\nname: my-skill\ndescription: Use when testing.\n---\n\n# hi\n'
+const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit' }
+
+const draftChanged = vi.fn()
+const readDraft = vi.fn<() => Promise<DraftRecord | null>>()
+const discardDraft = vi.fn().mockResolvedValue(undefined)
+const skillsRead = vi.fn()
+const skillsWrite = vi.fn()
+let draftSaved: ((s: DraftSaved) => void) | null = null
+
+beforeEach(() => {
+  draftChanged.mockClear()
+  discardDraft.mockClear()
+  readDraft.mockReset().mockResolvedValue(null)
+  skillsRead.mockReset().mockResolvedValue({ content: SKILL_BODY, hash: 'h1' })
+  skillsWrite.mockReset().mockResolvedValue({ skills: [], hash: 'h2' })
+  draftSaved = null
+  window.argus = {
+    editor: {
+      draftChanged,
+      readDraft,
+      discardDraft,
+      onDraftSaved: (cb: (s: DraftSaved) => void) => {
+        draftSaved = cb
+        return () => {}
+      }
+    },
+    skills: { read: skillsRead, write: skillsWrite },
+    refsync: { readRef: vi.fn(), writeRef: vi.fn() },
+    authoring: { draft: vi.fn(), improve: vi.fn() }
+  } as never
+})
+
+const mount = (req: EditorOpenRequest = SKILL): { onDirtyChange: ReturnType<typeof vi.fn> } => {
+  const onDirtyChange = vi.fn()
+  render(<AssetTab req={req} onDirtyChange={onDirtyChange} onClose={vi.fn()} />)
+  return { onDirtyChange }
+}
+
+const editor = (): Promise<HTMLElement> =>
+  screen.findByRole('textbox', { name: /skill · my-skill/i })
+
+/** Banners are queried by text, never by role: AssetEditor gives its own validation warnings
+ *  role="status", so a role query would be ambiguous the moment a fixture warns. */
+const BANNERS = {
+  restored: /Restored unsaved draft from/,
+  stale: /This file changed on disk since your draft\./,
+  conflict: /The saved version is newer than what you started from\./
+}
+const noBanner = (): void => {
+  for (const re of Object.values(BANNERS)) expect(screen.queryByText(re)).not.toBeInTheDocument()
+}
+
+const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
+  kind: 'skill',
+  name: 'my-skill',
+  mode: 'edit',
+  content: `${SKILL_BODY}drafted`,
+  baseHash: 'h1',
+  updatedAt: '2026-07-30T15:42:00.000Z',
+  ...over
+})
+
+describe('AssetTab without a draft', () => {
+  it('opens the file from disk', async () => {
+    mount()
+    expect(await editor()).toHaveValue(SKILL_BODY)
+  })
+
+  it('shows no banner', async () => {
+    mount()
+    await editor()
+    noBanner()
+  })
+
+  it('reports a change to main once the buffer is touched', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith({
+        kind: 'skill',
+        name: 'my-skill',
+        mode: 'edit',
+        content: `${SKILL_BODY}X`,
+        baseHash: 'h1'
+      })
+    )
+  })
+
+  it('claims nothing until main says the draft is on disk', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    // Persist-before-adopt: the send happened, but nothing has landed yet.
+    expect(screen.queryByText(/^Draft ·/)).not.toBeInTheDocument()
+
+    draftSaved!({ kind: 'skill', name: 'my-skill', updatedAt: '2026-07-30T15:42:00.000Z' })
+    expect(await screen.findByText(/^Draft ·/)).toBeInTheDocument()
+  })
+
+  it('ignores a draft-saved for a different asset', async () => {
+    mount()
+    await editor()
+    draftSaved!({ kind: 'reference', name: 'notes.md', updatedAt: '2026-07-30T15:42:00.000Z' })
+    expect(screen.queryByText(/^Draft ·/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AssetTab restoring a draft', () => {
+  it('opens the draft text, not the disk text', async () => {
+    readDraft.mockResolvedValue(aDraft())
+    mount()
+    expect(await editor()).toHaveValue(`${SKILL_BODY}drafted`)
+  })
+
+  it('shows the restore banner with the draft time', async () => {
+    readDraft.mockResolvedValue(aDraft())
+    mount()
+    expect(await screen.findByText(BANNERS.restored)).toBeInTheDocument()
+  })
+
+  it('opens dirty, so the window will guard its close', async () => {
+    readDraft.mockResolvedValue(aDraft())
+    const { onDirtyChange } = mount()
+    await editor()
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
+  })
+
+  it('Discard draft deletes it and falls back to the disk text', async () => {
+    readDraft.mockResolvedValue(aDraft())
+    mount()
+    await screen.findByText(BANNERS.restored)
+    readDraft.mockResolvedValue(null)
+    await userEvent.click(screen.getByRole('button', { name: /discard draft/i }))
+
+    await waitFor(() =>
+      expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'my-skill' })
+    )
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(SKILL_BODY))
+    noBanner()
+  })
+})
+
+describe('AssetTab after a save', () => {
+  it('discards the draft when the buffer matches what was written', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'my-skill' })
+    )
+    expect(screen.queryByText(/^Draft ·/)).not.toBeInTheDocument()
+  })
+
+  it('writes through skills.write with (name, content, loadedHash) in that order', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(skillsWrite).toHaveBeenCalledWith('my-skill', `${SKILL_BODY}X`, 'h1')
+    )
+  })
+})
+
+describe('AssetTab in create mode', () => {
+  it('seeds the template when there is no draft', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: brand-new'))
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name: 'brand-new', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    const ta = await screen.findByRole('textbox', { name: /skill · brand-new/i })
+    expect((ta as HTMLTextAreaElement).value).toContain('name: brand-new')
+  })
+
+  it('re-keys the draft when the name field moves (spec §4.5)', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: brand-new'))
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name: 'brand-new', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    await userEvent.type(await screen.findByLabelText('skill name'), '2')
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          name: 'brand-new2',
+          replaces: { kind: 'skill', name: 'brand-new' }
+        })
+      )
+    )
+  })
+})
