@@ -579,21 +579,33 @@ export class HivemindService {
     const src = this.pushSource(kind, name)
     if (!fs.existsSync(src)) return { ok: false, error: `Not found in the user tier: ${name}` }
     const branch = `argus/share-${kind}-${name.replace(/\.md$/, '')}-${Date.now()}`
-    let defaultBranch = 'main'
+    let tree: string | null = null
     try {
       await this.git(['fetch', 'origin'], clone)
-      defaultBranch = (await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)).replace(
-        /^origin\//,
-        ''
-      )
+      // Heal a stale registration left by a previous failed removal, so a single bad cleanup
+      // cannot block every later push.
+      await this.git(['worktree', 'prune'], clone)
+      const defaultBranch = (
+        await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
+      ).replace(/^origin\//, '')
       // Branch from the PIN when this item came from HiveMind. Cutting from origin/HEAD would
       // make the whole-dir replace below undo every upstream change since the install — the PR
       // would silently revert pin→HEAD on top of the intended edit. From the pin, the diff is
       // exactly the local edits and GitHub surfaces any conflict upstream, where the reviewer
       // has the context to resolve it.
       const base = this.pinFor(kind, name) ?? `origin/${defaultBranch}`
-      await this.git(['checkout', '-B', branch, base], clone)
-      const dest = path.join(clone, kind === 'skill' ? 'skills' : 'references', name)
+      // A separate worktree, never a checkout in the clone. Every upstream read — headCommit,
+      // itemCommit (so updateAvailable), diff, and localDivergence — is relative to the clone's
+      // HEAD. Moving it and failing to move it back makes the divergence guard compare a local
+      // file against the user's own pushed content, report not-diverged, and overwrite edits
+      // made since the push. Not moving it at all makes that unreachable.
+      //
+      // The path must not already exist: older git refuses to populate an existing directory,
+      // so create a temp parent and hand git a child path inside it.
+      const treeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-share-'))
+      tree = path.join(treeParent, 'wt')
+      await this.git(['worktree', 'add', '-b', branch, tree, base], clone)
+      const dest = path.join(tree, kind === 'skill' ? 'skills' : 'references', name)
       if (kind === 'skill') {
         fs.rmSync(dest, { recursive: true, force: true })
         fs.cpSync(src, dest, { recursive: true })
@@ -601,9 +613,9 @@ export class HivemindService {
         fs.mkdirSync(path.dirname(dest), { recursive: true })
         fs.copyFileSync(src, dest)
       }
-      await this.git(['add', '-A'], clone)
-      await this.git(['commit', '-m', `share ${kind}: ${name} (via Argus)`], clone)
-      await this.git(['push', '-u', 'origin', branch], clone)
+      await this.git(['add', '-A'], tree)
+      await this.git(['commit', '-m', `share ${kind}: ${name} (via Argus)`], tree)
+      await this.git(['push', '-u', 'origin', branch], tree)
       const out = await this.gh(
         [
           'pr',
@@ -625,10 +637,15 @@ export class HivemindService {
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     } finally {
-      try {
-        await this.git(['checkout', defaultBranch], clone)
-      } catch {
-        // leave the clone as-is; the next sync/payload reports its state
+      if (tree) {
+        try {
+          await this.git(['worktree', 'remove', '--force', tree], clone)
+        } catch {
+          // The checkout leaks into temp space; the next push's `worktree prune` clears the
+          // registration. Unlike the checkout it replaces, a failure here costs disk, not
+          // the correctness of every upstream read.
+        }
+        fs.rmSync(path.dirname(tree), { recursive: true, force: true })
       }
     }
   }
