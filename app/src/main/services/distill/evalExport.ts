@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { proposalsDir, proposalsArchiveDir } from '../paths'
-import { fmBlock, fmField } from '../frontmatter'
+import { fmBlock, fmField } from '../../../shared/frontmatter'
 import type { CaseDistillInput } from '../../../shared/distill'
 import type {
   DistillEvalBundleLine,
