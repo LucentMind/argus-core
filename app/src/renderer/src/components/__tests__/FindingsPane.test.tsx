@@ -403,6 +403,65 @@ describe('FindingsPane', () => {
     expect(screen.queryByText('No findings yet.')).toBeNull()
   })
 
+  // Regression coverage: ReposSection guards its skeleton with `workspaces.length === 0` so a
+  // refetch never blanks a populated list back to placeholders. FindingsPane's load effect resets
+  // `loaded` to false on every `bump` (fired for EVERY finding an agent emits during a run, not
+  // just a case/session switch) — if that refetch is slow enough to cross usePendingDisplay's
+  // 150ms delay, the skeleton branch used to win ahead of `shown.length > 0` and replace findings
+  // the user is reading with grey blocks, even though nothing about them is actually unknown.
+  it('does not blank already-shown findings behind a skeleton during a slow bump-triggered refetch', async () => {
+    const slug = 'SLOW-1'
+    const sessionId = 42
+    let resolveSecond: (rows: FindingRow[]) => void = () => {}
+    const listFn = vi
+      .fn()
+      .mockResolvedValueOnce([
+        row({ id: 1, summary: 'Root cause X', reviewState: 'pending', mode: 'investigation' })
+      ])
+      .mockImplementationOnce(
+        () =>
+          new Promise<FindingRow[]>((res) => {
+            resolveSecond = res
+          })
+      )
+    ;(window.argus.findings as unknown as { list: unknown }).list = listFn
+    render(
+      <FindingsPane slug={slug} sessionId={sessionId} activeMode="investigation" onCite={vi.fn()} />
+    )
+    await screen.findByText('Root cause X')
+
+    // simulate a finding-added event, which bumps `findingsBump` and triggers the slow refetch
+    const bumpEvent: AgentEvent = {
+      eventId: 'e1',
+      caseId: 1,
+      caseSlug: slug,
+      sessionId,
+      turnId: null,
+      ts: '2026-07-30T00:00:00Z',
+      type: 'case.finding.added',
+      payload: { markdown: '## New finding' }
+    }
+    await act(async () => {
+      agentStore.apply(bumpEvent)
+    })
+    await waitFor(() => expect(listFn).toHaveBeenCalledTimes(2))
+
+    // cross usePendingDisplay's 150ms delay while the refetch is still pending — this is the
+    // exact window in which the skeleton used to win
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 220))
+    })
+
+    expect(screen.getByText('Root cause X')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-rows')).toBeNull()
+
+    await act(async () => {
+      resolveSecond([
+        row({ id: 1, summary: 'Root cause X', reviewState: 'pending', mode: 'investigation' })
+      ])
+    })
+  })
+
   it('does not claim there are no findings while the list is still loading', async () => {
     let release: (rows: FindingRow[]) => void = () => {}
     window.argus.findings.list = vi.fn(
