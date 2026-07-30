@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createCtx } from '../ctx.mjs'
 import { bucketOfCheckRun, buildSyntheticStatus, rollupOf, statusFromGh } from '../prs.mjs'
 import { buildFlagshipFindings, buildThinFindings } from '../findings.mjs'
+import { buildTrees } from '../files.mjs'
 
 describe('createCtx', () => {
   const ctx = createCtx({ argusHome: 'C:/home', db: null })
@@ -242,5 +243,41 @@ describe('buildThinFindings', () => {
     const rows = buildThinFindings('HMT-2-green')
     expect(rows).toHaveLength(2)
     expect(rows.every((r) => r.mode === 'review')).toBe(true)
+  })
+})
+
+describe('buildTrees', () => {
+  const flagship = buildTrees('HMT-1-burst-token')
+
+  it('keeps the two trees disjoint', () => {
+    const e = Object.keys(flagship.evidence)
+    const a = Object.keys(flagship.artifacts)
+    expect(e.filter((p) => a.includes(p))).toEqual([])
+  })
+
+  it('gives the flagship a log big enough to chunk', () => {
+    expect(flagship.evidence['app.log'].split('\n').length).toBeGreaterThan(2000)
+  })
+
+  it('ships an archive, an image and structured evidence', () => {
+    const names = Object.keys(flagship.evidence)
+    expect(names).toContain('logs.zip')
+    expect(names).toContain('screenshot.png')
+    expect(names).toContain('config.json')
+    expect(names).toContain('timings.csv')
+  })
+
+  it('names review artifacts after the real checks on pull request 4', () => {
+    const names = Object.keys(flagship.artifacts)
+    expect(names).toContain('ci/verify-b.log')
+    expect(names).toContain('ci/unit-tests.log')
+    expect(names).toContain('ci/lint.log')
+    expect(names).toContain('diff.patch')
+    expect(names).toContain('review-report.md')
+  })
+
+  it('gives a thin case two artifacts and no evidence bulk', () => {
+    const thin = buildTrees('HMT-2-green')
+    expect(Object.keys(thin.artifacts)).toHaveLength(2)
   })
 })
