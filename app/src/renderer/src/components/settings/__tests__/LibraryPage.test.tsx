@@ -121,6 +121,13 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-20T00:00:00.000Z',
       sourceCount: 1,
       stale: false
+    },
+    {
+      file: 'hive-notes.md',
+      tier: 'hivemind',
+      lastSynced: '2026-07-15T00:00:00.000Z',
+      sourceCount: 2,
+      stale: false
     }
   ]
 }
@@ -165,7 +172,9 @@ function mockArgus(): {
         hash: 'hash-rca'
       }),
       write: vi.fn().mockResolvedValue({ skills: initial.skills, hash: 'hash-rca-2' }),
-      fork: vi.fn().mockResolvedValue({ name: 'analyze-applog', skills: initial.skills })
+      // returns a DIFFERENT name than the source so tests can prove the editor opens on
+      // the returned name, not the row's own name (finding 1)
+      fork: vi.fn().mockResolvedValue({ name: 'analyze-applog-copy', skills: initial.skills })
     },
     usage: {
       stats: vi.fn().mockResolvedValue({
@@ -222,11 +231,13 @@ function mockArgus(): {
       get: vi.fn().mockResolvedValue(refPayload),
       onChanged: vi.fn(() => () => {}),
       searchRefs: vi.fn().mockResolvedValue([]),
-      readRef: vi.fn().mockResolvedValue({
-        file: 'team-tips.md',
-        content: '# Team tips\n',
-        hash: 'hash-team-tips'
-      }),
+      readRef: vi.fn((file: string) =>
+        Promise.resolve(
+          file === 'hive-notes.md'
+            ? { file, content: '# Hive notes\n', hash: 'hash-hive-notes' }
+            : { file: 'team-tips.md', content: '# Team tips\n', hash: 'hash-team-tips' }
+        )
+      ),
       writeRef: vi.fn().mockResolvedValue('hash-team-tips-2'),
       deleteRef: vi.fn().mockResolvedValue(undefined)
     },
@@ -418,7 +429,7 @@ describe('LibraryPage merged list', () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
     expect(screen.getAllByText('skill').length).toBeGreaterThanOrEqual(4)
-    expect(screen.getAllByText('reference').length).toBe(3)
+    expect(screen.getAllByText('reference').length).toBe(4)
   })
 
   it('clicking a reference row opens the markdown viewer', async () => {
@@ -568,20 +579,92 @@ describe('editing affordances', () => {
     expect(await screen.findByRole('button', { name: /edit a copy/i })).toBeInTheDocument()
   })
 
-  it('forks then opens the editor when Edit a copy is confirmed', async () => {
+  it("forks then opens the editor on the RETURNED name — not the source row's name", async () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     await waitFor(() => expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog'))
+    // asserting on the editor's OWN textbox (not a dialog name shared with the still-open
+    // viewer) is what makes this test fail if fork silently failed to open the editor
     expect(
-      await screen.findByRole('dialog', { name: /skill · analyze-applog/i })
+      await screen.findByRole('textbox', { name: /^skill · analyze-applog-copy$/ })
     ).toBeInTheDocument()
+    // the viewer (and its "Edit a copy" button) is gone — only the editor remains
+    expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
+    // no redundant skills.list() round trip after a successful fork (finding 6): the
+    // fork response already carries the refreshed list, so list() only ran once, on mount
+    expect(window.argus.skills.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('a rejected fork surfaces an error and does NOT open the editor', async () => {
+    argus.skills.fork = vi.fn().mockRejectedValue(new Error('fork failed: EACCES'))
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/fork failed: EACCES/)
+    // the error must land somewhere visible: the viewer that was covering the page body
+    // is closed (finding 2), and the editor never opened
+    expect(screen.queryByRole('dialog', { name: /skill · analyze-applog/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /^skill · analyze-applog/ })).toBeNull()
   })
 
   it('offers neither Edit nor Edit a copy for a confluence reference', async () => {
     render(<LibraryPage />)
-    await screen.findByText('confluence-page.md')
+    await userEvent.click(await screen.findByText('confluence-page.md'))
+    expect(
+      await screen.findByRole('dialog', { name: /reference · confluence-page\.md/i })
+    ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Edit · confluence-page\.md$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
+  })
+
+  it('offers Edit a copy inside the viewer for a hivemind reference, and claiming opens the editor', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('hive-notes.md'))
+    expect(
+      await screen.findByRole('dialog', { name: /reference · hive-notes\.md/i })
+    ).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await waitFor(() =>
+      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('hive-notes.md')
+    )
+    expect(
+      await screen.findByRole('textbox', { name: /^reference · hive-notes\.md$/ })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
+  })
+
+  it('a rejected claim surfaces an error and does NOT open the editor', async () => {
+    argus.hivemind.claimReference = vi.fn().mockRejectedValue(new Error('claim failed: EACCES'))
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('hive-notes.md'))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/claim failed: EACCES/)
+    expect(screen.queryByRole('dialog', { name: /reference · hive-notes\.md/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /^reference · hive-notes\.md$/ })).toBeNull()
+  })
+
+  it('saving a claimed reference routes to refsync.writeRef', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('hive-notes.md'))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await screen.findByRole('textbox', { name: /^reference · hive-notes\.md$/ })
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(window.argus.refsync.writeRef).toHaveBeenCalledWith(
+        'hive-notes.md',
+        expect.any(String),
+        'hash-hive-notes'
+      )
+    )
+    // settle on resolved UI state, not the mock call: the editor actually closed
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('textbox', { name: /^reference · hive-notes\.md$/ })
+      ).not.toBeInTheDocument()
+    )
   })
 
   it('New skill opens the editor in create mode with the template', async () => {
@@ -599,6 +682,11 @@ describe('editing affordances', () => {
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() =>
       expect(window.argus.skills.write).toHaveBeenCalledWith('rca', expect.any(String), 'hash-rca')
+    )
+    // a bare waitFor on the mock call resolves before setBaseHash/onSaved/onClose run;
+    // settle on the resolved UI state instead — the editor actually closed (finding 7)
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: /skill · rca/i })).not.toBeInTheDocument()
     )
   })
 })

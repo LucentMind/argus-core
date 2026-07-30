@@ -189,10 +189,12 @@ export function LibraryPage({
     })
     if (!ok) return
     setError(null)
+    // close the viewer first: a failure below must land on a visible page, not
+    // behind the still-open modal (spec finding 2)
+    setViewer(null)
     try {
-      const { name } = await window.argus.skills.fork(s.name)
-      setSkills((await window.argus.skills.list()).skills)
-      setViewer(null)
+      const { name, skills } = await window.argus.skills.fork(s.name)
+      setSkills(skills)
       setEditor({ kind: 'skill', name, mode: 'edit' })
     } catch (err) {
       setError((err as Error).message)
@@ -209,9 +211,11 @@ export function LibraryPage({
     })
     if (!ok) return
     setError(null)
+    // close the viewer first: a failure below must land on a visible page, not
+    // behind the still-open modal (spec finding 2)
+    setViewer(null)
     try {
       await window.argus.hivemind.claimReference(r.file)
-      setViewer(null)
       setEditor({ kind: 'reference', name: r.file, mode: 'edit' })
     } catch (err) {
       setError((err as Error).message)
