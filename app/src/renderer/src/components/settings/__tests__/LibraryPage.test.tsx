@@ -583,30 +583,71 @@ describe('editing affordances', () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
-    await waitFor(() => expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog'))
+    // the rename dialog defaults the name field to the source name (fork-in-place)
+    expect(await screen.findByRole('textbox', { name: /new skill name/i })).toHaveValue(
+      'analyze-applog'
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
+    await waitFor(() =>
+      expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog', 'analyze-applog')
+    )
     // asserting on the editor's OWN textbox (not a dialog name shared with the still-open
     // viewer) is what makes this test fail if fork silently failed to open the editor
     expect(
       await screen.findByRole('textbox', { name: /^skill · analyze-applog-copy$/ })
     ).toBeInTheDocument()
-    // the viewer (and its "Edit a copy" button) is gone — only the editor remains
+    // the viewer, the fork dialog, and their "Edit a copy"/"Copy" buttons are all gone —
+    // only the editor remains
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^copy$/i })).toBeNull()
     // no redundant skills.list() round trip after a successful fork (finding 6): the
     // fork response already carries the refreshed list, so list() only ran once, on mount
     expect(window.argus.skills.list).toHaveBeenCalledTimes(1)
   })
 
-  it('a rejected fork surfaces an error and does NOT open the editor', async () => {
+  it('forking with a changed name calls skills.fork(source, newName) and opens the editor on it', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const nameField = await screen.findByRole('textbox', { name: /new skill name/i })
+    await userEvent.clear(nameField)
+    await userEvent.type(nameField, 'my-private-applog')
+    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
+    await waitFor(() =>
+      expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog', 'my-private-applog')
+    )
+    // mock always returns analyze-applog-copy — proves the editor opens on the RETURNED name
+    expect(
+      await screen.findByRole('textbox', { name: /^skill · analyze-applog-copy$/ })
+    ).toBeInTheDocument()
+  })
+
+  it('a rejected fork surfaces an error inline in the dialog and does NOT open the editor', async () => {
     argus.skills.fork = vi.fn().mockRejectedValue(new Error('fork failed: EACCES'))
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^copy$/i }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/fork failed: EACCES/)
-    // the error must land somewhere visible: the viewer that was covering the page body
-    // is closed (finding 2), and the editor never opened
+    // the viewer that was covering the page body is closed (finding 2), and the editor
+    // never opened — but the fork dialog itself stays up so the user can retry
     expect(screen.queryByRole('dialog', { name: /skill · analyze-applog/i })).toBeNull()
     expect(screen.queryByRole('textbox', { name: /^skill · analyze-applog/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument()
+  })
+
+  it('an illegal name is refused client-side, without calling fork, and keeps the dialog open', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByText('analyze-applog'))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const nameField = await screen.findByRole('textbox', { name: /new skill name/i })
+    await userEvent.clear(nameField)
+    await userEvent.type(nameField, 'not a legal name!')
+    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not a legal skill name/i)
+    expect(window.argus.skills.fork).not.toHaveBeenCalled()
+    expect(screen.queryByRole('textbox', { name: /^skill · /i })).toBeNull()
   })
 
   it('offers neither Edit nor Edit a copy for a confluence reference', async () => {
