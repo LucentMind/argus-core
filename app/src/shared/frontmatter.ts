@@ -74,6 +74,23 @@ export function withFrontmatter(body: string, entries: Record<string, string>): 
   return renderFm(parts, block ? block.body : body)
 }
 
+/**
+ * Remove the given keys' lines outright from a buffer's frontmatter — flat or block-list shape,
+ * whichever the key actually has. Unlike `withFrontmatter`, which only ever overlays the keys it
+ * is given, this deletes without replacing anything. Going through `splitFm`/`renderFm` (rather
+ * than a per-line regex filter) is what keeps a block-list key's indented items from being
+ * orphaned: a flat-only filter would drop just the header line, leaving the items behind for
+ * `splitFm`'s next pass to reclassify as headerless top-level flat lines.
+ */
+export function removeFrontmatterKeys(body: string, keys: string[]): string {
+  const block = fmBlock(body)
+  if (!block) return body
+  const parts = splitFm(block.fm)
+  parts.flat = parts.flat.filter((l) => !keys.some((k) => l.startsWith(`${k}:`)))
+  parts.lists = parts.lists.filter((l) => !keys.includes(l.key))
+  return renderFm(parts, block.body)
+}
+
 /** Replace (or append) one block list. An empty `items` removes the block entirely. */
 export function withFrontmatterList(body: string, key: string, items: string[]): string {
   const block = fmBlock(body)
