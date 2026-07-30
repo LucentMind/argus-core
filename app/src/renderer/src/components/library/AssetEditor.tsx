@@ -107,6 +107,10 @@ export function AssetEditor({
         // render in which a user edit could be sitting in `buffer` for this to clobber.
         if (!live) return
         setBuffer(content)
+        // Assigned synchronously (not left to the passive-effect sync below) so a draft
+        // resolution landing in the ~1ms gap between this commit and the effect flush sees
+        // the true current buffer, not a stale snapshot. See the comment on `bufferRef`.
+        bufferRef.current = content
         setBaseHash(hash)
         setLoaded(true)
       },
@@ -130,6 +134,8 @@ export function AssetEditor({
 
   function edit(next: string): void {
     setBuffer(next)
+    // Synchronous, not left to the passive-effect sync — see the comment on `bufferRef`.
+    bufferRef.current = next
     setPristine(false)
     setError(null)
   }
@@ -139,7 +145,12 @@ export function AssetEditor({
    *  behind. Once the user has actually edited the buffer, this must never fire again. */
   function renameCreate(next: string): void {
     setName(next)
-    if (pristine) setBuffer(template(next))
+    if (pristine) {
+      const nextBuffer = template(next)
+      setBuffer(nextBuffer)
+      // Synchronous, not left to the passive-effect sync — see the comment on `bufferRef`.
+      bufferRef.current = nextBuffer
+    }
     setError(null)
   }
 
@@ -150,10 +161,25 @@ export function AssetEditor({
     }
     setBusy(true)
     setError(null)
+    // Snapshot what was actually sent to `save`. The textarea stays editable during `busy`
+    // (disabling it would swallow keystrokes), so by the time the IPC round trip resolves,
+    // `buffer` may have moved on. Compare against `bufferRef.current` — not the `buffer`
+    // closed over here, which is frozen at click time and can't see later typing — to find
+    // out whether that happened.
+    const savedContent = buffer
     try {
-      await save({ name, content: buffer, baseHash })
+      await save({ name, content: savedContent, baseHash })
       onSaved?.(name)
-      onClose()
+      if (bufferRef.current === savedContent) {
+        onClose()
+      } else {
+        // What was on screen when Save was clicked is now safely on disk, but the user kept
+        // typing during the round trip — closing now would silently drop that text and leave
+        // it not matching the hash that was just written. Keep the editor open instead.
+        setError(
+          'Saved, but you kept typing while it was saving — those newer changes have not been saved yet.'
+        )
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -181,6 +207,8 @@ export function AssetEditor({
       // since — otherwise route through the diff so the in-flight edit is never silently lost.
       if (which === 'draft' && wasPristine && bufferRef.current === bufferAtRequest) {
         setBuffer(content)
+        // Synchronous, not left to the passive-effect sync — see the comment on `bufferRef`.
+        bufferRef.current = content
         setPristine(false)
       } else {
         setProposed(content)
@@ -232,6 +260,7 @@ export function AssetEditor({
           <input
             aria-label={`${kind} name`}
             value={name}
+            disabled={proposed !== null}
             onChange={(e) => renameCreate(e.target.value)}
             className="w-56 rounded-r2 bg-black/20 px-2 py-1 font-mono text-xs outline-none"
           />
@@ -242,7 +271,7 @@ export function AssetEditor({
             onChange={(e) => setDescribe(e.target.value)}
             className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
-          {proposed === null && (
+          {proposed === null && !preview && (
             <Btn
               variant="outline"
               disabled={busy || !describe.trim()}
