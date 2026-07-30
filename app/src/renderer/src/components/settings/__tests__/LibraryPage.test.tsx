@@ -822,7 +822,9 @@ describe('LibraryPage cross-window refresh', () => {
             tier: 'user',
             description: 'written by another window',
             enabled: true,
-            shadows: []
+            shadows: [],
+            // Shadows nothing, so it cannot have diverged from a shadowed original.
+            shadowDiverged: false
           }
         ]
       })
