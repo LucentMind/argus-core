@@ -126,6 +126,45 @@ describe('DraftStore.discard', () => {
   })
 })
 
+describe('DraftStore rename chains', () => {
+  it('deletes every stranded key when a rename moves twice inside one debounce window', () => {
+    const s = store()
+    s.queue({ ...CHANGE, name: 'a' })
+    s.flushAll()
+    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
+    s.queue({ ...CHANGE, name: 'c', replaces: { kind: 'skill', name: 'b' } })
+    s.flushAll()
+
+    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
+    expect(fs.existsSync(file('skill', 'b'))).toBe(false)
+    expect(store().read('skill', 'c')?.content).toBe('# typing\n')
+  })
+
+  it('keeps the draft when a rename chain returns to a name it already used', () => {
+    const s = store()
+    s.queue({ ...CHANGE, name: 'a' })
+    s.flushAll()
+    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
+    s.queue({ ...CHANGE, name: 'a', replaces: { kind: 'skill', name: 'b' } })
+    s.flushAll()
+
+    expect(store().read('skill', 'a')?.content).toBe('# typing\n')
+    expect(fs.existsSync(file('skill', 'b'))).toBe(false)
+  })
+
+  it('discard removes the names the draft was renamed away from', () => {
+    const s = store()
+    s.queue({ ...CHANGE, name: 'a' })
+    s.flushAll()
+    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
+    s.discard('skill', 'b')
+    s.flushAll()
+
+    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
+    expect(fs.existsSync(file('skill', 'b'))).toBe(false)
+  })
+})
+
 describe('DraftStore.onSaved', () => {
   it('fires once per write, with the persisted record', () => {
     const seen: DraftRecord[] = []

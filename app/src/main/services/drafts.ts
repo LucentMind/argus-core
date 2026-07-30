@@ -39,8 +39,8 @@ export class DraftStore {
   private readonly now: () => Date
   private pending = new Map<string, DraftRecord>()
   private timers = new Map<string, NodeJS.Timeout>()
-  /** newKey → oldKey for a create-mode rename; cleared once the new key is on disk. */
-  private superseded = new Map<string, string>()
+  /** newKey → the keys it has replaced, all deleted once newKey lands. */
+  private superseded = new Map<string, Set<string>>()
   private saved: ((rec: DraftRecord) => void) | null = null
 
   constructor(deps: DraftStoreDeps) {
@@ -69,7 +69,17 @@ export class DraftStore {
       if (oldKey !== key) {
         this.cancel(oldKey)
         this.pending.delete(oldKey)
-        this.superseded.set(key, oldKey)
+        const stranded = this.superseded.get(key) ?? new Set<string>()
+        stranded.add(oldKey)
+        // Absorb whatever the old key had itself superseded. A second rename inside one
+        // debounce window means the old key's write never fired, so its own ancestors are
+        // still on disk and nothing else will ever delete them.
+        for (const ancestor of this.superseded.get(oldKey) ?? []) stranded.add(ancestor)
+        this.superseded.delete(oldKey)
+        // A chain that returns to a name it already used (a → b → a) would otherwise list
+        // the live key as stranded and delete the file it just wrote.
+        stranded.delete(key)
+        this.superseded.set(key, stranded)
       }
     }
     // Built field by field rather than spread-minus-`replaces`: `replaces` is wire-only routing
@@ -100,7 +110,17 @@ export class DraftStore {
     const key = draftKey(kind, name)
     this.cancel(key)
     this.pending.delete(key)
+    const stranded = this.superseded.get(key)
     this.superseded.delete(key)
+    // The stranded ancestors are the same logical draft under names the user abandoned mid-
+    // rename; discarding the live key must take them with it.
+    for (const old of stranded ?? []) {
+      try {
+        fs.rmSync(this.file(old))
+      } catch {
+        /* never written, or already gone */
+      }
+    }
     try {
       fs.rmSync(this.file(key))
     } catch {
@@ -153,14 +173,16 @@ export class DraftStore {
       return
     }
     this.pending.delete(key)
-    const old = this.superseded.get(key)
-    if (old !== undefined) {
-      // §4.5 ordering: the new key is on disk before the old one goes, so a crash between the
-      // two leaves two drafts rather than none.
-      try {
-        fs.rmSync(this.file(old))
-      } catch {
-        /* the rename happened before the old key was ever written */
+    const stranded = this.superseded.get(key)
+    if (stranded) {
+      // §4.5 ordering: the new key is on disk before any old one goes, so a crash between
+      // the two leaves two drafts rather than none.
+      for (const old of stranded) {
+        try {
+          fs.rmSync(this.file(old))
+        } catch {
+          /* the rename happened before this key was ever written */
+        }
       }
       this.superseded.delete(key)
     }
