@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -12,6 +13,7 @@ import type {
   HivemindItem,
   HivemindPayload,
   HivemindPushResult,
+  LocalDivergence,
   PushableItem,
   PushReceipt
 } from '../../shared/hivemind'
@@ -345,6 +347,66 @@ export class HivemindService {
     const pinned = kind === 'skill' ? this.state().skills[name] : this.state().references[name]
     if (!pinned) return ''
     return this.git(['diff', pinned, 'HEAD', '--', rel], this.clone())
+  }
+
+  /**
+   * Unified diff of two in-memory blobs, via a throwaway worktree-less temp dir.
+   *
+   * `git diff --no-index` exits 1 when the files differ — the rejection still carries the
+   * diff on `stdout`. Relative paths under `mine/` and `incoming/` keep the `diff --git`
+   * header clean; absolute paths would render as escaped Windows paths.
+   */
+  private async noIndexDiff(name: string, mine: string, incoming: string): Promise<string> {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-refdiff-'))
+    try {
+      const rel = path.basename(name)
+      for (const [dir, content] of [
+        ['mine', mine],
+        ['incoming', incoming]
+      ] as const) {
+        fs.mkdirSync(path.join(base, dir), { recursive: true })
+        fs.writeFileSync(path.join(base, dir, rel), content.replace(/\r\n/g, '\n'))
+      }
+      try {
+        return await this.git(['diff', '--no-index', '--', `mine/${rel}`, `incoming/${rel}`], base)
+      } catch (err) {
+        return String((err as { stdout?: string }).stdout ?? '').trim()
+      }
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true })
+    }
+  }
+
+  /**
+   * Does the installed local reference carry edits that would be lost by an update?
+   *
+   * Both clauses matter: differing from the pin means you edited since install, but not if
+   * your text is already what upstream ships — that is the merged-PR case, where the
+   * overwrite is a content no-op and the update is a pure pin bump.
+   *
+   * Anything unreadable reports not-diverged: a guard that failed to run must not block an
+   * update that worked before it existed.
+   */
+  async localDivergence(name: string): Promise<LocalDivergence> {
+    const none: LocalDivergence = { diverged: false, diff: '' }
+    if (!validReferenceName(name)) return none
+    const pin = this.state().references[name]
+    if (!pin) return none
+    const file = path.join(sharedReferencesDir(this.deps.argusHome), path.basename(name))
+    if (!fs.existsSync(file)) return none
+    let local: string
+    let pinned: string
+    let head: string
+    try {
+      local = fs.readFileSync(file, 'utf8')
+      pinned = await this.git(['show', `${pin}:references/${name}`], this.clone())
+      head = await this.git(['show', `HEAD:references/${name}`], this.clone())
+    } catch {
+      return none
+    }
+    const mine = normalizeForCompare(local)
+    if (mine === normalizeForCompare(pinned) || mine === normalizeForCompare(head)) return none
+    return { diverged: true, diff: await this.noIndexDiff(name, local, head) }
   }
 
   /** Reclaim authorship: restamp a hivemind-tier installed reference as user tier (pushable again). */

@@ -1565,6 +1565,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.hivemindDiff, (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.diff(kind, name)
   )
+  ipcMain.handle(IPC.hivemindLocalDivergence, (_e, name: string) => hivemind.localDivergence(name))
   ipcMain.handle(IPC.hivemindPushPreview, (_e, kind: 'skill' | 'reference', name: string) =>
     hivemind.pushPreview(kind, name)
   )

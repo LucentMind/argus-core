@@ -55,7 +55,12 @@ import type {
   BundleImportResult,
   BundleWorkspaceRef
 } from '../shared/bundle'
-import type { HivemindCheckResult, HivemindPayload, HivemindPushResult } from '../shared/hivemind'
+import type {
+  HivemindCheckResult,
+  HivemindPayload,
+  HivemindPushResult,
+  LocalDivergence
+} from '../shared/hivemind'
 import type {
   AcceptedTarget,
   ProposalCounts,
@@ -472,6 +477,8 @@ const argus = {
       ipcRenderer.invoke(IPC.hivemindClaimReference, name),
     diff: (kind: 'skill' | 'reference', name: string): Promise<string> =>
       ipcRenderer.invoke(IPC.hivemindDiff, kind, name),
+    localDivergence: (name: string): Promise<LocalDivergence> =>
+      ipcRenderer.invoke(IPC.hivemindLocalDivergence, name),
     pushPreview: (kind: 'skill' | 'reference', name: string): Promise<string> =>
       ipcRenderer.invoke(IPC.hivemindPushPreview, kind, name),
     push: (kind: 'skill' | 'reference', name: string, title: string): Promise<HivemindPushResult> =>
