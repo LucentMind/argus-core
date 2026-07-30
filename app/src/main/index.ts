@@ -1534,7 +1534,8 @@ function registerIpc(): void {
       shadowDiverged:
         s.tier === 'user' && s.shadows.includes('hivemind')
           ? userSkillShadowDiverged(argusHome, s.name)
-          : false
+          : false,
+      author: s.author
     }))
   })
   ipcMain.handle(IPC.skillsList, () => skillsPayload())

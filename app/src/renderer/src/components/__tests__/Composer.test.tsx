@@ -221,7 +221,8 @@ describe('Composer', () => {
           description: 'Root cause analysis',
           enabled: true,
           shadows: [],
-          shadowDiverged: false
+          shadowDiverged: false,
+          author: null
         },
         {
           name: 'analyze-applog',
@@ -229,7 +230,8 @@ describe('Composer', () => {
           description: 'Analyze Android logs',
           enabled: false,
           shadows: [],
-          shadowDiverged: false
+          shadowDiverged: false,
+          author: null
         }
       ]
     }))
@@ -252,7 +254,8 @@ describe('Composer', () => {
             description: 'Root cause',
             enabled: true,
             shadows: [],
-            shadowDiverged: false
+            shadowDiverged: false,
+            author: null
           },
           {
             name: 'analyze-applog',
@@ -260,7 +263,8 @@ describe('Composer', () => {
             description: 'Analyze Android logs',
             enabled: true,
             shadows: [],
-            shadowDiverged: false
+            shadowDiverged: false,
+            author: null
           }
         ]
       }))

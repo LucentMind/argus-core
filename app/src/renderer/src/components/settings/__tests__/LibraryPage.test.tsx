@@ -22,7 +22,8 @@ const initial: SkillsPayload = {
       description: 'local adaptation',
       enabled: true,
       shadows: ['hivemind', 'bundled'],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     },
     {
       name: 'my-notes',
@@ -30,7 +31,8 @@ const initial: SkillsPayload = {
       description: 'plain user skill',
       enabled: true,
       shadows: [],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     },
     {
       name: 'hive-probe',
@@ -38,7 +40,8 @@ const initial: SkillsPayload = {
       description: 'probe',
       enabled: true,
       shadows: [],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     },
     {
       name: 'analyze-applog',
@@ -46,7 +49,8 @@ const initial: SkillsPayload = {
       description: 'applog',
       enabled: true,
       shadows: [],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     }
   ]
 }
@@ -59,7 +63,8 @@ const afterAdopt: SkillsPayload = {
       description: 'upstream rca',
       enabled: true,
       shadows: ['bundled'],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     },
     {
       name: 'my-notes',
@@ -67,7 +72,8 @@ const afterAdopt: SkillsPayload = {
       description: 'plain user skill',
       enabled: true,
       shadows: [],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     },
     {
       name: 'hive-probe',
@@ -75,7 +81,8 @@ const afterAdopt: SkillsPayload = {
       description: 'probe',
       enabled: true,
       shadows: [],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     },
     {
       name: 'analyze-applog',
@@ -83,7 +90,8 @@ const afterAdopt: SkillsPayload = {
       description: 'applog',
       enabled: true,
       shadows: [],
-      shadowDiverged: false
+      shadowDiverged: false,
+      author: null
     }
   ]
 }
@@ -147,20 +155,29 @@ const refPayload: RefSyncPayload = {
   loadError: null,
   cards: [],
   references: [
-    { file: 'team-tips.md', tier: 'user', lastSynced: null, sourceCount: 0, stale: false },
+    {
+      file: 'team-tips.md',
+      tier: 'user',
+      lastSynced: null,
+      sourceCount: 0,
+      stale: false,
+      author: null
+    },
     {
       file: 'nav-runbook.md',
       tier: 'confluence',
       lastSynced: '2026-07-20T00:00:00.000Z',
       sourceCount: 3,
-      stale: true
+      stale: true,
+      author: null
     },
     {
       file: 'adasis.md',
       tier: 'hivemind',
       lastSynced: '2026-07-25T00:00:00.000Z',
       sourceCount: 0,
-      stale: false
+      stale: false,
+      author: null
     }
   ]
 }

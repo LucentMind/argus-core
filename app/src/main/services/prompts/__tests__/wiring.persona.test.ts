@@ -6,7 +6,16 @@ import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT } from '../../agent/persona'
 import { MODES } from '../../../../shared/modes'
 
 function skill(name: string, roles: string[] = [], enabled = true): ResolvedSkill {
-  return { name, tier: 'user', dir: `/x/${name}`, description: 'd', enabled, shadows: [], roles }
+  return {
+    name,
+    tier: 'user',
+    dir: `/x/${name}`,
+    description: 'd',
+    author: null,
+    enabled,
+    shadows: [],
+    roles
+  }
 }
 
 /** Marks each id so a swap is unmistakable, and proves the id we expect is the id requested. */

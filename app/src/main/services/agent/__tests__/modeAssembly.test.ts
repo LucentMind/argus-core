@@ -11,7 +11,16 @@ import {
 import { MODES } from '../../../../shared/modes'
 
 function skill(name: string, roles: string[], enabled = true): ResolvedSkill {
-  return { name, tier: 'user', dir: `/x/${name}`, description: '', enabled, shadows: [], roles }
+  return {
+    name,
+    tier: 'user',
+    dir: `/x/${name}`,
+    description: '',
+    author: null,
+    enabled,
+    shadows: [],
+    roles
+  }
 }
 
 describe('assembleMode', () => {

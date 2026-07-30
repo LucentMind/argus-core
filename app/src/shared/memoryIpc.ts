@@ -40,6 +40,8 @@ export interface SkillListItem {
   shadows: string[]
   /** Your fork's content differs from the installed HiveMind copy it shadows. */
   shadowDiverged: boolean
+  /** `Name <email>` from frontmatter; null for assets written before authorship, and for packs. */
+  author: string | null
 }
 
 export interface SkillsPayload {

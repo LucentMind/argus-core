@@ -4,7 +4,16 @@ import { assembleMode } from '../modeAssembly'
 import type { ResolvedSkill } from '../skillsResolver'
 
 function skill(name: string, roles: string[], description = `does ${name}`): ResolvedSkill {
-  return { name, tier: 'user', dir: `/x/${name}`, description, enabled: true, shadows: [], roles }
+  return {
+    name,
+    tier: 'user',
+    dir: `/x/${name}`,
+    description,
+    author: null,
+    enabled: true,
+    shadows: [],
+    roles
+  }
 }
 
 describe('buildSkillIndex', () => {

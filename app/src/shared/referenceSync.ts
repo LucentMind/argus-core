@@ -155,6 +155,8 @@ export interface ReferenceStatus {
   lastSynced: string | null
   sourceCount: number
   stale: boolean
+  /** `Name <email>` from frontmatter; null for synced/bundled files, which have no human author. */
+  author: string | null
 }
 
 export interface RefSyncPayload {

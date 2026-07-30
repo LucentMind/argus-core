@@ -202,14 +202,16 @@ describe('referenceStatuses', () => {
         tier: 'team-knowledge',
         lastSynced: null,
         sourceCount: 0,
-        stale: false
+        stale: false,
+        author: null
       },
       {
         file: 'routing-flow.md',
         tier: 'confluence',
         lastSynced: '2026-06-01T00:00:00.000Z',
         sourceCount: 1,
-        stale: true
+        stale: true,
+        author: null
       }
     ])
   })

@@ -3,6 +3,8 @@ export interface HivemindItem {
   kind: 'skill' | 'reference'
   name: string
   description: string
+  /** `Name <email>` read from the clone, so Browse can name a contributor before you install. */
+  author: string | null
   commit: string
   installed: boolean
   installedCommit: string | null
