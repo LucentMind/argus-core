@@ -431,6 +431,39 @@ describe('pushable + push', () => {
     ).toBe(true)
   })
 
+  it("push branches from origin default when the pin is an empty string, not `git checkout -B <branch> ''`", async () => {
+    // `pinFor` used `?? null`, which only substitutes null/undefined — an empty-string pin
+    // (falsy but not nullish) sailed through to the branch-from-pin call site's `?? fallback`
+    // unchanged, producing a bogus `checkout -B <branch> ''`.
+    seedClone()
+    seedUserAssets()
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({ lastSynced: null, skills: { 'my-skill': '' }, references: {}, pushes: {} })
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      return 'https://github.com/acme/hivemind/pull/11'
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'my-skill', 'Add my-skill')
+    expect(r).toEqual({ ok: true, prUrl: 'https://github.com/acme/hivemind/pull/11' })
+    const flat = calls.map((c) => c.join(' '))
+    expect(
+      flat.some((c) => /^checkout -B argus\/share-skill-my-skill-\d+ origin\/main$/.test(c))
+    ).toBe(true)
+    // the bug this guards against: a trailing-empty-arg checkout (`checkout -B <branch> `)
+    expect(flat.every((c) => !/^checkout -B \S+ $/.test(c))).toBe(true)
+  })
+
   it('push failures surface as { ok: false } and still restore the branch', async () => {
     seedClone()
     seedUserAssets()

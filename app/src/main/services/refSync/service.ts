@@ -171,6 +171,11 @@ export class RefSyncService {
       throw new Error(`not a hand-owned reference: ${file} (${tier})`)
     }
     if ((existing === null ? null : contentHash(existing)) !== baseHash) {
+      // baseHash null means the editor believes it is CREATING "file" — if a file is already
+      // there, that's a name collision, not a concurrent edit of something the editor had open.
+      if (baseHash === null && existing !== null) {
+        throw new Error(`"${file}" already exists — choose a different name.`)
+      }
       throw new Error(`"${file}" changed on disk since you opened it.`)
     }
     fs.mkdirSync(this.refsDir(), { recursive: true })

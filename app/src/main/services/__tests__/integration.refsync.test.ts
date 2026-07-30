@@ -428,6 +428,15 @@ describe('writeReference', () => {
     expect(fs.readFileSync(path.join(refsDir, 'race.md'), 'utf8')).toBe('original')
   })
 
+  it('a null base hash against an existing file is a name collision, not a "changed on disk" conflict', () => {
+    // baseHash null means the caller believes it is CREATING "taken.md" — a file already
+    // being there means the name is taken, not that someone else edited a file this caller
+    // had open (which sends the user looking for a concurrent writer that does not exist).
+    fs.writeFileSync(path.join(refsDir, 'taken.md'), '# Existing\nBody.')
+    expect(() => svc.writeReference('taken.md', 'mine', null)).toThrow(/already exists/i)
+    expect(fs.readFileSync(path.join(refsDir, 'taken.md'), 'utf8')).toBe('# Existing\nBody.')
+  })
+
   it('reports the tier violation, not the stale hash, for a hivemind-tier file with a stale hash', () => {
     const raw = '---\ntrust_tier: hivemind\n---\n\nbody'
     fs.writeFileSync(path.join(refsDir, 'hive-stale.md'), raw)

@@ -224,8 +224,11 @@ describe('writeUserSkill', () => {
     ).toThrow(/changed on disk/i)
   })
 
-  it('allows a first write with a null base hash only when no file exists', () => {
-    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), null)).toThrow(/changed on disk/i)
+  it('a null base hash against an existing file is a name collision, not a "changed on disk" conflict', () => {
+    // baseHash null means the editor believes it is CREATING "rca" — a file already being
+    // there means the name is taken, which is a different problem than a concurrent edit of
+    // something the editor had open (and sends the user looking for a writer that isn't there).
+    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), null)).toThrow(/already exists/i)
   })
 })
 
@@ -261,6 +264,23 @@ describe('forkSkill', () => {
   })
 
   it('renames on request and rewrites the frontmatter name to match', () => {
+    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog')).toBe('my-applog')
+    const content = fs.readFileSync(
+      path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
+      'utf8'
+    )
+    expect(content).toContain('name: my-applog')
+    expect(hasErrors(validateSkill({ name: 'my-applog', content }))).toBe(false)
+  })
+
+  it('renames on request even when the source has no name: key at all', () => {
+    // The regex-replace this used to do (`raw.replace(/^name:\s*.+$/m, …)`) was a silent no-op
+    // when there was no name: line to match — the fork would land under the OLD name with the
+    // new folder, which is exactly the shape an accepted proposal can have pre-Fix-1-stamp.
+    fs.writeFileSync(
+      path.join(argusHome, 'skills', 'analyze-applog', 'SKILL.md'),
+      '---\ndescription: bundled applog, no name key\n---\n\n# analyze-applog\n'
+    )
     expect(forkSkill(argusHome, 'analyze-applog', 'my-applog')).toBe('my-applog')
     const content = fs.readFileSync(
       path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
