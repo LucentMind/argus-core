@@ -73,6 +73,19 @@ const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
   ...over
 })
 
+describe('AssetTab when an existing asset cannot be read', () => {
+  it('reports the failure instead of hanging on Loading forever', async () => {
+    // mode: 'edit', no draft, and disk read fails (readAsset swallows the rejection to
+    // null) — the same shape a transient IPC failure produces for a real, existing asset.
+    // This must not be mistaken for create mode: the user should be told, not left on a
+    // permanent, silent "Loading…".
+    skillsRead.mockRejectedValue(new Error('boom'))
+    mount()
+    expect(await screen.findByText('File could not be read.')).toBeInTheDocument()
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+  })
+})
+
 describe('AssetTab without a draft', () => {
   it('opens the file from disk', async () => {
     mount()

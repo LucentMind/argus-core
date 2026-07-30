@@ -88,17 +88,30 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
         baseHash.current = disk.hash
         buffer.current = disk.content
         setInit({ load: async () => ({ content: disk.content, hash: disk.hash }) })
-      } else {
+      } else if (mode === 'create') {
         // Create mode with nothing to restore: no `load`, so AssetEditor seeds its template.
         baseHash.current = null
         buffer.current = ''
         setInit({})
+      } else {
+        // Edit mode with neither a draft nor a readable file. `readAsset` swallows every
+        // error and returns null (assetIo.ts), so this also covers a transient IPC failure
+        // reading a real, existing asset — not just "the file is truly gone". Passing no
+        // `load` here would be indistinguishable from create mode to AssetEditor: `loaded`
+        // would never flip and it would render "Loading…" forever with no error and no
+        // banner (bannerOnOpen returns 'none' when draft is null). Give it a rejecting
+        // `load` instead so AssetEditor's existing error path fires and the user is told.
+        baseHash.current = null
+        buffer.current = ''
+        setInit({
+          load: () => Promise.reject(new Error(`Could not read ${kind} "${initialName}".`))
+        })
       }
     })()
     return () => {
       live = false
     }
-  }, [kind, initialName, generation])
+  }, [kind, initialName, generation, mode])
 
   // Identity-stable: AssetEditor's autosave effect lists this object in its deps, so a new
   // object every render would re-fire it on every render.
@@ -170,19 +183,24 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   )
 
   const discardDraft = useCallback(async (): Promise<void> => {
+    // Unmount the current AssetEditor immediately, before the awaits below: leaving it
+    // mounted and interactive during the round trips lets a keystroke fire draft.onChange,
+    // re-persisting a draft that the remount below then throws away with no dirty guard
+    // catching it. Dropping to `init === null` first forces the Loading placeholder — no
+    // AssetEditor instance at all — so there is no interactive window in which to lose input.
+    //
+    // This ordering also fixes a remount race, and must keep doing so: AssetEditor's load
+    // effect has an empty dependency array and runs once per mount, so bumping `generation`
+    // while a stale `init` is still in state would remount the editor with the *previous*
+    // `init.load` closure (this effect's setInit for the new value only lands a commit later)
+    // and load the very draft being discarded right back in. Nulling `init` first forces that
+    // `!init` early return so no stale instance survives to read the old closure.
+    setInit(null)
     await window.argus.editor.discardDraft({ kind, name: filedAs.current })
     const disk = await readAsset(kind, filedAs.current)
     setDraftAt(null)
     setBanner({ kind: 'none' })
     override.current = disk ? { content: disk.content, hash: disk.hash, pristine: true } : null
-    // Unmount the current AssetEditor before bumping `generation`: the key change alone would
-    // remount it in the *same* commit that still carries the old `init.load` (this effect's
-    // setInit for the new value only lands a commit later), so the fresh instance would call
-    // the stale closure and load the old content right back in. Dropping to `init === null`
-    // first forces the Loading placeholder — no AssetEditor instance at all — so the mount that
-    // eventually happens once the resolve effect below sets the real `init` is a genuinely new
-    // one that reads the override.
-    setInit(null)
     setGeneration((g) => g + 1)
   }, [kind])
 
