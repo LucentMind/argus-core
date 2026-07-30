@@ -380,11 +380,6 @@ describe('authorship on write and fork', () => {
 
   it('a second engineer editing joins the contributors without taking the byline', () => {
     const hash = writeUserSkill(argusHome, 'my-skill', skill, null, me)
-    // Round-trip the STAMPED bytes, as the real editor does (it loads via readSkill before
-    // editing) — a literal `${skill}more` here would carry no `author:` frontmatter at all,
-    // which stampAuthorship legitimately reads as "no author yet" and would stamp `other` as
-    // the author, per its own committed contract (see shared/authorship's own test suite and
-    // refSync.writeReference's analogous `${before.content}\nnew` pattern).
     const stamped = fs.readFileSync(
       path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'),
       'utf8'
@@ -395,6 +390,55 @@ describe('authorship on write and fork', () => {
     )
     expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
     expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com', 'alex@example.test'])
+  })
+
+  it('a saver who deleted the author: line from the buffer does not take the byline', () => {
+    const hash = writeUserSkill(argusHome, 'my-skill', skill, null, me)
+    const stamped = fs.readFileSync(
+      path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'),
+      'utf8'
+    )
+    // exactly what the raw-frontmatter editor produces when a user deletes the byline
+    const stripped = stamped.replace(/^author: .*\r?\n/m, '')
+    expect(stripped).not.toContain('author:')
+    writeUserSkill(argusHome, 'my-skill', stripped, hash, other)
+    const a = parseAuthorship(
+      fs.readFileSync(path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    )
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com', 'alex@example.test'])
+  })
+
+  it('an Improve-shaped buffer carrying no authorship at all keeps the on-disk trail', () => {
+    // Improve replaces the whole file with a model's rewrite; nothing guarantees the model
+    // carried the frontmatter stamp forward, and a lost `contributors:` block is unrecoverable.
+    const seeded = [
+      '---',
+      'name: my-skill',
+      'description: does a thing',
+      'author: Alex Chen <alex@example.test>',
+      'origin: proposal',
+      'contributors:',
+      '  - Alex Chen <alex@example.test> 2026-07-01',
+      '  - Sam Doe <sam@example.test> 2026-07-02',
+      '---',
+      '# body\n'
+    ].join('\n')
+    const dir = path.join(argusHome, 'skills-user', 'my-skill')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), seeded)
+    const hash = contentHash(seeded)
+
+    writeUserSkill(argusHome, 'my-skill', skill, hash, me)
+    const a = parseAuthorship(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8'))
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.origin).toBe('proposal')
+    expect(a.contributors.map((c) => c.email)).toEqual([
+      'alex@example.test',
+      'sam@example.test',
+      'jiawiehan@gmail.com'
+    ])
   })
 
   it('a fork preserves the original author and records the forker', () => {
@@ -414,7 +458,7 @@ describe('authorship on write and fork', () => {
     expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com'])
   })
 
-  it('writes nothing when there is no identity', () => {
+  it('writes the file byte-for-byte unstamped when there is no identity', () => {
     writeUserSkill(argusHome, 'my-skill', skill, null, null)
     const raw = fs.readFileSync(path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
     expect(raw).toBe(skill)

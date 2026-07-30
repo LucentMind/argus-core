@@ -8,7 +8,7 @@ import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/ski
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
 import { withFrontmatter, fmField } from '../../../shared/frontmatter'
-import { stampAuthorship, type Identity } from '../../../shared/authorship'
+import { mergeAuthorship, stampAuthorship, type Identity } from '../../../shared/authorship'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -190,7 +190,8 @@ export function writeUserSkill(
   }
   const dir = path.join(userSkillsDir(argusHome), name)
   const file = path.join(dir, 'SKILL.md')
-  const onDisk = fs.existsSync(file) ? contentHash(fs.readFileSync(file, 'utf8')) : null
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+  const onDisk = existing === null ? null : contentHash(existing)
   if (onDisk !== baseHash) {
     // baseHash null means the editor believes it is CREATING "name" — if a file is already
     // there, that's a name collision, not a concurrent edit of something the editor had open.
@@ -200,9 +201,22 @@ export function writeUserSkill(
     throw new Error(`"${name}" changed on disk since you opened it.`)
   }
   fs.mkdirSync(dir, { recursive: true })
+  // mergeAuthorship first: the file on disk owns author/origin/contributors, not `content`.
+  // Improve hands us a whole file round-tripped through a model and the raw editor lets the
+  // `author:` line be deleted — either buffer would otherwise hand the byline to whoever saved.
   // hash the STAMPED bytes: the caller adopts this as its next baseHash, and hashing `content`
   // would make its very next save fail with a conflict this write itself created.
-  const stamped = stampAuthorship(content, { identity, origin: 'authored', now: new Date() })
+  const stamped = stampAuthorship(mergeAuthorship(content, existing), {
+    identity,
+    origin: 'authored',
+    now: new Date()
+  })
+  // validateSkill above ran on `content`; assert on what is actually about to hit the disk, so
+  // no composition of merge+stamp can write a file the same gate would have rejected.
+  const post = validateSkill({ name, content: stamped })
+  if (hasErrors(post)) {
+    throw new Error(post.find((i) => i.severity === 'error')!.message)
+  }
   fs.writeFileSync(file, stamped)
   return contentHash(stamped)
 }
