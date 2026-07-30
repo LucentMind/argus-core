@@ -496,7 +496,18 @@ export function CaseWorkspace({
                   </button>
                 }
               />
+              {/* key: remount on case switch. `linkingRef`/`linkingPr`/`prDraft`/`prError` are
+                  component-instance state (Task 5's optimistic in-flight-link row), not derived
+                  from props — without a key, a `pr:link` still running when the user switches to
+                  another case (it does a real `git fetch` + `worktree add`, easily tens of
+                  seconds) would keep rendering case A's PR identity under case B, suppressing
+                  B's own empty state. Same reasoning as ReposSection's key just above — prefixed
+                  (unlike ReposSection's bare `slug`) because the two are siblings under the same
+                  parent: React requires keys to be unique among siblings regardless of component
+                  type, and a bare `key={slug}` on both here collided, silently defeating
+                  ReposSection's own remount instead of adding this one. */}
               <PrCompanionSection
+                key={`pr:${slug}`}
                 slug={slug}
                 mode={activeMode}
                 onAnalyze={(checkName) => void analyzeCheck(checkName)}

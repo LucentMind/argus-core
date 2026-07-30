@@ -532,6 +532,57 @@ describe('CaseFiles', () => {
     })
   })
 
+  // Regression coverage: ReposSection.link resolves `reload()` BEFORE `pending.resolve()` for
+  // exactly this reason. handleDrop used to do it the other way — `pending.resolve(ids)` then
+  // `await reload()` — so on a case with no evidence, the moment the ingest resolves there is a
+  // real window where the pending row is gone (resolved) but the reloaded rows have not landed
+  // yet, and `loaded && visible.length === 0 && pending.items.length === 0` is briefly all true:
+  // "No evidence yet." paints on a case that just received a file.
+  it('never shows "No evidence yet." between a drop resolving and the reload finishing', async () => {
+    let listCalls = 0
+    let releaseReloadList: ((rows: EvidenceRecord[]) => void) | null = null
+    window.argus.evidence.list = vi.fn(() => {
+      listCalls += 1
+      // call 1: initial mount, case starts with no evidence. call 2: the reload() inside
+      // handleDrop, held open so the window between ingest resolving and reload finishing
+      // is observable.
+      if (listCalls === 1) return Promise.resolve([])
+      return new Promise<EvidenceRecord[]>((res) => {
+        releaseReloadList = res
+      })
+    })
+    let releaseIngest: (() => void) | null = null
+    window.argus.evidence.ingest = vi.fn(
+      () =>
+        new Promise<EvidenceRecord[]>((res) => {
+          releaseIngest = () => res([])
+        })
+    )
+    window.argus.pathForFile = vi.fn(() => 'C:\\logs\\new.txt')
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await screen.findByText('No evidence yet.')
+
+    const file = new File(['x'], 'new.txt')
+    fireEvent.drop(screen.getByText('drop files to add evidence').parentElement!, {
+      dataTransfer: { files: [file] }
+    })
+    await screen.findByText('new.txt') // the pending row is up
+
+    // resolve the ingest — the exact moment the wrong order lets "No evidence yet." flash back
+    await act(async () => {
+      releaseIngest!()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('No evidence yet.')).toBeNull()
+
+    await act(async () => {
+      releaseReloadList!([])
+    })
+  })
+
   it('keeps a failed drop on screen as an error row', async () => {
     window.argus.evidence.ingest = vi.fn(() => Promise.reject(new Error('EACCES: locked')))
     window.argus.pathForFile = vi.fn(() => 'C:\\logs\\locked.binlog')

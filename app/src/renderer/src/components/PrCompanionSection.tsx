@@ -320,7 +320,11 @@ export function PrCompanionSection({
         setBinding(list[0] ?? null)
         // Awaited, not fire-and-forget: the pending row must stay up until the status that
         // replaces it is actually on screen.
-        await prStatusStore.refresh([slug]).catch(() => undefined)
+        await prStatusStore
+          .refresh([slug])
+          .catch((err) =>
+            console.warn(`[pr] status refresh failed for ${slug}: ${(err as Error).message}`)
+          )
       } catch {
         // main throws on anything parsePrRef can't read — say so instead of failing silently.
         // (A CLAUDE.md write failure AFTER the binding committed no longer reaches here — see

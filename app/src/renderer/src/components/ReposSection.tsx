@@ -168,13 +168,18 @@ export function ReposSection({
               p.error ? 'border-danger/60 bg-danger/10' : 'border-defect/30 bg-hair/50'
             }`}
           >
-            <span
-              className={`truncate font-mono text-xs font-medium ${
-                p.error ? 'text-danger line-through' : 'text-defect'
-              }`}
-            >
-              {p.name}
-            </span>
+            {/* wrapped in a block div (matching the real chip above): `truncate` on a bare
+                inline span does nothing — overflow does not apply to inline non-replaced boxes,
+                so a long repo name would render nowrap and spill out of the 216px rail. */}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                className={`truncate font-mono text-xs font-medium ${
+                  p.error ? 'text-danger line-through' : 'text-defect'
+                }`}
+              >
+                {p.name}
+              </span>
+            </div>
             {p.error ? (
               <div className="mt-0.5 truncate text-[11px] text-danger">{p.error}</div>
             ) : (
