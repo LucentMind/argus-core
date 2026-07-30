@@ -6,7 +6,7 @@
  * out of raw file text the renderer already holds, which is what keeps this feature free of a
  * new IPC channel.
  */
-import { fmBlock, fmField, fmList } from './frontmatter'
+import { fmBlock, fmField, fmList, withFrontmatter, withFrontmatterList } from './frontmatter'
 
 export type Origin = 'authored' | 'proposal' | 'fork'
 export interface Identity {
@@ -59,4 +59,45 @@ export function parseAuthorship(raw: string): Authorship {
       return m ? [{ name: m[1].trim(), email: m[2].trim(), date: m[3] }] : []
     })
   }
+}
+
+/**
+ * Record `identity`'s touch on this asset.
+ *
+ * `origin: null` means "this write is not authorship" — claim and any other take-ownership
+ * action passes it, so the claimer joins the contributor list without the asset asserting that
+ * they wrote it. A non-null origin sets author+origin only when there is no author yet; `fork`
+ * additionally overwrites origin, which is the sole case where origin is ever rewritten.
+ *
+ * Dates are day-resolution: the same person stamping twice in one day yields byte-identical
+ * output, so repeat saves do not dirty the file or add noise to a HiveMind push diff.
+ */
+export function stampAuthorship(
+  raw: string,
+  opts: { identity: Identity | null; origin: Origin | null; now: Date }
+): string {
+  const { identity, origin, now } = opts
+  if (!identity) return raw
+
+  const fm = fmBlock(raw)?.fm ?? ''
+  const flat: Record<string, string> = {}
+  if (origin !== null) {
+    if (!fmField(fm, 'author')) {
+      flat.author = formatIdentity(identity)
+      flat.origin = origin
+    } else if (origin === 'fork') {
+      flat.origin = origin
+    }
+  }
+
+  const entry = `${formatIdentity(identity)} ${now.toISOString().slice(0, 10)}`
+  // unparseable lines survive: only an entry whose email matches is replaced
+  const kept = fmList(fm, 'contributors').filter((line) => {
+    const m = CONTRIBUTOR_RE.exec(line)
+    return m === null || m[2].trim() !== identity.email
+  })
+  const next = [...kept, entry].slice(-CONTRIBUTOR_CAP)
+
+  const stamped = Object.keys(flat).length > 0 ? withFrontmatter(raw, flat) : raw
+  return withFrontmatterList(stamped, 'contributors', next)
 }
