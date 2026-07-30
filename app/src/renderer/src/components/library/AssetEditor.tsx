@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Sparkles } from 'lucide-react'
@@ -89,6 +89,14 @@ export function AssetEditor({
   const [describe, setDescribe] = useState('')
   const [proposed, setProposed] = useState<string | null>(null)
 
+  // Read across the `await` in `assist()` so a resolution can tell whether `buffer` moved
+  // (typing, or a rename that regenerated the template) while the request was in flight,
+  // instead of deciding replace-vs-diff against the stale value closed over at click time.
+  const bufferRef = useRef(buffer)
+  useEffect(() => {
+    bufferRef.current = buffer
+  }, [buffer])
+
   useEffect(() => {
     if (!load) return
     let live = true
@@ -132,6 +140,7 @@ export function AssetEditor({
   function renameCreate(next: string): void {
     setName(next)
     if (pristine) setBuffer(template(next))
+    setError(null)
   }
 
   async function onSave(): Promise<void> {
@@ -155,14 +164,22 @@ export function AssetEditor({
   async function assist(which: 'draft' | 'improve'): Promise<void> {
     setBusy(true)
     setError(null)
+    // Snapshot what "untouched boilerplate" looked like at click time. `pristine` and `buffer`
+    // are read fresh here (not stale) because this runs synchronously before the first await.
+    const wasPristine = pristine
+    const bufferAtRequest = buffer
     try {
       const req = { kind, name, text: which === 'draft' ? describe : buffer }
       const { content } =
         which === 'draft'
           ? await window.argus.authoring.draft(req)
           : await window.argus.authoring.improve(req)
-      // Nothing to lose against boilerplate, and a diff against a template is noise.
-      if (which === 'draft' && pristine) {
+      // Decide replace-vs-diff against state *at resume time*, not the closure captured when
+      // the click happened: `bufferRef.current` reflects any typing, or any rename that
+      // regenerated the template, that happened while the request was in flight. Only replace
+      // outright when both nothing was typed (`wasPristine`) and the buffer truly hasn't moved
+      // since — otherwise route through the diff so the in-flight edit is never silently lost.
+      if (which === 'draft' && wasPristine && bufferRef.current === bufferAtRequest) {
         setBuffer(content)
         setPristine(false)
       } else {
@@ -177,7 +194,7 @@ export function AssetEditor({
 
   async function requestClose(): Promise<void> {
     if (
-      pristine ||
+      (pristine && proposed === null) ||
       (await confirm({ title: 'Discard your changes?', confirmLabel: 'Discard', danger: true }))
     ) {
       onClose()
@@ -194,7 +211,7 @@ export function AssetEditor({
       className="h-[80vh] w-[80vw] max-w-4xl"
       actions={
         <>
-          <Btn variant="ghost" onClick={() => setPreview(!preview)}>
+          <Btn variant="ghost" disabled={proposed !== null} onClick={() => setPreview(!preview)}>
             {preview ? 'Edit' : 'Preview'}
           </Btn>
           <Btn variant="ghost" disabled={busy} onClick={() => void requestClose()}>
@@ -248,7 +265,9 @@ export function AssetEditor({
       )}
 
       {!loaded ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-dim">Loading…</div>
+        <div className="flex flex-1 items-center justify-center text-sm text-dim">
+          {error ? 'File could not be read.' : 'Loading…'}
+        </div>
       ) : (
         <>
           {proposed !== null ? (

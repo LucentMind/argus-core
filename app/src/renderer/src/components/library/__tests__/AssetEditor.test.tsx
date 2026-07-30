@@ -174,7 +174,7 @@ describe('AssetEditor', () => {
     expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
   })
 
-  it('gates edit mode on load: no false missing-frontmatter error, and typed text is not lost to a late resolution', async () => {
+  it('gates edit mode on load: no false missing-frontmatter error, and no textbox exists before the load resolves', async () => {
     let resolveLoad!: (v: { content: string; hash: string }) => void
     const deferred = new Promise<{ content: string; hash: string }>((res) => {
       resolveLoad = res
@@ -260,5 +260,70 @@ describe('AssetEditor', () => {
     expect(
       (screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement).value
     ).toContain('hand-written')
+  })
+
+  it('typing during an in-flight Draft is not lost: resolution routes to a diff, not a replace', async () => {
+    let resolveDraft!: (v: { content: string }) => void
+    const deferred = new Promise<{ content: string }>((res) => {
+      resolveDraft = res
+    })
+    window.argus.authoring.draft = vi.fn().mockReturnValue(deferred)
+    setup({ mode: 'create', name: 'rca', load: undefined })
+
+    await userEvent.type(screen.getByRole('textbox', { name: /describe/i }), 'root cause work')
+    await userEvent.click(screen.getByRole('button', { name: /^draft/i }))
+
+    const ta = screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement
+    await userEvent.type(ta, 'typed while pending')
+
+    resolveDraft({ content: valid })
+
+    // Arrives as a diff (Accept/Discard), not a silent replace of the buffer.
+    await screen.findByRole('button', { name: /^discard$/i })
+    await userEvent.click(screen.getByRole('button', { name: /^discard$/i }))
+
+    // Discard just clears the proposal; the buffer itself was never touched by the
+    // late resolution, so the typed text is still there.
+    expect(
+      (screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement).value
+    ).toContain('typed while pending')
+  })
+
+  it('renaming in create mode clears a previously shown error banner', async () => {
+    setup({ mode: 'create', name: 'my-skill', load: undefined })
+    const ta = screen.getByRole('textbox', { name: /skill · my-skill/i })
+    await userEvent.type(ta, '\nhand-written body')
+
+    const nameInput = screen.getByRole('textbox', { name: /^skill name$/i })
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'foo')
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/must match the skill folder/i)
+
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'my-skill')
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('closing with a pending diff routes through confirm(); declining keeps the diff open', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { onClose } = setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+    await screen.findByRole('button', { name: /^discard$/i })
+
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    expect(await screen.findByRole('button', { name: /^discard$/i })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a rejected load shows a terminal error state instead of a permanent Loading', async () => {
+    setup({ load: () => Promise.reject(new Error('boom')) })
+
+    expect(await screen.findByText(/could not be read/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^loading/i)).toBeNull()
   })
 })
