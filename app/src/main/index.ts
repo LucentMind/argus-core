@@ -935,7 +935,13 @@ function registerIpc(): void {
     panelHost!.dockBack(key)
     broadcast(IPC.panelsChanged, undefined)
   })
-  ipcMain.handle(IPC.panelsSetTheme, (_e, theme: 'dark' | 'light') => panelHost!.setTheme(theme))
+  ipcMain.handle(IPC.panelsSetTheme, (_e, theme: 'dark' | 'light') => {
+    panelHost!.setTheme(theme)
+    // Every BrowserWindow runs its own UiStore and reads the theme only at load, so a change
+    // made in one window is invisible to the others until they reload. Fan it out here: this
+    // handler already sees every theme change, including the one fired at construction.
+    broadcast(IPC.uiThemeChanged, theme)
+  })
   ipcMain.handle(IPC.panelsDecls, () =>
     packRegistry.windowDecls().map((w) => ({
       packId: w.packId,
