@@ -2,12 +2,30 @@
 /**
  * Draft-durability runtime gate (spec §8.3 step 5, §4.2–4.4).
  *
- * Two phases, because the assertion IS a process death — no in-process test can make it:
+ * Three phases, each its own app boot:
  *
  *   1. ARGUS_HOME=/tmp/argus-draft-gate npx electron-vite dev --remoteDebuggingPort 9223
  *      node scripts/cdp-editor-drafts.mjs arm      # types, checks the flush, quits the app
  *   2. ARGUS_HOME=/tmp/argus-draft-gate npx electron-vite dev --remoteDebuggingPort 9223
  *      node scripts/cdp-editor-drafts.mjs check    # reopens, checks the restore banner
+ *   3. ARGUS_HOME=/tmp/argus-draft-gate npx electron-vite dev --remoteDebuggingPort 9223
+ *      node scripts/cdp-editor-drafts.mjs compare  # drives the Compare data-loss fix end to end
+ *
+ * `arm` and `check` are two phases, and not one script that types-then-reopens, because the
+ * assertion in between IS a process death — no in-process test can make it. `compare` is a
+ * *third* phase rather than a step tacked onto `check`, deliberately: it does not need a restart
+ * (nothing about it depends on surviving a quit), and `check`'s own job is already the restore-
+ * banner assertion followed by an unconditional Discard — folding Compare in there would mean
+ * either racing the two flows in one tab or discarding a still-needed draft mid-scenario. A third
+ * phase keeps each phase's setup honest about what it actually needs.
+ *
+ * `compare` exists because the data-loss bug Finding 1 fixed (Compare used to unmount
+ * AssetEditor and silently revert every keystroke on Back) had only ever been exercised in
+ * jsdom, where neither Tailwind's `hidden` class nor `display:contents` has any CSS — jsdom
+ * loads no stylesheet, so a wrapper with `className="hidden"` is not actually hidden from
+ * anything. Only a real, styled window can prove the wrapper really is `display:none` while
+ * Compare is up, which is exactly what assertion 4 below reads over CDP with
+ * `getComputedStyle`.
  *
  * The scratch ARGUS_HOME must hold at least one user skill. `arm` reads the drafts directory
  * directly, which is what makes "the flush actually landed" a fact rather than an inference
@@ -29,8 +47,8 @@ if (!HOME) {
   console.error('ARGUS_HOME must be set to the same scratch home the app was booted with')
   process.exit(1)
 }
-if (PHASE !== 'arm' && PHASE !== 'check') {
-  console.error('usage: cdp-editor-drafts.mjs arm|check')
+if (PHASE !== 'arm' && PHASE !== 'check' && PHASE !== 'compare') {
+  console.error('usage: cdp-editor-drafts.mjs arm|check|compare')
   process.exit(1)
 }
 
@@ -184,6 +202,134 @@ if (PHASE === 'check') {
   })()`)
   await sleep(1500)
   check('Discard draft removes it from disk', readDrafts().length === 0, readDrafts().length)
+
+  editor.close()
+  main.close()
+  report()
+}
+
+if (PHASE === 'compare') {
+  const { main, editor } = await openEditor()
+
+  // aria-label is `skill · <name>` — same convention cdp-editor-window.mjs relies on. Read it
+  // back rather than hardcoding a name so this does not assume which skill the scratch home
+  // seeded.
+  const skillName = await editor.evalJs(
+    `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').getAttribute('aria-label').replace(/^skill\\s*\\u00b7\\s*/, '')`
+  )
+
+  // 1. Type a marker into the buffer, through the React value setter (see the `arm` phase above
+  // for why a direct `.value` assignment does not fire onChange).
+  await editor.evalJs(`(() => {
+    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+    set.call(ta, ta.value + '\\n${MARKER}\\n')
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  const typed = await waitFor('the marker to land in the buffer', async () => {
+    const v = await editor.evalJs(
+      `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
+    )
+    return v.includes(MARKER) ? v : false
+  })
+  check('the marker was typed into the buffer', typed.includes(MARKER))
+
+  // 2. Change SKILL.md on disk directly — not through the app — so the buffer's `baseHash`
+  // (taken when the editor opened) goes stale. This is the one step no in-process test can do:
+  // it needs a second, independent writer racing the open buffer.
+  const skillFile = path.join(HOME, 'skills-user', skillName, 'SKILL.md')
+  const onDiskBeforeMutation = fs.readFileSync(skillFile, 'utf8')
+  fs.writeFileSync(
+    skillFile,
+    `${onDiskBeforeMutation}\n<!-- changed on disk by the gate -->\n`,
+    'utf8'
+  )
+
+  // 3. Click Save; it will be rejected (the hash the buffer opened with no longer matches disk),
+  // which is what raises the conflict banner.
+  await editor.evalJs(`(() => {
+    const b = Array.from(document.querySelectorAll('button')).find((x) => x.textContent.trim() === 'Save')
+    b.click()
+    return true
+  })()`)
+  const banner = await waitFor('the conflict banner', async () => {
+    const text = await editor.evalJs(
+      `Array.from(document.querySelectorAll('[role="status"]')).map((n) => n.textContent).join(' | ')`
+    )
+    return /changed on disk|saved version is newer/i.test(text) ? text : false
+  })
+  check('Save is rejected and the conflict banner appears', true, banner)
+
+  // 4. Click Compare; assert the diff appeared AND that the editor wrapper really is
+  // `display:none` — the one thing jsdom cannot check, because it loads no stylesheet and so
+  // never applies Tailwind's `hidden` class to anything.
+  await editor.evalJs(`(() => {
+    const b = Array.from(document.querySelectorAll('button')).find((x) => /^compare$/i.test(x.textContent.trim()))
+    b.click()
+    return true
+  })()`)
+  const diffAppeared = await waitFor('the diff view to appear', () =>
+    editor.evalJs(
+      `!!document.querySelector('[role="group"][aria-label="On disk compared with Yours"]')`
+    )
+  )
+  check('the diff view appears after Compare', diffAppeared)
+
+  const wrapperDisplayWhileComparing = await editor.evalJs(`(() => {
+    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
+    let el = ta
+    while (el && !el.classList.contains('hidden')) el = el.parentElement
+    return el ? getComputedStyle(el).display : 'NO WRAPPER FOUND'
+  })()`)
+  check(
+    'the editor wrapper is display:none while comparing (the CSS jsdom cannot check)',
+    wrapperDisplayWhileComparing === 'none',
+    wrapperDisplayWhileComparing
+  )
+
+  // 5. Click Back; assert the textarea still contains the marker — the exact assertion that
+  // would have caught Finding 1's data-loss bug, where Back used to remount AssetEditor and
+  // silently re-run `init.load`'s original closure, reverting every keystroke typed since the
+  // tab opened — and that the wrapper is visible again.
+  await editor.evalJs(`(() => {
+    const b = Array.from(document.querySelectorAll('button')).find((x) => /^back$/i.test(x.textContent.trim()))
+    b.click()
+    return true
+  })()`)
+  const valueAfterBack = await waitFor('the buffer after Back', async () => {
+    const v = await editor.evalJs(
+      `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
+    )
+    return v.length > 0 ? v : false
+  })
+  check(
+    'Back does not revert the marker text (the data-loss regression Finding 1 fixed)',
+    valueAfterBack.includes(MARKER),
+    valueAfterBack.slice(-60)
+  )
+
+  const wrapperDisplayAfterBack = await editor.evalJs(`(() => {
+    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
+    let el = ta
+    while (el && !el.classList.contains('contents')) el = el.parentElement
+    return el ? getComputedStyle(el).display : 'NO WRAPPER FOUND'
+  })()`)
+  check(
+    'the editor wrapper is visible again after Back',
+    wrapperDisplayAfterBack !== 'none',
+    wrapperDisplayAfterBack
+  )
+
+  // Cleanup, so a re-run of this phase (or a later arm/check pass) against the same scratch
+  // home starts from the same footing: restore SKILL.md to its pre-mutation bytes, and discard
+  // the draft this scenario queued (through the same renderer API the app itself uses — the
+  // draft is real, on disk, and persist-before-adopt means only main's own discard is trusted
+  // to remove it).
+  fs.writeFileSync(skillFile, onDiskBeforeMutation, 'utf8')
+  await editor.evalJs(
+    `window.argus.editor.discardDraft({ kind: 'skill', name: ${JSON.stringify(skillName)} })`
+  )
 
   editor.close()
   main.close()
