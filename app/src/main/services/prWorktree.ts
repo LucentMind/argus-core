@@ -43,9 +43,41 @@ function prRef(prNumber: number): string {
 }
 
 /**
+ * The pull request head's SHA on the remote, or null when it cannot be read — no `origin`, an
+ * unreachable remote, a head ref that no longer exists, a timeout.
+ *
+ * Null always means "fall through to the fetch", never "nothing to do": the probe exists to skip
+ * work, and must never be able to turn a reachable PR into a silently stale worktree. Failure
+ * modes therefore all land on today's path, which reports them exactly as it did before.
+ *
+ * `ls-remote` with an explicit ref pattern is filtered server-side under protocol v2, so this is
+ * one small round-trip with no object transfer — unlike a fetch, which negotiates against the
+ * remote's whole ref set.
+ */
+async function remoteHeadSha(
+  git: (cwd: string, ...args: string[]) => Promise<string>,
+  repoPath: string,
+  prNumber: number
+): Promise<string | null> {
+  let out: string
+  try {
+    out = await git(repoPath, 'ls-remote', 'origin', `refs/pull/${prNumber}/head`)
+  } catch {
+    return null
+  }
+  // `<sha>\t<ref>`, or empty when the remote has no such ref.
+  const sha = out.split('\n')[0]?.split('\t')[0]?.trim() ?? ''
+  return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null
+}
+
+/**
  * Materialize a PR's head as a detached, case-scoped git worktree and return its path.
  *
- * The fetch is explicit because `ensureWorktree` does not fetch on its happy path, so a
+ * Fetches only when it has to. An existing worktree whose HEAD already equals the remote's
+ * `pull/N/head` is returned as-is, because re-entering review mode is a repeat operation and the
+ * fetch is on the critical path of the mode switch (`setCaseMode` awaits it). Everything else —
+ * a missing worktree, a moved head, any probe failure — takes the fetch path below, where the
+ * refspec is explicit because `ensureWorktree` does not fetch on its happy path, so a
  * `pull/N/head` ref that was never fetched would simply not resolve.
  */
 export async function ensurePrWorktree(
@@ -59,6 +91,25 @@ export async function ensurePrWorktree(
   const git = (cwd: string, ...args: string[]): Promise<string> => run(cwd, args)
   return withRepoLock(repoPath, async () => {
     const ref = prRef(prNumber)
+    const wt = casePrWorktreeDir(argusHome, caseSlug, repoPath, prNumber)
+
+    // Probe BEFORE the network work, not after it. The old order fetched unconditionally and
+    // then compared SHAs, so an unchanged PR still paid a full fetch on every review-mode entry
+    // and the comparison only ever saved a local `switch` nobody can feel.
+    if (fs.existsSync(wt)) {
+      const [remoteSha, curSha] = await Promise.all([
+        remoteHeadSha(git, repoPath, prNumber),
+        git(wt, 'rev-parse', 'HEAD').catch(() => '')
+      ])
+      if (remoteSha && remoteSha === curSha) {
+        // `refs/argus/pr/N` is what everything else calls "the PR head" — keep that true even
+        // though we skipped the fetch that normally moves it. The commit is already local (it IS
+        // this worktree's HEAD), so this is a pointer write, no network.
+        await git(repoPath, 'update-ref', ref, remoteSha).catch(() => undefined)
+        return wt
+      }
+    }
+
     const remote = await git(repoPath, 'remote', 'get-url', 'origin')
       .then(() => 'origin')
       .catch(() => {
@@ -66,7 +117,6 @@ export async function ensurePrWorktree(
       })
     await git(repoPath, 'fetch', remote, `pull/${prNumber}/head:${ref}`, '--force')
 
-    const wt = casePrWorktreeDir(argusHome, caseSlug, repoPath, prNumber)
     if (fs.existsSync(wt)) {
       // Mirrors ensureWorktree's early return: only switch when the head actually moved.
       const [curSha, refSha] = await Promise.all([
