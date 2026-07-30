@@ -256,6 +256,10 @@ export function PrCompanionSection({
   // since materialize+broadcast run unconditionally — see prLink.ts), not just a DB write —
   // without this the input stays enabled and shows nothing while it runs.
   const [linkingPr, setLinkingPr] = useState(false)
+  /** The reference being linked right now, shown as an optimistic row for the whole operation —
+   *  `pr:link` AND the status refresh that follows. The user performed one action; two
+   *  indicators with a gap between them is what made this section confusing. */
+  const [linkingRef, setLinkingRef] = useState<string | null>(null)
 
   async function unlink(): Promise<void> {
     if (!binding) return
@@ -274,6 +278,12 @@ export function PrCompanionSection({
     // cancels (resolves `false`) a still-pending prompt when a newer one arrives — but a second
     // prompt flashing on screen is still worth closing.
     setLinkingPr(true)
+    const parsedForDisplay = parsePrRef(value)
+    setLinkingRef(
+      parsedForDisplay
+        ? `${parsedForDisplay.owner}/${parsedForDisplay.repo}#${parsedForDisplay.number}`
+        : value
+    )
     // A case has at most one bound PR (addBinding replaces, never adds); findings carry no PR
     // reference of their own — they resolve against whatever is bound NOW. Swapping the binding
     // out from under existing findings would silently retarget any "comment"/"push" action on
@@ -308,7 +318,9 @@ export function PrCompanionSection({
         // prStatusStore.refresh hits GitHub — same call the header's own Refresh button makes.
         const list = await window.argus.pr.list(slug)
         setBinding(list[0] ?? null)
-        void prStatusStore.refresh([slug])
+        // Awaited, not fire-and-forget: the pending row must stay up until the status that
+        // replaces it is actually on screen.
+        await prStatusStore.refresh([slug]).catch(() => undefined)
       } catch {
         // main throws on anything parsePrRef can't read — say so instead of failing silently.
         // (A CLAUDE.md write failure AFTER the binding committed no longer reaches here — see
@@ -318,6 +330,7 @@ export function PrCompanionSection({
       }
     } finally {
       setLinkingPr(false)
+      setLinkingRef(null)
     }
   }
 
@@ -405,14 +418,21 @@ export function PrCompanionSection({
         </form>
       )}
 
-      {!status && showStatusSkeleton && (
+      {!status && linkingRef && (
+        <div className="flex flex-col gap-1.5">
+          <span className="truncate font-mono text-xs text-ink">{linkingRef}</span>
+          <Skeleton className="h-2 w-[40%]" />
+        </div>
+      )}
+
+      {!status && !linkingRef && showStatusSkeleton && (
         <div className="flex flex-col gap-1.5">
           <Skeleton className="h-3 w-[55%]" />
           <Skeleton className="h-2 w-[40%]" />
         </div>
       )}
 
-      {!status && !showStatusSkeleton && statusLoaded && (
+      {!status && !linkingRef && !showStatusSkeleton && statusLoaded && (
         <p className="text-[11px] text-mute">
           No pull request bound to this case yet — use Find PRs above.
         </p>
