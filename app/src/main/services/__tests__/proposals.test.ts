@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { writeProposal, listProposals, acceptProposal, rejectProposal } from '../proposals'
+import { parseAuthorship } from '../../../shared/authorship'
 
 let home: string
 beforeEach(() => {
@@ -298,5 +299,59 @@ describe('accept validates skill bodies', () => {
     const written = fs.readFileSync(path.join(home, 'skills-user', 'renamed', 'SKILL.md'), 'utf8')
     expect(written).toContain('name: renamed')
     expect(written).not.toContain('name: wrong')
+  })
+})
+
+describe('accept stamps authorship', () => {
+  const me = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+  const now = new Date('2026-07-30T12:00:00Z')
+
+  it('makes the accepter the author of a skill, marked as agent-drafted', () => {
+    writeProposal(home, 'c1', {
+      type: 'skill-new',
+      target: 'my-skill',
+      title: 't',
+      content: '---\nname: my-skill\ndescription: d\n---\n# body\n'
+    })
+    const file = listProposals(home)[0].file
+    acceptProposal(home, file, { identity: me, now })
+
+    const raw = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const a = parseAuthorship(raw)
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.origin).toBe('proposal')
+    expect(a.contributors).toEqual([
+      { name: 'Jiawei Han', email: 'jiawiehan@gmail.com', date: '2026-07-30' }
+    ])
+    expect(raw).toContain('description: d')
+  })
+
+  it('stamps an accepted reference without disturbing its tier', () => {
+    writeProposal(home, 'c1', {
+      type: 'reference-edit',
+      target: 'topic',
+      title: 't',
+      content: '# topic\n\nbody\n'
+    })
+    const file = listProposals(home)[0].file
+    acceptProposal(home, file, { identity: me, now })
+
+    const raw = fs.readFileSync(path.join(home, 'references', 'topic.md'), 'utf8')
+    expect(raw).toContain('trust_tier: team-knowledge')
+    expect(parseAuthorship(raw).author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+  })
+
+  it('writes no authorship keys when there is no identity', () => {
+    writeProposal(home, 'c1', {
+      type: 'skill-new',
+      target: 'my-skill',
+      title: 't',
+      content: '---\nname: my-skill\ndescription: d\n---\n# body\n'
+    })
+    acceptProposal(home, listProposals(home)[0].file, { identity: null, now })
+
+    const raw = fs.readFileSync(path.join(home, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    expect(raw).not.toContain('author:')
+    expect(raw).not.toContain('contributors:')
   })
 })

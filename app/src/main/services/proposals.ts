@@ -7,6 +7,7 @@ import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
+import { stampAuthorship, type Identity } from '../../shared/authorship'
 import {
   PROPOSAL_TYPES,
   REJECT_REASON_TAGS,
@@ -260,7 +261,14 @@ function archive(
 export function acceptProposal(
   argusHome: string,
   file: string,
-  opts: { db?: DatabaseSync; editedContent?: string } = {}
+  opts: {
+    db?: DatabaseSync
+    editedContent?: string
+    /** Who is accepting; null when this machine has no git identity (no stamp is written). */
+    identity?: Identity | null
+    /** Injectable for deterministic tests. */
+    now?: Date
+  } = {}
 ): AcceptedTarget {
   const p = listProposals(argusHome).find((x) => x.file === file)
   if (!p) throw new Error(`Unknown proposal: ${file}`)
@@ -270,6 +278,12 @@ export function acceptProposal(
     throw new Error(`Invalid proposal target: ${JSON.stringify(p.target)}`)
   }
   const body = opts.editedContent?.trim() ? opts.editedContent : p.content
+  const stamp = (content: string): string =>
+    stampAuthorship(content, {
+      identity: opts.identity ?? null,
+      origin: 'proposal',
+      now: opts.now ?? new Date()
+    })
   const raw = fs.readFileSync(path.join(proposalsDir(argusHome), file), 'utf8')
   const fm = fmBlock(raw)?.fm ?? ''
 
@@ -306,7 +320,7 @@ export function acceptProposal(
     }
     const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
-    fs.writeFileSync(path.join(dest, 'SKILL.md'), stamped)
+    fs.writeFileSync(path.join(dest, 'SKILL.md'), stamp(stamped))
     accepted = { kind: 'skill', name: p.target }
   } else {
     // reference-edit + recipe land in the references dir; accepting = human curation
@@ -314,7 +328,7 @@ export function acceptProposal(
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, refFileName(p.target)),
-      withFrontmatter(body, { trust_tier: 'team-knowledge' satisfies TrustTier })
+      stamp(withFrontmatter(body, { trust_tier: 'team-knowledge' satisfies TrustTier }))
     )
     accepted = { kind: 'reference', name: refFileName(p.target) }
   }
