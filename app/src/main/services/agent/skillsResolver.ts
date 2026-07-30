@@ -7,7 +7,7 @@ import type { ModeRole } from '../../../shared/modes'
 import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
-import { withFrontmatter } from '../frontmatter'
+import { withFrontmatter } from '../../../shared/frontmatter'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 

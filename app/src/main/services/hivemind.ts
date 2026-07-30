@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { frontmatterDescription } from './agent/skillsResolver'
-import { withFrontmatter, fmBlock, fmField } from './frontmatter'
+import { withFrontmatter, fmBlock, fmField } from '../../shared/frontmatter'
 import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,

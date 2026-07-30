@@ -4,7 +4,7 @@ import path from 'node:path'
 import { sharedReferencesDir } from '../skillsDir'
 import { contentHash } from '../contentHash'
 import { validateReference, hasErrors } from '../../../shared/assetValidation'
-import { withFrontmatter } from '../frontmatter'
+import { withFrontmatter } from '../../../shared/frontmatter'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import {
   walkSelection,
