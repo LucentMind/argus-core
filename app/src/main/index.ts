@@ -1601,8 +1601,18 @@ function registerIpc(): void {
       opts?: { overwriteLocalEdits?: boolean }
     ) => {
       const p = await hivemind.install(kind, name, opts)
-      // install implies intent → clear any lingering disable override (sparse store keeps only false)
-      if (kind === 'skill') agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
+      if (kind === 'skill') {
+        // install implies intent → clear any lingering disable override (sparse store keeps only false)
+        agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
+        broadcast(IPC.skillsChanged, skillsPayload())
+      } else {
+        // Downloading a reference writes into the references dir, exactly as uninstalling one
+        // deletes from it — and the Library's list is a renderer-side mirror that fetches ONCE
+        // and is only updated by this broadcast (referenceSyncStore.start() is idempotent). Its
+        // absence is why a reference removed here and then re-downloaded never came back until
+        // the window reloaded: the remove broadcast, the download did not.
+        broadcast(IPC.refsyncChanged, refSync.payload())
+      }
       return p
     }
   )
@@ -1610,6 +1620,7 @@ function registerIpc(): void {
     const p = await hivemind.uninstallSkill(name)
     // drop the enablement override entirely; a future re-install starts enabled again
     agentAccessStore.patch({ skills: { [`hivemind/${name}`]: null } })
+    broadcast(IPC.skillsChanged, skillsPayload())
     return p
   })
   ipcMain.handle(IPC.hivemindUninstallReference, async (_e, name: string) => {
