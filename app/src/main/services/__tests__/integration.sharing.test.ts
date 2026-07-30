@@ -173,6 +173,40 @@ describe('HiveMind against a local bare repo (no network)', () => {
     expect(git(path.join(homeB, 'hivemind'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
   }, 30_000)
 
+  it('push moves the clone HEAD zero times, successfully or not', async () => {
+    const svc = service(async () => 'https://github.com/acme/hivemind/pull/9')
+    await svc.sync()
+    const clone = path.join(homeB, 'hivemind')
+    git(clone, 'config', 'user.email', 'test@argus.local')
+    git(clone, 'config', 'user.name', 'Argus Test')
+
+    fs.mkdirSync(path.join(homeB, 'skills-user', 'my-skill'), { recursive: true })
+    fs.writeFileSync(
+      path.join(homeB, 'skills-user', 'my-skill', 'SKILL.md'),
+      '---\nname: my-skill\ndescription: mine\n---\n# my-skill\n'
+    )
+
+    // The reflog records every HEAD movement. The old implementation checked a share branch
+    // out and back, adding two entries; the worktree implementation adds none.
+    const heads = (): number =>
+      git(clone, 'reflog', 'show', 'HEAD', '--format=%H').split('\n').length
+    const before = heads()
+
+    const ok = await svc.push('skill', 'my-skill', 'Add my-skill')
+    expect(ok.ok).toBe(true)
+    expect(heads()).toBe(before)
+    expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
+
+    // ...and when the PR step fails after the branch work has already happened
+    const failing = service(async () => {
+      throw new Error('gh: not authenticated')
+    })
+    const bad = await failing.push('skill', 'my-skill', 'Add my-skill 2')
+    expect(bad.ok).toBe(false)
+    expect(heads()).toBe(before)
+    expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
+  }, 30_000)
+
   it('contribution round-trip keeps authorship: push own reference, install merged copy, still pushable', async () => {
     const gh: Runner = async () => 'https://github.com/acme/hivemind/pull/8'
     const svc = service(gh)
