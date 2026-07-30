@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,7 +9,8 @@ import {
   resolveSkills,
   writeUserSkill,
   forkSkill,
-  userSkillShadowDiverged
+  userSkillShadowDiverged,
+  frontmatterDescriptionAndAuthor
 } from '../skillsResolver'
 import { contentHash } from '../../contentHash'
 import { caseDir } from '../../paths'
@@ -88,6 +89,43 @@ describe('author on resolveSkills', () => {
     const skills = resolveSkills(argusHome, defaultAgentAccess())
     expect(skills.find((s) => s.name === 'my-skill')!.author).toBe('Alex Chen <alex@example.test>')
     expect(skills.find((s) => s.name === 'bare')!.author).toBeNull()
+  })
+})
+
+describe('frontmatterDescriptionAndAuthor', () => {
+  it('returns both fields off a single frontmatter read', () => {
+    const dir = path.join(argusHome, 'skills-user', 'my-skill')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: my-skill\ndescription: does a thing\nauthor: Alex Chen <alex@example.test>\n---\nbody\n'
+    )
+    expect(frontmatterDescriptionAndAuthor(dir)).toEqual({
+      description: 'does a thing',
+      author: 'Alex Chen <alex@example.test>'
+    })
+  })
+
+  it('author is null when absent; description falls back to empty like frontmatterDescription', () => {
+    const dir = path.join(argusHome, 'skills-user', 'bare')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: bare\ndescription: d\n---\nbody\n')
+    expect(frontmatterDescriptionAndAuthor(dir)).toEqual({ description: 'd', author: null })
+  })
+
+  it('reads SKILL.md exactly once, not once per field', () => {
+    const dir = path.join(argusHome, 'skills-user', 'once')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: once\ndescription: d\nauthor: A <a@example.test>\n---\nbody\n'
+    )
+    const file = path.join(dir, 'SKILL.md')
+    const spy = vi.spyOn(fs, 'readFileSync')
+    frontmatterDescriptionAndAuthor(dir)
+    const reads = spy.mock.calls.filter((call) => call[0] === file)
+    expect(reads).toHaveLength(1)
+    spy.mockRestore()
   })
 })
 
