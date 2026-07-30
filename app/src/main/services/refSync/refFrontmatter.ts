@@ -1,4 +1,4 @@
-import { fmBlock, fmField } from '../frontmatter'
+import { fmBlock, fmField } from '../../../shared/frontmatter'
 
 /** One synced Confluence source of a reference file (confluence-pages.md convention + version). */
 export interface RefSource {

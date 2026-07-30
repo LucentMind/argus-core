@@ -6,7 +6,7 @@ import { sharedReferencesDir } from './skillsDir'
 import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
-import { fmBlock, fmField, withFrontmatter } from './frontmatter'
+import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
 import {
   PROPOSAL_TYPES,
   REJECT_REASON_TAGS,
