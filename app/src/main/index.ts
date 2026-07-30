@@ -1540,12 +1540,20 @@ function registerIpc(): void {
   ipcMain.handle(IPC.hivemindGet, () => hivemind.payload())
   ipcMain.handle(IPC.hivemindCheck, () => hivemind.check())
   ipcMain.handle(IPC.hivemindSync, () => hivemind.sync())
-  ipcMain.handle(IPC.hivemindInstall, async (_e, kind: 'skill' | 'reference', name: string) => {
-    const p = await hivemind.install(kind, name)
-    // install implies intent → clear any lingering disable override (sparse store keeps only false)
-    if (kind === 'skill') agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
-    return p
-  })
+  ipcMain.handle(
+    IPC.hivemindInstall,
+    async (
+      _e,
+      kind: 'skill' | 'reference',
+      name: string,
+      opts?: { overwriteLocalEdits?: boolean }
+    ) => {
+      const p = await hivemind.install(kind, name, opts)
+      // install implies intent → clear any lingering disable override (sparse store keeps only false)
+      if (kind === 'skill') agentAccessStore.patch({ skills: { [`hivemind/${name}`]: true } })
+      return p
+    }
+  )
   ipcMain.handle(IPC.hivemindUninstallSkill, async (_e, name: string) => {
     const p = await hivemind.uninstallSkill(name)
     // drop the enablement override entirely; a future re-install starts enabled again
