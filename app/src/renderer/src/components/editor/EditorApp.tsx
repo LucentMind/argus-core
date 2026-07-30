@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AssetTab } from './AssetTab'
 import { ConfirmHost } from '../ConfirmHost'
 import { confirm } from '../../lib/confirmStore'
@@ -22,12 +22,6 @@ export function EditorApp(): React.JSX.Element {
     window.argus.editor.setDirty(dirty ? 1 : 0)
   }, [dirty])
 
-  const openRef = useRef<EditorOpenRequest | null>(null)
-  const show = useCallback((req: EditorOpenRequest | null) => {
-    openRef.current = req
-    setOpen(req)
-  }, [])
-
   // Drains the module-scope buffer (see editorBootstrap.ts). NOT a raw onOpenTab subscription:
   // main flushes its queued open-tab message on `did-finish-load`, which can precede React's
   // passive effects — subscribing here alone would re-open the dropped-first-message bug that
@@ -37,7 +31,7 @@ export function EditorApp(): React.JSX.Element {
   // buffer away. It no longer does: main holds the last change in its pending map and writes
   // it on the debounce whether this window still shows the asset or not (spec §4.2, §6.1). The
   // only thing a swap still discards is an in-flight assist run, which is not worth a prompt.
-  useEffect(() => drainOpenTabs(show), [show])
+  useEffect(() => drainOpenTabs(setOpen), [setOpen])
 
   useEffect(
     () =>
@@ -68,7 +62,7 @@ export function EditorApp(): React.JSX.Element {
           key={`${open.kind}/${open.name}/${open.mode}`}
           req={open}
           onDirtyChange={setDirty}
-          onClose={() => show(null)}
+          onClose={() => setOpen(null)}
         />
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-dim">

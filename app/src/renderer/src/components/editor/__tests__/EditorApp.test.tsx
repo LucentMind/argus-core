@@ -134,10 +134,9 @@ describe('EditorApp', () => {
   })
 })
 
-// Before this branch the editor was a modal that blocked the Library, so a second Edit while the
-// first asset was dirty was physically unreachable. In a window it is two clicks, and a differing
-// kind/name/mode changes AssetEditor's `key` — the remount silently destroys the buffer AND
-// releases main's close veto (unmount reports clean). These pin the guard.
+// These tests pin that swapping assets never prompts, because the draft is already persisted to
+// disk (spec §6.1). Re-opening the same asset is a no-op, not a remount that would destroy the
+// buffer or release main's close veto.
 describe('EditorApp asset swapping', () => {
   const dirtySkill = async (): Promise<void> => {
     render(<EditorApp />)
@@ -166,7 +165,8 @@ describe('EditorApp asset swapping', () => {
     await dirtySkill()
     openTab!({ ...SKILL })
 
-    // The guard runs on a promise chain, so give it every chance to raise a prompt.
+    // Re-opening the same asset is a no-op, not a remount, so no prompt appears. Give pending
+    // effects time to complete.
     await act(async () => {})
 
     expect(screen.queryByRole('button', { name: DISCARD })).not.toBeInTheDocument()
