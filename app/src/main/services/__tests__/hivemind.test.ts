@@ -911,4 +911,13 @@ describe('normalizeForCompare', () => {
   it('handles a file with no frontmatter at all', () => {
     expect(normalizeForCompare('# note\n')).toBe(normalizeForCompare('# note'))
   })
+
+  it('equates a pristine install with its frontmatter-less upstream blob', () => {
+    // install() stamps a file that upstream stores with no frontmatter at all —
+    // the stripped result must not keep a stray `---` the upstream side lacks
+    const upstream = '# note\n'
+    const installed =
+      '---\ntrust_tier: hivemind\nsource_repo: acme/hive\nsource_commit: abc123\n---\n# note\n'
+    expect(normalizeForCompare(installed)).toBe(normalizeForCompare(upstream))
+  })
 })
