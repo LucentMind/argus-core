@@ -33,22 +33,24 @@ An Electron app pairs an embedded [Claude Agent SDK](https://docs.claude.com/en/
 session with a local evidence store and a risk-gated tool-approval model, organized into
 per-case workspaces where evidence, findings, chat sessions, and the report live together.
 
+![Argus — how a defect gets solved, end to end](docs/defect-workflow.png)
+
 | Pillar | Description |
 |---|---|
 | **Case-centric UI** | A case is the top-level object; evidence, findings, chat, and the report live under it. Cases are created blank, from a ticket, or by importing a portable case bundle. |
-| **Embedded agent** | A headless agent session runs inside the app — the user chats, the agent runs skills and tools, output streams into the UI. Two interchangeable backends are supported: the **Claude Agent SDK** (default) and **GitHub Copilot** (see [Agent backends](#agent-backends)). |
+| **Embedded agent** | A headless agent session runs inside the app — the user chats, the agent runs skills and tools, output streams into the UI. Five interchangeable backends are supported, from full-capability to declared-degraded (see [Agent backends](#agent-backends)). |
 | **Evidence library** | Local artifacts per case, auto-typed by pack detectors, auto-extracted from binary formats into searchable text, indexed with SQLite FTS5 across evidence, findings, and transcripts. |
 | **Cited findings** | Agent claims require `[file:line]` citations; findings carry a pending → reviewed state and every citation opens the evidence at the exact line. |
 | **HITL risk gating** | Every tool call is classified LOW/MEDIUM/HIGH. Reads auto-run and are logged; write-backs show an editable preview card; destructive operations require explicit confirmation and are never batched. |
 | **Compounding knowledge** | Topic-indexed agent memory, session-distilled skill proposals, tiered skills (user > hivemind > bundled), and reference docs distilled from external sources — all human-reviewed before they take effect. Distillation runs headless on a provider and model you choose independently of the chat session, and reference docs are re-synced against upstream, offering to prune pages that have vanished. |
 | **Pack panels** | Packs ship sandboxed web UI (strict CSP, capability-scoped bridge) docked inside the case; the agent can open panels and capture what they show as evidence. |
-| **Code workspaces** | A case can link checked-out repositories; the agent gets sandboxed `git`/`gh` access with worktree isolation. |
+| **Code workspaces** | A case can link checked-out repositories; the agent gets sandboxed `git`/`gh` access with worktree isolation. Linking a GitHub PR unlocks **review mode**, with its own PR-scoped worktree. |
 | **Observability** | Local SQLite metrics: cost, tokens, latency, approvals, cost-per-resolved-case — the instrument for proving (or disproving) the efficiency claim. Optional OpenTelemetry export to a self-hosted Langfuse (each case maps to a trace session), off by default. |
 
 ## Agent backends
 
 The embedded agent runs behind a **driver** abstraction, so the same case UI, risk gating,
-native tools, findings, memory, and skills work over either backend. More than one provider
+native tools, findings, memory, and skills work over any backend. More than one provider
 can be enabled at a time (Settings → Agent): the chat model picker aggregates models across
 every enabled provider, and **the model you pick is what selects the provider** for that
 session. The configured default provider only decides which backend handles background work
@@ -57,20 +59,22 @@ that has no picker (distillation, reference sync).
 | Driver | Auth | Notes |
 |---|---|---|
 | **Claude Agent SDK** (default) | Claude CLI login | Full capability set: editable approval cards, per-turn USD cost, the full model catalog. |
-| **GitHub Copilot** | `gh` CLI login (`gh auth login`) or a `COPILOT_GITHUB_TOKEN` env var | Requires a GitHub Copilot subscription — the **free tier works**. The Copilot CLI runtime ships **inside the `@github/copilot-sdk` npm dependency** (Argus depends on the SDK; there is no separate `@github/copilot` install and Argus does not vendor the binary itself). Runs against an isolated `COPILOT_HOME` under the app's data dir — your terminal's `~/.copilot` is never touched. |
+| **GitHub Copilot** | `gh` CLI login (`gh auth login`) or a `COPILOT_GITHUB_TOKEN` env var | Requires a GitHub Copilot subscription — the **free tier works**. Ships inside the `@github/copilot-sdk` npm dependency; runs against an isolated `COPILOT_HOME`. |
+| **OpenAI Codex** | Global `~/.codex` auth (or an overridden `CODEX_HOME`) | JSON-RPC app-server driver; supports headless runs (distillation). |
+| **Cursor** / **Grok** | Local `cursor-agent` / `grok` CLI | Both run over the same Agent Client Protocol (ACP) driver. |
 
-**Declared limitations on GitHub Copilot sessions** (surfaced honestly in the UI, not hidden):
+**Declared limitations** (surfaced honestly in the UI, not hidden — every non-default driver
+gives up something):
 
-- **Approval cards are not editable** (`editableApprovals = false`): the permission channel
-  cannot carry edited tool input, so Copilot approval cards are approve/deny only (no inline edit).
-- **Cost shows n/a** (`costReporting = false`): Copilot does not report a per-turn USD cost, so
-  the cost chip reads "n/a" rather than a fake `$0.00`. Tokens, model, and latency are still recorded.
-- **Model catalog is tier-dependent**: on the free tier the only selectable model is the **`auto`**
-  router (it picks a real underlying model per turn); paid tiers may widen the catalog.
+- **Copilot**: approval cards are approve/deny only (no inline edit); cost shows "n/a" instead
+  of a fake `$0.00`; free tier exposes only the `auto` model router.
+- **Codex**: same approve/deny-only and no-cost limits as Copilot; subagents are inlined into
+  the main turn rather than registered separately.
+- **Cursor / Grok (ACP)**: no editable approvals or cost; no headless runs; and a known gap —
+  the ACP protocol carries no system prompt field, so persona, citation rules, and the skill/
+  memory index don't reach the model on these two drivers today.
 
-Plan mode, resume/continuity, streamed deltas, native skills (`skillDirectories`), external MCP
-connectors, headless background runs (distillation, reference sync), and the full LOW/MEDIUM/HIGH
-risk gating all work under Copilot.
+Plan mode and the full LOW/MEDIUM/HIGH risk gating work across all five drivers.
 
 ## Packs: Core is domain-free
 
@@ -92,6 +96,8 @@ writes (a ticket comment, a memory, a git push) stops at an editable preview; an
 destructive requires explicit confirmation. Skills activate only after human acceptance,
 shared knowledge moves only by pull request, and analysis is only as credible as the
 citations it carries. Automation is graduated, never assumed.
+
+![Argus Core — compounding knowledge pipeline](docs/argus-core.png)
 
 ## Repository layout
 
@@ -156,8 +162,7 @@ header comments.
 ## Status
 
 Argus is in active development and currently in its supervised-capture phase: single-team
-pilot, desktop-only, with the skill eval harness and headless graduation pipeline on the
-roadmap. Expect sharp edges.
+pilot, desktop-only, with the headless graduation pipeline on the roadmap. Expect sharp edges.
 
 ## License
 
