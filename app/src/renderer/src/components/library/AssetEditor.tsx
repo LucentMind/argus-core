@@ -85,7 +85,7 @@ export function AssetEditor({
   const [name, setName] = useState(initialName)
   const [buffer, setBuffer] = useState(mode === 'create' ? template(initialName) : '')
   const [baseHash, setBaseHash] = useState<string | null>(null)
-  const [pristine, setPristine] = useState(true)
+  const [bufferPristine, setBufferPristine] = useState(true)
   const [loaded, setLoaded] = useState(mode === 'create')
   const [preview, setPreview] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -100,6 +100,21 @@ export function AssetEditor({
   useEffect(() => {
     bufferRef.current = buffer
   }, [buffer])
+
+  /**
+   * Whether closing would throw away something the user produced.
+   *
+   * Deliberately NOT `bufferPristine`: that flag means "the buffer is still untouched
+   * boilerplate", which `renameCreate` needs to stay true so it can keep re-deriving the
+   * template. In create mode a typed name and a typed Describe prompt are real work that
+   * leaves the buffer pristine, so keying the close guard on that flag discarded both
+   * without asking. `busy` counts too — closing mid-run throws the run away.
+   */
+  const hasUnsavedWork =
+    !bufferPristine ||
+    proposed !== null ||
+    busy ||
+    (mode === 'create' && (name !== initialName || describe.trim() !== ''))
 
   useEffect(() => {
     if (!load) return
@@ -140,7 +155,7 @@ export function AssetEditor({
     setBuffer(next)
     // Synchronous, not left to the passive-effect sync — see the comment on `bufferRef`.
     bufferRef.current = next
-    setPristine(false)
+    setBufferPristine(false)
     setError(null)
   }
 
@@ -149,7 +164,7 @@ export function AssetEditor({
    *  behind. Once the user has actually edited the buffer, this must never fire again. */
   function renameCreate(next: string): void {
     setName(next)
-    if (pristine) {
+    if (bufferPristine) {
       const nextBuffer = template(next)
       setBuffer(nextBuffer)
       // Synchronous, not left to the passive-effect sync — see the comment on `bufferRef`.
@@ -198,9 +213,10 @@ export function AssetEditor({
   async function assist(which: 'draft' | 'improve'): Promise<void> {
     setBusy(true)
     setError(null)
-    // Snapshot what "untouched boilerplate" looked like at click time. `pristine` and `buffer`
-    // are read fresh here (not stale) because this runs synchronously before the first await.
-    const wasPristine = pristine
+    // Snapshot what "untouched boilerplate" looked like at click time. `bufferPristine` and
+    // `buffer` are read fresh here (not stale) because this runs synchronously before the
+    // first await.
+    const wasPristine = bufferPristine
     const bufferAtRequest = buffer
     try {
       const req = { kind, name, text: which === 'draft' ? describe : buffer }
@@ -217,7 +233,7 @@ export function AssetEditor({
         setBuffer(content)
         // Synchronous, not left to the passive-effect sync — see the comment on `bufferRef`.
         bufferRef.current = content
-        setPristine(false)
+        setBufferPristine(false)
       } else {
         setProposed(content)
       }
@@ -230,7 +246,7 @@ export function AssetEditor({
 
   async function requestClose(): Promise<void> {
     if (
-      (pristine && proposed === null) ||
+      !hasUnsavedWork ||
       (await confirm({ title: 'Discard your changes?', confirmLabel: 'Discard', danger: true }))
     ) {
       onClose()
@@ -250,7 +266,7 @@ export function AssetEditor({
           <Btn variant="ghost" disabled={proposed !== null} onClick={() => setPreview(!preview)}>
             {preview ? 'Edit' : 'Preview'}
           </Btn>
-          <Btn variant="ghost" disabled={busy} onClick={() => void requestClose()}>
+          <Btn variant="ghost" onClick={() => void requestClose()}>
             Cancel
           </Btn>
           <Btn

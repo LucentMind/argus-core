@@ -47,6 +47,9 @@ beforeEach(() => {
       improve: vi.fn().mockResolvedValue({ content: `${valid}\nimproved` })
     }
   } as never
+  // The mock is module-level, so its call history outlives each test — without this,
+  // "closes with no confirm" would see an earlier test's call.
+  vi.mocked(confirm).mockClear()
   vi.mocked(confirm).mockResolvedValue(true)
 })
 
@@ -403,5 +406,57 @@ describe('AssetEditor', () => {
     await screen.findByRole('button', { name: /^discard$/i })
 
     expect(screen.getByRole('textbox', { name: /^skill name$/i })).toBeDisabled()
+  })
+
+  it('create mode: typing only the name still confirms before closing', async () => {
+    const { onClose } = setup({ mode: 'create', name: 'new-skill', load: undefined })
+    await userEvent.clear(screen.getByRole('textbox', { name: /skill name/i }))
+    await userEvent.type(screen.getByRole('textbox', { name: /skill name/i }), 'renamed')
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(confirm).toHaveBeenCalled()
+  })
+
+  it('create mode: typing only the describe box still confirms before closing', async () => {
+    const { onClose } = setup({ mode: 'create', name: 'new-skill', load: undefined })
+    await userEvent.type(screen.getByRole('textbox', { name: /describe it/i }), 'root cause work')
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(confirm).toHaveBeenCalled()
+  })
+
+  it('create mode: declining the confirm keeps the editor open with the text intact', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { onClose } = setup({ mode: 'create', name: 'new-skill', load: undefined })
+    await userEvent.type(screen.getByRole('textbox', { name: /describe it/i }), 'keep me')
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: /describe it/i })).toHaveValue('keep me')
+  })
+
+  it('create mode: an untouched editor closes with no confirm', async () => {
+    const { onClose } = setup({ mode: 'create', name: 'new-skill', load: undefined })
+    await screen.findByRole('textbox', { name: /skill · new-skill/i })
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('an in-flight assist confirms before closing, and Cancel is reachable during it', async () => {
+    let resolveImprove: (v: { content: string }) => void = () => {}
+    window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>((r) => (resolveImprove = r))
+    )
+    const { onClose } = setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+
+    const cancel = screen.getByRole('button', { name: /^cancel$/i })
+    expect(cancel).toBeEnabled()
+    await userEvent.click(cancel)
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(onClose).toHaveBeenCalled()
+    resolveImprove({ content: 'late' })
   })
 })
