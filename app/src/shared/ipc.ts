@@ -130,6 +130,7 @@ export const IPC = {
   hivemindUninstallReference: 'hivemind:uninstall-reference',
   hivemindClaimReference: 'hivemind:claim-reference',
   hivemindDiff: 'hivemind:diff',
+  hivemindLocalDivergence: 'hivemind:local-divergence',
   hivemindPushPreview: 'hivemind:push-preview',
   hivemindPush: 'hivemind:push',
   proposalsList: 'proposals:list',

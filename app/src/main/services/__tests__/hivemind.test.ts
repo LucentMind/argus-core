@@ -921,3 +921,88 @@ describe('normalizeForCompare', () => {
     expect(normalizeForCompare(installed)).toBe(normalizeForCompare(upstream))
   })
 })
+
+/**
+ * A service whose clone is seeded and whose reference is installed through the real
+ * `install()`, so the pin on disk is genuine — the state file lives under
+ * `config/hivemind-state.json` and must not be hand-written.
+ *
+ * The fake git serves a sha for the commit lookup (`git log -1 --format=%H`) and distinct
+ * blobs for `git show <pin>:...` vs `git show HEAD:...`. `localEdit`, when given, replaces
+ * the installed file afterwards to simulate an unpushed edit.
+ */
+async function installedReference(opts: {
+  pinned: string
+  head: string
+  localEdit?: string
+}): Promise<HivemindService> {
+  seedClone()
+  const svc = new HivemindService({
+    argusHome: home,
+    repo: () => 'acme/hivemind',
+    git: async (_cmd, args) => {
+      if (args[0] === 'log') return 'pinsha'
+      if (args[0] === 'show') return String(args[1]).startsWith('HEAD:') ? opts.head : opts.pinned
+      return ''
+    }
+  })
+  await svc.install('reference', 'hive-note.md')
+  if (opts.localEdit !== undefined)
+    fs.writeFileSync(path.join(home, 'references', 'hive-note.md'), opts.localEdit)
+  return svc
+}
+
+describe('localDivergence', () => {
+  it('is not diverged for a pristine copy that only differs by install stamps', async () => {
+    // seedClone() writes `# note\n`; install() adds three stamps the pinned blob lacks
+    const svc = await installedReference({ pinned: '# note\n', head: '# note v2\n' })
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(false)
+  })
+
+  it('is not diverged when the local text already equals HEAD (your PR merged)', async () => {
+    const svc = await installedReference({
+      pinned: '# note\n',
+      head: '# note v2\n',
+      localEdit: '---\ntrust_tier: user\nsource_commit: pinsha\n---\n# note v2\n'
+    })
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(false)
+  })
+
+  it('is diverged when the local text matches neither the pin nor HEAD', async () => {
+    const svc = await installedReference({
+      pinned: '# note\n',
+      head: '# note v2\n',
+      localEdit: '---\ntrust_tier: user\nsource_commit: pinsha\n---\n# note\nMY EDIT\n'
+    })
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(true)
+  })
+
+  it('reports not-diverged rather than throwing when there is no pin', async () => {
+    seedClone()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'references', 'hive-note.md'), '# anything\n')
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async () => ''
+    })
+    expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+  })
+
+  it('reports not-diverged when git cannot read the blobs', async () => {
+    await installedReference({
+      pinned: '# note\n',
+      head: '# note v2\n',
+      localEdit: '# something else entirely\n'
+    })
+    // a second service over the same ARGUS_HOME — the pin is on disk, but git now fails
+    const broken = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async () => {
+        throw new Error('fatal: bad object')
+      }
+    })
+    expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+  })
+})
