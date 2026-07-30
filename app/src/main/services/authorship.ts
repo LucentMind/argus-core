@@ -26,12 +26,6 @@ const defaultRun: IdentityRunner = async (cmd, args) => {
 const MAX_LEN = 100
 
 /**
- * git config values are user-controlled text landing in a parsed YAML block. A value failing
- * any check is treated as ABSENT, never as sanitized-and-accepted — without this a `user.name`
- * containing a newline injects arbitrary frontmatter keys (`trust_tier` among them) into every
- * asset this machine writes.
- */
-/**
  * `formatIdentity` emits a bare plain YAML scalar — `author: Ops: Platform <a@x>` — and skills
  * are handed to real YAML parsers (the Claude CLI, Copilot's `skillDirectories`), not only to
  * this repo's forgiving regex readers. A name carrying a mapping-value indicator, a comment
@@ -48,6 +42,12 @@ function yamlPlainSafe(v: string): boolean {
   return !/^[,[\]{}&*!|>'"%@`]/.test(v) && !/^[-?](\s|$)/.test(v)
 }
 
+/**
+ * git config values are user-controlled text landing in a parsed YAML block. A value failing
+ * any check is treated as ABSENT, never as sanitized-and-accepted — without this a `user.name`
+ * containing a newline injects arbitrary frontmatter keys (`trust_tier` among them) into every
+ * asset this machine writes.
+ */
 function validName(v: string): boolean {
   return v.length > 0 && v.length <= MAX_LEN && !/[\r\n<>]/.test(v) && yamlPlainSafe(v)
 }
@@ -57,7 +57,15 @@ function validEmail(v: string): boolean {
 
 let cached: Promise<Identity | null> | undefined
 
-/** Resolved once per app run; `run` is injectable for tests. */
+/**
+ * Resolved once per app run; `run` is injectable for tests.
+ *
+ * Returns `null` — silently disabling stamping for this machine, with no surfaced reason — when
+ * `user.email` fails `validEmail`, or when `user.name` is unsafe AND its email-local-part
+ * fallback is *also* unsafe (e.g. `*ops@x.test`, whose local part `*ops` starts with a leading
+ * indicator). Consistent with this module's reject-don't-sanitize rule: there is no further
+ * fallback to sanitize toward, so the only non-spoofable answer is "no identity".
+ */
 export function identity(run: IdentityRunner = defaultRun): Promise<Identity | null> {
   cached ??= resolve(run)
   return cached
