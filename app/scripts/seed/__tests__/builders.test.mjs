@@ -332,6 +332,13 @@ describe('buildProposals', () => {
     expect(jobIds.size).toBeGreaterThan(1)
   })
 
+  it('formats every non-null jobId as a digit string matching integer ids', () => {
+    const allWithJobId = all.filter((p) => p.jobId !== null)
+    for (const p of allWithJobId) {
+      expect(p.jobId).toMatch(/^\d+$/)
+    }
+  })
+
   it('targets an existing bundled skill so the diff has a left-hand side', () => {
     const edit = all.find((p) => p.type === 'skill-edit')
     expect(edit.target).toBe('code-review')
