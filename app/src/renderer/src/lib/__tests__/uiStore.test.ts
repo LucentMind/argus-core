@@ -2,9 +2,65 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { UiStore, FINDINGS_MIN_WIDTH, FINDINGS_MAX_WIDTH, uiStore } from '../uiStore'
 
+/** Captures the `ui:theme-changed` subscriber so a test can play main's broadcast. */
+let pushTheme: ((theme: 'dark' | 'light') => void) | null = null
+
 beforeEach(() => {
   localStorage.clear()
   document.documentElement.removeAttribute('data-theme')
+  pushTheme = null
+  window.argus = {
+    ui: {
+      setZoomFactor: vi.fn(),
+      onThemeChanged: (cb: (t: 'dark' | 'light') => void) => {
+        pushTheme = cb
+        return () => {
+          pushTheme = null
+        }
+      }
+    },
+    panels: { setTheme: vi.fn() }
+  } as never
+})
+
+describe('UiStore cross-window theme', () => {
+  it('adopts a theme change broadcast from another window', () => {
+    const store = new UiStore()
+    expect(store.get().theme).toBe('dark')
+
+    pushTheme!('light')
+
+    expect(store.get().theme).toBe('light')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+  })
+
+  it('notifies subscribers so React re-renders on a broadcast', () => {
+    const store = new UiStore()
+    const seen = vi.fn()
+    store.subscribe(seen)
+
+    pushTheme!('light')
+
+    expect(seen).toHaveBeenCalled()
+  })
+
+  it('does not re-broadcast an adopted theme, so two windows cannot ping-pong', () => {
+    const store = new UiStore()
+    vi.mocked(window.argus.panels.setTheme).mockClear()
+
+    pushTheme!('light')
+
+    expect(window.argus.panels.setTheme).not.toHaveBeenCalled()
+    expect(store.get().theme).toBe('light')
+  })
+
+  it('leaves persistence to the window that originated the change', () => {
+    new UiStore()
+    pushTheme!('light')
+    // The originating window already wrote it; a receiver writing too would race on
+    // shared localStorage and could resurrect a stale value.
+    expect(localStorage.getItem('argus.ui.theme')).toBeNull()
+  })
 })
 
 describe('UiStore', () => {

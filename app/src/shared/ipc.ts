@@ -200,6 +200,9 @@ export const IPC = {
   panelsPopOut: 'panels:pop-out',
   panelsDockBack: 'panels:dock-back',
   panelsSetTheme: 'panels:set-theme',
+  /** main→renderer: theme changed in some window; every other window adopts it. Each
+   *  BrowserWindow has its own UiStore that otherwise reads the theme only once, at load. */
+  uiThemeChanged: 'ui:theme-changed',
   panelsChanged: 'panels:changed',
   // main→renderer: select this panel (agent-opened panels aren't selected client-side)
   panelsActivate: 'panels:activate',

@@ -743,7 +743,15 @@ const argus = {
   },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */
-    setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor)
+    setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor),
+    /** main → renderer: another window changed the theme; adopt it without re-persisting. */
+    onThemeChanged: (cb: (theme: 'dark' | 'light') => void): (() => void) => {
+      const listener = (_e: unknown, theme: 'dark' | 'light'): void => cb(theme)
+      ipcRenderer.on(IPC.uiThemeChanged, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC.uiThemeChanged, listener)
+      }
+    }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)
