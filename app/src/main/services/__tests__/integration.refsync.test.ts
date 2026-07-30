@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { RefSyncService } from '../refSync/service'
+import { parseAuthorship } from '../../../shared/authorship'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import { refTier, parseRefSources } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
@@ -371,27 +372,27 @@ describe('writeReference', () => {
   })
 
   it('creates a hand-authored reference stamped trust_tier: user', () => {
-    svc.writeReference('notes.md', '# Notes\nBody.', null)
+    svc.writeReference('notes.md', '# Notes\nBody.', null, null)
     const raw = fs.readFileSync(path.join(refsDir, 'notes.md'), 'utf8')
     expect(raw).toContain('trust_tier: user')
     expect(raw).toContain('# Notes')
   })
 
   it('returns the hash of the stamped bytes actually written, not of the raw input', () => {
-    const returned = svc.writeReference('stamped.md', '# Notes\nBody.', null)
+    const returned = svc.writeReference('stamped.md', '# Notes\nBody.', null, null)
     const raw = fs.readFileSync(path.join(refsDir, 'stamped.md'), 'utf8')
     // The written file gained a trust_tier stamp the caller never sent — its hash must differ
     // from a hash of the unstamped input, or the next save's concurrency check breaks.
     expect(returned).not.toBe(contentHash('# Notes\nBody.'))
     expect(returned).toBe(contentHash(raw))
     // The whole point: a second write using the returned hash as baseHash must succeed.
-    expect(() => svc.writeReference('stamped.md', `${raw}\nmore`, returned)).not.toThrow()
+    expect(() => svc.writeReference('stamped.md', `${raw}\nmore`, returned, null)).not.toThrow()
   })
 
   it('preserves an existing team-knowledge stamp', () => {
     fs.writeFileSync(path.join(refsDir, 'team.md'), '---\ntrust_tier: team-knowledge\n---\n\nold')
     const before = svc.readReference('team.md')
-    svc.writeReference('team.md', `${before.content}\nnew`, before.hash)
+    svc.writeReference('team.md', `${before.content}\nnew`, before.hash, null)
     const raw = fs.readFileSync(path.join(refsDir, 'team.md'), 'utf8')
     expect(raw).toContain('trust_tier: team-knowledge')
     expect(raw).not.toContain('trust_tier: user')
@@ -401,28 +402,32 @@ describe('writeReference', () => {
     const raw = '---\ntrust_tier: hivemind\n---\n\nbody'
     fs.writeFileSync(path.join(refsDir, 'hive.md'), raw)
     const before = svc.readReference('hive.md')
-    expect(() => svc.writeReference('hive.md', 'edited', before.hash)).toThrow(/not a hand-owned/i)
+    expect(() => svc.writeReference('hive.md', 'edited', before.hash, null)).toThrow(
+      /not a hand-owned/i
+    )
     expect(fs.readFileSync(path.join(refsDir, 'hive.md'), 'utf8')).toBe(raw)
   })
 
   it('refuses a confluence-tier reference', () => {
     fs.writeFileSync(path.join(refsDir, 'conf.md'), '---\ntrust_tier: confluence\n---\n\nbody')
     const before = svc.readReference('conf.md')
-    expect(() => svc.writeReference('conf.md', 'edited', before.hash)).toThrow(/not a hand-owned/i)
+    expect(() => svc.writeReference('conf.md', 'edited', before.hash, null)).toThrow(
+      /not a hand-owned/i
+    )
   })
 
   it('refuses the generated index', () => {
-    expect(() => svc.writeReference('INDEX.md', 'body', null)).toThrow()
+    expect(() => svc.writeReference('INDEX.md', 'body', null, null)).toThrow()
   })
 
   it('refuses a traversal name', () => {
-    expect(() => svc.writeReference('../evil.md', 'body', null)).toThrow()
+    expect(() => svc.writeReference('../evil.md', 'body', null, null)).toThrow()
     expect(fs.existsSync(path.join(refsDir, '..', 'evil.md'))).toBe(false)
   })
 
   it('refuses when the file changed under the editor', () => {
     fs.writeFileSync(path.join(refsDir, 'race.md'), 'original')
-    expect(() => svc.writeReference('race.md', 'mine', contentHash('stale'))).toThrow(
+    expect(() => svc.writeReference('race.md', 'mine', contentHash('stale'), null)).toThrow(
       /changed on disk/i
     )
     expect(fs.readFileSync(path.join(refsDir, 'race.md'), 'utf8')).toBe('original')
@@ -433,7 +438,7 @@ describe('writeReference', () => {
     // being there means the name is taken, not that someone else edited a file this caller
     // had open (which sends the user looking for a concurrent writer that does not exist).
     fs.writeFileSync(path.join(refsDir, 'taken.md'), '# Existing\nBody.')
-    expect(() => svc.writeReference('taken.md', 'mine', null)).toThrow(/already exists/i)
+    expect(() => svc.writeReference('taken.md', 'mine', null, null)).toThrow(/already exists/i)
     expect(fs.readFileSync(path.join(refsDir, 'taken.md'), 'utf8')).toBe('# Existing\nBody.')
   })
 
@@ -443,7 +448,7 @@ describe('writeReference', () => {
     // baseHash deliberately stale — a fresh hash would only prove Finding 1's
     // masking bug in the OTHER direction. We want: stale AND hive-managed ⇒ tier wins.
     expect(() =>
-      svc.writeReference('hive-stale.md', 'edited', contentHash('some other content'))
+      svc.writeReference('hive-stale.md', 'edited', contentHash('some other content'), null)
     ).toThrow(/not a hand-owned/i)
     expect(fs.readFileSync(path.join(refsDir, 'hive-stale.md'), 'utf8')).toBe(raw)
   })
@@ -454,9 +459,27 @@ describe('writeReference', () => {
       '---\ntrust_tier: team-knowledge\n---\n\noriginal'
     )
     const before = svc.readReference('spoof.md')
-    svc.writeReference('spoof.md', '---\ntrust_tier: hivemind\n---\n\nedited', before.hash)
+    svc.writeReference('spoof.md', '---\ntrust_tier: hivemind\n---\n\nedited', before.hash, null)
     const raw = fs.readFileSync(path.join(refsDir, 'spoof.md'), 'utf8')
     expect(raw).toContain('trust_tier: team-knowledge')
     expect(raw).not.toContain('trust_tier: hivemind')
+  })
+
+  it('writeReference stamps authorship alongside the tier', () => {
+    const hash = svc.writeReference('topic.md', '# topic\n\nbody\n', null, {
+      name: 'Jiawei Han',
+      email: 'jiawiehan@gmail.com'
+    })
+    const raw = fs.readFileSync(path.join(refsDir, 'topic.md'), 'utf8')
+    expect(raw).toContain('trust_tier: user')
+    expect(parseAuthorship(raw).author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(parseAuthorship(raw).origin).toBe('authored')
+    // the returned hash describes the stamped bytes, so an immediate re-save works
+    expect(() =>
+      svc.writeReference('topic.md', '# topic\n\nmore\n', hash, {
+        name: 'Jiawei Han',
+        email: 'jiawiehan@gmail.com'
+      })
+    ).not.toThrow()
   })
 })

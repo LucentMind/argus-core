@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { HivemindService, cloneUrl, normalizeForCompare, type Runner } from '../hivemind'
+import { parseAuthorship } from '../../../shared/authorship'
 
 let home: string
 beforeEach(() => {
@@ -647,7 +648,7 @@ describe('reference keep-authorship', () => {
     const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
     await svc.install('reference', 'hive-note.md')
-    const p = await svc.claimReference('hive-note.md')
+    const p = await svc.claimReference('hive-note.md', null)
     const written = fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')
     expect(written).toContain('trust_tier: user')
     expect(written).toContain('source_repo: acme/hivemind')
@@ -662,11 +663,66 @@ describe('reference keep-authorship', () => {
     seedLocalRef('mine.md', 'user')
     const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
-    await expect(svc.claimReference('../evil.md')).rejects.toThrow(/Invalid reference name/)
-    await expect(svc.claimReference('a\\b.md')).rejects.toThrow(/Invalid reference name/)
-    await expect(svc.claimReference('')).rejects.toThrow(/Invalid reference name/)
-    await expect(svc.claimReference('ghost.md')).rejects.toThrow(/Not an installed HiveMind/)
-    await expect(svc.claimReference('mine.md')).rejects.toThrow(/Not an installed HiveMind/)
+    await expect(svc.claimReference('../evil.md', null)).rejects.toThrow(/Invalid reference name/)
+    await expect(svc.claimReference('a\\b.md', null)).rejects.toThrow(/Invalid reference name/)
+    await expect(svc.claimReference('', null)).rejects.toThrow(/Invalid reference name/)
+    await expect(svc.claimReference('ghost.md', null)).rejects.toThrow(/Not an installed HiveMind/)
+    await expect(svc.claimReference('mine.md', null)).rejects.toThrow(/Not an installed HiveMind/)
+  })
+})
+
+describe('claim records the claimer without taking the byline', () => {
+  const me = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+
+  it('keeps an upstream author and appends the claimer', async () => {
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const file = path.join(home, 'references', 'topic.md')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(
+      file,
+      '---\ntitle: T\ntrust_tier: hivemind\nauthor: Alex Chen <alex@example.test>\norigin: authored\n---\nbody\n'
+    )
+    await svc.claimReference('topic.md', me)
+
+    const raw = fs.readFileSync(file, 'utf8')
+    const a = parseAuthorship(raw)
+    expect(raw).toContain('trust_tier: user')
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com'])
+  })
+
+  it('leaves author empty when the upstream file had none', async () => {
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const file = path.join(home, 'references', 'topic.md')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, '---\ntitle: T\ntrust_tier: hivemind\n---\nbody\n')
+    await svc.claimReference('topic.md', me)
+
+    const a = parseAuthorship(fs.readFileSync(file, 'utf8'))
+    expect(a.author).toBeNull()
+    expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com'])
+  })
+
+  it('install passes an incoming trail through untouched', async () => {
+    // installing is not contributing — see the spec's §7 table
+    seedClone()
+    const dest = path.join(home, 'hivemind', 'references', 'topic.md')
+    fs.writeFileSync(
+      dest,
+      '---\ntitle: T\nauthor: Alex Chen <alex@example.test>\norigin: authored\ncontributors:\n  - Alex Chen <alex@example.test> 2026-07-01\n---\nbody\n'
+    )
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.install('reference', 'topic.md')
+
+    const a = parseAuthorship(fs.readFileSync(path.join(home, 'references', 'topic.md'), 'utf8'))
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.contributors).toEqual([
+      { name: 'Alex Chen', email: 'alex@example.test', date: '2026-07-01' }
+    ])
   })
 })
 
@@ -866,7 +922,7 @@ describe('confluence subfolder references', () => {
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
     const p = await svc.install('reference', 'confluence/adasis.md')
     // claim targets the flattened local name and must reject the confluence tier
-    await expect(svc.claimReference('adasis.md')).rejects.toThrow(/Not an installed HiveMind/)
+    await expect(svc.claimReference('adasis.md', null)).rejects.toThrow(/Not an installed HiveMind/)
     expect(p.pushable).not.toContainEqual({ kind: 'reference', name: 'adasis.md' })
     expect(svc.pushable()).not.toContainEqual({ kind: 'reference', name: 'adasis.md' })
   })
