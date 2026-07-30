@@ -42,87 +42,54 @@ export function bucketOfStatusContext(state) {
 }
 
 /**
- * The fabricated pull request. Every bucket appears once; the ONLY failure is
- * not required, which is what makes the rollup unstable rather than failing —
- * a state no HiveMindTest pull request can produce, because the repository has
- * no branch protection (see the spec's Decisions section).
+ * Pull request 999 does not exist on HiveMindTest. Earlier this function fabricated an
+ * elaborate five-bucket check list with an `unstable` rollup for it, but that row is dead on
+ * arrival: `usePrStatuses` calls `refresh()` unconditionally on dashboard mount,
+ * `refreshPrStatuses` is the only writer of `pr_status_cache`, and pull request 999 does not
+ * exist — so within a second of boot the real refresh overwrites this row with an
+ * `unavailable` status before anyone can see the fabricated one. That is a property of the
+ * app (bindings are always refreshed on mount), not a bug in the fixture, so the seed now
+ * writes the SAME shape the app's own `unavailable()` (src/main/services/github.ts) would
+ * write, and the case is repurposed as the `unavailable` rollup demonstrator instead of a
+ * dead five-bucket fixture.
  */
 export function buildSyntheticStatus({ now }) {
   const base = 'https://github.com/JiaweiHan88/HiveMindTest'
-  const rawChecks = [
-    {
-      name: 'unit-tests',
-      bucket: 'pass',
-      required: true,
-      url: `${base}/actions/runs/30500000001/job/90600000001`
-    },
-    {
-      name: 'flaky-integration',
-      bucket: 'fail',
-      required: false,
-      url: `${base}/actions/runs/30500000002/job/90600000002`
-    },
-    {
-      name: 'verify',
-      bucket: 'cancelled',
-      required: false,
-      url: `${base}/actions/runs/30500000003/job/90600000003`
-    },
-    {
-      name: 'e2e',
-      bucket: 'pending',
-      required: true,
-      url: `${base}/actions/runs/30500000004/job/90600000004`
-    },
-    {
-      name: 'docs-preview',
-      bucket: 'skipped',
-      required: false,
-      url: `${base}/actions/runs/30500000005/job/90600000005`
-    },
-    // Third-party context: a details url with no /job/<id> segment, so its log is
-    // unfetchable and the Analyze button must be disabled.
-    {
-      name: 'netlify/deploy-preview',
-      bucket: 'pass',
-      required: false,
-      url: 'https://app.netlify.com/sites/demo/deploys/abc123'
-    }
-  ]
-  const checks = rawChecks.map((c) => ({ ...c, jobId: actionsJobId(c.url) }))
   return {
     owner: OWNER,
     repo: REPO,
     number: 999,
     url: `${base}/pull/999`,
-    state: 'OPEN',
-    isDraft: true,
-    mergeable: 'CONFLICTING',
-    mergeStateStatus: 'BLOCKED',
-    reviewDecision: 'CHANGES_REQUESTED',
-    rollup: rollupOf(checks),
-    checks,
+    state: 'UNKNOWN',
+    isDraft: false,
+    mergeable: 'UNKNOWN',
+    mergeStateStatus: 'UNKNOWN',
+    reviewDecision: null,
+    rollup: 'unavailable',
+    checks: [],
     fetchedAt: now,
-    error: null
+    error: 'No data returned for this pull request.'
   }
 }
 
-/** Project one `gh pr view --json` payload into a PrStatus. */
+/** Project one `gh pr view --json` payload into a PrStatus. Mirrors checksOf() in github.ts. */
 export function statusFromGh(raw, { owner, repo, number, now }) {
   const checks = (raw.statusCheckRollup ?? []).map((c) => {
     const url = c.detailsUrl ?? c.targetUrl ?? null
-    const bucket =
-      c.__typename === 'StatusContext'
-        ? bucketOfStatusContext(c.state ?? null)
-        : bucketOfCheckRun(c.status ?? null, c.conclusion ?? null)
+    const isStatusContext = c.__typename === 'StatusContext'
+    const bucket = isStatusContext
+      ? bucketOfStatusContext(c.state ?? null)
+      : bucketOfCheckRun(c.status ?? null, c.conclusion ?? null)
     // gh does not report per-pull-request branch protection, and HiveMindTest has
     // none, so every live check is correctly not required.
     return {
-      name: c.name ?? c.context ?? 'check',
+      name: isStatusContext ? (c.context ?? '(unnamed status)') : (c.name ?? '(unnamed check)'),
       bucket,
       required: false,
       url,
-      jobId: actionsJobId(url)
+      // github.ts hard-nulls jobId for StatusContext entries regardless of URL shape —
+      // only CheckRun entries (Actions jobs) can ever resolve to a job id.
+      jobId: isStatusContext ? null : actionsJobId(url)
     }
   })
   return {

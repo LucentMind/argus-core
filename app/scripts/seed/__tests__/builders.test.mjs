@@ -94,28 +94,33 @@ describe('rollupOf', () => {
 })
 
 describe('buildSyntheticStatus', () => {
+  // Pull request 999 does not exist, so this is now the `unavailable` demonstrator: it must
+  // match the shape github.ts's own unavailable() writes, since the app's own first-mount
+  // refresh overwrites this row within a second of boot regardless of what the seed writes.
   const status = buildSyntheticStatus({ now: '2026-07-30T10:00:00.000Z' })
 
-  it('covers every check bucket in one list', () => {
-    expect(new Set(status.checks.map((c) => c.bucket))).toEqual(
-      new Set(['pass', 'fail', 'cancelled', 'pending', 'skipped'])
-    )
+  it('rolls up to unavailable with no checks', () => {
+    expect(status.rollup).toBe('unavailable')
+    expect(status.checks).toEqual([])
   })
 
-  it('rolls up to unstable because the failure is not required', () => {
-    expect(status.rollup).toBe('unstable')
-    expect(status.checks.find((c) => c.bucket === 'fail').required).toBe(false)
+  it('carries an error string and an UNKNOWN state', () => {
+    expect(typeof status.error).toBe('string')
+    expect(status.error.length).toBeGreaterThan(0)
+    expect(status.state).toBe('UNKNOWN')
   })
 
-  it('carries one check whose log is unfetchable', () => {
-    expect(status.checks.some((c) => c.jobId === null && c.url !== null)).toBe(true)
+  it('targets pull request 999 on the synthetic-widget case', () => {
+    expect(status.number).toBe(999)
+    expect(status.owner).toBe('JiaweiHan88')
+    expect(status.repo).toBe('HiveMindTest')
   })
 
-  it('is a draft, conflicting, changes-requested pull request', () => {
-    expect(status.isDraft).toBe(true)
-    expect(status.mergeable).toBe('CONFLICTING')
-    expect(status.reviewDecision).toBe('CHANGES_REQUESTED')
-    expect(status.mergeStateStatus).toBe('BLOCKED')
+  it('matches the shape of github.ts unavailable(): no draft/mergeable/reviewDecision signal', () => {
+    expect(status.isDraft).toBe(false)
+    expect(status.mergeable).toBe('UNKNOWN')
+    expect(status.mergeStateStatus).toBe('UNKNOWN')
+    expect(status.reviewDecision).toBeNull()
   })
 })
 
@@ -144,7 +149,22 @@ describe('statusFromGh', () => {
         context: 'netlify/deploy-preview',
         state: 'FAILURE',
         targetUrl: 'https://app.netlify.com/sites/demo/deploys/abc123'
-      }
+      },
+      // A StatusContext whose targetUrl happens to look like an Actions job URL. github.ts
+      // hard-nulls jobId for every StatusContext regardless of URL shape, so this must stay
+      // null even though actionsJobId() would otherwise parse a job id out of it.
+      {
+        __typename: 'StatusContext',
+        context: 'looks-like-actions',
+        state: 'SUCCESS',
+        targetUrl:
+          'https://github.com/JiaweiHan88/HiveMindTest/actions/runs/30500000009/job/90600000009'
+      },
+      // Missing name/context on both node types pins the '(unnamed check)' /
+      // '(unnamed status)' fallbacks, matching checksOf() in github.ts exactly (the old
+      // seed fell back to the bare string 'check' for both).
+      { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: null },
+      { __typename: 'StatusContext', state: 'SUCCESS', targetUrl: null }
     ]
   }
 
@@ -174,6 +194,18 @@ describe('statusFromGh', () => {
   it('populates jobId for the Actions check and nulls it for the third-party one', () => {
     expect(status.checks[0].jobId).toBe(90600000001)
     expect(status.checks[1].jobId).toBeNull()
+  })
+
+  it('nulls jobId for every StatusContext even when its url matches the Actions job pattern', () => {
+    const check = status.checks.find((c) => c.name === 'looks-like-actions')
+    expect(check.jobId).toBeNull()
+  })
+
+  it('falls back to (unnamed check) / (unnamed status), matching github.ts exactly', () => {
+    const names = status.checks.map((c) => c.name)
+    expect(names).toContain('(unnamed check)')
+    expect(names).toContain('(unnamed status)')
+    expect(names).not.toContain('check')
   })
 
   it('derives rollup from the projected checks rather than hardcoding it', () => {
@@ -327,9 +359,18 @@ describe('buildProposals', () => {
     expect(pending.some((p) => p.jobId !== null)).toBe(true)
   })
 
-  it('spreads archived job-linked proposals across more than one job id', () => {
-    const archived = all.filter((p) => p.status !== 'pending')
-    const jobIds = new Set(archived.filter((p) => p.jobId !== null).map((p) => p.jobId))
+  // A `job:` stamp is only ever written by stageDistillOutput() (staging.ts) from the
+  // success path, so only 'done' jobs (1 and 2) can legitimately be stamped at all, and
+  // a proposal's own `case` must agree with whichever job it names (see the C3 fix
+  // referenced below). Every archived item genuinely about HMT-1-burst-token — plus
+  // glossary, moved here from a job whose case_slug didn't match it — necessarily
+  // consolidates onto job 1; job 2 (case HMT-4-nochecks) has no archived counterpart of
+  // its own, only the correctly-matching PENDING case-summary proposal. So the spread
+  // this test guards against a monolithic single-job corpus now only shows up across
+  // the whole job-linked set (pending ∪ archived), not archived alone.
+  it('spreads job-linked proposals (pending and archived) across more than one job id', () => {
+    const jobLinked = all.filter((p) => p.jobId !== null)
+    const jobIds = new Set(jobLinked.map((p) => p.jobId))
     expect(jobIds.size).toBeGreaterThan(1)
   })
 
