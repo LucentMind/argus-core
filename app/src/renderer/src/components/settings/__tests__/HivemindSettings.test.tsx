@@ -680,6 +680,7 @@ describe('update hazards', () => {
           name: 'hive-note.md',
           description: '',
           commit: 'sha-3',
+          author: null,
           installed: true,
           installedCommit: 'sha-2',
           localTier: null,

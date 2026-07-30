@@ -226,7 +226,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
     git(clone, 'config', 'user.name', 'Argus Test')
 
     await svc.install('reference', 'hive-note.md')
-    await svc.claimReference('hive-note.md')
+    await svc.claimReference('hive-note.md', null)
 
     const local = path.join(homeB, 'references', 'hive-note.md')
     fs.writeFileSync(
