@@ -8,6 +8,7 @@ import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/ski
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
 import { withFrontmatter } from '../../../shared/frontmatter'
+import { stampAuthorship, type Identity } from '../../../shared/authorship'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -204,7 +205,8 @@ export function writeUserSkill(
   argusHome: string,
   name: string,
   content: string,
-  baseHash: string | null
+  baseHash: string | null,
+  identity: Identity | null
 ): string {
   assertSkillName(name)
   const issues = validateSkill({ name, content })
@@ -223,8 +225,11 @@ export function writeUserSkill(
     throw new Error(`"${name}" changed on disk since you opened it.`)
   }
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(file, content)
-  return contentHash(content)
+  // hash the STAMPED bytes: the caller adopts this as its next baseHash, and hashing `content`
+  // would make its very next save fail with a conflict this write itself created.
+  const stamped = stampAuthorship(content, { identity, origin: 'authored', now: new Date() })
+  fs.writeFileSync(file, stamped)
+  return contentHash(stamped)
 }
 
 /**
@@ -235,7 +240,12 @@ export function writeUserSkill(
  * Copies the whole directory, not just SKILL.md: hivemind push already round-trips multi-file
  * skill dirs, so dropping sibling files here would lose content on a fork.
  */
-export function forkSkill(argusHome: string, name: string, newName?: string): string {
+export function forkSkill(
+  argusHome: string,
+  name: string,
+  newName: string | undefined,
+  identity: Identity | null
+): string {
   assertSkillName(name)
   const target = newName ?? name
   assertSkillName(target)
@@ -245,14 +255,15 @@ export function forkSkill(argusHome: string, name: string, newName?: string): st
   const dest = path.join(userSkillsDir(argusHome), target)
   if (fs.existsSync(dest)) throw new Error(`"${target}" already exists in your skills.`)
   fs.cpSync(winner.dir, dest, { recursive: true })
-  if (target !== name) {
-    const file = path.join(dest, 'SKILL.md')
-    const raw = fs.readFileSync(file, 'utf8')
-    // withFrontmatter, not a `name:` regex replace: the replace is a silent no-op when the
-    // source has no name: key at all (the realistic shape of an accepted proposal, per the
-    // proposals.ts accept-time stamp), which would land the fork under the wrong name.
-    fs.writeFileSync(file, withFrontmatter(raw, { name: target }))
-  }
+  const file = path.join(dest, 'SKILL.md')
+  const raw = fs.readFileSync(file, 'utf8')
+  // withFrontmatter, not a `name:` regex replace: the replace is a silent no-op when the
+  // source has no name: key at all (the realistic shape of an accepted proposal, per the
+  // proposals.ts accept-time stamp), which would land the fork under the wrong name.
+  const renamed = target !== name ? withFrontmatter(raw, { name: target }) : raw
+  // origin: 'fork' keeps the original author — forking changes who owns the asset, not who
+  // wrote it — while recording the forker as a contributor.
+  fs.writeFileSync(file, stampAuthorship(renamed, { identity, origin: 'fork', now: new Date() }))
   return target
 }
 
