@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createCtx } from '../ctx.mjs'
 import { bucketOfCheckRun, buildSyntheticStatus, rollupOf, statusFromGh } from '../prs.mjs'
+import { buildFlagshipFindings, buildThinFindings } from '../findings.mjs'
 
 describe('createCtx', () => {
   const ctx = createCtx({ argusHome: 'C:/home', db: null })
@@ -175,5 +176,71 @@ describe('statusFromGh', () => {
     expect(rollupOf(status.checks)).toBe('failing')
     expect(status.rollup).toBe(rollupOf(status.checks))
     expect(status.rollup).toBe('failing')
+  })
+})
+
+describe('buildFlagshipFindings', () => {
+  const FRESH = 'a'.repeat(40)
+  const STALE = 'b'.repeat(40)
+  const rows = buildFlagshipFindings({ freshHead: FRESH, staleHead: STALE })
+
+  it('produces eleven findings', () => {
+    expect(rows).toHaveLength(11)
+  })
+
+  it('covers every severity including the unflavored row', () => {
+    expect(new Set(rows.map((r) => r.severity))).toEqual(
+      new Set(['critical', 'major', 'minor', null])
+    )
+  })
+
+  it('covers every review layer', () => {
+    const layers = new Set(rows.map((r) => r.layer))
+    for (const l of ['correctness', 'security', 'tests', 'design-conformance']) {
+      expect(layers).toContain(l)
+    }
+  })
+
+  it('covers every review state', () => {
+    expect(new Set(rows.map((r) => r.state))).toEqual(new Set(['pending', 'accepted', 'rejected']))
+  })
+
+  it('has exactly one row carrying all three status badges', () => {
+    const triples = rows.filter(
+      (r) => r.headSha === STALE && r.commentUrl !== null && r.pushedSha !== null
+    )
+    expect(triples).toHaveLength(1)
+    expect(triples[0].layer).toBe('design-conformance')
+  })
+
+  it('leaves the unflavored row with no anchor and no badges', () => {
+    const plain = rows.find((r) => r.severity === null)
+    expect(plain.layer).toBeNull()
+    expect(plain.diffPath).toBeNull()
+    expect(plain.headSha).toBeNull()
+    expect(plain.commentUrl).toBeNull()
+    expect(plain.pushedSha).toBeNull()
+  })
+
+  it('includes two investigation-mode findings', () => {
+    expect(rows.filter((r) => r.mode === 'investigation')).toHaveLength(2)
+  })
+
+  it('separates a suggested-change-only row from a comment-body-only row', () => {
+    expect(rows.some((r) => r.suggestedChange !== null && r.commentBody === null)).toBe(true)
+    expect(rows.some((r) => r.suggestedChange === null && r.commentBody !== null)).toBe(true)
+  })
+
+  it('carries exactly one long summary and one body', () => {
+    expect(rows.filter((r) => r.summary.length > 120)).toHaveLength(1)
+    expect(rows.filter((r) => r.body !== null)).toHaveLength(1)
+  })
+})
+
+describe('buildThinFindings', () => {
+  it('produces two review-mode findings', () => {
+    const rows = buildThinFindings('HMT-2-green')
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.mode === 'review')).toBe(true)
   })
 })
