@@ -208,11 +208,16 @@ import { similarCases, searchCaseSummaries } from './services/distill/summaries'
 import { caseDistillPromptHash } from './services/distill/promptHash'
 import { draftAsset, improveAsset } from './services/authoring/service'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
+import { EditorWindowService } from './services/editorWindow'
+import { EditorWindowStore } from './services/editorWindowStore'
+import { makeElectronEditorWindowFactory } from './services/electronEditorWindow'
+import { EDITOR_IPC, type EditorOpenRequest } from '../shared/editorIpc'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
 let langfuseExporter: LangfuseExporter | null = null
 let mainWindow: BrowserWindow | null = null
+let editorWindowService: EditorWindowService | null = null
 let panelHost: PanelHost | null = null
 let externalAppHost: ExternalAppHost | null = null
 
@@ -462,6 +467,23 @@ function registerIpc(): void {
   const agentAccessStore = new AgentAccessStore(argusHome)
   const refSyncStore = new ReferenceSyncStore(argusHome)
   const connectorPresets = loadPresets(argusHome)
+
+  // — editor window (asset editor in its own BrowserWindow) —
+  // Constructed here (not in createWindow()) because argusHome is scoped to this function;
+  // an app-lifetime singleton like panelHost/externalAppHost above, not paired 1:1 with
+  // mainWindow's create/destroy cycle. See mainWindow.on('closed', ...) in createWindow().
+  const editorWindowStore = new EditorWindowStore(argusHome)
+  editorWindowService = new EditorWindowService({
+    createWindow: makeElectronEditorWindowFactory(join(__dirname, '../preload/index.js'), (w) => {
+      if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        w.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/editor.html`)
+      } else {
+        w.loadFile(join(__dirname, '../renderer/editor.html'))
+      }
+    }),
+    loadBounds: () => editorWindowStore.load(),
+    saveBounds: (b) => editorWindowStore.save(b)
+  })
   const mcpOauth = new McpOAuth(secretStore, (url) => shell.openExternal(url))
   const mcpService = new McpService({
     registry: connectorRegistry,
@@ -1537,6 +1559,17 @@ function registerIpc(): void {
     })
   )
 
+  // — editor window —
+  ipcMain.handle(EDITOR_IPC.open, (_e, req: EditorOpenRequest) => {
+    editorWindowService?.open(req)
+  })
+  ipcMain.on(EDITOR_IPC.dirtyState, (_e, count: number) => {
+    editorWindowService?.setDirtyCount(count)
+  })
+  ipcMain.on(EDITOR_IPC.closeResponse, (_e, allow: boolean) => {
+    editorWindowService?.resolveClose(allow)
+  })
+
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({
     argusHome,
@@ -2050,6 +2083,12 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // Spec §3.4: the editor is a dependent child, not a peer. Force-close — a confirm
+    // prompt during teardown would be unanswerable, and from Increment 2 the draft store
+    // makes this non-destructive. The service itself is not torn down: it is an
+    // app-lifetime singleton (constructed in registerIpc(), not here) so it survives a
+    // macOS close-all-windows/dock-reactivate cycle the same way panelHost does.
+    editorWindowService?.forceClose()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
