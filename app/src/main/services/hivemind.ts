@@ -232,6 +232,9 @@ export class HivemindService {
           installed,
           installedCommit,
           localTier: null,
+          shadowedByUser: fs.existsSync(
+            path.join(userSkillsDir(this.deps.argusHome), ent.name, 'SKILL.md')
+          ),
           updateAvailable: installed && installedCommit !== null && installedCommit !== commit
         })
       }
@@ -259,6 +262,7 @@ export class HivemindService {
             installed,
             installedCommit,
             localTier: installed ? referenceTier(localPath) || null : null,
+            shadowedByUser: false,
             updateAvailable: installed && installedCommit !== null && installedCommit !== commit
           })
         }
