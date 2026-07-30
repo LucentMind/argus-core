@@ -254,8 +254,11 @@ export function PrCompanionSection({
   const [searching, setSearching] = useState(false)
   // `pr:link` now does real network work (a `git fetch` + `worktree add` under a repo lock,
   // since materialize+broadcast run unconditionally — see prLink.ts), not just a DB write —
-  // without this the input stays enabled and shows nothing while it runs.
+  // without this the box stays open and shows nothing while it runs.
   const [linkingPr, setLinkingPr] = useState(false)
+  /** The manual Refresh's own round trip. Every other PR action already had a pending state;
+   *  this one could be clicked repeatedly with nothing on screen to say it was working. */
+  const [refreshingPr, setRefreshingPr] = useState(false)
   /** The reference being linked right now, shown as an optimistic row for the whole operation —
    *  `pr:link` AND the status refresh that follows. The user performed one action; two
    *  indicators with a gap between them is what made this section confusing. */
@@ -338,8 +341,21 @@ export function PrCompanionSection({
     }
   }
 
+  function refreshStatus(): void {
+    setRefreshingPr(true)
+    void prStatusStore
+      .refresh([slug])
+      .catch((err) =>
+        console.warn(`[pr] status refresh failed for ${slug}: ${(err as Error).message}`)
+      )
+      .finally(() => setRefreshingPr(false))
+  }
+
   if (mode !== 'review') return null
   const status = all[slug] ?? null
+  /** One pending state for the whole section: while any PR round trip is in flight the header's
+   *  actions grey out together, rather than each control policing only its own. */
+  const busy = linkingPr || searching || refreshingPr
 
   const counts: Record<CheckBucket, number> = {
     pass: 0,
@@ -362,6 +378,7 @@ export function PrCompanionSection({
             aria-label="Link PR"
             title="Link a pull request"
             className="h-5 w-5"
+            disabled={busy}
             onClick={() => setPrDraft((d) => (d === null ? '' : null))}
           >
             <GitPullRequest size={13} />
@@ -371,7 +388,7 @@ export function PrCompanionSection({
               aria-label="Find PRs"
               title="Search linked repos for this ticket's pull requests"
               className="h-5 w-5"
-              disabled={searching}
+              disabled={busy}
               onClick={() => {
                 setSearching(true)
                 void window.argus.pr
@@ -388,6 +405,7 @@ export function PrCompanionSection({
               aria-label="Unlink pull request"
               title="Unlink pull request"
               className="hover:text-danger"
+              disabled={busy}
               onClick={() => void unlink()}
             >
               <Unlink size={12} />
@@ -396,14 +414,19 @@ export function PrCompanionSection({
           <IconBtn
             aria-label="Refresh pull request status"
             title="Refresh"
-            onClick={() => void prStatusStore.refresh([slug])}
+            disabled={busy}
+            onClick={refreshStatus}
           >
             <RefreshCw size={12} />
           </IconBtn>
         </span>
       </SectionLabel>
 
-      {prDraft !== null && (
+      {/* Closed for the duration of a link, rather than left open and disabled: the pending row
+          below already restates the reference being linked, and the greyed box beside it read as
+          a second, broken copy of the same thing. It reopens with the typed value still in it if
+          the link fails, so `prError` lands under the field the user has to correct. */}
+      {prDraft !== null && !linkingPr && (
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -413,16 +436,19 @@ export function PrCompanionSection({
           <input
             autoFocus
             value={prDraft}
-            disabled={linkingPr}
             onChange={(e) => setPrDraft(e.target.value)}
-            placeholder={linkingPr ? 'Linking…' : 'PR url, owner/repo#N, or number'}
-            className="w-full rounded border border-line bg-transparent px-1.5 py-0.5 text-xs disabled:opacity-60"
+            placeholder="PR url, owner/repo#N, or number"
+            className="w-full rounded border border-line bg-transparent px-1.5 py-0.5 text-xs"
           />
           {prError && <div className="mt-0.5 text-[11px] text-danger">{prError}</div>}
         </form>
       )}
 
-      {!status && linkingRef && (
+      {/* Not gated on `!status` any more. Replacing an already-bound PR kept the old subject line
+          on screen and put the only pending indicator in the box — so closing the box would have
+          left a replacement with no indicator at all. The row also states the truth better: the
+          PR shown above is no longer the one being bound. */}
+      {linkingRef && (
         <div className="flex flex-col gap-1.5">
           <span className="truncate font-mono text-xs text-ink">{linkingRef}</span>
           <Skeleton className="h-2 w-[40%]" />
@@ -442,7 +468,7 @@ export function PrCompanionSection({
         </p>
       )}
 
-      {status && (
+      {status && !linkingRef && (
         <>
           <div className="flex min-w-0 items-center gap-1.5">
             <button

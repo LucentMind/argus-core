@@ -574,18 +574,42 @@ describe('PrCompanionSection pull request linking', () => {
       await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#99'))
     })
 
-    // Re-review fix: `linkingPr` (and so the disabled input) now gates BEFORE the confirm
+    // Re-review fix: `linkingPr` (and so the closed box) now gates BEFORE the confirm
     // await, matching the restructuring PrPickerDialog's `confirm()` got this round — a
     // double-click could otherwise race the await and raise the confirm dialog twice.
-    it('disables the input while the replace-confirm itself is pending, not just the link', async () => {
+    it('closes the box while the replace-confirm itself is pending, not just the link', async () => {
       let resolveConfirm!: (v: boolean) => void
       vi.mocked(confirm).mockImplementation(() => new Promise((r) => (resolveConfirm = r)))
       await openDraftAndSubmit('acme/widget#99')
       await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
-      expect(screen.getByPlaceholderText(/linking/i)).toBeDisabled()
+      expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull()
+      expect(screen.getByRole('button', { name: 'Link PR' })).toBeDisabled()
 
       resolveConfirm(true)
       await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalledWith('c1', 'acme/widget#99'))
+    })
+
+    // The pending row is the ONE indicator now that the box closes for the duration. Replacing
+    // an already-bound PR used to be the case with no indicator at all: the row was gated on
+    // `!status`, so with a status on screen only the disabled box said anything was happening.
+    it('shows the pending row for a replacement, in place of the old subject line', async () => {
+      let releaseLink: () => void = () => {}
+      window.argus.pr.link = vi.fn(
+        () =>
+          new Promise<PrBinding>((res) => {
+            releaseLink = () => res(BINDING)
+          })
+      )
+      await openDraftAndSubmit('acme/widget#99')
+      await waitFor(() => expect(window.argus.pr.link).toHaveBeenCalled())
+      expect(screen.getByText('acme/widget#99')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Open pull request acme/widget#42 on GitHub' })
+      ).toBeNull()
+
+      await act(async () => {
+        releaseLink()
+      })
     })
   })
 
@@ -620,9 +644,9 @@ describe('PrCompanionSection pull request linking', () => {
   })
 
   // Re-review fix: pr:link now runs a git fetch + worktree add unconditionally (see
-  // prLink.ts), not just a DB write — the input must show it is busy and refuse a second
-  // submit while the first is still in flight.
-  it('disables the input while a link is in flight and re-enables after', async () => {
+  // prLink.ts), not just a DB write — the box must close for the duration and the header's
+  // actions grey out, so a second submit cannot be reached while the first is in flight.
+  it('closes the box and greys the PR actions while a link is in flight', async () => {
     // nothing bound yet, so linkPr proceeds straight to pr.link with no confirm in the way
     prStatusStore.hydrate({})
     window.argus.pr.list = vi.fn(async (): Promise<PrBinding[]> => [])
@@ -633,23 +657,51 @@ describe('PrCompanionSection pull request linking', () => {
           resolveLink = resolve
         })
     )
-    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} onPrsFound={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Link PR' }))
     const box = screen.getByPlaceholderText(/pr url/i)
     fireEvent.change(box, { target: { value: 'acme/widget#42' } })
     fireEvent.submit(box)
-    await waitFor(() => expect(box).toBeDisabled())
 
-    // a second submit while linking is in flight must not fire a second IPC call
-    fireEvent.change(box, { target: { value: 'acme/widget#77' } })
-    fireEvent.submit(box)
+    // the box itself is gone — the typed reference is already restated by the pending row
+    // below it, and two copies of it (one greyed, one live) is what read as broken
+    await waitFor(() => expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull())
+    expect(screen.getByText('acme/widget#42')).toBeInTheDocument()
+
+    // and every PR action greys out, so the box cannot be reopened for a second submit
+    for (const name of ['Link PR', 'Find PRs', 'Refresh pull request status']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled()
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Link PR' }))
+    expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull()
     expect(window.argus.pr.link).toHaveBeenCalledTimes(1)
 
-    // a successful link clears the draft and closes the form (setPrDraft(null)), so the
-    // input itself unmounts — assert re-enablement indirectly via the form disappearing
-    // rather than the (by-then-detached) input node.
     resolveLink!(BINDING)
-    await waitFor(() => expect(screen.queryByPlaceholderText(/pr url/i)).toBeNull())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Link PR' })).toBeEnabled())
+  })
+
+  // The manual Refresh reaches GitHub exactly like a link's follow-up refresh does. Without a
+  // pending state of its own it was the one PR action that could be clicked repeatedly with no
+  // sign anything was happening.
+  it('greys the PR actions while a manual status refresh is in flight', async () => {
+    let release: () => void = () => {}
+    window.argus.pr.statusRefresh = vi.fn(
+      () =>
+        new Promise<Record<string, PrStatus>>((res) => {
+          release = () => res({})
+        })
+    )
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const refresh = await screen.findByRole('button', { name: 'Refresh pull request status' })
+    fireEvent.click(refresh)
+
+    await waitFor(() => expect(refresh).toBeDisabled())
+    expect(screen.getByRole('button', { name: 'Link PR' })).toBeDisabled()
+
+    await act(async () => {
+      release()
+    })
+    await waitFor(() => expect(refresh).toBeEnabled())
   })
 
   // The only way to reopen the picker once PRs are bound, and the recovery path for a
