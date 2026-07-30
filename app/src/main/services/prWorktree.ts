@@ -10,16 +10,21 @@ const execFileAsync = promisify(execFile)
 // subprocess constraint. Fetching a PR head from a cold remote is the slow one.
 const GIT_TIMEOUT_MS = 60_000
 
+/** The probe is a single ref query; one that has not answered in this long is not going to help,
+ *  and it sits in front of a fetch that has its own full budget. Falling through early keeps the
+ *  worst case near where it was before the probe existed. */
+const PROBE_TIMEOUT_MS = 10_000
+
 /**
  * One git invocation, returning trimmed stdout. Injected rather than called directly so a test
  * can record argv while still running the REAL git — the claim worth proving here is "no fetch
  * happened", and no filesystem post-condition distinguishes a skipped fetch from a fetch that
  * transferred nothing. A fake git would prove nothing about git.
  */
-export type GitRunner = (cwd: string, args: string[]) => Promise<string>
+export type GitRunner = (cwd: string, args: string[], timeoutMs?: number) => Promise<string>
 
-const realGit: GitRunner = async (cwd, args) => {
-  const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS })
+const realGit: GitRunner = async (cwd, args, timeoutMs) => {
+  const { stdout } = await execFileAsync('git', args, { cwd, timeout: timeoutMs ?? GIT_TIMEOUT_MS })
   return stdout.trim()
 }
 
@@ -97,6 +102,7 @@ export async function ensurePrWorktree(
     const lockMs = Date.now() - t0
     const ref = prRef(prNumber)
     const wt = casePrWorktreeDir(argusHome, caseSlug, repoPath, prNumber)
+    let probeMs = 0
 
     // Probe BEFORE the network work, not after it. The old order fetched unconditionally and
     // then compared SHAs, so an unchanged PR still paid a full fetch on every review-mode entry
@@ -104,16 +110,18 @@ export async function ensurePrWorktree(
     if (fs.existsSync(wt)) {
       const probeStart = Date.now()
       const [remoteSha, curSha] = await Promise.all([
-        remoteHeadSha(git, repoPath, prNumber),
+        remoteHeadSha((cwd, ...args) => run(cwd, args, PROBE_TIMEOUT_MS), repoPath, prNumber),
         git(wt, 'rev-parse', 'HEAD').catch(() => '')
       ])
-      const probeMs = Date.now() - probeStart
+      probeMs = Date.now() - probeStart
       if (remoteSha && remoteSha === curSha) {
         // `refs/argus/pr/N` is what everything else calls "the PR head" — keep that true even
         // though we skipped the fetch that normally moves it. The commit is already local (it IS
         // this worktree's HEAD), so this is a pointer write, no network.
-        await git(repoPath, 'update-ref', ref, remoteSha).catch(() => undefined)
-        console.log(`[pr] #${prNumber} up to date — lock ${lockMs}ms, probe ${probeMs}ms`)
+        await git(repoPath, 'update-ref', ref, remoteSha).catch((err) =>
+          console.warn(`[pr] #${prNumber} failed to update-ref ${ref} after skipped fetch:`, err)
+        )
+        console.warn(`[pr] #${prNumber} up to date — lock ${lockMs}ms, probe ${probeMs}ms`)
         return wt
       }
     }
@@ -125,7 +133,9 @@ export async function ensurePrWorktree(
       })
     const fetchStart = Date.now()
     await git(repoPath, 'fetch', remote, `pull/${prNumber}/head:${ref}`, '--force')
-    console.log(`[pr] #${prNumber} fetched — lock ${lockMs}ms, fetch ${Date.now() - fetchStart}ms`)
+    console.warn(
+      `[pr] #${prNumber} fetched — lock ${lockMs}ms, probe ${probeMs}ms, fetch ${Date.now() - fetchStart}ms`
+    )
 
     if (fs.existsSync(wt)) {
       // Mirrors ensureWorktree's early return: only switch when the head actually moved.
