@@ -5,7 +5,7 @@ import { sharedReferencesDir } from '../skillsDir'
 import { contentHash } from '../contentHash'
 import { validateReference, hasErrors } from '../../../shared/assetValidation'
 import { withFrontmatter } from '../../../shared/frontmatter'
-import { stampAuthorship, type Identity } from '../../../shared/authorship'
+import { mergeAuthorship, stampAuthorship, type Identity } from '../../../shared/authorship'
 import { ReferenceSyncStore, readSyncState, writeSyncState } from '../referenceSyncStore'
 import {
   walkSelection,
@@ -157,6 +157,10 @@ export class RefSyncService {
    * An untagged file is stamped `trust_tier: user` on save — you just authored it, and without
    * a stamp `hivemind.pushable()` would never offer it for sharing. An existing stamp is kept.
    *
+   * `identity` (null when this machine has no git identity) is stamped in as authorship too:
+   * the saver joins `contributors`, and authors the file if nobody has yet. Authorship, like
+   * `trust_tier`, is read back off the existing file and overrules whatever `content` claims.
+   *
    * Returns the hash of the bytes actually written (post-stamp), not of `content` as received —
    * the caller must adopt this as its next `baseHash`, or its own stamping write would make its
    * next save fail with a misleading "changed on disk" conflict.
@@ -185,11 +189,18 @@ export class RefSyncService {
       throw new Error(`"${file}" changed on disk since you opened it.`)
     }
     fs.mkdirSync(this.refsDir(), { recursive: true })
-    const written = stampAuthorship(withFrontmatter(content, { trust_tier: tier ?? 'user' }), {
-      identity,
-      origin: 'authored',
-      now: this.deps.now?.() ?? new Date()
-    })
+    // mergeAuthorship for the same reason `tier` is re-read above: the file on disk is the
+    // authority for author/origin/contributors, `content` is not. A buffer that lost the
+    // `author:` line — Improve's model round-trip, or a hand edit — would otherwise hand the
+    // byline to whoever saved next and drop everyone before them off the trail.
+    const written = stampAuthorship(
+      mergeAuthorship(withFrontmatter(content, { trust_tier: tier ?? 'user' }), existing),
+      {
+        identity,
+        origin: 'authored',
+        now: this.deps.now?.() ?? new Date()
+      }
+    )
     fs.writeFileSync(p, written)
     return contentHash(written)
   }
