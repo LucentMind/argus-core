@@ -78,3 +78,56 @@ describe('MarkdownViewer', () => {
     expect(await screen.findByText('File could not be read.')).toBeInTheDocument()
   })
 })
+
+describe('frontmatter is not rendered as body prose', () => {
+  const withFrontmatter = [
+    '---',
+    'name: triage-a-flaky-test',
+    'description: Reproduce a flaky test under load.',
+    'author: Priya Nandakumar <priya@example.test>',
+    'origin: proposal',
+    'contributors:',
+    '  - Priya Nandakumar <priya@example.test> 2026-07-11',
+    '---',
+    '# Triage a flaky test',
+    '',
+    'Body text.'
+  ].join('\n')
+
+  beforeEach(() => {
+    window.argus = {
+      refsync: {
+        readRef: vi.fn(async () => ({ file: 'x.md', content: withFrontmatter }))
+      }
+    } as never
+  })
+
+  it('renders the body only, so the strip is not duplicated as prose below it', async () => {
+    render(<RefViewer file="x.md" onClose={vi.fn()} showAuthorship />)
+    expect(await screen.findByRole('heading', { name: 'Triage a flaky test' })).toBeTruthy()
+    expect(screen.getByText('Body text.')).toBeTruthy()
+    // the strip names the author exactly once; the frontmatter must not also appear as prose
+    expect(screen.queryByText(/description: Reproduce a flaky test/)).toBeNull()
+    expect(screen.queryByText(/origin: proposal/)).toBeNull()
+    expect(screen.queryByText(/priya@example\.test 2026-07-11/)).toBeNull()
+  })
+
+  it('still shows the whole file, frontmatter included, in Raw mode', async () => {
+    render(<RefViewer file="x.md" onClose={vi.fn()} showAuthorship />)
+    await screen.findByRole('heading', { name: 'Triage a flaky test' })
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByText(/origin: proposal/)).toBeTruthy()
+    expect(screen.getByText(/contributors:/)).toBeTruthy()
+  })
+
+  it('leaves a file with no frontmatter block untouched', async () => {
+    window.argus.refsync.readRef = vi.fn(async () => ({
+      file: 'plain.md',
+      content: '# Plain\n\nNo frontmatter here.',
+      hash: 'h'
+    }))
+    render(<RefViewer file="plain.md" onClose={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Plain' })).toBeTruthy()
+    expect(screen.getByText('No frontmatter here.')).toBeTruthy()
+  })
+})
