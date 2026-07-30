@@ -220,3 +220,120 @@ describe('AssetTab in create mode', () => {
     )
   })
 })
+
+describe('AssetTab staleness at open', () => {
+  it('offers the three verbs when the file moved under the draft', async () => {
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    mount()
+    expect(await screen.findByText(BANNERS.stale)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /keep mine/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /use disk/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /compare/i })).toBeInTheDocument()
+  })
+
+  it('Use disk replaces the buffer and drops the draft', async () => {
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    mount()
+    await screen.findByText(BANNERS.stale)
+    await userEvent.click(screen.getByRole('button', { name: /use disk/i }))
+
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(SKILL_BODY))
+    expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'my-skill' })
+    noBanner()
+  })
+
+  it('Keep mine keeps the buffer and saves against the disk hash', async () => {
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    mount()
+    await screen.findByText(BANNERS.stale)
+    await userEvent.click(screen.getByRole('button', { name: /keep mine/i }))
+
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(`${SKILL_BODY}drafted`))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // 'h1', the hash now on disk — not 'older', which the draft was taken from.
+    await waitFor(() =>
+      expect(skillsWrite).toHaveBeenCalledWith('my-skill', `${SKILL_BODY}drafted`, 'h1')
+    )
+  })
+
+  it('Compare shows the disk text against the buffer', async () => {
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    mount()
+    await screen.findByText(BANNERS.stale)
+    await userEvent.click(screen.getByRole('button', { name: /compare/i }))
+    expect(
+      await screen.findByRole('group', { name: /on disk compared with yours/i })
+    ).toBeInTheDocument()
+  })
+})
+
+describe('AssetTab conflict on save', () => {
+  it('raises the conflict banner when the write is rejected and disk has moved', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    skillsWrite.mockRejectedValue(new Error('"my-skill" changed on disk since you opened it.'))
+    skillsRead.mockResolvedValue({ content: 'someone else\n', hash: 'h9' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText(BANNERS.conflict)).toBeInTheDocument()
+  })
+
+  it('leaves a validation rejection as a plain error, with no banner', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    skillsWrite.mockRejectedValue(new Error('description is required'))
+    // Disk has not moved, so this cannot be a conflict.
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('description is required')
+    noBanner()
+  })
+
+  it('Keep mine after a conflict re-saves successfully against the newer hash', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    skillsWrite.mockRejectedValue(new Error('"my-skill" changed on disk since you opened it.'))
+    skillsRead.mockResolvedValue({ content: 'someone else\n', hash: 'h9' })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(BANNERS.conflict)
+
+    skillsWrite.mockResolvedValue({ skills: [], hash: 'h10' })
+    await userEvent.click(screen.getByRole('button', { name: /keep mine/i }))
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(`${SKILL_BODY}X`))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(skillsWrite).toHaveBeenLastCalledWith('my-skill', `${SKILL_BODY}X`, 'h9')
+    )
+  })
+})
+
+describe('AssetTab external change on focus', () => {
+  it('silently reloads a clean buffer', async () => {
+    mount()
+    await editor()
+    skillsRead.mockResolvedValue({ content: 'changed elsewhere\n', hash: 'h9' })
+
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('changed elsewhere\n'))
+    noBanner()
+  })
+
+  it('raises the staleness banner over a dirty buffer instead', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    skillsRead.mockResolvedValue({ content: 'changed elsewhere\n', hash: 'h9' })
+
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByText(BANNERS.stale)).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue(`${SKILL_BODY}X`)
+  })
+
+  it('does nothing when the file has not moved', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(skillsRead).toHaveBeenCalledTimes(2))
+    noBanner()
+  })
+})

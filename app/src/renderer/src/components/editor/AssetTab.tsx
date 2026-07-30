@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssetEditor } from '../library/AssetEditor'
 import { Btn } from '../ui'
 import { readAsset, writeAsset } from './assetIo'
-import { bannerOnOpen, type DraftBanner } from '../../lib/draftState'
+import { DiffView } from './DiffView'
+import {
+  bannerOnOpen,
+  onExternalChange,
+  isConflict,
+  resolveConflict,
+  type ConflictAction,
+  type DraftBanner
+} from '../../lib/draftState'
 import type { EditorOpenRequest } from '../../../../shared/editorIpc'
 
 export interface AssetTabProps {
@@ -39,6 +47,18 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   const [banner, setBanner] = useState<DraftBanner>({ kind: 'none' })
   const [draftAt, setDraftAt] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
+  // Non-null while the compare view is open, holding a snapshot of the buffer taken at the
+  // moment "Compare" was clicked. Not `buffer.current` read live: React's eslint react-hooks/refs
+  // rule forbids reading a ref's `.current` during render (it can change without a re-render),
+  // and DiffView is rendered directly from this component's function body, not from an effect.
+  const [compareSnapshot, setCompareSnapshot] = useState<string | null>(null)
+
+  // Mirrors `banner` so the focus listener and the async save-error path can read the current
+  // banner without resubscribing or capturing a stale value across an await.
+  const bannerRef = useRef<DraftBanner>(banner)
+  useEffect(() => {
+    bannerRef.current = banner
+  }, [banner])
 
   /** Set before a `generation` bump to force the next mount's contents. A ref, not state: the
    *  effect the same click schedules has to read it before any re-render. */
@@ -51,6 +71,17 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   const filedAs = useRef(initialName)
   const baseHash = useRef<string | null>(null)
   const dirty = useRef(false)
+
+  // Guards every async path below (discard, save's error-branch re-read, the focus listener's
+  // re-read) so a resolution landing after unmount cannot call setState. AssetTab is not yet
+  // mounted by EditorApp, but Task 9 wires it — a tab swap can unmount mid-flight then.
+  const liveRef = useRef(true)
+  useEffect(
+    () => () => {
+      liveRef.current = false
+    },
+    []
+  )
 
   useEffect(() => {
     let live = true
@@ -154,8 +185,23 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   )
 
   const save = useCallback(
-    (args: { name: string; content: string; baseHash: string | null }) =>
-      writeAsset(kind, args.name, args.content, args.baseHash),
+    async (args: { name: string; content: string; baseHash: string | null }): Promise<string> => {
+      try {
+        return await writeAsset(kind, args.name, args.content, args.baseHash)
+      } catch (e) {
+        // Classified by re-reading disk, not by matching main's message: that text is not an
+        // API, and the create-mode name collision is thrown from the same hash comparison.
+        const disk = await readAsset(kind, args.name)
+        if (!liveRef.current) throw e
+        if (isConflict(args.baseHash, disk)) {
+          setBanner({ kind: 'conflict', disk: disk! })
+          // Rethrown so AssetEditor still reports the save as failed; worded to point at the
+          // banner, which is the only place the conflict can actually be resolved.
+          throw new Error('This file changed on disk — resolve it above.')
+        }
+        throw e
+      }
+    },
     [kind]
   )
 
@@ -198,10 +244,69 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
     setInit(null)
     await window.argus.editor.discardDraft({ kind, name: filedAs.current })
     const disk = await readAsset(kind, filedAs.current)
+    if (!liveRef.current) return
     setDraftAt(null)
     setBanner({ kind: 'none' })
     override.current = disk ? { content: disk.content, hash: disk.hash, pristine: true } : null
     setGeneration((g) => g + 1)
+  }, [kind])
+
+  const apply = useCallback(
+    (action: ConflictAction): void => {
+      const b = bannerRef.current
+      if (b.kind !== 'stale' && b.kind !== 'conflict') return
+      const next = resolveConflict(action, { buffer: buffer.current, disk: b.disk })
+      if (next.discardDraft) {
+        void window.argus.editor.discardDraft({ kind, name: filedAs.current })
+        setDraftAt(null)
+      }
+      override.current = {
+        content: next.content,
+        hash: next.baseHash,
+        // Use disk lands on exactly what is on disk, so the buffer really is clean. Keep mine
+        // does not, and must stay dirty or the close handshake would let it go silently.
+        pristine: action === 'use-disk'
+      }
+      setCompareSnapshot(null)
+      setBanner({ kind: 'none' })
+      // Must precede the generation bump: AssetEditor's load effect has an empty dependency
+      // array and runs once per mount, so bumping generation while a stale `init` is still in
+      // state would remount it with the *previous* `init.load` closure and reload the very
+      // content this call is trying to replace. Nulling `init` first forces the `!init` early
+      // return so no stale instance survives to read the old closure (see discardDraft above).
+      setInit(null)
+      setGeneration((g) => g + 1)
+    },
+    [kind]
+  )
+
+  /** Spec §4.4: no fs watcher — external changes are noticed here and at save. */
+  useEffect(() => {
+    const check = (): void => {
+      // A banner already up means the user is mid-decision; do not move the ground under them.
+      if (bannerRef.current.kind !== 'none') return
+      void (async () => {
+        const disk = await readAsset(kind, filedAs.current)
+        if (!liveRef.current) return
+        if (!disk) return
+        if (bannerRef.current.kind !== 'none') return
+        const next = onExternalChange({
+          dirty: dirty.current,
+          baseHash: baseHash.current,
+          disk
+        })
+        if (next.reload) {
+          override.current = { content: disk.content, hash: disk.hash, pristine: true }
+          // Same ordering requirement as apply(): null init before bumping generation.
+          setInit(null)
+          setGeneration((g) => g + 1)
+        } else if (next.banner.kind !== 'none') {
+          setBanner(next.banner)
+        }
+      })()
+    }
+    window.addEventListener('focus', check)
+    return () => window.removeEventListener('focus', check)
   }, [kind])
 
   const bannerNode =
@@ -215,11 +320,57 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
           Discard draft
         </Btn>
       </div>
+    ) : banner.kind === 'stale' || banner.kind === 'conflict' ? (
+      <div
+        role="status"
+        className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-review/40 bg-review/10 px-3 py-1.5 text-xs text-review"
+      >
+        <span>
+          {banner.kind === 'stale'
+            ? 'This file changed on disk since your draft.'
+            : 'The saved version is newer than what you started from.'}
+        </span>
+        <span className="flex shrink-0 gap-2">
+          <Btn variant="ghost" onClick={() => setCompareSnapshot(buffer.current)}>
+            Compare
+          </Btn>
+          <Btn variant="ghost" onClick={() => apply('use-disk')}>
+            Use disk
+          </Btn>
+          <Btn variant="outline" onClick={() => apply('keep-mine')}>
+            Keep mine
+          </Btn>
+        </span>
+      </div>
     ) : null
 
   const status = draftAt ? (
     <span className="font-mono text-[11px] text-faint">Draft · {shortTime(draftAt)}</span>
   ) : null
+
+  if (compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')) {
+    return (
+      <DiffView
+        before={banner.disk.content}
+        after={compareSnapshot}
+        beforeLabel="On disk"
+        afterLabel="Yours"
+        actions={
+          <>
+            <Btn variant="ghost" onClick={() => setCompareSnapshot(null)}>
+              Back
+            </Btn>
+            <Btn variant="ghost" onClick={() => apply('use-disk')}>
+              Use disk
+            </Btn>
+            <Btn variant="primary" onClick={() => apply('keep-mine')}>
+              Keep mine
+            </Btn>
+          </>
+        }
+      />
+    )
+  }
 
   if (!init) {
     return <div className="flex flex-1 items-center justify-center text-sm text-dim">Loading…</div>
