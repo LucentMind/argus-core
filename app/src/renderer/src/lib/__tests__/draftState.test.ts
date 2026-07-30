@@ -45,7 +45,19 @@ describe('bannerOnOpen', () => {
 
   it('restores an orphaned draft whose asset was deleted from disk', () => {
     // Spec §4.5: orphans are kept, not discarded, and they still open.
-    expect(bannerOnOpen(draft(), null).kind).toBe('restored')
+    expect(bannerOnOpen(draft(), null)).toEqual({
+      kind: 'restored',
+      updatedAt: '2026-07-30T15:42:00.000Z'
+    })
+  })
+
+  it('restores a create-mode draft even when a file of that name has since appeared', () => {
+    // A create-mode draft has no origin file, so a same-named file on disk is a name collision,
+    // not staleness — same reasoning as isConflict's null-baseHash case below.
+    expect(bannerOnOpen(draft({ mode: 'create', baseHash: null }), DISK)).toEqual({
+      kind: 'restored',
+      updatedAt: '2026-07-30T15:42:00.000Z'
+    })
   })
 })
 

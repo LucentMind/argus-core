@@ -24,6 +24,11 @@ export function bannerOnOpen(draft: DraftRecord | null, disk: DiskSnapshot | nul
   // No file on disk: a create-mode draft (nothing to be stale against) or an asset deleted
   // while its draft existed (§4.5 orphan — kept, and it still opens).
   if (!disk) return { kind: 'restored', updatedAt: draft.updatedAt }
+  // A create-mode draft has no origin file, so it can never be stale — same reasoning as
+  // isConflict's null-baseHash case below. A same-named file appearing on disk here is a name
+  // collision, not a concurrent edit, and it belongs at save time with main's own guard and
+  // message ("already exists"), not this banner's "changed on disk" wording.
+  if (draft.baseHash === null) return { kind: 'restored', updatedAt: draft.updatedAt }
   if (draft.baseHash === disk.hash) return { kind: 'restored', updatedAt: draft.updatedAt }
   return { kind: 'stale', disk }
 }
