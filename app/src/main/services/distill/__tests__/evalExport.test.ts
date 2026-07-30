@@ -47,7 +47,14 @@ function reviewedItem(
   const f = writeProposal(
     home,
     'nav-1',
-    { type: 'skill-new', target: `s-${jobId}-${outcome}`, title: 't', content: '# s\n' },
+    // A valid skill body: acceptProposal validates it, and a bare '# s\n' would be refused
+    // for an empty description. The frontmatter `name:` is stamped from the target on accept.
+    {
+      type: 'skill-new',
+      target: `s-${jobId}-${outcome}`,
+      title: 't',
+      content: '---\ndescription: Use when exercising the eval-bundle export.\n---\n\n# s\n'
+    },
     { job: String(jobId) }
   )
   if (outcome === 'accepted') acceptProposal(home, f)
