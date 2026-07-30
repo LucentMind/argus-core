@@ -54,13 +54,28 @@ export class FakeEditorWindow implements EditorWindowHandle {
     this.bounds = next
     this.moved?.()
   }
+  /** Mark this window destroyed without firing the `closed` callback — simulates the gap
+   *  between Electron destroying a window and the async `closed` event actually being
+   *  delivered, so a replacement window can be adopted while this one's callback is still
+   *  pending. */
+  markDestroyedWithoutEvent(): void {
+    this.destroyed = true
+  }
+  /** Fire the stored `closed` callback directly, without touching `destroyed`. Used to
+   *  simulate a stale window's `closed` event arriving after a replacement has already been
+   *  adopted. */
+  fireStaleClosedEvent(): void {
+    this.closed?.()
+  }
 }
 
 function makeService(): {
   service: EditorWindowService
   created: FakeEditorWindow[]
+  savedBounds: WindowBounds[]
 } {
   const created: FakeEditorWindow[] = []
+  const savedBounds: WindowBounds[] = []
   const factory: EditorWindowFactory = () => {
     const w = new FakeEditorWindow()
     created.push(w)
@@ -69,9 +84,9 @@ function makeService(): {
   const service = new EditorWindowService({
     createWindow: factory,
     loadBounds: () => null,
-    saveBounds: () => {}
+    saveBounds: (bounds) => savedBounds.push(bounds)
   })
-  return { service, created }
+  return { service, created, savedBounds }
 }
 
 const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit' }
@@ -103,5 +118,45 @@ describe('EditorWindowService.open', () => {
     expect(harness.service.isOpen()).toBe(false)
     harness.service.open(SKILL)
     expect(harness.created).toHaveLength(2)
+  })
+
+  it('ignores a stale window closed event that arrives after a replacement was adopted', () => {
+    harness.service.open(SKILL)
+    const stale = harness.created[0]
+    stale.markDestroyedWithoutEvent()
+    harness.service.open(SKILL)
+    expect(harness.created).toHaveLength(2)
+    const current = harness.created[1]
+
+    stale.fireStaleClosedEvent()
+
+    expect(harness.service.isOpen()).toBe(true)
+    expect(harness.service.handle()).toBe(current)
+  })
+
+  it('does not save bounds for a stale window bounds-changed event after a replacement', () => {
+    harness.service.open(SKILL)
+    const stale = harness.created[0]
+    stale.markDestroyedWithoutEvent()
+    harness.service.open(SKILL)
+    expect(harness.created).toHaveLength(2)
+
+    // Simulate `isDestroyed()` briefly still reporting false while the stale window's own
+    // teardown is in flight.
+    stale.destroyed = false
+    harness.savedBounds.length = 0
+    stale.userMoves({ x: 1, y: 2, width: 3, height: 4 })
+
+    expect(harness.savedBounds).toEqual([])
+  })
+
+  it('saves bounds for the current window on bounds-changed', () => {
+    harness.service.open(SKILL)
+    const current = harness.created[0]
+    const next: WindowBounds = { x: 5, y: 6, width: 700, height: 800 }
+
+    current.userMoves(next)
+
+    expect(harness.savedBounds).toEqual([next])
   })
 })
