@@ -638,14 +638,30 @@ export class HivemindService {
       return { ok: false, error: (err as Error).message }
     } finally {
       if (tree) {
+        // Best-effort cleanup only: nothing here may throw, or it overrides whatever the
+        // try/catch above already decided — a completed `{ ok: true, prUrl }` (the PR exists
+        // and the receipt is written; a cleanup error here must not turn that into a reported
+        // failure) or a real `{ ok: false, error }` (a cleanup error here must not replace the
+        // actual diagnostic). If `worktree remove` fails, only the `.git/worktrees`
+        // registration leaks — the next push's `worktree prune` heals it. If the temp-dir
+        // removal below also fails (e.g. EBUSY/EPERM from an AV or indexer still holding a
+        // handle on Windows, right after git released it), the temp directory itself leaks
+        // until the OS reclaims temp space. Either way the cost is disk, never the result.
         try {
           await this.git(['worktree', 'remove', '--force', tree], clone)
         } catch {
-          // The checkout leaks into temp space; the next push's `worktree prune` clears the
-          // registration. Unlike the checkout it replaces, a failure here costs disk, not
-          // the correctness of every upstream read.
+          // See comment above: intentionally swallowed.
         }
-        fs.rmSync(path.dirname(tree), { recursive: true, force: true })
+        try {
+          fs.rmSync(path.dirname(tree), {
+            recursive: true,
+            force: true,
+            maxRetries: 3,
+            retryDelay: 100
+          })
+        } catch {
+          // See comment above: intentionally swallowed.
+        }
       }
     }
   }
