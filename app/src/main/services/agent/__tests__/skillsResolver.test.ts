@@ -14,6 +14,7 @@ import { contentHash } from '../../contentHash'
 import { caseDir } from '../../paths'
 import { agentAccessSchema, defaultAgentAccess } from '../../../../shared/agentAccess'
 import { validateSkill, hasErrors } from '../../../../shared/assetValidation'
+import { parseAuthorship } from '../../../../shared/authorship'
 
 let tmp: string, argusHome: string
 
@@ -185,42 +186,42 @@ const body = (name: string): string =>
 
 describe('writeUserSkill', () => {
   it('writes a new user skill and it resolves at the user tier', () => {
-    writeUserSkill(argusHome, 'fresh', body('fresh'), null)
+    writeUserSkill(argusHome, 'fresh', body('fresh'), null, null)
     const s = resolveSkills(argusHome, defaultAgentAccess()).find((x) => x.name === 'fresh')
     expect(s?.tier).toBe('user')
     expect(s?.description).toBe('Use when testing fresh.')
   })
 
   it('refuses invalid content even though it arrived straight over IPC', () => {
-    expect(() => writeUserSkill(argusHome, 'bad', '# no frontmatter\n', null)).toThrow(
+    expect(() => writeUserSkill(argusHome, 'bad', '# no frontmatter\n', null, null)).toThrow(
       /frontmatter/i
     )
     expect(fs.existsSync(path.join(argusHome, 'skills-user', 'bad'))).toBe(false)
   })
 
   it('refuses a traversal name', () => {
-    expect(() => writeUserSkill(argusHome, '../evil', body('evil'), null)).toThrow()
+    expect(() => writeUserSkill(argusHome, '../evil', body('evil'), null, null)).toThrow()
   })
 
   it('overwrites when the base hash matches the file on disk', () => {
     const before = readSkill(argusHome, 'rca')
-    writeUserSkill(argusHome, 'rca', body('rca'), before.hash)
+    writeUserSkill(argusHome, 'rca', body('rca'), before.hash, null)
     expect(readSkill(argusHome, 'rca').content).toBe(body('rca'))
   })
 
   it('returns the new content hash, matching a fresh read — so a follow-up save is not stale', () => {
     const before = readSkill(argusHome, 'rca')
-    const returned = writeUserSkill(argusHome, 'rca', body('rca'), before.hash)
+    const returned = writeUserSkill(argusHome, 'rca', body('rca'), before.hash, null)
     expect(returned).toBe(contentHash(body('rca')))
     expect(returned).toBe(readSkill(argusHome, 'rca').hash)
     // The whole point: a second write using the returned hash as baseHash must succeed,
     // instead of throwing "changed on disk" against the now-stale hash from the first read.
-    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), returned)).not.toThrow()
+    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), returned, null)).not.toThrow()
   })
 
   it('refuses when the file changed under the editor', () => {
     expect(() =>
-      writeUserSkill(argusHome, 'rca', body('rca'), contentHash('something else'))
+      writeUserSkill(argusHome, 'rca', body('rca'), contentHash('something else'), null)
     ).toThrow(/changed on disk/i)
   })
 
@@ -228,13 +229,15 @@ describe('writeUserSkill', () => {
     // baseHash null means the editor believes it is CREATING "rca" — a file already being
     // there means the name is taken, which is a different problem than a concurrent edit of
     // something the editor had open (and sends the user looking for a writer that isn't there).
-    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), null)).toThrow(/already exists/i)
+    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), null, null)).toThrow(
+      /already exists/i
+    )
   })
 })
 
 describe('forkSkill', () => {
   it('copies a bundled skill into the user tier so it shadows the pack', () => {
-    expect(forkSkill(argusHome, 'analyze-applog')).toBe('analyze-applog')
+    expect(forkSkill(argusHome, 'analyze-applog', undefined, null)).toBe('analyze-applog')
     const s = resolveSkills(argusHome, defaultAgentAccess()).find(
       (x) => x.name === 'analyze-applog'
     )
@@ -244,7 +247,7 @@ describe('forkSkill', () => {
 
   it('copies a hivemind skill into the user tier so it shadows the pin', () => {
     addSkill(path.join(argusHome, 'skills-hivemind'), 'team-rca', 'hive rca')
-    expect(forkSkill(argusHome, 'team-rca')).toBe('team-rca')
+    expect(forkSkill(argusHome, 'team-rca', undefined, null)).toBe('team-rca')
     const s = resolveSkills(argusHome, defaultAgentAccess()).find((x) => x.name === 'team-rca')
     expect(s?.tier).toBe('user')
     expect(s?.shadows).toEqual(['hivemind'])
@@ -254,7 +257,7 @@ describe('forkSkill', () => {
     const src = path.join(argusHome, 'skills', 'analyze-applog', 'references')
     fs.mkdirSync(src, { recursive: true })
     fs.writeFileSync(path.join(src, 'notes.md'), 'notes')
-    forkSkill(argusHome, 'analyze-applog')
+    forkSkill(argusHome, 'analyze-applog', undefined, null)
     expect(
       fs.readFileSync(
         path.join(argusHome, 'skills-user', 'analyze-applog', 'references', 'notes.md'),
@@ -264,7 +267,7 @@ describe('forkSkill', () => {
   })
 
   it('renames on request and rewrites the frontmatter name to match', () => {
-    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog')).toBe('my-applog')
+    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog', null)).toBe('my-applog')
     const content = fs.readFileSync(
       path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
       'utf8'
@@ -281,7 +284,7 @@ describe('forkSkill', () => {
       path.join(argusHome, 'skills', 'analyze-applog', 'SKILL.md'),
       '---\ndescription: bundled applog, no name key\n---\n\n# analyze-applog\n'
     )
-    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog')).toBe('my-applog')
+    expect(forkSkill(argusHome, 'analyze-applog', 'my-applog', null)).toBe('my-applog')
     const content = fs.readFileSync(
       path.join(argusHome, 'skills-user', 'my-applog', 'SKILL.md'),
       'utf8'
@@ -291,10 +294,73 @@ describe('forkSkill', () => {
   })
 
   it('refuses when the target name already exists in the user tier', () => {
-    expect(() => forkSkill(argusHome, 'analyze-applog', 'rca')).toThrow(/already/i)
+    expect(() => forkSkill(argusHome, 'analyze-applog', 'rca', null)).toThrow(/already/i)
   })
 
   it('refuses to fork a skill that already resolves at the user tier', () => {
-    expect(() => forkSkill(argusHome, 'rca')).toThrow(/already yours/i)
+    expect(() => forkSkill(argusHome, 'rca', undefined, null)).toThrow(/already yours/i)
+  })
+})
+
+describe('authorship on write and fork', () => {
+  const me = { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+  const other = { name: 'Alex Chen', email: 'alex@example.test' }
+  const skill = '---\nname: my-skill\ndescription: does a thing\n---\n# body\n'
+
+  it('stamps a new user skill as hand-authored', () => {
+    writeUserSkill(argusHome, 'my-skill', skill, null, me)
+    const raw = fs.readFileSync(path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    const a = parseAuthorship(raw)
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors).toHaveLength(1)
+  })
+
+  it('returns the hash of the STAMPED bytes so the next save is not a false conflict', () => {
+    const hash = writeUserSkill(argusHome, 'my-skill', skill, null, me)
+    // the editor adopts `hash` and saves again — this must not throw
+    expect(() => writeUserSkill(argusHome, 'my-skill', `${skill}more\n`, hash, me)).not.toThrow()
+  })
+
+  it('a second engineer editing joins the contributors without taking the byline', () => {
+    const hash = writeUserSkill(argusHome, 'my-skill', skill, null, me)
+    // Round-trip the STAMPED bytes, as the real editor does (it loads via readSkill before
+    // editing) — a literal `${skill}more` here would carry no `author:` frontmatter at all,
+    // which stampAuthorship legitimately reads as "no author yet" and would stamp `other` as
+    // the author, per its own committed contract (see shared/authorship's own test suite and
+    // refSync.writeReference's analogous `${before.content}\nnew` pattern).
+    const stamped = fs.readFileSync(
+      path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'),
+      'utf8'
+    )
+    writeUserSkill(argusHome, 'my-skill', `${stamped}more\n`, hash, other)
+    const a = parseAuthorship(
+      fs.readFileSync(path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    )
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com', 'alex@example.test'])
+  })
+
+  it('a fork preserves the original author and records the forker', () => {
+    // seed a hivemind-tier skill authored by someone else
+    const src = path.join(argusHome, 'skills-hivemind', 'their-skill')
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(
+      path.join(src, 'SKILL.md'),
+      '---\nname: their-skill\ndescription: d\nauthor: Alex Chen <alex@example.test>\norigin: authored\n---\n# body\n'
+    )
+    forkSkill(argusHome, 'their-skill', undefined, me)
+    const a = parseAuthorship(
+      fs.readFileSync(path.join(argusHome, 'skills-user', 'their-skill', 'SKILL.md'), 'utf8')
+    )
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.origin).toBe('fork')
+    expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com'])
+  })
+
+  it('writes nothing when there is no identity', () => {
+    writeUserSkill(argusHome, 'my-skill', skill, null, null)
+    const raw = fs.readFileSync(path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    expect(raw).toBe(skill)
   })
 })

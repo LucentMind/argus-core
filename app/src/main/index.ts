@@ -1510,12 +1510,15 @@ function registerIpc(): void {
     return skillsPayload()
   })
   ipcMain.handle(IPC.skillsRead, (_e, name: string) => readSkill(argusHome, name))
-  ipcMain.handle(IPC.skillsWrite, (_e, name: string, content: string, baseHash: string | null) => {
-    const hash = writeUserSkill(argusHome, name, content, baseHash)
-    return { ...skillsPayload(), hash }
-  })
-  ipcMain.handle(IPC.skillsFork, (_e, name: string, newName?: string) => {
-    const created = forkSkill(argusHome, name, newName)
+  ipcMain.handle(
+    IPC.skillsWrite,
+    async (_e, name: string, content: string, baseHash: string | null) => {
+      const hash = writeUserSkill(argusHome, name, content, baseHash, await identity())
+      return { ...skillsPayload(), hash }
+    }
+  )
+  ipcMain.handle(IPC.skillsFork, async (_e, name: string, newName?: string) => {
+    const created = forkSkill(argusHome, name, newName, await identity())
     return { name: created, skills: skillsPayload().skills }
   })
 

@@ -237,14 +237,14 @@ describe('HiveMind against a local bare repo (no network)', () => {
 
     // fork the still-pinned (v1) local copy into skills-user — editing something you don't
     // own forks it into your tier first
-    expect(forkSkill(homeB, 'hive-probe')).toBe('hive-probe')
+    expect(forkSkill(homeB, 'hive-probe', undefined, null)).toBe('hive-probe')
     const beforeEdit = readSkill(homeB, 'hive-probe')
     expect(beforeEdit.content).not.toContain('Upstream note')
 
     // edit the fork (same write path the in-app editor uses)
     const edited =
       '---\nname: hive-probe\ndescription: probe skill from the hive, with my local fix\n---\n# hive-probe v1\n\nLocal fix applied.\n'
-    writeUserSkill(homeB, 'hive-probe', edited, beforeEdit.hash)
+    writeUserSkill(homeB, 'hive-probe', edited, beforeEdit.hash, null)
 
     const r = await svc.push('skill', 'hive-probe', 'Local fix to hive-probe')
     expect(r.ok).toBe(true)
