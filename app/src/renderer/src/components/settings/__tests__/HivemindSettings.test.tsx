@@ -479,3 +479,28 @@ describe('keep as mine', () => {
     expect(alert).toHaveTextContent(/claim exploded/)
   })
 })
+
+describe('HivemindSettings byline', () => {
+  it('names the contributor on an installable item', async () => {
+    const argus = mockArgus({
+      ...ready,
+      items: [
+        {
+          ...ready.items[0],
+          name: 'their-skill',
+          description: 'does a thing',
+          author: 'Alex Chen <alex@example.test>'
+        }
+      ]
+    })
+    ;(window as unknown as { argus: unknown }).argus = argus
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    expect(await screen.findByText(/by Alex Chen/)).toBeInTheDocument()
+  })
+
+  it('shows no byline for an unauthored item', async () => {
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    const row = await screen.findByText('hive-probe')
+    expect(row.closest('div')?.textContent ?? '').not.toContain('by ')
+  })
+})
