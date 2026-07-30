@@ -275,3 +275,28 @@ export function MenuButton({
     </div>
   )
 }
+
+/**
+ * One shimmering placeholder block. Size it with `className` (`h-2 w-3/4`); the shimmer itself,
+ * including its reduced-motion fallback, is `argus-shimmer` in main.css.
+ *
+ * `aria-hidden` because a skeleton conveys "not yet", which the absence of content already
+ * conveys — announcing a row of grey boxes is noise.
+ */
+export function Skeleton({ className = '' }: { className?: string }): React.JSX.Element {
+  return <span aria-hidden="true" className={`block argus-shimmer ${className}`} />
+}
+
+/** `count` chip-shaped placeholder stacks, for a list that has not loaded yet. */
+export function SkeletonRows({ count = 3 }: { count?: number }): React.JSX.Element {
+  return (
+    <div aria-hidden="true" data-testid="skeleton-rows" className="flex flex-col gap-2 py-2">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex flex-col gap-1">
+          <Skeleton className="h-2.5 w-[60%]" />
+          <Skeleton className="h-2 w-[85%]" />
+        </div>
+      ))}
+    </div>
+  )
+}
