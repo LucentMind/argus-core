@@ -6,7 +6,12 @@ import { promisify } from 'node:util'
 import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { frontmatterDescriptionAndAuthor } from './agent/skillsResolver'
-import { withFrontmatter, fmBlock, fmField } from '../../shared/frontmatter'
+import {
+  withFrontmatter,
+  fmBlock,
+  fmField,
+  removeFrontmatterKeys
+} from '../../shared/frontmatter'
 import { stampAuthorship, parseAuthorship, type Identity } from '../../shared/authorship'
 import { JsonFileStore } from './fileStore'
 import type {
@@ -60,31 +65,51 @@ function referenceTier(file: string): string {
   return block ? fmField(block.fm, 'trust_tier') : ''
 }
 
+/**
+ * Frontmatter the APP writes into a local copy, as opposed to content its author wrote:
+ * the three `install()` stamps, plus the authorship trail `claimReference` appends.
+ *
+ * Authorship belongs here for the same reason the stamps do. Claiming a reference restamps
+ * its tier and appends the claimer as a contributor — metadata about who took ownership, not
+ * an edit. Left in the comparison, that one appended line makes every claimed reference read
+ * as diverged, so an update the user has no reason to fear shows a data-loss warning and an
+ * "Overwrite my copy" button for a file whose text is identical to upstream's. Stripping it
+ * hides nothing real: an actual edit differs in the body (or in a field like `tags:`), which
+ * this keeps.
+ */
 /** Frontmatter keys `install()` stamps into a local copy; upstream blobs never carry them. */
 const STAMP_KEYS = ['trust_tier', 'source_repo', 'source_commit'] as const
+
+/** Written by `stampAuthorship`, never by the asset's author typing them. */
+const AUTHORSHIP_KEYS = ['author', 'origin', 'contributors'] as const
+
+const APP_MANAGED_KEYS = [...STAMP_KEYS, ...AUTHORSHIP_KEYS] as const
 
 /**
  * Canonical form for "is my copy the same text as upstream's?".
  *
- * Drops the three install stamps and normalizes line endings, but keeps every other
- * frontmatter field, so a hand-added `tags:` line counts as an edit. Without the stamp
- * strip a pristine copy never equals its own pinned blob and every update would warn.
+ * Drops the app-managed keys above and normalizes line endings, but keeps every other
+ * frontmatter field, so a hand-added `tags:` line counts as an edit. Without the strip a
+ * pristine copy never equals its own pinned blob and every update would warn.
  *
- * The output is also what `localDivergence` diffs and shows the user, so it reconstructs a
- * well-formed document with both `---` fences — `fmBlock` returns the frontmatter's inner
- * text without its delimiters, and a half-fenced document in a data-loss preview reads as
- * corruption. Both sides are built the same way, so the verdict is unaffected either way.
+ * Removal goes through `removeFrontmatterKeys` rather than a line-prefix filter because
+ * `contributors:` is a BLOCK LIST: dropping the header alone would orphan its indented items
+ * into the top level, producing frontmatter no YAML parser accepts — and this function's
+ * output is what `localDivergence` shows the user as a diff.
+ *
+ * That output reconstructs a well-formed document with both `---` fences; a half-fenced
+ * document in a data-loss preview reads as corruption. Both sides are built the same way, so
+ * the verdict is unaffected either way.
  */
 export function normalizeForCompare(raw: string): string {
   const lf = raw.replace(/\r\n/g, '\n')
   const block = fmBlock(lf)
   if (!block) return lf.trim()
-  const fm = block.fm
-    .split('\n')
-    .filter((l) => !STAMP_KEYS.some((k) => l.startsWith(`${k}:`)))
-    .join('\n')
-    .trim()
-  return fm ? `---\n${fm}\n---\n${block.body}`.trim() : block.body.trim()
+  const stripped = removeFrontmatterKeys(lf, [...APP_MANAGED_KEYS])
+  const rest = fmBlock(stripped)
+  if (!rest) return stripped.trim()
+  const fm = rest.fm.trim()
+  return fm ? `---\n${fm}\n---\n${rest.body}`.trim() : rest.body.trim()
 }
 
 /** Bare 'x.md' or exactly 'confluence/x.md' — no traversal, no hidden files, no other subfolders. */

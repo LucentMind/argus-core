@@ -23,7 +23,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: ['hivemind', 'bundled'],
       shadowDiverged: false,
-      author: null
+      author: null,
     },
     {
       name: 'my-notes',
@@ -32,7 +32,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null
+      author: null,
     },
     {
       name: 'hive-probe',
@@ -41,7 +41,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null
+      author: null,
     },
     {
       name: 'analyze-applog',
@@ -50,7 +50,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null
+      author: null,
     }
   ]
 }
@@ -64,7 +64,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: ['bundled'],
       shadowDiverged: false,
-      author: null
+      author: null,
     },
     {
       name: 'my-notes',
@@ -73,7 +73,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null
+      author: null,
     },
     {
       name: 'hive-probe',
@@ -82,7 +82,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null
+      author: null,
     },
     {
       name: 'analyze-applog',
@@ -91,7 +91,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null
+      author: null,
     }
   ]
 }
@@ -115,6 +115,7 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installedCommit: 'abc',
         localTier: 'hivemind',
         shadowedByUser: false,
+        author: null,
         updateAvailable: true
       },
       // regression fixture for Finding 2: a user-tier reference whose hive entry
@@ -129,6 +130,7 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installedCommit: 'def',
         localTier: 'user',
         shadowedByUser: false,
+        author: null,
         updateAvailable: true
       },
       // a hive-tier skill with an upstream update — the marker must mirror refRow's
@@ -142,6 +144,7 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installedCommit: 'ghi',
         localTier: null,
         shadowedByUser: false,
+        author: null,
         updateAvailable: true
       }
     ],
@@ -841,7 +844,8 @@ describe('LibraryPage cross-window refresh', () => {
             enabled: true,
             shadows: [],
             // Shadows nothing, so it cannot have diverged from a shadowed original.
-            shadowDiverged: false
+            shadowDiverged: false,
+            author: null,
           }
         ]
       })
@@ -875,7 +879,8 @@ describe('forked skill rows', () => {
     description: 'probe',
     enabled: true,
     shadows: ['hivemind'],
-    shadowDiverged: true
+    shadowDiverged: true,
+    author: null,
   }
 
   it('shows Adopt upstream without needing hover, and no Delete', async () => {

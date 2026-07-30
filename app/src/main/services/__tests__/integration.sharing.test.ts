@@ -332,7 +332,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
     const svc = service()
     await svc.sync()
     await svc.install('reference', 'hive-note.md')
-    await svc.claimReference('hive-note.md')
+    await svc.claimReference('hive-note.md', { name: 'Claimer', email: 'claimer@example.test' })
 
     const local = path.join(homeB, 'references', 'hive-note.md')
     fs.writeFileSync(
@@ -368,7 +368,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
     const svc = service()
     await svc.sync()
     await svc.install('reference', 'hive-note.md')
-    await svc.claimReference('hive-note.md')
+    await svc.claimReference('hive-note.md', { name: 'Claimer', email: 'claimer@example.test' })
 
     // edit the local copy first, then land that exact text upstream — your contribution
     // merged verbatim. The pin (recorded at install/claim time) genuinely lags: its blob
