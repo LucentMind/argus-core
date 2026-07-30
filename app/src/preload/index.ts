@@ -100,6 +100,7 @@ import type { SnippetResult, RepoSnippetResult, RepoTextResult } from '../shared
 import type { ModeId } from '../shared/modes'
 import type { EvidenceScope } from '../shared/evidenceScope'
 import type { AuthoringRequest, AuthoringResult } from '../shared/authoringIpc'
+import { EDITOR_IPC, type EditorOpenRequest } from '../shared/editorIpc'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -455,6 +456,30 @@ const argus = {
       ipcRenderer.invoke(IPC.authoringDraft, req),
     improve: (req: AuthoringRequest): Promise<AuthoringResult> =>
       ipcRenderer.invoke(IPC.authoringImprove, req)
+  },
+  editor: {
+    /** Open (or focus) the editor window on an asset. Callable from any window. */
+    open: (req: EditorOpenRequest): Promise<void> => ipcRenderer.invoke(EDITOR_IPC.open, req),
+    onOpenTab: (cb: (req: EditorOpenRequest) => void): (() => void) => {
+      const h = (_e: unknown, req: EditorOpenRequest): void => cb(req)
+      ipcRenderer.on(EDITOR_IPC.openTab, h)
+      return () => {
+        ipcRenderer.off(EDITOR_IPC.openTab, h)
+      }
+    },
+    setDirty: (count: number): void => {
+      ipcRenderer.send(EDITOR_IPC.dirtyState, count)
+    },
+    onCloseRequested: (cb: (info: { dirtyCount: number }) => void): (() => void) => {
+      const h = (_e: unknown, info: { dirtyCount: number }): void => cb(info)
+      ipcRenderer.on(EDITOR_IPC.closeRequested, h)
+      return () => {
+        ipcRenderer.off(EDITOR_IPC.closeRequested, h)
+      }
+    },
+    respondClose: (allow: boolean): void => {
+      ipcRenderer.send(EDITOR_IPC.closeResponse, allow)
+    }
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
