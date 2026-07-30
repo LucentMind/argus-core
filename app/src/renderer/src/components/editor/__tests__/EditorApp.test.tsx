@@ -39,13 +39,22 @@ beforeEach(() => {
         content: '---\nname: my-skill\ndescription: Use when testing.\n---\n\n# hi\n',
         hash: 'h1'
       }),
-      write: vi.fn().mockResolvedValue({ hash: 'h2' })
+      // Realistic shape: skills:write's real result is a SkillsWriteResult (list + hash), not
+      // a bare hash. The 'h1-new' vs 'h1' distinction (and h2 vs h2-new below) lets assertions
+      // tell "the hash the read gave us" apart from "the hash the write gave back" instead of
+      // both accidentally being the same literal.
+      write: vi.fn().mockResolvedValue({ skills: [], hash: 'h1-new' })
     },
-    refsync: { readRef: vi.fn().mockResolvedValue({ content: '# ref\n', hash: 'h2' }) }
+    refsync: {
+      readRef: vi.fn().mockResolvedValue({ content: '# ref\n', hash: 'h2' }),
+      // refsync:write's real result is a bare hash string, unlike skills:write's object.
+      writeRef: vi.fn().mockResolvedValue('h2-new')
+    }
   } as never
 })
 
 const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit' }
+const REFERENCE: EditorOpenRequest = { kind: 'reference', name: 'notes.md', mode: 'edit' }
 
 describe('EditorApp', () => {
   it('shows an empty state until a tab is opened', () => {
@@ -111,5 +120,73 @@ describe('EditorApp', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /cancel/i }))
     await waitFor(() => expect(respondClose).toHaveBeenCalledWith(false))
+  })
+})
+
+// This is the coverage the deleted LibraryPage save-routing tests carried before Task 7 moved
+// saving into the editor window: which IPC a save routes to, in what argument order, and that
+// the hash it returns actually becomes the next save's baseHash. Nothing else exercises
+// EditorApp's `save` prop at all — the tests above only ever click Save and check the editor
+// closes, which passes even if the arguments are wrong or the hash is thrown away.
+describe('EditorApp save wiring', () => {
+  it('saves a skill via skills.write, with (name, content, loadedHash) in that order', async () => {
+    render(<EditorApp />)
+    openTab!(SKILL)
+    const area = await screen.findByLabelText('skill · my-skill')
+    await userEvent.type(area, 'x')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() =>
+      expect(window.argus.skills.write).toHaveBeenCalledWith(
+        'my-skill',
+        '---\nname: my-skill\ndescription: Use when testing.\n---\n\n# hi\nx',
+        'h1'
+      )
+    )
+  })
+
+  it('saves a reference via refsync.writeRef, with (name, content, loadedHash) in that order', async () => {
+    render(<EditorApp />)
+    openTab!(REFERENCE)
+    const area = await screen.findByLabelText('reference · notes.md')
+    await userEvent.type(area, 'x')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() =>
+      expect(window.argus.refsync.writeRef).toHaveBeenCalledWith('notes.md', '# ref\nx', 'h2')
+    )
+  })
+
+  it('adopts the hash a save returns as the baseHash for the very next save', async () => {
+    render(<EditorApp />)
+    openTab!(SKILL)
+    const area = await screen.findByLabelText('skill · my-skill')
+    await userEvent.type(area, 'x')
+
+    // Hold the first write pending so we can move the buffer while it's in flight — that's
+    // what makes AssetEditor keep the editor open after this save resolves (it only closes
+    // when the buffer at resolution time still matches what was sent), so a second, real save
+    // happens in the same session and we can inspect what baseHash it used.
+    let resolveWrite: (v: { skills: never[]; hash: string }) => void = () => {}
+    vi.mocked(window.argus.skills.write).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveWrite = resolve))
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await userEvent.type(area, 'y')
+    resolveWrite({ skills: [], hash: 'h1-second' })
+
+    // Confirms the editor stayed open (didn't adopt undefined and silently misbehave) and that
+    // AssetEditor did adopt the returned hash into baseHash, per the comment on its save prop.
+    await screen.findByText(/kept typing while it was saving/i)
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(window.argus.skills.write).toHaveBeenLastCalledWith(
+        'my-skill',
+        expect.any(String),
+        'h1-second'
+      )
+    )
   })
 })
