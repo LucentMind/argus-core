@@ -460,6 +460,68 @@ describe('CaseFiles', () => {
     )
     await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalledWith('c1', 'review'))
   })
+
+  it('does not claim the case is empty while the list is still loading', async () => {
+    let release: (rows: EvidenceRecord[]) => void = () => {}
+    window.argus.evidence.list = vi.fn(
+      () =>
+        new Promise<EvidenceRecord[]>((res) => {
+          release = res
+        })
+    )
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+
+    // in flight: the definitive empty state must not be on screen
+    expect(screen.queryByText('No evidence yet.')).toBeNull()
+
+    await act(async () => {
+      release([])
+    })
+    expect(screen.getByText('No evidence yet.')).toBeInTheDocument()
+  })
+
+  it('shows a pending row carrying the real filename while a drop ingests', async () => {
+    let release: () => void = () => {}
+    window.argus.evidence.ingest = vi.fn(
+      () =>
+        new Promise<EvidenceRecord[]>((res) => {
+          release = () => res([])
+        })
+    )
+    window.argus.pathForFile = vi.fn(() => 'C:\\logs\\huge.binlog')
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await screen.findByText('trace.binlog')
+
+    const file = new File(['x'], 'huge.binlog')
+    fireEvent.drop(screen.getByText('drop files to add evidence').parentElement!, {
+      dataTransfer: { files: [file] }
+    })
+
+    // present BEFORE the ingest resolves — this is the whole point
+    expect(await screen.findByText('huge.binlog')).toBeInTheDocument()
+
+    await act(async () => {
+      release()
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-evidence-huge.binlog')).toBeNull()
+    })
+  })
+
+  it('keeps a failed drop on screen as an error row', async () => {
+    window.argus.evidence.ingest = vi.fn(() => Promise.reject(new Error('EACCES: locked')))
+    window.argus.pathForFile = vi.fn(() => 'C:\\logs\\locked.binlog')
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await screen.findByText('trace.binlog')
+
+    const file = new File(['x'], 'locked.binlog')
+    fireEvent.drop(screen.getByText('drop files to add evidence').parentElement!, {
+      dataTransfer: { files: [file] }
+    })
+
+    expect(await screen.findByTitle('EACCES: locked')).toBeInTheDocument()
+    expect(screen.getByText('locked.binlog')).toBeInTheDocument()
+  })
 })
 
 const openInFixture: EvidenceRecord[] = [
