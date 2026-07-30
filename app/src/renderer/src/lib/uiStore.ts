@@ -61,6 +61,26 @@ export class UiStore {
     this.applyTheme()
     this.applyScale()
     void window.argus?.panels?.setTheme(this.state.theme)
+
+    // Each BrowserWindow runs its own UiStore, reading the persisted theme once at load.
+    // Without this, a theme change made in one window never reaches the others: open the
+    // editor, switch theme in the main window, and the editor stays on the old palette
+    // until it is reopened. Adopt-only — no persist, no re-broadcast (see `adoptTheme`).
+    window.argus?.ui?.onThemeChanged?.((theme) => this.adoptTheme(theme))
+  }
+
+  /**
+   * Apply a theme change that originated in another window.
+   *
+   * Deliberately not `setTheme`: the originating window already persisted it and already told
+   * the panel host. Re-persisting here would race on shared localStorage, and re-broadcasting
+   * would bounce the event back to the sender — main fans out to every window including the
+   * one that sent it.
+   */
+  private adoptTheme(theme: Theme): void {
+    if (theme === this.state.theme) return
+    this.set({ theme })
+    this.applyTheme()
   }
 
   get(): UiState {
