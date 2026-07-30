@@ -399,6 +399,44 @@ export function CaseFiles({
         }`}
       >
         <ul className="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
+          {/* Outside the skeleton gate: a drop in flight (or its error) is real content, not a
+              placeholder, and must never be hidden behind usePendingDisplay's delay/min-hold —
+              it renders first because the list is newest-first and a drop is the newest thing
+              in it. */}
+          {pending.items.map((p) => (
+            <li
+              key={p.id}
+              data-testid={`pending-evidence-${p.name}`}
+              className="flex flex-col gap-1 border-t border-hair py-2 first:border-t-0"
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  title={p.error}
+                  className={`max-w-[220px] min-w-0 truncate font-mono text-xs ${
+                    p.error ? 'text-danger line-through' : 'text-dim'
+                  }`}
+                >
+                  {p.name}
+                </span>
+                {!p.error && <span className="shrink-0 text-[10px] text-mute">adding…</span>}
+                {p.error && (
+                  <button
+                    type="button"
+                    aria-label={`Dismiss ${p.name} error`}
+                    className="shrink-0 text-mute transition-colors hover:text-ink"
+                    onClick={() => pending.dismiss(p.id)}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              {p.error ? (
+                <span className="truncate text-[11px] text-danger">{p.error}</span>
+              ) : (
+                <Skeleton className="h-2 w-[45%]" />
+              )}
+            </li>
+          ))}
           {showSkeleton ? (
             // wrapped in an <li> because SkeletonRows renders a <div> and this is a list
             <li>
@@ -407,40 +445,6 @@ export function CaseFiles({
           ) : (
             <>
               {visible.map(renderRow)}
-              {pending.items.map((p) => (
-                <li
-                  key={p.id}
-                  data-testid={`pending-evidence-${p.name}`}
-                  className="flex flex-col gap-1 border-t border-hair py-2 first:border-t-0"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      title={p.error}
-                      className={`max-w-[220px] min-w-0 truncate font-mono text-xs ${
-                        p.error ? 'text-danger line-through' : 'text-dim'
-                      }`}
-                    >
-                      {p.name}
-                    </span>
-                    {!p.error && <span className="shrink-0 text-[10px] text-mute">adding…</span>}
-                    {p.error && (
-                      <button
-                        type="button"
-                        aria-label={`Dismiss ${p.name} error`}
-                        className="shrink-0 text-mute transition-colors hover:text-ink"
-                        onClick={() => pending.dismiss(p.id)}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                  {p.error ? (
-                    <span className="truncate text-[11px] text-danger">{p.error}</span>
-                  ) : (
-                    <Skeleton className="h-2 w-[45%]" />
-                  )}
-                </li>
-              ))}
               {loaded && visible.length === 0 && pending.items.length === 0 && (
                 <li className="py-2 text-mute">No evidence yet.</li>
               )}

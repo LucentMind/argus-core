@@ -522,6 +522,49 @@ describe('CaseFiles', () => {
     expect(await screen.findByTitle('EACCES: locked')).toBeInTheDocument()
     expect(screen.getByText('locked.binlog')).toBeInTheDocument()
   })
+
+  it('shows a failed drop immediately even while the evidence list is still loading', async () => {
+    vi.useFakeTimers()
+    try {
+      let releaseList: (rows: EvidenceRecord[]) => void = () => {}
+      // the list never resolves inside this test, so `loaded` stays false and
+      // usePendingDisplay's skeleton stays up past its 150ms threshold — the
+      // exact window in which the finding's error row used to be invisible
+      window.argus.evidence.list = vi.fn(
+        () =>
+          new Promise<EvidenceRecord[]>((res) => {
+            releaseList = res
+          })
+      )
+      window.argus.evidence.ingest = vi.fn(() => Promise.reject(new Error('EACCES: locked')))
+      window.argus.pathForFile = vi.fn(() => 'C:\\logs\\locked.binlog')
+
+      render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+
+      await act(async () => {
+        vi.advanceTimersByTime(150)
+      })
+      // still loading: the skeleton is on screen, not the loaded rows
+      expect(screen.getByTestId('skeleton-rows')).toBeInTheDocument()
+
+      const file = new File(['x'], 'locked.binlog')
+      await act(async () => {
+        fireEvent.drop(screen.getByText('drop files to add evidence').parentElement!, {
+          dataTransfer: { files: [file] }
+        })
+      })
+
+      // the error row must appear now, not after the skeleton clears
+      expect(screen.getByTitle('EACCES: locked')).toBeInTheDocument()
+      expect(screen.getByText('locked.binlog')).toBeInTheDocument()
+
+      await act(async () => {
+        releaseList([])
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 const openInFixture: EvidenceRecord[] = [
