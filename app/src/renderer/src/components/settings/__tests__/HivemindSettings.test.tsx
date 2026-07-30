@@ -668,6 +668,36 @@ describe('update hazards', () => {
     // not diverged: no overwrite gate, ordinary re-download
     expect(screen.getByLabelText('Re-download confluence/hive-note.md')).toBeInTheDocument()
   })
+
+  it('renders "none" rather than a blank gap when the local file has no readable tier', async () => {
+    // A local file with no readable frontmatter yields an empty `from` — referenceTier()
+    // returns '' for a tier-less/absent block, not a HivemindItem-shaped value.
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'reference',
+          name: 'hive-note.md',
+          description: '',
+          commit: 'sha-3',
+          installed: true,
+          installedCommit: 'sha-2',
+          localTier: null,
+          shadowedByUser: false,
+          updateAvailable: true
+        }
+      ]
+    }
+    localDivergenceMock.mockResolvedValue({
+      diverged: false,
+      diff: '',
+      tierChange: { from: '', to: 'hivemind' }
+    })
+    renderWith(payload)
+    fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
+    const tierLine = await screen.findByText(/tier from/i)
+    expect(tierLine).toHaveTextContent(/none.*hivemind/i)
+  })
 })
 
 describe('HivemindSettings byline', () => {

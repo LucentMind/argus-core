@@ -249,6 +249,7 @@ export class HivemindService {
       if (!fs.existsSync(path.join(this.clone(), '.git'))) {
         await this.git(['clone', cloneUrl(repo), this.clone()])
       } else {
+        await this.healParkedHead(this.clone())
         await this.git(['pull', '--ff-only'], this.clone())
       }
       this.store.write({ ...this.state(), lastSynced: new Date().toISOString() })
@@ -257,6 +258,27 @@ export class HivemindService {
       const p = await this.payload()
       return { ...p, state: 'error', error: (err as Error).message }
     }
+  }
+
+  /**
+   * A clone `push` left parked on a share branch never recovers on its own: the worktree
+   * rewrite never checks anything out in the clone, so nothing else in the codebase moves its
+   * HEAD back. Left parked, `pull --ff-only` just advances that dead-end branch, and every
+   * HEAD-relative read (headCommit, itemCommit → updateAvailable, the update-preview diff,
+   * localDivergence) stays poisoned indefinitely — including the data-loss guard the whole
+   * feature exists to provide.
+   *
+   * Scoped narrowly to the exact `argus/share-` prefix `push` generates, so this can never
+   * stomp a deliberate checkout the user made themselves in the clone. Only called when a
+   * clone already exists — a fresh clone has nothing to park on.
+   */
+  private async healParkedHead(clone: string): Promise<void> {
+    const head = await this.git(['rev-parse', '--abbrev-ref', 'HEAD'], clone).catch(() => '')
+    if (!head.startsWith('argus/share-')) return
+    const defaultBranch = (
+      await this.git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], clone)
+    ).replace(/^origin\//, '')
+    await this.git(['checkout', defaultBranch], clone)
   }
 
   /** Cheap reachability probe for instant settings feedback — no clone, no state change. */
@@ -588,7 +610,7 @@ export class HivemindService {
     return fs.readFileSync(file, 'utf8')
   }
 
-  /** Branch in the clone → commit → push → gh pr create. Never force-pushes (spec §2.3). */
+  /** Branch in a throwaway worktree → commit → push → gh pr create. Never force-pushes (spec §2.3). */
   async push(
     kind: 'skill' | 'reference',
     name: string,
