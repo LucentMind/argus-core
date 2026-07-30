@@ -220,14 +220,16 @@ describe('Composer', () => {
           tier: 'bundled' as const,
           description: 'Root cause analysis',
           enabled: true,
-          shadows: []
+          shadows: [],
+          shadowDiverged: false
         },
         {
           name: 'analyze-applog',
           tier: 'bundled' as const,
           description: 'Analyze Android logs',
           enabled: false,
-          shadows: []
+          shadows: [],
+          shadowDiverged: false
         }
       ]
     }))
@@ -249,14 +251,16 @@ describe('Composer', () => {
             tier: 'bundled' as const,
             description: 'Root cause',
             enabled: true,
-            shadows: []
+            shadows: [],
+            shadowDiverged: false
           },
           {
             name: 'analyze-applog',
             tier: 'bundled' as const,
             description: 'Analyze Android logs',
             enabled: true,
-            shadows: []
+            shadows: [],
+            shadowDiverged: false
           }
         ]
       }))

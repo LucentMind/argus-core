@@ -8,7 +8,8 @@ import {
   readSkill,
   resolveSkills,
   writeUserSkill,
-  forkSkill
+  forkSkill,
+  userSkillShadowDiverged
 } from '../skillsResolver'
 import { contentHash } from '../../contentHash'
 import { caseDir } from '../../paths'
@@ -296,5 +297,37 @@ describe('forkSkill', () => {
 
   it('refuses to fork a skill that already resolves at the user tier', () => {
     expect(() => forkSkill(argusHome, 'rca')).toThrow(/already yours/i)
+  })
+})
+
+describe('userSkillShadowDiverged', () => {
+  it('is false when the two copies are byte-identical', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'probe', 'same')
+    addSkill(path.join(argusHome, 'skills-user'), 'probe', 'same')
+    expect(userSkillShadowDiverged(argusHome, 'probe')).toBe(false)
+  })
+
+  it('is true when the fork was edited', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'probe', 'upstream text')
+    addSkill(path.join(argusHome, 'skills-user'), 'probe', 'my edited text')
+    expect(userSkillShadowDiverged(argusHome, 'probe')).toBe(true)
+  })
+
+  it('is true when the fork adds a file the hive copy does not have', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'probe', 'same')
+    addSkill(path.join(argusHome, 'skills-user'), 'probe', 'same')
+    fs.writeFileSync(path.join(argusHome, 'skills-user', 'probe', 'extra.md'), 'extra\n')
+    expect(userSkillShadowDiverged(argusHome, 'probe')).toBe(true)
+  })
+
+  it('ignores line-ending differences', () => {
+    addSkill(path.join(argusHome, 'skills-hivemind'), 'probe', 'same')
+    addSkillWithCRLF(path.join(argusHome, 'skills-user'), 'probe', 'same')
+    expect(userSkillShadowDiverged(argusHome, 'probe')).toBe(false)
+  })
+
+  it('is false when there is no hivemind copy to shadow', () => {
+    addSkill(path.join(argusHome, 'skills-user'), 'solo', 'mine')
+    expect(userSkillShadowDiverged(argusHome, 'solo')).toBe(false)
   })
 })
