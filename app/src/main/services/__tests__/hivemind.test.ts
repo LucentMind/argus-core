@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { HivemindService, cloneUrl, type Runner } from '../hivemind'
+import { HivemindService, cloneUrl, normalizeForCompare, type Runner } from '../hivemind'
 
 let home: string
 beforeEach(() => {
@@ -879,5 +879,36 @@ describe('confluence subfolder references', () => {
     expect(conf.installed).toBe(true)
     expect(flat.installedCommit).toBe('refsha')
     expect(conf.installedCommit).toBe('refsha')
+  })
+})
+
+describe('normalizeForCompare', () => {
+  it('ignores the three install stamps but keeps other frontmatter', () => {
+    const stamped =
+      '---\ntags: ops\ntrust_tier: user\nsource_repo: acme/hive\nsource_commit: abc123\n---\n# note\n'
+    const bare = '---\ntags: ops\n---\n# note\n'
+    expect(normalizeForCompare(stamped)).toBe(normalizeForCompare(bare))
+  })
+
+  it('treats a changed non-stamp frontmatter field as a difference', () => {
+    const a = '---\ntags: ops\ntrust_tier: user\n---\n# note\n'
+    const b = '---\ntags: security\ntrust_tier: user\n---\n# note\n'
+    expect(normalizeForCompare(a)).not.toBe(normalizeForCompare(b))
+  })
+
+  it('treats a changed body as a difference', () => {
+    const a = '---\ntrust_tier: user\n---\n# note v1\n'
+    const b = '---\ntrust_tier: user\n---\n# note v2\n'
+    expect(normalizeForCompare(a)).not.toBe(normalizeForCompare(b))
+  })
+
+  it('is line-ending agnostic', () => {
+    expect(normalizeForCompare('---\ntags: ops\n---\n# note\n')).toBe(
+      normalizeForCompare('---\r\ntags: ops\r\n---\r\n# note\r\n')
+    )
+  })
+
+  it('handles a file with no frontmatter at all', () => {
+    expect(normalizeForCompare('# note\n')).toBe(normalizeForCompare('# note'))
   })
 })
