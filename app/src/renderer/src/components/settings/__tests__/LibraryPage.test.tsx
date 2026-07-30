@@ -69,6 +69,7 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installed: true,
         installedCommit: 'abc',
         localTier: 'hivemind',
+        shadowedByUser: false,
         updateAvailable: true
       },
       // regression fixture for Finding 2: a user-tier reference whose hive entry
@@ -82,6 +83,7 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installed: true,
         installedCommit: 'def',
         localTier: 'user',
+        shadowedByUser: false,
         updateAvailable: true
       },
       // a hive-tier skill with an upstream update — the marker must mirror refRow's
@@ -94,6 +96,7 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installed: true,
         installedCommit: 'ghi',
         localTier: null,
+        shadowedByUser: false,
         updateAvailable: true
       }
     ],

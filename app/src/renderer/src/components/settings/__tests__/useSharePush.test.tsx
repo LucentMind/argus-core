@@ -11,6 +11,7 @@ const item = {
   installed: true,
   installedCommit: 'abc',
   localTier: 'hivemind',
+  shadowedByUser: false,
   updateAvailable: true
 }
 

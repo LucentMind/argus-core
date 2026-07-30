@@ -40,6 +40,7 @@ const ready: HivemindPayload = {
       installed: true,
       installedCommit: 'sha-1',
       localTier: null,
+      shadowedByUser: false,
       updateAvailable: true
     },
     {
@@ -50,6 +51,7 @@ const ready: HivemindPayload = {
       installed: false,
       installedCommit: null,
       localTier: null,
+      shadowedByUser: false,
       updateAvailable: false
     }
   ],
@@ -417,6 +419,7 @@ describe('keep as mine', () => {
         installed: true,
         installedCommit: 'sha-3',
         localTier: 'hivemind',
+        shadowedByUser: false,
         updateAvailable: false
       }
     ]

@@ -8,6 +8,8 @@ export interface HivemindItem {
   installedCommit: string | null
   /** trust_tier of the locally installed copy (references only; null for skills / not installed). */
   localTier: string | null
+  /** A skills-user copy of this skill exists and shadows the installed one (skills only). */
+  shadowedByUser: boolean
   updateAvailable: boolean
 }
 /** Whether the installed local reference has edits that are in neither the pin nor HEAD. */
