@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AssetEditor } from '../library/AssetEditor'
 import { ConfirmHost } from '../ConfirmHost'
 import { confirm } from '../../lib/confirmStore'
@@ -22,11 +22,72 @@ export function EditorApp(): React.JSX.Element {
     window.argus.editor.setDirty(dirty ? 1 : 0)
   }, [dirty])
 
+  // Mirrors `open`, but assigned synchronously at swap time: the drain loop below decides the
+  // next request against what is on screen *now*, which a state variable read across an `await`
+  // cannot tell it.
+  const openRef = useRef<EditorOpenRequest | null>(null)
+  const show = useCallback((req: EditorOpenRequest | null) => {
+    openRef.current = req
+    setOpen(req)
+  }, [])
+
   // Drains the module-scope buffer (see editorBootstrap.ts). NOT a raw onOpenTab subscription:
   // main flushes its queued open-tab message on `did-finish-load`, which can precede React's
   // passive effects — subscribing here alone would re-open the dropped-first-message bug that
   // Task 4 fixed on the main side.
-  useEffect(() => drainOpenTabs(setOpen), [])
+  //
+  // Requests are queued and drained one at a time rather than pushed straight into state: a
+  // different kind/name/mode changes AssetEditor's `key`, so swapping remounts it and throws
+  // the buffer away. The modal this replaced made that unreachable (it blocked the Library);
+  // a window does not, so ask first. `confirm()` is async, and open-tab messages keep arriving
+  // while the prompt is up — the queue is what stops those from being dropped or interleaved.
+  useEffect(() => {
+    const queue: EditorOpenRequest[] = []
+    let draining = false
+    let detached = false
+
+    const isSame = (a: EditorOpenRequest | null, b: EditorOpenRequest): boolean =>
+      a !== null && a.kind === b.kind && a.name === b.name && a.mode === b.mode
+
+    const drain = async (): Promise<void> => {
+      if (draining) return
+      draining = true
+      try {
+        while (queue.length > 0 && !detached) {
+          const req = queue.shift()!
+          // The "focus the existing window" path: main already raised this window, and every
+          // second Edit on the open asset lands here. Never prompt for it.
+          if (isSame(openRef.current, req)) continue
+          if (openRef.current !== null && dirtyRef.current) {
+            const allow = await confirm({
+              title: 'Discard your unsaved changes?',
+              message: `"${openRef.current.name}" has unsaved changes. Opening "${req.name}" discards them.`,
+              confirmLabel: 'Discard and open',
+              danger: true
+            })
+            if (detached) return
+            // Deny keeps the current asset — and drops only this request, not the queue.
+            if (!allow) continue
+          }
+          // Deliberately not clearing `dirtyRef` here: the remounted editor reports itself clean
+          // a tick later anyway, and a stale `true` only costs a redundant prompt for anything
+          // still queued behind this one, which is the safe direction to be wrong in.
+          show(req)
+        }
+      } finally {
+        draining = false
+      }
+    }
+
+    const detach = drainOpenTabs((req) => {
+      queue.push(req)
+      void drain()
+    })
+    return () => {
+      detached = true
+      detach()
+    }
+  }, [show])
 
   useEffect(
     () =>
@@ -80,7 +141,7 @@ export function EditorApp(): React.JSX.Element {
             }
             return window.argus.refsync.writeRef(name, content, baseHash)
           }}
-          onClose={() => setOpen(null)}
+          onClose={() => show(null)}
         />
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-dim">

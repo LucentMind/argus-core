@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EditorApp } from '../EditorApp'
 import type { EditorOpenRequest } from '../../../../../shared/editorIpc'
@@ -98,7 +98,10 @@ describe('EditorApp', () => {
     await waitFor(() => expect(respondClose).toHaveBeenCalledWith(true))
   })
 
-  it('reports clean once a saved editor closes, so main does not keep warning about it', async () => {
+  // A window is not a modal: it stays on the asset after a save. Emptying it would send the user
+  // back to the Library just to keep editing the same file. Main is holding the close veto on
+  // the reported dirty count, so that has to reach 0 without the editor unmounting.
+  it('keeps the asset open after a save, and reports clean to main', async () => {
     render(<EditorApp />)
     openTab!(SKILL)
     const area = await screen.findByLabelText('skill · my-skill')
@@ -107,8 +110,9 @@ describe('EditorApp', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
-    await waitFor(() => expect(screen.getByText(/nothing open/i)).toBeInTheDocument())
-    expect(setDirty).toHaveBeenLastCalledWith(0)
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(0))
+    expect(screen.getByLabelText('skill · my-skill')).toBeInTheDocument()
+    expect(screen.queryByText(/nothing open/i)).not.toBeInTheDocument()
   })
 
   it('answers deny when the user cancels the close', async () => {
@@ -120,6 +124,66 @@ describe('EditorApp', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /cancel/i }))
     await waitFor(() => expect(respondClose).toHaveBeenCalledWith(false))
+  })
+})
+
+// Before this branch the editor was a modal that blocked the Library, so a second Edit while the
+// first asset was dirty was physically unreachable. In a window it is two clicks, and a differing
+// kind/name/mode changes AssetEditor's `key` — the remount silently destroys the buffer AND
+// releases main's close veto (unmount reports clean). These pin the guard.
+describe('EditorApp asset swapping', () => {
+  const dirtySkill = async (): Promise<void> => {
+    render(<EditorApp />)
+    openTab!(SKILL)
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(1))
+  }
+
+  const DISCARD = 'Discard and open'
+
+  it('asks before replacing a dirty asset, and keeps it on deny', async () => {
+    await dirtySkill()
+    openTab!(REFERENCE)
+
+    await userEvent.click(await screen.findByRole('button', { name: /^cancel$/i }))
+
+    const area = await screen.findByLabelText<HTMLTextAreaElement>('skill · my-skill')
+    expect(area.value).toContain('x')
+    expect(screen.queryByLabelText('reference · notes.md')).not.toBeInTheDocument()
+  })
+
+  it('swaps to the requested asset when the user allows the discard', async () => {
+    await dirtySkill()
+    openTab!(REFERENCE)
+
+    await userEvent.click(await screen.findByRole('button', { name: DISCARD }))
+
+    expect(await screen.findByLabelText('reference · notes.md')).toBeInTheDocument()
+    expect(screen.queryByLabelText('skill · my-skill')).not.toBeInTheDocument()
+  })
+
+  // The "focus the existing window" path: main re-sends the same request on every second Edit of
+  // the asset already open. Prompting there would be a false alarm on the commonest interaction.
+  it('does not prompt when the same asset is re-opened while dirty', async () => {
+    await dirtySkill()
+    openTab!({ ...SKILL })
+
+    // The guard runs on a promise chain, so give it every chance to raise a prompt.
+    await act(async () => {})
+
+    expect(screen.queryByRole('button', { name: DISCARD })).not.toBeInTheDocument()
+    expect(screen.getByLabelText<HTMLTextAreaElement>('skill · my-skill').value).toContain('x')
+  })
+
+  it('swaps without prompting when nothing is dirty', async () => {
+    render(<EditorApp />)
+    openTab!(SKILL)
+    await screen.findByLabelText('skill · my-skill')
+
+    openTab!(REFERENCE)
+
+    expect(await screen.findByLabelText('reference · notes.md')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: DISCARD })).not.toBeInTheDocument()
   })
 })
 

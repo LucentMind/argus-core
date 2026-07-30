@@ -17,6 +17,7 @@ import type { SkillListItem } from '../../../../shared/memoryIpc'
 import type { ReferenceStatus } from '../../../../shared/referenceSync'
 import type { SkillUsageRow, ReferenceUsageRow } from '../../../../shared/observability'
 import type { ProposalType } from '../../../../shared/proposals'
+import type { EditorOpenRequest } from '../../../../shared/editorIpc'
 
 /** Proposal types that land in the library — union of the old Skills + References banners (spec §3.5). */
 // eslint-disable-next-line react-refresh/only-export-components -- constant co-located with the component it configures; see MetricCards.tsx for the same pattern
@@ -150,6 +151,17 @@ export function LibraryPage({
   // referenceSyncStore — the broadcast payload IS the new list, so no refetch here.
   useEffect(() => window.argus.skills.onChanged((p) => setSkills(p.skills)), [])
 
+  /**
+   * Every Edit / New button goes through here rather than `void`-ing the IPC. The editor is a
+   * real BrowserWindow created in main now, so this can genuinely reject — a bad preload path, a
+   * packaging regression that leaves out `editor.html`, display enumeration failing. `void`
+   * attaches no rejection handler, so the button would simply do nothing, with no error anywhere.
+   * The code this replaced was a local `setState` and could not fail.
+   */
+  function openEditor(req: EditorOpenRequest): void {
+    window.argus.editor.open(req).catch((err) => setError((err as Error).message))
+  }
+
   async function toggle(s: SkillListItem, v: boolean): Promise<void> {
     await accessStore.patch({ skills: { [`${s.tier}/${s.name}`]: v } })
     setSkills((await window.argus.skills.list()).skills) // enablement is computed main-side
@@ -192,7 +204,7 @@ export function LibraryPage({
     const { name, skills } = await window.argus.skills.fork(s.name, newName)
     setSkills(skills)
     setForking(null)
-    void window.argus.editor.open({ kind: 'skill', name, mode: 'edit' })
+    openEditor({ kind: 'skill', name, mode: 'edit' })
   }
 
   /** Claim a hivemind reference (restamp to user tier), then edit it. */
@@ -210,7 +222,7 @@ export function LibraryPage({
     setViewer(null)
     try {
       await window.argus.hivemind.claimReference(r.file)
-      void window.argus.editor.open({ kind: 'reference', name: r.file, mode: 'edit' })
+      openEditor({ kind: 'reference', name: r.file, mode: 'edit' })
     } catch (err) {
       setError((err as Error).message)
     }
@@ -368,9 +380,7 @@ export function LibraryPage({
               <Btn
                 variant="outline"
                 aria-label={`Edit · ${s.name}`}
-                onClick={() =>
-                  void window.argus.editor.open({ kind: 'skill', name: s.name, mode: 'edit' })
-                }
+                onClick={() => openEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
               >
                 <Pencil size={13} aria-hidden="true" />
                 Edit
@@ -484,9 +494,7 @@ export function LibraryPage({
               <Btn
                 variant="outline"
                 aria-label={`Edit · ${r.file}`}
-                onClick={() =>
-                  void window.argus.editor.open({ kind: 'reference', name: r.file, mode: 'edit' })
-                }
+                onClick={() => openEditor({ kind: 'reference', name: r.file, mode: 'edit' })}
               >
                 <Pencil size={13} aria-hidden="true" />
                 Edit
@@ -569,17 +577,11 @@ export function LibraryPage({
           items={[
             {
               label: 'New skill',
-              onSelect: () =>
-                void window.argus.editor.open({ kind: 'skill', name: 'my-skill', mode: 'create' })
+              onSelect: () => openEditor({ kind: 'skill', name: 'my-skill', mode: 'create' })
             },
             {
               label: 'New reference',
-              onSelect: () =>
-                void window.argus.editor.open({
-                  kind: 'reference',
-                  name: 'my-notes.md',
-                  mode: 'create'
-                })
+              onSelect: () => openEditor({ kind: 'reference', name: 'my-notes.md', mode: 'create' })
             }
           ]}
         />

@@ -85,6 +85,18 @@ export class UiStore {
     window.argus?.ui?.setZoomFactor(this.state.uiScale)
   }
 
+  /**
+   * Push the persisted theme + zoom onto *this* document. The constructor already does it, but
+   * that only helps a window whose import graph reaches this module — the editor window's does
+   * not, and `theme.css` puts the dark tokens on bare `:root`, so a light-theme user got a black
+   * editor window beside a cream main window. Called explicitly from `editor.tsx` rather than
+   * relying on a bare side-effect import, so a bundler can never drop it as unused.
+   */
+  applyToDocument(): void {
+    this.applyTheme()
+    this.applyScale()
+  }
+
   setUiScale(scale: UiScale): void {
     this.set({ uiScale: scale })
     localStorage.setItem(KEYS.uiScale, String(scale))
