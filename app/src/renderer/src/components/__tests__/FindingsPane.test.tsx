@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FindingsPane } from '../FindingsPane'
@@ -363,5 +363,23 @@ describe('FindingsPane', () => {
     const rule = screen.getByTestId('clear-rule')
     expect(clear.compareDocumentPosition(rule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(rule.compareDocumentPosition(collapse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('does not claim there are no findings while the list is still loading', async () => {
+    let release: (rows: FindingRow[]) => void = () => {}
+    window.argus.findings.list = vi.fn(
+      () =>
+        new Promise<FindingRow[]>((res) => {
+          release = res
+        })
+    )
+    render(<FindingsPane slug="C-1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+
+    expect(screen.queryByText('No findings yet.')).toBeNull()
+
+    await act(async () => {
+      release([])
+    })
+    expect(screen.getByText('No findings yet.')).toBeInTheDocument()
   })
 })
