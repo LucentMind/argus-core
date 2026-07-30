@@ -130,7 +130,17 @@ export function SettingRow({
   onOpen?: () => void
   children: ReactNode
 }): React.JSX.Element {
-  const labelClass = `flex items-center gap-2 text-sm text-ink${hint ? ' cursor-help underline decoration-dotted decoration-mute underline-offset-2' : ''}`
+  /**
+   * `flex-wrap` is load-bearing, not cosmetic. The label and every badge share one flex line, so
+   * without it a badge-heavy row (a shadowing Library skill carries six chips) shrinks EVERY item
+   * to min-content at once the moment they stop fitting — measured at a 900px window: the name
+   * `triage-a-flaky-test` collapsed to 44px and broke mid-word across four lines, while the line
+   * still overflowed its column by 170px, clipping the trailing chips. Wrapping lets the badges
+   * fall to a second line and leaves the name at its natural width. See
+   * `scripts/library-layout-probe.mjs`, which measures this against the real renderer (jsdom
+   * loads no stylesheet, so no vitest assertion can see it).
+   */
+  const labelClass = `flex flex-wrap items-center gap-2 text-sm text-ink${hint ? ' cursor-help underline decoration-dotted decoration-mute underline-offset-2' : ''}`
   const labelContent = onOpen ? (
     <>
       <button
