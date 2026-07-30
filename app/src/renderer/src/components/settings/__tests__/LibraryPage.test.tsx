@@ -28,11 +28,33 @@ const initial: SkillsPayload = {
       tier: 'user',
       description: 'local adaptation',
       enabled: true,
-      shadows: ['hivemind', 'bundled']
+      shadows: ['hivemind', 'bundled'],
+      shadowDiverged: false
     },
-    { name: 'my-notes', tier: 'user', description: 'plain user skill', enabled: true, shadows: [] },
-    { name: 'hive-probe', tier: 'hivemind', description: 'probe', enabled: true, shadows: [] },
-    { name: 'analyze-applog', tier: 'bundled', description: 'applog', enabled: true, shadows: [] }
+    {
+      name: 'my-notes',
+      tier: 'user',
+      description: 'plain user skill',
+      enabled: true,
+      shadows: [],
+      shadowDiverged: false
+    },
+    {
+      name: 'hive-probe',
+      tier: 'hivemind',
+      description: 'probe',
+      enabled: true,
+      shadows: [],
+      shadowDiverged: false
+    },
+    {
+      name: 'analyze-applog',
+      tier: 'bundled',
+      description: 'applog',
+      enabled: true,
+      shadows: [],
+      shadowDiverged: false
+    }
   ]
 }
 
@@ -43,11 +65,33 @@ const afterAdopt: SkillsPayload = {
       tier: 'hivemind',
       description: 'upstream rca',
       enabled: true,
-      shadows: ['bundled']
+      shadows: ['bundled'],
+      shadowDiverged: false
     },
-    { name: 'my-notes', tier: 'user', description: 'plain user skill', enabled: true, shadows: [] },
-    { name: 'hive-probe', tier: 'hivemind', description: 'probe', enabled: true, shadows: [] },
-    { name: 'analyze-applog', tier: 'bundled', description: 'applog', enabled: true, shadows: [] }
+    {
+      name: 'my-notes',
+      tier: 'user',
+      description: 'plain user skill',
+      enabled: true,
+      shadows: [],
+      shadowDiverged: false
+    },
+    {
+      name: 'hive-probe',
+      tier: 'hivemind',
+      description: 'probe',
+      enabled: true,
+      shadows: [],
+      shadowDiverged: false
+    },
+    {
+      name: 'analyze-applog',
+      tier: 'bundled',
+      description: 'applog',
+      enabled: true,
+      shadows: [],
+      shadowDiverged: false
+    }
   ]
 }
 

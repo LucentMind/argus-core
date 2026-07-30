@@ -80,6 +80,49 @@ function scanTier(root: string): string[] {
     .map((d) => d.name)
 }
 
+/** Every file under `root`, as sorted `/`-joined relative paths. */
+function fileListing(root: string): string[] {
+  const out: string[] = []
+  const walk = (rel: string): void => {
+    for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) walk(r)
+      else if (e.isFile()) out.push(r)
+    }
+  }
+  walk('')
+  return out.sort()
+}
+
+/**
+ * Does the user's fork of `name` differ from the installed HiveMind copy?
+ *
+ * Content-compared rather than stamped at fork time, because a shadow can also arrive via
+ * proposal-accept (`proposals.ts` writes skill-edit straight to skills-user), which has no
+ * fork event to record. Comparing live content also keeps the answer true after an Update
+ * rewrites the hivemind copy — exactly where `updateAvailable` goes dark.
+ *
+ * NOT called from `resolveSkills`: that runs on every session materialization and must not
+ * grow directory walks. `skillsPayload()` calls it for shadowing rows only.
+ */
+export function userSkillShadowDiverged(argusHome: string, name: string): boolean {
+  const user = path.join(userSkillsDir(argusHome), name)
+  const hive = path.join(hivemindSkillsDir(argusHome), name)
+  try {
+    if (!fs.existsSync(path.join(user, 'SKILL.md')) || !fs.existsSync(path.join(hive, 'SKILL.md')))
+      return false
+    const a = fileListing(user)
+    const b = fileListing(hive)
+    if (a.length !== b.length || a.some((f, i) => f !== b[i])) return true
+    const read = (root: string, f: string): string =>
+      fs.readFileSync(path.join(root, f), 'utf8').replace(/\r\n/g, '\n')
+    return a.some((f) => read(user, f) !== read(hive, f))
+  } catch {
+    // A failed compare must not manufacture a scary chip.
+    return false
+  }
+}
+
 export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedSkill[] {
   const byName = new Map<string, ResolvedSkill>()
   for (const { tier, root } of TIERS) {
