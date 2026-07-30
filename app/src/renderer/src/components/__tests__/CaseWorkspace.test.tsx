@@ -9,6 +9,7 @@ import { confirm } from '../../lib/confirmStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
+import type { FindingRow } from '../../../../shared/observability'
 
 // ConfirmHost (which confirm() talks to) is mounted at the app root (App.tsx), not inside
 // CaseWorkspace — mock the store directly, same pattern as ReposSection.test.tsx and
@@ -211,6 +212,30 @@ function renderWorkspace(overrides?: {
   return render(workspace('NAV-1', overrides))
 }
 
+function findingRow(over: Partial<FindingRow>): FindingRow {
+  return {
+    id: 1,
+    caseId: 1,
+    sessionId: 1,
+    turnId: null,
+    summary: 's',
+    reviewState: 'pending',
+    reviewedAt: null,
+    createdAt: '2026-07-27T10:00:00.000Z',
+    layer: null,
+    severity: null,
+    diffPath: null,
+    diffLine: null,
+    suggestedChange: null,
+    commentUrl: null,
+    pushedSha: null,
+    commentBody: null,
+    headSha: null,
+    mode: 'investigation',
+    ...over
+  }
+}
+
 // CaseFiles is evidence-only: the Analyze button comes from evidence.list, not files.list
 function stubAnalyzableFile(): void {
   window.argus.evidence.list = vi.fn(async () => [
@@ -292,6 +317,27 @@ describe('CaseWorkspace case switching', () => {
       'title',
       'Rescan evidence folder'
     )
+  })
+
+  // Regression coverage: FindingsPane's rejection handler deliberately stopped clearing
+  // `findings` on a failed fetch (a transient failure must not wipe findings already on
+  // screen and claim the case has none). That fix only works because FindingsPane is keyed
+  // on `slug` — the remount resets its state on every case switch. Without the key, the
+  // exact same component instance carries case A's findings across the switch, and since
+  // rejection no longer clears them, case B renders under case A's stale findings if its
+  // own fetch fails — worse than the empty-state bug the other fix removed.
+  it('does not leak case A findings into case B when case B’s findings.list rejects', async () => {
+    window.argus.findings.list = vi.fn(async (slug: string) => {
+      if (slug === 'NAV-1') return [findingRow({ id: 1, summary: 'Root cause A' })]
+      throw new Error('boom')
+    }) as never
+    const { rerender } = render(workspace('NAV-1'))
+    await screen.findByText('Root cause A')
+
+    rerender(workspace('NAV-2'))
+
+    await waitFor(() => expect(window.argus.findings.list).toHaveBeenCalledWith('NAV-2'))
+    expect(screen.queryByText('Root cause A')).toBeNull()
   })
 })
 
