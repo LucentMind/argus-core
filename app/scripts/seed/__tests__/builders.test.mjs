@@ -3,6 +3,7 @@ import { createCtx } from '../ctx.mjs'
 import { bucketOfCheckRun, buildSyntheticStatus, rollupOf, statusFromGh } from '../prs.mjs'
 import { buildFlagshipFindings, buildThinFindings } from '../findings.mjs'
 import { buildTrees } from '../files.mjs'
+import { buildProposals } from '../knowledge.mjs'
 
 describe('createCtx', () => {
   const ctx = createCtx({ argusHome: 'C:/home', db: null })
@@ -279,5 +280,63 @@ describe('buildTrees', () => {
   it('gives a thin case two artifacts and no evidence bulk', () => {
     const thin = buildTrees('HMT-2-green')
     expect(Object.keys(thin.artifacts)).toHaveLength(2)
+  })
+})
+
+describe('buildProposals', () => {
+  const all = buildProposals()
+
+  it('covers all six proposal types among the pending set', () => {
+    const pending = all.filter((p) => p.status === 'pending')
+    expect(new Set(pending.map((p) => p.type))).toEqual(
+      new Set([
+        'skill-new',
+        'skill-edit',
+        'reference-edit',
+        'recipe',
+        'memory-append',
+        'case-summary'
+      ])
+    )
+  })
+
+  it('covers all five reject reason tags among the archived set', () => {
+    const rejected = all.filter((p) => p.status === 'rejected')
+    expect(new Set(rejected.map((p) => p.rejectTag))).toEqual(
+      new Set(['overfit', 'overgeneric', 'wrong', 'duplicate', 'other'])
+    )
+  })
+
+  it('includes accepted proposals so the corpus has both labels', () => {
+    expect(all.some((p) => p.status === 'accepted')).toBe(true)
+  })
+
+  it('carries exactly one re-produced item and one job-linked item', () => {
+    expect(all.filter((p) => p.previouslyReviewed)).toHaveLength(1)
+    expect(all.filter((p) => p.jobId !== null)).toHaveLength(1)
+  })
+
+  it('targets an existing bundled skill so the diff has a left-hand side', () => {
+    const edit = all.find((p) => p.type === 'skill-edit')
+    expect(edit.target).toBe('code-review')
+  })
+
+  it('gives one rejection a free-text note', () => {
+    expect(all.filter((p) => p.rejectNote !== null)).toHaveLength(1)
+  })
+
+  it('makes the case-summary proposal acceptable', () => {
+    const cs = all.find((p) => p.type === 'case-summary')
+    // acceptProposal throws without summary_json, and writeProposal rejects a
+    // multi-line extra frontmatter value.
+    expect(cs.summaryJson).toBeTruthy()
+    expect(cs.summaryJson).not.toContain('\n')
+    expect(Object.keys(JSON.parse(cs.summaryJson)).sort()).toEqual([
+      'fix',
+      'keywords',
+      'rootCause',
+      'signature',
+      'symptoms'
+    ])
   })
 })
