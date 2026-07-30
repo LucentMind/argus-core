@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ReposSection } from '../ReposSection'
@@ -151,5 +151,51 @@ describe('ReposSection repo chip layout', () => {
     render(<ReposSection slug="C-1" />)
     await screen.findByText('hivemindtest')
     expect(screen.queryByText('worktree')).toBeNull()
+  })
+})
+
+describe('ReposSection pending states', () => {
+  it('shows a chip with the picked repo name while linking', async () => {
+    window.argus.workspaces.pick = vi.fn(async () => 'C:\\repos\\argus-core')
+    let release: () => void = () => {}
+    window.argus.workspaces.link = vi.fn(
+      () =>
+        new Promise<undefined>((res) => {
+          release = () => res(undefined)
+        })
+    )
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText('hivemindtest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link repo' }))
+
+    expect(await screen.findByText('argus-core')).toBeInTheDocument()
+
+    await act(async () => {
+      release()
+    })
+  })
+
+  it('surfaces a link failure on the chip instead of swallowing it', async () => {
+    window.argus.workspaces.pick = vi.fn(async () => 'C:\\not-a-repo')
+    window.argus.workspaces.link = vi.fn(() =>
+      Promise.reject(new Error('Not a git repository: C:\\not-a-repo'))
+    )
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText('hivemindtest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link repo' }))
+
+    expect(await screen.findByTitle('Not a git repository: C:\\not-a-repo')).toBeInTheDocument()
+  })
+
+  it('surfaces an unlink failure', async () => {
+    window.argus.workspaces.unlink = vi.fn(() => Promise.reject(new Error('worktree is locked')))
+    render(<ReposSection slug="C-1" />)
+    await screen.findByText('hivemindtest')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink repo' }))
+
+    expect(await screen.findByTitle('worktree is locked')).toBeInTheDocument()
   })
 })
