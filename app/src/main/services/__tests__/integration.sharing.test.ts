@@ -196,6 +196,10 @@ describe('HiveMind against a local bare repo (no network)', () => {
     expect(ok.ok).toBe(true)
     expect(heads()).toBe(before)
     expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
+    // Both cleanup failures in push's `finally` are deliberately swallowed, so a
+    // `worktree remove` that silently failed on every push would otherwise be invisible —
+    // assert the registration is actually gone against real git, not just that push resolved.
+    expect(git(clone, 'worktree', 'list')).not.toMatch(/argus-share/)
 
     // ...and when the PR step fails after the branch work has already happened
     const failing = service(async () => {
@@ -205,6 +209,55 @@ describe('HiveMind against a local bare repo (no network)', () => {
     expect(bad.ok).toBe(false)
     expect(heads()).toBe(before)
     expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
+  }, 30_000)
+
+  it('sync heals a clone parked on a share branch, restoring the localDivergence guard (not just the ref)', async () => {
+    // The old `push` self-healed a parked HEAD via a `checkout <defaultBranch>` in its
+    // `finally`, on every push. The worktree rewrite never touches the clone's HEAD, so
+    // nothing heals a clone left parked (by a killed process, or a leftover manual checkout)
+    // any more — and `sync()`'s `pull --ff-only` just advances whatever branch HEAD sits on,
+    // not main. Simulate that leftover by hand and prove `sync()` now restores both the ref
+    // and the divergence guard that depends on it.
+    const gh: Runner = async () => 'https://github.com/acme/hivemind/pull/21'
+    const svc = service(gh)
+    await svc.sync()
+    const clone = path.join(homeB, 'hivemind')
+    git(clone, 'config', 'user.email', 'test@argus.local')
+    git(clone, 'config', 'user.name', 'Argus Test')
+
+    await svc.install('reference', 'hive-note.md')
+    await svc.claimReference('hive-note.md')
+
+    const local = path.join(homeB, 'references', 'hive-note.md')
+    fs.writeFileSync(
+      local,
+      fs.readFileSync(local, 'utf8').replace('# note v1', '# note v1\n\nMY UNPUSHED PARAGRAPH')
+    )
+
+    const r = await svc.push('reference', 'hive-note.md', 'Add my paragraph')
+    expect(r.ok).toBe(true)
+
+    // Simulate a clone left parked on the pushed share branch, exactly what the old
+    // in-clone `checkout -B` implementation could leave behind on a killed process.
+    const branch = git(bare, 'branch', '--list', 'argus/*')
+      .replace(/^\*?\s+/, '')
+      .trim()
+    git(clone, 'fetch', 'origin')
+    git(clone, 'checkout', branch)
+    expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(branch)
+
+    // Proves the poison, not just asserts it: with HEAD parked on a branch whose tip is
+    // byte-identical to the local edit (that's what got pushed), the guard is fooled into
+    // reporting nothing would be lost — the exact silent-data-loss condition it exists to
+    // prevent.
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(false)
+
+    await svc.sync()
+
+    expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main')
+    // The guard is restored, not merely the ref: relative to true HEAD (main, which never
+    // received this unmerged PR) the edit is genuinely unpushed and must be diverged again.
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(true)
   }, 30_000)
 
   it('contribution round-trip keeps authorship: push own reference, install merged copy, still pushable', async () => {

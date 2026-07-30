@@ -93,6 +93,69 @@ describe('HivemindService states', () => {
     expect(p.state).toBe('error')
     expect(p.error).toMatch(/divergent/)
   })
+
+  it('sync heals a clone parked on a share branch before pulling', async () => {
+    // The old `push` self-healed via a `checkout <defaultBranch>` in its `finally`; the
+    // worktree rewrite never touches the clone's HEAD at all, so a clone left parked (by a
+    // killed process or a failed cleanup) never recovers on its own. `sync()` must restore
+    // the default branch before pulling, or every HEAD-relative read stays poisoned forever.
+    seedClone()
+    const calls: string[][] = []
+    const runner: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'remote') return 'https://github.com/acme/hivemind.git'
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD')
+        return 'argus/share-skill-x-1234567890'
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'origin/HEAD')
+        return 'origin/main'
+      if (args[0] === 'rev-parse') return 'headsha'
+      if (args[0] === 'log') return 'itemsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.sync()
+    expect(calls.some((c) => c[0] === 'checkout' && c[1] === 'main')).toBe(true)
+    // the heal must happen before the pull, or a parked HEAD advances the wrong branch
+    const checkoutIdx = calls.findIndex((c) => c[0] === 'checkout')
+    const pullIdx = calls.findIndex((c) => c[0] === 'pull')
+    expect(checkoutIdx).toBeGreaterThanOrEqual(0)
+    expect(pullIdx).toBeGreaterThan(checkoutIdx)
+    expect(p.state).toBe('ready')
+  })
+
+  it('sync issues no checkout when HEAD is already on the default branch', async () => {
+    seedClone()
+    const calls: string[][] = []
+    const runner: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'remote') return 'https://github.com/acme/hivemind.git'
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD') return 'main'
+      if (args[0] === 'rev-parse') return 'headsha'
+      if (args[0] === 'log') return 'itemsha'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.sync()
+    expect(calls.some((c) => c[0] === 'checkout')).toBe(false)
+    // short-circuits before even asking for the default branch when HEAD isn't parked
+    expect(calls.some((c) => c[0] === 'rev-parse' && c.includes('origin/HEAD'))).toBe(false)
+  })
+
+  it('sync does not probe or heal HEAD on a fresh clone (nothing to park)', async () => {
+    const calls: string[][] = []
+    const runner: Runner = async (_c, args) => {
+      calls.push(args)
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    await svc.sync()
+    expect(calls.some((c) => c[0] === 'checkout')).toBe(false)
+    expect(calls[0]).toEqual([
+      'clone',
+      'https://github.com/acme/hivemind.git',
+      path.join(home, 'hivemind')
+    ])
+  })
 })
 
 describe('repo switch', () => {
