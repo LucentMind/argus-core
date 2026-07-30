@@ -530,7 +530,9 @@ describe('update hazards', () => {
     })
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
-    expect(await screen.findByText(/edits that are not in the HiveMind/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/differs from the version that would be installed/i)
+    ).toBeInTheDocument()
     expect(screen.getByLabelText('Overwrite my copy of hive-note.md')).toBeInTheDocument()
   })
 
@@ -582,9 +584,38 @@ describe('update hazards', () => {
     localDivergenceMock.mockResolvedValue({ diverged: true, diff: '' })
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
-    expect(await screen.findByText(/edits that are not in the HiveMind/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/differs from the version that would be installed/i)
+    ).toBeInTheDocument()
     expect(screen.getByLabelText('Overwrite my copy of hive-note.md')).toBeInTheDocument()
     // cheapest stable handle for "no divergence diff block rendered": its caption must be absent.
     expect(screen.queryByText(/Your edits — would be lost/i)).not.toBeInTheDocument()
+  })
+
+  it('the divergence banner and its confirm button carry a danger tone, not the neutral shadow-warning chrome', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'reference',
+          name: 'hive-note.md',
+          description: '',
+          commit: 'sha-3',
+          installed: true,
+          installedCommit: 'sha-2',
+          localTier: 'user',
+          shadowedByUser: false,
+          updateAvailable: true
+        }
+      ]
+    }
+    localDivergenceMock.mockResolvedValue({ diverged: true, diff: 'diff --git a/x b/x\n' })
+    renderWith(payload)
+    fireEvent.click(await screen.findByLabelText('Update hive-note.md'))
+    const banner = await screen.findByText(/differs from the version that would be installed/i)
+    expect(banner.className).toMatch(/border-danger/)
+    expect(banner.className).not.toMatch(/border-hair/)
+    const button = screen.getByLabelText('Overwrite my copy of hive-note.md')
+    expect(button.className).toMatch(/bg-danger/)
   })
 })
