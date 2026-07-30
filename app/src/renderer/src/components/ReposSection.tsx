@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
 import { FolderGit2, Unlink } from 'lucide-react'
-import { Chip, IconBtn, SectionLabel } from './ui'
+import { Chip, IconBtn, SectionLabel, Skeleton, SkeletonRows } from './ui'
 import { RepoGraphControl } from './RepoGraphControl'
 import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
+import { usePendingDisplay } from '../lib/usePendingDisplay'
+import { usePendingList } from '../lib/usePendingList'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 
 /** Linked repos as evidence: the repo chips (moved here from the header), with
@@ -25,12 +27,27 @@ export function ReposSection({
 }): React.JSX.Element {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [refs, setRefs] = useState<BundleWorkspaceRef[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const pending = usePendingList()
+  const showSkeleton = usePendingDisplay(!loaded)
 
   const reload = useCallback((): Promise<void> => {
     // keep the citation domain + snippet cache in sync with link state
     invalidateRepoSnippets(slug)
     void reposStore.load(slug)
-    return window.argus.workspaces.list(slug).then(setWorkspaces)
+    return window.argus.workspaces.list(slug).then(
+      (w) => {
+        setWorkspaces(w)
+        setLoaded(true)
+      },
+      () => {
+        // `loaded` on rejection too, so a failed list does not leave the section skeletal
+        // forever. Workspaces are deliberately NOT cleared: a rejected fetch has not established
+        // that there are no repos, and wiping a list that loaded successfully a moment ago would
+        // make a transient IPC failure read as "no repos".
+        setLoaded(true)
+      }
+    )
   }, [slug])
 
   useEffect(() => {
@@ -50,9 +67,30 @@ export function ReposSection({
 
   async function link(): Promise<void> {
     const p = await window.argus.workspaces.pick()
-    if (p) {
+    if (!p) return
+    // The basename is known the moment the dialog closes, so the chip is on screen before the
+    // git spawns start — linkWorkspace runs three, then describeWorkspace runs `git status`
+    // over the whole repo, then reload() re-describes every linked repo.
+    const id = pending.add(p.split(/[\\/]/).pop() ?? p)
+    try {
       await window.argus.workspaces.link(slug, p)
       await reload()
+      pending.resolve([id])
+    } catch (err) {
+      pending.fail([id], (err as Error).message)
+    }
+  }
+
+  async function unlink(w: WorkspaceInfo): Promise<void> {
+    try {
+      await window.argus.workspaces.unlink(slug, w.path)
+      await reload()
+    } catch (err) {
+      // `git worktree remove` failing on a locked file is routine on Windows and used to be
+      // completely silent. No pending chip on the way in — an unlink either happens or reports
+      // why; there is nothing useful to show mid-flight.
+      const id = pending.add(w.path.split(/[\\/]/).pop() ?? w.path)
+      pending.fail([id], (err as Error).message)
     }
   }
 
@@ -109,12 +147,49 @@ export function ReposSection({
                 aria-label="Unlink repo"
                 title="Unlink repo"
                 className="h-5 w-5 hover:text-danger"
-                onClick={() => void window.argus.workspaces.unlink(slug, w.path).then(reload)}
+                onClick={() => void unlink(w)}
               >
                 <Unlink size={12} />
               </IconBtn>
               <RepoGraphControl repoPath={w.path} />
             </>
+          )}
+        </div>
+      ))}
+      {/* usePendingDisplay stays true briefly after `loaded` flips, so the guard here is
+          workspaces.length === 0 (not !loaded) to keep the skeleton exclusive with the chip
+          list rather than cancelling that minimum-hold. */}
+      {showSkeleton && workspaces.length === 0 && <SkeletonRows count={1} />}
+      {pending.items.map((p) => (
+        <div key={p.id} className="flex items-center gap-1">
+          <div
+            title={p.error}
+            className={`min-w-0 flex-1 rounded-r2 border px-2 py-1.5 ${
+              p.error ? 'border-danger/60 bg-danger/10' : 'border-defect/30 bg-hair/50'
+            }`}
+          >
+            <span
+              className={`truncate font-mono text-xs font-medium ${
+                p.error ? 'text-danger line-through' : 'text-defect'
+              }`}
+            >
+              {p.name}
+            </span>
+            {p.error ? (
+              <div className="mt-0.5 truncate text-[11px] text-danger">{p.error}</div>
+            ) : (
+              <Skeleton className="mt-1 h-2 w-[70%]" />
+            )}
+          </div>
+          {p.error && (
+            <IconBtn
+              aria-label={`Dismiss ${p.name} error`}
+              title="Dismiss"
+              className="h-5 w-5"
+              onClick={() => pending.dismiss(p.id)}
+            >
+              ×
+            </IconBtn>
           )}
         </div>
       ))}
