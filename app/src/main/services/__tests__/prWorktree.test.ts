@@ -90,4 +90,20 @@ describe('ensurePrWorktree', () => {
     expect(await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)).toBe(wt)
     expect(git(wt, 'rev-parse', 'HEAD')).toBe(moved)
   })
+
+  it('routes every git call through an injected runner', async () => {
+    const calls: string[][] = []
+    const run = async (cwd: string, args: string[]): Promise<string> => {
+      calls.push(args)
+      return execFileSync('git', args, {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      }).trim()
+    }
+    const wt = await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run })
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(prSha)
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.some((a) => a[0] === 'fetch')).toBe(true)
+  })
 })
