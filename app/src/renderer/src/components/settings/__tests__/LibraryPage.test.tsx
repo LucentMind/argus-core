@@ -910,3 +910,78 @@ describe('forked skill rows', () => {
     )
   })
 })
+
+describe('LibraryPage byline', () => {
+  it('shows a byline on an authored row and none on an unauthored one', async () => {
+    argus.skills.list.mockResolvedValue({
+      skills: [
+        {
+          name: 'mine',
+          tier: 'user',
+          description: 'local adaptation',
+          enabled: true,
+          shadows: [],
+          author: 'Alex Chen <alex@example.test>'
+        },
+        {
+          name: 'legacy',
+          tier: 'user',
+          description: 'plain user skill',
+          enabled: true,
+          shadows: [],
+          author: null
+        }
+      ]
+    })
+    render(<LibraryPage />)
+    expect(await screen.findByText(/by Alex Chen/)).toBeInTheDocument()
+    const legacyRow = await findRow('legacy')
+    expect(legacyRow.textContent).not.toContain('by ')
+  })
+
+  it('suppresses the byline in Built-in, where assets are shipped rather than contributed', async () => {
+    argus.skills.list.mockResolvedValue({
+      skills: [
+        {
+          name: 'packaged',
+          tier: 'bundled',
+          description: 'applog',
+          enabled: true,
+          shadows: [],
+          author: 'Alex Chen <alex@example.test>'
+        }
+      ]
+    })
+    render(<LibraryPage />)
+    await screen.findByText('packaged')
+    expect(screen.queryByText(/by Alex Chen/)).not.toBeInTheDocument()
+  })
+
+  it('bylines an authored reference row and suppresses it for a built-in one', async () => {
+    argus.refsync.get.mockResolvedValue({
+      ...refPayload,
+      references: [
+        {
+          file: 'team-tips.md',
+          tier: 'user',
+          lastSynced: null,
+          sourceCount: 0,
+          stale: false,
+          author: 'Alex Chen <alex@example.test>'
+        },
+        {
+          file: 'onboarding.md',
+          tier: null,
+          lastSynced: null,
+          sourceCount: 0,
+          stale: false,
+          author: 'Alex Chen <alex@example.test>'
+        }
+      ]
+    })
+    render(<LibraryPage />)
+    expect(await screen.findByText(/by Alex Chen/)).toBeInTheDocument()
+    const builtInRow = await findRow('onboarding.md')
+    expect(builtInRow.textContent).not.toContain('by ')
+  })
+})
