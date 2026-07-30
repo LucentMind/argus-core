@@ -339,6 +339,39 @@ describe('CaseWorkspace case switching', () => {
     await waitFor(() => expect(window.argus.findings.list).toHaveBeenCalledWith('NAV-2'))
     expect(screen.queryByText('Root cause A')).toBeNull()
   })
+
+  // Regression coverage: ReposSection holds pending/error chips in its own usePendingList()
+  // state (component-instance state, not derived from props). If ReposSection is not remounted
+  // on a slug change, a failed unlink in case A leaves an error chip that survives the switch to
+  // case B and renders underneath case B's (correctly reloaded) repo list, misattributed to the
+  // wrong case.
+  it('does not leak a case A repo unlink-error chip into case B', async () => {
+    window.argus.workspaces.list = vi.fn(async (slug: string) =>
+      slug === 'NAV-1'
+        ? [
+            {
+              path: 'C:\\repos\\hivemindtest',
+              remote: null,
+              branch: 'main',
+              currentRef: 'main',
+              dirty: false,
+              worktreePath: null
+            }
+          ]
+        : []
+    ) as never
+    window.argus.workspaces.unlink = vi.fn(() => Promise.reject(new Error('worktree is locked')))
+
+    const { rerender } = render(workspace('NAV-1'))
+    await screen.findByText('hivemindtest')
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink repo' }))
+    expect(await screen.findByTitle('worktree is locked')).toBeInTheDocument()
+
+    rerender(workspace('NAV-2'))
+
+    await waitFor(() => expect(window.argus.workspaces.list).toHaveBeenCalledWith('NAV-2'))
+    expect(screen.queryByTitle('worktree is locked')).toBeNull()
+  })
 })
 
 describe('CaseWorkspace session bootstrap', () => {
