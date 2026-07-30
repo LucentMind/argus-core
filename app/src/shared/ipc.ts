@@ -62,6 +62,10 @@ export const IPC = {
   skillsRead: 'skills:read',
   skillsWrite: 'skills:write',
   skillsFork: 'skills:fork',
+  /** main → renderer broadcast: the skill list changed. Carries the full `SkillsPayload`, so a
+   *  window that did not perform the write (the Library, while the editor window saves) can
+   *  adopt the new list without a refetch. */
+  skillsChanged: 'skills:changed',
   authoringDraft: 'authoring:draft',
   authoringImprove: 'authoring:improve',
   settingsGet: 'settings:get',

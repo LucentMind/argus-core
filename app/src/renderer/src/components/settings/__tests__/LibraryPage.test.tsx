@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
@@ -12,13 +12,6 @@ import type { RefSyncPayload } from '../../../../../shared/referenceSync'
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
   alert: vi.fn(() => Promise.resolve())
-}))
-
-// This file mounts the real AssetEditor, whose provider label subscribes to the settings
-// store — which reaches for `window.argus.settings.get()`, absent from this file's fixture.
-// The label is not what these tests are about; stub the hook rather than grow the fixture.
-vi.mock('../../library/assistProvider', () => ({
-  useAssistProvider: vi.fn(() => null)
 }))
 
 const initial: SkillsPayload = {
@@ -179,10 +172,11 @@ function mockArgus(): {
     read: ReturnType<typeof vi.fn>
     write: ReturnType<typeof vi.fn>
     fork: ReturnType<typeof vi.fn>
+    onChanged: ReturnType<typeof vi.fn>
   }
+  editor: { open: ReturnType<typeof vi.fn> }
   usage: { stats: ReturnType<typeof vi.fn> }
   access: { patch: ReturnType<typeof vi.fn> }
-  authoring: { draft: ReturnType<typeof vi.fn>; improve: ReturnType<typeof vi.fn> }
   hivemind: {
     get: ReturnType<typeof vi.fn>
     pushPreview: ReturnType<typeof vi.fn>
@@ -214,8 +208,10 @@ function mockArgus(): {
       write: vi.fn().mockResolvedValue({ skills: initial.skills, hash: 'hash-rca-2' }),
       // returns a DIFFERENT name than the source so tests can prove the editor opens on
       // the returned name, not the row's own name (finding 1)
-      fork: vi.fn().mockResolvedValue({ name: 'analyze-applog-copy', skills: initial.skills })
+      fork: vi.fn().mockResolvedValue({ name: 'analyze-applog-copy', skills: initial.skills }),
+      onChanged: vi.fn(() => () => {})
     },
+    editor: { open: vi.fn().mockResolvedValue(undefined) },
     usage: {
       stats: vi.fn().mockResolvedValue({
         hygiene: { staleDays: 45, minRecalls: 3, trackingStartedAt: '2026-01-01T00:00:00.000Z' },
@@ -241,10 +237,6 @@ function mockArgus(): {
         ],
         archived: []
       })
-    },
-    authoring: {
-      draft: vi.fn().mockResolvedValue({ content: '' }),
-      improve: vi.fn().mockResolvedValue({ content: '' })
     },
     hivemind: {
       get: vi.fn().mockResolvedValue(
@@ -619,7 +611,7 @@ describe('editing affordances', () => {
     expect(await screen.findByRole('button', { name: /edit a copy/i })).toBeInTheDocument()
   })
 
-  it("forks then opens the editor on the RETURNED name — not the source row's name", async () => {
+  it("forks then opens the editor WINDOW on the RETURNED name — not the source row's name", async () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
@@ -631,21 +623,25 @@ describe('editing affordances', () => {
     await waitFor(() =>
       expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog', 'analyze-applog')
     )
-    // asserting on the editor's OWN textbox (not a dialog name shared with the still-open
-    // viewer) is what makes this test fail if fork silently failed to open the editor
-    expect(
-      await screen.findByRole('textbox', { name: /^skill · analyze-applog-copy$/ })
-    ).toBeInTheDocument()
-    // the viewer, the fork dialog, and their "Edit a copy"/"Copy" buttons are all gone —
-    // only the editor remains
+    // the fork's RETURNED name is what the window is asked to open
+    await waitFor(() =>
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 'analyze-applog-copy',
+        mode: 'edit'
+      })
+    )
+    // the viewer, the fork dialog, and their "Edit a copy"/"Copy" buttons are all gone
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^copy$/i })).toBeNull())
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^copy$/i })).toBeNull()
+    // and nothing renders in-page: the editor lives in its own window now
+    expect(screen.queryByRole('textbox', { name: /^skill · analyze-applog-copy$/ })).toBeNull()
     // no redundant skills.list() round trip after a successful fork (finding 6): the
     // fork response already carries the refreshed list, so list() only ran once, on mount
     expect(window.argus.skills.list).toHaveBeenCalledTimes(1)
   })
 
-  it('forking with a changed name calls skills.fork(source, newName) and opens the editor on it', async () => {
+  it('forking with a changed name calls skills.fork(source, newName) and opens the window on it', async () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
@@ -656,13 +652,17 @@ describe('editing affordances', () => {
     await waitFor(() =>
       expect(window.argus.skills.fork).toHaveBeenCalledWith('analyze-applog', 'my-private-applog')
     )
-    // mock always returns analyze-applog-copy — proves the editor opens on the RETURNED name
-    expect(
-      await screen.findByRole('textbox', { name: /^skill · analyze-applog-copy$/ })
-    ).toBeInTheDocument()
+    // mock always returns analyze-applog-copy — proves the window opens on the RETURNED name
+    await waitFor(() =>
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 'analyze-applog-copy',
+        mode: 'edit'
+      })
+    )
   })
 
-  it('a rejected fork surfaces an error inline in the dialog and does NOT open the editor', async () => {
+  it('a rejected fork surfaces an error inline in the dialog and does NOT open the window', async () => {
     argus.skills.fork = vi.fn().mockRejectedValue(new Error('fork failed: EACCES'))
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('analyze-applog'))
@@ -671,9 +671,9 @@ describe('editing affordances', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/fork failed: EACCES/)
     // the viewer that was covering the page body is closed (finding 2), and the editor
-    // never opened — but the fork dialog itself stays up so the user can retry
+    // window was never asked to open — but the fork dialog stays up so the user can retry
     expect(screen.queryByRole('dialog', { name: /skill · analyze-applog/i })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: /^skill · analyze-applog/ })).toBeNull()
+    expect(argus.editor.open).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument()
   })
 
@@ -687,7 +687,7 @@ describe('editing affordances', () => {
     await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/not a legal skill name/i)
     expect(window.argus.skills.fork).not.toHaveBeenCalled()
-    expect(screen.queryByRole('textbox', { name: /^skill · /i })).toBeNull()
+    expect(argus.editor.open).not.toHaveBeenCalled()
   })
 
   it('offers neither Edit nor Edit a copy for a confluence reference', async () => {
@@ -700,7 +700,7 @@ describe('editing affordances', () => {
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
   })
 
-  it('offers Edit a copy inside the viewer for a hivemind reference, and claiming opens the editor', async () => {
+  it('offers Edit a copy inside the viewer for a hivemind reference, and claiming opens the window', async () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('adasis.md'))
     expect(
@@ -710,13 +710,18 @@ describe('editing affordances', () => {
     await waitFor(() =>
       expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('adasis.md')
     )
-    expect(
-      await screen.findByRole('textbox', { name: /^reference · adasis.md$/ })
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'reference',
+        name: 'adasis.md',
+        mode: 'edit'
+      })
+    )
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /^reference · adasis.md$/ })).toBeNull()
   })
 
-  it('a rejected claim surfaces an error and does NOT open the editor', async () => {
+  it('a rejected claim surfaces an error and does NOT open the window', async () => {
     argus.hivemind.claimReference = vi.fn().mockRejectedValue(new Error('claim failed: EACCES'))
     render(<LibraryPage />)
     await userEvent.click(await screen.findByText('adasis.md'))
@@ -724,51 +729,100 @@ describe('editing affordances', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/claim failed: EACCES/)
     expect(screen.queryByRole('dialog', { name: /reference · adasis.md/i })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: /^reference · adasis.md$/ })).toBeNull()
+    expect(argus.editor.open).not.toHaveBeenCalled()
   })
 
-  it('saving a claimed reference routes to refsync.writeRef', async () => {
+  it('Edit on a user skill row delegates to the editor window, rendering no in-page editor', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('adasis.md'))
-    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
-    await screen.findByRole('textbox', { name: /^reference · adasis.md$/ })
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Edit · rca$/i }))
     await waitFor(() =>
-      expect(window.argus.refsync.writeRef).toHaveBeenCalledWith(
-        'adasis.md',
-        expect.any(String),
-        'hash-adasis'
-      )
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 'rca',
+        mode: 'edit'
+      })
     )
-    // settle on resolved UI state, not the mock call: the editor actually closed
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('textbox', { name: /^reference · adasis.md$/ })
-      ).not.toBeInTheDocument()
-    )
+    expect(screen.queryByRole('textbox', { name: /skill · rca/i })).toBeNull()
+    // the Library never reads or writes the asset itself any more — the window owns both
+    expect(window.argus.skills.write).not.toHaveBeenCalled()
   })
 
-  it('New skill opens the editor in create mode with the template', async () => {
+  it('Edit on a user reference row delegates to the editor window', async () => {
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByRole('button', { name: /^Edit · team-tips.md$/i }))
+    await waitFor(() =>
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'reference',
+        name: 'team-tips.md',
+        mode: 'edit'
+      })
+    )
+    expect(screen.queryByRole('textbox', { name: /reference · team-tips.md/i })).toBeNull()
+    expect(window.argus.refsync.writeRef).not.toHaveBeenCalled()
+  })
+
+  it('New skill opens the editor window in create mode', async () => {
     render(<LibraryPage />)
     await userEvent.click(await screen.findByRole('button', { name: /^new$/i }))
     await userEvent.click(await screen.findByRole('menuitem', { name: /new skill/i }))
-    const ta = await screen.findByRole('textbox', { name: /^skill · /i })
-    expect((ta as HTMLTextAreaElement).value).toContain('## When to use')
+    await waitFor(() =>
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 'my-skill',
+        mode: 'create'
+      })
+    )
+    expect(screen.queryByRole('textbox', { name: /^skill · /i })).toBeNull()
   })
 
-  it('saving a skill routes to skills.write with the loaded hash', async () => {
+  it('New reference opens the editor window in create mode', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByRole('button', { name: /^Edit · rca$/i }))
-    await screen.findByRole('textbox', { name: /skill · rca/i })
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^new$/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /new reference/i }))
     await waitFor(() =>
-      expect(window.argus.skills.write).toHaveBeenCalledWith('rca', expect.any(String), 'hash-rca')
+      expect(argus.editor.open).toHaveBeenCalledWith({
+        kind: 'reference',
+        name: 'my-notes.md',
+        mode: 'create'
+      })
     )
-    // a bare waitFor on the mock call resolves before setBaseHash/onSaved/onClose run;
-    // settle on the resolved UI state instead — the editor actually closed (finding 7)
-    await waitFor(() =>
-      expect(screen.queryByRole('textbox', { name: /skill · rca/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /^reference · /i })).toBeNull()
+  })
+})
+
+describe('LibraryPage cross-window refresh', () => {
+  it('re-renders the skill list when another window saves (skills:changed)', async () => {
+    render(<LibraryPage />)
+    await screen.findByText('rca')
+    const cb = argus.skills.onChanged.mock.calls[0]?.[0] as ((p: SkillsPayload) => void) | undefined
+    if (!cb) throw new Error('LibraryPage never subscribed to skills:changed')
+
+    act(() =>
+      cb({
+        skills: [
+          ...initial.skills,
+          {
+            name: 'saved-in-the-editor-window',
+            tier: 'user',
+            description: 'written by another window',
+            enabled: true,
+            shadows: []
+          }
+        ]
+      })
     )
+    expect(await screen.findByText('saved-in-the-editor-window')).toBeInTheDocument()
+    // no extra round trip: the broadcast payload IS the new list
+    expect(argus.skills.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('unsubscribes from skills:changed on unmount', async () => {
+    const off = vi.fn()
+    argus.skills.onChanged = vi.fn(() => off)
+    const { unmount } = render(<LibraryPage />)
+    await screen.findByText('rca')
+    unmount()
+    expect(off).toHaveBeenCalled()
   })
 })
 
