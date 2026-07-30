@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { PanelRight, Trash2 } from 'lucide-react'
+import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
@@ -10,7 +11,7 @@ import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
-import { SectionLabel } from './ui'
+import { SectionLabel, SkeletonRows } from './ui'
 
 export function FindingsPane({
   slug,
@@ -33,6 +34,8 @@ export function FindingsPane({
   const [actingId, setActingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const showSkeleton = usePendingDisplay(!loaded)
   const bump = useSyncExternalStore(
     (cb) => agentStore.subscribe(cb),
     () =>
@@ -43,9 +46,21 @@ export function FindingsPane({
     () => reposStore.get(slug)
   ).names
   useEffect(() => {
-    void window.argus.findings.list(slug).then(setFindings)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoaded(false)
+    void window.argus.findings.list(slug).then(
+      (rows) => {
+        setFindings(rows)
+        setLoaded(true)
+      },
+      () => {
+        setFindings([])
+        setLoaded(true)
+      }
+    )
     // Loaded once per findingsBump (not per finding) — the stale check compares every row's
-    // recorded head_sha against this one shared value.
+    // recorded head_sha against this one shared value. Deliberately NOT part of `loaded`:
+    // it drives a staleness badge and must not hold the whole pane.
     void window.argus.review.worktreeHead(slug).then(setWorktreeHead)
   }, [slug, sessionId, bump])
 
@@ -237,7 +252,9 @@ export function FindingsPane({
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {shown.length > 0 ? (
+        {showSkeleton ? (
+          <SkeletonRows count={3} />
+        ) : shown.length > 0 ? (
           <ul className="flex flex-col gap-2">
             {shown.map((f) => (
               <FindingCard
@@ -268,11 +285,11 @@ export function FindingsPane({
               />
             ))}
           </ul>
-        ) : (
+        ) : loaded ? (
           <p className="text-xs text-mute">
             {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}
           </p>
-        )}
+        ) : null}
       </div>
       {/* Selection is a batch action, not a filter — it gets its own row below the list, and it
           only exists while something is selected. Footer, not header: it summarizes the list
