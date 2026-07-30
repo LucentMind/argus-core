@@ -89,7 +89,12 @@ export async function ensurePrWorktree(
 ): Promise<string> {
   const run = deps?.run ?? realGit
   const git = (cwd: string, ...args: string[]): Promise<string> => run(cwd, args)
+  // Before the lock, so `lockMs` reports queueing behind another git op on this clone —
+  // the repo mutex is shared with branch checkouts (workspaces.ts), so a mode switch can
+  // wait on work it did not start.
+  const t0 = Date.now()
   return withRepoLock(repoPath, async () => {
+    const lockMs = Date.now() - t0
     const ref = prRef(prNumber)
     const wt = casePrWorktreeDir(argusHome, caseSlug, repoPath, prNumber)
 
@@ -97,15 +102,18 @@ export async function ensurePrWorktree(
     // then compared SHAs, so an unchanged PR still paid a full fetch on every review-mode entry
     // and the comparison only ever saved a local `switch` nobody can feel.
     if (fs.existsSync(wt)) {
+      const probeStart = Date.now()
       const [remoteSha, curSha] = await Promise.all([
         remoteHeadSha(git, repoPath, prNumber),
         git(wt, 'rev-parse', 'HEAD').catch(() => '')
       ])
+      const probeMs = Date.now() - probeStart
       if (remoteSha && remoteSha === curSha) {
         // `refs/argus/pr/N` is what everything else calls "the PR head" — keep that true even
         // though we skipped the fetch that normally moves it. The commit is already local (it IS
         // this worktree's HEAD), so this is a pointer write, no network.
         await git(repoPath, 'update-ref', ref, remoteSha).catch(() => undefined)
+        console.log(`[pr] #${prNumber} up to date — lock ${lockMs}ms, probe ${probeMs}ms`)
         return wt
       }
     }
@@ -115,7 +123,11 @@ export async function ensurePrWorktree(
       .catch(() => {
         throw new Error(`No 'origin' remote on ${repoPath}; cannot fetch PR #${prNumber}`)
       })
+    const fetchStart = Date.now()
     await git(repoPath, 'fetch', remote, `pull/${prNumber}/head:${ref}`, '--force')
+    console.log(
+      `[pr] #${prNumber} fetched — lock ${lockMs}ms, fetch ${Date.now() - fetchStart}ms`
+    )
 
     if (fs.existsSync(wt)) {
       // Mirrors ensureWorktree's early return: only switch when the head actually moved.
