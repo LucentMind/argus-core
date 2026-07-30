@@ -467,8 +467,11 @@ const argus = {
     get: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindGet),
     check: (): Promise<HivemindCheckResult> => ipcRenderer.invoke(IPC.hivemindCheck),
     sync: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindSync),
-    install: (kind: 'skill' | 'reference', name: string): Promise<HivemindPayload> =>
-      ipcRenderer.invoke(IPC.hivemindInstall, kind, name),
+    install: (
+      kind: 'skill' | 'reference',
+      name: string,
+      opts?: { overwriteLocalEdits?: boolean }
+    ): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindInstall, kind, name, opts),
     uninstallSkill: (name: string): Promise<HivemindPayload> =>
       ipcRenderer.invoke(IPC.hivemindUninstallSkill, name),
     uninstallReference: (name: string): Promise<HivemindPayload> =>

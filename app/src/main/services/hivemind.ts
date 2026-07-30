@@ -268,7 +268,11 @@ export class HivemindService {
   }
 
   /** Pinned copy into the tier dirs; later pulls never mutate installed copies (spec §2.3). */
-  async install(kind: 'skill' | 'reference', name: string): Promise<HivemindPayload> {
+  async install(
+    kind: 'skill' | 'reference',
+    name: string,
+    opts?: { overwriteLocalEdits?: boolean }
+  ): Promise<HivemindPayload> {
     const state = this.state()
     if (kind === 'skill') {
       const src = path.join(this.clone(), 'skills', name)
@@ -283,6 +287,14 @@ export class HivemindService {
       if (!validReferenceName(name)) throw new Error(`Invalid reference name: ${name}`)
       const src = path.join(this.clone(), 'references', name)
       if (!fs.existsSync(src)) throw new Error(`No such HiveMind reference: ${name}`)
+      // One file serves both roles, so an update overwrites content. Refuse unless the
+      // caller has seen what it would destroy. Main re-checks independently of the
+      // renderer's own check, so a stale renderer cannot smuggle the overwrite past it.
+      if (!opts?.overwriteLocalEdits && (await this.localDivergence(name)).diverged)
+        throw new Error(
+          `Your local copy of ${name} has edits that are not in the HiveMind. ` +
+            `Review them before updating.`
+        )
       const sha = await this.itemCommit(`references/${name}`)
       // Installs flatten: confluence/x.md lands at references/x.md, so pack
       // manifests' referenceRouting (bare filenames) keeps resolving unchanged.

@@ -607,7 +607,9 @@ describe('reference keep-authorship', () => {
       'trust_tier: team-knowledge'
     )
     seedLocalRef('hive-note.md', 'confluence')
-    await svc.install('reference', 'hive-note.md')
+    // Overwriting the hand-seeded local draft is exactly what the divergence guard exists
+    // to gate; acknowledge it so this test can keep exercising the tier-stamping logic.
+    await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
     expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
       'trust_tier: hivemind'
     )
@@ -623,7 +625,8 @@ describe('reference keep-authorship', () => {
     p = await svc.install('reference', 'hive-note.md')
     expect(p.items.find((i) => i.name === 'hive-note.md')?.localTier).toBe('hivemind')
     seedLocalRef('hive-note.md', 'user')
-    p = await svc.install('reference', 'hive-note.md')
+    // As above: this hand-seeded draft diverges from the pin, so acknowledge the overwrite.
+    p = await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
     expect(p.items.find((i) => i.name === 'hive-note.md')?.localTier).toBe('user')
   })
 
@@ -868,8 +871,10 @@ describe('confluence subfolder references', () => {
     expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: confluence')
     expect(fs.readFileSync(local, 'utf8')).toContain('# distilled twin')
 
-    // re-installing the flat twin takes the file back (prior confluence tier is not preserved)
-    p = await svc.install('reference', 'hive-note.md')
+    // re-installing the flat twin takes the file back (prior confluence tier is not preserved).
+    // The shared destination now holds the confluence twin's content, which diverges from the
+    // flat item's own pin — acknowledge the overwrite to keep testing pin/tier bookkeeping.
+    p = await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
     expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: hivemind')
 
     // both items keep their own pin, and both report installed (same flat file)
@@ -1004,5 +1009,35 @@ describe('localDivergence', () => {
       }
     })
     expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+  })
+})
+
+describe('install() and unpushed local edits', () => {
+  const diverged = (): Promise<HivemindService> =>
+    installedReference({
+      pinned: '# note\n',
+      head: '# note v2\n',
+      localEdit: '---\ntrust_tier: user\nsource_commit: pinsha\n---\n# note\nMY EDIT\n'
+    })
+
+  it('refuses to overwrite a diverged local copy without an explicit acknowledgement', async () => {
+    const svc = await diverged()
+    await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(/not in the HiveMind/i)
+    expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
+      'MY EDIT'
+    )
+  })
+
+  it('overwrites when the caller acknowledges, and keeps the authorship stamp', async () => {
+    const svc = await diverged()
+    await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
+    const after = fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')
+    expect(after).not.toContain('MY EDIT')
+    expect(after).toContain('trust_tier: user')
+  })
+
+  it('does not gate skills', async () => {
+    const svc = await diverged()
+    await expect(svc.install('skill', 'hive-probe')).resolves.toBeDefined()
   })
 })
