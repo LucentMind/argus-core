@@ -7,6 +7,7 @@ import type { ModeRole } from '../../../shared/modes'
 import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
+import { withFrontmatter } from '../frontmatter'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
 
@@ -171,6 +172,11 @@ export function writeUserSkill(
   const file = path.join(dir, 'SKILL.md')
   const onDisk = fs.existsSync(file) ? contentHash(fs.readFileSync(file, 'utf8')) : null
   if (onDisk !== baseHash) {
+    // baseHash null means the editor believes it is CREATING "name" — if a file is already
+    // there, that's a name collision, not a concurrent edit of something the editor had open.
+    if (baseHash === null && onDisk !== null) {
+      throw new Error(`"${name}" already exists — choose a different name.`)
+    }
     throw new Error(`"${name}" changed on disk since you opened it.`)
   }
   fs.mkdirSync(dir, { recursive: true })
@@ -199,7 +205,10 @@ export function forkSkill(argusHome: string, name: string, newName?: string): st
   if (target !== name) {
     const file = path.join(dest, 'SKILL.md')
     const raw = fs.readFileSync(file, 'utf8')
-    fs.writeFileSync(file, raw.replace(/^name:\s*.+$/m, `name: ${target}`))
+    // withFrontmatter, not a `name:` regex replace: the replace is a silent no-op when the
+    // source has no name: key at all (the realistic shape of an accepted proposal, per the
+    // proposals.ts accept-time stamp), which would land the fork under the wrong name.
+    fs.writeFileSync(file, withFrontmatter(raw, { name: target }))
   }
   return target
 }
