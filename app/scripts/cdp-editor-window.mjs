@@ -180,19 +180,30 @@ check(
 // Poll rather than sleeping a fixed span: `before-quit` races telemetry shutdown against a 3s
 // timeout, so the process can outlive the last window by a few seconds. The endpoint refusing
 // connections is the observable proof the whole app went away, not just the window.
+//
+// Require CONSECUTIVE refusals, not one: a single transient loopback connect failure would
+// otherwise certify a quit that never happened, and this is the only assertion covering the
+// dependent-child rule. An empty target list still does NOT count — the endpoint answering at
+// all proves the process is alive, so that resets the streak.
+const REQUIRED_REFUSALS = 3
 await main.evalJs(`window.close()`)
 let quit = false
+let refusals = 0
 const quitDeadline = Date.now() + 20000
 while (Date.now() < quitDeadline) {
   try {
     await listTargets()
+    refusals = 0
   } catch {
-    quit = true
-    break
+    refusals += 1
+    if (refusals >= REQUIRED_REFUSALS) {
+      quit = true
+      break
+    }
   }
   await sleep(500)
 }
-check('closing the main window quits the app', quit)
+check('closing the main window quits the app', quit, { refusals, required: REQUIRED_REFUSALS })
 
 editor?.close()
 main.close()

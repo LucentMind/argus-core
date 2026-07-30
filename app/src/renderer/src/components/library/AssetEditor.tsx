@@ -128,6 +128,15 @@ export function AssetEditor({
   }, [buffer])
 
   /**
+   * Name + content of the last successful write. A window-chrome editor stays open after a save
+   * (it is a place, not a dialog), so it needs a way to say "everything on screen is on disk".
+   * `bufferPristine` cannot carry that: it means "still untouched boilerplate" and `renameCreate`
+   * depends on it staying false once the user has typed.
+   */
+  const [lastSaved, setLastSaved] = useState<{ name: string; content: string } | null>(null)
+  const savedClean = lastSaved !== null && lastSaved.name === name && lastSaved.content === buffer
+
+  /**
    * Whether closing would throw away something the user produced.
    *
    * Deliberately NOT `bufferPristine`: that flag means "the buffer is still untouched
@@ -137,10 +146,10 @@ export function AssetEditor({
    * without asking. `busy` counts too — closing mid-run throws the run away.
    */
   const hasUnsavedWork =
-    !bufferPristine ||
     proposed !== null ||
     busy ||
-    (mode === 'create' && (name !== initialName || describe.trim() !== ''))
+    (!savedClean &&
+      (!bufferPristine || (mode === 'create' && (name !== initialName || describe.trim() !== ''))))
 
   // Reuse the same signal the close guard uses, rather than deriving a second, weaker one:
   // in a window the host reports this to main, which asks the same question on window close.
@@ -231,9 +240,17 @@ export function AssetEditor({
       // and the editor stays open below, the next Save must compare against what's actually
       // on disk now — not the hash this save started with, which the write just invalidated.
       setBaseHash(newHash)
+      // Recorded on every successful write, not just the close-worthy one: in the "kept typing"
+      // branch below this content really is on disk, and `savedClean` correctly stays false
+      // because the buffer has since moved past it.
+      setLastSaved({ name, content: savedContent })
       onSaved?.(name)
       if (bufferRef.current === savedContent) {
-        onClose()
+        // A window is a place, not a dialog: emptying it after every save would send the user
+        // back to the Library just to carry on editing the same file. `savedClean` above now
+        // reports the editor clean, so the host's dirty veto drops to 0 either way. `onClose`
+        // stays the modal's contract.
+        if (chrome !== 'window') onClose()
       } else {
         // What was on screen when Save was clicked is now safely on disk, but the user kept
         // typing during the round trip — closing now would silently drop that text and leave

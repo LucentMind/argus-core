@@ -785,6 +785,25 @@ describe('editing affordances', () => {
     )
     expect(screen.queryByRole('textbox', { name: /^reference · /i })).toBeNull()
   })
+
+  // The editor is a real BrowserWindow created in main now, so `editor.open` can reject (bad
+  // preload path, missing editor.html in a package). `void`-ing it left the button completely
+  // dead — no window, no error, nothing. The code this replaced was a local setState and could
+  // not fail at all.
+  it('surfaces a rejected editor.open instead of leaving the button dead', async () => {
+    argus.editor.open.mockRejectedValueOnce(new Error('editor.html is missing'))
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByRole('button', { name: /^Edit · rca$/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/editor.html is missing/)
+  })
+
+  it('surfaces a rejected editor.open from the New menu too', async () => {
+    argus.editor.open.mockRejectedValueOnce(new Error('no display available'))
+    render(<LibraryPage />)
+    await userEvent.click(await screen.findByRole('button', { name: /^new$/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /new skill/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no display available/)
+  })
 })
 
 describe('LibraryPage cross-window refresh', () => {
