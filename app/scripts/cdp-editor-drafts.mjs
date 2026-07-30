@@ -120,8 +120,13 @@ if (PHASE === 'arm') {
     drafted.map((d) => d.name)
   )
 
-  // §4.3: type again and quit inside the debounce window. This is the assertion that the
-  // spec's renderer-side flush could not make — main-window close destroys the renderer first.
+  // §4.3: type again and quit inside the debounce window. This proves the user-facing property
+  // spec §4.3 promises: text typed seconds before quit survives it. It also catches a coarse
+  // regression — the debounce moving back into the renderer, which window.close() would tear
+  // down before it could fire. It does not discriminate flushAll()-before-forceClose() ordering
+  // in mainWindow.on('closed'): both calls run synchronously in the same tick, and before-quit
+  // calls flushAll() again unconditionally regardless. That ordering is defensive rather than
+  // load-bearing — main owns the debounce timer, so nothing here depends on which one runs first.
   await editor.evalJs(`(() => {
     const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
     const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
@@ -151,9 +156,16 @@ if (PHASE === 'check') {
 
   const { main, editor } = await openEditor()
 
-  const value = await editor.evalJs(
-    `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
-  )
+  // openEditor only waits for the textarea to exist; the content itself arrives later from an
+  // async load() prop, so wait for the marker to actually be in the value before asserting —
+  // element-presence and content-settled are different moments, and only the latter is safe
+  // to read.
+  const value = await waitFor('the restored buffer to contain the typed marker', async () => {
+    const v = await editor.evalJs(
+      `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
+    )
+    return v.includes(MARKER) ? v : false
+  })
   check('the restored buffer holds the typed text', value.includes(MARKER))
   check('the restored buffer holds the pre-quit tail', value.includes('TAIL'))
 
