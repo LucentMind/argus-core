@@ -411,6 +411,20 @@ describe('authorship on write and fork', () => {
     expect(a.contributors.map((c) => c.email)).toEqual(['jiawiehan@gmail.com', 'alex@example.test'])
   })
 
+  it('a buffer claiming an author over an unauthored on-disk file does not win — absent on disk means nobody yet, not whatever the buffer says', () => {
+    const unauthored = '---\nname: my-skill\ndescription: does a thing\n---\n# body\n'
+    // no identity: written byte-for-byte, so the disk file genuinely carries no authorship keys
+    const hash = writeUserSkill(argusHome, 'my-skill', unauthored, null, null)
+    const spoofed =
+      '---\nname: my-skill\ndescription: does a thing\nauthor: Someone Else <x@y.test>\norigin: authored\n---\n# rewritten\n'
+    writeUserSkill(argusHome, 'my-skill', spoofed, hash, me)
+    const a = parseAuthorship(
+      fs.readFileSync(path.join(argusHome, 'skills-user', 'my-skill', 'SKILL.md'), 'utf8')
+    )
+    expect(a.author).toBe('Jiawei Han <jiawiehan@gmail.com>')
+    expect(a.author).not.toContain('Someone Else')
+  })
+
   it('an Improve-shaped buffer carrying no authorship at all keeps the on-disk trail', () => {
     // Improve replaces the whole file with a model's rewrite; nothing guarantees the model
     // carried the frontmatter stamp forward, and a lost `contributors:` block is unrecoverable.

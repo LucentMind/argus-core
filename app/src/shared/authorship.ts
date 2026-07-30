@@ -73,9 +73,14 @@ export function parseAuthorship(raw: string): Authorship {
  * contributors upserted) produce the right answer without a special case.
  *
  * A user who edits `author:` by hand is therefore overruled on save — the same treatment
- * `writeReference` already gives a spoofed `trust_tier`.
+ * `writeReference` already gives a spoofed `trust_tier` (`trust_tier: tier ?? 'user'`, applied
+ * even when the disk file carries none). An on-disk key that is simply ABSENT means "nobody yet",
+ * not "whatever the buffer says": the incoming buffer's own `author`/`origin`/`contributors` are
+ * always stripped before the disk's values (if any) are overlaid, so a currently-unauthored asset
+ * cannot be claimed by whatever byline happens to be sitting in the saved buffer.
  *
- * `existing` null (creating), or carrying none of the three keys, returns `incoming` unchanged.
+ * `existing === null` (creating) is the one case where the buffer is all there is, so it returns
+ * `incoming` unchanged.
  */
 export function mergeAuthorship(incoming: string, existing: string | null): string {
   if (existing === null) return incoming
@@ -87,9 +92,27 @@ export function mergeAuthorship(incoming: string, existing: string | null): stri
   if (origin) flat.origin = origin
   const contributors = fmList(fm, 'contributors')
 
-  let out = Object.keys(flat).length > 0 ? withFrontmatter(incoming, flat) : incoming
-  if (contributors.length > 0) out = withFrontmatterList(out, 'contributors', contributors)
-  return out
+  // Strip first, unconditionally — withFrontmatter only ever overlays the keys it's given, it
+  // never removes ones it isn't, so an empty `flat` would otherwise leave the buffer's own
+  // author/origin lines in place. withFrontmatterList's empty-array case already IS a removal
+  // (see below); flat keys need the explicit strip since there is no such built-in.
+  let out = stripAuthorshipFlat(incoming)
+  if (Object.keys(flat).length > 0) out = withFrontmatter(out, flat)
+  // An empty `contributors` array removes the block outright, so this call is safe unconditionally.
+  return withFrontmatterList(out, 'contributors', contributors)
+}
+
+/**
+ * Remove the `author:`/`origin:` flat lines from a frontmatter block outright (not overlay-with-
+ * nothing — `withFrontmatter` has no such mode). Both are always single, unindented flat lines,
+ * never block lists, so a plain per-line filter is safe and cannot mistake an indented
+ * continuation line (e.g. under an unrelated `sources:` list) for one of these two keys.
+ */
+function stripAuthorshipFlat(raw: string): string {
+  const block = fmBlock(raw)
+  if (!block) return raw
+  const kept = block.fm.split(/\r?\n/).filter((l) => !/^(?:author|origin):/.test(l))
+  return `---\n${kept.join('\n')}\n---\n${block.body}`
 }
 
 /**
