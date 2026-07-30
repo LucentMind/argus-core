@@ -10,7 +10,15 @@ const execFileAsync = promisify(execFile)
 // subprocess constraint. Fetching a PR head from a cold remote is the slow one.
 const GIT_TIMEOUT_MS = 60_000
 
-async function git(cwd: string, ...args: string[]): Promise<string> {
+/**
+ * One git invocation, returning trimmed stdout. Injected rather than called directly so a test
+ * can record argv while still running the REAL git — the claim worth proving here is "no fetch
+ * happened", and no filesystem post-condition distinguishes a skipped fetch from a fetch that
+ * transferred nothing. A fake git would prove nothing about git.
+ */
+export type GitRunner = (cwd: string, args: string[]) => Promise<string>
+
+const realGit: GitRunner = async (cwd, args) => {
   const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS })
   return stdout.trim()
 }
@@ -44,8 +52,11 @@ export async function ensurePrWorktree(
   argusHome: string,
   caseSlug: string,
   repoPath: string,
-  prNumber: number
+  prNumber: number,
+  deps?: { run?: GitRunner }
 ): Promise<string> {
+  const run = deps?.run ?? realGit
+  const git = (cwd: string, ...args: string[]): Promise<string> => run(cwd, args)
   return withRepoLock(repoPath, async () => {
     const ref = prRef(prNumber)
     const remote = await git(repoPath, 'remote', 'get-url', 'origin')
