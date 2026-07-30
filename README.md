@@ -29,9 +29,10 @@ where the supervised loop continues. The workbench is how the automation earns t
 
 ## How it works
 
-An Electron app pairs an embedded [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk)
-session with a local evidence store and a risk-gated tool-approval model, organized into
-per-case workspaces where evidence, findings, chat sessions, and the report live together.
+An Electron app pairs an embedded agent session — [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk)
+by default, four other backends selectable (see [Agent backends](#agent-backends)) — with a
+local evidence store and a risk-gated tool-approval model, organized into per-case workspaces
+where evidence, findings, chat sessions, and the report live together.
 
 ![Argus — how a defect gets solved, end to end](docs/defect-workflow.png)
 
