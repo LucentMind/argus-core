@@ -26,6 +26,11 @@ const detachEarly: (() => void) | null = window.argus?.editor
   ? window.argus.editor.onOpenTab(deliver)
   : null
 
+// A no-op outside dev HMR (import.meta.hot is undefined in production and in tests): without
+// this, an HMR re-evaluation of this module leaves the previous ipcRenderer listener registered
+// alongside the new one, and every open-tab message after that arrives twice.
+import.meta.hot?.dispose(() => detachEarly?.())
+
 /** Attach the live consumer and replay anything that arrived before it existed.
  *  Returns a detach function, so it drops straight into a `useEffect`. */
 export function drainOpenTabs(cb: (req: EditorOpenRequest) => void): () => void {

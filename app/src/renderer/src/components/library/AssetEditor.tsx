@@ -148,6 +148,13 @@ export function AssetEditor({
     onDirtyChange?.(hasUnsavedWork)
   }, [hasUnsavedWork, onDirtyChange])
 
+  // A saved-then-closed editor must not leave the host believing work is still dirty: onSave
+  // never flips bufferPristine (there is nothing left to make pristine — the editor is about to
+  // unmount), so the last onDirtyChange delivered before unmount would otherwise be `true`. Report
+  // clean on unmount unconditionally so any host — not just EditorApp — gets correct behaviour,
+  // and so this also self-corrects if a host ever swaps to a different asset without unmounting.
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
+
   useEffect(() => {
     if (!load) return
     let live = true
