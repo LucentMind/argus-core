@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
-import { Chip, MenuButton, SectionLabel } from './ui'
+import { Chip, MenuButton, SectionLabel, Skeleton, SkeletonRows } from './ui'
 import { confirm } from '../lib/confirmStore'
+import { usePendingDisplay } from '../lib/usePendingDisplay'
+import { usePendingList } from '../lib/usePendingList'
 import { displayName, formatMb } from '../lib/evidenceDisplay'
 import { chipStamp } from '../lib/time'
 import {
@@ -91,6 +93,9 @@ export function CaseFiles({
   const [scanning, setScanning] = useState(false)
   const [scanNote, setScanNote] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const pending = usePendingList()
+  const showSkeleton = usePendingDisplay(!loaded)
 
   useEffect(() => {
     void window.argus.packs.artifactMeta().then(setArtifactMeta, (err) => {
@@ -101,14 +106,27 @@ export function CaseFiles({
 
   const reload = useCallback(
     (): Promise<void> =>
-      window.argus.evidence.list(caseSlug, mode).then(setRows, (err) => {
-        console.warn(`[evidence] list failed for ${caseSlug}: ${(err as Error).message}`)
-        setRows([])
-      }),
+      window.argus.evidence.list(caseSlug, mode).then(
+        (r) => {
+          setRows(r)
+          setLoaded(true)
+        },
+        (err) => {
+          console.warn(`[evidence] list failed for ${caseSlug}: ${(err as Error).message}`)
+          setRows([])
+          // loaded on rejection too: a failed list must show "No evidence yet." rather than
+          // leaving the pane skeletal forever.
+          setLoaded(true)
+        }
+      ),
     [caseSlug, mode]
   )
 
   useEffect(() => {
+    // a new case has not been loaded yet — without this the previous case's rows stay
+    // on screen under a `loaded` flag that is no longer true of what is being fetched
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoaded(false)
     void reload()
     const offEvidence = window.argus.evidence.onChanged?.((slug) => {
       if (slug === caseSlug) void reload()
@@ -155,10 +173,20 @@ export function CaseFiles({
   async function handleDrop(e: React.DragEvent): Promise<void> {
     e.preventDefault()
     setDragOver(false)
-    const paths = Array.from(e.dataTransfer.files).map((f) => window.argus.pathForFile(f))
+    const files = Array.from(e.dataTransfer.files)
+    const paths = files.map((f) => window.argus.pathForFile(f))
     if (paths.length === 0) return
-    await window.argus.evidence.ingest(caseSlug, paths)
-    await reload()
+    // Named from the drop itself, so the rows are on screen before the IPC call — which for a
+    // large log blocks the main process for its whole duration. This does not make the ingest
+    // faster; it stops the drop looking ignored while it runs.
+    const ids = files.map((f) => pending.add(f.name))
+    try {
+      await window.argus.evidence.ingest(caseSlug, paths)
+      pending.resolve(ids)
+      await reload()
+    } catch (err) {
+      pending.fail(ids, (err as Error).message)
+    }
   }
 
   function clickFile(r: EvidenceRecord): void {
@@ -371,8 +399,53 @@ export function CaseFiles({
         }`}
       >
         <ul className="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
-          {visible.map(renderRow)}
-          {visible.length === 0 && <li className="py-2 text-mute">No evidence yet.</li>}
+          {showSkeleton ? (
+            // wrapped in an <li> because SkeletonRows renders a <div> and this is a list
+            <li>
+              <SkeletonRows count={3} />
+            </li>
+          ) : (
+            <>
+              {visible.map(renderRow)}
+              {pending.items.map((p) => (
+                <li
+                  key={p.id}
+                  data-testid={`pending-evidence-${p.name}`}
+                  className="flex flex-col gap-1 border-t border-hair py-2 first:border-t-0"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      title={p.error}
+                      className={`max-w-[220px] min-w-0 truncate font-mono text-xs ${
+                        p.error ? 'text-danger line-through' : 'text-dim'
+                      }`}
+                    >
+                      {p.name}
+                    </span>
+                    {!p.error && <span className="shrink-0 text-[10px] text-mute">adding…</span>}
+                    {p.error && (
+                      <button
+                        type="button"
+                        aria-label={`Dismiss ${p.name} error`}
+                        className="shrink-0 text-mute transition-colors hover:text-ink"
+                        onClick={() => pending.dismiss(p.id)}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {p.error ? (
+                    <span className="truncate text-[11px] text-danger">{p.error}</span>
+                  ) : (
+                    <Skeleton className="h-2 w-[45%]" />
+                  )}
+                </li>
+              ))}
+              {loaded && visible.length === 0 && pending.items.length === 0 && (
+                <li className="py-2 text-mute">No evidence yet.</li>
+              )}
+            </>
+          )}
         </ul>
         <div
           className={`flex h-6 shrink-0 items-center justify-center border-t border-dashed text-[10px] transition-colors ${
