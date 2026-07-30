@@ -384,6 +384,25 @@ export function seedKnowledge(ctx, { repos }) {
   // ── HiveMind state: real commit shas, so Sync and Claim work live. ──
   const cfgDir = path.join(home, 'config')
   fs.mkdirSync(cfgDir, { recursive: true })
+
+  // guardHome() (seed-test-home.mjs) cannot treat config/ as guarded content: a freshly
+  // booted home always has an empty references/proposals/etc. but a fully-configured
+  // config/ (provider instances, hivemind repo, tool-risk overrides), so adding config/
+  // to CONTENT_DIRS would make every legitimate first seed of a scratch home demand
+  // --force — training the user to pass --force reflexively and dissolving the guard's
+  // second tier for everyone. Instead, make the overwrite recoverable: snapshot whatever
+  // was there immediately before each of the four files below is replaced. One generation
+  // is kept (overwritten on every run) — a backup from two runs ago is more confusing than
+  // useful, and this is a safety net for the one run that mattered, not a history.
+  const backupDir = path.join(cfgDir, '.seed-backup')
+  const backupConfigFile = (name) => {
+    const src = path.join(cfgDir, name)
+    if (!fs.existsSync(src)) return
+    fs.mkdirSync(backupDir, { recursive: true })
+    fs.copyFileSync(src, path.join(backupDir, name))
+  }
+
+  backupConfigFile('hivemind-state.json')
   fs.writeFileSync(
     path.join(cfgDir, 'hivemind-state.json'),
     `${JSON.stringify({ lastSynced: now, skills: HIVE_PINS.skills, references: HIVE_PINS.references, pushes: {} }, null, 2)}\n`,
@@ -446,6 +465,7 @@ export function seedKnowledge(ctx, { repos }) {
   )
 
   // ── Config: several providers enabled at once, non-default access and risk. ──
+  backupConfigFile('settings.json')
   fs.writeFileSync(
     path.join(cfgDir, 'settings.json'),
     `${JSON.stringify(
@@ -475,6 +495,7 @@ export function seedKnowledge(ctx, { repos }) {
     )}\n`,
     'utf8'
   )
+  backupConfigFile('agent-access.json')
   fs.writeFileSync(
     path.join(cfgDir, 'agent-access.json'),
     // Skill keys are tier-qualified ('<tier>/<name>' — skillsResolver.ts's
@@ -483,6 +504,7 @@ export function seedKnowledge(ctx, { repos }) {
     `${JSON.stringify({ skills: { 'user/burst-window-review': false }, memory: { 'timezone-note': false } }, null, 2)}\n`,
     'utf8'
   )
+  backupConfigFile('tool-risk.json')
   fs.writeFileSync(
     path.join(cfgDir, 'tool-risk.json'),
     // Keys are '<connectorInstanceId>/<toolName>' (toolRisk.ts) and are
