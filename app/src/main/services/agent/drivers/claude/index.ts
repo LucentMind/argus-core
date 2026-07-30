@@ -6,7 +6,7 @@ import { CLAUDE_TOOL_TAXONOMY } from '../../risk'
 import { createArgusMcpServer } from '../../nativeTools'
 import { buildPanelCommandServers } from '../../panelCommands'
 import { probeAuth } from './probe'
-import { resolveClaudeCliPath } from './cliPath'
+import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 import { qualifySkill, skillPluginRoot } from '../../skillsResolver'
 import { claudeAgentsOption } from './subagentBinding'
 import type {
@@ -151,6 +151,9 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           // ~/.claude permission allowlists, so tool calls they had pre-approved globally
           // now reach Argus's own approval pipeline instead of being auto-allowed.
           settingSources: ['project'],
+          // Claude Code's own auto-memory OFF, so "remember this" reaches Argus's write_memory
+          // instead of ~/.claude/projects/<cwd>/memory/. See claudeSpawnEnv for the full why.
+          env: claudeSpawnEnv(),
           includePartialMessages: true,
           systemPrompt: {
             type: 'preset',

@@ -91,6 +91,32 @@ describe('createClaudeDriver', () => {
     })
   })
 
+  it("disables Claude Code's own auto-memory so memories route to write_memory", () => {
+    // The claude_code preset ships its own auto-memory subsystem, which defaults ON and tells
+    // the model to store memories as files under ~/.claude/projects/<sanitized-cwd>/memory/ via
+    // the Write tool. That competed with Argus's write_memory tool and won — observed writing to
+    // ~/.claude/projects/-Users-…-Argus-cases-NN-5187/memory/. The env var is the right lever:
+    // it sits ABOVE settings.json in the CLI's precedence chain, and Argus passes
+    // settingSources:['project'], so a user-level autoMemoryEnabled:false would not be read.
+    createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+    const env = lastOptions?.env as Record<string, string | undefined> | undefined
+    expect(env?.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1')
+  })
+
+  it('inherits process.env when disabling auto-memory', () => {
+    // SDK contract (sdk.d.ts): `env` REPLACES the subprocess environment entirely rather than
+    // merging with process.env. Setting it without spreading would strip PATH/HOME/auth and
+    // break every session — a far worse bug than the one being fixed.
+    process.env.ARGUS_ENV_INHERIT_PROBE = 'inherited'
+    try {
+      createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+      const env = lastOptions?.env as Record<string, string | undefined> | undefined
+      expect(env?.ARGUS_ENV_INHERIT_PROBE).toBe('inherited')
+    } finally {
+      delete process.env.ARGUS_ENV_INHERIT_PROBE
+    }
+  })
+
   it('normalizes the SDK stream into AgentEvents and reports cursor + turn result', async () => {
     const ctx = baseCtx()
     const driver = createClaudeDriver(
