@@ -8,6 +8,7 @@ import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
 import { useSharePush } from './useSharePush'
 import { RefViewer, MarkdownViewer } from '../references/RefViewer'
 import { TierBadge } from './TierBadge'
+import { withByline } from './byline'
 import { AssetEditor } from '../library/AssetEditor'
 import { accessStore } from '../../lib/accessStore'
 import { confirm } from '../../lib/confirmStore'
@@ -314,7 +315,7 @@ export function LibraryPage({
         <SettingRow
           label={s.name}
           onOpen={() => setViewer({ kind: 'skill', name: s.name })}
-          description={s.description}
+          description={withByline(s.description, groupOf(s.tier) === 'built-in' ? null : s.author)}
           badge={
             <>
               <Chip tone="neutral">skill</Chip>
@@ -410,24 +411,23 @@ export function LibraryPage({
     const u = refUsage?.get(r.file)
     const hive = hiveItems.get(`reference/${r.file}`)
     const canClaim = r.tier === 'hivemind' && (hive?.installed ?? true)
+    // withByline needs a plain string to append "· by <name>" to — build the same text this
+    // row has always shown (synced/read-count meta) as one string rather than a JSX fragment.
+    const descText =
+      (r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced') +
+      (u
+        ? ` · ${
+            u.readCount === 0
+              ? 'never read'
+              : `${u.readCount} reads · last ${u.lastReadAt!.slice(0, 10)}`
+          }`
+        : '')
     return (
       <Fragment key={`reference/${r.file}`}>
         <SettingRow
           label={r.file}
           onOpen={() => setViewer({ kind: 'reference', name: r.file })}
-          description={
-            <>
-              {r.lastSynced ? `last synced ${r.lastSynced.slice(0, 10)}` : 'never synced'}
-              {u && (
-                <>
-                  {' · '}
-                  {u.readCount === 0
-                    ? 'never read'
-                    : `${u.readCount} reads · last ${u.lastReadAt!.slice(0, 10)}`}
-                </>
-              )}
-            </>
-          }
+          description={withByline(descText, groupOf(r.tier) === 'built-in' ? null : r.author)}
           badge={
             <>
               <Chip tone="neutral">reference</Chip>
