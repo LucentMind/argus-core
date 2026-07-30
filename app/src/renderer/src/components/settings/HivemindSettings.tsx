@@ -136,11 +136,19 @@ function BrowseRow({
               {/* diff can legitimately be empty (fail-closed path: clone unreadable, no pin to
                   compare against) — the banner above stands alone rather than rendering an
                   empty diff viewer. */}
-              {confirm.divergence.diff && <UnifiedDiffView diff={confirm.divergence.diff} />}
+              {confirm.divergence.diff && (
+                <>
+                  <span className="text-xs text-dim">Your edits — would be lost</span>
+                  <UnifiedDiffView diff={confirm.divergence.diff} />
+                </>
+              )}
             </>
           )}
           {confirm.diff ? (
-            <UnifiedDiffView diff={confirm.diff} />
+            <>
+              <span className="text-xs text-dim">Incoming change from the HiveMind</span>
+              <UnifiedDiffView diff={confirm.diff} />
+            </>
           ) : (
             <span className="font-mono text-xs text-dim">(no content diff — metadata only)</span>
           )}
