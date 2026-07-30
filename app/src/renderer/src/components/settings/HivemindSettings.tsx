@@ -6,11 +6,16 @@ import { TierBadge } from './TierBadge'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm as askConfirm } from '../../lib/confirmStore'
 import { UnifiedDiffView } from '../UnifiedDiffView'
-import type { HivemindItem, HivemindPayload } from '../../../../shared/hivemind'
+import type { HivemindItem, HivemindPayload, LocalDivergence } from '../../../../shared/hivemind'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { SourceControlStatus } from '../../../../shared/sourcecontrol'
 
-type UpdateConfirm = { kind: 'skill' | 'reference'; name: string; diff: string }
+type UpdateConfirm = {
+  kind: 'skill' | 'reference'
+  name: string
+  diff: string
+  divergence: LocalDivergence
+}
 
 /** One Browse-tab row plus its inline update-diff panel, expanded directly beneath the row when active. */
 function BrowseRow({
@@ -116,6 +121,24 @@ function BrowseRow({
       </SettingRow>
       {open && confirm && (
         <div className="flex flex-col gap-2 px-4 py-3">
+          {it.shadowedByUser && (
+            <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
+              You have your own copy of this skill. It will keep being used after this update —
+              adopt upstream in the Library to switch to the team&apos;s version.
+            </div>
+          )}
+          {confirm.divergence.diverged && (
+            <>
+              <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
+                Your local copy has edits that are not in the HiveMind. Updating replaces the
+                content below with the team&apos;s version.
+              </div>
+              {/* diff can legitimately be empty (fail-closed path: clone unreadable, no pin to
+                  compare against) — the banner above stands alone rather than rendering an
+                  empty diff viewer. */}
+              {confirm.divergence.diff && <UnifiedDiffView diff={confirm.divergence.diff} />}
+            </>
+          )}
           {confirm.diff ? (
             <UnifiedDiffView diff={confirm.diff} />
           ) : (
@@ -124,12 +147,16 @@ function BrowseRow({
           <div className="flex items-center gap-2">
             <Btn
               variant="primary"
-              aria-label={`Re-download ${it.name}`}
+              aria-label={
+                confirm.divergence.diverged
+                  ? `Overwrite my copy of ${it.name}`
+                  : `Re-download ${it.name}`
+              }
               disabled={busy}
               onClick={onReinstall}
             >
               <Download size={13} aria-hidden="true" />
-              Re-download
+              {confirm.divergence.diverged ? 'Overwrite my copy' : 'Re-download'}
             </Btn>
             <IconBtn aria-label="Cancel" title="Cancel" onClick={onCancel}>
               <X size={14} />
@@ -214,8 +241,13 @@ export function HivemindSettings({
     setBusy(true)
     setError(null)
     try {
-      const diff = await window.argus.hivemind.diff(kind, name)
-      setUpdateConfirm({ kind, name, diff })
+      const [diff, divergence] = await Promise.all([
+        window.argus.hivemind.diff(kind, name),
+        kind === 'reference'
+          ? window.argus.hivemind.localDivergence(name)
+          : Promise.resolve<LocalDivergence>({ diverged: false, diff: '' })
+      ])
+      setUpdateConfirm({ kind, name, diff, divergence })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -367,8 +399,15 @@ export function HivemindSettings({
                     }
                     onOpenUpdate={() => void openUpdate(it.kind, it.name)}
                     onReinstall={() => {
+                      const ack = updateConfirm?.divergence.diverged === true
                       setUpdateConfirm(null)
-                      void run(() => window.argus.hivemind.install(it.kind, it.name))
+                      void run(() =>
+                        ack
+                          ? window.argus.hivemind.install(it.kind, it.name, {
+                              overwriteLocalEdits: true
+                            })
+                          : window.argus.hivemind.install(it.kind, it.name)
+                      )
                     }}
                     onCancel={() => setUpdateConfirm(null)}
                     onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
@@ -393,8 +432,15 @@ export function HivemindSettings({
                     }
                     onOpenUpdate={() => void openUpdate(it.kind, it.name)}
                     onReinstall={() => {
+                      const ack = updateConfirm?.divergence.diverged === true
                       setUpdateConfirm(null)
-                      void run(() => window.argus.hivemind.install(it.kind, it.name))
+                      void run(() =>
+                        ack
+                          ? window.argus.hivemind.install(it.kind, it.name, {
+                              overwriteLocalEdits: true
+                            })
+                          : window.argus.hivemind.install(it.kind, it.name)
+                      )
                     }}
                     onCancel={() => setUpdateConfirm(null)}
                     onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
