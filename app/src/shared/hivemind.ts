@@ -10,6 +10,12 @@ export interface HivemindItem {
   localTier: string | null
   updateAvailable: boolean
 }
+/** Whether the installed local reference has edits that are in neither the pin nor HEAD. */
+export interface LocalDivergence {
+  diverged: boolean
+  /** Unified diff, local → incoming. Empty when not diverged. */
+  diff: string
+}
 export interface PushableItem {
   kind: 'skill' | 'reference'
   name: string
