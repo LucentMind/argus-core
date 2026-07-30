@@ -426,6 +426,27 @@ describe('AssetTab staleness at open', () => {
     // column).
     expect(kindsIn(group, 'add').join('\n')).toContain('only in the draft')
     expect(kindsIn(group, 'add').join('\n')).not.toContain('only on disk')
+
+    // The wrapper hiding AssetEditor while Compare is up carries `aria-hidden` (jsdom implements
+    // no `inert` behaviour, so that half of the hardening is untestable here — see the comment
+    // on the wrapper in AssetTab.tsx). The banner underneath and DiffView both render a "Keep
+    // mine" button; without `aria-hidden` this role query would match both.
+    expect(screen.getAllByRole('button', { name: /keep mine/i })).toHaveLength(1)
+  })
+
+  it('moves focus to the compare view instead of dropping it to <body>', async () => {
+    // The Compare button lives inside `bannerNode`, which renders inside the wrapper that
+    // `inert` gets applied to the moment Compare opens. Clicking it makes the focused element
+    // (Compare itself) inert in the same commit, so the browser blurs it — without an explicit
+    // claim, focus lands on <body> and a keyboard user has to tab from the top of the document
+    // to reach the diff they just opened.
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    mount()
+    await screen.findByText(BANNERS.stale)
+    await userEvent.click(screen.getByRole('button', { name: /compare/i }))
+    await screen.findByRole('group', { name: /on disk compared with yours/i })
+
+    expect(screen.getByRole('button', { name: /back/i })).toHaveFocus()
   })
 })
 

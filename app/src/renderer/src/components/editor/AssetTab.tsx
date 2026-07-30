@@ -335,15 +335,13 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
         void window.argus.editor.discardDraft({ kind, name: filedAs.current })
         setDraftAt(null)
       } else {
-        // final-review-fixes-2 (regression): Keep mine keeps the draft file (`discardDraft:
-        // false`) but resolves to the *new* disk hash — the draft on disk still carries the
-        // hash it was queued under before this resolution. Before the Regression-1 fix above,
-        // the remount's mount echo happened to re-file this draft (its content matched the
-        // seed, but `everMirrored` was still false so nothing skipped it); now that echo is
-        // correctly recognized as "nothing new" and skipped, so nobody re-files it unless this
-        // does it explicitly. Left un-filed, the draft's stale `baseHash` makes `bannerOnOpen`
-        // raise the staleness banner again on the next reopen, re-asking a question the user
-        // already answered. `draftAt` is deliberately left alone: it is only ever written from
+        // Keep mine keeps the draft file (`discardDraft: false`), but resolves `next.baseHash`
+        // to the *new* disk hash — the draft file on disk still carries the pre-resolution
+        // `baseHash` it was queued under, because nothing has re-filed it yet. Left alone, that
+        // stale `baseHash` sits on disk until the next reopen, when `bannerOnOpen` compares it
+        // against current disk and raises the same staleness banner again, re-asking a question
+        // the user already answered. So this call has to re-file the draft explicitly, against
+        // the new hash. `draftAt` is deliberately left alone: it is only ever written from
         // `onDraftSaved`, once the bytes below are actually confirmed on disk.
         window.argus.editor.draftChanged({
           kind,
@@ -473,7 +471,12 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
           afterLabel="Yours"
           actions={
             <>
-              <Btn variant="ghost" onClick={() => setCompareSnapshot(null)}>
+              {/* The wrapper below applies `inert` to AssetEditor's subtree while Compare is
+                  up, which blurs whatever had focus (the Compare button lives inside that
+                  wrapper via `bannerNode`) and drops focus to `<body>`. Claim it back here so a
+                  keyboard user lands on the diff they just opened instead of at the top of the
+                  document. */}
+              <Btn autoFocus variant="ghost" onClick={() => setCompareSnapshot(null)}>
                 Back
               </Btn>
               <Btn variant="ghost" onClick={() => apply('use-disk')}>
