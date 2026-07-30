@@ -170,3 +170,30 @@ body {
 .hljs-deletion {
   color: var(--danger);
 }
+
+/* Pending-state shimmer.
+   Plain CSS rather than a Tailwind utility on purpose: a brand-new Tailwind class is generated
+   only once the content scanner has seen it, so under HMR the first render of a new skeleton is
+   unstyled — which reads as a bug that isn't one. This is emitted unconditionally. */
+@keyframes argus-shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+.argus-shimmer {
+  background: linear-gradient(90deg, var(--hair) 25%, var(--hair-2) 37%, var(--hair) 63%);
+  background-size: 400% 100%;
+  animation: argus-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-r1, 5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .argus-shimmer {
+    animation: none;
+    background: var(--hair-2);
+  }
+}
