@@ -10,6 +10,7 @@ const EMPTY: Record<string, PrStatus> = {}
 
 class PrStatusStore {
   private bySlug: Record<string, PrStatus> = EMPTY
+  private loadedSlugs = new Set<string>()
   private listeners = new Set<() => void>()
 
   getAll(): Record<string, PrStatus> {
@@ -23,7 +24,14 @@ class PrStatusStore {
   /** Seed from the DB cache. No network. */
   async load(slugs: string[]): Promise<void> {
     if (slugs.length === 0) return
-    this.merge(await window.argus.pr.statusList(slugs))
+    try {
+      this.merge(await window.argus.pr.statusList(slugs))
+    } finally {
+      // Marked even on rejection: a surface that stays skeletal forever after one transient
+      // IPC blip is worse than one that shows its empty state.
+      for (const s of slugs) this.loadedSlugs.add(s)
+      this.emit()
+    }
   }
 
   /** Hit GitHub for these cases and adopt the result. */
@@ -32,9 +40,21 @@ class PrStatusStore {
     this.merge(await window.argus.pr.statusRefresh(slugs))
   }
 
+  /**
+   * Has this slug's cache read settled? Not inferable from `bySlug`: a case with no bound PR is
+   * never cached, so absence means both "not fetched yet" and "nothing to fetch".
+   *
+   * Deliberately NOT cleared by `forget()` — after an unlink we know there is no PR, and the
+   * empty state should appear immediately rather than flashing a skeleton first.
+   */
+  isLoaded(slug: string): boolean {
+    return this.loadedSlugs.has(slug)
+  }
+
   /** Test seam; also used to reset between cases in dev. */
   hydrate(map: Record<string, PrStatus>): void {
     this.bySlug = map
+    this.loadedSlugs = new Set(Object.keys(map))
     this.emit()
   }
 
