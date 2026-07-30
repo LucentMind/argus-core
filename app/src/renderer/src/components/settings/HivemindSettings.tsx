@@ -129,9 +129,9 @@ function BrowseRow({
           )}
           {confirm.divergence.diverged && (
             <>
-              <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
-                Your local copy has edits that are not in the HiveMind. Updating replaces the
-                content below with the team&apos;s version.
+              <div className="rounded-r2 border border-danger/40 bg-danger/10 px-2 py-1 text-xs text-danger">
+                Your local copy of {it.name.split('/').pop()} differs from the version that would be
+                installed. Updating replaces the content below with the team&apos;s version.
               </div>
               {/* diff can legitimately be empty (fail-closed path: clone unreadable, no pin to
                   compare against) — the banner above stands alone rather than rendering an
@@ -154,7 +154,7 @@ function BrowseRow({
           )}
           <div className="flex items-center gap-2">
             <Btn
-              variant="primary"
+              variant={confirm.divergence.diverged ? 'dangerSolid' : 'primary'}
               aria-label={
                 confirm.divergence.diverged
                   ? `Overwrite my copy of ${it.name}`
@@ -261,6 +261,19 @@ export function HivemindSettings({
     } finally {
       setBusy(false)
     }
+  }
+
+  /** Shared by both Browse call sites (Skills and References) so "yes, destroy my work" has
+   *  exactly one implementation. The ack must be read from `updateConfirm` before it is
+   *  cleared, or the flag is always false by the time `install` runs. */
+  function reinstall(kind: 'skill' | 'reference', name: string): void {
+    const ack = updateConfirm?.divergence.diverged === true
+    setUpdateConfirm(null)
+    void run(() =>
+      ack
+        ? window.argus.hivemind.install(kind, name, { overwriteLocalEdits: true })
+        : window.argus.hivemind.install(kind, name)
+    )
   }
 
   const statusChip = ((): React.JSX.Element | null => {
@@ -406,17 +419,7 @@ export function HivemindSettings({
                       void run(() => window.argus.hivemind.install(it.kind, it.name))
                     }
                     onOpenUpdate={() => void openUpdate(it.kind, it.name)}
-                    onReinstall={() => {
-                      const ack = updateConfirm?.divergence.diverged === true
-                      setUpdateConfirm(null)
-                      void run(() =>
-                        ack
-                          ? window.argus.hivemind.install(it.kind, it.name, {
-                              overwriteLocalEdits: true
-                            })
-                          : window.argus.hivemind.install(it.kind, it.name)
-                      )
-                    }}
+                    onReinstall={() => reinstall(it.kind, it.name)}
                     onCancel={() => setUpdateConfirm(null)}
                     onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
                     onUninstall={() =>
@@ -439,17 +442,7 @@ export function HivemindSettings({
                       void run(() => window.argus.hivemind.install(it.kind, it.name))
                     }
                     onOpenUpdate={() => void openUpdate(it.kind, it.name)}
-                    onReinstall={() => {
-                      const ack = updateConfirm?.divergence.diverged === true
-                      setUpdateConfirm(null)
-                      void run(() =>
-                        ack
-                          ? window.argus.hivemind.install(it.kind, it.name, {
-                              overwriteLocalEdits: true
-                            })
-                          : window.argus.hivemind.install(it.kind, it.name)
-                      )
-                    }}
+                    onReinstall={() => reinstall(it.kind, it.name)}
                     onCancel={() => setUpdateConfirm(null)}
                     onClaim={() => void run(() => window.argus.hivemind.claimReference(it.name))}
                     onUninstall={() =>

@@ -1060,6 +1060,49 @@ describe('localDivergence', () => {
     expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
   })
 
+  it('the divergence diff never claims the user is losing their authorship stamp', async () => {
+    // The existing 'is diverged when...' test above only asserts on `.diverged`, so nothing
+    // catches a diff whose *content* is false. A raw-vs-raw diff would show `-trust_tier:
+    // user` and `-source_commit: pinsha` as deletions — that's not something the user typed
+    // and not something install() actually destroys (it re-stamps trust_tier itself), so the
+    // rendered diff must not mention it, while still showing the user's real edit.
+    //
+    // `fakeGit` doesn't implement `diff --no-index`'s real exit-1-with-stdout behaviour, so
+    // this test supplies its own runner: on the `--no-index` call it reads back whatever
+    // `noIndexDiff` actually wrote to the `mine/` file in its temp dir and rejects with that
+    // as `.stdout`, the same shape a real `git diff --no-index` failure carries. That proves
+    // what content reached the diff, not just that the boolean came back true.
+    seedClone()
+    const pinned = '# note\n'
+    const head = '# note v2\n'
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async (_cmd, args, opts) => {
+        if (args[0] === 'log') return 'pinsha'
+        if (args[0] === 'show') return String(args[1]).startsWith('HEAD:') ? head : pinned
+        if (args[0] === 'diff' && args.includes('--no-index')) {
+          const mineRel = args[args.length - 2]
+          const content = fs.readFileSync(path.join(opts!.cwd!, mineRel), 'utf8')
+          const err = new Error('files differ') as Error & { stdout?: string }
+          err.stdout = content
+          throw err
+        }
+        return ''
+      }
+    })
+    await svc.install('reference', 'hive-note.md')
+    fs.writeFileSync(
+      path.join(home, 'references', 'hive-note.md'),
+      '---\ntrust_tier: user\nsource_commit: pinsha\n---\n# note\nMY EDIT\n'
+    )
+    const d = await svc.localDivergence('hive-note.md')
+    expect(d.diverged).toBe(true)
+    expect(d.diff).not.toContain('trust_tier')
+    expect(d.diff).not.toContain('source_commit')
+    expect(d.diff).toContain('MY EDIT')
+  })
+
   it('fails closed (diverged, no diff) when there is no pin and git cannot read the blobs', async () => {
     // No pin exists for this name — a hand-written references/hive-note.md the app has
     // never touched. A failed check here means silent, irreversible loss of content that
