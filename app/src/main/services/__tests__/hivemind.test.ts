@@ -581,12 +581,22 @@ describe('reference keep-authorship', () => {
     )
   }
 
-  it('install over a user-tier local copy preserves the tier and stays pushable', async () => {
+  it('install over a user-tier local copy rejects without acknowledgement, then preserves the tier and stays pushable', async () => {
     seedClone()
     seedLocalRef('hive-note.md', 'user')
     const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
-    const p = await svc.install('reference', 'hive-note.md')
+
+    // No pin yet — a hand-written local file predating any HiveMind install is exactly the
+    // data-loss path the divergence guard now covers, so the first install must refuse.
+    await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(
+      /differs from the version that will be installed/i
+    )
+    expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
+      'my local draft'
+    )
+
+    const p = await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
     const written = fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')
     expect(written).toContain('trust_tier: user')
     expect(written).not.toContain('trust_tier: hivemind')
@@ -602,7 +612,9 @@ describe('reference keep-authorship', () => {
     seedLocalRef('hive-note.md', 'team-knowledge')
     const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
-    await svc.install('reference', 'hive-note.md')
+    // No pin yet, and the hand-seeded draft differs from HEAD — the unified divergence
+    // guard now covers first installs too, so acknowledge it to keep exercising tier-stamping.
+    await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
     expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
       'trust_tier: team-knowledge'
     )
@@ -817,7 +829,9 @@ describe('confluence subfolder references', () => {
     )
     const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'refsha' })
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
-    await svc.install('reference', 'confluence/adasis.md')
+    // No pin yet for this confluence name, and the hand-seeded local file differs from
+    // HEAD — the unified divergence guard now covers this first-install case too.
+    await svc.install('reference', 'confluence/adasis.md', { overwriteLocalEdits: true })
     const written = fs.readFileSync(path.join(home, 'references', 'adasis.md'), 'utf8')
     expect(written).toContain('trust_tier: confluence')
     expect(written).not.toContain('my local draft')
@@ -867,13 +881,17 @@ describe('confluence subfolder references', () => {
     let p = await svc.install('reference', 'hive-note.md')
     expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: hivemind')
 
-    p = await svc.install('reference', 'confluence/hive-note.md')
+    // No pin yet for the confluence name, and the shared file currently holds the flat
+    // twin's content, which differs from HEAD of the confluence path — acknowledge the
+    // takeover to keep testing pin/tier bookkeeping.
+    p = await svc.install('reference', 'confluence/hive-note.md', { overwriteLocalEdits: true })
     expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: confluence')
     expect(fs.readFileSync(local, 'utf8')).toContain('# distilled twin')
 
     // re-installing the flat twin takes the file back (prior confluence tier is not preserved).
-    // The shared destination now holds the confluence twin's content, which diverges from the
-    // flat item's own pin — acknowledge the overwrite to keep testing pin/tier bookkeeping.
+    // The shared destination currently holds the confluence twin's content, which differs
+    // from the flat item's own pin — the guard fires on that difference, not because the
+    // user edited anything, and this test acknowledges the overwrite to proceed.
     p = await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
     expect(fs.readFileSync(local, 'utf8')).toContain('trust_tier: hivemind')
 
@@ -982,14 +1000,43 @@ describe('localDivergence', () => {
     expect((await svc.localDivergence('hive-note.md')).diverged).toBe(true)
   })
 
-  it('reports not-diverged rather than throwing when there is no pin', async () => {
+  it('reports not-diverged when there is no local file at all, regardless of pin', async () => {
+    // A first install with nothing in the way must proceed normally — no file means the
+    // guard returns before it ever needs to shell out to git.
     seedClone()
-    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
-    fs.writeFileSync(path.join(home, 'references', 'hive-note.md'), '# anything\n')
     const svc = new HivemindService({
       argusHome: home,
       repo: () => 'acme/hivemind',
-      git: async () => ''
+      git: async () => {
+        throw new Error('must not be called: no local file means no divergence check')
+      }
+    })
+    expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+  })
+
+  it('with no pin, a local file that differs from HEAD is diverged (first install over a hand-written file)', async () => {
+    // No pin exists yet for this name, so the guard falls back to comparing against HEAD
+    // alone — a hand-written references/hive-note.md predating any HiveMind install must
+    // not be silently destroyed by the first install.
+    seedClone()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'references', 'hive-note.md'), '# my own notes\n')
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async (_cmd, args) => (args[0] === 'show' ? '# note\n' : '')
+    })
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(true)
+  })
+
+  it('with no pin, a local file that already equals HEAD is not diverged', async () => {
+    seedClone()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'references', 'hive-note.md'), '# note\n')
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async (_cmd, args) => (args[0] === 'show' ? '# note\n' : '')
     })
     expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
   })
@@ -1022,7 +1069,9 @@ describe('install() and unpushed local edits', () => {
 
   it('refuses to overwrite a diverged local copy without an explicit acknowledgement', async () => {
     const svc = await diverged()
-    await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(/not in the HiveMind/i)
+    await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(
+      /differs from the version that will be installed/i
+    )
     expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
       'MY EDIT'
     )
@@ -1038,6 +1087,13 @@ describe('install() and unpushed local edits', () => {
 
   it('does not gate skills', async () => {
     const svc = await diverged()
-    await expect(svc.install('skill', 'hive-probe')).resolves.toBeDefined()
+    await svc.install('skill', 'hive-probe')
+    // Assert the skill actually landed, not just that the call resolved: if the guard were
+    // wrongly hoisted above the `kind` branch, `localDivergence('hive-probe')` would
+    // short-circuit on `validReferenceName` (no '.md' suffix) and still report
+    // not-diverged, so a bare `resolves.toBeDefined()` would pass even under that bug.
+    const dest = path.join(home, 'skills-hivemind', 'hive-probe', 'SKILL.md')
+    expect(fs.existsSync(dest)).toBe(true)
+    expect(fs.readFileSync(dest, 'utf8')).toContain('probe skill from the hive')
   })
 })
