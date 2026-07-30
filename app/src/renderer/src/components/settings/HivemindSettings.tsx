@@ -18,6 +18,10 @@ type UpdateConfirm = {
   divergence: LocalDivergence
 }
 
+/** Shown wherever an action would leave a skills-user fork shadowing the HiveMind copy. */
+const SHADOW_WARNING =
+  "You have your own copy of this skill. It will keep being used — adopt upstream in the Library to switch to the team's version."
+
 /** One Browse-tab row plus its inline update-diff panel, expanded directly beneath the row when active. */
 function BrowseRow({
   it,
@@ -120,12 +124,18 @@ function BrowseRow({
           </Btn>
         )}
       </SettingRow>
+      {it.shadowedByUser && !it.installed && (
+        <div className="px-4 pb-3">
+          <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
+            {SHADOW_WARNING}
+          </div>
+        </div>
+      )}
       {open && confirm && (
         <div className="flex flex-col gap-2 px-4 py-3">
           {it.shadowedByUser && (
             <div className="rounded-r2 border border-hair bg-hair/40 px-2 py-1 text-xs text-mute">
-              You have your own copy of this skill. It will keep being used after this update —
-              adopt upstream in the Library to switch to the team&apos;s version.
+              After this update: {SHADOW_WARNING}
             </div>
           )}
           {confirm.divergence.diverged && (

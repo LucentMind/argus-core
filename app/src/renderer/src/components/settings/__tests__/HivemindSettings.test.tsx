@@ -505,7 +505,7 @@ describe('update hazards', () => {
     }
     renderWith(payload)
     fireEvent.click(await screen.findByLabelText('Update hive-probe'))
-    expect(await screen.findByText(/keep being used after this update/i)).toBeInTheDocument()
+    expect(await screen.findByText(/after this update:.*keep being used/i)).toBeInTheDocument()
     // kind gate: divergence is a reference-only concept — skills must never probe it.
     expect(localDivergenceMock).not.toHaveBeenCalled()
   })
@@ -644,6 +644,7 @@ describe('update hazards', () => {
           name: 'confluence/hive-note.md',
           description: '',
           commit: 'sha-3',
+          author: null,
           installed: true,
           installedCommit: 'sha-2',
           localTier: 'user',
@@ -705,5 +706,81 @@ describe('HivemindSettings byline', () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     const row = await screen.findByText('hive-note.md')
     expect(row.closest('div')?.querySelector('span.text-xs.text-mute')).toBeNull()
+  })
+})
+
+describe('download hazards', () => {
+  it('warns before downloading a skill you have already forked', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'skill',
+          name: 'hive-probe',
+          description: 'probe skill',
+          commit: 'sha-2',
+          author: null,
+          installed: false,
+          installedCommit: null,
+          localTier: null,
+          shadowedByUser: true,
+          updateAvailable: false
+        }
+      ]
+    }
+    renderWith(payload)
+    expect(await screen.findByLabelText('Download hive-probe')).toBeInTheDocument()
+    expect(screen.getByText(/keep being used/i)).toBeInTheDocument()
+  })
+
+  it('does not warn when there is no fork', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'skill',
+          name: 'hive-probe',
+          description: 'probe skill',
+          commit: 'sha-2',
+          author: null,
+          installed: false,
+          installedCommit: null,
+          localTier: null,
+          shadowedByUser: false,
+          updateAvailable: false
+        }
+      ]
+    }
+    renderWith(payload)
+    expect(await screen.findByLabelText('Download hive-probe')).toBeInTheDocument()
+    expect(screen.queryByText(/keep being used/i)).not.toBeInTheDocument()
+  })
+
+  // Neither test above exercises the `!installed` half of the render guard — both use
+  // installed: false. An already-installed, up-to-date fork (no Update button either, since
+  // there's no pending update) must not show the row-level banner: that case is covered by
+  // the update panel itself, not the Download path.
+  it('does not warn on an already-installed fork with no update pending', async () => {
+    const payload: HivemindPayload = {
+      ...ready,
+      items: [
+        {
+          kind: 'skill',
+          name: 'hive-probe',
+          description: 'probe skill',
+          commit: 'sha-2',
+          author: null,
+          installed: true,
+          installedCommit: 'sha-2',
+          localTier: null,
+          shadowedByUser: true,
+          updateAvailable: false
+        }
+      ]
+    }
+    renderWith(payload)
+    expect(await screen.findByRole('button', { name: 'Remove hive-probe' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Download hive-probe')).not.toBeInTheDocument()
+    expect(screen.queryByText(/keep being used/i)).not.toBeInTheDocument()
   })
 })
