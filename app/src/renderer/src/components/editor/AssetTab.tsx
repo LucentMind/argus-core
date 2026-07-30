@@ -93,13 +93,25 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   // Guards every async path below (discard, save's error-branch re-read, the focus listener's
   // re-read) so a resolution landing after unmount cannot call setState. AssetTab is not yet
   // mounted by EditorApp, but Task 9 wires it — a tab swap can unmount mid-flight then.
+  //
+  // final-review-fixes-2 (found via gate step 5, dev-only): the setup function must set
+  // `liveRef.current = true`, not just rely on `useRef(true)`'s initial value. Under dev-mode
+  // React.StrictMode (editor.tsx wraps the tree in it), React double-invokes every mount effect
+  // once: setup, simulated cleanup, setup again — reusing the same ref, not a fresh one. The
+  // simulated cleanup flips `liveRef.current` to false; without re-arming it here, the *second*
+  // setup call leaves it false for the component's entire real lifetime, and every guarded path
+  // above permanently takes its "unmounted" branch — discard silently does nothing to the UI,
+  // and Save's conflict re-read always falls through to the raw IPC error instead of ever
+  // classifying and showing the banner. Production builds never double-invoke, so this was
+  // invisible there and invisible in jsdom (no StrictMode double-effect there either); only
+  // driving a real Save-conflict through a real `npx electron-vite dev` boot ever exercised it.
   const liveRef = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    liveRef.current = true
+    return () => {
       liveRef.current = false
-    },
-    []
-  )
+    }
+  }, [])
 
   useEffect(() => {
     let live = true
@@ -187,7 +199,21 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
         // typed — content and name both still match what `init.load` just handed AssetEditor.
         // Skip it: `buffer.current` above is already correct, but persisting it would rewrite
         // the draft file with byte-identical content purely to bump `updatedAt`.
+        //
+        // final-review-fixes-2 (regression): this must only swallow *that* mount echo, not any
+        // later call that happens to land back on the same bytes — a deliberate revert (type,
+        // then delete back to the original text) or a rename away and back both produce exactly
+        // that shape, and both need to persist for real: the revert must overwrite the stale
+        // `D+X` still on disk, and the rename-back must carry its `replaces` routing (computed
+        // above) so the draft follows the name instead of being stranded under the old key.
+        // `!everMirrored.current` scopes the skip to "nothing has persisted yet this mount" —
+        // the mount echo is always the first call, so it is the only call that can ever see
+        // `everMirrored.current` still false. Do not clear `everMirrored` here even though this
+        // branch returns before the line that normally sets it true: that stays false precisely
+        // because this call performed no persist, which is what keeps `handleSaved`'s "untouched
+        // template" branch below correct.
         if (
+          !everMirrored.current &&
           seeded.current !== null &&
           content === seeded.current.content &&
           name === seeded.current.name
@@ -308,6 +334,24 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
       if (next.discardDraft) {
         void window.argus.editor.discardDraft({ kind, name: filedAs.current })
         setDraftAt(null)
+      } else {
+        // final-review-fixes-2 (regression): Keep mine keeps the draft file (`discardDraft:
+        // false`) but resolves to the *new* disk hash — the draft on disk still carries the
+        // hash it was queued under before this resolution. Before the Regression-1 fix above,
+        // the remount's mount echo happened to re-file this draft (its content matched the
+        // seed, but `everMirrored` was still false so nothing skipped it); now that echo is
+        // correctly recognized as "nothing new" and skipped, so nobody re-files it unless this
+        // does it explicitly. Left un-filed, the draft's stale `baseHash` makes `bannerOnOpen`
+        // raise the staleness banner again on the next reopen, re-asking a question the user
+        // already answered. `draftAt` is deliberately left alone: it is only ever written from
+        // `onDraftSaved`, once the bytes below are actually confirmed on disk.
+        window.argus.editor.draftChanged({
+          kind,
+          name: filedAs.current,
+          mode,
+          content: next.content,
+          baseHash: next.baseHash
+        })
       }
       override.current = {
         content: next.content,
@@ -326,7 +370,7 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
       setInit(null)
       setGeneration((g) => g + 1)
     },
-    [kind]
+    [kind, mode]
   )
 
   /** Spec §4.4: no fs watcher — external changes are noticed here and at save. */
@@ -444,8 +488,19 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
       )}
       {/* `contents` when not comparing: this wrapper stays transparent to layout so
           AssetEditor's own top-level flex div is the effective flex item, unchanged from
-          before. `hidden` while comparing removes it from layout without unmounting it. */}
-      <div className={compare ? 'hidden' : 'contents'}>
+          before. `hidden` while comparing removes it from layout without unmounting it.
+          `inert` + `aria-hidden` (final-review-fixes-2, hardening): the Tailwind `hidden` class
+          only sets `display:none` where a stylesheet is actually loaded — true in the real app,
+          false under jsdom, which has no CSS engine. Without these two, this subtree's Use disk /
+          Keep mine buttons stay in the accessibility tree while Compare is up, duplicating the
+          ones DiffView renders and breaking any `getByRole` query that targets them by name.
+          `inert` also keeps focus (and, in the real window, keyboard interaction) out of a
+          subtree that looks hidden but jsdom would otherwise still let win it. */}
+      <div
+        className={compare ? 'hidden' : 'contents'}
+        inert={!!compare}
+        aria-hidden={!!compare || undefined}
+      >
         <AssetEditor
           key={`${kind}/${initialName}/${mode}/${generation}`}
           kind={kind}

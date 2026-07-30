@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import { StrictMode } from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -184,6 +185,84 @@ describe('AssetTab restoring a draft', () => {
   })
 })
 
+// final-review-fixes-2, Regression 1 (IMPORTANT): Finding 3's mount-echo skip used to compare
+// every `draft.onChange` call against `seeded.current`, not just the first one. A later call
+// that happened to land back on the exact seed bytes — a deliberate revert, or a rename undone —
+// was swallowed too, either stranding stale content on disk or dropping the `replaces` routing a
+// rename-back needs to follow the name.
+describe('AssetTab reverting back to the seed', () => {
+  it('re-files the draft when typed text is deleted back to the original content', async () => {
+    mount()
+    const ta = await editor()
+    await userEvent.type(ta, 'X')
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith({
+        kind: 'skill',
+        name: 'my-skill',
+        mode: 'edit',
+        content: `${SKILL_BODY}X`,
+        baseHash: 'h1'
+      })
+    )
+
+    // Delete the 'X': the buffer is now byte-identical to what `init.load` seeded, exactly the
+    // shape Finding 3's skip was written to swallow — but this call is not the mount echo, and
+    // must still persist. Left skipped, the draft on disk would keep holding `SKILL_BODY + 'X'`
+    // — the text the user just deliberately deleted — ready to hand right back on the next
+    // "Restored unsaved draft" reopen.
+    draftChanged.mockClear()
+    await userEvent.type(ta, '{backspace}')
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith({
+        kind: 'skill',
+        name: 'my-skill',
+        mode: 'edit',
+        content: SKILL_BODY,
+        baseHash: 'h1'
+      })
+    )
+  })
+
+  it('follows a rename undone back to the seeded name, carrying the replaces routing (spec §4.5)', async () => {
+    // Create mode with a restored draft: `seeded = { content: 'seed content', name: 'a' }` and
+    // `bufferPristine` is false, the same setup Regression 1's rename-away-and-back scenario
+    // needs.
+    skillsRead.mockRejectedValue(new Error('No such skill: a'))
+    readDraft.mockResolvedValue(
+      aDraft({ name: 'a', mode: 'create', content: 'seed content', baseHash: null })
+    )
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name: 'a', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    const nameField = await screen.findByLabelText('skill name')
+    expect(nameField).toHaveValue('a')
+
+    // Rename a -> ab: files under the new name with `replaces: a`.
+    await userEvent.type(nameField, 'b')
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({ name: 'ab', replaces: { kind: 'skill', name: 'a' } })
+      )
+    )
+
+    // Rename ab -> a: content and name both land back on the seed. Before the fix this matched
+    // Finding 3's skip and dropped the `replaces: ab` routing it had just computed, while
+    // `filedAs` still advanced to 'a' — stranding the draft under `key('ab')` forever, since
+    // reopening 'a' would find nothing there.
+    draftChanged.mockClear()
+    await userEvent.type(nameField, '{backspace}')
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({ name: 'a', replaces: { kind: 'skill', name: 'ab' } })
+      )
+    )
+  })
+})
+
 describe('AssetTab after a save', () => {
   it('discards the draft when the buffer matches what was written', async () => {
     mount()
@@ -299,6 +378,34 @@ describe('AssetTab staleness at open', () => {
     )
   })
 
+  // final-review-fixes-2, Regression 2 (IMPORTANT): `resolveConflict('keep-mine', …)` returns
+  // `discardDraft: false` — the draft file survives Keep mine — but resolves `baseHash` to the
+  // *new* disk hash. Before Regression 1's fix, the remount's mount echo happened to re-file the
+  // draft under that new hash anyway (its content matched the seed, but `everMirrored` was still
+  // false so nothing skipped it). Now that echo is correctly recognized as "nothing new" and
+  // skipped, so the draft is left holding the *old* `baseHash` unless `apply()` files it itself.
+  // Left stale, the next reopen's `bannerOnOpen` compares that old hash against current disk and
+  // raises the staleness banner again — re-asking a question the user already answered.
+  it('re-files the draft against the new disk hash when Keep mine resolves a staleness banner', async () => {
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    mount()
+    await screen.findByText(BANNERS.stale)
+    draftChanged.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: /keep mine/i }))
+
+    // 'h1' is the hash `skillsRead`'s default mock reports for disk right now — not 'older',
+    // which the draft was taken from and which resolving the banner has just superseded.
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 'my-skill',
+        mode: 'edit',
+        content: `${SKILL_BODY}drafted`,
+        baseHash: 'h1'
+      })
+    )
+  })
+
   it('Compare shows the disk text against the buffer', async () => {
     // Deliberately disjoint fixtures: the default SKILL_BODY-plus-suffix pairing shares almost
     // every line, so a `before`/`after` swap (or a compareSnapshot that captured the wrong
@@ -325,6 +432,30 @@ describe('AssetTab staleness at open', () => {
 describe('AssetTab conflict on save', () => {
   it('raises the conflict banner when the write is rejected and disk has moved', async () => {
     mount()
+    await userEvent.type(await editor(), 'X')
+    skillsWrite.mockRejectedValue(new Error('"my-skill" changed on disk since you opened it.'))
+    skillsRead.mockResolvedValue({ content: 'someone else\n', hash: 'h9' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText(BANNERS.conflict)).toBeInTheDocument()
+  })
+
+  // final-review-fixes-2 (found via gate step 5, dev-only): dev-mode React.StrictMode
+  // double-invokes the mount effect (setup, simulated cleanup, setup again) on the SAME ref —
+  // the simulated cleanup used to leave `liveRef.current` stuck at `false` for the component's
+  // whole real lifetime, because the setup function never re-armed it. With that stuck, this
+  // exact scenario (identical to the test above) falls through `save()`'s `if (!liveRef.current)
+  // throw e` guard and rethrows the raw, unclassified IPC error instead of ever calling
+  // `isConflict`/`setBanner` — the conflict banner never appears. jsdom's default `render` never
+  // exercises this: it only surfaces under `<StrictMode>`, and the real bug this test guards was
+  // only ever caught by driving a real Save conflict through a real `electron-vite dev` boot.
+  it('still raises the conflict banner under StrictMode double-invoked mount effects', async () => {
+    const onDirtyChange = vi.fn()
+    render(
+      <StrictMode>
+        <AssetTab req={SKILL} onDirtyChange={onDirtyChange} onClose={vi.fn()} />
+      </StrictMode>
+    )
     await userEvent.type(await editor(), 'X')
     skillsWrite.mockRejectedValue(new Error('"my-skill" changed on disk since you opened it.'))
     skillsRead.mockResolvedValue({ content: 'someone else\n', hash: 'h9' })
