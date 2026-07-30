@@ -6,7 +6,7 @@
  * Usage:
  *   ARGUS_HOME=<dir> npm run dev                              # boot once so migrations run, then quit
  *   ARGUS_HOME=<dir> node --experimental-sqlite app/scripts/seed-test-home.mjs
- *   ARGUS_HOME=<dir> npm run dev                              # boot again, click Rescan per case
+ *   ARGUS_HOME=<dir> npm run dev                              # boot again, click Rescan once per case IN EACH MODE
  *
  * Requires git and gh on PATH, with gh authenticated for JiaweiHan88/HiveMindTest.
  *
@@ -14,6 +14,12 @@
  * scanEvidence ingests them when you click Rescan. That is deliberate — a
  * fixture that reimplements indexer.ts's chunking would drift and then lie
  * about how evidence search behaves.
+ *
+ * scanEvidence is per MODE (it scans modeDir(argusHome, slug, mode) and reconciles only
+ * that mode's rows), and Rescan passes whichever mode is currently active. Every seeded
+ * case starts in 'review' mode, so a single Rescan click only ingests artifacts/ — switch
+ * the case to 'investigation', Rescan, then switch back to 'review' and Rescan again, or
+ * the whole evidence/ tree never enters the database.
  *
  * Idempotent: per-case destructive, globally additive.
  *
@@ -262,8 +268,12 @@ console.log(
   )
 )
 console.log(`
-Next: boot the app against this home and click Rescan once per case.
-Evidence rows do not exist until you do — by design.
+Next: boot the app against this home and click Rescan once per case IN EACH MODE.
+Every seeded case starts in 'review' mode, and Rescan only scans the currently active
+mode — a single click per case ingests artifacts/ only. Switch each case to
+'investigation', click Rescan, then switch back to 'review' and click Rescan again, or
+the evidence/ tree never enters the database. Evidence rows do not exist until you do
+this — by design.
 
   ARGUS_HOME=${HOME} npm run dev
 
@@ -401,12 +411,14 @@ function verify() {
     )
   }
 
-  // Positive, and exact, for the same reason: an unscoped (or even slug-scoped) COUNT(*)
-  // would pass on rows left behind by a previous run even if this run's seedDistill did
-  // nothing at all. seedDistill unconditionally DELETEs both tables before inserting, so
-  // the row count after a real run is always exactly what it reported — comparing against
-  // that return value (rather than merely requiring > 0) is what actually catches a
-  // no-opped module instead of a stale table.
+  // Positive, and exact, for the same reason: a bare COUNT(*) would pass on rows left
+  // behind by a previous run even if this run's seedDistill did nothing at all.
+  // seedDistill DELETEs both tables scoped to the five roster slugs before inserting
+  // (never a blanket wipe — a home with real, unrelated cases must keep their
+  // distill_jobs/case_summaries rows), so the roster-scoped row count after a real run
+  // is always exactly what it reported — comparing against that return value (rather
+  // than merely requiring > 0) is what actually catches a no-opped module instead of a
+  // stale table.
   const slugPlaceholders = ctx.SLUGS.map(() => '?').join(',')
   const jobCount = db
     .prepare(`SELECT COUNT(*) c FROM distill_jobs WHERE case_slug IN (${slugPlaceholders})`)
