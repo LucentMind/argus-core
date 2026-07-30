@@ -590,7 +590,7 @@ describe('reference keep-authorship', () => {
     // No pin yet — a hand-written local file predating any HiveMind install is exactly the
     // data-loss path the divergence guard now covers, so the first install must refuse.
     await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(
-      /differs from the version that will be installed/i
+      /differs from the version that would be installed/i
     )
     expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
       'my local draft'
@@ -1041,13 +1041,15 @@ describe('localDivergence', () => {
     expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
   })
 
-  it('reports not-diverged when git cannot read the blobs', async () => {
+  it('fails open (not-diverged) when a pin exists but git cannot read the blobs', async () => {
     await installedReference({
       pinned: '# note\n',
       head: '# note v2\n',
       localEdit: '# something else entirely\n'
     })
-    // a second service over the same ARGUS_HOME — the pin is on disk, but git now fails
+    // a second service over the same ARGUS_HOME — the pin is on disk, but git now fails.
+    // A pinned copy came from the hive and can be re-downloaded, so a check that cannot
+    // run must not block the update.
     const broken = new HivemindService({
       argusHome: home,
       repo: () => 'acme/hivemind',
@@ -1056,6 +1058,23 @@ describe('localDivergence', () => {
       }
     })
     expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+  })
+
+  it('fails closed (diverged, no diff) when there is no pin and git cannot read the blobs', async () => {
+    // No pin exists for this name — a hand-written references/hive-note.md the app has
+    // never touched. A failed check here means silent, irreversible loss of content that
+    // exists nowhere else, so the fallback must refuse rather than wave the install through.
+    seedClone()
+    fs.mkdirSync(path.join(home, 'references'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'references', 'hive-note.md'), '# my own notes\n')
+    const broken = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async () => {
+        throw new Error('fatal: bad object')
+      }
+    })
+    expect(await broken.localDivergence('hive-note.md')).toEqual({ diverged: true, diff: '' })
   })
 })
 
@@ -1070,7 +1089,7 @@ describe('install() and unpushed local edits', () => {
   it('refuses to overwrite a diverged local copy without an explicit acknowledgement', async () => {
     const svc = await diverged()
     await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(
-      /differs from the version that will be installed/i
+      /differs from the version that would be installed/i
     )
     expect(fs.readFileSync(path.join(home, 'references', 'hive-note.md'), 'utf8')).toContain(
       'MY EDIT'
@@ -1088,10 +1107,9 @@ describe('install() and unpushed local edits', () => {
   it('does not gate skills', async () => {
     const svc = await diverged()
     await svc.install('skill', 'hive-probe')
-    // Assert the skill actually landed, not just that the call resolved: if the guard were
-    // wrongly hoisted above the `kind` branch, `localDivergence('hive-probe')` would
-    // short-circuit on `validReferenceName` (no '.md' suffix) and still report
-    // not-diverged, so a bare `resolves.toBeDefined()` would pass even under that bug.
+    // Assert the skill actually landed, not just that the call resolved: a bare
+    // `resolves.toBeDefined()` would still pass even if install silently failed to write
+    // the file, so check the file and its content directly.
     const dest = path.join(home, 'skills-hivemind', 'hive-probe', 'SKILL.md')
     expect(fs.existsSync(dest)).toBe(true)
     expect(fs.readFileSync(dest, 'utf8')).toContain('probe skill from the hive')
