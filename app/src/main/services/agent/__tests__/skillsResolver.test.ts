@@ -208,6 +208,16 @@ describe('writeUserSkill', () => {
     expect(readSkill(argusHome, 'rca').content).toBe(body('rca'))
   })
 
+  it('returns the new content hash, matching a fresh read — so a follow-up save is not stale', () => {
+    const before = readSkill(argusHome, 'rca')
+    const returned = writeUserSkill(argusHome, 'rca', body('rca'), before.hash)
+    expect(returned).toBe(contentHash(body('rca')))
+    expect(returned).toBe(readSkill(argusHome, 'rca').hash)
+    // The whole point: a second write using the returned hash as baseHash must succeed,
+    // instead of throwing "changed on disk" against the now-stale hash from the first read.
+    expect(() => writeUserSkill(argusHome, 'rca', body('rca'), returned)).not.toThrow()
+  })
+
   it('refuses when the file changed under the editor', () => {
     expect(() =>
       writeUserSkill(argusHome, 'rca', body('rca'), contentHash('something else'))

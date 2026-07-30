@@ -377,6 +377,17 @@ describe('writeReference', () => {
     expect(raw).toContain('# Notes')
   })
 
+  it('returns the hash of the stamped bytes actually written, not of the raw input', () => {
+    const returned = svc.writeReference('stamped.md', '# Notes\nBody.', null)
+    const raw = fs.readFileSync(path.join(refsDir, 'stamped.md'), 'utf8')
+    // The written file gained a trust_tier stamp the caller never sent — its hash must differ
+    // from a hash of the unstamped input, or the next save's concurrency check breaks.
+    expect(returned).not.toBe(contentHash('# Notes\nBody.'))
+    expect(returned).toBe(contentHash(raw))
+    // The whole point: a second write using the returned hash as baseHash must succeed.
+    expect(() => svc.writeReference('stamped.md', `${raw}\nmore`, returned)).not.toThrow()
+  })
+
   it('preserves an existing team-knowledge stamp', () => {
     fs.writeFileSync(path.join(refsDir, 'team.md'), '---\ntrust_tier: team-knowledge\n---\n\nold')
     const before = svc.readReference('team.md')

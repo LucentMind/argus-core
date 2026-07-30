@@ -155,8 +155,12 @@ export class RefSyncService {
    *
    * An untagged file is stamped `trust_tier: user` on save — you just authored it, and without
    * a stamp `hivemind.pushable()` would never offer it for sharing. An existing stamp is kept.
+   *
+   * Returns the hash of the bytes actually written (post-stamp), not of `content` as received —
+   * the caller must adopt this as its next `baseHash`, or its own stamping write would make its
+   * next save fail with a misleading "changed on disk" conflict.
    */
-  writeReference(file: string, content: string, baseHash: string | null): void {
+  writeReference(file: string, content: string, baseHash: string | null): string {
     const issues = validateReference({ file, content })
     if (hasErrors(issues)) throw new Error(issues.find((i) => i.severity === 'error')!.message)
 
@@ -170,7 +174,9 @@ export class RefSyncService {
       throw new Error(`"${file}" changed on disk since you opened it.`)
     }
     fs.mkdirSync(this.refsDir(), { recursive: true })
-    fs.writeFileSync(p, withFrontmatter(content, { trust_tier: tier ?? 'user' }))
+    const written = withFrontmatter(content, { trust_tier: tier ?? 'user' })
+    fs.writeFileSync(p, written)
+    return contentHash(written)
   }
 
   /** Case-insensitive search over reference file names AND bodies; INDEX.md excluded. */

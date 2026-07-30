@@ -30,6 +30,7 @@ import type {
   MemoryTopicsPayload,
   MemoryAuditEntry,
   SkillsPayload,
+  SkillsWriteResult,
   SkillReadPayload,
   SkillListItem
 } from '../shared/memoryIpc'
@@ -439,7 +440,7 @@ const argus = {
     deleteUser: (name: string): Promise<SkillsPayload> =>
       ipcRenderer.invoke(IPC.skillsDeleteUser, name),
     read: (name: string): Promise<SkillReadPayload> => ipcRenderer.invoke(IPC.skillsRead, name),
-    write: (name: string, content: string, baseHash: string | null): Promise<SkillsPayload> =>
+    write: (name: string, content: string, baseHash: string | null): Promise<SkillsWriteResult> =>
       ipcRenderer.invoke(IPC.skillsWrite, name, content, baseHash),
     fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
       ipcRenderer.invoke(IPC.skillsFork, name, newName)
@@ -530,7 +531,7 @@ const argus = {
     }> => ipcRenderer.invoke(IPC.refsyncPrune, syncId, targets),
     readRef: (file: string): Promise<{ file: string; content: string; hash: string }> =>
       ipcRenderer.invoke(IPC.refsyncReadRef, file),
-    writeRef: (file: string, content: string, baseHash: string | null): Promise<void> =>
+    writeRef: (file: string, content: string, baseHash: string | null): Promise<string> =>
       ipcRenderer.invoke(IPC.refsyncWriteRef, file, content, baseHash),
     searchRefs: (query: string): Promise<string[]> =>
       ipcRenderer.invoke(IPC.refsyncSearchRefs, query),
