@@ -206,7 +206,7 @@ describe('HiveMind against a local bare repo (no network)', () => {
     let po = await other.install('reference', 'my-tips.md')
     expect(po.items.find((i) => i.name === 'my-tips.md')?.localTier).toBe('hivemind')
     expect(po.pushable).not.toContainEqual({ kind: 'reference', name: 'my-tips.md' })
-    po = await other.claimReference('my-tips.md')
+    po = await other.claimReference('my-tips.md', null)
     expect(po.items.find((i) => i.name === 'my-tips.md')?.localTier).toBe('user')
     expect(po.pushable).toContainEqual({ kind: 'reference', name: 'my-tips.md' })
   }, 30_000)
