@@ -1538,7 +1538,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.skillsRead, (_e, name: string) => readSkill(argusHome, name))
   ipcMain.handle(IPC.skillsWrite, (_e, name: string, content: string, baseHash: string | null) => {
     const hash = writeUserSkill(argusHome, name, content, baseHash)
-    return { ...skillsPayload(), hash }
+    const payload = skillsPayload()
+    // the writer may be the editor window; every other window learns the list changed here
+    broadcast(IPC.skillsChanged, payload)
+    return { ...payload, hash }
   })
   ipcMain.handle(IPC.skillsFork, (_e, name: string, newName?: string) => {
     const created = forkSkill(argusHome, name, newName)

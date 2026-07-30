@@ -449,7 +449,13 @@ const argus = {
     write: (name: string, content: string, baseHash: string | null): Promise<SkillsWriteResult> =>
       ipcRenderer.invoke(IPC.skillsWrite, name, content, baseHash),
     fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
-      ipcRenderer.invoke(IPC.skillsFork, name, newName)
+      ipcRenderer.invoke(IPC.skillsFork, name, newName),
+    /** Fires in every window when any of them writes a skill — the editor window included. */
+    onChanged: (cb: (p: SkillsPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: SkillsPayload): void => cb(p)
+      ipcRenderer.on(IPC.skillsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.skillsChanged, listener)
+    }
   },
   authoring: {
     draft: (req: AuthoringRequest): Promise<AuthoringResult> =>
