@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import {
   ChevronRight,
   ExternalLink,
@@ -13,8 +13,9 @@ import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { parsePrRef } from '../../../shared/pr'
 import { prStatusStore, usePrStatuses } from '../lib/prStatusStore'
 import { confirm } from '../lib/confirmStore'
+import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { PrRollupDot } from './PrRollupDot'
-import { Chip, IconBtn, SectionLabel } from './ui'
+import { Chip, IconBtn, SectionLabel, Skeleton } from './ui'
 
 /** Review mode refreshes fast because the user is watching this exact PR. */
 const REVIEW_POLL_MS = 20_000
@@ -229,6 +230,13 @@ export function PrCompanionSection({
   // after that would otherwise target a binding id that no longer exists.
   const boundUrl = all[slug]?.url ?? null
 
+  // A boolean snapshot, so useSyncExternalStore's reference comparison is a value comparison.
+  const statusLoaded = useSyncExternalStore(
+    (cb) => prStatusStore.subscribe(cb),
+    () => prStatusStore.isLoaded(slug)
+  )
+  const showStatusSkeleton = usePendingDisplay(mode === 'review' && !statusLoaded)
+
   const [binding, setBinding] = useState<PrBinding | null>(null)
   useEffect(() => {
     if (mode !== 'review') return
@@ -397,7 +405,14 @@ export function PrCompanionSection({
         </form>
       )}
 
-      {!status && (
+      {!status && showStatusSkeleton && (
+        <div className="flex flex-col gap-1.5">
+          <Skeleton className="h-3 w-[55%]" />
+          <Skeleton className="h-2 w-[40%]" />
+        </div>
+      )}
+
+      {!status && !showStatusSkeleton && statusLoaded && (
         <p className="text-[11px] text-mute">
           No pull request bound to this case yet — use Find PRs above.
         </p>

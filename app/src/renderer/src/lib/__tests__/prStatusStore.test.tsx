@@ -216,3 +216,27 @@ describe('usePrStatuses', () => {
     expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
   })
 })
+
+describe('prStatusStore.isLoaded', () => {
+  it('is false before load and true after, even when the case has no bound PR', async () => {
+    expect(prStatusStore.isLoaded('C-9')).toBe(false)
+    window.argus.pr.statusList = vi.fn(async () => ({}))
+    await prStatusStore.load(['C-9'])
+    expect(prStatusStore.isLoaded('C-9')).toBe(true)
+  })
+
+  it('stays true after forget — an unlinked case is known to have no PR', async () => {
+    window.argus.pr.statusList = vi.fn(async () => ({}))
+    await prStatusStore.load(['C-10'])
+    prStatusStore.forget('C-10')
+    expect(prStatusStore.isLoaded('C-10')).toBe(true)
+  })
+
+  it('is true even when the cache read rejects', async () => {
+    window.argus.pr.statusList = vi.fn(async () => {
+      throw new Error('ipc down')
+    })
+    await expect(prStatusStore.load(['C-11'])).rejects.toThrow('ipc down')
+    expect(prStatusStore.isLoaded('C-11')).toBe(true)
+  })
+})
