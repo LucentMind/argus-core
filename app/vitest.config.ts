@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node', // renderer tests opt into jsdom via // @vitest-environment jsdom
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'scripts/**/__tests__/**/*.test.{ts,mjs}'],
     globals: true, // lets @testing-library/react register its afterEach(cleanup) automatically
     // Headroom for I/O stalls on GitHub's Windows runners, not for slow tests.
     // Measured: the mkdtemp + openDb + createCase beforeEach shared by the tests
