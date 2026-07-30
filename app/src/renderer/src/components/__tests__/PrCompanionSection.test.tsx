@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PrCompanionSection } from '../PrCompanionSection'
 import { prStatusStore } from '../../lib/prStatusStore'
@@ -159,7 +159,9 @@ describe('PrCompanionSection', () => {
   it('puts the empty state where the subject line goes', async () => {
     prStatusStore.hydrate({})
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
-    expect(screen.getByText(/no pull request bound/i)).toBeInTheDocument()
+    // The cache read (statusList) settles asynchronously — isLoaded('c1') is false until then,
+    // so the empty message waits rather than claiming "no bound PR" before the cache has spoken.
+    expect(await screen.findByText(/no pull request bound/i)).toBeInTheDocument()
     // beforeEach's pr.list resolves a binding even though no status is cached yet — exactly
     // the contradictory state this test used to render without noticing. Flush the binding
     // fetch so this checks the state once it has actually loaded, not just before the promise
@@ -466,6 +468,25 @@ describe('PrCompanionSection', () => {
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     // PrRollupDot renders role="img" with a state-specific name (PrRollupDot.tsx:10-22).
     expect(screen.getByRole('img', { name: 'Checks failing' })).toBeInTheDocument()
+  })
+
+  it('does not claim there is no bound PR while the cached status is still loading', async () => {
+    prStatusStore.hydrate({})
+    let release: (m: Record<string, PrStatus>) => void = () => {}
+    window.argus.pr.statusList = vi.fn(
+      () =>
+        new Promise<Record<string, PrStatus>>((res) => {
+          release = res
+        })
+    )
+    render(<PrCompanionSection slug="C-1" mode="review" onAnalyze={vi.fn()} />)
+
+    expect(screen.queryByText(/No pull request bound to this case yet/)).toBeNull()
+
+    await act(async () => {
+      release({})
+    })
+    expect(await screen.findByText(/No pull request bound to this case yet/)).toBeInTheDocument()
   })
 })
 
