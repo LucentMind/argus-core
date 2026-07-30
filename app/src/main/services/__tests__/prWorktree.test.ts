@@ -10,6 +10,23 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
+/** A GitRunner that records argv and delegates to the REAL git, so a test can assert which
+ *  commands ran without faking any of their behaviour. */
+function recorder(): { calls: string[][]; run: (cwd: string, args: string[]) => Promise<string> } {
+  const calls: string[][] = []
+  return {
+    calls,
+    run: async (cwd, args) => {
+      calls.push(args)
+      return execFileSync('git', args, {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      }).trim()
+    }
+  }
+}
+
 let tmp: string, argusHome: string, origin: string, repo: string, prSha: string
 
 beforeEach(() => {
@@ -87,8 +104,32 @@ describe('ensurePrWorktree', () => {
     git(origin, 'update-ref', 'refs/pull/1/head', moved)
     git(origin, 'checkout', 'main')
 
-    expect(await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)).toBe(wt)
+    const rec = recorder()
+    expect(await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run: rec.run })).toBe(wt)
     expect(git(wt, 'rev-parse', 'HEAD')).toBe(moved)
+    // The probe found a difference, so the fetch must have run — this is the half of the
+    // fast path that must NOT trigger.
+    expect(rec.calls.some((a) => a[0] === 'fetch')).toBe(true)
+  })
+
+  it('does not fetch when the worktree already sits on the PR head', async () => {
+    await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)
+
+    const rec = recorder()
+    const again = await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run: rec.run })
+
+    expect(again).toBe(casePrWorktreeDir(argusHome, 'NAV-1', repo, 1))
+    expect(git(again, 'rev-parse', 'HEAD')).toBe(prSha)
+    expect(rec.calls.some((a) => a[0] === 'fetch')).toBe(false)
+    expect(rec.calls.some((a) => a[0] === 'ls-remote')).toBe(true)
+  })
+
+  it('fetches when there is no worktree yet — the probe must not short-circuit', async () => {
+    const rec = recorder()
+    await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run: rec.run })
+
+    expect(rec.calls.some((a) => a[0] === 'fetch')).toBe(true)
+    expect(rec.calls.some((a) => a[0] === 'ls-remote')).toBe(false)
   })
 
   it('routes every git call through an injected runner', async () => {
