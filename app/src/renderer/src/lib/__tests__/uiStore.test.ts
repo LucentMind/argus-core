@@ -64,6 +64,26 @@ describe('UiStore', () => {
     expect(n).toBe(2)
   })
 
+  // The editor window's import graph never reaches App, so nothing there constructs a UiStore.
+  // It calls this instead (editor.tsx) — theme.css puts the dark tokens on bare `:root`, so a
+  // missing data-theme is a black window for a light-theme user, and the zoom factor is a
+  // per-renderer webFrame setting that has to be re-applied in every window.
+  it('applyToDocument re-applies the persisted theme and zoom to a fresh document', () => {
+    localStorage.setItem('argus.ui.theme', 'light')
+    localStorage.setItem('argus.ui.uiScale', '1.25')
+    const setZoomFactor = vi.fn()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = { ui: { setZoomFactor } }
+    const store = new UiStore()
+
+    document.documentElement.removeAttribute('data-theme')
+    setZoomFactor.mockClear()
+    store.applyToDocument()
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(setZoomFactor).toHaveBeenCalledWith(1.25)
+  })
+
   it('setTheme pushes the theme to open panels', () => {
     const setTheme = vi.fn(async () => undefined)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
