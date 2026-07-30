@@ -94,6 +94,9 @@ export function AssetEditor({
     let live = true
     load().then(
       ({ content, hash }) => {
+        // The textarea (the only way to touch `buffer` in edit mode) doesn't render until
+        // `loaded` is true, and both flip in this same batched update — so there is no
+        // render in which a user edit could be sitting in `buffer` for this to clobber.
         if (!live) return
         setBuffer(content)
         setBaseHash(hash)
@@ -120,6 +123,15 @@ export function AssetEditor({
   function edit(next: string): void {
     setBuffer(next)
     setPristine(false)
+    setError(null)
+  }
+
+  /** Create-mode name field: while the buffer is still untouched boilerplate, keep the
+   *  frontmatter `name:` in sync so a rename doesn't leave a stale name/folder mismatch
+   *  behind. Once the user has actually edited the buffer, this must never fire again. */
+  function renameCreate(next: string): void {
+    setName(next)
+    if (pristine) setBuffer(template(next))
   }
 
   async function onSave(): Promise<void> {
@@ -188,7 +200,11 @@ export function AssetEditor({
           <Btn variant="ghost" disabled={busy} onClick={() => void requestClose()}>
             Cancel
           </Btn>
-          <Btn variant="primary" disabled={busy || !loaded} onClick={() => void onSave()}>
+          <Btn
+            variant="primary"
+            disabled={busy || !loaded || proposed !== null}
+            onClick={() => void onSave()}
+          >
             Save
           </Btn>
         </>
@@ -199,7 +215,7 @@ export function AssetEditor({
           <input
             aria-label={`${kind} name`}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => renameCreate(e.target.value)}
             className="w-56 rounded-r2 bg-black/20 px-2 py-1 font-mono text-xs outline-none"
           />
           <input
@@ -209,14 +225,16 @@ export function AssetEditor({
             onChange={(e) => setDescribe(e.target.value)}
             className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
-          <Btn
-            variant="outline"
-            disabled={busy || !describe.trim()}
-            onClick={() => void assist('draft')}
-          >
-            <Sparkles size={13} aria-hidden="true" />
-            Draft
-          </Btn>
+          {proposed === null && (
+            <Btn
+              variant="outline"
+              disabled={busy || !describe.trim()}
+              onClick={() => void assist('draft')}
+            >
+              <Sparkles size={13} aria-hidden="true" />
+              Draft
+            </Btn>
+          )}
         </div>
       )}
 
@@ -229,68 +247,74 @@ export function AssetEditor({
         </div>
       )}
 
-      {proposed !== null ? (
-        <>
-          <pre className="flex-1 overflow-auto px-4 py-3 font-mono text-xs">
-            {diffLines(buffer, proposed).map((l, i) => (
-              <div key={i} className={KIND_CLASS[l.kind]}>
-                {KIND_PREFIX[l.kind]}
-                {l.text}
-              </div>
-            ))}
-          </pre>
-          <div className="flex justify-end gap-2 border-t border-hair px-3 py-2">
-            <Btn variant="ghost" onClick={() => setProposed(null)}>
-              Discard
-            </Btn>
-            <Btn
-              variant="primary"
-              onClick={() => {
-                edit(proposed)
-                setProposed(null)
-              }}
-            >
-              Accept
-            </Btn>
-          </div>
-        </>
-      ) : preview ? (
-        <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
-          <Markdown remarkPlugins={[remarkGfm]}>{buffer}</Markdown>
-        </div>
+      {!loaded ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-dim">Loading…</div>
       ) : (
-        <textarea
-          aria-label={label}
-          spellCheck={false}
-          value={buffer}
-          onChange={(e) => edit(e.target.value)}
-          className="flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-5 text-ink outline-none"
-        />
-      )}
+        <>
+          {proposed !== null ? (
+            <>
+              <pre className="flex-1 overflow-auto px-4 py-3 font-mono text-xs">
+                {diffLines(buffer, proposed).map((l, i) => (
+                  <div key={i} className={KIND_CLASS[l.kind]}>
+                    {KIND_PREFIX[l.kind]}
+                    {l.text}
+                  </div>
+                ))}
+              </pre>
+              <div className="flex justify-end gap-2 border-t border-hair px-3 py-2">
+                <Btn variant="ghost" onClick={() => setProposed(null)}>
+                  Discard
+                </Btn>
+                <Btn
+                  variant="primary"
+                  onClick={() => {
+                    edit(proposed)
+                    setProposed(null)
+                  }}
+                >
+                  Accept
+                </Btn>
+              </div>
+            </>
+          ) : preview ? (
+            <div className="markdown-body flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
+              <Markdown remarkPlugins={[remarkGfm]}>{buffer}</Markdown>
+            </div>
+          ) : (
+            <textarea
+              aria-label={label}
+              spellCheck={false}
+              value={buffer}
+              onChange={(e) => edit(e.target.value)}
+              className="flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-5 text-ink outline-none"
+            />
+          )}
 
-      {!preview && proposed === null && (
-        <div className="flex items-center justify-between gap-2 border-t border-hair px-3 py-2">
-          <span className="flex flex-col gap-0.5">
-            {issues.map((i, n) => (
-              <span
-                key={n}
-                role={i.severity === 'error' ? undefined : 'status'}
-                className={`text-xs ${i.severity === 'error' ? 'text-danger' : 'text-review'}`}
-              >
-                {i.severity === 'error' ? '⚠' : '•'} {i.message}
-                {i.line !== undefined && ` (line ${i.line})`}
+          {!preview && proposed === null && (
+            <div className="flex items-center justify-between gap-2 border-t border-hair px-3 py-2">
+              <span className="flex flex-col gap-0.5">
+                {issues.map((i, n) => (
+                  <span
+                    key={n}
+                    role={i.severity === 'error' ? undefined : 'status'}
+                    className={`text-xs ${i.severity === 'error' ? 'text-danger' : 'text-review'}`}
+                  >
+                    {i.severity === 'error' ? '⚠' : '•'} {i.message}
+                    {i.line !== undefined && ` (line ${i.line})`}
+                  </span>
+                ))}
               </span>
-            ))}
-          </span>
-          <Btn
-            variant="outline"
-            disabled={busy || !buffer.trim()}
-            onClick={() => void assist('improve')}
-          >
-            <Sparkles size={13} aria-hidden="true" />
-            Improve
-          </Btn>
-        </div>
+              <Btn
+                variant="outline"
+                disabled={busy || !buffer.trim()}
+                onClick={() => void assist('improve')}
+              >
+                <Sparkles size={13} aria-hidden="true" />
+                Improve
+              </Btn>
+            </div>
+          )}
+        </>
       )}
     </ModalShell>
   )

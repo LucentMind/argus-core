@@ -4,6 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AssetEditor } from '../AssetEditor'
+import { confirm } from '../../../lib/confirmStore'
+
+vi.mock('../../../lib/confirmStore', () => ({
+  confirm: vi.fn()
+}))
 
 const valid = [
   '---',
@@ -36,13 +41,13 @@ function setup(over: Partial<Parameters<typeof AssetEditor>[0]> = {}): {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('argus', undefined)
   window.argus = {
     authoring: {
       draft: vi.fn().mockResolvedValue({ content: valid }),
       improve: vi.fn().mockResolvedValue({ content: `${valid}\nimproved` })
     }
   } as never
+  vi.mocked(confirm).mockResolvedValue(true)
 })
 
 describe('AssetEditor', () => {
@@ -158,5 +163,102 @@ describe('AssetEditor', () => {
     expect(
       (screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement).value
     ).toBe(valid)
+  })
+
+  it('with a diff open, Draft is unavailable and Save is disabled', async () => {
+    setup({ mode: 'create', name: 'rca', load: undefined })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+    await screen.findByRole('button', { name: /^discard$/i })
+
+    expect(screen.queryByRole('button', { name: /^draft/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
+
+  it('gates edit mode on load: no false missing-frontmatter error, and typed text is not lost to a late resolution', async () => {
+    let resolveLoad!: (v: { content: string; hash: string }) => void
+    const deferred = new Promise<{ content: string; hash: string }>((res) => {
+      resolveLoad = res
+    })
+    setup({ load: () => deferred })
+
+    expect(screen.getByText(/loading/i)).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByText(/missing frontmatter/i)).toBeNull()
+
+    resolveLoad({ content: valid, hash: 'h1' })
+
+    const ta = await screen.findByRole('textbox', { name: /skill · rca/i })
+    expect((ta as HTMLTextAreaElement).value).toBe(valid)
+  })
+
+  it('renaming in create mode keeps the frontmatter name in sync and does not block Save', async () => {
+    const { save } = setup({ mode: 'create', name: 'my-skill', load: undefined })
+    const nameInput = screen.getByRole('textbox', { name: /^skill name$/i })
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'foo')
+
+    const ta = screen.getByRole('textbox', { name: /skill · foo/i }) as HTMLTextAreaElement
+    expect(ta.value).toContain('name: foo')
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith({
+        name: 'foo',
+        content: expect.stringContaining('name: foo'),
+        baseHash: null
+      })
+    )
+  })
+
+  it('renaming after the buffer has been edited does not rewrite it', async () => {
+    setup({ mode: 'create', name: 'my-skill', load: undefined })
+    const ta = screen.getByRole('textbox', { name: /skill · my-skill/i })
+    await userEvent.type(ta, '\nhand-written body')
+
+    const nameInput = screen.getByRole('textbox', { name: /^skill name$/i })
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'foo')
+
+    const taAfter = screen.getByRole('textbox', { name: /skill · foo/i }) as HTMLTextAreaElement
+    expect(taAfter.value).toContain('hand-written body')
+    expect(taAfter.value).toContain('name: my-skill')
+    expect(taAfter.value).not.toContain('name: foo')
+  })
+
+  it('routes an unsaved close through confirm(); confirming closes it', async () => {
+    vi.mocked(confirm).mockResolvedValue(true)
+    const { onClose } = setup()
+    const ta = await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.type(ta, '\nmore')
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('declining the confirm keeps the editor open with the typed changes intact', async () => {
+    vi.mocked(confirm).mockResolvedValue(false)
+    const { onClose } = setup()
+    const ta = await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.type(ta, '\nmore')
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    expect(await screen.findByRole('textbox', { name: /skill · rca/i })).toHaveValue(
+      `${valid}\nmore`
+    )
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('Draft against an edited buffer opens the diff instead of replacing the buffer', async () => {
+    setup({ mode: 'create', name: 'rca', load: undefined })
+    const ta = screen.getByRole('textbox', { name: /skill · rca/i })
+    await userEvent.type(ta, '\nhand-written')
+    await userEvent.type(screen.getByRole('textbox', { name: /describe/i }), 'more detail')
+    await userEvent.click(screen.getByRole('button', { name: /^draft/i }))
+
+    await screen.findByRole('button', { name: /^accept$/i })
+    await userEvent.click(screen.getByRole('button', { name: /^discard$/i }))
+
+    expect(
+      (screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement).value
+    ).toContain('hand-written')
   })
 })
