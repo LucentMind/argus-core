@@ -1,6 +1,53 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+// Matches HivemindService's REMOTE (hivemind.ts) and the seed's own settings.json
+// hivemind.repo write below — the value install() would stamp as source_repo.
+const HMT_REPO = 'https://github.com/JiaweiHan88/HiveMindTest'
+
+/** Mirrors fmBlock() in src/main/services/frontmatter.ts. */
+function fmBlock(raw) {
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
+  return m ? { fm: m[1], body: raw.slice(m[0].length) } : null
+}
+
+/**
+ * Mirrors withFrontmatter() in src/main/services/frontmatter.ts exactly: keeps every
+ * existing frontmatter key not named in `entries`, then appends/overrides `entries`.
+ * Used to stamp trust_tier/source_repo/source_commit onto real HiveMind reference
+ * content the same way hivemind.ts's install() does, so a seeded "installed" reference
+ * is byte-for-byte what a real install would produce.
+ */
+function withHiveFrontmatter(body, entries) {
+  const block = fmBlock(body)
+  const keep = block
+    ? block.fm
+        .split(/\r?\n/)
+        .filter((l) => !Object.keys(entries).some((k) => l.startsWith(`${k}:`)))
+    : []
+  const lines = [...keep, ...Object.entries(entries).map(([k, v]) => `${k}: ${v}`)]
+  const rest = block ? block.body : body
+  return `---\n${lines.join('\n')}\n---\n${rest}`
+}
+
+/**
+ * Reads a reference file's real body straight out of the HiveMind clone (mirrors how
+ * hive skills are copied from repos.hmtDir below). Throws rather than silently
+ * substituting invented text when the clone doesn't have it — the pin in
+ * hivemind-state.json claims a specific upstream commit exists for this path, and a
+ * fabricated body would report Sync as up-to-date against content that was never
+ * actually at that commit.
+ */
+function realHiveReferenceBody(repos, relPath) {
+  const src = path.join(repos.hmtDir, 'references', relPath)
+  if (!fs.existsSync(src)) {
+    throw new Error(
+      `Seed fixture requires references/${relPath} in the HiveMind clone (${repos.hmtDir}), but it is missing.`
+    )
+  }
+  return fs.readFileSync(src, 'utf8')
+}
+
 const HIVE_PINS = {
   skills: {
     'hive-log-triage': '1057187557996e3c741fbf0a019716305b3ae48e',
@@ -52,10 +99,17 @@ export function buildProposals() {
       status: 'pending',
       rejectTag: null,
       rejectNote: null,
-      // distill_jobs.id is an autoincrement INTEGER; a later task seeds ids 1-4
-      // (1, 2 done; 3 failed; 4 queued). Stamped '2' so buildEvalBundle's
-      // fmField(fm, 'job') === String(row.id) match can actually succeed.
-      jobId: '2',
+      // Not job-linked. stageDistillOutput() (distill/staging.ts) only ever writes a
+      // `job:` stamp from the success path (queue.ts's runJob calls stage() only when
+      // the distill call resolves), so the only two stampable jobs are the 'done' ones
+      // — job 1 (case HMT-1-burst-token) and job 2 (case HMT-4-nochecks). Job 1 must
+      // stay free of any pending stamp (a pending item on a 'done' job makes
+      // buildEvalBundle skip the WHOLE job, which would silently drop all five reject
+      // tags from the export), and this proposal's own case (HMT-1-burst-token) does
+      // not match job 2's case (HMT-4-nochecks) — so no job in this fixture can
+      // legitimately claim it. See the case-summary proposal below for the pending
+      // item that correctly plays job 2's role instead.
+      jobId: null,
       previouslyReviewed: false
     },
     {
@@ -69,7 +123,12 @@ export function buildProposals() {
       rejectTag: null,
       rejectNote: null,
       jobId: null,
-      previouslyReviewed: true
+      // stageDistillOutput() only sets previously_reviewed when an ARCHIVED proposal
+      // with the same type+target exists for the same case (staging.ts's reviewedKeys).
+      // No archived reference-edit/hive-known-issues.md proposal exists for this case —
+      // the pending memory-append/burst-window-math proposal below is the one with a
+      // real archived counterpart (burst-window-math-2), so the flag belongs there.
+      previouslyReviewed: false
     },
     {
       file: '2026-07-30-HMT-3-cancelled-ci-triage-recipe.md',
@@ -97,7 +156,10 @@ export function buildProposals() {
       rejectTag: null,
       rejectNote: null,
       jobId: null,
-      previouslyReviewed: false
+      // The real re-produced item: burst-window-math-2 below is an ARCHIVED
+      // memory-append proposal with the same target ('burst-window-math'), so this is
+      // exactly the case stageDistillOutput()'s reviewedKeys match covers.
+      previouslyReviewed: true
     },
     {
       file: '2026-07-30-HMT-4-nochecks-HMT-4-nochecks.md',
@@ -109,7 +171,11 @@ export function buildProposals() {
       status: 'pending',
       rejectTag: null,
       rejectNote: null,
-      jobId: null,
+      // Job-linked to row 2 (case_slug HMT-4-nochecks — matches this proposal's own
+      // case exactly). This is the pending item that makes job 2 skip on export with
+      // reason 'items pending review', same demonstration the old (mismatched)
+      // code-review stamp used to provide, now with a job whose case actually agrees.
+      jobId: '2',
       previouslyReviewed: false,
       // acceptProposal throws without these two, so a case-summary proposal that
       // lacks them is a fixture the user cannot actually accept. summary_json must
@@ -149,14 +215,16 @@ export function buildProposals() {
       status: 'accepted',
       rejectTag: null,
       rejectNote: null,
-      // Job-linked to row 2. Job 1 emits all five reject tags plus one accepted
-      // item (timezone-note, req-1042-note/overfit, token-compare-note/wrong,
-      // burst-window-math-2/duplicate, write-good-code/overgeneric, ci-note/other).
-      // Job 2 is skipped: a pending proposal carries its stamp (code-review,
-      // line 58). Job 3 yields an empty item list (failed state). Job 4 is
-      // unfinished (queued state). The three skipped jobs exercise the export
-      // harness against each skip reason.
-      jobId: '2',
+      // Job-linked to row 1, NOT row 2: this proposal's own case (HMT-1-burst-token)
+      // agrees with job 1's case_slug, not job 2's (HMT-4-nochecks). Job 1 now emits
+      // all five reject tags plus TWO accepted items (timezone-note and this one),
+      // alongside req-1042-note/overfit, token-compare-note/wrong,
+      // burst-window-math-2/duplicate, write-good-code/overgeneric, ci-note/other.
+      // Job 2 is skipped instead via the case-summary proposal above (case
+      // HMT-4-nochecks, correctly matching job 2's own slug). Job 3 yields an empty
+      // item list (failed state). Job 4 is unfinished (queued state). The three
+      // skipped jobs exercise the export harness against each skip reason.
+      jobId: '1',
       previouslyReviewed: false
     },
     {
@@ -377,10 +445,18 @@ export function seedKnowledge(ctx, { repos }) {
         'Confirm cancelled before reading a log.\n'
     },
     {
+      // Real body straight out of the HiveMind clone (same source hive skills are
+      // copied from above), stamped exactly the way hivemind.ts's install() stamps a
+      // real install: trust_tier + source_repo + source_commit, keeping whatever
+      // frontmatter (here: title) the source file already carries. Previously this
+      // body was hand-invented while hivemind-state.json pinned it to a real commit —
+      // Sync would report "up to date" against content that never existed upstream.
       file: 'hive-known-issues.md',
-      body:
-        frontmatter({ trust_tier: 'hivemind', title: 'Known issues' }) +
-        'Cold-boot timeout with an empty tile cache.\n'
+      body: withHiveFrontmatter(realHiveReferenceBody(repos, 'hive-known-issues.md'), {
+        trust_tier: 'hivemind',
+        source_repo: HMT_REPO,
+        source_commit: HIVE_PINS.references['hive-known-issues.md']
+      })
     },
     {
       // Written flat, NOT under references/confluence/ — HiveMind installs
@@ -394,11 +470,18 @@ export function seedKnowledge(ctx, { repos }) {
       // it as "not installed" despite a pin existing — a state no real install
       // can produce — and would hide it from the flat references/ reads that
       // the distill references index and reference search both do.
+      //
+      // Real body read from references/confluence/hive-adasis-profile.md in the
+      // clone (the pin key's actual on-disk location upstream), stamped the same way
+      // as hive-known-issues.md above. The real upstream file carries no `sources:`
+      // block — that was invented here alongside the rest of the body — so it is not
+      // reproduced; a real install() never adds one either.
       file: 'hive-adasis-profile.md',
-      body:
-        '---\ntrust_tier: confluence\ntitle: ADASIS profile\nsources:\n  - url: https://example.atlassian.net/wiki/spaces/NAV/pages/12345\n    page_id: "12345"\n    version: 7\n    last_synced: ' +
-        now +
-        '\n---\n\nSynced from Confluence.\n'
+      body: withHiveFrontmatter(realHiveReferenceBody(repos, 'confluence/hive-adasis-profile.md'), {
+        trust_tier: 'confluence',
+        source_repo: HMT_REPO,
+        source_commit: HIVE_PINS.references['confluence/hive-adasis-profile.md']
+      })
     }
   ]
   for (const r of refs) fs.writeFileSync(path.join(refDir, r.file), r.body, 'utf8')
@@ -451,10 +534,14 @@ export function seedKnowledge(ctx, { repos }) {
   ]
   for (const m of memories) fs.writeFileSync(path.join(memDir, `${m.topic}.md`), m.body, 'utf8')
   // Real index lines are markdown links — memory.ts's indexLineFor/filteredIndex
-  // both match `(<topic>.md)`, not a bare topic name.
+  // both match `(<topic>.md)`, not a bare topic name. applyMemoryWrite (the only real
+  // writer) never emits a heading, only bullet lines — a heading here would (a) be
+  // counted by the Memory settings screen's non-blank-line count, over-reporting the
+  // index size, and (b) survive filteredIndex()'s disabled-topic filter (it only drops
+  // lines matching `(<topic>.md)`) and get injected into the agent verbatim.
   fs.writeFileSync(
     path.join(memDir, '_index.md'),
-    `# Memory index\n\n${memories.map((m) => `- [${m.topic}](${m.topic}.md) — ${m.summary}`).join('\n')}\n`,
+    `${memories.map((m) => `- [${m.topic}](${m.topic}.md) — ${m.summary}`).join('\n')}\n`,
     'utf8'
   )
   // Matches MemoryAuditEntry (memory.ts / shared/memoryIpc.ts): { ts, caseSlug,
@@ -499,7 +586,7 @@ export function seedKnowledge(ctx, { repos }) {
             }
           }
         },
-        hivemind: { repo: 'https://github.com/JiaweiHan88/HiveMindTest' },
+        hivemind: { repo: HMT_REPO },
         onboarding: { completedAt: now, phase1Done: true, tourDone: true },
         memoryHygiene: { trackingStartedAt: now }
       },

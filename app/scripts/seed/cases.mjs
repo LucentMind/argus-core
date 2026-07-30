@@ -109,11 +109,17 @@ const TOOL_CALLS = [
   { tool: 'Bash', risk: 'HIGH', decision: 'denied', detail: null },
   { tool: 'Skill', risk: 'LOW', decision: 'observed', detail: 'code-review' },
   { tool: 'mcp__argus__read_memory', risk: 'LOW', decision: 'auto', detail: 'burst-window-math' },
+  // There is no mcp__argus__read_reference tool anywhere in src/. Real reference
+  // attribution comes from a taxonomy fs-read tool (Read/Glob/Grep/NotebookRead) whose
+  // path resolves inside the shared references dir — extractToolDetail() (toolDetail.ts)
+  // then stores `ref:<relpath>`, and the usage query (observability/usage.ts) counts
+  // rows via `detail LIKE 'ref:%'`. Match that shape so the References usage panel is
+  // non-empty against a seeded home.
   {
-    tool: 'mcp__argus__read_reference',
+    tool: 'Read',
     risk: 'LOW',
     decision: 'grant',
-    detail: 'hive-known-issues.md'
+    detail: 'ref:hive-known-issues.md'
   },
   { tool: 'Edit', risk: 'MEDIUM', decision: 'user', detail: null }
 ]
@@ -127,7 +133,13 @@ export function seedCases(ctx, { repos }) {
     // Deleting the case cascades to sessions/turns/tool_calls/findings/bindings/
     // pr_bindings/pr_status_cache/evidence — every table with an FK to cases(id).
     //
-    // It does NOT reach messages_fts/messages_fts_map or evidence_fts/evidence_fts_map:
+    // It does NOT reach case_summaries or distill_jobs: both are keyed by case_slug
+    // with NO foreign key to cases(id) at all (case_slug is a plain TEXT column, not
+    // a reference), so a `DELETE FROM cases` cascade never touches them. The app's own
+    // deleteCase() (caseService.ts) deletes both explicitly inside the same
+    // transaction as the cases row — mirrored below for the same reason.
+    //
+    // It also does NOT reach messages_fts/messages_fts_map or evidence_fts/evidence_fts_map:
     // the _fts tables are FTS5 virtual tables and the _map side tables are plain
     // tables, and neither carries a foreign key to cases (see ftsIndex.ts). Left
     // alone, re-running the seed would leave the previous run's chat-search rows
@@ -169,7 +181,16 @@ export function seedCases(ctx, { repos }) {
         .run(priorCaseId)
     }
     ctx.db.prepare('DELETE FROM cases WHERE slug = ?').run(slug)
+    // Not covered by the cases cascade (see the comment above) — delete explicitly,
+    // same as deleteCase() does, rather than relying on seedDistill's later global wipe.
+    ctx.db.prepare('DELETE FROM case_summaries WHERE case_slug = ?').run(slug)
+    ctx.db.prepare('DELETE FROM case_summaries_fts WHERE case_slug = ?').run(slug)
+    ctx.db.prepare('DELETE FROM distill_jobs WHERE case_slug = ?').run(slug)
     fs.rmSync(ctx.caseDir(slug), { recursive: true, force: true })
+    // deleteCase() also removes the case's dev-tools prompt capture directory; a
+    // prior run's captured prompts must not re-attach to a freshly reseeded case of
+    // the same slug.
+    fs.rmSync(path.join(ctx.argusHome, '.dev-prompts', slug), { recursive: true, force: true })
 
     const workspaces =
       slug === 'SYN-5-edge'

@@ -45,9 +45,13 @@ export function buildTrees(slug) {
       'screenshot.png': Buffer.from(PNG_BASE64, 'base64'),
       'config.json': JSON.stringify({ limit: 100, burst: 20, windowMs: 60000 }, null, 2),
       'timings.csv': 'request,latency_ms,burst\n1,42,0\n2,510,1\n3,38,0\n',
-      // A REAL zip. The auto-extract trigger reads it with yauzl, so a gzip stream
-      // under a .zip name would fail extraction and leave the case in a state worse
-      // than having no archive at all.
+      // A REAL zip. extractZipToTemp's only caller is the Jira attachment path — scan-
+      // registered evidence like this never reaches it, so this file stays a single
+      // opaque `archive`-type evidence item; it does not get auto-extracted into its
+      // member files. What this exercises is archive TYPE DETECTION (a well-formed
+      // zip must be recognized and typed as an archive), not extraction. A gzip stream
+      // under a .zip name would still be the wrong fixture for that: it would fail
+      // whatever code later opens it as a zip, so the archive must actually be one.
       'logs.zip': ARCHIVE
     },
     artifacts: {
@@ -63,8 +67,9 @@ export function buildTrees(slug) {
   }
 }
 
-/** A real zip with two entries, so the auto-extract path produces two per-file
- *  evidence items rather than erroring on a malformed archive. */
+/** A real zip with two entries — exercises archive type detection against a genuine,
+ *  well-formed zip rather than a malformed stand-in. Nothing in the scan-evidence path
+ *  extracts its members; see the 'logs.zip' comment in buildTrees() above. */
 function writeArchive(dest) {
   return new Promise((resolve, reject) => {
     const zip = new yazl.ZipFile()
