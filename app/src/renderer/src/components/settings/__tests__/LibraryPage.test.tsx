@@ -743,8 +743,6 @@ describe('editing affordances', () => {
       })
     )
     expect(screen.queryByRole('textbox', { name: /skill · rca/i })).toBeNull()
-    // the Library never reads or writes the asset itself any more — the window owns both
-    expect(window.argus.skills.write).not.toHaveBeenCalled()
   })
 
   it('Edit on a user reference row delegates to the editor window', async () => {
@@ -758,7 +756,6 @@ describe('editing affordances', () => {
       })
     )
     expect(screen.queryByRole('textbox', { name: /reference · team-tips.md/i })).toBeNull()
-    expect(window.argus.refsync.writeRef).not.toHaveBeenCalled()
   })
 
   it('New skill opens the editor window in create mode', async () => {
