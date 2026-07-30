@@ -480,6 +480,30 @@ describe('CaseFiles', () => {
     expect(screen.getByText('No evidence yet.')).toBeInTheDocument()
   })
 
+  it('keeps the last-loaded rows on screen when a reload rejects, instead of clearing to empty', async () => {
+    let onEvidence: ((slug: string) => void) | null = null
+    window.argus.evidence.onChanged = vi.fn((cb) => {
+      onEvidence = cb
+      return () => {}
+    })
+    render(<CaseFiles caseSlug="c1" label="Evidence" mode="investigation" {...requiredProps} />)
+    await screen.findByText('trace.binlog')
+    expect(screen.queryByText('No evidence yet.')).toBeNull()
+
+    // a transient IPC failure on the next reload must not wipe what is already on screen
+    window.argus.evidence.list = vi.fn(async () => {
+      throw new Error('IPC down')
+    })
+    await act(async () => {
+      onEvidence!('c1')
+    })
+    await waitFor(() => expect(window.argus.evidence.list).toHaveBeenCalled())
+
+    expect(screen.getByText('trace.binlog')).toBeInTheDocument()
+    expect(screen.getByText('notes.md')).toBeInTheDocument()
+    expect(screen.queryByText('No evidence yet.')).toBeNull()
+  })
+
   it('shows a pending row carrying the real filename while a drop ingests', async () => {
     let release: () => void = () => {}
     window.argus.evidence.ingest = vi.fn(
