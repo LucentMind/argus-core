@@ -67,7 +67,7 @@ async function remoteHeadSha(
   }
   // `<sha>\t<ref>`, or empty when the remote has no such ref.
   const sha = out.split('\n')[0]?.split('\t')[0]?.trim() ?? ''
-  return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null
+  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha) ? sha : null
 }
 
 /**
