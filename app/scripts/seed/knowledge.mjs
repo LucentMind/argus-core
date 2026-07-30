@@ -149,11 +149,13 @@ export function buildProposals() {
       status: 'accepted',
       rejectTag: null,
       rejectNote: null,
-      // Job-linked to row 2. Job 1's bundle carries accepted/rejected items
-      // (timezone-note, req-1042-note above, plus token-compare-note and
-      // burst-window-math-2 added below). Job 2 is skipped: a pending proposal
-      // carries its stamp (code-review, line 58). Job 3 yields an empty item
-      // list (failed state). Job 4 is unfinished (queued state).
+      // Job-linked to row 2. Job 1 emits all five reject tags plus one accepted
+      // item (timezone-note, req-1042-note/overfit, token-compare-note/wrong,
+      // burst-window-math-2/duplicate, write-good-code/overgeneric, ci-note/other).
+      // Job 2 is skipped: a pending proposal carries its stamp (code-review,
+      // line 58). Job 3 yields an empty item list (failed state). Job 4 is
+      // unfinished (queued state). The three skipped jobs exercise the export
+      // harness against each skip reason.
       jobId: '2',
       previouslyReviewed: false
     },
@@ -183,8 +185,10 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'overgeneric',
       rejectNote: null,
-      // Job-linked to row 2, alongside the accepted glossary edit above.
-      jobId: '2',
+      // Job-linked to row 1, so it emits to the export bundle alongside other
+      // rejected items (token-compare-note, burst-window-math-2) and accepted
+      // items (timezone-note) from that job.
+      jobId: '1',
       previouslyReviewed: false
     },
     {
@@ -223,7 +227,9 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'other',
       rejectNote: null,
-      jobId: '4',
+      // Job-linked to row 1, so it emits to the export bundle. This is the
+      // final reject tag needed to cover all five tag values in the corpus.
+      jobId: '1',
       previouslyReviewed: false
     }
   ]
