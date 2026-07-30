@@ -30,6 +30,13 @@ export interface EditorWindowDeps {
  */
 export class EditorWindowService {
   private win: EditorWindowHandle | null = null
+  private dirtyCount = 0
+  /** True between vetoing a close and the renderer's answer. Guards against re-asking when
+   *  the user clicks the X repeatedly while the confirm is on screen. */
+  private awaitingCloseReply = false
+  /** Set when we are destroying the window ourselves; makes the close hook fall straight
+   *  through. Mirrors the `programmaticClose` latch in panels/electronPlatform.ts. */
+  private closingProgrammatically = false
 
   constructor(private deps: EditorWindowDeps) {}
 
@@ -42,10 +49,19 @@ export class EditorWindowService {
     return this.isOpen() ? this.win : null
   }
 
+  setDirtyCount(n: number): void {
+    this.dirtyCount = n
+  }
+
   open(req: EditorOpenRequest): void {
     if (!this.isOpen()) {
       const win = this.deps.createWindow(this.deps.loadBounds())
       this.win = win
+      this.dirtyCount = 0
+      this.awaitingCloseReply = false
+      this.closingProgrammatically = false
+
+      win.onCloseAttempt(() => this.allowClose())
       // Identity-guarded: Electron's `closed` is asynchronous, so a previous window's event
       // can arrive after a replacement has been adopted. Without `this.win === win` the stale
       // handler nulls out the LIVE window, orphaning it on screen and making the next open()
@@ -53,6 +69,7 @@ export class EditorWindowService {
       win.onClosed(() => {
         if (this.win !== win) return
         this.win = null
+        this.awaitingCloseReply = false
       })
       win.onBoundsChanged(() => {
         if (this.win !== win || win.isDestroyed()) return
@@ -62,5 +79,29 @@ export class EditorWindowService {
       this.win!.focus()
     }
     this.win!.send(EDITOR_IPC.openTab, req)
+  }
+
+  /** The close hook. Returns true to let the window go. */
+  private allowClose(): boolean {
+    if (this.closingProgrammatically) return true
+    if (this.dirtyCount === 0) return true
+    if (this.awaitingCloseReply) return false
+    this.awaitingCloseReply = true
+    this.win?.send(EDITOR_IPC.closeRequested, { dirtyCount: this.dirtyCount })
+    return false
+  }
+
+  /** The renderer's answer to `closeRequested`. */
+  resolveClose(allow: boolean): void {
+    if (!this.awaitingCloseReply) return
+    this.awaitingCloseReply = false
+    if (allow) this.forceClose()
+  }
+
+  /** Destroy the window without asking. Used by the reply path and by main-window teardown. */
+  forceClose(): void {
+    if (!this.isOpen()) return
+    this.closingProgrammatically = true
+    this.win!.destroy()
   }
 }
