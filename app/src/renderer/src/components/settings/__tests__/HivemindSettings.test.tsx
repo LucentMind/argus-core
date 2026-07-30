@@ -644,6 +644,20 @@ describe('HivemindSettings byline', () => {
   it('shows no byline for an unauthored item', async () => {
     render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
     const row = await screen.findByText('hive-probe')
-    expect(row.closest('div')?.textContent ?? '').not.toContain('by ')
+    // Structural check, not a text-substring guess: withByline only ever emits the "by <name>"
+    // fragment inside a lone `text-mute` span (see byline.tsx); the description wrapper SettingRow
+    // renders around it is `text-xs text-mute` (two classes), so this selector can't collide with
+    // a description that happens to contain the word "by" (e.g. "written by hand", "lobby").
+    expect(row.closest('div')?.querySelector('span[class="text-mute"]')).toBeNull()
+  })
+
+  it('renders no description line for an item with neither description nor author', async () => {
+    // hive-note.md has description: '' and author: null — the untested cell of the 2x2 matrix.
+    // withByline('', null) must return `undefined` (not '' or an empty node) so SettingRow's
+    // `{description && <span>...}` guard skips rendering the description line entirely, matching
+    // pre-withByline behavior exactly.
+    render(<HivemindSettings payload={settingsPayload('acme/hivemind')} />)
+    const row = await screen.findByText('hive-note.md')
+    expect(row.closest('div')?.querySelector('span.text-xs.text-mute')).toBeNull()
   })
 })
