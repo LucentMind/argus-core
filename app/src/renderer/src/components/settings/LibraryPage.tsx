@@ -632,6 +632,7 @@ export function LibraryPage({
               ariaLabel={`skill · ${viewer.name}`}
               load={() => window.argus.skills.read(viewer.name).then((r) => r.content)}
               onClose={() => setViewer(null)}
+              showAuthorship
               extraActions={
                 s && s.tier !== 'user' ? (
                   <Btn variant="outline" onClick={() => setForking(s)}>
@@ -658,6 +659,7 @@ export function LibraryPage({
             <RefViewer
               file={viewer.name}
               onClose={() => setViewer(null)}
+              showAuthorship
               extraActions={
                 r?.tier === 'hivemind' ? (
                   <Btn variant="outline" onClick={() => void claimThenEdit(r)}>
