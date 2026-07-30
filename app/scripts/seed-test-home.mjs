@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Seed one ARGUS_HOME covering every surface of the app at once — cases, pull
  * requests, CI outcomes, findings, evidence, review artifacts, proposals, skill
@@ -17,9 +16,18 @@
  * about how evidence search behaves.
  *
  * Idempotent: per-case destructive, globally additive.
+ *
+ * Safety: this script refuses to run against the app's default home
+ * (~/Argus) under any flag. Against any other home, it refuses to run
+ * destructively unless the home already carries a `.argus-seed-home` marker
+ * (written by a prior successful run of this script) or is otherwise empty of
+ * references/, skills-user/, skills-hivemind/, memory/ and proposals/ content
+ * — pass --force to proceed anyway once you are sure the home is disposable.
+ * See guardHome() below.
  */
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createCtx } from './seed/ctx.mjs'
@@ -31,11 +39,81 @@ import { seedFiles } from './seed/files.mjs'
 import { seedKnowledge } from './seed/knowledge.mjs'
 import { seedDistill } from './seed/distill.mjs'
 
+const CONTENT_DIRS = ['references', 'skills-user', 'skills-hivemind', 'memory', 'proposals']
+const MARKER_FILE = '.argus-seed-home'
+
+/**
+ * Refuse to run destructively against a home this seed does not own. Called before any
+ * other module runs and before argus.db is even opened.
+ *
+ * Why this guard has to live here and be this blunt: the migration preflight further down
+ * requires argus.db to already exist and be migrated. That requirement is right for its own
+ * purpose (fail fast on a schema the seed can't write) but it is EXACTLY BACKWARDS as a
+ * safety filter — it rejects a fresh, empty, harmless directory (no argus.db yet) and
+ * accepts a real, already-booted, populated home (which has one). Left to the preflight
+ * alone, the homes this script is willing to run against are precisely the homes that have
+ * something to lose. This function is what stands between a copy-pasted or mistyped
+ * ARGUS_HOME and silently deleting someone's real proposals/skills/references/memory.
+ */
+function guardHome(home) {
+  const normalize = (p) => {
+    const resolved = path.resolve(p)
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  const defaultHome = path.join(os.homedir(), 'Argus')
+  if (normalize(home) === normalize(defaultHome)) {
+    console.error(
+      `refusing to seed the default Argus home (${defaultHome}).\n` +
+        'This seed deletes proposals/ (incl. archive/), skills-user/, skills-hivemind/,\n' +
+        'references/ and memory/ (incl. .audit.jsonl and archive/), and overwrites\n' +
+        'config/hivemind-state.json, config/settings.json, config/agent-access.json and\n' +
+        'config/tool-risk.json wholesale. It will not run against the default home under\n' +
+        'any flag, including --force. Point ARGUS_HOME at a scratch directory instead.'
+    )
+    process.exit(1)
+  }
+
+  // A marker means a previous successful run of THIS script created (or re-seeded) this
+  // home, so re-running is expected and should stay friction-free.
+  if (fs.existsSync(path.join(home, MARKER_FILE))) return
+
+  const dirHasContent = (dir) => {
+    if (!fs.existsSync(dir)) return false
+    const stack = [dir]
+    while (stack.length) {
+      const d = stack.pop()
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.isFile()) return true
+        if (e.isDirectory()) stack.push(path.join(d, e.name))
+      }
+    }
+    return false
+  }
+  const populated = CONTENT_DIRS.filter((d) => dirHasContent(path.join(home, d)))
+  if (populated.length === 0) return // nothing here the seed didn't author; safe to proceed
+
+  if (!process.argv.includes('--force')) {
+    console.error(
+      `${home} has no ${MARKER_FILE} marker and holds content this seed did not author:\n` +
+        populated.map((d) => `  - ${d}/`).join('\n') +
+        '\nRunning this seed would delete every one of those directories. Re-run with\n' +
+        '--force if you are sure this home is disposable:\n' +
+        `  ARGUS_HOME=${home} node --experimental-sqlite app/scripts/seed-test-home.mjs --force`
+    )
+    process.exit(1)
+  }
+}
+
 const HOME = process.env.ARGUS_HOME
 if (!HOME) {
   console.error('set ARGUS_HOME to the home to seed')
   process.exit(1)
 }
+
+// Refuse before any module runs, before the first destructive call — see guardHome()
+// below for why the argus.db preflight further down makes this necessary rather than
+// paranoid.
+guardHome(HOME)
 
 const dbFile = path.join(HOME, 'argus.db')
 if (!fs.existsSync(dbFile)) {
@@ -48,18 +126,42 @@ if (!fs.existsSync(dbFile)) {
 const db = new DatabaseSync(dbFile)
 db.exec('PRAGMA foreign_keys = ON')
 
-// A never-opened database has none of the columns db.ts adds by migration. Check
-// the newest one rather than failing on a missing column halfway through.
-const findingCols = db
-  .prepare('PRAGMA table_info(findings)')
-  .all()
-  .map((c) => c.name)
-for (const required of ['severity', 'layer', 'head_sha', 'comment_body']) {
-  if (!findingCols.includes(required)) {
-    console.error(
-      `argus.db is not migrated (findings.${required} missing)\nboot the app once first:\n  ARGUS_HOME=${HOME} npm run dev`
-    )
-    process.exit(1)
+// A never-opened database has none of the columns db.ts adds by migration. Check every
+// column the seed actually writes to any table that was added by an ALTER TABLE migration
+// (not a sample) — a database migrated only up to *some* of these is exactly the "missing
+// column midway through" case this preflight exists to prevent, and the newest such ALTER
+// is distill_jobs.prompt_hash (db.ts adds it after findings.comment_body/head_sha), not
+// any of the findings columns alone.
+const REQUIRED_MIGRATED_COLUMNS = {
+  cases: ['workspaces', 'active_mode'],
+  sessions: ['driver_kind', 'instance_id', 'model', 'title', 'mode'],
+  turns: ['model'],
+  tool_calls: ['detail'],
+  findings: [
+    'layer',
+    'severity',
+    'diff_path',
+    'diff_line',
+    'suggested_change',
+    'comment_url',
+    'pushed_sha',
+    'comment_body',
+    'head_sha'
+  ],
+  distill_jobs: ['prompt_hash']
+}
+for (const [table, cols] of Object.entries(REQUIRED_MIGRATED_COLUMNS)) {
+  const have = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((c) => c.name)
+  for (const required of cols) {
+    if (!have.includes(required)) {
+      console.error(
+        `argus.db is not migrated (${table}.${required} missing)\nboot the app once first:\n  ARGUS_HOME=${HOME} npm run dev`
+      )
+      process.exit(1)
+    }
   }
 }
 
@@ -72,12 +174,25 @@ for (const bin of ['git', 'gh']) {
   }
 }
 
+// Presence on PATH says nothing about whether gh can actually talk to GitHub — an
+// unauthenticated gh fails inside seedPrs, which runs after every destructive delete and
+// write. `gh auth status` is read-only, so it is safe to run this early.
+try {
+  execFileSync('gh', ['auth', 'status'], { encoding: 'utf8' })
+} catch {
+  console.error('gh is not authenticated — run `gh auth login` first')
+  process.exit(1)
+}
+
 const ctx = createCtx({ argusHome: HOME, db })
 
 const repos = seedRepos(ctx)
 const { caseIds, sessionIds } = seedCases(ctx, { repos })
 
 const findingIds = {}
+// Tracks which cases seeded at least one finding with a body — only those cases can be
+// expected to resolve a `<!-- finding:N -->` marker in findings.md (see verify() below).
+const slugsWithBodies = new Set()
 for (const slug of ctx.SLUGS) {
   const descriptors =
     slug === 'HMT-1-burst-token'
@@ -86,6 +201,7 @@ for (const slug of ctx.SLUGS) {
           staleHead: repos.staleHead
         })
       : buildThinFindings(slug)
+  if (descriptors.some((d) => d.body)) slugsWithBodies.add(slug)
   findingIds[slug] = seedFindings(ctx, {
     caseId: caseIds[slug],
     sessionIds: sessionIds[slug],
@@ -100,6 +216,14 @@ const knowledge = seedKnowledge(ctx, { repos })
 const distill = seedDistill(ctx)
 
 verify()
+
+// Only written once verification passes: a home carrying this marker is provably
+// seed-owned, so guardHome() lets future re-seeds proceed without --force.
+fs.writeFileSync(
+  path.join(HOME, '.argus-seed-home'),
+  `seeded_at: ${ctx.nowIso()}\nThis home is managed by seed-test-home.mjs and is safe to overwrite.\n`,
+  'utf8'
+)
 
 console.log(
   JSON.stringify(
@@ -123,40 +247,67 @@ function verify() {
     process.exit(1)
   }
 
-  // One binding per case — pr_bindings_one_per_case makes a second one fatal at open().
-  const dupes = db
-    .prepare('SELECT case_id, COUNT(*) n FROM pr_bindings GROUP BY case_id HAVING n > 1')
-    .all()
-  if (dupes.length) fail(`${dupes.length} case(s) with more than one pull-request binding`)
+  const walk = (root) =>
+    fs.existsSync(root)
+      ? fs
+          .readdirSync(root, { recursive: true, withFileTypes: true })
+          .filter((e) => e.isFile())
+          .map((e) => path.relative(root, path.join(e.parentPath ?? e.path, e.name)))
+      : []
 
   for (const slug of ctx.SLUGS) {
-    // Every findings.md marker resolves to a live row.
+    // Positive: a case row actually exists for every seeded slug.
+    if (!caseIds[slug]) fail(`${slug}: no case id was created`)
+
+    // Positive: exactly one pull-request binding per seeded case — not "at most one"
+    // (a case with zero bindings is a silently missing seed step, not a pass), and
+    // scoped to the cases this run seeded rather than the whole table (an unrelated
+    // pre-existing case with duplicate bindings must not fail a correct run).
+    const bindingCount = db
+      .prepare('SELECT COUNT(*) c FROM pr_bindings WHERE case_id = ?')
+      .get(caseIds[slug]).c
+    if (bindingCount !== 1) {
+      fail(`${slug}: expected exactly one pull-request binding, found ${bindingCount}`)
+    }
+
+    // Positive: findings.md exists, and — for the cases that actually seeded a finding
+    // with a body — resolves at least one marker. A missing file or a silently no-opped
+    // seedFindings must not read as success just because zero markers is easy to satisfy.
     const md = path.join(ctx.caseDir(slug), 'findings.md')
-    const raw = fs.existsSync(md) ? fs.readFileSync(md, 'utf8') : ''
+    if (!fs.existsSync(md)) fail(`${slug}: findings.md was not written`)
+    const raw = fs.readFileSync(md, 'utf8')
+    let markerCount = 0
     for (const m of raw.matchAll(/<!-- finding:(\d+) -->/g)) {
+      markerCount++
       const row = db.prepare('SELECT id FROM findings WHERE id = ?').get(Number(m[1]))
       if (!row) fail(`${slug}/findings.md references finding ${m[1]}, which does not exist`)
     }
+    if (slugsWithBodies.has(slug) && markerCount === 0) {
+      fail(`${slug}: findings.md resolves no markers, but this case seeded a finding body`)
+    }
 
-    // The two trees are disjoint.
+    // Positive: both trees exist and are non-empty.
     const dir = ctx.caseDir(slug)
-    const walk = (root) =>
-      fs.existsSync(root)
-        ? fs
-            .readdirSync(root, { recursive: true, withFileTypes: true })
-            .filter((e) => e.isFile())
-            .map((e) => path.relative(root, path.join(e.parentPath ?? e.path, e.name)))
-        : []
-    const ev = new Set(walk(path.join(dir, 'evidence')))
-    const overlap = walk(path.join(dir, 'artifacts')).filter((p) => ev.has(p))
+    const evList = walk(path.join(dir, 'evidence'))
+    const artifactsList = walk(path.join(dir, 'artifacts'))
+    if (evList.length === 0) fail(`${slug}: evidence/ is empty`)
+    if (artifactsList.length === 0) fail(`${slug}: artifacts/ is empty`)
+
+    // Negative: the two trees are disjoint.
+    const ev = new Set(evList)
+    const overlap = artifactsList.filter((p) => ev.has(p))
     if (overlap.length) fail(`${slug}: ${overlap.length} path(s) in both evidence/ and artifacts/`)
 
-    // No evidence rows were written.
+    // Negative: no evidence rows were written.
     const n = db.prepare('SELECT COUNT(*) c FROM evidence WHERE case_id = ?').get(caseIds[slug]).c
     if (n !== 0) fail(`${slug}: ${n} evidence rows exist — this seed must write none`)
 
-    // The worktree exists and has a real HEAD.
+    // The worktree exists and has a real HEAD. Capture `wt` and guard it before the try:
+    // if repos.worktrees[slug] were ever undefined, dereferencing wt.dir a second time
+    // inside the catch (as the diagnostic used to) throws past the catch and replaces the
+    // intended failure message with a raw stack trace.
     const wt = repos.worktrees[slug]
+    if (!wt) fail(`${slug}: no worktree record from seedRepos`)
     try {
       execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt.dir, encoding: 'utf8' })
     } catch {
@@ -164,7 +315,9 @@ function verify() {
     }
   }
 
-  // Every proposal file parses and declares a valid type.
+  // Every proposal file parses and declares a valid type, and both the pending and
+  // archived sets are non-empty — a silently no-opped seedKnowledge must not pass just
+  // because an empty directory has no invalid types to find.
   const TYPES = new Set([
     'skill-new',
     'skill-edit',
@@ -174,15 +327,29 @@ function verify() {
     'case-summary'
   ])
   const pDir = path.join(HOME, 'proposals')
+  const proposalCounts = { '': 0, archive: 0 }
   for (const sub of ['', 'archive']) {
     const d = path.join(pDir, sub)
     if (!fs.existsSync(d)) continue
     for (const f of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) {
+      proposalCounts[sub]++
       const raw = fs.readFileSync(path.join(d, f), 'utf8')
       const type = /^type:\s*(.+)$/m.exec(raw)?.[1]?.trim()
-      if (!TYPES.has(type)) fail(`proposal ${sub}/${f} has invalid type ${JSON.stringify(type)}`)
+      // sub is '' for the pending directory (proposals/ itself has no subdirectory), so
+      // building the label as `${sub}/${f}` rendered as "proposal /2026-...md" — a leading
+      // slash with no directory name. Only join a separator when sub is non-empty.
+      const label = sub ? `${sub}/${f}` : f
+      if (!TYPES.has(type)) fail(`proposal ${label} has invalid type ${JSON.stringify(type)}`)
     }
   }
+  if (proposalCounts[''] === 0) fail('no pending proposals were written')
+  if (proposalCounts.archive === 0) fail('no archived proposals were written')
+
+  // Positive: at least one distill job and one case summary exist.
+  const jobCount = db.prepare('SELECT COUNT(*) c FROM distill_jobs').get().c
+  if (jobCount === 0) fail('no distill_jobs rows exist')
+  const summaryCount = db.prepare('SELECT COUNT(*) c FROM case_summaries').get().c
+  if (summaryCount === 0) fail('no case_summaries rows exist')
 
   // A failed distill job with no raw_output is a corpus defect evalExport reports.
   const bad = db
