@@ -27,11 +27,20 @@ export type Runner = (
   opts?: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }
 ) => Promise<string>
 
+// Node's execFile defaults to a 1 MB stdout cap; exceeding it throws ENOBUFS rather than
+// something that names the limit. `localDivergence`'s two `git show` calls read whole
+// upstream blobs, so any reference file over 1 MB would hit this — and the pinned branch of
+// its catch reports not-diverged, silently disabling the data-loss guard for exactly the
+// largest files. A known trap in this codebase (see github.ts's GH_MAX_BUFFER_BYTES); set an
+// explicit, generous buffer everywhere this runner shells out.
+const MAX_BUFFER_BYTES = 64 * 1024 * 1024
+
 const defaultRun: Runner = async (cmd, args, opts) => {
   const { stdout } = await execFileAsync(cmd, args, {
     cwd: opts?.cwd,
     env: opts?.env,
-    timeout: opts?.timeoutMs
+    timeout: opts?.timeoutMs,
+    maxBuffer: MAX_BUFFER_BYTES
   })
   return stdout.trim()
 }
@@ -312,11 +321,15 @@ export class HivemindService {
         : (PUSHABLE_TIERS as readonly string[]).includes(prior)
           ? prior
           : 'hivemind'
-      const stamped = withFrontmatter(fs.readFileSync(src, 'utf8'), {
+      // Typed against STAMP_KEYS so the two can never drift apart: adding a fourth stamp here
+      // without adding it there (or vice versa) is now a compile error, not a silent gap in
+      // the divergence comparison normalizeForCompare relies on.
+      const stamps: Record<(typeof STAMP_KEYS)[number], string> = {
         trust_tier: tier,
         source_repo: this.deps.repo().trim(),
         source_commit: sha
-      })
+      }
+      const stamped = withFrontmatter(fs.readFileSync(src, 'utf8'), stamps)
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       fs.writeFileSync(dest, stamped)
       state.references[name] = sha
@@ -431,9 +444,16 @@ export class HivemindService {
       return pin ? none : { diverged: true, diff: '' }
     }
     const mine = normalizeForCompare(local)
-    if (mine === normalizeForCompare(head)) return none
+    const normalizedHead = normalizeForCompare(head)
+    if (mine === normalizedHead) return none
     if (pinned !== null && mine === normalizeForCompare(pinned)) return none
-    return { diverged: true, diff: await this.noIndexDiff(name, local, head) }
+    // Diff the normalized forms, not the raw files: the raw local file carries the three
+    // install stamps (trust_tier/source_repo/source_commit) that the raw upstream blob never
+    // does, so a raw-vs-raw diff always shows them as deletions — falsely telling the user
+    // they're about to lose the very authorship claim `install()` re-applies. Normalizing
+    // both sides keeps the diff in lockstep with the divergence verdict above, and still
+    // shows real frontmatter edits (e.g. an added `tags:` line), which normalization preserves.
+    return { diverged: true, diff: await this.noIndexDiff(name, mine, normalizedHead) }
   }
 
   /** Reclaim authorship: restamp a hivemind-tier installed reference as user tier (pushable again). */
