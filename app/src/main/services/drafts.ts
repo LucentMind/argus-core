@@ -126,10 +126,23 @@ export class DraftStore {
     } catch {
       /* never written, or already gone */
     }
+    // Finding 4: `writeKey` writes `<key>.json.tmp` before renaming it onto `<key>.json`. If the
+    // rename itself throws, the temp file is left behind and nothing else ever sweeps it —
+    // discard is the one place a stale draft's lifetime is known to end, so it has to take the
+    // temp file with it too, tolerating absence exactly like the file above.
+    try {
+      fs.rmSync(this.tmpFile(key))
+    } catch {
+      /* never written, or already renamed away */
+    }
   }
 
   private file(key: string): string {
     return path.join(this.dir, `${key}.json`)
+  }
+
+  private tmpFile(key: string): string {
+    return `${this.file(key)}.tmp`
   }
 
   private readFile(key: string): DraftRecord | null {
@@ -163,13 +176,20 @@ export class DraftStore {
     if (!rec) return
     try {
       fs.mkdirSync(this.dir, { recursive: true })
-      const tmp = `${this.file(key)}.tmp`
+      const tmp = this.tmpFile(key)
       fs.writeFileSync(tmp, JSON.stringify(rec, null, 2) + '\n', 'utf8')
       fs.renameSync(tmp, this.file(key))
-    } catch {
+    } catch (err) {
       // Persist-before-adopt, the failure half: the queued copy is the only remaining record of
       // these bytes, so it stays queued. The next keystroke re-arms the timer, and flushAll on
       // quit gets one last attempt. Deleting it here would lose the edit silently.
+      //
+      // Finding 5: a persistent failure (permissions, disk full) used to be signalled only by
+      // the *absence* of a "Draft ·" chip in the window — unactionable for a user and
+      // untriageable for a developer, which undercuts this feature's whole premise that the
+      // text is safe. Logged, not surfaced to the renderer: the requeue-and-retry behavior above
+      // is unchanged, this only makes a failure that keeps happening visible somewhere.
+      console.error(`[drafts] write failed for ${key}`, err)
       return
     }
     this.pending.delete(key)

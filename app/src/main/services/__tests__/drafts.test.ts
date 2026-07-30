@@ -124,6 +124,33 @@ describe('DraftStore.discard', () => {
   it('is a no-op when there is no draft', () => {
     expect(() => store().discard('skill', 'nothing')).not.toThrow()
   })
+
+  // Finding 4: writeKey writes `<key>.json.tmp` before renaming it onto `<key>.json`. If the
+  // rename throws, the temp file is left behind, and nothing but discard ever sweeps it.
+  it('removes a <key>.json.tmp left behind by a failed rename', () => {
+    const s = store()
+    const tmp = `${file('skill', 'my-skill')}.tmp`
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('EPERM: rename failed')
+    })
+    s.queue(CHANGE)
+    s.flushAll()
+    renameSpy.mockRestore()
+    // Sanity: the write really did leave the temp file behind, not that discard cleans up
+    // something that was never there.
+    expect(fs.existsSync(tmp)).toBe(true)
+
+    s.discard('skill', 'my-skill')
+    expect(fs.existsSync(tmp)).toBe(false)
+    expect(fs.existsSync(file('skill', 'my-skill'))).toBe(false)
+  })
+
+  it('discarding a draft with no stray .tmp file is still a no-op', () => {
+    const s = store()
+    s.queue(CHANGE)
+    s.flushAll()
+    expect(() => s.discard('skill', 'my-skill')).not.toThrow()
+  })
 })
 
 describe('DraftStore rename chains', () => {
@@ -310,5 +337,22 @@ describe('DraftStore write failure', () => {
     s.queue(CHANGE)
     vi.advanceTimersByTime(500)
     expect(seen).toEqual([])
+  })
+
+  // Finding 5: a persistent write failure used to be signalled only by the absence of a
+  // "Draft ·" chip — unactionable for a user, untriageable for a developer. It must at least
+  // reach the console, naming the draft key, without disturbing the requeue-and-retry behavior
+  // the other tests in this describe block pin down.
+  it('logs the failure, naming the draft key', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
+    fs.writeFileSync(path.join(home, 'drafts'), 'not a directory', 'utf8')
+    s.queue(CHANGE)
+    vi.advanceTimersByTime(500)
+
+    expect(errSpy).toHaveBeenCalledTimes(1)
+    const [message] = errSpy.mock.calls[0] as [string]
+    expect(message).toContain(draftKey('skill', 'my-skill'))
+    errSpy.mockRestore()
   })
 })
