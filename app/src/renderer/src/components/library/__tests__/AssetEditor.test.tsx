@@ -24,7 +24,7 @@ function setup(over: Partial<Parameters<typeof AssetEditor>[0]> = {}): {
   save: ReturnType<typeof vi.fn>
   onClose: ReturnType<typeof vi.fn>
 } {
-  const save = vi.fn().mockResolvedValue(undefined)
+  const save = vi.fn().mockResolvedValue('h2')
   const onClose = vi.fn()
   render(
     <AssetEditor
@@ -328,12 +328,12 @@ describe('AssetEditor', () => {
     expect(screen.queryByText(/^loading/i)).toBeNull()
   })
 
-  it('does not close after a successful save if the buffer changed while saving', async () => {
-    let resolveSave!: () => void
-    const deferred = new Promise<void>((res) => {
+  it('does not close after a successful save if the buffer changed while saving, and adopts the new hash so the next save succeeds', async () => {
+    let resolveSave!: (hash: string) => void
+    const deferred = new Promise<string>((res) => {
       resolveSave = res
     })
-    const save = vi.fn().mockReturnValue(deferred)
+    const save = vi.fn().mockReturnValueOnce(deferred).mockResolvedValue('h3')
     const onClose = vi.fn()
     render(
       <AssetEditor
@@ -353,13 +353,26 @@ describe('AssetEditor', () => {
     // during busy on purpose, so this must not be silently lost.
     await userEvent.type(ta, ' extra')
 
-    resolveSave()
+    resolveSave('h2')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/kept typing/i)
     expect(
       (screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement).value
     ).toBe(`${valid}\nmore extra`)
     expect(onClose).not.toHaveBeenCalled()
+
+    // The regression: baseHash must have been adopted from the first save's result ('h2'),
+    // not left at the original load hash ('h1') — otherwise this second save is guaranteed
+    // to throw a spurious "changed on disk" conflict caused by the app's own first save.
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() =>
+      expect(save).toHaveBeenLastCalledWith({
+        name: 'rca',
+        content: `${valid}\nmore extra`,
+        baseHash: 'h2'
+      })
+    )
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('closes normally after a successful save when the buffer did not change while saving', async () => {

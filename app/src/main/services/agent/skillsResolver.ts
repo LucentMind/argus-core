@@ -150,13 +150,18 @@ function assertSkillName(name: string): void {
  * just-accepted proposal.
  *
  * Validation runs here, not only in the renderer: IPC is a trust boundary.
+ *
+ * Returns the hash of what was just written, so the caller can adopt it as the next
+ * `baseHash` — the on-disk hash moves the instant this write lands, and a stale caller-side
+ * hash would make the very next save fail with a misleading "changed on disk" conflict that
+ * this write itself caused.
  */
 export function writeUserSkill(
   argusHome: string,
   name: string,
   content: string,
   baseHash: string | null
-): void {
+): string {
   assertSkillName(name)
   const issues = validateSkill({ name, content })
   if (hasErrors(issues)) {
@@ -170,6 +175,7 @@ export function writeUserSkill(
   }
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(file, content)
+  return contentHash(content)
 }
 
 /**

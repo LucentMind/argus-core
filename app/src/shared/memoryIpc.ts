@@ -44,6 +44,12 @@ export interface SkillsPayload {
   skills: SkillListItem[]
 }
 
+/** `skills:write`'s result: the list payload plus the hash of what was just written, so the
+ *  caller can adopt it as its next `baseHash` instead of retrying against a stale one. */
+export interface SkillsWriteResult extends SkillsPayload {
+  hash: string
+}
+
 export interface SkillReadPayload {
   name: string
   content: string
