@@ -172,6 +172,7 @@ describe('AssetEditor', () => {
 
     expect(screen.queryByRole('button', { name: /^draft/i })).toBeNull()
     expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^preview$/i })).toBeDisabled()
   })
 
   it('gates edit mode on load: no false missing-frontmatter error, and no textbox exists before the load resolves', async () => {
@@ -325,5 +326,69 @@ describe('AssetEditor', () => {
 
     expect(await screen.findByText(/could not be read/i)).toBeInTheDocument()
     expect(screen.queryByText(/^loading/i)).toBeNull()
+  })
+
+  it('does not close after a successful save if the buffer changed while saving', async () => {
+    let resolveSave!: () => void
+    const deferred = new Promise<void>((res) => {
+      resolveSave = res
+    })
+    const save = vi.fn().mockReturnValue(deferred)
+    const onClose = vi.fn()
+    render(
+      <AssetEditor
+        kind="skill"
+        name="rca"
+        mode="edit"
+        load={async () => ({ content: valid, hash: 'h1' })}
+        save={save}
+        onClose={onClose}
+      />
+    )
+    const ta = await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.type(ta, '\nmore')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    // Typed while the save round trip was still in flight — the textarea stays editable
+    // during busy on purpose, so this must not be silently lost.
+    await userEvent.type(ta, ' extra')
+
+    resolveSave()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/kept typing/i)
+    expect(
+      (screen.getByRole('textbox', { name: /skill · rca/i }) as HTMLTextAreaElement).value
+    ).toBe(`${valid}\nmore extra`)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('closes normally after a successful save when the buffer did not change while saving', async () => {
+    const { save, onClose } = setup()
+    const ta = await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.type(ta, '\nmore')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('turning Preview on in create mode hides Draft; turning it off restores it', async () => {
+    setup({ mode: 'create', name: 'rca', load: undefined })
+    expect(screen.getByRole('button', { name: /^draft/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^preview$/i }))
+    expect(screen.queryByRole('button', { name: /^draft/i })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    expect(screen.getByRole('button', { name: /^draft/i })).toBeInTheDocument()
+  })
+
+  it('the create-mode name input is disabled while a diff is pending', async () => {
+    setup({ mode: 'create', name: 'rca', load: undefined })
+    expect(screen.getByRole('textbox', { name: /^skill name$/i })).not.toBeDisabled()
+
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+    await screen.findByRole('button', { name: /^discard$/i })
+
+    expect(screen.getByRole('textbox', { name: /^skill name$/i })).toBeDisabled()
   })
 })
