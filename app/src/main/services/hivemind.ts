@@ -365,6 +365,12 @@ export class HivemindService {
       : path.join(sharedReferencesDir(this.deps.argusHome), name)
   }
 
+  /** The commit an installed item is pinned to, or null when it was authored locally. */
+  private pinFor(kind: 'skill' | 'reference', name: string): string | null {
+    const state = this.state()
+    return (kind === 'skill' ? state.skills[name] : state.references[name]) ?? null
+  }
+
   /** Content preview for the confirm dialog. */
   pushPreview(kind: 'skill' | 'reference', name: string): string {
     const src = this.pushSource(kind, name)
@@ -393,7 +399,13 @@ export class HivemindService {
         /^origin\//,
         ''
       )
-      await this.git(['checkout', '-B', branch, `origin/${defaultBranch}`], clone)
+      // Branch from the PIN when this item came from HiveMind. Cutting from origin/HEAD would
+      // make the whole-dir replace below undo every upstream change since the install — the PR
+      // would silently revert pin→HEAD on top of the intended edit. From the pin, the diff is
+      // exactly the local edits and GitHub surfaces any conflict upstream, where the reviewer
+      // has the context to resolve it.
+      const base = this.pinFor(kind, name) ?? `origin/${defaultBranch}`
+      await this.git(['checkout', '-B', branch, base], clone)
       const dest = path.join(clone, kind === 'skill' ? 'skills' : 'references', name)
       if (kind === 'skill') {
         fs.rmSync(dest, { recursive: true, force: true })

@@ -374,6 +374,63 @@ describe('pushable + push', () => {
     expect(flat[flat.length - 1]).toBe('checkout main')
   })
 
+  it('push branches from the pinned commit when the item came from HiveMind', async () => {
+    seedClone()
+    seedUserAssets()
+    // pin my-skill at an older commit, as `install` would have.
+    // (Written directly rather than read-modify-write: nothing has called
+    // store.write() yet at this point, so the state file doesn't exist on disk.)
+    const statePath = path.join(home, 'config', 'hivemind-state.json')
+    fs.mkdirSync(path.dirname(statePath), { recursive: true })
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        lastSynced: null,
+        skills: { 'my-skill': 'pinnedsha' },
+        references: {},
+        pushes: {}
+      })
+    )
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      return ''
+    }
+    const gh: Runner = async (_c, args) => {
+      calls.push(['gh', ...args])
+      return 'https://github.com/acme/hivemind/pull/9'
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git, gh })
+    const r = await svc.push('skill', 'my-skill', 'Improve my-skill')
+    expect(r.ok).toBe(true)
+    const flat = calls.map((c) => c.join(' '))
+    // branch cut from the pin, NOT origin/main — otherwise the PR reverts X→HEAD
+    expect(
+      flat.some((c) => /^checkout -B argus\/share-skill-my-skill-\d+ pinnedsha$/.test(c))
+    ).toBe(true)
+    expect(flat.every((c) => !/^checkout -B .* origin\/main$/.test(c))).toBe(true)
+    // still restores the clone afterwards
+    expect(flat[flat.length - 1]).toBe('checkout main')
+  })
+
+  it('push still branches from origin default for a locally authored item', async () => {
+    seedClone()
+    seedUserAssets()
+    const calls: string[][] = []
+    const git: Runner = async (_c, args) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse' && args.includes('origin/HEAD')) return 'origin/main'
+      return ''
+    }
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git })
+    await svc.push('skill', 'my-skill', 'Add my-skill')
+    const flat = calls.map((c) => c.join(' '))
+    expect(
+      flat.some((c) => /^checkout -B argus\/share-skill-my-skill-\d+ origin\/main$/.test(c))
+    ).toBe(true)
+  })
+
   it('push failures surface as { ok: false } and still restore the branch', async () => {
     seedClone()
     seedUserAssets()
