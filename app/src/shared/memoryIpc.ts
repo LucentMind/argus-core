@@ -38,6 +38,8 @@ export interface SkillListItem {
   description: string
   enabled: boolean
   shadows: string[]
+  /** `Name <email>` from frontmatter; null for assets written before authorship, and for packs. */
+  author: string | null
 }
 
 export interface SkillsPayload {

@@ -1501,7 +1501,8 @@ function registerIpc(): void {
       tier: s.tier,
       description: s.description,
       enabled: s.enabled,
-      shadows: s.shadows
+      shadows: s.shadows,
+      author: s.author
     }))
   })
   ipcMain.handle(IPC.skillsList, () => skillsPayload())

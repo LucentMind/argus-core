@@ -4,9 +4,9 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
-import { frontmatterDescription } from './agent/skillsResolver'
+import { frontmatterDescription, frontmatterAuthor } from './agent/skillsResolver'
 import { withFrontmatter, fmBlock, fmField } from '../../shared/frontmatter'
-import { stampAuthorship, type Identity } from '../../shared/authorship'
+import { stampAuthorship, parseAuthorship, type Identity } from '../../shared/authorship'
 import { JsonFileStore } from './fileStore'
 import type {
   HivemindCheckResult,
@@ -205,6 +205,7 @@ export class HivemindService {
           kind: 'skill',
           name: ent.name,
           description: frontmatterDescription(path.join(skillsRoot, ent.name)),
+          author: frontmatterAuthor(path.join(skillsRoot, ent.name)),
           commit,
           installed,
           installedCommit,
@@ -227,11 +228,13 @@ export class HivemindService {
           const installedCommit = state.references[name] ?? null
           // Installs flatten: the local copy always lives at the bare basename.
           const localPath = path.join(sharedReferencesDir(this.deps.argusHome), ent.name)
+          const cloneRaw = fs.readFileSync(path.join(dir, ent.name), 'utf8')
           const installed = fs.existsSync(localPath)
           items.push({
             kind: 'reference',
             name,
             description: '',
+            author: parseAuthorship(cloneRaw).author,
             commit,
             installed,
             installedCommit,

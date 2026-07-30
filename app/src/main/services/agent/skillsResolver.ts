@@ -7,7 +7,7 @@ import type { ModeRole } from '../../../shared/modes'
 import { frontmatterOf, parseDescription, parseRoles } from '../../../shared/skillFrontmatter'
 import { contentHash } from '../contentHash'
 import { validateSkill, hasErrors, ASSET_NAME_RE } from '../../../shared/assetValidation'
-import { withFrontmatter } from '../../../shared/frontmatter'
+import { withFrontmatter, fmField } from '../../../shared/frontmatter'
 import { stampAuthorship, type Identity } from '../../../shared/authorship'
 
 export type SkillTier = 'bundled' | 'user' | 'hivemind'
@@ -39,6 +39,8 @@ export interface ResolvedSkill {
   tier: SkillTier
   dir: string
   description: string
+  /** `author:` from frontmatter, or null. */
+  author: string | null
   enabled: boolean
   /** Lower-precedence tiers that also define this skill name. */
   shadows: SkillTier[]
@@ -73,6 +75,15 @@ export function frontmatterRoles(skillDir: string): string[] {
   return parseRoles(readFrontmatter(skillDir))
 }
 
+/** `author:` from a frontmatter block, or null. */
+function parseAuthor(fm: string | null): string | null {
+  return fm ? fmField(fm, 'author') || null : null
+}
+
+export function frontmatterAuthor(skillDir: string): string | null {
+  return parseAuthor(readFrontmatter(skillDir))
+}
+
 function scanTier(root: string): string[] {
   if (!fs.existsSync(root)) return []
   return fs
@@ -98,6 +109,7 @@ export function resolveSkills(argusHome: string, access: AgentAccess): ResolvedS
         tier,
         dir,
         description: parseDescription(fm),
+        author: parseAuthor(fm),
         enabled: skillEnabled(access, `${tier}/${name}`),
         shadows: [],
         roles: parseRoles(fm)

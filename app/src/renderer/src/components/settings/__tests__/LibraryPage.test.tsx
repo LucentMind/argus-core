@@ -28,11 +28,33 @@ const initial: SkillsPayload = {
       tier: 'user',
       description: 'local adaptation',
       enabled: true,
-      shadows: ['hivemind', 'bundled']
+      shadows: ['hivemind', 'bundled'],
+      author: null
     },
-    { name: 'my-notes', tier: 'user', description: 'plain user skill', enabled: true, shadows: [] },
-    { name: 'hive-probe', tier: 'hivemind', description: 'probe', enabled: true, shadows: [] },
-    { name: 'analyze-applog', tier: 'bundled', description: 'applog', enabled: true, shadows: [] }
+    {
+      name: 'my-notes',
+      tier: 'user',
+      description: 'plain user skill',
+      enabled: true,
+      shadows: [],
+      author: null
+    },
+    {
+      name: 'hive-probe',
+      tier: 'hivemind',
+      description: 'probe',
+      enabled: true,
+      shadows: [],
+      author: null
+    },
+    {
+      name: 'analyze-applog',
+      tier: 'bundled',
+      description: 'applog',
+      enabled: true,
+      shadows: [],
+      author: null
+    }
   ]
 }
 
@@ -43,11 +65,33 @@ const afterAdopt: SkillsPayload = {
       tier: 'hivemind',
       description: 'upstream rca',
       enabled: true,
-      shadows: ['bundled']
+      shadows: ['bundled'],
+      author: null
     },
-    { name: 'my-notes', tier: 'user', description: 'plain user skill', enabled: true, shadows: [] },
-    { name: 'hive-probe', tier: 'hivemind', description: 'probe', enabled: true, shadows: [] },
-    { name: 'analyze-applog', tier: 'bundled', description: 'applog', enabled: true, shadows: [] }
+    {
+      name: 'my-notes',
+      tier: 'user',
+      description: 'plain user skill',
+      enabled: true,
+      shadows: [],
+      author: null
+    },
+    {
+      name: 'hive-probe',
+      tier: 'hivemind',
+      description: 'probe',
+      enabled: true,
+      shadows: [],
+      author: null
+    },
+    {
+      name: 'analyze-applog',
+      tier: 'bundled',
+      description: 'applog',
+      enabled: true,
+      shadows: [],
+      author: null
+    }
   ]
 }
 
@@ -107,20 +151,29 @@ const refPayload: RefSyncPayload = {
   loadError: null,
   cards: [],
   references: [
-    { file: 'team-tips.md', tier: 'user', lastSynced: null, sourceCount: 0, stale: false },
+    {
+      file: 'team-tips.md',
+      tier: 'user',
+      lastSynced: null,
+      sourceCount: 0,
+      stale: false,
+      author: null
+    },
     {
       file: 'nav-runbook.md',
       tier: 'confluence',
       lastSynced: '2026-07-20T00:00:00.000Z',
       sourceCount: 3,
-      stale: true
+      stale: true,
+      author: null
     },
     {
       file: 'adasis.md',
       tier: 'hivemind',
       lastSynced: '2026-07-25T00:00:00.000Z',
       sourceCount: 0,
-      stale: false
+      stale: false,
+      author: null
     }
   ]
 }

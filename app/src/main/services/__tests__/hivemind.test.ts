@@ -711,6 +711,45 @@ describe('claim records the claimer without taking the byline', () => {
   })
 })
 
+describe('author on browse items', () => {
+  it('a skill item carries the author read from the clone', async () => {
+    const clone = seedClone()
+    fs.writeFileSync(
+      path.join(clone, 'skills', 'hive-probe', 'SKILL.md'),
+      '---\nname: hive-probe\ndescription: probe skill from the hive\nauthor: Alex Chen <alex@example.test>\n---\n# hive-probe\n'
+    )
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'itemsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'hive-probe')!.author).toBe(
+      'Alex Chen <alex@example.test>'
+    )
+  })
+
+  it('a reference item carries the author read from the clone', async () => {
+    const clone = seedClone()
+    fs.writeFileSync(
+      path.join(clone, 'references', 'hive-note.md'),
+      '---\nauthor: Alex Chen <alex@example.test>\n---\n# note\n'
+    )
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'itemsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'hive-note.md')!.author).toBe(
+      'Alex Chen <alex@example.test>'
+    )
+  })
+
+  it('author is null when absent from either frontmatter', async () => {
+    seedClone()
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'itemsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const p = await svc.payload()
+    expect(p.items.find((i) => i.name === 'hive-probe')!.author).toBeNull()
+    expect(p.items.find((i) => i.name === 'hive-note.md')!.author).toBeNull()
+  })
+})
+
 describe('check', () => {
   it('reports ok when git ls-remote succeeds against the clone URL', async () => {
     const calls: string[][] = []
