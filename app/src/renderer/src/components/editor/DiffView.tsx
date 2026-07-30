@@ -19,8 +19,11 @@ export interface DiffViewProps {
 }
 
 /**
- * The one diff surface (spec §5.6). Built once, deliberately, before there is a second caller:
- * three separately-grown diffs is the failure mode being avoided.
+ * The one diff surface for the editor window's three flows (spec §5.6) — assist accept, save
+ * conflict, draft staleness — built once so those three do not grow three separate diffs.
+ * `references/DiffView.tsx` already exists, for the reference-sync report, with a different
+ * shape (`oldText`/`newText`, a split/unified toggle, no `data-kind`, no `actions`); folding the
+ * two together is a follow-up, not this increment.
  *
  * Split rather than unified, because the flow that needs it most is "mine" against "on disk",
  * where the two columns are the whole point.

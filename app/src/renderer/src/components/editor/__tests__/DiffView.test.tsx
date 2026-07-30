@@ -39,6 +39,14 @@ describe('DiffView', () => {
     expect(kinds(container, 'del')).toHaveLength(0)
   })
 
+  it('renders a deletion with an empty cell opposite it', () => {
+    const { container } = render(
+      <DiffView before={'a\ngone\n'} after={'a\n'} beforeLabel="L" afterLabel="R" />
+    )
+    expect(kinds(container, 'del').map((e) => e.textContent)).toEqual(['2gone'])
+    expect(kinds(container, 'add')).toHaveLength(0)
+  })
+
   it('renders the caller-supplied actions', () => {
     render(
       <DiffView
