@@ -167,6 +167,8 @@ describe('ensurePrWorktree', () => {
   it('falls through to the fetch — and its error — when origin is gone', async () => {
     await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)
     git(repo, 'remote', 'remove', 'origin')
-    await expect(ensurePrWorktree(argusHome, 'NAV-1', repo, 1)).rejects.toThrow(/No 'origin' remote/)
+    await expect(ensurePrWorktree(argusHome, 'NAV-1', repo, 1)).rejects.toThrow(
+      /No 'origin' remote/
+    )
   })
 })
