@@ -1316,3 +1316,34 @@ describe('shadowedByUser', () => {
     )
   })
 })
+
+describe('authorship is app-managed, not a local edit', () => {
+  it('normalizeForCompare drops the authorship trail without orphaning its list items', () => {
+    const upstream = ['---', 'title: T', 'tags: [a]', '---', '# body', ''].join('\n')
+    const claimed = [
+      '---',
+      'title: T',
+      'tags: [a]',
+      'trust_tier: user',
+      'author: Priya Nandakumar <priya@example.test>',
+      'origin: authored',
+      'contributors:',
+      '  - Priya Nandakumar <priya@example.test> 2026-07-11',
+      '  - Jiawei Han <jiawiehan@gmail.com> 2026-07-30',
+      '---',
+      '# body',
+      ''
+    ].join('\n')
+    // identical text either side of a claim: the claim must not read as an unpushed edit
+    expect(normalizeForCompare(claimed)).toBe(normalizeForCompare(upstream))
+    // and the contributor items must not survive as orphaned top-level list lines
+    expect(normalizeForCompare(claimed)).not.toMatch(/^\s*-\s/m)
+    expect(normalizeForCompare(claimed)).toContain('tags: [a]')
+  })
+
+  it('still reports a real edit as a difference', () => {
+    const upstream = '---\ntitle: T\n---\n# body\n'
+    const edited = '---\ntitle: T\nauthor: A <a@example.test>\n---\n# body\n\nMY PARAGRAPH\n'
+    expect(normalizeForCompare(edited)).not.toBe(normalizeForCompare(upstream))
+  })
+})

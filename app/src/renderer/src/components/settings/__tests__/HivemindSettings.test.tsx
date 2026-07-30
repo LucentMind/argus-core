@@ -523,6 +523,7 @@ describe('update hazards', () => {
           installedCommit: 'sha-2',
           localTier: 'user',
           shadowedByUser: false,
+          author: null,
           updateAvailable: true
         }
       ]
@@ -552,6 +553,7 @@ describe('update hazards', () => {
           installedCommit: 'sha-2',
           localTier: 'user',
           shadowedByUser: false,
+          author: null,
           updateAvailable: true
         }
       ]
@@ -580,6 +582,7 @@ describe('update hazards', () => {
           installedCommit: 'sha-2',
           localTier: 'user',
           shadowedByUser: false,
+          author: null,
           updateAvailable: true
         }
       ]
@@ -608,6 +611,7 @@ describe('update hazards', () => {
           installedCommit: 'sha-2',
           localTier: 'user',
           shadowedByUser: false,
+          author: null,
           updateAvailable: true
         }
       ]
