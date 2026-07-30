@@ -307,6 +307,10 @@ describe('HiveMind against a local bare repo (no network)', () => {
 
     // the pin is current and updateAvailable goes dark...
     expect(p.items.find((i) => i.name === 'hive-probe')!.updateAvailable).toBe(false)
+    // ...and the update genuinely landed in the hivemind tier, not just in the pin bookkeeping
+    expect(
+      fs.readFileSync(path.join(homeB, 'skills-hivemind', 'hive-probe', 'SKILL.md'), 'utf8')
+    ).toContain('v2')
     // ...but the fork still wins resolution, and both new signals stay true
     expect(
       resolveSkills(homeB, defaultAgentAccess()).find((s) => s.name === 'hive-probe')!.tier
@@ -346,6 +350,8 @@ describe('HiveMind against a local bare repo (no network)', () => {
     expect(d.diverged).toBe(true)
     // the diff names what would be lost — the half the pin→HEAD preview cannot show
     expect(d.diff).toContain('MY UNPUSHED PARAGRAPH')
+    // ...and pins the incoming side to HEAD, not the stale pin — 'note v2' exists only there
+    expect(d.diff).toContain('note v2')
 
     await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(
       /differs from the version that would be installed/i
@@ -364,25 +370,27 @@ describe('HiveMind against a local bare repo (no network)', () => {
     await svc.install('reference', 'hive-note.md')
     await svc.claimReference('hive-note.md')
 
-    // your text lands upstream verbatim, then the pin lags behind a later unrelated commit.
-    // The body extracted here is byte-identical to what's already on origin (claimReference
-    // only rewrites frontmatter, never the body), so this commit is content-empty from git's
-    // point of view — --allow-empty is required or `git commit` refuses with "nothing to
-    // commit". That emptiness is exactly the point: it advances HEAD past the pin (verified
-    // below) without ever touching `references/hive-note.md` in a way `git log -- <path>`
-    // would notice, so the pin recorded at install time stays the last commit that actually
-    // touched the file while HEAD moves on — the "pin lags behind a later unrelated commit"
-    // the comment describes.
-    const localText = fs.readFileSync(path.join(homeB, 'references', 'hive-note.md'), 'utf8')
-    const body = localText.slice(localText.lastIndexOf('---\n') + 4)
-    fs.writeFileSync(path.join(work, 'references', 'hive-note.md'), body)
+    // edit the local copy first, then land that exact text upstream — your contribution
+    // merged verbatim. The pin (recorded at install/claim time) genuinely lags: its blob
+    // lacks the paragraph, while HEAD's now has it. local === HEAD, so an update would
+    // change nothing and must stay silent — this is the case the HEAD clause exists for.
+    const local = path.join(homeB, 'references', 'hive-note.md')
+    fs.writeFileSync(
+      local,
+      fs.readFileSync(local, 'utf8').replace('# note v1', '# note v1\n\nMY MERGED PARAGRAPH')
+    )
+    // the same text lands upstream — your contribution merged
+    fs.writeFileSync(
+      path.join(work, 'references', 'hive-note.md'),
+      '# note v1\n\nMY MERGED PARAGRAPH\n'
+    )
     git(work, 'add', '-A')
-    const beforeHead = git(work, 'rev-parse', 'HEAD')
-    git(work, 'commit', '-m', 'merge your contribution', '--allow-empty')
+    git(work, 'commit', '-m', 'merge your contribution')
     git(work, 'push', 'origin', 'main')
-    expect(git(work, 'rev-parse', 'HEAD')).not.toBe(beforeHead)
     await svc.sync()
 
+    // the pin genuinely lags: its blob lacks the paragraph, HEAD's has it
+    expect(await svc.diff('reference', 'hive-note.md')).toContain('MY MERGED PARAGRAPH')
     // local === HEAD, so there is nothing to lose and no warning
     expect((await svc.localDivergence('hive-note.md')).diverged).toBe(false)
     await expect(svc.install('reference', 'hive-note.md')).resolves.toBeDefined()
