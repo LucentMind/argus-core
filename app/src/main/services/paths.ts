@@ -110,6 +110,10 @@ export function proposalsArchiveDir(argusHome: string): string {
   return path.join(proposalsDir(argusHome), 'archive')
 }
 
+export function draftsDir(argusHome: string): string {
+  return path.join(argusHome, 'drafts')
+}
+
 export function refSyncPath(argusHome: string): string {
   return path.join(configDir(argusHome), 'reference-sync.json')
 }

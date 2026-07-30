@@ -1,0 +1,169 @@
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { draftsDir } from './paths'
+import type { AuthoringKind } from '../../shared/authoringIpc'
+import type { DraftChange, DraftRecord } from '../../shared/editorIpc'
+
+/**
+ * First 16 hex chars of sha256("<kind>:<name>").
+ *
+ * Hashed rather than escaped: reference names carry ".md", skill names are folder names, and
+ * nothing guarantees either stays flat forever — escaping is a filename-bug generator. The
+ * real identity lives in the record body, which is what `read` hands back.
+ */
+export function draftKey(kind: AuthoringKind, name: string): string {
+  return crypto.createHash('sha256').update(`${kind}:${name}`, 'utf8').digest('hex').slice(0, 16)
+}
+
+export interface DraftStoreDeps {
+  argusHome: string
+  /** Idle window before a queued change is written (spec §4.2). */
+  debounceMs?: number
+  /** Injected so tests get a deterministic `updatedAt`; house DI convention. */
+  now?: () => Date
+}
+
+/**
+ * Autosaved editor buffers, one JSON file per draft.
+ *
+ * The debounce lives here in main rather than in the renderer, deliberately. Increment 1 made
+ * the editor a dependent child: closing the main window destroys the editor renderer *before*
+ * `before-quit` fires, so a renderer-side flush would have nobody to ask on the ordinary exit
+ * path. Owning the timer here makes `flushAll()` synchronous and independent of whether the
+ * window is still alive.
+ */
+export class DraftStore {
+  private readonly dir: string
+  private readonly debounceMs: number
+  private readonly now: () => Date
+  private pending = new Map<string, DraftRecord>()
+  private timers = new Map<string, NodeJS.Timeout>()
+  /** newKey → oldKey for a create-mode rename; cleared once the new key is on disk. */
+  private superseded = new Map<string, string>()
+  private saved: ((rec: DraftRecord) => void) | null = null
+
+  constructor(deps: DraftStoreDeps) {
+    this.dir = draftsDir(deps.argusHome)
+    this.debounceMs = deps.debounceMs ?? 500
+    this.now = deps.now ?? ((): Date => new Date())
+  }
+
+  /** Notified after each successful write. Persist-before-adopt: this is what the UI is
+   *  allowed to believe, and it fires strictly after the rename. */
+  onSaved(cb: (rec: DraftRecord) => void): void {
+    this.saved = cb
+  }
+
+  read(kind: AuthoringKind, name: string): DraftRecord | null {
+    const key = draftKey(kind, name)
+    // The queued copy is up to `debounceMs` newer than disk. A read that ignored it would hand
+    // a stale buffer to a tab reopened moments after it was closed.
+    return this.pending.get(key) ?? this.readFile(key)
+  }
+
+  queue(change: DraftChange): void {
+    const key = draftKey(change.kind, change.name)
+    if (change.replaces) {
+      const oldKey = draftKey(change.replaces.kind, change.replaces.name)
+      if (oldKey !== key) {
+        this.cancel(oldKey)
+        this.pending.delete(oldKey)
+        this.superseded.set(key, oldKey)
+      }
+    }
+    // Built field by field rather than spread-minus-`replaces`: `replaces` is wire-only routing
+    // and must never reach the file.
+    this.pending.set(key, {
+      kind: change.kind,
+      name: change.name,
+      mode: change.mode,
+      content: change.content,
+      baseHash: change.baseHash,
+      updatedAt: this.now().toISOString()
+    })
+    this.cancel(key)
+    const t = setTimeout(() => this.writeKey(key), this.debounceMs)
+    t.unref?.()
+    this.timers.set(key, t)
+  }
+
+  /** Write everything queued, now. Synchronous on purpose — the quit path cannot await. */
+  flushAll(): void {
+    for (const key of [...this.pending.keys()]) {
+      this.cancel(key)
+      this.writeKey(key)
+    }
+  }
+
+  discard(kind: AuthoringKind, name: string): void {
+    const key = draftKey(kind, name)
+    this.cancel(key)
+    this.pending.delete(key)
+    this.superseded.delete(key)
+    try {
+      fs.rmSync(this.file(key))
+    } catch {
+      /* never written, or already gone */
+    }
+  }
+
+  private file(key: string): string {
+    return path.join(this.dir, `${key}.json`)
+  }
+
+  private readFile(key: string): DraftRecord | null {
+    let raw: string
+    try {
+      raw = fs.readFileSync(this.file(key), 'utf8')
+    } catch {
+      return null
+    }
+    try {
+      const rec = JSON.parse(raw) as Partial<DraftRecord>
+      // A truncated write or a hand-edited file must not take the editor window down on open.
+      if (typeof rec?.content !== 'string' || typeof rec?.name !== 'string') return null
+      return rec as DraftRecord
+    } catch {
+      return null
+    }
+  }
+
+  private cancel(key: string): void {
+    const t = this.timers.get(key)
+    if (t) {
+      clearTimeout(t)
+      this.timers.delete(key)
+    }
+  }
+
+  private writeKey(key: string): void {
+    this.timers.delete(key)
+    const rec = this.pending.get(key)
+    if (!rec) return
+    try {
+      fs.mkdirSync(this.dir, { recursive: true })
+      const tmp = `${this.file(key)}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify(rec, null, 2) + '\n', 'utf8')
+      fs.renameSync(tmp, this.file(key))
+    } catch {
+      // Persist-before-adopt, the failure half: the queued copy is the only remaining record of
+      // these bytes, so it stays queued. The next keystroke re-arms the timer, and flushAll on
+      // quit gets one last attempt. Deleting it here would lose the edit silently.
+      return
+    }
+    this.pending.delete(key)
+    const old = this.superseded.get(key)
+    if (old !== undefined) {
+      // §4.5 ordering: the new key is on disk before the old one goes, so a crash between the
+      // two leaves two drafts rather than none.
+      try {
+        fs.rmSync(this.file(old))
+      } catch {
+        /* the rename happened before the old key was ever written */
+      }
+      this.superseded.delete(key)
+    }
+    this.saved?.(rec)
+  }
+}
