@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
-import { frontmatterDescription, frontmatterAuthor } from './agent/skillsResolver'
+import { frontmatterDescriptionAndAuthor } from './agent/skillsResolver'
 import { withFrontmatter, fmBlock, fmField } from '../../shared/frontmatter'
 import { stampAuthorship, parseAuthorship, type Identity } from '../../shared/authorship'
 import { JsonFileStore } from './fileStore'
@@ -91,6 +91,18 @@ export function normalizeForCompare(raw: string): string {
 function validReferenceName(name: string): boolean {
   const base = name.startsWith('confluence/') ? name.slice('confluence/'.length) : name
   return base.endsWith('.md') && !/[/\\]/.test(base) && !base.startsWith('.')
+}
+
+/** `author:` from a clone-tree reference file, or null if it can't be read — mirrors
+ *  `readFrontmatter`'s swallow-and-degrade behavior so a file vanishing between the
+ *  `readdirSync` and this read yields `author: null` for that one item instead of
+ *  aborting the whole `listItems` scan. */
+function cloneReferenceAuthor(file: string): string | null {
+  try {
+    return parseAuthorship(fs.readFileSync(file, 'utf8')).author
+  } catch {
+    return null
+  }
 }
 
 /** Pinned installs + last sync stamp + push receipts — app-managed, not user-edited. */
@@ -239,11 +251,14 @@ export class HivemindService {
         const installed = fs.existsSync(
           path.join(hivemindSkillsDir(this.deps.argusHome), ent.name, 'SKILL.md')
         )
+        const { description, author } = frontmatterDescriptionAndAuthor(
+          path.join(skillsRoot, ent.name)
+        )
         items.push({
           kind: 'skill',
           name: ent.name,
-          description: frontmatterDescription(path.join(skillsRoot, ent.name)),
-          author: frontmatterAuthor(path.join(skillsRoot, ent.name)),
+          description,
+          author,
           commit,
           installed,
           installedCommit,
@@ -269,13 +284,12 @@ export class HivemindService {
           const installedCommit = state.references[name] ?? null
           // Installs flatten: the local copy always lives at the bare basename.
           const localPath = path.join(sharedReferencesDir(this.deps.argusHome), ent.name)
-          const cloneRaw = fs.readFileSync(path.join(dir, ent.name), 'utf8')
           const installed = fs.existsSync(localPath)
           items.push({
             kind: 'reference',
             name,
             description: '',
-            author: parseAuthorship(cloneRaw).author,
+            author: cloneReferenceAuthor(path.join(dir, ent.name)),
             commit,
             installed,
             installedCommit,
