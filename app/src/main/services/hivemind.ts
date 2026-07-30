@@ -292,8 +292,8 @@ export class HivemindService {
       // renderer's own check, so a stale renderer cannot smuggle the overwrite past it.
       if (!opts?.overwriteLocalEdits && (await this.localDivergence(name)).diverged)
         throw new Error(
-          `Your local copy of ${name} differs from the version that will be installed. ` +
-            `Review the difference before updating.`
+          `Your local copy of ${path.basename(name)} differs from the version that would be installed. ` +
+            `Review the difference first.`
         )
       const sha = await this.itemCommit(`references/${name}`)
       // Installs flatten: confluence/x.md lands at references/x.md, so pack
@@ -401,8 +401,11 @@ export class HivemindService {
    * gated too, instead of being silently destroyed by the first install.
    *
    * A file that does not exist locally is never diverged: a first install with nothing in
-   * the way proceeds normally. Anything unreadable also reports not-diverged: a guard that
-   * failed to run must not block an update that worked before it existed.
+   * the way proceeds normally. When the check itself cannot run, the fallback is asymmetric:
+   * a pinned copy came from the hive and can be re-downloaded, so a guard that failed to run
+   * must not block an update that worked before it existed — not-diverged. A file with no pin
+   * exists nowhere else, so the same failure instead reports diverged (with no diff to show)
+   * and makes the caller acknowledge the possible loss explicitly.
    */
   async localDivergence(name: string): Promise<LocalDivergence> {
     const none: LocalDivergence = { diverged: false, diff: '' }
@@ -418,7 +421,10 @@ export class HivemindService {
       head = await this.git(['show', `HEAD:references/${name}`], this.clone())
       if (pin) pinned = await this.git(['show', `${pin}:references/${name}`], this.clone())
     } catch {
-      return none
+      // A pinned copy came from the hive and can be re-downloaded, so a check that
+      // cannot run must not block the update. A file with no pin exists nowhere
+      // else — there, refuse and make the caller acknowledge the loss explicitly.
+      return pin ? none : { diverged: true, diff: '' }
     }
     const mine = normalizeForCompare(local)
     if (mine === normalizeForCompare(head)) return none
