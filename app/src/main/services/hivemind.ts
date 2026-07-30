@@ -365,10 +365,12 @@ export class HivemindService {
       : path.join(sharedReferencesDir(this.deps.argusHome), name)
   }
 
-  /** The commit an installed item is pinned to, or null when it was authored locally. */
+  /** The commit an installed item is pinned to, or null when it was authored locally.
+   *  `|| null`, not `?? null` — an empty-string pin (falsy but not nullish) must also fall
+   *  back to origin/HEAD at the call site, or `push` runs `git checkout -B <branch> ''`. */
   private pinFor(kind: 'skill' | 'reference', name: string): string | null {
     const state = this.state()
-    return (kind === 'skill' ? state.skills[name] : state.references[name]) ?? null
+    return (kind === 'skill' ? state.skills[name] : state.references[name]) || null
   }
 
   /** Content preview for the confirm dialog. */

@@ -291,7 +291,8 @@ describe('accept validates skill bodies', () => {
       type: 'skill-new',
       target: 'renamed',
       title: 'Wrong name',
-      content: '---\nname: wrong\ndescription: Use when the declared name is stale.\n---\n\n# x\nBody.'
+      content:
+        '---\nname: wrong\ndescription: Use when the declared name is stale.\n---\n\n# x\nBody.'
     })
     expect(acceptProposal(home, file)).toEqual({ kind: 'skill', name: 'renamed' })
     const written = fs.readFileSync(path.join(home, 'skills-user', 'renamed', 'SKILL.md'), 'utf8')
