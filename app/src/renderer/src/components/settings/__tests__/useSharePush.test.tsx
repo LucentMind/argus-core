@@ -48,7 +48,7 @@ describe('useSharePush', () => {
     expect(result.current.hiveItems.get('skill/rca')?.updateAvailable).toBe(false)
   })
 
-  it('yields an empty map when the hivemind namespace is missing, without an unhandled rejection', async () => {
+  it('swallows a failing hivemind fetch without an unhandled rejection', async () => {
     // Checking hiveItems.size === 0 / shareReady === false alone can't distinguish "the
     // degradation path ran and swallowed the failure" from "the effect never ran at all",
     // because both are already true synchronously at mount, before any effect runs. The

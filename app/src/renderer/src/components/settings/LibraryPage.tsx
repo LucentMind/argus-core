@@ -78,7 +78,7 @@ function groupOf(tier: string | null): GroupId {
 
 /**
  * The Library (spec §3.2): one list of knowledge assets — skills + reference
- * files — grouped by trust tier, kind mixed within a group. Per-kind actions:
+ * files — grouped by rights, kind mixed within a group. Per-kind actions:
  * enable/disable + delete/adopt for skills; viewer for references; Share on
  * pushable rows (Tier 2 machinery).
  */
@@ -222,7 +222,7 @@ export function LibraryPage({
     const ok = await confirm({
       title: `Claim "${r.file}"?`,
       message:
-        'It becomes yours: editable, deletable, and shareable — and it stops tracking HiveMind updates.',
+        'It becomes yours to edit, delete, and share. Upstream updates stop appearing in this list, though you can still redownload it from Browse.',
       confirmLabel: 'Claim'
     })
     if (!ok) return
@@ -263,6 +263,7 @@ export function LibraryPage({
     const adopt = s.tier === 'user' && s.shadows.includes('hivemind')
     const receipt = pushes[`skill/${s.name}`]
     const u = skillUsage?.get(s.name)
+    const hive = hiveItems.get(`skill/${s.name}`)
     return (
       <Fragment key={`skill/${s.name}`}>
         <SettingRow
@@ -273,6 +274,7 @@ export function LibraryPage({
             <>
               <Chip tone="neutral">skill</Chip>
               {groupOf(s.tier) !== 'built-in' && <TierBadge tier={s.tier} />}
+              {s.tier === 'hivemind' && hive?.updateAvailable && <Chip tone="review">update</Chip>}
               {s.shadows.length > 0 && (
                 <Chip tone="review">
                   overrides {s.shadows.map((t) => TIER_LABELS[t as TrustTier]).join(', ')}
