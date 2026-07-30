@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { HivemindService, cloneUrl, type Runner } from '../hivemind'
 import { parseAuthorship } from '../../../shared/authorship'
 
@@ -746,6 +746,37 @@ describe('author on browse items', () => {
     const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
     const p = await svc.payload()
     expect(p.items.find((i) => i.name === 'hive-probe')!.author).toBeNull()
+    expect(p.items.find((i) => i.name === 'hive-note.md')!.author).toBeNull()
+  })
+
+  it('reads a skill item SKILL.md exactly once for description+author together', async () => {
+    const clone = seedClone()
+    const skillMd = path.join(clone, 'skills', 'hive-probe', 'SKILL.md')
+    const { runner } = fakeGit({ 'rev-parse': 'headsha', log: 'itemsha' })
+    const svc = new HivemindService({ argusHome: home, repo: () => 'acme/hivemind', git: runner })
+    const spy = vi.spyOn(fs, 'readFileSync')
+    await svc.payload()
+    const reads = spy.mock.calls.filter((call) => call[0] === skillMd)
+    spy.mockRestore()
+    expect(reads).toHaveLength(1)
+  })
+
+  it('a reference file that vanishes between listing and reading degrades to author: null instead of throwing', async () => {
+    const clone = seedClone()
+    const refPath = path.join(clone, 'references', 'hive-note.md')
+    const svc = new HivemindService({
+      argusHome: home,
+      repo: () => 'acme/hivemind',
+      git: async (_cmd, args) => {
+        // itemCommit runs after readdirSync already found the entry but before listItems
+        // reads its content — deleting it here simulates the file vanishing in that window.
+        if (args.includes('references/hive-note.md')) fs.rmSync(refPath, { force: true })
+        if (args[0] === 'rev-parse') return 'headsha'
+        if (args[0] === 'log') return 'itemsha'
+        return ''
+      }
+    })
+    const p = await svc.payload()
     expect(p.items.find((i) => i.name === 'hive-note.md')!.author).toBeNull()
   })
 })

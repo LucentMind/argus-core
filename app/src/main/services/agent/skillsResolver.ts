@@ -80,8 +80,14 @@ function parseAuthor(fm: string | null): string | null {
   return fm ? fmField(fm, 'author') || null : null
 }
 
-export function frontmatterAuthor(skillDir: string): string | null {
-  return parseAuthor(readFrontmatter(skillDir))
+/** `description` + `author` from a single frontmatter read — for callers (HiveMind's
+ *  `listItems`) that need both fields per item and must not read SKILL.md twice to get them. */
+export function frontmatterDescriptionAndAuthor(skillDir: string): {
+  description: string
+  author: string | null
+} {
+  const fm = readFrontmatter(skillDir)
+  return { description: parseDescription(fm), author: parseAuthor(fm) }
 }
 
 function scanTier(root: string): string[] {
