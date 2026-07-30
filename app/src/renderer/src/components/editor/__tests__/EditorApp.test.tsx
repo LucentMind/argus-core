@@ -32,7 +32,11 @@ beforeEach(() => {
         closeRequested = cb
         return () => {}
       },
-      respondClose
+      respondClose,
+      draftChanged: vi.fn(),
+      readDraft: vi.fn().mockResolvedValue(null),
+      discardDraft: vi.fn().mockResolvedValue(undefined),
+      onDraftSaved: () => () => {}
     },
     skills: {
       read: vi.fn().mockResolvedValue({
@@ -86,15 +90,18 @@ describe('EditorApp', () => {
 
   it('asks the user before allowing a close while dirty', async () => {
     render(<EditorApp />)
-    openTab!(SKILL)
-    const area = await screen.findByLabelText('skill · my-skill')
-    await userEvent.type(area, 'x')
-    closeRequested!({ dirtyCount: 1 })
+    act(() => openTab!(SKILL))
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
+    act(() => closeRequested!({ dirtyCount: 1 }))
 
-    // Not /close/i: ModalShell's own dismiss icon is also named "Close", so the confirm
-    // button carries a distinct label rather than a second identically-named button.
-    const confirmBtn = await screen.findByRole('button', { name: 'Close editor' })
-    await userEvent.click(confirmBtn)
+    // Reports rather than warns: the draft store makes closing non-destructive (spec §3.5).
+    expect(await screen.findByText(/kept as drafts/i)).toBeInTheDocument()
+    // Not a plain findByRole('button', { name: /^close$/i }): ModalShell's own icon-only
+    // dismiss button is also named "Close" via aria-label/title, so the accessible-name query
+    // matches two elements. Disambiguate on visible text — the dismiss icon has none.
+    const closeButtons = await screen.findAllByRole('button', { name: /^close$/i })
+    const confirmBtn = closeButtons.find((b) => b.textContent === 'Close')
+    await userEvent.click(confirmBtn!)
     await waitFor(() => expect(respondClose).toHaveBeenCalledWith(true))
   })
 
@@ -141,25 +148,16 @@ describe('EditorApp asset swapping', () => {
 
   const DISCARD = 'Discard and open'
 
-  it('asks before replacing a dirty asset, and keeps it on deny', async () => {
-    await dirtySkill()
-    openTab!(REFERENCE)
+  it('swaps to a different asset without prompting, even while dirty', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
 
-    await userEvent.click(await screen.findByRole('button', { name: /^cancel$/i }))
+    act(() => openTab!(REFERENCE))
 
-    const area = await screen.findByLabelText<HTMLTextAreaElement>('skill · my-skill')
-    expect(area.value).toContain('x')
-    expect(screen.queryByLabelText('reference · notes.md')).not.toBeInTheDocument()
-  })
-
-  it('swaps to the requested asset when the user allows the discard', async () => {
-    await dirtySkill()
-    openTab!(REFERENCE)
-
-    await userEvent.click(await screen.findByRole('button', { name: DISCARD }))
-
+    // Drafts persist (spec §4), so a swap destroys nothing and asking would be theatre.
     expect(await screen.findByLabelText('reference · notes.md')).toBeInTheDocument()
-    expect(screen.queryByLabelText('skill · my-skill')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /discard and open/i })).not.toBeInTheDocument()
   })
 
   // The "focus the existing window" path: main re-sends the same request on every second Edit of
