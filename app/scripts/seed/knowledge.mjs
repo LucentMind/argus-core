@@ -149,8 +149,11 @@ export function buildProposals() {
       status: 'accepted',
       rejectTag: null,
       rejectNote: null,
-      // Job-linked to row 2, so BOTH seeded job ids have a non-empty archived
-      // bundle (row 1's is the timezone-note item above).
+      // Job-linked to row 2. Job 1's bundle carries accepted/rejected items
+      // (timezone-note, req-1042-note above, plus token-compare-note and
+      // burst-window-math-2 added below). Job 2 is skipped: a pending proposal
+      // carries its stamp (code-review, line 58). Job 3 yields an empty item
+      // list (failed state). Job 4 is unfinished (queued state).
       jobId: '2',
       previouslyReviewed: false
     },
@@ -194,7 +197,7 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'wrong',
       rejectNote: 'Node string comparison short-circuits on the first differing byte.',
-      jobId: null,
+      jobId: '1',
       previouslyReviewed: false
     },
     {
@@ -207,7 +210,7 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'duplicate',
       rejectNote: null,
-      jobId: null,
+      jobId: '1',
       previouslyReviewed: false
     },
     {
@@ -220,7 +223,7 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'other',
       rejectNote: null,
-      jobId: null,
+      jobId: '4',
       previouslyReviewed: false
     }
   ]
