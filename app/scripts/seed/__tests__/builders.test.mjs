@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createCtx } from '../ctx.mjs'
 import { bucketOfCheckRun, buildSyntheticStatus, rollupOf, statusFromGh } from '../prs.mjs'
 import { buildFlagshipFindings, buildThinFindings } from '../findings.mjs'
 import { buildTrees } from '../files.mjs'
-import { buildProposals, writeProposalFile } from '../knowledge.mjs'
+import { buildProposals, writeConfigFile, writeProposalFile } from '../knowledge.mjs'
 
 describe('createCtx', () => {
   const ctx = createCtx({ argusHome: 'C:/home', db: null })
@@ -406,5 +407,99 @@ describe('writeProposalFile', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('writeConfigFile', () => {
+  // Real filesystem, real temp directory per test — this whole helper exists
+  // to get backup semantics right, so a mocked fs would prove nothing. The
+  // directory is created fresh and torn down in `finally` for every test.
+
+  it('creates no backup on a first write when nothing pre-exists', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-seed-config-'))
+    try {
+      writeConfigFile(dir, 'settings.json', 'first-write\n')
+      expect(fs.existsSync(path.join(dir, '.seed-backup', 'settings.json'))).toBe(false)
+      expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe('first-write\n')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('backs up the pre-existing file the first time it is overwritten', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-seed-config-'))
+    try {
+      fs.writeFileSync(path.join(dir, 'settings.json'), 'real-user-config\n', 'utf8')
+      writeConfigFile(dir, 'settings.json', 'seed-generation-1\n')
+      expect(fs.readFileSync(path.join(dir, '.seed-backup', 'settings.json'), 'utf8')).toBe(
+        'real-user-config\n'
+      )
+      expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe('seed-generation-1\n')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps the pre-first-write backup untouched across a second write (first-generation-wins)', () => {
+    // This is the regression check: the shipped bug kept the NEWEST generation
+    // (the backup would read 'seed-generation-1' here, not the real user file)
+    // instead of the oldest. A second re-seed must never disturb the backup
+    // once it exists.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-seed-config-'))
+    try {
+      fs.writeFileSync(path.join(dir, 'settings.json'), 'real-user-config\n', 'utf8')
+      writeConfigFile(dir, 'settings.json', 'seed-generation-1\n')
+      writeConfigFile(dir, 'settings.json', 'seed-generation-2\n')
+
+      const backup = fs.readFileSync(path.join(dir, '.seed-backup', 'settings.json'), 'utf8')
+      expect(backup).toBe('real-user-config\n')
+      expect(backup).not.toBe('seed-generation-1\n')
+      expect(backup).not.toBe('seed-generation-2\n')
+      expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe('seed-generation-2\n')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('creates the backup directory as needed and does not throw when it is absent', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-seed-config-'))
+    try {
+      expect(fs.existsSync(path.join(dir, '.seed-backup'))).toBe(false)
+      fs.writeFileSync(path.join(dir, 'settings.json'), 'real-user-config\n', 'utf8')
+      expect(() => writeConfigFile(dir, 'settings.json', 'seed-generation-1\n')).not.toThrow()
+      expect(fs.existsSync(path.join(dir, '.seed-backup'))).toBe(true)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('config secrets guard', () => {
+  // A blanket config/ copy was explicitly rejected during review because it
+  // would duplicate secrets.json to a second on-disk location. There is no
+  // runtime code path to execute for "never writes secrets.json" (the seed
+  // simply never mentions the name), so this reads the module's own source
+  // text rather than calling a function — asserted narrowly against the
+  // specific writeConfigFile call sites rather than a bare substring check.
+  const knowledgeSrc = fs.readFileSync(
+    fileURLToPath(new URL('../knowledge.mjs', import.meta.url)),
+    'utf8'
+  )
+
+  it('names only the four known files as writeConfigFile targets, never secrets.json', () => {
+    const targets = [...knowledgeSrc.matchAll(/writeConfigFile\(\s*cfgDir,\s*'([^']+)'/g)].map(
+      (m) => m[1]
+    )
+    expect(targets).toEqual([
+      'hivemind-state.json',
+      'settings.json',
+      'agent-access.json',
+      'tool-risk.json'
+    ])
+    expect(targets).not.toContain('secrets.json')
+  })
+
+  it('never mentions secrets.json anywhere in the seed module', () => {
+    expect(knowledgeSrc).not.toContain('secrets.json')
   })
 })
