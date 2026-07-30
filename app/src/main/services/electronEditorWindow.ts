@@ -39,17 +39,47 @@ export function makeElectronEditorWindowFactory(
     })
 
     win.on('ready-to-show', () => win.show())
+
+    // `send()` calls made before the page has actually finished loading are lost: at the
+    // instant `loadEditor` returns, `loadURL`/`loadFile` has only just started and no
+    // `ipcRenderer.on(...)` listener exists yet in the renderer. Buffer sends until
+    // `did-finish-load`, then flush them in order. `did-start-loading` fires again on every
+    // reload (including the initial load, before buffering is even needed), so it re-arms
+    // buffering for the next `did-finish-load` — a reload's listeners are gone too until then.
+    let ready = false
+    let queue: Array<{ channel: string; payload: unknown }> = []
+
+    win.webContents.on('did-start-loading', () => {
+      ready = false
+    })
+    win.webContents.on('did-finish-load', () => {
+      ready = true
+      const pending = queue
+      queue = []
+      for (const { channel, payload } of pending) {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+          win.webContents.send(channel, payload)
+        }
+      }
+    })
+
     loadEditor(win)
 
     return {
       focus: () => {
+        if (!win.isVisible()) win.show()
         if (win.isMinimized()) win.restore()
         win.focus()
       },
       destroy: () => win.destroy(),
       isDestroyed: () => win.isDestroyed(),
       send: (channel, payload) => {
-        if (!win.isDestroyed()) win.webContents.send(channel, payload)
+        if (win.isDestroyed() || win.webContents.isDestroyed()) return
+        if (!ready) {
+          queue.push({ channel, payload })
+          return
+        }
+        win.webContents.send(channel, payload)
       },
       getBounds: () => win.getBounds(),
       onCloseAttempt: (cb) => {
@@ -62,13 +92,29 @@ export function makeElectronEditorWindowFactory(
         // 'moved' does not fire on Windows during a resize, and 'resize' fires continuously —
         // both are debounced by the caller writing at most one file per settle.
         let timer: NodeJS.Timeout | null = null
+        let pending = false
         const settle = (): void => {
           if (timer) clearTimeout(timer)
-          timer = setTimeout(cb, 400)
+          pending = true
+          timer = setTimeout(() => {
+            pending = false
+            timer = null
+            cb()
+          }, 400)
           timer.unref?.()
         }
         win.on('resize', settle)
         win.on('move', settle)
+        // A resize/move immediately followed by a close would otherwise discard the final
+        // bounds (the debounce timer never fires) and leak the timer. Flush synchronously.
+        win.once('close', () => {
+          if (timer) clearTimeout(timer)
+          if (pending) {
+            pending = false
+            timer = null
+            cb()
+          }
+        })
       }
     }
   }

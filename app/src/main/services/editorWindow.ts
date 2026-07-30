@@ -34,9 +34,6 @@ export class EditorWindowService {
   /** True between vetoing a close and the renderer's answer. Guards against re-asking when
    *  the user clicks the X repeatedly while the confirm is on screen. */
   private awaitingCloseReply = false
-  /** Set when we are destroying the window ourselves; makes the close hook fall straight
-   *  through. Mirrors the `programmaticClose` latch in panels/electronPlatform.ts. */
-  private closingProgrammatically = false
 
   constructor(private deps: EditorWindowDeps) {}
 
@@ -59,7 +56,6 @@ export class EditorWindowService {
       this.win = win
       this.dirtyCount = 0
       this.awaitingCloseReply = false
-      this.closingProgrammatically = false
 
       win.onCloseAttempt(() => this.allowClose())
       // Identity-guarded: Electron's `closed` is asynchronous, so a previous window's event
@@ -83,7 +79,6 @@ export class EditorWindowService {
 
   /** The close hook. Returns true to let the window go. */
   private allowClose(): boolean {
-    if (this.closingProgrammatically) return true
     if (this.dirtyCount === 0) return true
     if (this.awaitingCloseReply) return false
     this.awaitingCloseReply = true
@@ -101,7 +96,6 @@ export class EditorWindowService {
   /** Destroy the window without asking. Used by the reply path and by main-window teardown. */
   forceClose(): void {
     if (!this.isOpen()) return
-    this.closingProgrammatically = true
     this.win!.destroy()
   }
 }
