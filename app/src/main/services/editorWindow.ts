@@ -46,11 +46,17 @@ export class EditorWindowService {
     if (!this.isOpen()) {
       const win = this.deps.createWindow(this.deps.loadBounds())
       this.win = win
+      // Identity-guarded: Electron's `closed` is asynchronous, so a previous window's event
+      // can arrive after a replacement has been adopted. Without `this.win === win` the stale
+      // handler nulls out the LIVE window, orphaning it on screen and making the next open()
+      // spawn a third.
       win.onClosed(() => {
+        if (this.win !== win) return
         this.win = null
       })
       win.onBoundsChanged(() => {
-        if (!win.isDestroyed()) this.deps.saveBounds(win.getBounds())
+        if (this.win !== win || win.isDestroyed()) return
+        this.deps.saveBounds(win.getBounds())
       })
     } else {
       this.win!.focus()
