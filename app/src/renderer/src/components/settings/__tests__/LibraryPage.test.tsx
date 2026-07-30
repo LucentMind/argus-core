@@ -75,6 +75,18 @@ function hivePayload(pushes: Record<string, { prUrl: string; pushedAt: string }>
         installedCommit: 'def',
         localTier: 'user',
         updateAvailable: true
+      },
+      // a hive-tier skill with an upstream update — the marker must mirror refRow's
+      // (previously only references rendered it; see Finding 3).
+      {
+        kind: 'skill',
+        name: 'hive-probe',
+        description: 'probe',
+        commit: 'ghi',
+        installed: true,
+        installedCommit: 'ghi',
+        localTier: null,
+        updateAvailable: true
       }
     ],
     pushable: [],
@@ -329,15 +341,26 @@ describe('LibraryPage merged list', () => {
   it('groups both kinds by rights, kind mixed within a group', async () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
-    expect(screen.getByText('Yours')).toBeInTheDocument()
-    expect(screen.getByText('Subscribed')).toBeInTheDocument()
+
+    const yoursSection = screen.getByText('Yours').closest('section')
+    const subscribedSection = screen.getByText('Subscribed').closest('section')
+    if (!yoursSection || !subscribedSection) throw new Error('group section not found')
     expect(screen.getByText('Built-in')).toBeInTheDocument()
-    // the two hand-owned tiers share one group
-    expect(await screen.findByText('team-tips.md')).toBeInTheDocument()
-    expect(screen.getByText('my-notes')).toBeInTheDocument()
-    // hivemind and confluence share the next
-    expect(screen.getByText('hive-probe')).toBeInTheDocument()
-    expect(screen.getByText('nav-runbook.md')).toBeInTheDocument()
+
+    // Yours actually mixes a user-tier skill and the user-tier reference in the same group
+    expect(within(yoursSection).getByText('my-notes')).toBeInTheDocument()
+    expect(await within(yoursSection).findByText('team-tips.md')).toBeInTheDocument()
+
+    // Subscribed actually mixes a hivemind skill and a confluence reference in the same group
+    expect(within(subscribedSection).getByText('hive-probe')).toBeInTheDocument()
+    expect(within(subscribedSection).getByText('nav-runbook.md')).toBeInTheDocument()
+
+    // and neither leaks into the other group
+    expect(within(yoursSection).queryByText('hive-probe')).toBeNull()
+    expect(within(yoursSection).queryByText('nav-runbook.md')).toBeNull()
+    expect(within(subscribedSection).queryByText('my-notes')).toBeNull()
+    expect(within(subscribedSection).queryByText('team-tips.md')).toBeNull()
+
     // no five-way vocabulary survives as a group heading
     expect(screen.queryByText('User')).toBeNull()
     expect(screen.queryByText('Team knowledge')).toBeNull()
@@ -451,7 +474,7 @@ describe('LibraryPage claim', () => {
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         confirmLabel: 'Claim',
-        message: expect.stringContaining('stops tracking HiveMind updates')
+        message: expect.stringContaining('stop appearing in this list')
       })
     )
   })
@@ -470,12 +493,20 @@ describe('LibraryPage claim', () => {
     expect(screen.queryByRole('button', { name: 'Claim · nav-runbook.md' })).toBeNull()
   })
 
-  it('an upstream update shows on the hivemind row, scoped to that row', async () => {
+  it('an upstream update shows on the hivemind reference row, scoped to that row', async () => {
     render(<LibraryPage />)
     const row = await findRow('adasis.md')
     expect(within(row).getByText('update')).toBeInTheDocument()
-    // exactly one row in the whole page carries the chip
-    expect(screen.getAllByText('update')).toHaveLength(1)
+    // exactly two rows in the whole page carry the chip: this reference and the
+    // hive-probe skill below
+    expect(screen.getAllByText('update')).toHaveLength(2)
+  })
+
+  it('an upstream update shows on the hivemind skill row too, scoped to that row', async () => {
+    render(<LibraryPage />)
+    const row = await findRow('hive-probe')
+    expect(within(row).getByText('update')).toBeInTheDocument()
+    expect(screen.getAllByText('update')).toHaveLength(2)
   })
 
   it('a claimed (user-tier) reference with a stale updateAvailable hive entry shows no update chip', async () => {
