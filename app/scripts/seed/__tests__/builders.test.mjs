@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createCtx } from '../ctx.mjs'
-import { bucketOfCheckRun, buildSyntheticStatus, rollupOf } from '../prs.mjs'
+import { bucketOfCheckRun, buildSyntheticStatus, rollupOf, statusFromGh } from '../prs.mjs'
 
 describe('createCtx', () => {
   const ctx = createCtx({ argusHome: 'C:/home', db: null })
@@ -109,5 +109,71 @@ describe('buildSyntheticStatus', () => {
     expect(status.mergeable).toBe('CONFLICTING')
     expect(status.reviewDecision).toBe('CHANGES_REQUESTED')
     expect(status.mergeStateStatus).toBe('BLOCKED')
+  })
+})
+
+describe('statusFromGh', () => {
+  // Hand-built `gh pr view --json statusCheckRollup` payload covering both
+  // node typenames the field can contain.
+  const raw = {
+    number: 4,
+    url: 'https://github.com/JiaweiHan88/HiveMindTest/pull/4',
+    state: 'OPEN',
+    isDraft: false,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+    reviewDecision: null,
+    statusCheckRollup: [
+      {
+        __typename: 'CheckRun',
+        name: 'unit-tests',
+        status: 'COMPLETED',
+        conclusion: 'SUCCESS',
+        detailsUrl:
+          'https://github.com/JiaweiHan88/HiveMindTest/actions/runs/30500000001/job/90600000001'
+      },
+      {
+        __typename: 'StatusContext',
+        context: 'netlify/deploy-preview',
+        state: 'FAILURE',
+        targetUrl: 'https://app.netlify.com/sites/demo/deploys/abc123'
+      }
+    ]
+  }
+
+  const status = statusFromGh(raw, {
+    owner: 'JiaweiHan88',
+    repo: 'HiveMindTest',
+    number: 4,
+    now: '2026-07-30T10:00:00.000Z'
+  })
+
+  it('buckets the CheckRun entry via bucketOfCheckRun', () => {
+    const check = status.checks.find((c) => c.name === 'unit-tests')
+    expect(check.bucket).toBe('pass')
+  })
+
+  it('buckets the StatusContext entry via bucketOfStatusContext', () => {
+    const check = status.checks.find((c) => c.name === 'netlify/deploy-preview')
+    expect(check.bucket).toBe('fail')
+  })
+
+  it('falls back to context for the StatusContext name and targetUrl for its url', () => {
+    const check = status.checks[1]
+    expect(check.name).toBe('netlify/deploy-preview')
+    expect(check.url).toBe('https://app.netlify.com/sites/demo/deploys/abc123')
+  })
+
+  it('populates jobId for the Actions check and nulls it for the third-party one', () => {
+    expect(status.checks[0].jobId).toBe(90600000001)
+    expect(status.checks[1].jobId).toBeNull()
+  })
+
+  it('derives rollup from the projected checks rather than hardcoding it', () => {
+    // Both checks are marked not-required (gh reports no per-PR branch protection),
+    // so with nothing required everything gates, and the one failure makes it 'failing'.
+    expect(rollupOf(status.checks)).toBe('failing')
+    expect(status.rollup).toBe(rollupOf(status.checks))
+    expect(status.rollup).toBe('failing')
   })
 })

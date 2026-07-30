@@ -34,6 +34,13 @@ export function actionsJobId(url) {
   return m ? Number(m[1]) : null
 }
 
+/** Mirrors bucketOfStatusContext() in src/shared/prStatus.ts. */
+export function bucketOfStatusContext(state) {
+  if (state === 'SUCCESS') return 'pass'
+  if (state === 'FAILURE' || state === 'ERROR') return 'fail'
+  return 'pending'
+}
+
 /**
  * The fabricated pull request. Every bucket appears once; the ONLY failure is
  * not required, which is what makes the rollup unstable rather than failing —
@@ -42,41 +49,36 @@ export function actionsJobId(url) {
  */
 export function buildSyntheticStatus({ now }) {
   const base = 'https://github.com/JiaweiHan88/HiveMindTest'
-  const checks = [
+  const rawChecks = [
     {
       name: 'unit-tests',
       bucket: 'pass',
       required: true,
-      url: `${base}/actions/runs/30500000001/job/90600000001`,
-      jobId: 90600000001
+      url: `${base}/actions/runs/30500000001/job/90600000001`
     },
     {
       name: 'flaky-integration',
       bucket: 'fail',
       required: false,
-      url: `${base}/actions/runs/30500000002/job/90600000002`,
-      jobId: 90600000002
+      url: `${base}/actions/runs/30500000002/job/90600000002`
     },
     {
       name: 'verify',
       bucket: 'cancelled',
       required: false,
-      url: `${base}/actions/runs/30500000003/job/90600000003`,
-      jobId: 90600000003
+      url: `${base}/actions/runs/30500000003/job/90600000003`
     },
     {
       name: 'e2e',
       bucket: 'pending',
       required: true,
-      url: `${base}/actions/runs/30500000004/job/90600000004`,
-      jobId: 90600000004
+      url: `${base}/actions/runs/30500000004/job/90600000004`
     },
     {
       name: 'docs-preview',
       bucket: 'skipped',
       required: false,
-      url: `${base}/actions/runs/30500000005/job/90600000005`,
-      jobId: 90600000005
+      url: `${base}/actions/runs/30500000005/job/90600000005`
     },
     // Third-party context: a details url with no /job/<id> segment, so its log is
     // unfetchable and the Analyze button must be disabled.
@@ -84,10 +86,10 @@ export function buildSyntheticStatus({ now }) {
       name: 'netlify/deploy-preview',
       bucket: 'pass',
       required: false,
-      url: 'https://app.netlify.com/sites/demo/deploys/abc123',
-      jobId: null
+      url: 'https://app.netlify.com/sites/demo/deploys/abc123'
     }
   ]
+  const checks = rawChecks.map((c) => ({ ...c, jobId: actionsJobId(c.url) }))
   return {
     owner: OWNER,
     repo: REPO,
@@ -111,11 +113,7 @@ export function statusFromGh(raw, { owner, repo, number, now }) {
     const url = c.detailsUrl ?? c.targetUrl ?? null
     const bucket =
       c.__typename === 'StatusContext'
-        ? c.state === 'SUCCESS'
-          ? 'pass'
-          : c.state === 'FAILURE' || c.state === 'ERROR'
-            ? 'fail'
-            : 'pending'
+        ? bucketOfStatusContext(c.state ?? null)
         : bucketOfCheckRun(c.status ?? null, c.conclusion ?? null)
     // gh does not report per-pull-request branch protection, and HiveMindTest has
     // none, so every live check is correctly not required.
