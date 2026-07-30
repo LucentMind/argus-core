@@ -133,18 +133,40 @@ describe('ensurePrWorktree', () => {
   })
 
   it('routes every git call through an injected runner', async () => {
-    const calls: string[][] = []
-    const run = async (cwd: string, args: string[]): Promise<string> => {
-      calls.push(args)
-      return execFileSync('git', args, {
-        cwd,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe']
-      }).trim()
-    }
-    const wt = await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run })
+    const rec = recorder()
+    const wt = await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run: rec.run })
     expect(git(wt, 'rev-parse', 'HEAD')).toBe(prSha)
-    expect(calls.length).toBeGreaterThan(0)
-    expect(calls.some((a) => a[0] === 'fetch')).toBe(true)
+    expect(rec.calls.length).toBeGreaterThan(0)
+    expect(rec.calls.some((a) => a[0] === 'fetch')).toBe(true)
+  })
+
+  it('leaves refs/argus/pr/N naming the PR head after a skipped fetch', async () => {
+    await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)
+    // Drag the ref backwards; only the skip path's update-ref can put it back, since this
+    // second call performs no fetch.
+    const base = git(repo, 'rev-parse', 'origin/main')
+    git(repo, 'update-ref', 'refs/argus/pr/1', base)
+
+    const rec = recorder()
+    await ensurePrWorktree(argusHome, 'NAV-1', repo, 1, { run: rec.run })
+
+    expect(rec.calls.some((a) => a[0] === 'fetch')).toBe(false)
+    expect(git(repo, 'rev-parse', 'refs/argus/pr/1')).toBe(prSha)
+  })
+
+  it('falls through to the fetch when the probe cannot reach the remote', async () => {
+    const wt = await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)
+    git(repo, 'remote', 'set-url', 'origin', path.join(tmp, 'no-such-remote'))
+
+    // The probe returns null rather than throwing, so the fetch runs and fails the way it
+    // always has — never a silent early return on a worktree we could not verify.
+    await expect(ensurePrWorktree(argusHome, 'NAV-1', repo, 1)).rejects.toThrow()
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(prSha)
+  })
+
+  it('falls through to the fetch — and its error — when origin is gone', async () => {
+    await ensurePrWorktree(argusHome, 'NAV-1', repo, 1)
+    git(repo, 'remote', 'remove', 'origin')
+    await expect(ensurePrWorktree(argusHome, 'NAV-1', repo, 1)).rejects.toThrow(/No 'origin' remote/)
   })
 })
