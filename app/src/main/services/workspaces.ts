@@ -153,10 +153,11 @@ export async function listWorkspaces(
   argusHome: string,
   caseSlug: string
 ): Promise<WorkspaceInfo[]> {
-  const out: WorkspaceInfo[] = []
-  for (const s of listStoredWorkspaces(db, caseSlug))
-    out.push(await describeWorkspace(argusHome, caseSlug, s))
-  return out
+  // Each describeWorkspace is two subprocesses (rev-parse + status --porcelain) against a
+  // different repo, so they have nothing to serialize on. Promise.all preserves input order.
+  return Promise.all(
+    listStoredWorkspaces(db, caseSlug).map((s) => describeWorkspace(argusHome, caseSlug, s))
+  )
 }
 
 export async function ensureWorktree(
