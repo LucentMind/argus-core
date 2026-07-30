@@ -15,7 +15,8 @@ export interface HivemindItem {
 /** Whether the installed local reference has edits that are in neither the pin nor HEAD. */
 export interface LocalDivergence {
   diverged: boolean
-  /** Unified diff, local → incoming. Empty when not diverged. */
+  /** Unified diff, local → incoming. Empty when not diverged, and also empty in the
+   *  fail-closed case (diverged: true but the other side couldn't be read to compare). */
   diff: string
 }
 export interface PushableItem {
