@@ -17,6 +17,47 @@ const STATUSES = {
   'SYN-5-edge': 'analyzing'
 }
 
+/** Every real case shares the fixture's one Jira ticket; SYN-5-edge is fabricated
+ *  (no linked repo history, no real PR) and must not claim a real ticket. */
+function jiraKeyFor(slug) {
+  return slug === 'SYN-5-edge' ? null : 'HMT-1'
+}
+
+/** Verbatim mirror of `CASE_WORKING_RULES` in `app/src/main/services/caseService.ts`
+ *  (the seed script can't import that .ts module, so this is kept in sync by hand —
+ *  update both if the real template changes). Appended to every seeded CLAUDE.md so
+ *  the fixture's model-facing instructions match a real case's exactly. */
+const CASE_WORKING_RULES = `## Working rules
+
+- Cite evidence as \`[<rel-path>:<line>]\` for every claim based on evidence, e.g. \`[evidence/app.log:812]\`.
+- Record findings with the \`mcp__argus__append_finding\` tool — never edit \`findings.md\` directly.
+- Search evidence with \`mcp__argus__search_evidence\` before grepping files.
+- To inspect a linked repo at a branch/PR/tag, call \`mcp__argus__workspace_checkout\` — never \`git switch\`/\`checkout\` in the primary checkout.
+- Register derived files you create as evidence via \`mcp__argus__ingest_artifact\` so they become searchable and citable.
+`
+
+/**
+ * (Re)create the machine-local `.claude` junctions (skills, references).
+ * Mirror of `scaffoldCaseLinks` in `app/src/main/services/caseService.ts` — the case
+ * dir's `.claude` is the skill plugin root, so without it a chat opened in a seeded
+ * case cannot resolve skills. Idempotent; only creates a link when it is missing and
+ * its target exists.
+ */
+function scaffoldCaseLinks(argusHome, dir) {
+  const dotClaude = path.join(dir, '.claude')
+  fs.mkdirSync(dotClaude, { recursive: true })
+  for (const [name, target] of [
+    ['skills', path.join(argusHome, 'skills')],
+    ['references', path.join(argusHome, 'references')]
+  ]) {
+    const link = path.join(dotClaude, name)
+    // 'dir' symlinks need elevation on Windows; junctions don't and lstat still
+    // reports them as symbolic links.
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+    if (!fs.existsSync(link) && fs.existsSync(target)) fs.symlinkSync(target, link, linkType)
+  }
+}
+
 /** Sessions per case: the flagship gets four across three drivers, thin cases one. */
 function sessionPlan(slug) {
   if (slug !== 'HMT-1-burst-token') {
@@ -83,7 +124,50 @@ export function seedCases(ctx, { repos }) {
   const sessionIds = {}
 
   for (const slug of ctx.SLUGS) {
-    // Deleting the case cascades to sessions/turns/tool_calls/findings/bindings.
+    // Deleting the case cascades to sessions/turns/tool_calls/findings/bindings/
+    // pr_bindings/pr_status_cache/evidence — every table with an FK to cases(id).
+    //
+    // It does NOT reach messages_fts/messages_fts_map or evidence_fts/evidence_fts_map:
+    // the _fts tables are FTS5 virtual tables and the _map side tables are plain
+    // tables, and neither carries a foreign key to cases (see ftsIndex.ts). Left
+    // alone, re-running the seed would leave the previous run's chat-search rows
+    // behind (duplicate hits) plus map rows pointing at session/evidence ids that no
+    // longer exist. The evidence side is not hypothetical: the documented fixture
+    // workflow is seed -> boot -> Rescan (which writes evidence + evidence_fts +
+    // evidence_fts_map) -> possibly re-seed, so a second seed run will reliably hit
+    // evidence FTS rows the seed itself never wrote.
+    //
+    // Mirror caseService.ts's deleteCase(): clear the FTS rows BEFORE the cascade,
+    // resolving each row's rowid through its map table (FTS5 only addresses a row
+    // cheaply by `rowid = ?` — deleting by the UNINDEXED key column scans the whole
+    // index) and delete each by rowid. Do this here (not by importing deleteCase, a
+    // TypeScript module this .mjs script cannot import) so it fires whether or not
+    // the case row already existed.
+    const priorCase = ctx.db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug)
+    if (priorCase) {
+      const priorCaseId = priorCase.id
+      const msgFtsRows = ctx.db
+        .prepare('SELECT fts_rowid FROM messages_fts_map WHERE case_id = ?')
+        .all(priorCaseId)
+      const delMsgFts = ctx.db.prepare('DELETE FROM messages_fts WHERE rowid = ?')
+      for (const r of msgFtsRows) delMsgFts.run(r.fts_rowid)
+      ctx.db.prepare('DELETE FROM messages_fts_map WHERE case_id = ?').run(priorCaseId)
+
+      const evFtsRows = ctx.db
+        .prepare(
+          `SELECT fts_rowid FROM evidence_fts_map
+           WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
+        )
+        .all(priorCaseId)
+      const delEvFts = ctx.db.prepare('DELETE FROM evidence_fts WHERE rowid = ?')
+      for (const r of evFtsRows) delEvFts.run(r.fts_rowid)
+      ctx.db
+        .prepare(
+          `DELETE FROM evidence_fts_map
+           WHERE evidence_id IN (SELECT id FROM evidence WHERE case_id = ?)`
+        )
+        .run(priorCaseId)
+    }
     ctx.db.prepare('DELETE FROM cases WHERE slug = ?').run(slug)
     fs.rmSync(ctx.caseDir(slug), { recursive: true, force: true })
 
@@ -98,12 +182,13 @@ export function seedCases(ctx, { repos }) {
             }
           ]
 
+    const jiraKey = jiraKeyFor(slug)
     ctx.db
       .prepare(
         `INSERT INTO cases (slug, title, jira_key, status, tags, workspaces, active_mode, created_at, updated_at)
-         VALUES (?, ?, 'HMT-1', ?, '[]', ?, 'review', ?, ?)`
+         VALUES (?, ?, ?, ?, '[]', ?, 'review', ?, ?)`
       )
-      .run(slug, TITLES[slug], STATUSES[slug], JSON.stringify(workspaces), now, now)
+      .run(slug, TITLES[slug], jiraKey, STATUSES[slug], JSON.stringify(workspaces), now, now)
     const caseId = ctx.db.prepare('SELECT id FROM cases WHERE slug = ?').get(slug).id
     caseIds[slug] = caseId
 
@@ -111,6 +196,7 @@ export function seedCases(ctx, { repos }) {
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'evidence'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'artifacts'), { recursive: true })
+    scaffoldCaseLinks(ctx.argusHome, dir)
 
     const insSession = ctx.db.prepare(
       `INSERT INTO sessions (case_id, driver_kind, instance_id, model, title, turn_count, created_at, updated_at, mode)
@@ -220,24 +306,35 @@ export function seedCases(ctx, { repos }) {
     }
     // Thin cases have no investigation session; point both keys at what exists so
     // seedFindings can look up either without a null session_id.
+    //
+    // For the flagship case, sessionPlan() above builds two 'investigation' and two
+    // 'review' sessions, but byMode only keeps one id per mode — the loop's last
+    // session of each mode wins, so the two earlier same-mode sessions (both, as it
+    // happens, 'claude-agent-sdk' runs) get no findings attached. This is intentional,
+    // not a gap: findings render by their session's mode, not the session's identity,
+    // so which same-mode session a finding attaches to changes nothing on screen — all
+    // four sessions still show up with their own driver/model chips, turns, tool calls
+    // and transcript, and a session with zero findings is realistic (plenty of real
+    // sessions produce none). Do not widen sessionIds[slug] to one entry per session;
+    // that interface is shared with seedFindings (findings.mjs) and already shipped.
     sessionIds[slug] = {
       investigation: byMode.investigation ?? byMode.review,
       review: byMode.review
     }
 
-    writeCaseJson(ctx, slug, { caseId, workspaces, now })
-    writeCaseClaudeMd(ctx, slug, { workspaces, now, worktree: repos.worktrees[slug] })
+    writeCaseJson(ctx, slug, { caseId, jiraKey, workspaces, now })
+    writeCaseClaudeMd(ctx, slug, { jiraKey, workspaces, now, worktree: repos.worktrees[slug] })
   }
 
   return { caseIds, sessionIds }
 }
 
 /** Mirror of the DB record the app writes on every case update. */
-function writeCaseJson(ctx, slug, { workspaces, now }) {
+function writeCaseJson(ctx, slug, { jiraKey, workspaces, now }) {
   const doc = {
     slug,
     title: TITLES[slug],
-    jiraKey: 'HMT-1',
+    jiraKey,
     jiraSyncedAt: null,
     jiraDeselected: [],
     jiraStatus: null,
@@ -262,12 +359,12 @@ function writeCaseJson(ctx, slug, { workspaces, now }) {
   )
 }
 
-function writeCaseClaudeMd(ctx, slug, { workspaces, now, worktree }) {
+function writeCaseClaudeMd(ctx, slug, { jiraKey, workspaces, now, worktree }) {
   const pr = ctx.PR_NUMBERS[slug]
   const md = `# Case: ${slug}
 
 - Title: ${TITLES[slug]}
-- Jira: HMT-1
+- Jira: ${jiraKey ?? '(none)'}
 - Opened: ${now}
 - This directory is the case dir. Evidence lives in \`evidence/\`.
 
@@ -282,6 +379,7 @@ ${workspaces.map((w) => `- \`${w.path}\` (linked at branch \`${w.branch}\`)`).jo
 <!-- argus:prs -->
 - \`JiaweiHan88/HiveMindTest#${pr}\` (https://github.com/JiaweiHan88/HiveMindTest/pull/${pr}) — checked out at \`${worktree.dir}\`
 <!-- /argus:prs -->
-`
+
+${CASE_WORKING_RULES}`
   fs.writeFileSync(path.join(ctx.caseDir(slug), 'CLAUDE.md'), md, 'utf8')
 }
