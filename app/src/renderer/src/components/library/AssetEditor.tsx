@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm'
 import { Sparkles } from 'lucide-react'
 import { Btn } from '../ui'
 import { ModalShell } from '../ModalShell'
+import { AssistProgress } from './AssistProgress'
+import { useAssistProvider } from './assistProvider'
 import { diffLines } from '../../lib/lineDiff'
 import { confirm } from '../../lib/confirmStore'
 import {
@@ -92,6 +94,24 @@ export function AssetEditor({
   const [busy, setBusy] = useState(false)
   const [describe, setDescribe] = useState('')
   const [proposed, setProposed] = useState<string | null>(null)
+  const provider = useAssistProvider()
+  // Which assist is in flight, for the progress row's wording. null = none.
+  const [phase, setPhase] = useState<'draft' | 'improve' | null>(null)
+  /**
+   * Monotonic id for assist requests. Bumped on every start AND on Stop waiting, so a
+   * resolution can tell it has been abandoned and drop its result. Cancelling cannot kill the
+   * underlying run — `runHeadless` takes no AbortSignal — so abandoning the result is the
+   * honest semantics, and the button says "Stop waiting" rather than implying otherwise.
+   */
+  const runId = useRef(0)
+  // Guards a resolution landing after unmount; `load()` has the same protection.
+  const mounted = useRef(true)
+  useEffect(
+    () => () => {
+      mounted.current = false
+    },
+    []
+  )
 
   // Read across the `await` in `assist()` so a resolution can tell whether `buffer` moved
   // (typing, or a rename that regenerated the template) while the request was in flight,
@@ -211,7 +231,9 @@ export function AssetEditor({
   }
 
   async function assist(which: 'draft' | 'improve'): Promise<void> {
+    const myRun = ++runId.current
     setBusy(true)
+    setPhase(which)
     setError(null)
     // Snapshot what "untouched boilerplate" looked like at click time. `bufferPristine` and
     // `buffer` are read fresh here (not stale) because this runs synchronously before the
@@ -224,6 +246,8 @@ export function AssetEditor({
         which === 'draft'
           ? await window.argus.authoring.draft(req)
           : await window.argus.authoring.improve(req)
+      // Abandoned via Stop waiting, superseded by a newer run, or unmounted: drop the result.
+      if (runId.current !== myRun || !mounted.current) return
       // Decide replace-vs-diff against state *at resume time*, not the closure captured when
       // the click happened: `bufferRef.current` reflects any typing, or any rename that
       // regenerated the template, that happened while the request was in flight. Only replace
@@ -238,10 +262,21 @@ export function AssetEditor({
         setProposed(content)
       }
     } catch (e) {
+      if (runId.current !== myRun || !mounted.current) return
       setError((e as Error).message)
     } finally {
-      setBusy(false)
+      if (runId.current === myRun && mounted.current) {
+        setBusy(false)
+        setPhase(null)
+      }
     }
+  }
+
+  /** Give the editor back without waiting. The run continues; its result is discarded. */
+  function stopWaiting(): void {
+    runId.current++
+    setBusy(false)
+    setPhase(null)
   }
 
   async function requestClose(): Promise<void> {
@@ -298,7 +333,7 @@ export function AssetEditor({
           {proposed === null && !preview && (
             <Btn
               variant="outline"
-              disabled={busy || !describe.trim()}
+              disabled={busy || !describe.trim() || provider?.ok === false}
               onClick={() => void assist('draft')}
             >
               <Sparkles size={13} aria-hidden="true" />
@@ -376,17 +411,32 @@ export function AssetEditor({
                   </span>
                 ))}
               </span>
-              <Btn
-                variant="outline"
-                disabled={busy || !buffer.trim()}
-                onClick={() => void assist('improve')}
-              >
-                <Sparkles size={13} aria-hidden="true" />
-                Improve
-              </Btn>
+              <span className="flex shrink-0 items-center gap-2">
+                {provider && (
+                  <span className={`text-xs ${provider.ok ? 'text-faint' : 'text-danger'}`}>
+                    {provider.ok ? provider.text : provider.reason}
+                  </span>
+                )}
+                <Btn
+                  variant="outline"
+                  disabled={busy || !buffer.trim() || provider?.ok === false}
+                  onClick={() => void assist('improve')}
+                >
+                  <Sparkles size={13} aria-hidden="true" />
+                  Improve
+                </Btn>
+              </span>
             </div>
           )}
         </>
+      )}
+
+      {phase !== null && (
+        <AssistProgress
+          phase={phase}
+          providerText={provider?.ok ? provider.text : undefined}
+          onStopWaiting={stopWaiting}
+        />
       )}
     </ModalShell>
   )
