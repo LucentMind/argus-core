@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { createCtx } from '../ctx.mjs'
 import { bucketOfCheckRun, buildSyntheticStatus, rollupOf, statusFromGh } from '../prs.mjs'
 import { buildFlagshipFindings, buildThinFindings } from '../findings.mjs'
 import { buildTrees } from '../files.mjs'
-import { buildProposals } from '../knowledge.mjs'
+import { buildProposals, writeProposalFile } from '../knowledge.mjs'
 
 describe('createCtx', () => {
   const ctx = createCtx({ argusHome: 'C:/home', db: null })
@@ -311,9 +314,22 @@ describe('buildProposals', () => {
     expect(all.some((p) => p.status === 'accepted')).toBe(true)
   })
 
-  it('carries exactly one re-produced item and one job-linked item', () => {
+  it('carries exactly one re-produced item', () => {
     expect(all.filter((p) => p.previouslyReviewed)).toHaveLength(1)
-    expect(all.filter((p) => p.jobId !== null)).toHaveLength(1)
+  })
+
+  // distill_jobs ids are seeded (by a later task) as integers 1-4; a job-linked
+  // proposal's `job` frontmatter stamp must actually be able to resolve to one
+  // of them for evalExport's scanJobStamped()/buildEvalBundle to find it.
+  it('links at least one pending proposal to a distill job', () => {
+    const pending = all.filter((p) => p.status === 'pending')
+    expect(pending.some((p) => p.jobId !== null)).toBe(true)
+  })
+
+  it('spreads archived job-linked proposals across more than one job id', () => {
+    const archived = all.filter((p) => p.status !== 'pending')
+    const jobIds = new Set(archived.filter((p) => p.jobId !== null).map((p) => p.jobId))
+    expect(jobIds.size).toBeGreaterThan(1)
   })
 
   it('targets an existing bundled skill so the diff has a left-hand side', () => {
@@ -338,5 +354,44 @@ describe('buildProposals', () => {
       'signature',
       'symptoms'
     ])
+  })
+})
+
+describe('writeProposalFile', () => {
+  // buildProposals() is pure JS, so none of the tests above touch the on-disk
+  // rendering path. That path is where the frontmatter KEY NAMES actually
+  // matter (job / reject_reason / summary_json / previously_reviewed must
+  // match what proposals.ts and evalExport.ts read) — this locks that surface
+  // in with a real file on disk, not just literals read back out of an array.
+  it('renders job, reject_reason, summary_json and previously_reviewed frontmatter keys', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-seed-proposal-'))
+    try {
+      const p = {
+        file: '2026-07-30-TEST-1-widget-proposal.md',
+        type: 'skill-new',
+        target: 'widget-proposal',
+        caseSlug: 'TEST-1-widget',
+        title: 'Test proposal',
+        content: 'Body text.\n',
+        status: 'rejected',
+        rejectTag: 'overgeneric',
+        rejectNote: null,
+        jobId: '3',
+        previouslyReviewed: true,
+        summaryJson: JSON.stringify({ a: 1, b: 2 })
+      }
+      writeProposalFile(dir, p)
+      const raw = fs.readFileSync(path.join(dir, p.file), 'utf8')
+      const lines = raw.split('\n')
+
+      expect(lines).toContain('job: 3')
+      expect(lines).toContain('reject_reason: overgeneric')
+      expect(lines).toContain('previously_reviewed: true')
+      const summaryLine = lines.find((l) => l.startsWith('summary_json:'))
+      expect(summaryLine).toBe(`summary_json: ${p.summaryJson}`)
+      expect(raw).toContain(p.content)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

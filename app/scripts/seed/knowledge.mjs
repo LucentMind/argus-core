@@ -8,6 +8,14 @@ const HIVE_PINS = {
   },
   references: {
     'hive-known-issues.md': '1057187557996e3c741fbf0a019716305b3ae48e',
+    // This pin key deliberately keeps the 'confluence/' prefix even though the
+    // installed file itself lives flat at references/hive-adasis-profile.md.
+    // The key names the upstream HiveMind repo path (references/confluence/x.md
+    // in the source tree); the value in state tracks what commit was installed
+    // from there. hivemind.ts's install() flattens confluence/x.md → x.md on
+    // disk, and its installed-state probe checks that flat basename — so the
+    // pin key and the on-disk path are two different things that happen to
+    // share a stem. See the refs entry below for the on-disk side.
     'confluence/hive-adasis-profile.md': '113d0546fe6013f80df841dc636ec95852b6d72d'
   }
 }
@@ -44,7 +52,10 @@ export function buildProposals() {
       status: 'pending',
       rejectTag: null,
       rejectNote: null,
-      jobId: 'job-2',
+      // distill_jobs.id is an autoincrement INTEGER; a later task seeds ids 1-4
+      // (1, 2 done; 3 failed; 4 queued). Stamped '2' so buildEvalBundle's
+      // fmField(fm, 'job') === String(row.id) match can actually succeed.
+      jobId: '2',
       previouslyReviewed: false
     },
     {
@@ -123,10 +134,9 @@ export function buildProposals() {
       status: 'accepted',
       rejectTag: null,
       rejectNote: null,
-      // Not job-linked: buildEvalBundle/listProposals key job-linkage off a `job`
-      // stamp, and this task carries exactly one such item (the pending skill-edit
-      // above) — see task-7-report.md for why job-1 was dropped from here.
-      jobId: null,
+      // Job-linked so evalExport's scanJobStamped() can find it: distill_jobs
+      // row 1 (seeded by a later task) needs a non-empty archived bundle.
+      jobId: '1',
       previouslyReviewed: false
     },
     {
@@ -139,7 +149,9 @@ export function buildProposals() {
       status: 'accepted',
       rejectTag: null,
       rejectNote: null,
-      jobId: null,
+      // Job-linked to row 2, so BOTH seeded job ids have a non-empty archived
+      // bundle (row 1's is the timezone-note item above).
+      jobId: '2',
       previouslyReviewed: false
     },
     {
@@ -152,7 +164,9 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'overfit',
       rejectNote: null,
-      jobId: null,
+      // Job-linked to row 1, alongside the accepted timezone-note above, so
+      // job 1's archived bundle carries both outcome labels.
+      jobId: '1',
       previouslyReviewed: false
     },
     {
@@ -166,7 +180,8 @@ export function buildProposals() {
       status: 'rejected',
       rejectTag: 'overgeneric',
       rejectNote: null,
-      jobId: null,
+      // Job-linked to row 2, alongside the accepted glossary edit above.
+      jobId: '2',
       previouslyReviewed: false
     },
     {
@@ -225,12 +240,19 @@ function frontmatter(entries) {
  * Getting either wrong wouldn't fail any test here (buildProposals() is pure
  * JS), but it would silently break the on-disk corpus these tools read.
  */
-function writeProposalFile(dir, p, now) {
+export function writeProposalFile(dir, p) {
+  // listProposals() sorts on this field (string compare), and the real
+  // writer derives the filename's date prefix from this same timestamp
+  // (proposals.ts's writeProposal). Deriving it back from the filename here
+  // (rather than stamping every proposal with the seed's wall-clock "now")
+  // keeps the two in agreement, so the intended pending/archived chronology
+  // isn't an unstable tie.
+  const date = `${p.file.slice(0, 10)}T00:00:00.000Z`
   const fm = {
     type: p.type,
     target: p.target,
     case: p.caseSlug,
-    date: now,
+    date,
     title: p.title,
     status: p.status
   }
@@ -257,10 +279,10 @@ export function seedKnowledge(ctx, { repos }) {
   let archived = 0
   for (const p of proposals) {
     if (p.status === 'pending') {
-      writeProposalFile(pDir, p, now)
+      writeProposalFile(pDir, p)
       pending++
     } else {
-      writeProposalFile(aDir, p, now)
+      writeProposalFile(aDir, p)
       archived++
     }
   }
@@ -307,7 +329,8 @@ export function seedKnowledge(ctx, { repos }) {
   // page_id/last_synced — refFrontmatter.ts's parseRefSources only recognizes
   // those snake_case names, not pageId/lastSynced). ──
   const refDir = path.join(home, 'references')
-  fs.mkdirSync(path.join(refDir, 'confluence'), { recursive: true })
+  fs.rmSync(refDir, { recursive: true, force: true })
+  fs.mkdirSync(refDir, { recursive: true })
   const refs = [
     { file: 'tile-endpoints.md', body: '# Tile endpoints\n\nBundled reference, no frontmatter.\n' },
     {
@@ -329,7 +352,18 @@ export function seedKnowledge(ctx, { repos }) {
         'Cold-boot timeout with an empty tile cache.\n'
     },
     {
-      file: 'confluence/hive-adasis-profile.md',
+      // Written flat, NOT under references/confluence/ — HiveMind installs
+      // flatten (hivemind.ts's install(): 'confluence/x.md' in the source repo
+      // lands at 'references/x.md' locally), and listItems()'s installed-state
+      // probe checks that flat basename. A confirmed live home has
+      // references/hive-adasis-profile.md at the top level with no confluence/
+      // subdirectory at all, while the pin in hivemind-state.json still reads
+      // 'confluence/hive-adasis-profile.md' (see HIVE_PINS.references above).
+      // Writing this file under references/confluence/ would make Browse show
+      // it as "not installed" despite a pin existing — a state no real install
+      // can produce — and would hide it from the flat references/ reads that
+      // the distill references index and reference search both do.
+      file: 'hive-adasis-profile.md',
       body:
         '---\ntrust_tier: confluence\ntitle: ADASIS profile\nsources:\n  - url: https://example.atlassian.net/wiki/spaces/NAV/pages/12345\n    page_id: "12345"\n    version: 7\n    last_synced: ' +
         now +
@@ -347,25 +381,58 @@ export function seedKnowledge(ctx, { repos }) {
     'utf8'
   )
 
-  // ── Memory ──
+  // ── Memory. One array is the source of truth for the topic files, the
+  // _index.md link lines, and the .audit.jsonl records, so the three can't
+  // drift out of sync with each other the way three separately-typed literals
+  // would. ──
   const memDir = path.join(home, 'memory')
+  fs.rmSync(memDir, { recursive: true, force: true })
   fs.mkdirSync(memDir, { recursive: true })
-  const memories = {
-    'burst-window-math.md':
-      '# burst-window-math\n\nA burst granted without a window-position check raises the effective cap.\n',
-    'timezone-note.md': '# timezone-note\n\nTile-service logs are local time.\n',
-    'cold-boot-timeout.md': '# cold-boot-timeout\n\nReproduces only with an empty tile cache.\n'
-  }
-  for (const [f, body] of Object.entries(memories))
-    fs.writeFileSync(path.join(memDir, f), body, 'utf8')
+  const memories = [
+    {
+      topic: 'burst-window-math',
+      caseSlug: 'HMT-1-burst-token',
+      summary: 'window-position check on burst allowances',
+      body: '# burst-window-math\n\nA burst granted without a window-position check raises the effective cap.\n'
+    },
+    {
+      topic: 'timezone-note',
+      caseSlug: 'HMT-1-burst-token',
+      summary: 'tile-service logs are local time',
+      body: '# timezone-note\n\nTile-service logs are local time.\n'
+    },
+    {
+      topic: 'cold-boot-timeout',
+      caseSlug: 'HMT-1-burst-token',
+      summary: 'empty tile cache only',
+      body: '# cold-boot-timeout\n\nReproduces only with an empty tile cache.\n'
+    }
+  ]
+  for (const m of memories) fs.writeFileSync(path.join(memDir, `${m.topic}.md`), m.body, 'utf8')
+  // Real index lines are markdown links — memory.ts's indexLineFor/filteredIndex
+  // both match `(<topic>.md)`, not a bare topic name.
   fs.writeFileSync(
     path.join(memDir, '_index.md'),
-    '# Memory index\n\n- burst-window-math — window-position check on burst allowances\n- timezone-note — tile-service logs are local time\n- cold-boot-timeout — empty tile cache only\n',
+    `# Memory index\n\n${memories.map((m) => `- [${m.topic}](${m.topic}.md) — ${m.summary}`).join('\n')}\n`,
     'utf8'
   )
+  // Matches MemoryAuditEntry (memory.ts / shared/memoryIpc.ts): { ts, caseSlug,
+  // topic, indexEntry, bytes, action? }. `action` is omitted — absent means an
+  // agent write, which is what these are. `bytes` is measured off the actual
+  // body written above rather than hand-typed, so it can't drift from the file.
   fs.writeFileSync(
     path.join(memDir, '.audit.jsonl'),
-    `${JSON.stringify({ ts: now, action: 'write', topic: 'burst-window-math', source: 'seed' })}\n`,
+    `${memories
+      .map((m) =>
+        JSON.stringify({
+          ts: now,
+          caseSlug: m.caseSlug,
+          topic: m.topic,
+          indexEntry: m.summary,
+          bytes: Buffer.byteLength(m.body, 'utf8')
+        })
+      )
+      .join('\n')}\n`,
     'utf8'
   )
 
@@ -409,10 +476,27 @@ export function seedKnowledge(ctx, { repos }) {
   )
   fs.writeFileSync(
     path.join(cfgDir, 'tool-risk.json'),
+    // Keys are '<connectorInstanceId>/<toolName>' (toolRisk.ts) and are
+    // consulted ONLY for mcp__<server>__<tool> connector calls (agent/risk.ts's
+    // classifyToolCall matches `mcp__(.+?)__(.+)` and looks up
+    // `${server}/${tool}`) — bare native tools like Bash/Edit resolve through
+    // the driver's own taxonomy and never touch this file, so keying entries
+    // on them (as before) makes the file schema-valid but functionally inert.
+    // 'rovo' is a plausible Atlassian/Jira connector instance id (same
+    // convention as toolRisk.test.ts); 'getJiraIssue' would otherwise
+    // name-convention-classify 'low' (classifyToolName: leading 'get' → low),
+    // so overriding it to 'high' actually changes the verdict instead of
+    // silently reinforcing the default.
+    //
     // toolRisk.ts validates values against RISK_LEVELS = ['low','medium','high']
     // (lowercase) and silently degrades the whole file to {} on a schema
-    // mismatch — so the levels here must be lowercase to actually load.
-    `${JSON.stringify({ Bash: 'high', Edit: 'medium' }, null, 2)}\n`,
+    // mismatch — so the levels here must stay lowercase to load at all.
+    //
+    // Do NOT "harmonise" this with tool_calls.risk in the database, which is
+    // uppercase LOW/MEDIUM/HIGH: that's a different axis (the logged verdict
+    // for a specific call) that happens to share three level names with this
+    // config's override levels — they are read by unrelated code paths.
+    `${JSON.stringify({ 'rovo/getJiraIssue': 'high' }, null, 2)}\n`,
     'utf8'
   )
 
