@@ -671,4 +671,30 @@ describe('PrCompanionSection pull request linking', () => {
     await screen.findByRole('button', { name: 'Link PR' })
     expect(screen.queryByRole('button', { name: 'Find PRs' })).toBeNull()
   })
+
+  it('shows the parsed PR identity while linking, and never the unbound message', async () => {
+    prStatusStore.hydrate({})
+    window.argus.pr.list = vi.fn(async () => [])
+    let releaseLink: () => void = () => {}
+    window.argus.pr.link = vi.fn(
+      () =>
+        new Promise<PrBinding>((res) => {
+          releaseLink = () => res(BINDING)
+        })
+    )
+    render(<PrCompanionSection slug="C-1" mode="review" onAnalyze={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link PR' }))
+    const input = screen.getByPlaceholderText('PR url, owner/repo#N, or number')
+    fireEvent.change(input, { target: { value: 'acme/web#42' } })
+    fireEvent.submit(input.closest('form')!)
+
+    // the identity we parsed is on screen immediately, and the empty state is suppressed
+    expect(await screen.findByText('acme/web#42')).toBeInTheDocument()
+    expect(screen.queryByText(/No pull request bound to this case yet/)).toBeNull()
+
+    await act(async () => {
+      releaseLink()
+    })
+  })
 })
