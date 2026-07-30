@@ -6,7 +6,7 @@ import '@testing-library/jest-dom/vitest'
 import { LibraryPage } from '../LibraryPage'
 import { confirm } from '../../../lib/confirmStore'
 import { referenceSyncStore } from '../../../lib/referenceSyncStore'
-import type { SkillsPayload } from '../../../../../shared/memoryIpc'
+import type { SkillListItem, SkillsPayload } from '../../../../../shared/memoryIpc'
 import type { RefSyncPayload } from '../../../../../shared/referenceSync'
 
 vi.mock('../../../lib/confirmStore', () => ({
@@ -768,6 +768,56 @@ describe('editing affordances', () => {
     // settle on the resolved UI state instead — the editor actually closed (finding 7)
     await waitFor(() =>
       expect(screen.queryByRole('textbox', { name: /skill · rca/i })).not.toBeInTheDocument()
+    )
+  })
+})
+
+/** Renders with a caller-supplied skill list and an empty reference payload. */
+function renderLibrary({ skills }: { skills: SkillListItem[] }): ReturnType<typeof render> {
+  argus.skills.list = vi.fn().mockResolvedValue({ skills })
+  argus.refsync.get = vi.fn().mockResolvedValue({ ...refPayload, references: [] })
+  return render(<LibraryPage />)
+}
+
+describe('forked skill rows', () => {
+  const forked = {
+    name: 'hive-probe',
+    tier: 'user' as const,
+    description: 'probe',
+    enabled: true,
+    shadows: ['hivemind'],
+    shadowDiverged: true
+  }
+
+  it('shows Adopt upstream without needing hover, and no Delete', async () => {
+    renderLibrary({ skills: [forked] })
+    expect(await screen.findByLabelText('Adopt upstream · hive-probe')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Delete · hive-probe')).not.toBeInTheDocument()
+  })
+
+  it('says the fork differs when it does', async () => {
+    renderLibrary({ skills: [forked] })
+    expect(await screen.findByText('differs from hivemind')).toBeInTheDocument()
+  })
+
+  it('says the fork is a duplicate when it is not diverged', async () => {
+    renderLibrary({ skills: [{ ...forked, shadowDiverged: false }] })
+    expect(await screen.findByText('duplicate of hivemind')).toBeInTheDocument()
+  })
+
+  it('keeps Delete for a user skill that shadows nothing', async () => {
+    renderLibrary({ skills: [{ ...forked, shadows: [], shadowDiverged: false }] })
+    expect(await screen.findByLabelText('Delete · hive-probe')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Adopt upstream · hive-probe')).not.toBeInTheDocument()
+  })
+
+  it('tells the user their unshared edits go with the adopted-away copy', async () => {
+    renderLibrary({ skills: [forked] })
+    fireEvent.click(await screen.findByLabelText('Adopt upstream · hive-probe'))
+    await waitFor(() =>
+      expect(vi.mocked(confirm)).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/not shared.*are lost/i) })
+      )
     )
   })
 })
