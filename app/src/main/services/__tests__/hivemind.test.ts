@@ -436,10 +436,11 @@ describe('pushable + push', () => {
     ).toBe(true)
   })
 
-  it("push branches from origin default when the pin is an empty string, not `git checkout -B <branch> ''`", async () => {
+  it("push branches from origin default when the pin is an empty string, not `git worktree add -b <branch> <tree> ''`", async () => {
     // `pinFor` used `?? null`, which only substitutes null/undefined — an empty-string pin
     // (falsy but not nullish) sailed through to the branch-from-pin call site's `?? fallback`
-    // unchanged, producing a bogus `checkout -B <branch> ''`.
+    // unchanged, producing a bogus base arg (originally `checkout -B <branch> ''`, now
+    // `worktree add -b <branch> <tree> ''`).
     seedClone()
     seedUserAssets()
     const statePath = path.join(home, 'config', 'hivemind-state.json')
