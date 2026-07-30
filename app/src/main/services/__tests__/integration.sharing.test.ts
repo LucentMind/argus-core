@@ -8,7 +8,13 @@ import { seedMemoryPair } from './helpers/seedMemoryPair'
 import { exportCase, importCase, inspectBundle } from '../bundle'
 import { searchEvidence } from '../search'
 import { HivemindService, type Runner } from '../hivemind'
-import { resolveSkills, forkSkill, writeUserSkill, readSkill } from '../agent/skillsResolver'
+import {
+  resolveSkills,
+  forkSkill,
+  writeUserSkill,
+  readSkill,
+  userSkillShadowDiverged
+} from '../agent/skillsResolver'
 import { defaultAgentAccess } from '../../../shared/agentAccess'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -267,5 +273,118 @@ describe('HiveMind against a local bare repo (no network)', () => {
     // corroborates the same fact from the other direction: the upstream commit is not an
     // ancestor of the pushed branch at all — their only common ancestor is the pin.
     expect(git(bare, 'merge-base', upstreamCommit, branch)).toBe(pinnedCommit)
+  }, 30_000)
+
+  it('hazard 1: a forked skill keeps shadowing after Update, and says so', async () => {
+    const svc = service()
+    await svc.sync()
+    await svc.install('skill', 'hive-probe')
+
+    // fork the installed copy, then edit the fork
+    fs.mkdirSync(path.join(homeB, 'skills-user'), { recursive: true })
+    fs.cpSync(
+      path.join(homeB, 'skills-hivemind', 'hive-probe'),
+      path.join(homeB, 'skills-user', 'hive-probe'),
+      { recursive: true }
+    )
+    fs.writeFileSync(
+      path.join(homeB, 'skills-user', 'hive-probe', 'SKILL.md'),
+      '---\nname: hive-probe\ndescription: probe skill from the hive\n---\n# hive-probe v1 + MY EDIT\n'
+    )
+    expect(userSkillShadowDiverged(homeB, 'hive-probe')).toBe(true)
+
+    // upstream moves past the fork
+    fs.writeFileSync(
+      path.join(work, 'skills', 'hive-probe', 'SKILL.md'),
+      '---\nname: hive-probe\ndescription: probe skill from the hive\n---\n# hive-probe v2\n'
+    )
+    git(work, 'add', '-A')
+    git(work, 'commit', '-m', 'upstream moves')
+    git(work, 'push', 'origin', 'main')
+
+    await svc.sync()
+    const p = await svc.install('skill', 'hive-probe')
+
+    // the pin is current and updateAvailable goes dark...
+    expect(p.items.find((i) => i.name === 'hive-probe')!.updateAvailable).toBe(false)
+    // ...but the fork still wins resolution, and both new signals stay true
+    expect(
+      resolveSkills(homeB, defaultAgentAccess()).find((s) => s.name === 'hive-probe')!.tier
+    ).toBe('user')
+    expect(userSkillShadowDiverged(homeB, 'hive-probe')).toBe(true)
+    expect(p.items.find((i) => i.name === 'hive-probe')!.shadowedByUser).toBe(true)
+  }, 30_000)
+
+  it('hazard 2: a pristine installed reference is never reported as diverged', async () => {
+    const svc = service()
+    await svc.sync()
+    await svc.install('reference', 'hive-note.md')
+    // install() stamps three frontmatter keys the upstream blob lacks — a byte comparison
+    // would report divergence here, and every update would warn.
+    expect(await svc.localDivergence('hive-note.md')).toEqual({ diverged: false, diff: '' })
+  }, 30_000)
+
+  it('hazard 2: unpushed edits block the update until acknowledged, then survive as a diff', async () => {
+    const svc = service()
+    await svc.sync()
+    await svc.install('reference', 'hive-note.md')
+    await svc.claimReference('hive-note.md')
+
+    const local = path.join(homeB, 'references', 'hive-note.md')
+    fs.writeFileSync(
+      local,
+      fs.readFileSync(local, 'utf8').replace('# note v1', '# note v1\n\nMY UNPUSHED PARAGRAPH')
+    )
+
+    fs.writeFileSync(path.join(work, 'references', 'hive-note.md'), '# note v2\n')
+    git(work, 'add', '-A')
+    git(work, 'commit', '-m', 'upstream note')
+    git(work, 'push', 'origin', 'main')
+    await svc.sync()
+
+    const d = await svc.localDivergence('hive-note.md')
+    expect(d.diverged).toBe(true)
+    // the diff names what would be lost — the half the pin→HEAD preview cannot show
+    expect(d.diff).toContain('MY UNPUSHED PARAGRAPH')
+
+    await expect(svc.install('reference', 'hive-note.md')).rejects.toThrow(
+      /differs from the version that would be installed/i
+    )
+    expect(fs.readFileSync(local, 'utf8')).toContain('MY UNPUSHED PARAGRAPH')
+
+    await svc.install('reference', 'hive-note.md', { overwriteLocalEdits: true })
+    const after = fs.readFileSync(local, 'utf8')
+    expect(after).not.toContain('MY UNPUSHED PARAGRAPH')
+    expect(after).toContain('trust_tier: user')
+  }, 30_000)
+
+  it('hazard 2: an already-merged contribution updates silently', async () => {
+    const svc = service()
+    await svc.sync()
+    await svc.install('reference', 'hive-note.md')
+    await svc.claimReference('hive-note.md')
+
+    // your text lands upstream verbatim, then the pin lags behind a later unrelated commit.
+    // The body extracted here is byte-identical to what's already on origin (claimReference
+    // only rewrites frontmatter, never the body), so this commit is content-empty from git's
+    // point of view — --allow-empty is required or `git commit` refuses with "nothing to
+    // commit". That emptiness is exactly the point: it advances HEAD past the pin (verified
+    // below) without ever touching `references/hive-note.md` in a way `git log -- <path>`
+    // would notice, so the pin recorded at install time stays the last commit that actually
+    // touched the file while HEAD moves on — the "pin lags behind a later unrelated commit"
+    // the comment describes.
+    const localText = fs.readFileSync(path.join(homeB, 'references', 'hive-note.md'), 'utf8')
+    const body = localText.slice(localText.lastIndexOf('---\n') + 4)
+    fs.writeFileSync(path.join(work, 'references', 'hive-note.md'), body)
+    git(work, 'add', '-A')
+    const beforeHead = git(work, 'rev-parse', 'HEAD')
+    git(work, 'commit', '-m', 'merge your contribution', '--allow-empty')
+    git(work, 'push', 'origin', 'main')
+    expect(git(work, 'rev-parse', 'HEAD')).not.toBe(beforeHead)
+    await svc.sync()
+
+    // local === HEAD, so there is nothing to lose and no warning
+    expect((await svc.localDivergence('hive-note.md')).diverged).toBe(false)
+    await expect(svc.install('reference', 'hive-note.md')).resolves.toBeDefined()
   }, 30_000)
 })
