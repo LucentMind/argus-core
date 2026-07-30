@@ -114,20 +114,6 @@ const refPayload: RefSyncPayload = {
       lastSynced: '2026-07-25T00:00:00.000Z',
       sourceCount: 0,
       stale: false
-    },
-    {
-      file: 'confluence-page.md',
-      tier: 'confluence',
-      lastSynced: '2026-07-20T00:00:00.000Z',
-      sourceCount: 1,
-      stale: false
-    },
-    {
-      file: 'hive-notes.md',
-      tier: 'hivemind',
-      lastSynced: '2026-07-15T00:00:00.000Z',
-      sourceCount: 2,
-      stale: false
     }
   ]
 }
@@ -233,8 +219,8 @@ function mockArgus(): {
       searchRefs: vi.fn().mockResolvedValue([]),
       readRef: vi.fn((file: string) =>
         Promise.resolve(
-          file === 'hive-notes.md'
-            ? { file, content: '# Hive notes\n', hash: 'hash-hive-notes' }
+          file === 'adasis.md'
+            ? { file, content: '# Adasis\n', hash: 'hash-adasis' }
             : { file: 'team-tips.md', content: '# Team tips\n', hash: 'hash-team-tips' }
         )
       ),
@@ -429,7 +415,7 @@ describe('LibraryPage merged list', () => {
     render(<LibraryPage />)
     await screen.findByText('rca')
     expect(screen.getAllByText('skill').length).toBeGreaterThanOrEqual(4)
-    expect(screen.getAllByText('reference').length).toBe(4)
+    expect(screen.getAllByText('reference').length).toBe(3)
   })
 
   it('clicking a reference row opens the markdown viewer', async () => {
@@ -652,26 +638,26 @@ describe('editing affordances', () => {
 
   it('offers neither Edit nor Edit a copy for a confluence reference', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('confluence-page.md'))
+    await userEvent.click(await screen.findByText('nav-runbook.md'))
     expect(
-      await screen.findByRole('dialog', { name: /reference · confluence-page\.md/i })
+      await screen.findByRole('dialog', { name: /reference · nav-runbook.md/i })
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Edit · confluence-page\.md$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Edit · nav-runbook.md$/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
   })
 
   it('offers Edit a copy inside the viewer for a hivemind reference, and claiming opens the editor', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('hive-notes.md'))
+    await userEvent.click(await screen.findByText('adasis.md'))
     expect(
-      await screen.findByRole('dialog', { name: /reference · hive-notes\.md/i })
+      await screen.findByRole('dialog', { name: /reference · adasis.md/i })
     ).toBeInTheDocument()
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     await waitFor(() =>
-      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('hive-notes.md')
+      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('adasis.md')
     )
     expect(
-      await screen.findByRole('textbox', { name: /^reference · hive-notes\.md$/ })
+      await screen.findByRole('textbox', { name: /^reference · adasis.md$/ })
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /edit a copy/i })).toBeNull()
   })
@@ -679,31 +665,31 @@ describe('editing affordances', () => {
   it('a rejected claim surfaces an error and does NOT open the editor', async () => {
     argus.hivemind.claimReference = vi.fn().mockRejectedValue(new Error('claim failed: EACCES'))
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('hive-notes.md'))
+    await userEvent.click(await screen.findByText('adasis.md'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/claim failed: EACCES/)
-    expect(screen.queryByRole('dialog', { name: /reference · hive-notes\.md/i })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: /^reference · hive-notes\.md$/ })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: /reference · adasis.md/i })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: /^reference · adasis.md$/ })).toBeNull()
   })
 
   it('saving a claimed reference routes to refsync.writeRef', async () => {
     render(<LibraryPage />)
-    await userEvent.click(await screen.findByText('hive-notes.md'))
+    await userEvent.click(await screen.findByText('adasis.md'))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
-    await screen.findByRole('textbox', { name: /^reference · hive-notes\.md$/ })
+    await screen.findByRole('textbox', { name: /^reference · adasis.md$/ })
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() =>
       expect(window.argus.refsync.writeRef).toHaveBeenCalledWith(
-        'hive-notes.md',
+        'adasis.md',
         expect.any(String),
-        'hash-hive-notes'
+        'hash-adasis'
       )
     )
     // settle on resolved UI state, not the mock call: the editor actually closed
     await waitFor(() =>
       expect(
-        screen.queryByRole('textbox', { name: /^reference · hive-notes\.md$/ })
+        screen.queryByRole('textbox', { name: /^reference · adasis.md$/ })
       ).not.toBeInTheDocument()
     )
   })
