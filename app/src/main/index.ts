@@ -63,6 +63,7 @@ import {
   setProposalsChangedNotifier,
   proposalCounts
 } from './services/proposals'
+import { identity } from './services/authorship'
 import type { RejectReason } from '../shared/proposals'
 import type { MemoryTopicsPayload, SkillsPayload } from '../shared/memoryIpc'
 import { loadPresets, isOpenableUrl } from './services/presets'
@@ -1630,8 +1631,12 @@ function registerIpc(): void {
 
   // — proposals (spec §2.4) —
   ipcMain.handle(IPC.proposalsList, () => ({ proposals: listProposals(argusHome) }))
-  ipcMain.handle(IPC.proposalsAccept, (_e, file: string, editedContent?: string) => {
-    const accepted = acceptProposal(argusHome, file, { db, editedContent })
+  ipcMain.handle(IPC.proposalsAccept, async (_e, file: string, editedContent?: string) => {
+    const accepted = acceptProposal(argusHome, file, {
+      db,
+      editedContent,
+      identity: await identity()
+    })
     return { proposals: listProposals(argusHome), accepted }
   })
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
