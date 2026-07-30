@@ -289,9 +289,16 @@ export function acceptProposal(
     upsertCaseSummary(opts.db, argusHome, p.target, summary, resolution, body)
     accepted = { kind: 'case-summary', name: p.target }
   } else if (p.type === 'skill-new' || p.type === 'skill-edit') {
+    // Agents are never asked for frontmatter `name:` (write_proposal's tool description only
+    // says "provide the FULL proposed file content") and nothing downstream reads it —
+    // resolveSkills keys skills by directory name. The editor's folder-equals-name invariant
+    // is real (validateSkill enforces it), but the accept path is the wrong place to make an
+    // agent responsible for it: stamp the target in before validating, so a proposal with no
+    // `name:` (the common case) or a wrong one still lands correctly instead of being rejected.
+    const stamped = withFrontmatter(body, { name: p.target })
     // An empty description makes the skill un-triggerable and nothing downstream complains,
     // so the accept path is the last place to catch it. Same gate the in-app editor uses.
-    const issues = validateSkill({ name: p.target, content: body })
+    const issues = validateSkill({ name: p.target, content: stamped })
     if (hasErrors(issues)) {
       throw new Error(
         `Cannot accept "${p.target}": ${issues.find((i) => i.severity === 'error')!.message}`
@@ -299,7 +306,7 @@ export function acceptProposal(
     }
     const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
-    fs.writeFileSync(path.join(dest, 'SKILL.md'), body)
+    fs.writeFileSync(path.join(dest, 'SKILL.md'), stamped)
     accepted = { kind: 'skill', name: p.target }
   } else {
     // reference-edit + recipe land in the references dir; accepting = human curation
