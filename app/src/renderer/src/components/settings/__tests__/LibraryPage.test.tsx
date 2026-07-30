@@ -14,6 +14,13 @@ vi.mock('../../../lib/confirmStore', () => ({
   alert: vi.fn(() => Promise.resolve())
 }))
 
+// This file mounts the real AssetEditor, whose provider label subscribes to the settings
+// store — which reaches for `window.argus.settings.get()`, absent from this file's fixture.
+// The label is not what these tests are about; stub the hook rather than grow the fixture.
+vi.mock('../../library/assistProvider', () => ({
+  useAssistProvider: vi.fn(() => null)
+}))
+
 const initial: SkillsPayload = {
   skills: [
     {

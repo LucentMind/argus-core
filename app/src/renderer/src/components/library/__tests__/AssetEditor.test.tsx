@@ -5,9 +5,14 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AssetEditor } from '../AssetEditor'
 import { confirm } from '../../../lib/confirmStore'
+import { useAssistProvider } from '../assistProvider'
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn()
+}))
+
+vi.mock('../assistProvider', () => ({
+  useAssistProvider: vi.fn()
 }))
 
 const valid = [
@@ -51,6 +56,10 @@ beforeEach(() => {
   // "closes with no confirm" would see an earlier test's call.
   vi.mocked(confirm).mockClear()
   vi.mocked(confirm).mockResolvedValue(true)
+  vi.mocked(useAssistProvider).mockReturnValue({
+    ok: true,
+    text: 'via claude-agent-sdk · claude-sonnet-4-5'
+  })
 })
 
 describe('AssetEditor', () => {
@@ -458,5 +467,77 @@ describe('AssetEditor', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalled())
     expect(onClose).toHaveBeenCalled()
     resolveImprove({ content: 'late' })
+  })
+
+  it('labels the assist controls with the resolved provider and model', async () => {
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    expect(screen.getByText('via claude-agent-sdk · claude-sonnet-4-5')).toBeInTheDocument()
+  })
+
+  it('shows the resolver reason and disables the assist when no provider resolves', async () => {
+    vi.mocked(useAssistProvider).mockReturnValue({
+      ok: false,
+      reason: 'no provider configured for distillation'
+    })
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    expect(screen.getByText('no provider configured for distillation')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^improve/i })).toBeDisabled()
+  })
+
+  it('leaves the assist enabled while settings have not loaded', async () => {
+    vi.mocked(useAssistProvider).mockReturnValue(null)
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    expect(screen.getByRole('button', { name: /^improve/i })).toBeEnabled()
+  })
+
+  it('shows the elapsed row while an assist is in flight and hides it after', async () => {
+    let resolveImprove: (v: { content: string }) => void = () => {}
+    window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>((r) => (resolveImprove = r))
+    )
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+    // Query by text, not by role="status": the validation-warning spans in this component
+    // also carry role="status", so getByRole would be ambiguous the moment a fixture has a
+    // warning. AssistProgress's own test asserts the role, where it is isolated.
+    expect(await screen.findByText(/Improving…/)).toBeInTheDocument()
+
+    resolveImprove({ content: `${valid}\nimproved` })
+    await screen.findByRole('button', { name: /^accept$/i })
+    expect(screen.queryByText(/Improving…/)).toBeNull()
+  })
+
+  it('Stop waiting abandons the result: no diff opens and the buffer is untouched', async () => {
+    let resolveImprove: (v: { content: string }) => void = () => {}
+    window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>((r) => (resolveImprove = r))
+    )
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^stop waiting$/i }))
+
+    resolveImprove({ content: 'THIS MUST NOT APPEAR' })
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /skill · rca/i })).toBeEnabled())
+    expect(screen.queryByRole('button', { name: /^accept$/i })).toBeNull()
+    expect(screen.getByRole('textbox', { name: /skill · rca/i })).toHaveValue(valid)
+    expect(screen.queryByText('THIS MUST NOT APPEAR')).toBeNull()
+  })
+
+  it('Stop waiting re-enables Improve so a second run is possible', async () => {
+    let resolveImprove: (v: { content: string }) => void = () => {}
+    window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>((r) => (resolveImprove = r))
+    )
+    setup()
+    await screen.findByRole('textbox', { name: /skill · rca/i })
+    await userEvent.click(screen.getByRole('button', { name: /^improve/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^stop waiting$/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^improve/i })).toBeEnabled())
+    resolveImprove({ content: 'ignored' })
   })
 })
