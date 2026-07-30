@@ -62,6 +62,37 @@ export function parseAuthorship(raw: string): Authorship {
 }
 
 /**
+ * Overlay the on-disk `author`, `origin`, and `contributors` onto an incoming buffer.
+ *
+ * **The file on disk is authoritative for authorship; the buffer never is.** `stampAuthorship`
+ * derives everything from the text it is handed, so any caller whose buffer lost the stamp
+ * silently reassigns the byline and discards the contributor trail. Three real paths do exactly
+ * that: Improve round-trips the whole file through a model, the raw-frontmatter editor lets a
+ * user delete the `author:` line, and accepting an edit proposal writes over an asset someone
+ * else wrote. Merging first makes `stampAuthorship`'s existing rules (author present ⇒ untouched,
+ * contributors upserted) produce the right answer without a special case.
+ *
+ * A user who edits `author:` by hand is therefore overruled on save — the same treatment
+ * `writeReference` already gives a spoofed `trust_tier`.
+ *
+ * `existing` null (creating), or carrying none of the three keys, returns `incoming` unchanged.
+ */
+export function mergeAuthorship(incoming: string, existing: string | null): string {
+  if (existing === null) return incoming
+  const fm = fmBlock(existing)?.fm ?? ''
+  const flat: Record<string, string> = {}
+  const author = fmField(fm, 'author')
+  if (author) flat.author = author
+  const origin = fmField(fm, 'origin')
+  if (origin) flat.origin = origin
+  const contributors = fmList(fm, 'contributors')
+
+  let out = Object.keys(flat).length > 0 ? withFrontmatter(incoming, flat) : incoming
+  if (contributors.length > 0) out = withFrontmatterList(out, 'contributors', contributors)
+  return out
+}
+
+/**
  * Record `identity`'s touch on this asset.
  *
  * `origin: null` means "this write is not authorship" — claim and any other take-ownership
@@ -91,10 +122,13 @@ export function stampAuthorship(
   }
 
   const entry = `${formatIdentity(identity)} ${now.toISOString().slice(0, 10)}`
-  // unparseable lines survive: only an entry whose email matches is replaced
+  // unparseable lines survive: only an entry whose email matches is replaced. The match is
+  // case-insensitive — addresses are, and `J.Han@corp` vs `j.han@corp` would otherwise take
+  // two of the ten slots for one person. The entry is rewritten in the identity's own casing.
+  const key = identity.email.trim().toLowerCase()
   const kept = fmList(fm, 'contributors').filter((line) => {
     const m = CONTRIBUTOR_RE.exec(line)
-    return m === null || m[2].trim() !== identity.email
+    return m === null || m[2].trim().toLowerCase() !== key
   })
   const next = [...kept, entry].slice(-CONTRIBUTOR_CAP)
 
