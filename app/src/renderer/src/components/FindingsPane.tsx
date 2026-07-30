@@ -186,9 +186,9 @@ export function FindingsPane({
     presentLayers.map((id) => [id, modeFindings.filter((f) => f.layer === id).length])
   )
   // Derived, not authoritative: layerFilter is only state that *asked* to filter. If the
-  // finding set changes underneath it (session/mode switch, clear-all, a new run — this pane
-  // instance has no key and survives all of those) and the requested layer is no longer
-  // present, the filter self-clears here with no extra effect and no dead-end empty state.
+  // finding set changes underneath it (session/mode switch, clear-all, a new run — the pane is
+  // keyed by slug, so it survives all of those without a remount) and the requested layer is no
+  // longer present, the filter self-clears here with no extra effect and no dead-end empty state.
   const effectiveFilter =
     layerFilter !== null && presentLayers.includes(layerFilter) ? layerFilter : null
   const shown = modeFindings
