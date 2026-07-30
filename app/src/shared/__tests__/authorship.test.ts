@@ -242,7 +242,8 @@ describe('stampAuthorship', () => {
   })
 
   it('preserves an unrelated block list (roles:) across a stamp', () => {
-    const withRoles = '---\nname: x\ndescription: d\nroles:\n  - engineer\n  - reviewer\n---\nbody\n'
+    const withRoles =
+      '---\nname: x\ndescription: d\nroles:\n  - engineer\n  - reviewer\n---\nbody\n'
     const out = stampAuthorship(withRoles, {
       identity: me,
       origin: 'authored',

@@ -482,4 +482,68 @@ describe('writeReference', () => {
       })
     ).not.toThrow()
   })
+
+  it('keeps the on-disk author when the client sends a different one', () => {
+    // sibling of the trust_tier spoof case above: authorship is read back off the file, so a
+    // buffer that renamed or dropped the byline cannot reassign it
+    fs.writeFileSync(
+      path.join(refsDir, 'owned.md'),
+      [
+        '---',
+        'trust_tier: team-knowledge',
+        'author: Alex Chen <alex@example.test>',
+        'origin: authored',
+        'contributors:',
+        '  - Alex Chen <alex@example.test> 2026-07-01',
+        '  - Sam Doe <sam@example.test> 2026-07-02',
+        '---',
+        '',
+        'original'
+      ].join('\n')
+    )
+    const before = svc.readReference('owned.md')
+    svc.writeReference(
+      'owned.md',
+      '---\nauthor: Mallory <mal@example.test>\n---\n\nedited',
+      before.hash,
+      { name: 'Jiawei Han', email: 'jiawiehan@gmail.com' }
+    )
+    const a = parseAuthorship(fs.readFileSync(path.join(refsDir, 'owned.md'), 'utf8'))
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.origin).toBe('authored')
+    expect(a.contributors.map((c) => c.email)).toEqual([
+      'alex@example.test',
+      'sam@example.test',
+      'jiawiehan@gmail.com'
+    ])
+  })
+
+  it('an Improve-shaped rewrite that dropped every authorship key keeps the trail', () => {
+    fs.writeFileSync(
+      path.join(refsDir, 'improved.md'),
+      [
+        '---',
+        'trust_tier: user',
+        'author: Alex Chen <alex@example.test>',
+        'origin: proposal',
+        'contributors:',
+        '  - Alex Chen <alex@example.test> 2026-07-01',
+        '---',
+        '',
+        'original'
+      ].join('\n')
+    )
+    const before = svc.readReference('improved.md')
+    // no frontmatter at all — what a model hands back when it rewrites the whole file
+    svc.writeReference('improved.md', '# topic\n\nrewritten\n', before.hash, {
+      name: 'Jiawei Han',
+      email: 'jiawiehan@gmail.com'
+    })
+    const raw = fs.readFileSync(path.join(refsDir, 'improved.md'), 'utf8')
+    const a = parseAuthorship(raw)
+    expect(a.author).toBe('Alex Chen <alex@example.test>')
+    expect(a.origin).toBe('proposal')
+    expect(a.contributors.map((c) => c.email)).toEqual(['alex@example.test', 'jiawiehan@gmail.com'])
+    expect(raw).toContain('rewritten')
+  })
 })

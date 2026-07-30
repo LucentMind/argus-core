@@ -7,7 +7,7 @@ import { resolveSkills } from './agent/skillsResolver'
 import { defaultAgentAccess } from '../../shared/agentAccess'
 import { ASSET_NAME_RE, validateSkill, hasErrors } from '../../shared/assetValidation'
 import { fmBlock, fmField, withFrontmatter } from '../../shared/frontmatter'
-import { stampAuthorship, type Identity } from '../../shared/authorship'
+import { mergeAuthorship, stampAuthorship, type Identity } from '../../shared/authorship'
 import {
   PROPOSAL_TYPES,
   REJECT_REASON_TAGS,
@@ -309,26 +309,43 @@ export function acceptProposal(
     // is real (validateSkill enforces it), but the accept path is the wrong place to make an
     // agent responsible for it: stamp the target in before validating, so a proposal with no
     // `name:` (the common case) or a wrong one still lands correctly instead of being rejected.
-    const stamped = withFrontmatter(body, { name: p.target })
+    const named = withFrontmatter(body, { name: p.target })
+    const dest = path.join(userSkillsDir(argusHome), p.target)
+    const destFile = path.join(dest, 'SKILL.md')
+    // A skill-edit lands on a skill that already exists and may already have an author. The
+    // file on disk owns author/origin/contributors — accepting an agent's edit to someone
+    // else's skill makes the accepter a contributor, not the author. (Spec §7 reads the other
+    // way; the human resolved that contradiction in favour of the disk on 2026-07-30.)
+    const existing = fs.existsSync(destFile) ? fs.readFileSync(destFile, 'utf8') : null
+    const stamped = stamp(mergeAuthorship(named, existing))
     // An empty description makes the skill un-triggerable and nothing downstream complains,
-    // so the accept path is the last place to catch it. Same gate the in-app editor uses.
+    // so the accept path is the last place to catch it. Same gate the in-app editor uses —
+    // run on the bytes actually written, so merge+stamp cannot slip past it.
     const issues = validateSkill({ name: p.target, content: stamped })
     if (hasErrors(issues)) {
       throw new Error(
         `Cannot accept "${p.target}": ${issues.find((i) => i.severity === 'error')!.message}`
       )
     }
-    const dest = path.join(userSkillsDir(argusHome), p.target)
     fs.mkdirSync(dest, { recursive: true })
-    fs.writeFileSync(path.join(dest, 'SKILL.md'), stamp(stamped))
+    fs.writeFileSync(destFile, stamped)
     accepted = { kind: 'skill', name: p.target }
   } else {
     // reference-edit + recipe land in the references dir; accepting = human curation
     const dir = sharedReferencesDir(argusHome)
+    const destFile = path.join(dir, refFileName(p.target))
+    // as above: an edit to an existing reference keeps its author, and the accepter joins the
+    // contributor trail rather than replacing it
+    const existing = fs.existsSync(destFile) ? fs.readFileSync(destFile, 'utf8') : null
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
-      path.join(dir, refFileName(p.target)),
-      stamp(withFrontmatter(body, { trust_tier: 'team-knowledge' satisfies TrustTier }))
+      destFile,
+      stamp(
+        mergeAuthorship(
+          withFrontmatter(body, { trust_tier: 'team-knowledge' satisfies TrustTier }),
+          existing
+        )
+      )
     )
     accepted = { kind: 'reference', name: refFileName(p.target) }
   }
