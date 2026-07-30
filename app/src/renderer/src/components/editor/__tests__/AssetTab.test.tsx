@@ -63,6 +63,12 @@ const noBanner = (): void => {
   for (const re of Object.values(BANNERS)) expect(screen.queryByText(re)).not.toBeInTheDocument()
 }
 
+/** DiffView cell text for one `data-kind`, within a given root — same query DiffView.test.tsx
+ *  uses. `del` cells come from `before`, `add` cells from `after`, so this is how a Compare
+ *  test proves which side (disk vs buffer) actually landed in which DiffView column. */
+const kindsIn = (root: HTMLElement, kind: 'same' | 'add' | 'del'): string[] =>
+  Array.from(root.querySelectorAll(`[data-kind="${kind}"]`)).map((el) => el.textContent ?? '')
+
 const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
   kind: 'skill',
   name: 'my-skill',
@@ -257,13 +263,25 @@ describe('AssetTab staleness at open', () => {
   })
 
   it('Compare shows the disk text against the buffer', async () => {
-    readDraft.mockResolvedValue(aDraft({ baseHash: 'older' }))
+    // Deliberately disjoint fixtures: the default SKILL_BODY-plus-suffix pairing shares almost
+    // every line, so a `before`/`after` swap (or a compareSnapshot that captured the wrong
+    // value) would still leave most rows looking identical. Content with nothing in common
+    // forces every line to show up as a one-sided del or add, so the assertions below can pin
+    // down which side each version actually landed on.
+    skillsRead.mockResolvedValue({ content: 'only on disk\n', hash: 'h1' })
+    readDraft.mockResolvedValue(aDraft({ baseHash: 'older', content: 'only in the draft\n' }))
     mount()
     await screen.findByText(BANNERS.stale)
     await userEvent.click(screen.getByRole('button', { name: /compare/i }))
-    expect(
-      await screen.findByRole('group', { name: /on disk compared with yours/i })
-    ).toBeInTheDocument()
+    const group = await screen.findByRole('group', { name: /on disk compared with yours/i })
+
+    // `before` is the disk snapshot: its text shows up as a del (left column).
+    expect(kindsIn(group, 'del').join('\n')).toContain('only on disk')
+    expect(kindsIn(group, 'del').join('\n')).not.toContain('only in the draft')
+    // `after` is the compareSnapshot taken from the buffer: its text shows up as an add (right
+    // column).
+    expect(kindsIn(group, 'add').join('\n')).toContain('only in the draft')
+    expect(kindsIn(group, 'add').join('\n')).not.toContain('only on disk')
   })
 })
 
@@ -276,6 +294,25 @@ describe('AssetTab conflict on save', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText(BANNERS.conflict)).toBeInTheDocument()
+  })
+
+  it('Compare from the conflict banner shows the disk text against the buffer', async () => {
+    mount()
+    await userEvent.type(await editor(), 'X')
+    skillsWrite.mockRejectedValue(new Error('"my-skill" changed on disk since you opened it.'))
+    skillsRead.mockResolvedValue({ content: 'someone else\n', hash: 'h9' })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(BANNERS.conflict)
+
+    await userEvent.click(screen.getByRole('button', { name: /compare/i }))
+    const group = await screen.findByRole('group', { name: /on disk compared with yours/i })
+
+    // `before` is the disk snapshot re-read after the rejected write.
+    expect(kindsIn(group, 'del').join('\n')).toContain('someone else')
+    expect(kindsIn(group, 'del').join('\n')).not.toContain('my-skill')
+    // `after` is the compareSnapshot taken from the still-dirty buffer (SKILL_BODY + 'X').
+    expect(kindsIn(group, 'add').join('\n')).toContain('my-skill')
+    expect(kindsIn(group, 'add').join('\n')).not.toContain('someone else')
   })
 
   it('leaves a validation rejection as a plain error, with no banner', async () => {
