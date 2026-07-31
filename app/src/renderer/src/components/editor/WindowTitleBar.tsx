@@ -11,6 +11,7 @@
  */
 export function WindowTitleBar(): React.JSX.Element {
   return (
+    // Height (40px) must sync with HEIGHTS.editor in titleBar.ts; OS buttons overlay the right edge
     <div className="argus-drag argus-titlebar-inset flex h-10 shrink-0 items-center text-xs text-dim">
       Argus — Editor
     </div>
