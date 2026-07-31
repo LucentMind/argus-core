@@ -43,6 +43,8 @@ beforeEach(() => {
   vi.mocked(confirm).mockReset().mockResolvedValue(true)
   uiStore.setFindingsCollapsed(false)
   uiStore.setFindingsWidth(384)
+  uiStore.setEvidenceCollapsed(false)
+  uiStore.setDynamicTheme(false)
   // CaseWorkspace renders Composer, which reads the shared settingsStore
   // singleton — reset it so state doesn't leak across tests.
   settingsStore.reset()
@@ -179,6 +181,7 @@ function workspace(
   overrides?: {
     status?: CaseStatus
     resolution?: CaseResolution | null
+    jiraPriority?: string | null
     onStatusChanged?: () => void
     activeMode?: ModeId
     onModeSwitched?: () => void
@@ -191,6 +194,7 @@ function workspace(
       jiraSyncedAt={null}
       status={overrides?.status ?? 'open'}
       resolution={overrides?.resolution ?? null}
+      jiraPriority={overrides?.jiraPriority ?? null}
       activeMode={overrides?.activeMode ?? DEFAULT_MODE}
       onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
       onModeSwitched={overrides?.onModeSwitched ?? vi.fn()}
@@ -205,6 +209,7 @@ function workspace(
 function renderWorkspace(overrides?: {
   status?: CaseStatus
   resolution?: CaseResolution | null
+  jiraPriority?: string | null
   onStatusChanged?: () => void
   activeMode?: ModeId
   onModeSwitched?: () => void
@@ -911,6 +916,46 @@ describe('CaseWorkspace evidence pane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand evidence' }))
     expect(uiStore.get().evidenceCollapsed).toBe(false)
     expect(screen.getByRole('button', { name: 'Collapse evidence' })).toBeTruthy()
+  })
+})
+
+describe('CaseWorkspace priority accent', () => {
+  it('carries a p1 header tier for a highest-priority case', async () => {
+    const { container } = renderWorkspace({ jiraPriority: 'Highest' })
+    await screen.findByText('Chat')
+    expect(container.querySelector('header')?.getAttribute('data-tier')).toBe('p1')
+  })
+
+  it('carries no header tier when the case has no priority', async () => {
+    const { container } = renderWorkspace({ jiraPriority: null })
+    await screen.findByText('Chat')
+    expect(container.querySelector('header')?.hasAttribute('data-tier')).toBe(false)
+  })
+})
+
+describe('CaseWorkspace rail material', () => {
+  it('goes to ground (dyn-rail, not bg-deep) when the dynamic theme is on', async () => {
+    uiStore.setDynamicTheme(true)
+    const { container } = renderWorkspace()
+    await screen.findByText('Chat')
+    const asides = container.querySelectorAll('aside')
+    expect(asides.length).toBeGreaterThan(0)
+    asides.forEach((a) => {
+      expect(a.className).toContain('dyn-rail')
+      expect(a.className).not.toContain('bg-deep')
+    })
+  })
+
+  it('stays bg-deep when the dynamic theme is off', async () => {
+    uiStore.setDynamicTheme(false)
+    const { container } = renderWorkspace()
+    await screen.findByText('Chat')
+    const asides = container.querySelectorAll('aside')
+    expect(asides.length).toBeGreaterThan(0)
+    asides.forEach((a) => {
+      expect(a.className).toContain('bg-deep')
+      expect(a.className).not.toContain('dyn-rail')
+    })
   })
 })
 

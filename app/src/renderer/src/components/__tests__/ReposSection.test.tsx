@@ -3,8 +3,11 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { ReposSection } from '../ReposSection'
+import { uiStore } from '../../lib/uiStore'
 
 beforeEach(() => {
+  uiStore.setDynamicTheme(false)
+  localStorage.clear()
   window.argus = {
     workspaces: {
       list: vi.fn(async () => [
@@ -197,5 +200,20 @@ describe('ReposSection pending states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Unlink repo' }))
 
     expect(await screen.findByTitle('worktree is locked')).toBeInTheDocument()
+  })
+})
+
+describe('ReposSection material', () => {
+  it('carries the panel material when the dynamic theme is on', async () => {
+    uiStore.setDynamicTheme(true)
+    const { container } = render(<ReposSection slug="C-1" mode="investigation" />)
+    await waitFor(() => expect(container.querySelector('.glass-panel')).not.toBeNull())
+  })
+
+  it('carries no material when the dynamic theme is off', async () => {
+    uiStore.setDynamicTheme(false)
+    const { container } = render(<ReposSection slug="C-1" mode="investigation" />)
+    await screen.findByText('hivemindtest')
+    expect(container.querySelector('.glass-panel')).toBeNull()
   })
 })

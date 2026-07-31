@@ -131,6 +131,10 @@ export function Composer({
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get().showToolCalls
   )
+  const dynamic = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get().dynamicTheme
+  )
 
   useEffect(() => {
     void window.argus.skills.list().then((p) => setSkills(p.skills))
@@ -220,7 +224,10 @@ export function Composer({
   }
 
   return (
-    <div className="relative border-t border-hair bg-deep p-3" data-onboarding-anchor="composer">
+    <div
+      className={`relative border-t border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
+      data-onboarding-anchor="composer"
+    >
       {popupOpen && (
         <div className="absolute bottom-full left-3 z-20 mb-1 w-96 rounded-r2 border border-hair bg-overlay p-1 shadow-lg">
           {matches.map((s, i) => (
@@ -256,7 +263,9 @@ export function Composer({
           ))}
         </div>
       )}
-      <div className="flex flex-col gap-2 rounded-r4 border border-hair bg-panel px-3 pb-2.5 pt-3 transition-colors focus-within:border-hair2">
+      <div
+        className={`flex flex-col gap-2 rounded-r4 border border-hair px-3 pb-2.5 pt-3 transition-colors focus-within:border-hair2 ${dynamic ? 'glass-panel' : 'bg-panel'}`}
+      >
         <textarea
           rows={3}
           className="w-full resize-none bg-transparent px-1 text-sm text-ink placeholder:text-mute focus:outline-none"

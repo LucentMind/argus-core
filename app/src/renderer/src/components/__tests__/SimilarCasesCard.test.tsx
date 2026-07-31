@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { SimilarCasesCard } from '../SimilarCasesCard'
+import { uiStore } from '../../lib/uiStore'
 
 const HITS = [
   { caseSlug: 'old', signature: 'ECU reset drifts DLT', resolution: 'solved', snippet: '«ECU»' }
@@ -10,6 +11,7 @@ const HITS = [
 
 beforeEach(() => {
   localStorage.clear()
+  uiStore.setDynamicTheme(false)
   ;(window as unknown as { argus: unknown }).argus = {
     distill: { similar: vi.fn().mockResolvedValue(HITS) }
   }
@@ -36,5 +38,20 @@ describe('SimilarCasesCard', () => {
     ).argus.distill.similar.mockResolvedValue([])
     render(<SimilarCasesCard slug="new" />)
     await waitFor(() => expect(screen.queryByText(/Similar past cases/)).not.toBeInTheDocument())
+  })
+})
+
+describe('SimilarCasesCard material', () => {
+  it('carries the panel material when the dynamic theme is on', async () => {
+    uiStore.setDynamicTheme(true)
+    const { container } = render(<SimilarCasesCard slug="new" />)
+    await waitFor(() => expect(container.querySelector('.glass-panel')).not.toBeNull())
+  })
+
+  it('carries no material when the dynamic theme is off', async () => {
+    uiStore.setDynamicTheme(false)
+    const { container } = render(<SimilarCasesCard slug="new" />)
+    await screen.findByText(/Similar past cases/)
+    expect(container.querySelector('.glass-panel')).toBeNull()
   })
 })

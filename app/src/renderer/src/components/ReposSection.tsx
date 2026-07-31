@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { WorkspaceInfo } from '../../../shared/types'
 import type { BundleWorkspaceRef } from '../../../shared/bundle'
 import { FolderGit2, Unlink } from 'lucide-react'
@@ -8,6 +8,7 @@ import { reposStore } from '../lib/reposStore'
 import { invalidateRepoSnippets } from '../lib/snippetCache'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { usePendingList } from '../lib/usePendingList'
+import { uiStore } from '../lib/uiStore'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 
 /** Linked repos as evidence: the repo chips (moved here from the header), with
@@ -30,6 +31,11 @@ export function ReposSection({
   const [loaded, setLoaded] = useState(false)
   const pending = usePendingList()
   const showSkeleton = usePendingDisplay(!loaded)
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
 
   const reload = useCallback((): Promise<void> => {
     // keep the citation domain + snippet cache in sync with link state
@@ -95,7 +101,7 @@ export function ReposSection({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={`flex flex-col gap-1.5 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : ''}`}>
       <div className="flex items-center justify-between">
         <SectionLabel>Repos</SectionLabel>
         <div className="flex items-center gap-1">

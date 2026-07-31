@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 import type { SummarySearchHit } from '../../../shared/distill'
 import { Card, Chip, IconBtn, SectionLabel } from './ui'
+import { uiStore } from '../lib/uiStore'
 
 function dismissKey(slug: string): string {
   return `argus:similar-dismissed:${slug}`
@@ -16,6 +17,11 @@ export function SimilarCasesCard({
 }): React.JSX.Element | null {
   const [hits, setHits] = useState<SummarySearchHit[]>([])
   const [dismissed, setDismissed] = useState(false)
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
 
   useEffect(() => {
     const alreadyDismissed = Boolean(localStorage.getItem(dismissKey(slug)))
@@ -40,7 +46,7 @@ export function SimilarCasesCard({
   }
 
   return (
-    <Card className="flex flex-col gap-2 p-3">
+    <Card className={`flex flex-col gap-2 p-3 ${dynamic ? 'glass-panel' : ''}`}>
       <div className="flex items-center justify-between gap-2">
         <SectionLabel>Similar past cases</SectionLabel>
         <IconBtn aria-label="Dismiss" onClick={dismiss}>

@@ -34,6 +34,7 @@ import type {
 } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
+import { railTier } from '../lib/priorityRail'
 import type { ModeId } from '../../../shared/modes'
 
 export function CaseWorkspace({
@@ -42,6 +43,7 @@ export function CaseWorkspace({
   jiraSyncedAt,
   status,
   resolution,
+  jiraPriority,
   activeMode,
   onStatusChanged,
   onModeSwitched,
@@ -56,6 +58,7 @@ export function CaseWorkspace({
   jiraSyncedAt: string | null
   status: CaseStatus
   resolution: CaseResolution | null
+  jiraPriority: string | null
   /** The mode axis the case is currently switched to (`CaseRecord.activeMode`) — the source
    *  of truth for which mode's chat is active, not the session row (Task 3/4: mode moved
    *  from session-scoped to case-scoped). */
@@ -77,6 +80,7 @@ export function CaseWorkspace({
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get()
   )
+  const dynamic = ui.dynamicTheme
   const panels = useSyncExternalStore(
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
@@ -394,8 +398,9 @@ export function CaseWorkspace({
         // eslint-disable-next-line react-hooks/refs
         ref={anchors.setCutoff}
         className={`flex items-center gap-3 border-b border-hair px-4 py-2 ${
-          ui.dynamicTheme ? 'dyn-case-header' : 'bg-deep'
+          dynamic ? 'dyn-case-header' : 'bg-deep'
         }`}
+        data-tier={railTier(jiraPriority) ?? undefined}
       >
         {/* The case id is the trigger for the case-action menu (Close as / Export),
             each a submenu — keeps a crowded bar to one control. */}
@@ -471,7 +476,9 @@ export function CaseWorkspace({
             </span>
           </button>
         ) : (
-          <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair bg-deep p-3">
+          <aside
+            className={`flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
+          >
             {/* The rail itself no longer scrolls (CaseFiles below needs flex-1 to mean
                 something), so this wrapper keeps these naturally-growing sections — an
                 unbounded repo list, PR checks, similar-case hits — reachable on a short
@@ -632,7 +639,7 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className="flex flex-col border-l border-hair bg-deep p-3"
+              className={`flex flex-col border-l border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               {/* key: remount on case switch. Findings are fetched once per case and filtered

@@ -14,6 +14,7 @@ import { parsePrRef } from '../../../shared/pr'
 import { prStatusStore, usePrStatuses } from '../lib/prStatusStore'
 import { confirm } from '../lib/confirmStore'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
+import { uiStore } from '../lib/uiStore'
 import { PrRollupDot } from './PrRollupDot'
 import { Chip, IconBtn, SectionLabel, Skeleton } from './ui'
 
@@ -222,6 +223,11 @@ export function PrCompanionSection({
    *  dialog. */
   onPrsFound?: (result: PrSearchResult) => void | Promise<void>
 }): React.JSX.Element | null {
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
   // Hooks must run unconditionally, so the mode gate is applied to the RESULT, not the call.
   const all = usePrStatuses(mode === 'review' ? [slug] : [], REVIEW_POLL_MS)
   // "Link PR" isn't mode-gated internally, so the bound PR can be replaced without leaving
@@ -367,7 +373,10 @@ export function PrCompanionSection({
   for (const c of status?.checks ?? []) counts[c.bucket]++
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className={`flex flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : ''}`}
+      data-tier={status?.rollup === 'failing' ? 'p1' : undefined}
+    >
       <SectionLabel>
         <span className="flex items-center gap-1.5">
           <GitPullRequest size={12} />

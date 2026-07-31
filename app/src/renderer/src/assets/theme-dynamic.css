@@ -61,6 +61,17 @@
   --cursor-sheen: rgba(205, 230, 255, 0.16);
   --cursor-sheen-2: rgba(190, 220, 255, 0.055);
   --grain-op: 0.035;
+
+  /* the cheap panel material: lens + bevel + rim + shadow, no backdrop-filter.
+     Over a ~120px card the lens traverses its whole range and reads as glass;
+     over an 800px rail it changes by fractions of a percent and does not. That
+     asymmetry is why the material sits on cards and not on containers. */
+  --panel-bg: #090b0e;
+  --panel-lens-1: rgba(255, 255, 255, 0.055);
+  --panel-lens-2: rgba(255, 255, 255, 0.016);
+  --panel-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
+  --panel-border: rgba(255, 255, 255, 0.085);
+  --panel-hi: rgba(255, 255, 255, 0.11);
 }
 
 :root[data-theme='light'] .dyn {
@@ -121,6 +132,13 @@
   --cursor-sheen: rgba(60, 125, 205, 0.13);
   --cursor-sheen-2: rgba(60, 125, 205, 0.05);
   --grain-op: 0.022;
+
+  --panel-bg: #f4f6fb;
+  --panel-lens-1: rgba(255, 255, 255, 0.95);
+  --panel-lens-2: rgba(255, 255, 255, 0.4);
+  --panel-shadow: 0 1px 2px rgba(18, 28, 48, 0.05), 0 12px 28px -18px rgba(18, 28, 48, 0.22);
+  --panel-border: rgba(25, 38, 62, 0.1);
+  --panel-hi: rgba(255, 255, 255, 0.85);
 }
 
 /* ── ambient canvas + fallback ─────────────────────────────────────────── */
@@ -408,4 +426,59 @@
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   border-bottom-color: var(--glass-border);
   box-shadow: inset 0 1px 0 var(--glass-hi);
+}
+
+/* ── the panel material ────────────────────────────────────────────────────
+   ONE material, ONE name. This class carries the material only — radius and
+   padding stay with each consumer, because a rail card and the composer want
+   different ones. Two names for one material is how a second, subtly-different
+   material gets born. */
+.dyn .glass-panel {
+  position: relative;
+  border: 1px solid var(--panel-border);
+  background:
+    linear-gradient(152deg, var(--panel-lens-1) 0%, var(--panel-lens-2) 38%, transparent 74%),
+    var(--panel-bg);
+  box-shadow:
+    inset 0 1px 0 var(--panel-hi),
+    inset 0 -14px 26px -24px rgba(0, 0, 0, 0.85),
+    var(--panel-shadow);
+}
+
+/* Rails go to ground: inside the scope --bg-1 IS --void, so the rail becomes
+   the same darkness as the page and only its hairline defines it. Objects
+   float on darkness, exactly as on home. */
+.dyn-case .dyn-rail {
+  background: transparent;
+  border-color: var(--panel-border);
+}
+
+/* the priority accent, reusing the --p1/--p2/--p3 vocabulary of .gc-rail */
+.dyn-case .dyn-case-header::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+}
+.dyn-case .dyn-case-header[data-tier='p1']::before {
+  background: linear-gradient(90deg, var(--p1), transparent 62%);
+}
+.dyn-case .dyn-case-header[data-tier='p2']::before {
+  background: linear-gradient(90deg, var(--p2), transparent 62%);
+}
+.dyn .glass-panel[data-tier='p1']::after,
+.dyn .glass-panel[data-tier='p2']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+}
+.dyn .glass-panel[data-tier='p1']::after {
+  background: var(--p1);
+}
+.dyn .glass-panel[data-tier='p2']::after {
+  background: var(--p2);
 }
