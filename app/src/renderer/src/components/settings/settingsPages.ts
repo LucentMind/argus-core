@@ -77,7 +77,8 @@ export const PAGES = [
     group: 'Knowledge',
     enabled: true,
     Icon: CloudSync,
-    blurb: 'Shared knowledge sync — what this workspace publishes and what it adopts.'
+    blurb:
+      'Browse skills and references your team shares, and install, update, or remove your copies.'
   },
   {
     id: 'sources',
@@ -93,7 +94,8 @@ export const PAGES = [
     group: 'System',
     enabled: true,
     Icon: HeartPulse,
-    blurb: 'Provider reachability, binary resolution, and the checks Argus runs at boot.'
+    blurb:
+      'Provider reachability, binary resolution, and the checks Argus runs on open or on demand.'
   },
   {
     id: 'observability',
@@ -110,7 +112,8 @@ export const PAGES = [
     enabled: true,
     devOnly: true,
     Icon: Braces,
-    blurb: 'Developer view of the exact prompts sent to each backend.'
+    blurb:
+      'Developer view of prompt entries, a next-session preview, and exact past-session captures.'
   }
 ] as const satisfies ReadonlyArray<{
   id: string

@@ -459,7 +459,9 @@ describe('SettingsView', () => {
       await screen.findByRole('button', { name: /General/ })
       fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
       await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Health'))
-      expect(screen.getByTestId('settings-blurb').textContent).toContain('checks Argus runs')
+      expect(screen.getByTestId('settings-blurb').textContent).toContain(
+        'runs on open or on demand'
+      )
     })
 
     it('follows a deep link that arrives while Settings is already open', async () => {
