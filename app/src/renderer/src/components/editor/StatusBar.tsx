@@ -51,7 +51,7 @@ export function StatusBar({
   const { errors } = countBySeverity(issues)
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-3 border-t border-hair px-3 py-1 font-mono text-[11px] text-faint">
+    <div className="flex shrink-0 items-center justify-between gap-3 border-t border-hair bg-hi px-3 py-1 font-mono text-[11px] text-faint">
       <span className="flex items-center gap-3">
         <span>
           {cursor.line}:{cursor.col}

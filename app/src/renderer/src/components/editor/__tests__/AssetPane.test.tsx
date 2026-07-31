@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { AssetPane } from '../AssetPane'
@@ -206,6 +206,22 @@ describe('AssetPane', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Preview' }))
     expect(surface).toBeInTheDocument()
     expect(surface.parentElement).toHaveAttribute('inert')
+  })
+
+  it('cycles the view mode from a window-level key, not only from the focused editor', async () => {
+    // Preview mode makes the surface `inert`, so CodeMirror's keymap never sees the key. jsdom
+    // does not honour `inert`, so this test cannot reproduce that state — what it pins is that
+    // the fallback listener exists and is wired to the command at all, which is the part that
+    // regressed to nothing.
+    mount()
+    await waitFor(() => expect(screen.getByLabelText('skill · s')).toBeInTheDocument())
+    const before = screen.getByRole('button', { name: /^View mode:/ }).getAttribute('aria-label')
+    fireEvent.keyDown(window, { key: 'V', ctrlKey: true, shiftKey: true })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /^View mode:/ }).getAttribute('aria-label')
+      ).not.toBe(before)
+    )
   })
 
   it('raises the conflict banner when a save is rejected because disk moved', async () => {

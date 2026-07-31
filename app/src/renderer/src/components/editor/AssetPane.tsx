@@ -162,6 +162,35 @@ export function AssetPane({
     []
   )
 
+  /**
+   * Window-level fallback for the commands that are not editor-scoped.
+   *
+   * Preview mode marks the editor subtree `inert`, which blurs it and drops focus to <body>, and
+   * CodeMirror's keymap only fires while CodeMirror has focus. Without this, every §5.7 shortcut
+   * dies in one of the three view modes this increment ships: Ctrl+Shift+V becomes a one-way trip
+   * into Preview, and Ctrl+S stops saving the file on screen. Found by driving a real window — no
+   * jsdom test shows it, because jsdom applies no CSS and does not honour `inert`.
+   *
+   * `defaultPrevented` is the handshake with CodeMirror's keymap: that keymap sets it whenever it
+   * handled the key, so this never double-fires while the editor has focus.
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.shiftKey && (e.key === 'v' || e.key === 'V')) commands.cycleViewMode()
+      else if (mod && !e.shiftKey && (e.key === 's' || e.key === 'S')) commands.save()
+      else if (mod && (e.key === '=' || e.key === '+')) commands.changeFontSize(1)
+      else if (mod && e.key === '-') commands.changeFontSize(-1)
+      else if (mod && e.key === '0') commands.changeFontSize(0)
+      else if (e.altKey && (e.key === 'z' || e.key === 'Z')) commands.toggleWrap()
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [commands])
+
   const runId = useRef(0)
   // Guards every async resolution against landing after unmount. The setup function must assign
   // `true` rather than relying on `useRef(true)`: dev-mode StrictMode double-invokes mount
