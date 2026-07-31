@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { CaseRecord } from '../types'
-import { deriveActionItems, formatSyncAge, formatSyncRecency, hasUpstreamChange, triageRank } from '../triage'
+import {
+  deriveActionItems,
+  formatSyncAge,
+  formatSyncRecency,
+  hasUpstreamChange,
+  triageRank
+} from '../triage'
 
 const NOW = new Date('2026-07-20T12:00:00.000Z')
 
@@ -58,12 +64,22 @@ describe('deriveActionItems', () => {
 
   it('flags new comments with a count', () => {
     const items = deriveActionItems(mkCase({ jiraCommentCount: 5 }), NOW)
-    expect(items).toContainEqual({ kind: 'comments', severity: 'action', label: '2 new comments', count: 2 })
+    expect(items).toContainEqual({
+      kind: 'comments',
+      severity: 'action',
+      label: '2 new comments',
+      count: 2
+    })
   })
 
   it('singularises a single new comment', () => {
     const items = deriveActionItems(mkCase({ jiraCommentCount: 4 }), NOW)
-    expect(items).toContainEqual({ kind: 'comments', severity: 'action', label: '1 new comment', count: 1 })
+    expect(items).toContainEqual({
+      kind: 'comments',
+      severity: 'action',
+      label: '1 new comment',
+      count: 1
+    })
   })
 
   it('ignores a comment count below the baseline (deletions)', () => {
@@ -214,7 +230,9 @@ describe('deriveActionItems counts', () => {
   })
 
   it('leaves count unset on kinds that have no magnitude', () => {
-    const c = mkCase({ lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-08T00:00:00Z' } })
+    const c = mkCase({
+      lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-08T00:00:00Z' }
+    })
     expect(deriveActionItems(c).find((i) => i.kind === 'sync-error')?.count).toBeUndefined()
   })
 })
