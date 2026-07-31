@@ -3,15 +3,16 @@ import { registerUpdateIpc } from '../updateIpc'
 import { CoreUpdaterService, type UpdaterBackend } from '../coreUpdater'
 import { IPC } from '../../../../shared/ipc'
 
-function harness(backend: Partial<UpdaterBackend> = {}) {
+function harness(backendOverrides: Partial<UpdaterBackend> = {}) {
+  const backend = {
+    check: vi.fn(async () => ({ version: '1.1.0' })),
+    download: vi.fn(async () => {}),
+    quitAndInstall: vi.fn(),
+    onProgress: () => {},
+    ...backendOverrides
+  }
   const service = new CoreUpdaterService({
-    backend: {
-      check: vi.fn(async () => ({ version: '1.1.0' })),
-      download: vi.fn(async () => {}),
-      quitAndInstall: vi.fn(),
-      onProgress: () => {},
-      ...backend
-    },
+    backend,
     currentVersion: '1.0.8',
     supported: true
   })
@@ -22,7 +23,7 @@ function harness(backend: Partial<UpdaterBackend> = {}) {
     broadcast: (channel, payload) => void broadcasts.push({ channel, payload }),
     service
   })
-  return { service, handlers, broadcasts, off }
+  return { service, handlers, broadcasts, off, backend }
 }
 
 describe('registerUpdateIpc', () => {
@@ -61,5 +62,26 @@ describe('registerUpdateIpc', () => {
     off()
     await handlers.get(IPC.updateCheck)!()
     expect(broadcasts).toEqual([])
+  })
+
+  it('download handler reaches the download path', async () => {
+    const { handlers } = harness()
+    // Drive service to available state
+    await handlers.get(IPC.updateCheck)!()
+    // Invoke download handler
+    const payload = (await handlers.get(IPC.updateDownload)!()) as { status: { phase: string; version?: string } }
+    // Assert outcome reachable only through service.download()
+    expect(payload.status).toEqual({ phase: 'ready', version: '1.1.0' })
+  })
+
+  it('restart handler reaches the restart path', async () => {
+    const { handlers, backend } = harness()
+    // Drive service to ready state (check → available, then download → ready)
+    await handlers.get(IPC.updateCheck)!()
+    await handlers.get(IPC.updateDownload)!()
+    // Invoke restart handler
+    handlers.get(IPC.updateRestart)!()
+    // Assert backend's quitAndInstall was called exactly once
+    expect(backend.quitAndInstall).toHaveBeenCalledTimes(1)
   })
 })
