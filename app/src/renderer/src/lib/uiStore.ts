@@ -9,6 +9,7 @@ export interface UiState {
   theme: Theme
   uiScale: UiScale
   showToolCalls: boolean
+  dynamicTheme: boolean
   findingsCollapsed: boolean
   evidenceCollapsed: boolean
   findingsWidth: number
@@ -22,6 +23,7 @@ const KEYS = {
   theme: 'argus.ui.theme',
   uiScale: 'argus.ui.uiScale',
   showToolCalls: 'argus.ui.showToolCalls',
+  dynamicTheme: 'argus.ui.dynamicTheme',
   findingsCollapsed: 'argus.ui.findingsCollapsed',
   evidenceCollapsed: 'argus.ui.evidenceCollapsed',
   findingsWidth: 'argus.ui.findingsWidth'
@@ -43,6 +45,7 @@ function readPersisted(): Omit<UiState, 'recentTabs' | 'activeSessions'> {
       ? (scale as UiScale)
       : UI_SCALE_DEFAULT,
     showToolCalls: localStorage.getItem(KEYS.showToolCalls) !== 'false',
+    dynamicTheme: localStorage.getItem(KEYS.dynamicTheme) === 'true',
     findingsCollapsed: localStorage.getItem(KEYS.findingsCollapsed) === 'true',
     evidenceCollapsed: localStorage.getItem(KEYS.evidenceCollapsed) === 'true',
     findingsWidth:
@@ -141,6 +144,13 @@ export class UiStore {
 
   toggleToolCalls(): void {
     this.setShowToolCalls(!this.state.showToolCalls)
+  }
+
+  /** No cross-window broadcast on purpose: only the main window renders a dashboard,
+   *  so unlike `theme` there is nothing for the editor window to adopt. */
+  setDynamicTheme(on: boolean): void {
+    this.set({ dynamicTheme: on })
+    localStorage.setItem(KEYS.dynamicTheme, String(on))
   }
 
   setFindingsCollapsed(collapsed: boolean): void {

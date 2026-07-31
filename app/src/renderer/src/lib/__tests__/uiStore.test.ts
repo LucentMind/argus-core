@@ -163,3 +163,24 @@ describe('evidenceCollapsed', () => {
     expect(fresh.get().evidenceCollapsed).toBe(true)
   })
 })
+
+describe('dynamicTheme', () => {
+  it('defaults to false, persists, and survives a reload', () => {
+    const store = new UiStore()
+    expect(store.get().dynamicTheme).toBe(false)
+
+    store.setDynamicTheme(true)
+    expect(store.get().dynamicTheme).toBe(true)
+    expect(localStorage.getItem('argus.ui.dynamicTheme')).toBe('true')
+
+    expect(new UiStore().get().dynamicTheme).toBe(true)
+  })
+
+  it('notifies subscribers on change', () => {
+    const store = new UiStore()
+    const seen = vi.fn()
+    store.subscribe(seen)
+    store.setDynamicTheme(true)
+    expect(seen).toHaveBeenCalled()
+  })
+})
