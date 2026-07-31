@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { AuthoringKind } from '../../../shared/authoringIpc'
 import type { TierLookup } from '../../../shared/assetEditable'
 import type { SkillsPayload } from '../../../shared/memoryIpc'
+import type { RefSyncPayload } from '../../../shared/referenceSync'
 
 /**
  * Where an asset came from, for the editor window (spec §6.2).
@@ -41,21 +42,18 @@ export function useAssetTiers(): (kind: AuthoringKind, name: string) => TierLook
 
   useEffect(() => {
     let live = true
-    const load = (): void => {
-      void window.argus.refsync
-        .get()
-        .then((p) => {
-          if (live) setRefs(new Map(p.references.map((r) => [r.file, r.tier])))
-        })
-        .catch(() => {})
+    const apply = (p: RefSyncPayload): void => {
+      if (live) setRefs(new Map(p.references.map((r) => [r.file, r.tier])))
     }
-    load()
-    // Re-fetch rather than adopt the onChanged argument directly. In production this broadcast
-    // does carry a full RefSyncPayload (referenceSyncStore.ts adopts it as-is) — but this hook
-    // treats the callback as a bare "something changed" ping and always re-fetches, which is the
-    // more conservative contract and is what the hook's own test (task-7-report.md, deviation 1)
-    // exercises: it fires the broadcast with no usable payload and expects a fresh refsync.get().
-    const off = window.argus.refsync.onChanged(() => load())
+    void window.argus.refsync
+      .get()
+      .then(apply)
+      // Swallowed on purpose: an unresolved tier fails open, which is strictly better than a
+      // window that will not render because a get call failed.
+      .catch(() => {})
+    // `refsync:changed` carries the full new list (referenceSyncStore.ts adopts it the same way),
+    // so adopting it directly here avoids a redundant round trip through the same IPC call.
+    const off = window.argus.refsync.onChanged(apply)
     return () => {
       live = false
       off()

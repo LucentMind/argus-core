@@ -2,9 +2,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { useAssetTiers } from '../assetTiers'
+import type { RefSyncPayload } from '../../../../shared/referenceSync'
 
 let skillsChanged: ((p: { skills: Array<{ name: string; tier: string }> }) => void) | null = null
-let refsChanged: ((p: unknown) => void) | null = null
+let refsChanged: ((p: RefSyncPayload) => void) | null = null
 
 beforeEach(() => {
   skillsChanged = null
@@ -76,15 +77,29 @@ describe('useAssetTiers', () => {
     await waitFor(() => expect(result.current('skill', 'theirs')).toBe('user'))
   })
 
-  // refsync:changed carries no payload the renderer can use — LibraryPage re-fetches on it, and
-  // so must this.
-  it('re-fetches references on a refsync broadcast', async () => {
+  // refsync:changed always carries a full RefSyncPayload (referenceSyncStore.ts adopts it the
+  // same way), so the hook adopts the broadcast directly instead of re-fetching. The refsync.get
+  // mock below is left untouched: if the hook instead re-fetched, this assertion would still see
+  // the stale 'confluence' tier from that mock, not the 'user' tier carried in the broadcast.
+  it('picks up a references broadcast', async () => {
     const { result } = renderHook(() => useAssetTiers())
     await waitFor(() => expect(result.current('reference', 'synced.md')).toBe('confluence'))
-    window.argus.refsync.get = vi
-      .fn()
-      .mockResolvedValue({ references: [{ file: 'synced.md', tier: 'user' }] })
-    act(() => refsChanged!({}))
+    const payload: RefSyncPayload = {
+      config: { spaces: [], outdatedWindowMonths: 12, mustKeep: {} },
+      loadError: null,
+      cards: [],
+      references: [
+        {
+          file: 'synced.md',
+          tier: 'user',
+          lastSynced: null,
+          sourceCount: 0,
+          stale: false,
+          author: null
+        }
+      ]
+    }
+    act(() => refsChanged!(payload))
     await waitFor(() => expect(result.current('reference', 'synced.md')).toBe('user'))
   })
 
