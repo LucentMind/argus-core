@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { ConfirmHost } from './components/ConfirmHost'
-import { DynamicHome } from './components/DynamicHome'
+import { DynamicScope } from './components/DynamicScope'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { FileViewer } from './components/FileViewer'
 import { NewCaseDialog } from './components/NewCaseDialog'
@@ -166,7 +166,7 @@ function App(): React.JSX.Element {
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {view.kind === 'home' ? (
-          <DynamicHome>
+          <DynamicScope variant="home">
             <CaseDashboard
               cases={cases}
               onOpen={openCase}
@@ -177,7 +177,7 @@ function App(): React.JSX.Element {
             <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
               <SearchBar caseSlug={null} onOpen={handleOpenHit} />
             </div>
-          </DynamicHome>
+          </DynamicScope>
         ) : view.kind === 'settings' ? (
           <SettingsView onClose={closeSettings} initialPage={view.page} />
         ) : view.kind === 'observability' ? (

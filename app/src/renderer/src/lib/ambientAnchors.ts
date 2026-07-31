@@ -11,7 +11,7 @@ const noop = (): void => undefined
 
 /**
  * Default no-ops so CaseDashboard can attach its anchor refs unconditionally —
- * outside a dynamic DynamicHome (classic mode, tests) they simply go nowhere.
+ * outside a dynamic DynamicScope (classic mode, tests) they simply go nowhere.
  */
 export const AmbientAnchorContext = createContext<AmbientAnchors>({
   setHero: noop,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach } from 'vitest'
-import { DynamicHome } from '../DynamicHome'
+import { DynamicScope } from '../DynamicScope'
 import { uiStore } from '../../lib/uiStore'
 
 beforeEach(() => {
@@ -10,12 +10,12 @@ beforeEach(() => {
   uiStore.setTheme('dark')
 })
 
-describe('DynamicHome', () => {
+describe('DynamicScope — home variant', () => {
   it('off (default): children render with no wrapper, no canvas, no grain', () => {
     render(
-      <DynamicHome>
+      <DynamicScope variant="home">
         <span>inner</span>
-      </DynamicHome>
+      </DynamicScope>
     )
     expect(screen.getByText('inner')).toBeTruthy()
     expect(screen.queryByTestId('dynamic-home')).toBeNull()
@@ -23,25 +23,26 @@ describe('DynamicHome', () => {
     expect(screen.queryByTestId('ambient-canvas')).toBeNull()
   })
 
-  it('on: scope class, ambient layer (jsdom fallback path), and grain mount', () => {
+  it('on: token scope + variant class, ambient layer (jsdom fallback), grain', () => {
     uiStore.setDynamicTheme(true)
     render(
-      <DynamicHome>
+      <DynamicScope variant="home">
         <span>inner</span>
-      </DynamicHome>
+      </DynamicScope>
     )
-    expect(screen.getByTestId('dynamic-home').className).toContain('dynamic-home')
-    expect(screen.getByTestId('dynamic-home').className).toContain('bg-void')
+    const root = screen.getByTestId('dynamic-home')
+    expect(root.className).toContain('dyn ')
+    expect(root.className).toContain('dyn-home')
+    expect(root.className).toContain('bg-void')
     expect(screen.getByTestId('ambient-fallback')).toBeTruthy()
-    expect(screen.getByText('inner')).toBeTruthy()
     expect(document.querySelector('.dyn-grain')).not.toBeNull()
   })
 
   it('reacts live to the store toggling', () => {
     render(
-      <DynamicHome>
+      <DynamicScope variant="home">
         <span>inner</span>
-      </DynamicHome>
+      </DynamicScope>
     )
     expect(screen.queryByTestId('dynamic-home')).toBeNull()
     act(() => uiStore.setDynamicTheme(true))

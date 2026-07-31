@@ -4,11 +4,12 @@
    keyframed gradients) don't fit Tailwind utility form, and plain CSS is emitted
    unconditionally — no stale-CSS-under-HMR trap for brand-new classes.
 
-   Everything is scoped under .dynamic-home. theme.css maps every Tailwind color
-   through raw vars (@theme inline), so re-declaring the raw vars here restyles
-   every utility inside the scope and nothing outside it. */
+   Everything is scoped under .dyn; per-view rules under .dyn-home / .dyn-case /
+   .dyn-settings. theme.css maps every Tailwind color through raw vars (@theme
+   inline), so re-declaring the raw vars here restyles every utility inside the
+   scope and nothing outside it. */
 
-.dynamic-home {
+.dyn {
   /* ── dark tokens (the design reference, ported from the mock) ── */
   --void: #000000;
   --bg-1: #000000;
@@ -62,7 +63,7 @@
   --grain-op: 0.035;
 }
 
-:root[data-theme='light'] .dynamic-home {
+:root[data-theme='light'] .dyn {
   /* ── light tokens — NEW design (spec §6), not the mock's light mode. ──
      The mock's glass-on-light physics are kept (they are the only way glass
      reads on light): tinted ground below the glass in luminance, panes lifted
@@ -124,7 +125,7 @@
 
 /* ── ambient canvas + fallback ─────────────────────────────────────────── */
 
-.dynamic-home .dyn-ambient {
+.dyn-home .dyn-ambient {
   position: absolute;
   top: 0;
   left: 0;
@@ -134,7 +135,7 @@
 }
 
 /* WebGL unavailable (old GPU, context lost, jsdom) → static CSS light */
-.dynamic-home .dyn-ambient-fallback {
+.dyn-home .dyn-ambient-fallback {
   position: absolute;
   top: 0;
   left: 0;
@@ -150,7 +151,7 @@
 
 /* ── film grain ────────────────────────────────────────────────────────── */
 
-.dynamic-home .dyn-grain {
+.dyn-home .dyn-grain {
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -187,7 +188,7 @@
 
 /* ── liquid glass card ─────────────────────────────────────────────────── */
 
-.dynamic-home .glass-card {
+.dyn-home .glass-card {
   position: relative;
   --mx: 50%;
   --my: 50%;
@@ -233,7 +234,7 @@
   }
 }
 
-.dynamic-home .glass-card:hover {
+.dyn-home .glass-card:hover {
   transform: translateY(-5px);
   border-color: var(--glass-border-h);
   backdrop-filter: var(--glass-filter-h);
@@ -248,13 +249,13 @@
 }
 
 /* content sits above the ring/sheen/rail layers */
-.dynamic-home .glass-card > *:not(.gc-ring):not(.gc-sheen):not(.gc-rail) {
+.dyn-home .glass-card > *:not(.gc-ring):not(.gc-sheen):not(.gc-rail) {
   position: relative;
   z-index: 1;
 }
 
 /* border light — a 1px ring lit around the cursor, via mask-composite */
-.dynamic-home .glass-card .gc-ring {
+.dyn-home .glass-card .gc-ring {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -277,12 +278,12 @@
   transition: opacity 0.38s ease;
   pointer-events: none;
 }
-.dynamic-home .glass-card:hover .gc-ring {
+.dyn-home .glass-card:hover .gc-ring {
   opacity: 1;
 }
 
 /* interior sheen pooled under the cursor */
-.dynamic-home .glass-card .gc-sheen {
+.dyn-home .glass-card .gc-sheen {
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -296,20 +297,20 @@
   transition: opacity 0.38s ease;
   pointer-events: none;
 }
-.dynamic-home .glass-card:hover .gc-sheen {
+.dyn-home .glass-card:hover .gc-sheen {
   opacity: 1;
 }
 
 /* priority accent rail — only on cards that need attention (CaseCard decides).
    Colored via data-tier rather than an inline var(): the mapping stays next to
    the tokens, and jsdom's cssstyle can't silently drop it in tests. */
-.dynamic-home .gc-rail[data-tier='p1'] {
+.dyn-home .gc-rail[data-tier='p1'] {
   background: var(--p1);
 }
-.dynamic-home .gc-rail[data-tier='p2'] {
+.dyn-home .gc-rail[data-tier='p2'] {
   background: var(--p2);
 }
-.dynamic-home .gc-rail[data-tier='p3'] {
+.dyn-home .gc-rail[data-tier='p3'] {
   background: var(--p3);
 }
 
@@ -318,7 +319,7 @@
    utility's background-color; the scoped two-class selector out-specifies
    single-class utilities for color/border. Static gradient at rest; on hover
    only background-position animates, so it stays cheap. */
-.dynamic-home .dyn-btn-primary {
+.dyn-home .dyn-btn-primary {
   border-color: transparent;
   color: #2a1602;
   font-weight: 500;
@@ -329,7 +330,7 @@
     0 0 0 1px rgba(255, 180, 70, 0.3),
     0 10px 26px -14px rgba(255, 150, 40, 0.75);
 }
-.dynamic-home .dyn-btn-primary:hover {
+.dyn-home .dyn-btn-primary:hover {
   background-image: linear-gradient(
     115deg,
     #ffe07a 0%,
@@ -360,14 +361,14 @@
 /* ── reduced motion ────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .dynamic-home .glass-card {
+  .dyn-home .glass-card {
     animation: none;
     opacity: 1;
   }
-  .dynamic-home .dyn-grain {
+  .dyn-home .dyn-grain {
     animation: none;
   }
-  .dynamic-home .dyn-btn-primary:hover {
+  .dyn-home .dyn-btn-primary:hover {
     animation: none;
   }
 }
