@@ -18,23 +18,29 @@ export function SyncBadge({ c }: { c: CaseRecord }): React.JSX.Element | null {
   // No ticket, no sync to report. An empty slot here is correct, not a gap.
   if (!c.jiraKey) return null
 
-  const age = c.jiraSyncedAt ? formatSyncAge(c.jiraSyncedAt) : null
-  const stamp = c.jiraSyncedAt ? new Date(c.jiraSyncedAt).toLocaleString() : 'never synced'
-
   if (c.lastSyncError) {
+    // The failure's OWN timestamp, not the last successful sync — setCaseSyncState
+    // deliberately leaves jira_synced_at alone on failure, so that field is the last time
+    // things worked, not the thing being reported here. A case whose last success was
+    // days ago and which broke minutes ago must read the minutes, not the days. The
+    // last-success time is still worth knowing, so it moves to the tooltip instead.
+    const age = formatSyncAge(c.lastSyncError.at)
+    const lastSuccess = c.jiraSyncedAt
+      ? `last success: ${new Date(c.jiraSyncedAt).toLocaleString()}`
+      : 'never synced'
     return (
       <span
         data-testid="sync-badge"
-        title={`sync failed — ${c.lastSyncError.code}: ${c.lastSyncError.message} (last success: ${stamp})`}
+        title={`sync failed — ${c.lastSyncError.code}: ${c.lastSyncError.message} (${lastSuccess})`}
         className="flex shrink-0 items-center gap-1 text-danger"
       >
         <TriangleAlert size={12} aria-hidden="true" />
-        {age ? `failed ${age}` : 'failed'}
+        {`failed ${age}`}
       </span>
     )
   }
 
-  if (!age) {
+  if (!c.jiraSyncedAt) {
     return (
       <span
         data-testid="sync-badge"
@@ -50,11 +56,11 @@ export function SyncBadge({ c }: { c: CaseRecord }): React.JSX.Element | null {
   return (
     <span
       data-testid="sync-badge"
-      title={`Last synced ${stamp}`}
+      title={`Last synced ${new Date(c.jiraSyncedAt).toLocaleString()}`}
       className="flex shrink-0 items-center gap-1 text-mute"
     >
       <CircleCheck size={12} aria-hidden="true" />
-      {age}
+      {formatSyncAge(c.jiraSyncedAt)}
     </span>
   )
 }
