@@ -82,28 +82,33 @@ export function draftRows(
     }))
 }
 
-/** Title and description hits count for less than a name hit, so typing a filename does not put
- *  some other file's prose above it. */
-const SECONDARY = 0.5
-
+/** A title or description hit counts for less than a name hit, so typing a filename does not put
+ *  some other file's prose above it. This used to be expressed as a multiplier on the score, but
+ *  `fuzzyMatch` can return a negative score (its lead-in penalty can outweigh its bonuses), and
+ *  multiplying a negative score by a fraction moves it *toward* zero — i.e. makes a weak title
+ *  hit look stronger, the opposite of a discount. So the preference is instead an explicit
+ *  ranking key (`nameMatched`) ahead of the score, and the score itself is left raw. */
 export function rankAssets(rows: readonly AssetRow[], query: string): AssetRow[] {
   if (query === '') return rows.slice().sort(draftsLast)
-  const scored: { row: AssetRow; score: number }[] = []
+  const scored: { row: AssetRow; score: number; nameMatched: boolean }[] = []
   for (const row of rows) {
     const name = fuzzyMatch(query, row.name)
     const title = row.title ? fuzzyMatch(query, row.title) : null
     const desc = row.description ? fuzzyMatch(query, row.description) : null
     const score = Math.max(
       name ? name.score : -Infinity,
-      title ? title.score * SECONDARY : -Infinity,
-      desc ? desc.score * SECONDARY : -Infinity
+      title ? title.score : -Infinity,
+      desc ? desc.score : -Infinity
     )
-    if (score !== -Infinity) scored.push({ row, score })
+    if (score !== -Infinity) scored.push({ row, score, nameMatched: name !== null })
   }
   return scored
     .sort(
       (a, b) =>
-        draftsLast(a.row, b.row) || b.score - a.score || a.row.name.localeCompare(b.row.name)
+        draftsLast(a.row, b.row) ||
+        Number(b.nameMatched) - Number(a.nameMatched) ||
+        b.score - a.score ||
+        a.row.name.localeCompare(b.row.name)
     )
     .map((s) => s.row)
 }

@@ -147,6 +147,25 @@ describe('rankAssets', () => {
     // 'jira' is a better literal match on the draft's name than on the reference's.
     expect(rankAssets(rows, 'jira').map((r) => r.kind)).toEqual(['reference', 'draft'])
   })
+
+  it('ranks a name hit above a title-only hit even when both raw scores are negative', () => {
+    // Reproduces the reviewer's finding empirically: query 'z' against 'mmmmmmmmmmz' scores -4
+    // (a late, non-boundary match whose lead-in penalty outweighs its bonuses). Multiplying that
+    // -4 by the old SECONDARY factor moved it toward zero, so a title-only hit outranked a
+    // name hit. With no multiplier, both rows raw-score -4, and only the explicit name-matched
+    // priority keeps the name hit on top.
+    const nameHit = { ...corpusRows(CORPUS)[0]!, name: 'mmmmmmmmmmz', title: '', description: '' }
+    const titleHit = {
+      ...corpusRows(CORPUS)[1]!,
+      name: 'no-such-letter',
+      title: 'mmmmmmmmmmz',
+      description: ''
+    }
+    expect(rankAssets([titleHit, nameHit], 'z').map((r) => r.name)).toEqual([
+      'mmmmmmmmmmz',
+      'no-such-letter'
+    ])
+  })
 })
 
 describe('rankCommands', () => {
