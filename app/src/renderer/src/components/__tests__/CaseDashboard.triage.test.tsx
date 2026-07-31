@@ -283,4 +283,16 @@ describe('CaseDashboard triage', () => {
     render(<CaseDashboard cases={[mkCase({ status: 'rca-drafted' })]} {...noopHandlers} />)
     expect(screen.getByText('RCA drafted')).toBeTruthy()
   })
+
+  it('clamps the title to two lines so one long title cannot desync a grid row', () => {
+    render(
+      <CaseDashboard
+        cases={[mkCase({ title: 'CLONE - [NAV]Stopover reached too early and route missing' })]}
+        {...noopHandlers}
+      />
+    )
+    const title = screen.getByTestId('case-title')
+    expect(title.className).toContain('line-clamp-2')
+    expect(title.textContent).toBe('CLONE - [NAV]Stopover reached too early and route missing')
+  })
 })

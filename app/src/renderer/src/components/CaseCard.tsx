@@ -79,7 +79,7 @@ export function CaseCard({
       onClick={() => onOpen(c.slug)}
       variant={dynamic ? 'glass' : 'default'}
       style={dynamic ? ({ '--d': `${50 + index * 40}ms` } as React.CSSProperties) : undefined}
-      className="group relative flex flex-col gap-2 overflow-hidden p-4"
+      className="group relative flex min-h-[186px] flex-col gap-2 overflow-hidden p-4"
     >
       {showRail && (
         <i data-testid="priority-rail" data-tier={tier} aria-hidden="true" className="gc-rail" />
@@ -119,7 +119,13 @@ export function CaseCard({
           </span>
         </span>
       </div>
-      <div className="text-sm text-ink">{c.title}</div>
+      <h2
+        data-testid="case-title"
+        title={c.title}
+        className="line-clamp-2 text-[17px] leading-snug font-normal text-ink"
+      >
+        {c.title}
+      </h2>
       {actions.length + infos.length > 0 && (
         <div data-testid="action-items" className="flex flex-wrap items-center gap-1.5">
           {actions.map((i) => (
