@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { createElectronUpdaterBackend, type AutoUpdaterLike } from '../electronUpdaterBackend'
 
 /** Minimal EventEmitter-shaped stand-in for electron-updater's autoUpdater. */
-function fakeAu(): AutoUpdaterLike & { emit: (e: string, arg?: unknown) => void } {
+function fakeAu(): AutoUpdaterLike & {
+  emit: (e: string, arg?: unknown) => void
+  listenerCount: (event: string) => number
+} {
   const handlers = new Map<string, Set<(payload: unknown) => void>>()
   return {
     autoDownload: true,
@@ -22,6 +25,9 @@ function fakeAu(): AutoUpdaterLike & { emit: (e: string, arg?: unknown) => void 
     },
     emit(event, arg) {
       for (const cb of [...(handlers.get(event) ?? [])]) cb(arg)
+    },
+    listenerCount(event) {
+      return handlers.get(event)?.size ?? 0
     }
   }
 }
@@ -73,9 +79,29 @@ describe('createElectronUpdaterBackend', () => {
     const first = b.check()
     au.emit('update-not-available')
     await first
+    // Assert listener counts are back to 0 after the first check settles — cleanup occurred
+    expect(au.listenerCount('update-available')).toBe(0)
+    expect(au.listenerCount('update-not-available')).toBe(0)
+    expect(au.listenerCount('error')).toBe(0)
+
     const second = b.check()
     au.emit('update-available', { version: '2.0.0' })
     await expect(second).resolves.toEqual({ version: '2.0.0', notes: undefined })
+  })
+
+  it('rejects when checkForUpdates() itself fails', async () => {
+    const au = fakeAu()
+    au.checkForUpdates = vi.fn(async () => {
+      throw new Error('network down')
+    })
+    const b = createElectronUpdaterBackend(au)
+    const p = b.check()
+    // No event is emitted; rejection comes directly from checkForUpdates
+    await expect(p).rejects.toThrow('network down')
+    // Assert listener counts are back to 0 after rejection — cleanup occurred on this path too
+    expect(au.listenerCount('update-available')).toBe(0)
+    expect(au.listenerCount('update-not-available')).toBe(0)
+    expect(au.listenerCount('error')).toBe(0)
   })
 
   it('forwards rounded download progress', () => {
