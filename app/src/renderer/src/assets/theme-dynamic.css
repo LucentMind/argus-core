@@ -482,3 +482,12 @@
 .dyn .glass-panel[data-tier='p2']::after {
   background: var(--p2);
 }
+
+/* ── settings ──────────────────────────────────────────────────────────── */
+
+/* same rule as the case rails: the tall column goes to ground, the cards in
+   the content area carry the material */
+.dyn-settings .dyn-rail {
+  background: transparent;
+  border-color: var(--panel-border);
+}

@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronDown, Eraser } from 'lucide-react'
 import { Card, IconBtn, SectionLabel } from '../ui'
 import { blurOnEscape } from '../../lib/escapeLayer'
+import { uiStore } from '../../lib/uiStore'
 
 export const FIELD =
   'h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
@@ -67,6 +68,11 @@ export function SettingsSection({
   onToggle?: () => void
   children: ReactNode
 }): React.JSX.Element {
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
   const heading = (
     <SectionLabel>
       {title}
@@ -98,7 +104,11 @@ export function SettingsSection({
         {action}
       </div>
       {subtitle && <p className="text-xs text-mute">{subtitle}</p>}
-      {!collapsed && <Card className="flex flex-col divide-y divide-hair">{children}</Card>}
+      {!collapsed && (
+        <Card className={`flex flex-col divide-y divide-hair ${dynamic ? 'glass-panel' : ''}`}>
+          {children}
+        </Card>
+      )}
     </section>
   )
 }

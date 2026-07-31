@@ -1,9 +1,10 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useState, useSyncExternalStore } from 'react'
 import { visiblePages, type PageId } from './settingsPages'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
 import { useAmbientAnchors } from '../../lib/ambientAnchors'
+import { uiStore } from '../../lib/uiStore'
 import type { ProposalType } from '../../../../shared/proposals'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
@@ -62,6 +63,11 @@ export function SettingsView({
   // Read before the deep link resolves: the dev-tools gate decides which pages a link may
   // reach, so `payload` has to be in hand first.
   const payload = useSettingsPayload()
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
   const devTools = Boolean(payload?.devTools)
   const init = resolveDeepLink(initialPage, devTools)
   const [page, setPage] = useState<PageId>(init.page)
@@ -131,7 +137,7 @@ export function SettingsView({
       <div className="flex min-h-0 flex-1">
         <nav
           aria-label="Settings sections"
-          className="flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair bg-deep p-3"
+          className={`flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
         >
           {/* `pages`, not PAGES — the group-header lookup must read the same filtered array, or
               hiding the last page in a group leaves its heading behind with nothing under it. */}

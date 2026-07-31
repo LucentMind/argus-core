@@ -146,8 +146,11 @@ export class UiStore {
     this.setShowToolCalls(!this.state.showToolCalls)
   }
 
-  /** No cross-window broadcast on purpose: only the main window renders a dashboard,
-   *  so unlike `theme` there is nothing for the editor window to adopt. */
+  /** No cross-window broadcast: the editor window renders EditorApp, which is not
+   *  a dynamic-scoped view, so there is nothing for it to adopt. (The previous
+   *  reason — "only the main window renders a dashboard" — expired when the theme
+   *  reached the case view and Settings; the conclusion survived, the reason did
+   *  not.) Revisit if a second window ever renders a DynamicScope. */
   setDynamicTheme(on: boolean): void {
     this.set({ dynamicTheme: on })
     localStorage.setItem(KEYS.dynamicTheme, String(on))
