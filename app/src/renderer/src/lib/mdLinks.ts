@@ -17,19 +17,158 @@ export interface MdLink {
   target: string
 }
 
-// `(?<!!)` drops images. `[^\]\n]` keeps the label on one line, so an unclosed bracket cannot
-// swallow the rest of the file. The optional trailing group eats a `"title"` attribute.
-const LINK_RE = /(?<!!)\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"\n]*")?\)/g
+/**
+ * Strips an optional ` "title"` suffix off a raw destination string, returning just the target.
+ *
+ * Markdown allows `(target "title")`: whitespace, then a double-quoted title, right before the
+ * closing paren. We only recognize it in that exact shape — a bare literal search, not a regex,
+ * so there is nothing here that can backtrack.
+ */
+function stripTitle(rawDest: string): string {
+  let wsIndex = -1
+  for (let p = 0; p < rawDest.length; p++) {
+    const c = rawDest.charCodeAt(p)
+    if (c === 32 || c === 9) {
+      wsIndex = p
+      break
+    }
+  }
+  if (wsIndex === -1) return rawDest
 
+  let q = wsIndex
+  while (q < rawDest.length) {
+    const c = rawDest.charCodeAt(q)
+    if (c !== 32 && c !== 9) break
+    q++
+  }
+  if (rawDest[q] !== '"') return rawDest
+
+  const closeQuote = rawDest.indexOf('"', q + 1)
+  if (closeQuote === -1) return rawDest
+
+  // Anything after the closing quote must be trailing whitespace only, or this isn't a title.
+  for (let r = closeQuote + 1; r < rawDest.length; r++) {
+    const c = rawDest.charCodeAt(r)
+    if (c !== 32 && c !== 9) return rawDest
+  }
+  return rawDest.slice(0, wsIndex)
+}
+
+/**
+ * Finds every `[label](target)` construct in `doc` in a single left-to-right pass.
+ *
+ * This used to be one backtracking regex. A label pattern like `[^\]\n]*` scans to end-of-line
+ * looking for a `]` that may not exist, then backtracks through every sub-length it tried, for
+ * every `[` in the document — quadratic, and a document with many literal unclosed `[` (informal
+ * citations, `[TODO` notes, pasted text) could freeze the editor for seconds. The hand-rolled
+ * scanner below never backtracks: every index is visited a bounded number of times.
+ *
+ * Two things make that true even though it looks like nested loops:
+ *  - `nextCloseBracket` (finding the `]` that is followed by `(`) is driven by a cursor, `bp`,
+ *    that is shared across every `[` on the current line and only ever moves forward. A run of
+ *    unmatched `[` characters makes that cursor scan to end-of-line once, on behalf of the first
+ *    `[`; every later `[` on the same line gets an O(1) "already know there's nothing" answer
+ *    instead of re-scanning the region we already passed.
+ *  - `findDestEnd` (matching the destination's parens) is memoized against the single most
+ *    recent `]( ` position. Several `[` in a row can all propose the same `]( ` as their
+ *    candidate closing bracket (when none of them individually close first) — without the cache,
+ *    each would redo the same paren-depth scan over the same destination text.
+ */
 export function scanLinks(doc: string): MdLink[] {
   const out: MdLink[] = []
-  // A fresh RegExp per call: a module-level /g regex carries `lastIndex` between calls, which
-  // would make this return different results for the same input depending on call order.
-  const re = new RegExp(LINK_RE.source, 'g')
-  let m: RegExpExecArray | null
-  while ((m = re.exec(doc)) !== null) {
-    out.push({ from: m.index, to: m.index + m[0].length, target: m[1]! })
+  const len = doc.length
+
+  // State for the current line. Reset every time we cross a newline.
+  let lineEnd = 0
+  let bp = 0
+  let noMoreClose = false
+  let cachedCloseBracket = -1
+  let cachedDestEnd = -2
+
+  const startNewLine = (from: number): void => {
+    const nl = doc.indexOf('\n', from)
+    lineEnd = nl === -1 ? len : nl
+    bp = from
+    noMoreClose = false
+    cachedCloseBracket = -1
+    cachedDestEnd = -2
   }
+
+  // Finds the first index >= `from` (within the current line) where `]` is immediately
+  // followed by `(`. `bp` only ever moves forward, and is shared across every caller on this
+  // line, so the total work across all calls on one line is bounded by that line's length.
+  const nextCloseBracket = (from: number): number => {
+    if (noMoreClose) return -1
+    if (bp < from) bp = from
+    while (bp < lineEnd) {
+      if (doc[bp] === ']' && doc[bp + 1] === '(') return bp
+      bp++
+    }
+    noMoreClose = true
+    return -1
+  }
+
+  // Given the index of a qualifying `]`, finds the index of the matching `)` that closes the
+  // `(` two characters later, tracking paren depth so a balanced `(`/`)` pair inside the
+  // destination doesn't end it early. Returns -1 if the line ends first (unbalanced).
+  const findDestEnd = (closeBracket: number): number => {
+    if (closeBracket === cachedCloseBracket) return cachedDestEnd
+    let depth = 1
+    let k = closeBracket + 2
+    let result = -1
+    while (k < lineEnd) {
+      const c = doc[k]
+      if (c === '(') depth++
+      else if (c === ')') {
+        depth--
+        if (depth === 0) {
+          result = k
+          break
+        }
+      }
+      k++
+    }
+    cachedCloseBracket = closeBracket
+    cachedDestEnd = result
+    return result
+  }
+
+  startNewLine(0)
+
+  let i = 0
+  while (i < len) {
+    const ch = doc[i]
+    if (ch === '\n') {
+      i++
+      startNewLine(i)
+      continue
+    }
+    // An image (`![...]`) is skipped, not treated as a link.
+    if (ch !== '[' || (i > 0 && doc[i - 1] === '!')) {
+      i++
+      continue
+    }
+
+    const closeBracket = nextCloseBracket(i + 1)
+    if (closeBracket === -1) {
+      // No `]( ` anywhere left on this line — this `[`, and nothing after it on this line,
+      // can be a link start.
+      i++
+      continue
+    }
+
+    const destEnd = findDestEnd(closeBracket)
+    if (destEnd === -1) {
+      // Unbalanced destination parens before end of line: not a link at this position.
+      i++
+      continue
+    }
+
+    const rawDest = doc.slice(closeBracket + 2, destEnd)
+    out.push({ from: i, to: destEnd + 1, target: stripTitle(rawDest) })
+    i = destEnd + 1
+  }
+
   return out
 }
 
@@ -45,20 +184,28 @@ export function resolveLink(target: string, known: readonly string[]): string | 
   // Absolute URLs, protocol-relative URLs and absolute paths are all outside the editor's world.
   if (/^[a-z][a-z0-9+.-]*:/i.test(bare) || bare.startsWith('//') || bare.startsWith('/'))
     return null
-  let decoded: string
+  // Split on `/` *before* decoding. A percent-encoded slash (`%2F`) must stay a literal `%2F` in
+  // the path segmentation, not decode into a real separator — otherwise `a%2FINDEX.md` would be
+  // sliced as if it named `INDEX.md` in a different directory, and the click would open a file
+  // the raw markdown never named.
+  const rawBase = bare.split('/').pop() ?? ''
+  let base: string
   try {
-    decoded = decodeURIComponent(bare)
+    base = decodeURIComponent(rawBase)
   } catch {
     // A malformed escape is a broken link, not a crash.
     return null
   }
-  const base = decoded.split('/').pop() ?? ''
   if (!base.toLowerCase().endsWith('.md')) return null
   const exact = known.find((k) => k === base)
   if (exact) return exact
   // Case-insensitive fallback, returning the KNOWN spelling: reference filenames come off a
   // case-preserving, case-insensitive filesystem on Windows, so `routing.md` in prose and
   // `Routing.md` on disk are the same file and a case-exact match alone would flag it broken.
+  // This rests on that same case-insensitive-filesystem assumption for `known` itself: if `known`
+  // ever contained two entries differing only in case (which such a filesystem could not actually
+  // produce), `find` returns whichever one appears first in `known`, and the result is
+  // array-order-dependent.
   const lower = base.toLowerCase()
   return known.find((k) => k.toLowerCase() === lower) ?? null
 }
