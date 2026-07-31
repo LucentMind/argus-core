@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zodConfig'
 
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const
 export type PermissionMode = (typeof PERMISSION_MODES)[number]

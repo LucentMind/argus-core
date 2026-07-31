@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zodConfig'
 import {
   PERMISSION_MODES,
   type AppSettings,

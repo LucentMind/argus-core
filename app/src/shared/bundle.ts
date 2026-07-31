@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zodConfig'
 import type { CaseRecord } from './types'
 
 /** .arguscase container format version. Import refuses bundles with format > BUNDLE_FORMAT. */

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zodConfig'
 
 /**
  * Sparse access map (spec §1.1): a key is present only as an override.

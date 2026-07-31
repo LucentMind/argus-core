@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zodConfig'
 import type { FieldAnnotation } from './drivers'
 
 export const RISK_LEVELS = ['low', 'medium', 'high'] as const
