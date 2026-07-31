@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PrCompanionSection } from '../PrCompanionSection'
+import { BUCKET_TONE } from '../prCheckTone'
 import { prStatusStore } from '../../lib/prStatusStore'
 import { uiStore } from '../../lib/uiStore'
 import { confirm } from '../../lib/confirmStore'
@@ -306,6 +307,27 @@ describe('PrCompanionSection', () => {
     expect(screen.queryByRole('button', { name: 'Analyze pylint failure' })).not.toBeInTheDocument()
   })
 
+  // Stronger than asserting on the BUCKET_TONE constant in isolation: this renders both marks
+  // side by side and reads their actual classes off the DOM, so it would fail if CheckRow ever
+  // stopped applying the table (e.g. a future edit hardcodes the glyph colour again) even though
+  // the constant itself stayed correct.
+  it('paints the cancelled and failed marks in visibly different, non-alarm-vs-alarm colours', () => {
+    prStatusStore.hydrate({
+      c1: status({
+        checks: [
+          { name: 'build', bucket: 'fail', required: false, url: null, jobId: null },
+          { name: 'pylint', bucket: 'cancelled', required: false, url: null, jobId: null }
+        ]
+      })
+    })
+    render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
+    const failedMark = screen.getByText('✗')
+    const cancelledMark = screen.getByText('⊘')
+    expect(failedMark.className).not.toBe(cancelledMark.className)
+    expect(failedMark.className).toContain('danger')
+    expect(cancelledMark.className).not.toContain('danger')
+  })
+
   const mixed = (): PrStatus['checks'] => [
     { name: 'lint', bucket: 'pass', required: false, url: null, jobId: null },
     { name: 'build', bucket: 'fail', required: true, url: null, jobId: null },
@@ -428,6 +450,15 @@ describe('PrCompanionSection', () => {
     })
     render(<PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />)
     expect(screen.queryByRole('button', { name: /passed/i })).not.toBeInTheDocument()
+  })
+
+  it('renders cancelled distinctly from failed', () => {
+    const cancelled = BUCKET_TONE.cancelled
+    const failed = BUCKET_TONE.fail
+    expect(cancelled).not.toBe(failed)
+    // cancelled is not an alarm: it must not borrow the danger colour
+    expect(cancelled).not.toContain('danger')
+    expect(failed).toContain('danger')
   })
 
   it('dims a skipped check rather than giving it a third result colour', () => {

@@ -16,6 +16,7 @@ import { confirm } from '../lib/confirmStore'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { uiStore } from '../lib/uiStore'
 import { PrRollupDot } from './PrRollupDot'
+import { BUCKET_TONE } from './prCheckTone'
 import { Chip, IconBtn, SectionLabel, Skeleton } from './ui'
 
 /** Review mode refreshes fast because the user is watching this exact PR. */
@@ -98,12 +99,7 @@ function CheckRow({
         c.bucket === 'skipped' ? 'opacity-50' : ''
       }`}
     >
-      <span
-        aria-hidden="true"
-        className={
-          c.bucket === 'fail' ? 'text-danger' : c.bucket === 'pass' ? 'text-signal' : 'text-mute'
-        }
-      >
+      <span aria-hidden="true" className={BUCKET_TONE[c.bucket]}>
         {BUCKET_MARK[c.bucket]}
       </span>
       {c.url ? (
