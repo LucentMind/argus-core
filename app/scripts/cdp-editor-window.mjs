@@ -73,7 +73,7 @@ if (before.length === 0) {
 const main = await connect(before[0])
 await gotoLibrary(main)
 // aria-label is `Edit · <name>` (LibraryPage.tsx) — the middle dot is part of the label, so
-// strip it too or the textarea lookup below never matches.
+// strip it too or the .cm-content lookup below never matches.
 const assetLabel = await main.evalJs(
   `document.querySelector('[aria-label^="Edit \\u00b7 "]').getAttribute('aria-label').replace(/^Edit\\s*\\u00b7\\s*/, '')`
 )
@@ -87,7 +87,7 @@ const editorTarget = await waitFor('a second window', async () => {
 check('second window loads editor.html', !!editorTarget, editorTarget?.url)
 
 // --- 3. the editor window renders the asset ---
-// AssetEditor labels its textarea `${kind} · ${name}` — this is the assertion that would go red
+// CodeSurface labels `.cm-content` `${kind} · ${name}` — this is the assertion that would go red
 // if either half of the open-tab handshake regressed (main's flush, or the renderer's
 // module-scope subscription): the window would be up but empty.
 let editor = null
@@ -96,7 +96,7 @@ if (editorTarget) {
   editor = await connect(editorTarget)
   rendered = await waitFor('the asset to render in the editor window', async () =>
     editor.evalJs(
-      `!!document.querySelector('textarea[aria-label$=${JSON.stringify('· ' + assetLabel)}]')`
+      `!!document.querySelector('.cm-content[aria-label$=${JSON.stringify('· ' + assetLabel)}]')`
     )
   ).catch(() => false)
 }

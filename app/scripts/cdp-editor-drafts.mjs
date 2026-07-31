@@ -36,7 +36,17 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { listTargets as list, connect, sleep, waitFor, check, report } from './lib/cdp.mjs'
+import {
+  listTargets as list,
+  connect,
+  sleep,
+  waitFor,
+  check,
+  report,
+  SURFACE,
+  docText,
+  focusEnd
+} from './lib/cdp.mjs'
 
 const PORT = process.env.CDP_PORT || '9223'
 const HOME = process.env.ARGUS_HOME
@@ -103,7 +113,7 @@ const openEditor = async () => {
   })
   const editor = await connect(target)
   await waitFor('the asset to render', () =>
-    editor.evalJs(`!!document.querySelector('textarea[aria-label^="skill \\u00b7 "]')`)
+    editor.evalJs(`!!document.querySelector(${JSON.stringify(SURFACE)})`)
   )
   return { main, editor }
 }
@@ -113,14 +123,10 @@ if (PHASE === 'arm') {
 
   const { main, editor } = await openEditor()
 
-  // Type through the React value setter — assigning `.value` directly does not fire onChange.
-  await editor.evalJs(`(() => {
-    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
-    set.call(ta, ta.value + '\\n${MARKER}\\n')
-    ta.dispatchEvent(new Event('input', { bubbles: true }))
-    return true
-  })()`)
+  // Type through real Input events — a contenteditable cannot be typed into by assigning a
+  // property, and a value assignment reaches CodeMirror's DOM but never its state.
+  await focusEnd(editor)
+  await editor.insertText(`\n${MARKER}\n`)
 
   // Persist-before-adopt: the chip is driven by main's draft-saved message, so seeing it is
   // seeing a completed write — not a queued one.
@@ -145,13 +151,8 @@ if (PHASE === 'arm') {
   // in mainWindow.on('closed'): both calls run synchronously in the same tick, and before-quit
   // calls flushAll() again unconditionally regardless. That ordering is defensive rather than
   // load-bearing — main owns the debounce timer, so nothing here depends on which one runs first.
-  await editor.evalJs(`(() => {
-    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
-    set.call(ta, ta.value + 'TAIL')
-    ta.dispatchEvent(new Event('input', { bubbles: true }))
-    return true
-  })()`)
+  await focusEnd(editor)
+  await editor.insertText('TAIL')
   await main.evalJs(`window.close()`)
   await sleep(3000)
 
@@ -174,14 +175,12 @@ if (PHASE === 'check') {
 
   const { main, editor } = await openEditor()
 
-  // openEditor only waits for the textarea to exist; the content itself arrives later from an
-  // async load() prop, so wait for the marker to actually be in the value before asserting —
+  // openEditor only waits for the surface to exist; the content itself arrives later from an
+  // async load() prop, so wait for the marker to actually be in the document before asserting —
   // element-presence and content-settled are different moments, and only the latter is safe
   // to read.
   const value = await waitFor('the restored buffer to contain the typed marker', async () => {
-    const v = await editor.evalJs(
-      `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
-    )
+    const v = await docText(editor)
     return v.includes(MARKER) ? v : false
   })
   check('the restored buffer holds the typed text', value.includes(MARKER))
@@ -215,22 +214,15 @@ if (PHASE === 'compare') {
   // back rather than hardcoding a name so this does not assume which skill the scratch home
   // seeded.
   const skillName = await editor.evalJs(
-    `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').getAttribute('aria-label').replace(/^skill\\s*\\u00b7\\s*/, '')`
+    `document.querySelector(${JSON.stringify(SURFACE)}).getAttribute('aria-label').replace(/^skill\\s*\\u00b7\\s*/, '')`
   )
 
-  // 1. Type a marker into the buffer, through the React value setter (see the `arm` phase above
-  // for why a direct `.value` assignment does not fire onChange).
-  await editor.evalJs(`(() => {
-    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
-    set.call(ta, ta.value + '\\n${MARKER}\\n')
-    ta.dispatchEvent(new Event('input', { bubbles: true }))
-    return true
-  })()`)
+  // 1. Type a marker into the buffer, through real Input events (see the `arm` phase above for
+  // why a direct property assignment reaches CodeMirror's DOM but never its state).
+  await focusEnd(editor)
+  await editor.insertText(`\n${MARKER}\n`)
   const typed = await waitFor('the marker to land in the buffer', async () => {
-    const v = await editor.evalJs(
-      `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
-    )
+    const v = await docText(editor)
     return v.includes(MARKER) ? v : false
   })
   check('the marker was typed into the buffer', typed.includes(MARKER))
@@ -277,7 +269,7 @@ if (PHASE === 'compare') {
   check('the diff view appears after Compare', diffAppeared)
 
   const wrapperDisplayWhileComparing = await editor.evalJs(`(() => {
-    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
+    const ta = document.querySelector(${JSON.stringify(SURFACE)})
     let el = ta
     while (el && !el.classList.contains('hidden')) el = el.parentElement
     return el ? getComputedStyle(el).display : 'NO WRAPPER FOUND'
@@ -288,7 +280,7 @@ if (PHASE === 'compare') {
     wrapperDisplayWhileComparing
   )
 
-  // 5. Click Back; assert the textarea still contains the marker — the exact assertion that
+  // 5. Click Back; assert the surface still contains the marker — the exact assertion that
   // would have caught Finding 1's data-loss bug, where Back used to remount AssetEditor and
   // silently re-run `init.load`'s original closure, reverting every keystroke typed since the
   // tab opened — and that the wrapper is visible again.
@@ -298,9 +290,7 @@ if (PHASE === 'compare') {
     return true
   })()`)
   const valueAfterBack = await waitFor('the buffer after Back', async () => {
-    const v = await editor.evalJs(
-      `document.querySelector('textarea[aria-label^="skill \\u00b7 "]').value`
-    )
+    const v = await docText(editor)
     return v.length > 0 ? v : false
   })
   check(
@@ -310,7 +300,7 @@ if (PHASE === 'compare') {
   )
 
   const wrapperDisplayAfterBack = await editor.evalJs(`(() => {
-    const ta = document.querySelector('textarea[aria-label^="skill \\u00b7 "]')
+    const ta = document.querySelector(${JSON.stringify(SURFACE)})
     let el = ta
     while (el && !el.classList.contains('contents')) el = el.parentElement
     return el ? getComputedStyle(el).display : 'NO WRAPPER FOUND'
