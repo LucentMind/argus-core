@@ -63,3 +63,12 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # The bundler, not the source, creates the failure this catches: assets under
+      # `build.assetsInlineLimit` become `data:` URIs our CSP blocks, and dev never
+      # inlines, so typecheck/lint/test are all green while the packaged app drops the
+      # asset. Same shape as the v1.0.6 type error this workflow was written for — it
+      # would otherwise survive every commit and first appear in a release build.
+      # `npm run build` ends in scripts/check-renderer-csp.mjs.
+      - name: Build and check renderer CSP
+        run: npm run build

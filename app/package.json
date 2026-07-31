@@ -18,7 +18,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "test": "vitest run",
-    "build": "npm run typecheck && electron-vite build",
+    "build": "npm run typecheck && electron-vite build && node scripts/check-renderer-csp.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
