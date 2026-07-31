@@ -489,6 +489,27 @@ function registerIpc(): void {
   // an app-lifetime singleton like panelHost/externalAppHost above, not paired 1:1 with
   // mainWindow's create/destroy cycle. See mainWindow.on('closed', ...) in createWindow().
   const editorWindowStore = new EditorWindowStore(argusHome)
+  // Main owns the debounce, exactly as it does for `editor:draft-changed` (spec §4.2): the
+  // renderer sends on every cursor move and never waits on a write. 1s rather than the draft
+  // store's ~500ms — losing a cursor position is a smaller harm than losing text.
+  //
+  // Declared HERE, above the service, rather than beside its `EDITOR_IPC.tabsChanged` handler
+  // further down: `EditorWindowService.open` has to settle this before it reads the set back, so
+  // the service takes it as a dependency and it must exist by the time the service is built.
+  let tabsTimer: NodeJS.Timeout | null = null
+  let pendingTabs: PersistedTabs | null = null
+  const flushPendingTabs = (): void => {
+    if (tabsTimer) {
+      clearTimeout(tabsTimer)
+      tabsTimer = null
+    }
+    if (pendingTabs) {
+      editorWindowStore.saveTabs(pendingTabs)
+      pendingTabs = null
+    }
+  }
+  // Published to the module-scope handle the main-window `closed` and `before-quit` paths use.
+  flushTabs = flushPendingTabs
   editorWindowService = new EditorWindowService({
     createWindow: makeElectronEditorWindowFactory(join(__dirname, '../preload/index.js'), (w) => {
       if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -499,7 +520,8 @@ function registerIpc(): void {
     }),
     loadBounds: () => editorWindowStore.load(),
     saveBounds: (b) => editorWindowStore.save(b),
-    loadTabs: () => editorWindowStore.loadTabs()
+    loadTabs: () => editorWindowStore.loadTabs(),
+    flushTabs: flushPendingTabs
   })
   draftStore = new DraftStore({ argusHome })
   draftStore.onSaved((rec) => {
@@ -1621,21 +1643,6 @@ function registerIpc(): void {
     return draftStore?.adopt(req.legacy, req.change) ?? false
   })
 
-  // Main owns the debounce, exactly as it does for `editor:draft-changed` (spec §4.2): the
-  // renderer sends on every cursor move and never waits on a write. 1s rather than the draft
-  // store's ~500ms — losing a cursor position is a smaller harm than losing text.
-  let tabsTimer: NodeJS.Timeout | null = null
-  let pendingTabs: PersistedTabs | null = null
-  flushTabs = (): void => {
-    if (tabsTimer) {
-      clearTimeout(tabsTimer)
-      tabsTimer = null
-    }
-    if (pendingTabs) {
-      editorWindowStore.saveTabs(pendingTabs)
-      pendingTabs = null
-    }
-  }
   ipcMain.on(EDITOR_IPC.tabsChanged, (_e, tabs: PersistedTabs) => {
     pendingTabs = tabs
     if (tabsTimer) clearTimeout(tabsTimer)

@@ -28,6 +28,17 @@ export interface EditorWindowDeps {
   loadBounds: () => WindowBounds | null
   saveBounds: (bounds: WindowBounds) => void
   loadTabs: () => PersistedTabs | null
+  /**
+   * Write main's debounced tab set to disk NOW.
+   *
+   * `loadTabs` reads a file, and main holds the last ~1s of tab changes in memory before writing
+   * it. Close your last tab and then close the window inside that second, and the next `open()`
+   * restores the pre-close state — resurrecting exactly the tabs the user had just closed, the
+   * failure the restore-on-creation comment below exists to avoid. Main stays the debounce owner
+   * (spec §4.2's policy); this is only a "settle before you read" handshake, and it is emphatically
+   * not a renderer-side flush — the renderer's window may already be gone by then.
+   */
+  flushTabs: () => void
 }
 
 /**
@@ -82,6 +93,12 @@ export class EditorWindowService {
       // live window would resurrect tabs the user had just closed. The order matters too —
       // the renderer dedupes on open, so restore-then-open focuses the clicked asset when it
       // was already among the restored tabs instead of opening a duplicate.
+      //
+      // Settled before it is read: the set main is still holding in memory is newer than the file
+      // `loadTabs` reads, and reopening inside the debounce window would otherwise resurrect the
+      // tabs the user had just closed — the very failure this restore exists to avoid. See
+      // `flushTabs` on the deps.
+      this.deps.flushTabs()
       const restored = this.deps.loadTabs()
       if (restored && restored.tabs.length > 0) win.send(EDITOR_IPC.restoreTabs, restored)
     } else {

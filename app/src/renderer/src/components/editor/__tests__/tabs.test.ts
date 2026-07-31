@@ -4,6 +4,7 @@ import {
   openTab,
   closeTab,
   activateTab,
+  markTabSaved,
   renameTab,
   replaceTab,
   setTabDirty,
@@ -123,6 +124,58 @@ describe('renameTab', () => {
   })
 })
 
+// Finding 1: nothing used to flip `mode`, so a saved create-mode tab stayed a create-mode tab —
+// which duplicated on the next Library *Edit* and replayed create mode over a real file after a
+// restart.
+describe('markTabSaved', () => {
+  const CREATE = { kind: 'skill', name: 'brand-new', mode: 'create' } as const
+
+  it('turns a saved create-mode tab into an edit-mode one, in place', () => {
+    const s = openTab(emptyTabs, CREATE)
+    const after = markTabSaved(s, s.tabs[0].id, 'brand-new')
+    expect(after.tabs[0].mode).toBe('edit')
+    // The id must survive, or the surface remounts and the undo history goes with it.
+    expect(after.tabs[0].id).toBe(s.tabs[0].id)
+  })
+
+  it('adopts the name the save actually used', () => {
+    const s = openTab(emptyTabs, CREATE)
+    const after = markTabSaved(s, s.tabs[0].id, 'renamed-before-saving')
+    expect(after.tabs[0].name).toBe('renamed-before-saving')
+  })
+
+  // `req` is what AssetTab resolves disk and the draft against. Moving it would re-run that
+  // resolve under a live CodeMirror — see the note on `markTabSaved`.
+  it('leaves the frozen request alone, mode included', () => {
+    const s = openTab(emptyTabs, CREATE)
+    const after = markTabSaved(s, s.tabs[0].id, 'brand-new')
+    expect(after.tabs[0].req).toEqual(CREATE)
+  })
+
+  // Half (a) of the finding: `sameAsset` includes `mode`, so without the flip an Edit click on
+  // the just-created asset mints a SECOND tab over the same file — and one draft key.
+  it('makes a later edit-mode open of the same asset focus rather than duplicate', () => {
+    const opened = openTab(emptyTabs, CREATE)
+    const s = markTabSaved(opened, opened.tabs[0].id, 'brand-new')
+    const again = openTab(s, { kind: 'skill', name: 'brand-new', mode: 'edit' })
+    expect(again.tabs).toHaveLength(1)
+    expect(again.activeId).toBe(s.tabs[0].id)
+  })
+
+  it('leaves an edit-mode tab untouched, identity included', () => {
+    const s = openTab(emptyTabs, SKILL)
+    const after = markTabSaved(s, s.tabs[0].id, 'my-skill')
+    // Identity, not just equality: `TabPane` is memoized on it, and a fresh object every save
+    // would re-render every mounted pane.
+    expect(after.tabs[0]).toBe(s.tabs[0])
+  })
+
+  it('ignores an id that is not open', () => {
+    const s = openTab(emptyTabs, SKILL)
+    expect(markTabSaved(s, 'nope', 'x')).toEqual(s)
+  })
+})
+
 describe('replaceTab', () => {
   // "Edit a copy": the fork lands under a new name, and the tab must become a NEW tab (new id)
   // so the surface remounts editable — see deviation 1.
@@ -142,6 +195,34 @@ describe('replaceTab', () => {
   it('activates the replacement', () => {
     const s = openTab(openTab(emptyTabs, SKILL), OTHER)
     const after = replaceTab(s, s.tabs[0].id, { kind: 'skill', name: 'copy', mode: 'edit' })
+    expect(after.activeId).toBe(after.tabs[0].id)
+  })
+
+  // Finding 2: `replaceTab` minted unconditionally, so forking onto a name that is ALREADY open
+  // produced two tabs over one file — same shared draft key and stale `baseHash` as a duplicated
+  // create-mode tab. Worse, restore folds the persisted duplicate back through `openTab`, so the
+  // tab COUNT changed across a restart.
+  it('folds into the existing tab when the replacement is already open', () => {
+    const s = openTab(openTab(emptyTabs, SKILL), OTHER)
+    const after = replaceTab(s, s.tabs[1].id, SKILL)
+    expect(after.tabs).toHaveLength(1)
+    expect(after.tabs[0].id).toBe(s.tabs[0].id)
+  })
+
+  it('activates the tab it folded into', () => {
+    const s = openTab(openTab(emptyTabs, SKILL), OTHER)
+    const after = replaceTab(s, s.tabs[1].id, SKILL)
+    expect(after.activeId).toBe(s.tabs[0].id)
+  })
+
+  // A reference CLAIM replaces a tab with its own kind/name/mode. Matching the tab being replaced
+  // against itself would close it instead of re-minting it.
+  it('still re-mints when the replacement matches only the tab being replaced', () => {
+    const s = openTab(openTab(emptyTabs, REF), OTHER)
+    const after = replaceTab(s, s.tabs[0].id, REF)
+    expect(after.tabs).toHaveLength(2)
+    expect(after.tabs[0].name).toBe('notes.md')
+    expect(after.tabs[0].id).not.toBe(s.tabs[0].id)
     expect(after.activeId).toBe(after.tabs[0].id)
   })
 

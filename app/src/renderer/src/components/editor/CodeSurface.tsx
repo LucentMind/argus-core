@@ -30,10 +30,9 @@ export interface CodeSurfaceProps {
   commands: SurfaceCommands
   onDocChange: (doc: string) => void
   onCursor: (info: CursorInfo) => void
-  /** Fires on scroll, as a 0–1 fraction, for the split preview's scroll sync. */
+  /** Fires on scroll, as a 0–1 fraction, for the split preview's scroll sync. Output only —
+   *  scrolling the surface TO a fraction is `SurfaceHandle.scrollTo`, not a prop. */
   onScrollFraction?: (fraction: number) => void
-  /** Scroll to this fraction when it changes and the change did not come from here. */
-  scrollFraction?: number
   /**
    * **Live**, not mount-only — reconfigured through `readOnlyCompartment` whenever it changes.
    *
@@ -76,7 +75,6 @@ export function CodeSurface({
   onDocChange,
   onCursor,
   onScrollFraction,
-  scrollFraction,
   readOnly = false,
   ref
 }: CodeSurfaceProps): React.JSX.Element {
@@ -100,11 +98,6 @@ export function CodeSurface({
   useEffect(() => {
     commandsRef.current = commands
   }, [commands])
-
-  /** Set while this component is applying an incoming `scrollFraction`, so the scroll event it
-   *  causes is not reported straight back out as user scrolling — which would make the two panes
-   *  chase each other. */
-  const applyingScroll = useRef(false)
 
   useEffect(() => {
     const host = hostRef.current
@@ -136,7 +129,6 @@ export function CodeSurface({
 
     const scroller = view.scrollDOM
     const report = (): void => {
-      if (applyingScroll.current) return
       onScrollRef.current?.(scrollFractionOf(scroller))
     }
     scroller.addEventListener('scroll', report, { passive: true })
@@ -233,22 +225,6 @@ export function CodeSurface({
       effects: readOnlyCompartment.reconfigure(readOnlyExtension(readOnly))
     })
   }, [readOnly])
-
-  useEffect(() => {
-    const view = viewRef.current
-    if (!view || scrollFraction === undefined) return
-    const scroller = view.scrollDOM
-    const range = scroller.scrollHeight - scroller.clientHeight
-    if (range <= 0) return
-    applyingScroll.current = true
-    scroller.scrollTop = scrollFraction * range
-    // Cleared on the next frame, not synchronously: the scroll event this assignment queues is
-    // dispatched asynchronously, so clearing the flag now would let it through and start the
-    // two panes chasing each other.
-    requestAnimationFrame(() => {
-      applyingScroll.current = false
-    })
-  }, [scrollFraction])
 
   return <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
 }

@@ -543,6 +543,52 @@ describe('dirty aggregation', () => {
   })
 })
 
+// Finding 1. Nothing flipped `Tab.mode`, so a create-mode tab stayed create-mode for ever after
+// its save. Both halves are here: the duplicate on a later Library *Edit*, and the `mode: 'create'`
+// that restore would replay over a file that now holds real content.
+describe('a create-mode tab that has been saved', () => {
+  const CREATE: EditorOpenRequest = { kind: 'skill', name: 'brand-new', mode: 'create' }
+
+  /** Open a create-mode tab over an asset that genuinely does not exist yet, and save it. The
+   *  read has to fail: `beforeEach` seeds `skills.read` to resolve with a file, and a create-mode
+   *  pane over a "file" whose frontmatter names a different skill fails validation, so Save would
+   *  never run. */
+  const createAndSave = async (): Promise<void> => {
+    window.argus.skills.read = vi.fn().mockRejectedValue(new Error('ENOENT'))
+    render(<EditorApp />)
+    act(() => openTab!(CREATE))
+    await screen.findByLabelText('skill · brand-new')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalled())
+  }
+
+  it('does not open a second tab when the new asset is then opened for editing', async () => {
+    await createAndSave()
+
+    act(() => openTab!({ kind: 'skill', name: 'brand-new', mode: 'edit' }))
+    await act(async () => {})
+
+    // Two tabs over one file share a draft (`draftKey` is `kind:name` only) and leave each
+    // other's `baseHash` stale, which shows up as a conflict banner for a save that worked.
+    expect(screen.getAllByRole('tab')).toHaveLength(1)
+  })
+
+  // The persisted half. A restored `mode: 'create'` tab resolves the REAL disk content into a
+  // create-mode pane whose `lastSaved` is null again — one keystroke in the name field then
+  // replaced the saved body with boilerplate and filed the boilerplate as the draft.
+  it('is persisted as an edit-mode tab, so a restart cannot replay create mode over it', async () => {
+    await createAndSave()
+
+    await waitFor(() =>
+      expect(tabsChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          tabs: [expect.objectContaining({ name: 'brand-new', mode: 'edit' })]
+        })
+      )
+    )
+  })
+})
+
 describe('tab labels', () => {
   it('follows a create-mode rename in the strip', async () => {
     render(<EditorApp />)
@@ -670,6 +716,27 @@ describe('Edit a copy', () => {
     await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
     await screen.findByRole('tab', { name: /my-copy/ })
     expect(screen.getAllByRole('tab')).toHaveLength(1)
+  })
+
+  // Finding 2. The test above picks a NEW name on purpose, which is exactly why it could not see
+  // this: `replaceTab` minted unconditionally, so forking onto a name ALREADY open gave two tabs
+  // over one file. The persisted set carried the duplicate and restore silently merged it back,
+  // so the tab count changed across a restart.
+  it('folds into the tab that is already open when the fork lands on its name', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const field = await screen.findByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'my-skill')
+
+    await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
+    await waitFor(() => expect(window.argus.skills.fork).toHaveBeenCalledWith('theirs', 'my-skill'))
+
+    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(1))
+    expect(screen.getByRole('tab', { name: /my-skill/ })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('claims a reference in place and keeps its name', async () => {

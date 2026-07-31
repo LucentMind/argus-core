@@ -74,7 +74,10 @@ export class FakeEditorWindow implements EditorWindowHandle {
   }
 }
 
-function makeService(overrides?: { loadTabs?: () => PersistedTabs | null }): {
+function makeService(overrides?: {
+  loadTabs?: () => PersistedTabs | null
+  flushTabs?: () => void
+}): {
   service: EditorWindowService
   created: FakeEditorWindow[]
   savedBounds: WindowBounds[]
@@ -90,7 +93,8 @@ function makeService(overrides?: { loadTabs?: () => PersistedTabs | null }): {
     createWindow: factory,
     loadBounds: () => null,
     saveBounds: (bounds) => savedBounds.push(bounds),
-    loadTabs: overrides?.loadTabs ?? (() => null)
+    loadTabs: overrides?.loadTabs ?? (() => null),
+    flushTabs: overrides?.flushTabs ?? ((): void => {})
   })
   return { service, created, savedBounds }
 }
@@ -290,6 +294,49 @@ describe('tab-set restore', () => {
     service.open({ kind: 'skill', name: 'second', mode: 'edit' })
     const win = created[0]
     expect(win.sent.filter((s) => s.channel === EDITOR_IPC.restoreTabs)).toHaveLength(1)
+  })
+
+  // Minor finding 4: main debounces the tab set ~1s before writing it, and `flushTabs` was only
+  // called from the MAIN window's `closed` and from `before-quit`. Close your last tab, close the
+  // editor window inside that second, reopen — and `loadTabs()` read pre-close disk state, so the
+  // tabs just closed came back. Exactly what the restore-on-creation comment says restore exists
+  // to avoid.
+  it('settles the debounced tab set before reading it back', () => {
+    const order: string[] = []
+    const { service } = makeService({
+      loadTabs: () => {
+        order.push('load')
+        return null
+      },
+      flushTabs: () => order.push('flush')
+    })
+    service.open(SKILL)
+    expect(order).toEqual(['flush', 'load'])
+  })
+
+  // The consequence, not just the call order: a set that main is still holding in memory must be
+  // what a reopened window restores.
+  it('restores the flushed set, not the stale file it would otherwise read', () => {
+    // The user closed their last tab: main holds `{ tabs: [] }` pending, disk still holds the
+    // pre-close set.
+    let disk: PersistedTabs | null = {
+      tabs: [{ kind: 'skill', name: 'was-open', mode: 'edit', view: null }],
+      activeIndex: 0
+    }
+    let pending: PersistedTabs | null = { tabs: [], activeIndex: -1 }
+    const { service, created } = makeService({
+      loadTabs: () => disk,
+      flushTabs: () => {
+        if (pending) {
+          disk = pending
+          pending = null
+        }
+      }
+    })
+
+    service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
+
+    expect(created[0].sent.some((s) => s.channel === EDITOR_IPC.restoreTabs)).toBe(false)
   })
 
   // The window dies with the app (spec §3.4), but it can also be closed and reopened within one

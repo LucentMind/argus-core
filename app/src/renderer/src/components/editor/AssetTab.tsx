@@ -14,6 +14,11 @@ export interface AssetTabProps {
   /** Shown in the status bar's badge slot (spec §5.5). */
   tier?: string
   onNameChange: (name: string) => void
+  /**
+   * A save landed, under this name. Optional so the loader's own tests can mount it without a
+   * host; the window always supplies it (`TabPane`), and `EditorApp.test.tsx` pins the wiring.
+   */
+  onSaved?: (name: string) => void
   onViewStateChange: (view: TabViewState) => void
   /** Where this tab was looking when the app last exited. Applied on first activation. */
   initialViewState?: TabViewState | null
@@ -45,6 +50,7 @@ export function AssetTab({
   readOnly,
   tier,
   onNameChange,
+  onSaved,
   onViewStateChange,
   initialViewState = null
 }: AssetTabProps): React.JSX.Element {
@@ -182,6 +188,7 @@ export function AssetTab({
       readOnly={readOnly}
       tier={tier}
       onNameChange={onNameChange}
+      onSaved={onSaved}
       onViewStateChange={onViewStateChange}
       initialViewState={initialViewState}
     />

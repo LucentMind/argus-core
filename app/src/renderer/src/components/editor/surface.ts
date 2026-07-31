@@ -39,11 +39,14 @@ export interface SurfaceHandle {
   /**
    * Scroll to a 0–1 fraction of the document.
    *
-   * Imperative rather than through the existing `scrollFraction` **prop** because restore runs
-   * from an effect, and driving it through React state would mean a synchronous `setState` in an
-   * effect body — which `react-hooks/set-state-in-effect` forbids and this repo does not allow
-   * suppressing. The prop stays for split-preview sync, which is driven by a render, not an
-   * effect.
+   * Imperative rather than a `scrollFraction` **prop** because restore runs from an effect, and
+   * driving it through React state would mean a synchronous `setState` in an effect body — which
+   * `react-hooks/set-state-in-effect` forbids and this repo does not allow suppressing.
+   *
+   * `CodeSurface` did carry such a prop (with an `applyingScroll` echo guard) and it never had a
+   * caller: `AssetPane` renders the surface without it, and split-preview sync runs the OTHER
+   * way — the surface reports `onScrollFraction`, and `PreviewPane` is the one driven by a
+   * `scrollFraction` prop. This method is the only way to scroll the editing surface.
    */
   scrollTo(fraction: number): void
 }

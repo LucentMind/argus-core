@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
 import { ConfirmHost } from '../ConfirmHost'
@@ -14,6 +14,7 @@ import {
   closeTab,
   dirtyCount,
   emptyTabs,
+  markTabSaved,
   openTab,
   renameTab,
   replaceTab,
@@ -41,35 +42,50 @@ interface TabPaneProps {
   tier: TierLookup
   onDirtyChange: (id: string, dirty: boolean) => void
   onNameChange: (id: string, name: string) => void
+  /** A save landed. Flips a create-mode tab to edit mode — see `markTabSaved` in tabs.ts. */
+  onSaved: (id: string, name: string) => void
   onViewStateChange: (id: string, view: TabViewState) => void
-  /** *Edit a copy* (spec §6.2). Takes the same primitives as the other three callbacks below,
-   *  not the whole `Tab` — see the comment on `handleEditCopy`. */
+  /** *Edit a copy* (spec §6.2). Takes the same primitives as the other callbacks above, not the
+   *  whole `Tab` — see the comment on `handleEditCopy`. */
   onEditCopy: (id: string, kind: AuthoringKind, name: string) => void
 }
 
 /**
- * One tab's slot. Pulled out of `EditorApp`'s `.map` so each of `AssetTab`'s three callback props
- * gets an identity that is stable across `EditorApp` re-renders, not a fresh closure every time.
+ * One tab's slot. Pulled out of `EditorApp`'s `.map` so each of `AssetTab`'s callback props gets
+ * an identity that is stable across `EditorApp` re-renders, not a fresh closure every time.
  *
  * This is not about `setTabDirty`/`patch` returning a new `TabsState` object — making `patch`
  * identity-preserving still OOMs on the very first keystroke, and one tab is enough to trigger
- * it. The real driver is `AssetPane.tsx:383`'s `useEffect(() => () => onDirtyChange(false),
- * [onDirtyChange])` alongside its report effect at `AssetPane.tsx:378`
- * (`useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])`). A `.map`-inline
- * `(d) => onDirtyChange(t.id, d)` is a new function on every `EditorApp` render, and on every such
- * change React runs `:383`'s cleanup (writing `false`) and then `:378`'s setup (writing `true`) —
- * two genuine `dirty` transitions per render, each triggering another `EditorApp` render, which
- * mints another new callback. No amount of memoizing `patch` absorbs that; only a stable
- * `onDirtyChange` identity does. Binding `tab.id` inside this component via `useCallback` is what
- * supplies that stability, so neither effect re-fires except when `dirty` itself actually flips.
+ * it. The real driver is `AssetPane`'s **identity-keyed unmount cleanup**
+ * (`useEffect(() => () => onDirtyChange(false), [onDirtyChange])`) alongside its **dirty-report
+ * effect** (`useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])`) — cited by name
+ * rather than by line, because the line numbers drifted twice and were stale inside the very
+ * commit that wrote them. A `.map`-inline `(d) => onDirtyChange(t.id, d)` is a new function on
+ * every `EditorApp` render, and on every such change React runs the cleanup (writing `false`) and
+ * then the report setup (writing `true`) — two genuine `dirty` transitions per render, each
+ * triggering another `EditorApp` render, which mints another new callback. No amount of memoizing
+ * `patch` absorbs that; only a stable `onDirtyChange` identity does. Binding `tab.id` inside this
+ * component via `useCallback` is what supplies that stability, so neither effect re-fires except
+ * when `dirty` itself actually flips.
+ *
+ * **`memo` on top of that** (not instead of it). Every cursor move calls `onViewStateChange` →
+ * `setTabView` → a new `TabsState` → an `EditorApp` re-render, which without this re-renders
+ * EVERY mounted pane. `viewMode` is a global pref, so once the user picks Split or Preview there
+ * is a `PreviewPane` mounted in all N tabs and react-markdown re-parses every hidden tab's
+ * document on every keystroke. A bare `memo` is correct and complete here because both of its
+ * preconditions hold: `patch` (tabs.ts) preserves the object identity of every tab it did not
+ * touch, and all five callbacks below arrive from `useCallback`s in `EditorApp` that never
+ * re-create (`onEditCopy` moves only when a tier list is re-broadcast). Do not "simplify" either
+ * of those into an inline arrow.
  */
-function TabPane({
+const TabPane = memo(function TabPane({
   tab,
   active,
   readOnly,
   tier,
   onDirtyChange,
   onNameChange,
+  onSaved,
   onViewStateChange,
   onEditCopy
 }: TabPaneProps): React.JSX.Element {
@@ -81,18 +97,26 @@ function TabPane({
     (n: string) => onNameChange(tab.id, n),
     [tab.id, onNameChange]
   )
+  const handleSaved = useCallback((n: string) => onSaved(tab.id, n), [tab.id, onSaved])
   const handleViewStateChange = useCallback(
     (v: TabViewState) => onViewStateChange(tab.id, v),
     [tab.id, onViewStateChange]
   )
-  // Same treatment as the three callbacks above: bound on `tab.id`/`tab.kind`/`tab.req.name`
-  // rather than closing over `tab` itself. `tab` is not identity-stable across a dirty toggle
-  // (`patch` in tabs.ts spreads a fresh object for the same id on every keystroke elsewhere in
-  // the window), so closing over it here would defeat the whole point of pulling `TabPane` out
-  // of the `.map` — see the file-level comment on this component.
+  // Same treatment as the callbacks above: bound on `tab.id`/`tab.kind`/`tab.name` rather than
+  // closing over `tab` itself. `tab` is not identity-stable across a dirty toggle (`patch` in
+  // tabs.ts spreads a fresh object for the same id on every keystroke elsewhere in the window),
+  // so closing over it here would defeat the whole point of pulling `TabPane` out of the `.map` —
+  // see the file-level comment on this component.
+  //
+  // `tab.name` and not `tab.req.name`: `req` is frozen at mint, so after a create-mode tab is
+  // saved (and `markTabSaved` flips it to edit mode) the two name DIFFERENT assets — and this is
+  // reachable then, because an edit-mode tab gets a real tier lookup. Forking or claiming
+  // `req.name` there would act on whatever the tab was opened as, not on the file it holds. This
+  // costs no stability: a create-mode tab renames on every keystroke, but it is never read-only,
+  // so nothing that consumes this callback is even rendered.
   const handleEditCopy = useCallback(
-    () => onEditCopy(tab.id, tab.kind, tab.req.name),
-    [tab.id, tab.kind, tab.req.name, onEditCopy]
+    () => onEditCopy(tab.id, tab.kind, tab.name),
+    [tab.id, tab.kind, tab.name, onEditCopy]
   )
   // `Chip`-style provenance badge (spec §5.5): the Library's one-word labels, not the raw tier
   // string. An unresolved or untagged tier gets no badge — a raw slug in the status bar would
@@ -114,7 +138,8 @@ function TabPane({
       {readOnly && (
         <ReadOnlyNotice
           kind={tab.kind}
-          name={tab.req.name}
+          // `tab.name`, matching the tier this notice is explaining — see `handleEditCopy`.
+          name={tab.name}
           tier={tier ?? null}
           onEditCopy={handleEditCopy}
         />
@@ -131,11 +156,12 @@ function TabPane({
         initialViewState={tab.view}
         onDirtyChange={handleDirtyChange}
         onNameChange={handleNameChange}
+        onSaved={handleSaved}
         onViewStateChange={handleViewStateChange}
       />
     </div>
   )
-}
+})
 
 /**
  * Root of the editor window. Owns window-level concerns only — which assets are open, which one
@@ -231,6 +257,13 @@ export function EditorApp(): React.JSX.Element {
   }, [])
   const onNameChange = useCallback((id: string, name: string) => {
     setState((s) => renameTab(s, id, name))
+  }, [])
+  // A create-mode tab stops being one the moment its first save lands. Both halves of finding 1
+  // — the duplicate tab on a later Library *Edit*, and the template clobber after a restart —
+  // are this one missing transition; see `markTabSaved` in tabs.ts, including why `req` stays
+  // frozen while `Tab.mode` moves.
+  const onSaved = useCallback((id: string, name: string) => {
+    setState((s) => markTabSaved(s, id, name))
   }, [])
   const onViewStateChange = useCallback((id: string, view: TabViewState) => {
     setState((s) => setTabView(s, id, view))
@@ -331,7 +364,13 @@ export function EditorApp(): React.JSX.Element {
             // Create mode has no tier to look up and must never be gated on one — a create-mode
             // tab is always editable, and this skips the lookup rather than trusting `undefined`
             // (unresolved) to happen to fail open the same way.
-            const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.req.name)
+            //
+            // `t.name`, not `t.req.name`: once `markTabSaved` flips a saved create-mode tab to
+            // edit mode this lookup starts running, and `req.name` is the frozen name the tab was
+            // OPENED with. Creating a skill in a tab minted as "theirs" and saving it as "mine"
+            // would otherwise resolve the hivemind tier of "theirs" and lock the user out of the
+            // file they just wrote. For every edit-mode tab the two are identical.
+            const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
             const readOnly = t.mode !== 'create' && !isAssetEditable(t.kind, tier)
             return (
               <TabPane
@@ -342,6 +381,7 @@ export function EditorApp(): React.JSX.Element {
                 tier={tier}
                 onDirtyChange={onDirtyChange}
                 onNameChange={onNameChange}
+                onSaved={onSaved}
                 onViewStateChange={onViewStateChange}
                 onEditCopy={editCopy}
               />

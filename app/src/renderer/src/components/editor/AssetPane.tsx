@@ -77,6 +77,15 @@ export interface AssetPaneProps {
   /** Shown in the status bar's badge slot (spec §5.5). */
   tier?: string
   onNameChange: (name: string) => void
+  /**
+   * A save landed, under this name. The host uses it to flip a create-mode TAB to edit mode
+   * (`markTabSaved` in tabs.ts) — this pane keeps its own create-mode identity for life, because
+   * its `mode` comes from the frozen open request.
+   *
+   * Optional so this component's own tests can mount without a host; the window always supplies
+   * it, and `EditorApp.test.tsx` pins the wiring end to end.
+   */
+  onSaved?: (name: string) => void
   onViewStateChange: (view: TabViewState) => void
   /** Where this tab was looking when the app last exited. Applied on first activation. */
   initialViewState?: TabViewState | null
@@ -107,6 +116,7 @@ export function AssetPane({
   readOnly,
   tier,
   onNameChange,
+  onSaved,
   onViewStateChange,
   initialViewState = null
 }: AssetPaneProps): React.JSX.Element {
@@ -290,6 +300,19 @@ export function AssetPane({
       // A read-only asset must not acquire a draft: Increment 5's quick open would list it as an
       // orphan for ever, and there is no save that could ever retire it. One guard here rather
       // than at each caller: this is the only path to `editor:draft-changed`.
+      //
+      // This does NOT rest on "a read-only buffer cannot be typed into" — that premise was
+      // disproved. `readOnly` is derived from `skills:list` / `refsync:get`, so it arrives
+      // asynchronously: a protected asset routinely mounts with the tier unresolved, the
+      // predicate failing open and the buffer genuinely editable until the lock lands (which is
+      // why `CodeSurface` applies it through a Compartment rather than at mount — see the prop's
+      // comment there, and `extensions/setup.ts`).
+      //
+      // The consequence of typing in that window is a STRANDED draft: whatever was filed before
+      // the lock stays on disk, and it is invisible on reopen, because `AssetTab` skips the draft
+      // read entirely once `readOnly` is true. Accepted deliberately — the alternative is
+      // discarding a draft on a tier flip, which would throw away work on the claim/fork path
+      // that flips it the other way.
       if (readOnly) return
       draftFiled.current = true
       // Create mode's identity is `draftId`, carried on every write; edit mode's is kind+name,
@@ -419,7 +442,17 @@ export function AssetPane({
     // right with `bufferPristine`, a **monotone** flag a save never reset. Collapsing it into
     // `baselineRef` is correct for `dirty` (which is why `savedClean` stayed separate) but wrong
     // here — this is the third consumer, and it needs the discarded meaning.
-    const untouched = lastSaved === null && docRef.current === baselineRef.current
+    //
+    // `initialHash === null` IS the belt-and-braces half, and it guards a case `lastSaved` cannot
+    // see: a create-mode pane mounted over a file that ALREADY EXISTS on disk. `lastSaved` is
+    // per-pane, so a restart resets it to null while disk keeps the content — which is exactly
+    // how a persisted `mode: 'create'` tab (finding 1, now fixed at source by `markTabSaved`)
+    // turned one keystroke in the name field into boilerplate over a saved body, filed as the
+    // draft. `initialHash` is the prop, not `baseHashRef`: it is the hash resolved AT MOUNT and
+    // never moves, so unlike the ref it still reads null after a save. A genuine new asset (no
+    // file, and a create-mode draft always carries `baseHash: null`) is unaffected.
+    const untouched =
+      initialHash === null && lastSaved === null && docRef.current === baselineRef.current
     const content = untouched ? template(next) : docRef.current
     if (untouched) applyContent(content, content)
     filedAsRef.current = next
@@ -477,11 +510,17 @@ export function AssetPane({
           'Saved, but you kept typing while it was saving — those newer changes have not been saved yet.'
         )
       }
-      // Deliberately last: a parent-supplied callback can throw, and everything above it is this
-      // save's own state machine — the baseline adoption and draft drop. If this ran earlier and
-      // threw, execution would land in `catch` with `baseHashRef` already pointing at the new
-      // disk hash, and the conflict classifier below would read that mismatch as "changed on
-      // disk" and raise a banner for a save that actually succeeded.
+      // Both deliberately last: a parent-supplied callback can throw, and everything above them
+      // is this save's own state machine — the baseline adoption and draft drop. If either ran
+      // earlier and threw, execution would land in `catch` with `baseHashRef` already pointing at
+      // the new disk hash, and the conflict classifier below would read that mismatch as "changed
+      // on disk" and raise a banner for a save that actually succeeded.
+      //
+      // `onSaved` is what retires a create-mode TAB: the asset exists on disk now, so the tab
+      // must dedupe (and persist) as an edit-mode one, or a later Library *Edit* opens a second
+      // tab over the same file and a restart replays create mode over real content. See
+      // `markTabSaved` in tabs.ts.
+      onSaved?.(savedAs)
       onNameChange(savedAs)
     } catch (e) {
       // Classified by re-reading disk, not by matching main's message: that text is not an API,

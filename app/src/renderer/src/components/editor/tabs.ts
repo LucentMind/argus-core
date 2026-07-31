@@ -19,9 +19,15 @@ export interface Tab {
   /** The **live** name: a create-mode tab renames as the user types the name field, and the
    *  strip shows this. */
   name: string
+  /**
+   * What this tab IS now, which is not always what it was opened as: a create-mode tab becomes
+   * an edit-mode one the moment its first save lands (`markTabSaved`). Read by `sameAsset` and by
+   * the persisted report — deliberately **not** by `AssetTab`, which reads `req.mode`.
+   */
   mode: 'edit' | 'create'
   /**
-   * The open request as minted, and **frozen** — `renameTab` never touches it.
+   * The open request as minted, and **frozen** — neither `renameTab` nor `markTabSaved` touches
+   * it.
    *
    * `AssetTab` resolves disk and draft off this. If it followed `name`, every keystroke in the
    * create-mode name field would re-read disk, re-resolve the draft and fight the buffer.
@@ -108,6 +114,40 @@ export function renameTab(s: TabsState, id: string, name: string): TabsState {
   return patch(s, id, (t) => ({ ...t, name }))
 }
 
+/**
+ * A create-mode tab whose save has landed. From here on it is a tab over a file that exists.
+ *
+ * Nothing else flips `mode`, and leaving it at `'create'` after a save is two bugs at once:
+ *
+ * 1. `sameAsset` includes `mode`, so clicking *Edit* on the just-created asset in the Library
+ *    mints a SECOND tab over the same file. Both stay mounted, and `draftKey` is `kind:name`
+ *    only (main/services/drafts.ts) — so the two share one draft file and stomp each other, and
+ *    a save from one leaves the other with a stale `baseHash` and a conflict banner describing
+ *    nothing.
+ * 2. The persisted set carries `mode: 'create'`, so a restart replays create mode over a file
+ *    that now holds real content: `AssetTab` resolves disk into a create-mode `AssetPane` whose
+ *    `lastSaved` is `null` again. That is exactly the state `AssetPane.renameCreate`'s
+ *    `lastSaved === null` guard exists to prevent — one keystroke in the name field replaces the
+ *    saved body with boilerplate and files that boilerplate as the draft.
+ *
+ * **`req` deliberately does NOT flip with it.** `AssetTab` resolves disk and the draft off `req`,
+ * and its resolve effect keys on `req`'s kind/name/mode. Moving `req` here would re-run that
+ * resolve underneath a LIVE CodeMirror that already owns the document — re-reading disk and
+ * re-resolving the draft, so the save-then-keep-typing path would raise a "Restored unsaved
+ * draft" banner over a buffer the user is still in, and the pane's `mode` prop would swap the
+ * name field out from under them mid-edit. That is precisely what `req`'s frozen contract exists
+ * to stop (see the note on {@link Tab.req}). `mode` on the tab is a different fact from
+ * `req.mode`: the first is what the tab holds *now* (dedupe + persistence), the second is the
+ * request that mounted the pane and stays true for that pane's whole life. The next window gets
+ * the corrected mode because the report reads `t.mode`.
+ *
+ * `name` is a parameter rather than read off the tab so this is correct however it is ordered
+ * against `renameTab`: a create-mode save adopts the name the write actually used.
+ */
+export function markTabSaved(s: TabsState, id: string, name: string): TabsState {
+  return patch(s, id, (t) => (t.mode === 'create' ? { ...t, mode: 'edit', name } : t))
+}
+
 export function setTabDirty(s: TabsState, id: string, dirty: boolean): TabsState {
   return patch(s, id, (t) => ({ ...t, dirty }))
 }
@@ -129,10 +169,22 @@ export function setTabView(s: TabsState, id: string, view: TabViewState): TabsSt
  * compartment when the `refsync:changed` / `skills:changed` broadcast lands, which is what
  * releases it; without that this depended on main happening to broadcast before the claim IPC
  * returned.
+ *
+ * Spec §6.1's "one tab per asset" binds here too, and it is not `openTab`'s business alone: fork
+ * a read-only skill onto a name that is ALREADY open in another tab and minting would give two
+ * tabs over one file — the same shared-draft-key and stale-`baseHash` damage as a duplicated
+ * create-mode tab (see {@link markTabSaved}). The persisted set would carry the duplicate too,
+ * and restore folds it back through `openTab`, so the tab COUNT would change across a restart.
+ * So a replacement that matches an open tab **folds into it**: the replaced slot closes and the
+ * tab that already holds the asset becomes active.
  */
 export function replaceTab(s: TabsState, id: string, req: EditorOpenRequest): TabsState {
   const i = s.tabs.findIndex((t) => t.id === id)
   if (i === -1) return s
+  // `t.id !== id` is load-bearing: a reference CLAIM replaces a tab with its own kind/name/mode,
+  // so without it every claim would match itself and merely close the tab.
+  const existing = s.tabs.find((t) => t.id !== id && sameAsset(t, req))
+  if (existing) return { ...s, tabs: s.tabs.filter((t) => t.id !== id), activeId: existing.id }
   const tab = mint(s, req, null)
   const tabs = [...s.tabs]
   tabs[i] = tab
