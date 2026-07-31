@@ -167,8 +167,11 @@ export function CodeSurface({
         const info = view.state.doc.line(n)
         // Same guard on the column, which arrives from the same persisted file: a NaN survives
         // both `Math.max` and `Math.min` and reaches `dispatch` as an invalid selection anchor.
+        // `Math.trunc` too, symmetric with `line` above — a fractional `col` (e.g. `2.5`) would
+        // otherwise produce a fractional `pos` that still passes CodeMirror's range check and
+        // reaches `dispatch({ selection: { anchor } })` as an invalid, non-integer anchor.
         const rawCol = opts?.col ?? 1
-        const col = Number.isFinite(rawCol) ? rawCol : 1
+        const col = Number.isFinite(rawCol) ? Math.trunc(rawCol) : 1
         const pos = Math.min(info.from + Math.max(0, col - 1), info.to)
         view.dispatch({ selection: { anchor: pos }, scrollIntoView: true })
         if (opts?.focus !== false) view.focus()

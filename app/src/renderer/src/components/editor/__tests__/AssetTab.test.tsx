@@ -65,13 +65,13 @@ beforeEach(() => {
   } as never
 })
 
-const mount = (req: EditorOpenRequest = SKILL): void => {
+const mount = (req: EditorOpenRequest = SKILL, opts: { readOnly?: boolean } = {}): void => {
   render(
     <AssetTab
       req={req}
       onDirtyChange={vi.fn()}
       active={true}
-      readOnly={false}
+      readOnly={opts.readOnly ?? false}
       onNameChange={vi.fn()}
       onViewStateChange={vi.fn()}
     />
@@ -269,5 +269,59 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
     expect(adoptDraft).not.toHaveBeenCalled()
     expect(discardDraft).not.toHaveBeenCalled()
     expect(draftChanged).not.toHaveBeenCalled()
+  })
+})
+
+// The brief's one explicit "behavioural change, not a pass-through" (spec §... via AssetPane's
+// `fileDraft` guard): a read-only buffer can never diverge from disk, so resolving a draft for it
+// — or listing other create-mode drafts it could collide with — is pure wasted IPC for a banner
+// that can never fire. Both `readDraft` and `listDrafts` are already module-level mocks above.
+describe('read-only loading', () => {
+  const CREATE_SKILL: EditorOpenRequest = { kind: 'skill', name: 'new-skill', mode: 'create' }
+
+  it('does not read the draft store when read-only', async () => {
+    mount(SKILL, { readOnly: true })
+    expect(await screen.findByLabelText('skill · my-skill')).toBeInTheDocument()
+    expect(readDraft).not.toHaveBeenCalled()
+  })
+
+  it('reads the draft store as usual when editable', async () => {
+    mount(SKILL, { readOnly: false })
+    expect(await screen.findByLabelText('skill · my-skill')).toBeInTheDocument()
+    expect(readDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'my-skill' })
+  })
+
+  it('keeps otherDrafts empty when read-only, even in create mode', async () => {
+    listDrafts.mockResolvedValue([
+      {
+        kind: 'skill',
+        name: 'half-written',
+        mode: 'create',
+        content: 'x',
+        baseHash: null,
+        updatedAt: '2026-07-31T10:00:00.000Z'
+      }
+    ])
+    mount(CREATE_SKILL, { readOnly: true })
+    expect(await screen.findByLabelText('skill · new-skill')).toBeInTheDocument()
+    expect(listDrafts).not.toHaveBeenCalled()
+    expect(screen.queryByText(/unsaved new skill/i)).not.toBeInTheDocument()
+  })
+
+  it('lists other create-mode drafts as usual when editable', async () => {
+    listDrafts.mockResolvedValue([
+      {
+        kind: 'skill',
+        name: 'half-written',
+        mode: 'create',
+        content: 'x',
+        baseHash: null,
+        updatedAt: '2026-07-31T10:00:00.000Z'
+      }
+    ])
+    mount(CREATE_SKILL, { readOnly: false })
+    expect(await screen.findByLabelText('skill · new-skill')).toBeInTheDocument()
+    expect(listDrafts).toHaveBeenCalled()
+    expect(screen.getByText(/1 unsaved new skill from earlier/i)).toBeInTheDocument()
   })
 })

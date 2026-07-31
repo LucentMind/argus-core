@@ -423,9 +423,8 @@ describe('AssetPane', () => {
   })
 
   it('reseeds the template when a create-mode draft is discarded', async () => {
-    // Explicit, because `vi.clearAllMocks()` clears calls but not implementations — without this
-    // the conflict cases above leave `skillsRead` resolving to a file, and a create-mode asset by
-    // definition has none.
+    // Explicit, because `beforeEach` seeds `skillsRead` to resolve with a file — the default that
+    // describes a freshly-opened asset — and a create-mode asset by definition has none on disk.
     skillsRead.mockRejectedValue(new Error('ENOENT'))
     mount({
       mode: 'create',
@@ -757,6 +756,22 @@ describe('background panes', () => {
     await waitFor(() => expect(surfaceHandle.requestMeasure).toHaveBeenCalledTimes(2))
     expect(surfaceHandle.goToLine).toHaveBeenCalledTimes(1)
   })
+
+  // `initialViewState` is read once, into a ref, at mount — like every other `initial*` prop in
+  // this component. The next task feeds this prop the *live* per-tab view state, which updates on
+  // every cursor move; if it stayed in the reveal effect's dependency array, that effect (and its
+  // `requestMeasure()` call) would re-run on every keystroke instead of only on activation.
+  it('does not re-run the reveal effect when only initialViewState changes', async () => {
+    const { rerender } = mount({
+      active: true,
+      initialViewState: { line: 7, col: 2, scrollFraction: 0.25 }
+    })
+    await waitFor(() => expect(surfaceHandle.requestMeasure).toHaveBeenCalledTimes(1))
+    surfaceHandle.requestMeasure.mockClear()
+    rerender({ initialViewState: { line: 99, col: 1, scrollFraction: 0.9 } })
+    await act(async () => {})
+    expect(surfaceHandle.requestMeasure).not.toHaveBeenCalled()
+  })
 })
 
 describe('name reporting', () => {
@@ -801,10 +816,18 @@ describe('view state reporting', () => {
   // Each callback carries the OTHER value from its mirror ref. Without the mirrors, a scroll
   // would persist line 1 and a cursor move would persist fraction 0, so a restore would land
   // in the right line with the wrong scroll or vice versa.
+  //
+  // Both callbacks fire inside ONE `act()`, not two: CodeMirror's update listener and a scroll
+  // event land in the same tick in the real surface, and two separate `act()` calls would let
+  // React commit between them — which would make an effect-based mirror (instead of the
+  // synchronous write beside each `setState`) look correct too, since it would be fresh again by
+  // the time the second callback ran.
   it('keeps line and scroll together across both callbacks', async () => {
     const { onViewStateChange } = mount()
-    act(() => surfaceProps.onCursor({ line: 4, col: 9, selected: 0 }))
-    act(() => surfaceProps.onScrollFraction!(0.6))
+    act(() => {
+      surfaceProps.onCursor({ line: 4, col: 9, selected: 0 })
+      surfaceProps.onScrollFraction!(0.6)
+    })
     await waitFor(() =>
       expect(onViewStateChange).toHaveBeenLastCalledWith({ line: 4, col: 9, scrollFraction: 0.6 })
     )

@@ -450,7 +450,6 @@ export function AssetPane({
       baseHashRef.current = newHash
       filedAsRef.current = savedAs
       setSavedName(savedAs)
-      onNameChange(savedAs)
       setLastSaved({ name: savedAs, content: savedContent })
       setBanner({ kind: 'none' })
       // What was written is the new baseline either way. When the buffer moved on during the
@@ -467,6 +466,12 @@ export function AssetPane({
           'Saved, but you kept typing while it was saving — those newer changes have not been saved yet.'
         )
       }
+      // Deliberately last: a parent-supplied callback can throw, and everything above it is this
+      // save's own state machine — the baseline adoption and draft drop. If this ran earlier and
+      // threw, execution would land in `catch` with `baseHashRef` already pointing at the new
+      // disk hash, and the conflict classifier below would read that mismatch as "changed on
+      // disk" and raise a banner for a save that actually succeeded.
+      onNameChange(savedAs)
     } catch (e) {
       // Classified by re-reading disk, not by matching main's message: that text is not an API,
       // and the create-mode name collision is thrown from the same hash comparison.
@@ -631,6 +636,13 @@ export function AssetPane({
     return () => window.removeEventListener('focus', check)
   }, [kind, active, applyContent])
 
+  // Read once, at mount — same discipline as `docRef`/`baselineRef` above, and for a sharper
+  // reason here: the next task plugs in the *live* per-tab view state, which updates on every
+  // cursor move. Keeping this prop in the effect's dependency array would re-run `requestMeasure`
+  // on every keystroke; capturing it into a ref that is never reassigned drops it from the
+  // dependency list without losing the value the restore below needs.
+  const initialViewStateRef = useRef(initialViewState)
+
   // Applied on first activation rather than at mount: a display-none view has no geometry, so a
   // scroll or a `goToLine` issued at mount lands nowhere. This is also where the tab picks up
   // the layout it could not compute while hidden.
@@ -638,16 +650,17 @@ export function AssetPane({
   useEffect(() => {
     if (!active) return
     surfaceRef.current?.requestMeasure()
-    if (restoredRef.current || !initialViewState) return
+    const view = initialViewStateRef.current
+    if (restoredRef.current || !view) return
     restoredRef.current = true
-    surfaceRef.current?.goToLine(initialViewState.line, {
-      col: initialViewState.col,
+    surfaceRef.current?.goToLine(view.line, {
+      col: view.col,
       focus: false
     })
     // Imperative, NOT the `scrollFraction` prop's state setter: a synchronous setState in an
     // effect body trips `react-hooks/set-state-in-effect`, which this repo forbids suppressing.
-    surfaceRef.current?.scrollTo(initialViewState.scrollFraction)
-  }, [active, initialViewState])
+    surfaceRef.current?.scrollTo(view.scrollFraction)
+  }, [active])
 
   // Resumable-drafts banner (Increment 5 pulled forward). Keying create-mode drafts by a stable
   // id (rather than the typed name) makes the silent-overwrite half of the original defect
