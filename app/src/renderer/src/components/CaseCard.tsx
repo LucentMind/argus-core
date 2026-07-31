@@ -3,6 +3,7 @@ import { formatSyncRecency, type ActionItem } from '../../../shared/triage'
 import type { PrRollup } from '../../../shared/prStatus'
 import { Card, Chip, IconBtn } from './ui'
 import { PrRollupDot } from './PrRollupDot'
+import { railTier } from '../lib/priorityRail'
 import { Download, Trash2 } from 'lucide-react'
 
 const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
@@ -28,7 +29,9 @@ export function CaseCard({
   onExport,
   onDelete,
   note,
-  prRollup
+  prRollup,
+  dynamic = false,
+  index = 0
 }: {
   c: CaseRecord
   onOpen: (slug: string) => void
@@ -38,6 +41,10 @@ export function CaseCard({
   /** Cached CI rollup for this case's bound PR. Absent when the case has no PR — the dashboard
    *  reads the cache and passes only what it has, so the card never fetches anything itself. */
   prRollup?: PrRollup
+  /** Dynamic-theme skin: glass container, staggered entrance, priority rail. */
+  dynamic?: boolean
+  /** Grid position — drives the entrance stagger delay in dynamic mode. */
+  index?: number
 }): React.JSX.Element {
   const actions = c.actionItems.filter((i) => i.severity === 'action')
   // `stale` is deliberately dropped: the footer below now states sync recency
@@ -45,10 +52,22 @@ export function CaseCard({
   // chip would render the identical fact twice past day 7. The item still
   // exists in the model — triageRank uses it to sort neglected cases up.
   const infos = c.actionItems.filter((i) => i.severity === 'info' && i.kind !== 'stale')
+  const tier = dynamic ? railTier(c.jiraPriority) : null
+  // Rail = needs attention (mock's has-unread semantics), not importance:
+  // a dashboard of uniformly-railed cards says nothing.
+  const showRail = tier !== null && actions.length > 0
   const recency = c.jiraKey && c.jiraSyncedAt ? formatSyncRecency(c.jiraSyncedAt) : null
 
   return (
-    <Card onClick={() => onOpen(c.slug)} className="group flex flex-col gap-2 p-4">
+    <Card
+      onClick={() => onOpen(c.slug)}
+      variant={dynamic ? 'glass' : 'default'}
+      style={dynamic ? ({ '--d': `${50 + index * 40}ms` } as React.CSSProperties) : undefined}
+      className="group flex flex-col gap-2 p-4"
+    >
+      {showRail && (
+        <i data-testid="priority-rail" data-tier={tier} aria-hidden="true" className="gc-rail" />
+      )}
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5">
           <span className="font-mono text-sm text-defect">{c.slug}</span>
