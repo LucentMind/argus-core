@@ -378,6 +378,79 @@ describe('DraftStore.list', () => {
   })
 })
 
+// Finding 1 (data-loss): adoption used to be a renderer-driven "queue the new key (debounced),
+// then delete the old one immediately" pair, which left a window — up to `debounceMs` wide,
+// unbounded if the write kept failing — where the content lived only in `pending`, nowhere on
+// disk. `adopt()` fixes the ordering by doing the whole thing in main: queue, write *that key
+// only* synchronously, and discard the legacy key only once the write actually lands.
+describe('DraftStore.adopt', () => {
+  const legacyChange: DraftChange = {
+    kind: 'skill',
+    name: 'legacy-skill',
+    mode: 'create',
+    content: 'legacy content',
+    baseHash: null
+  }
+
+  it('moves a legacy record onto its draftId key: new key on disk, legacy key gone, content intact', () => {
+    const s = store()
+    s.queue(legacyChange)
+    s.flushAll()
+    expect(fs.existsSync(file('skill', 'legacy-skill'))).toBe(true)
+
+    const ok = s.adopt(
+      { kind: 'skill', name: 'legacy-skill' },
+      { ...legacyChange, draftId: 'new-id' }
+    )
+
+    expect(ok).toBe(true)
+    expect(fs.existsSync(idFile('new-id'))).toBe(true)
+    expect(fs.existsSync(file('skill', 'legacy-skill'))).toBe(false)
+    expect(store().read({ draftId: 'new-id' })?.content).toBe('legacy content')
+  })
+
+  // The ordering test: this is the regression guard for Finding 1. A "discard-then-write" (or
+  // "write-then-discard-regardless-of-success") implementation loses the legacy copy the moment
+  // the new write fails. It must still be recoverable.
+  it('leaves the legacy file in place when the new write fails', () => {
+    const s = store()
+    s.queue(legacyChange)
+    s.flushAll()
+    expect(fs.existsSync(file('skill', 'legacy-skill'))).toBe(true)
+
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('EPERM: rename failed')
+    })
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const ok = s.adopt(
+      { kind: 'skill', name: 'legacy-skill' },
+      { ...legacyChange, draftId: 'new-id' }
+    )
+
+    renameSpy.mockRestore()
+    errSpy.mockRestore()
+
+    expect(ok).toBe(false)
+    // The legacy copy is still the only safe copy of these bytes — it must not have been
+    // discarded just because the new write failed.
+    expect(fs.existsSync(file('skill', 'legacy-skill'))).toBe(true)
+    expect(fs.existsSync(idFile('new-id'))).toBe(false)
+    // The new record stays queued, so the next keystroke or flushAll() retries it.
+    expect(s.read({ draftId: 'new-id' })?.content).toBe('legacy content')
+  })
+
+  it('is a no-op on the legacy key when there is nothing queued for the new one to fail on', () => {
+    // Sanity: adopt() only ever discards the legacy key through the success path above; a bare
+    // call with no prior legacy write must not throw.
+    const s = store()
+    expect(() =>
+      s.adopt({ kind: 'skill', name: 'never-existed' }, { ...legacyChange, draftId: 'fresh-id' })
+    ).not.toThrow()
+    expect(fs.existsSync(idFile('fresh-id'))).toBe(true)
+  })
+})
+
 describe('DraftStore write failure', () => {
   beforeEach(() => {
     vi.useFakeTimers()

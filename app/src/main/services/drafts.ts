@@ -32,7 +32,14 @@ export function draftKey(kind: AuthoringKind, name: string): string {
  * identity — so it keeps the kind+name key unchanged.
  */
 export function keyOf(ref: DraftRef): string {
-  return 'draftId' in ref ? hash16(`draft:${ref.draftId}`) : draftKey(ref.kind, ref.name)
+  // Truthiness, not `in` — matches how `queue()` decides whether a `DraftChange` counts as
+  // create-mode-identified (`change.draftId ? ... : change`). `{ draftId: '' }` — the key present
+  // but empty — is unreachable today (queue's only non-id ref is a whole `DraftChange`, which
+  // always carries kind+name too), but keeping both checks in the same style means an empty id
+  // can never key one bucket here and a different one in `queue()`.
+  if ('draftId' in ref && ref.draftId) return hash16(`draft:${ref.draftId}`)
+  const { kind, name } = ref as { kind: AuthoringKind; name: string }
+  return draftKey(kind, name)
 }
 
 export interface DraftStoreDeps {
@@ -101,9 +108,33 @@ export class DraftStore {
   /** Write everything queued, now. Synchronous on purpose — the quit path cannot await. */
   flushAll(): void {
     for (const key of [...this.pending.keys()]) {
-      this.cancel(key)
-      this.writeKey(key)
+      this.flushKey(key)
     }
+  }
+
+  /**
+   * Atomically adopt a legacy (pre-draftId) create-mode draft onto its id-keyed replacement:
+   * queue the new record, write **only that key**, synchronously, and discard the legacy key
+   * only once that write actually lands. If the write fails, both the queued new record and the
+   * legacy file are left exactly as they were — the next attempt (a keystroke re-arming the
+   * debounce, or `flushAll()` on quit) still has the legacy copy to recover from.
+   *
+   * Replaces a renderer-side "queue the new one (debounced), then delete the old one immediately"
+   * sequence, which left a window — up to `debounceMs` wide, unbounded if the write kept failing
+   * — where the content existed only in this store's in-memory `pending` map and nowhere on disk.
+   * Returns whether the write landed, so the caller knows whether the adoption actually happened.
+   */
+  adopt(legacy: DraftRef, change: DraftChange & { draftId: string }): boolean {
+    const key = keyOf({ draftId: change.draftId })
+    this.queue(change)
+    this.flushKey(key)
+    if (this.pending.has(key)) {
+      // writeKey already logged the failure and left the record queued (persist-before-adopt's
+      // failure half, same as any other write). Leave the legacy key alone too.
+      return false
+    }
+    this.discard(legacy)
+    return true
   }
 
   /**
@@ -182,6 +213,13 @@ export class DraftStore {
       clearTimeout(t)
       this.timers.delete(key)
     }
+  }
+
+  /** Cancel a key's pending debounce timer, if any, and write it now. Shared by `flushAll()`
+   *  (every key) and `adopt()` (exactly one). */
+  private flushKey(key: string): void {
+    this.cancel(key)
+    this.writeKey(key)
   }
 
   private writeKey(key: string): void {

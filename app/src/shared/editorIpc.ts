@@ -23,7 +23,12 @@ export const EDITOR_IPC = {
   /** renderer → main: delete it (saved, or discarded by hand). */
   draftDiscard: 'editor:draft-discard',
   /** renderer → main: every draft currently known, for the resumable-drafts banner. */
-  draftList: 'editor:draft-list'
+  draftList: 'editor:draft-list',
+  /** renderer → main: adopt a legacy (pre-draftId) create-mode draft onto its id-keyed record,
+   *  atomically — see `DraftStore.adopt`. Replaces a renderer-driven `draftChanged` +
+   *  `discardDraft` pair, which could delete the only on-disk copy before the debounced write
+   *  that was meant to replace it ever landed. */
+  draftAdopt: 'editor:draft-adopt'
 } as const
 
 export interface EditorOpenRequest {
@@ -83,4 +88,15 @@ export interface DraftSaved {
   kind: AuthoringKind
   name: string
   updatedAt: string
+}
+
+/**
+ * renderer → main: adopt a legacy (pre-draftId) create-mode draft. `legacy` is the old kind+name
+ * key to discard; `change` is the record to write under its new `draftId` key — `draftId` is
+ * required here (unlike `DraftChange`) because adoption only ever moves a record *onto* the id
+ * scheme, never off it.
+ */
+export interface DraftAdoptRequest {
+  legacy: { kind: AuthoringKind; name: string }
+  change: DraftChange & { draftId: string }
 }

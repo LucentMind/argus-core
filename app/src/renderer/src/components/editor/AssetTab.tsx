@@ -43,7 +43,7 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
   // existing draft's id forward when resuming it (see `resumeDraft` in AssetPane). Edit mode
   // never uses this — the file itself is the identity — so it stays ''.
   const [draftId] = useState<string>(() =>
-    mode === 'create' ? (req.draftId ?? crypto.randomUUID()) : ''
+    mode === 'create' ? req.draftId || crypto.randomUUID() : ''
   )
 
   useEffect(() => {
@@ -61,18 +61,31 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
           // unrelated, identity), and must never be mistaken for an orphaned create draft.
           const legacy = await window.argus.editor.readDraft({ kind, name })
           if (legacy && legacy.mode === 'create' && !legacy.draftId) {
+            // Guard against a torn-down effect (React StrictMode's simulated remount in dev, or a
+            // fast second `openTab`) re-filing content under a `draftId` no live tab holds. Every
+            // other async step in this effect already checks `live` before acting; before this
+            // guard existed, dev StrictMode ran adoption twice per mount and got away with it only
+            // because both runs wrote the same bytes under the same (id-derived) key — an
+            // implementation accident, not something to rely on now that `live` gates it.
+            if (!live) return
             draft = legacy
-            // Adopt it: keep the content, re-file under this tab's stable id, and discard the
-            // legacy key so it doesn't linger and reappear in the resumable-drafts banner.
-            window.argus.editor.draftChanged({
-              kind: legacy.kind,
-              name: legacy.name,
-              mode: legacy.mode,
-              content: legacy.content,
-              baseHash: legacy.baseHash,
-              draftId
+            // Adopt it, atomically, in main: the new id-keyed record is written to disk before
+            // the legacy kind+name key is discarded, so a crash mid-adoption leaves both copies
+            // rather than neither. See `DraftStore.adopt` — this single call replaces what used
+            // to be a fire-and-forget `draftChanged` (debounced) followed by an immediate
+            // `discardDraft`, which could delete the only on-disk copy before the debounce fired.
+            await window.argus.editor.adoptDraft({
+              legacy: { kind: legacy.kind, name: legacy.name },
+              change: {
+                kind: legacy.kind,
+                name: legacy.name,
+                mode: legacy.mode,
+                content: legacy.content,
+                baseHash: legacy.baseHash,
+                draftId
+              }
             })
-            await window.argus.editor.discardDraft({ kind, name })
+            if (!live) return
           }
         }
       } else {

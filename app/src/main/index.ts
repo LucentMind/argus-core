@@ -217,7 +217,8 @@ import {
   EDITOR_IPC,
   type EditorOpenRequest,
   type DraftChange,
-  type DraftRef
+  type DraftRef,
+  type DraftAdoptRequest
 } from '../shared/editorIpc'
 
 let agentService: AgentService | null = null
@@ -1610,6 +1611,9 @@ function registerIpc(): void {
     draftStore?.discard(ref)
   })
   ipcMain.handle(EDITOR_IPC.draftList, () => draftStore?.list() ?? [])
+  ipcMain.handle(EDITOR_IPC.draftAdopt, (_e, req: DraftAdoptRequest) => {
+    return draftStore?.adopt(req.legacy, req.change) ?? false
+  })
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({

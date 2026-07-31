@@ -3,7 +3,12 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { AssetTab } from '../AssetTab'
-import type { DraftRecord, DraftRef, EditorOpenRequest } from '../../../../../shared/editorIpc'
+import type {
+  DraftAdoptRequest,
+  DraftRecord,
+  DraftRef,
+  EditorOpenRequest
+} from '../../../../../shared/editorIpc'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
@@ -33,6 +38,7 @@ const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit'
 const draftChanged = vi.fn()
 const readDraft = vi.fn<(ref: DraftRef) => Promise<DraftRecord | null>>()
 const discardDraft = vi.fn<(ref: DraftRef) => Promise<void>>()
+const adoptDraft = vi.fn<(req: DraftAdoptRequest) => Promise<boolean>>()
 const skillsRead = vi.fn()
 const listDrafts = vi.fn<() => Promise<DraftRecord[]>>()
 
@@ -40,6 +46,7 @@ beforeEach(() => {
   draftChanged.mockReset()
   readDraft.mockReset().mockResolvedValue(null)
   discardDraft.mockReset().mockResolvedValue(undefined)
+  adoptDraft.mockReset().mockResolvedValue(true)
   listDrafts.mockReset().mockResolvedValue([])
   skillsRead.mockReset().mockResolvedValue({ content: SKILL_BODY, hash: 'h1' })
   window.argus = {
@@ -47,6 +54,7 @@ beforeEach(() => {
       draftChanged,
       readDraft,
       discardDraft,
+      adoptDraft,
       open: vi.fn().mockResolvedValue(undefined),
       listDrafts,
       onDraftSaved: () => () => {}
@@ -164,7 +172,7 @@ describe('AssetTab create-mode identity (draft-id-rekey)', () => {
 // `draftId` field and is still keyed by kind+name. It must remain resumable, and quietly move
 // onto the new scheme the moment its tab is opened, rather than needing a migration pass.
 describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
-  it('adopts a legacy create-mode draft: content preserved, re-filed under the id key, legacy key discarded', async () => {
+  it('adopts a legacy create-mode draft through the single atomic adoptDraft call: content preserved', async () => {
     skillsRead.mockRejectedValue(new Error('No such skill: hij'))
     listDrafts.mockResolvedValue([])
     // Nothing is ever filed under a draftId here (a fresh tab has none yet to look up); the
@@ -184,21 +192,26 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
     const ta = await screen.findByLabelText('skill · hij')
     expect(ta).toHaveValue('# hij\n')
 
-    // Re-filed under this tab's new id-based key.
+    // Finding 1: adoption goes through the single atomic `adoptDraft` call — not a separate
+    // `draftChanged` + `discardDraft` pair, whose ordering (debounced write, immediate delete)
+    // was the data-loss bug. `adoptDraft` carries both the legacy ref to discard and the new
+    // record to write, so main can order them correctly.
     await waitFor(() =>
-      expect(draftChanged).toHaveBeenCalledWith(
-        expect.objectContaining({
+      expect(adoptDraft).toHaveBeenCalledWith({
+        legacy: { kind: 'skill', name: 'hij' },
+        change: {
           kind: 'skill',
           name: 'hij',
           mode: 'create',
           content: '# hij\n',
           baseHash: null,
           draftId: expect.any(String)
-        })
-      )
+        }
+      })
     )
-    // Legacy key discarded so it cannot linger and reappear in the resumable-drafts banner.
-    await waitFor(() => expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'hij' }))
+    // The old two-step renderer-driven sequence must be gone entirely.
+    expect(draftChanged).not.toHaveBeenCalled()
+    expect(discardDraft).not.toHaveBeenCalled()
   })
 
   it('does not adopt an edit-mode draft that happens to sit at the same kind+name key', async () => {
@@ -218,6 +231,33 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
     // Falls through to the create template instead of adopting the edit-mode draft's content.
     const ta = await screen.findByLabelText('skill · my-skill')
     expect((ta as HTMLTextAreaElement).value).toContain('name: my-skill')
+    expect(adoptDraft).not.toHaveBeenCalled()
+  })
+
+  // Finding 2: every other async step in the resolve effect checks `live` before acting; the
+  // adoption used to mutate the draft store unconditionally. A torn-down effect (React
+  // StrictMode's simulated remount in dev, or a fast second `openTab`) must not re-file content
+  // under a `draftId` no live tab holds.
+  it('does not adopt when the effect is torn down before the legacy lookup resolves', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: hij'))
+    listDrafts.mockResolvedValue([])
+    let resolveLegacy: (v: DraftRecord | null) => void = () => {}
+    readDraft.mockImplementation(async (ref) => {
+      if ('draftId' in ref) return null
+      return new Promise<DraftRecord | null>((resolve) => {
+        resolveLegacy = resolve
+      })
+    })
+    const { unmount } = render(
+      <AssetTab req={{ kind: 'skill', name: 'hij', mode: 'create' }} onDirtyChange={vi.fn()} />
+    )
+    // Tear the effect down (cleanup sets `live = false`) before the legacy lookup ever resolves.
+    unmount()
+    resolveLegacy(aDraft({ name: 'hij', mode: 'create', content: '# hij\n', baseHash: null }))
+    // Let the resumed async work run to completion.
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(adoptDraft).not.toHaveBeenCalled()
     expect(discardDraft).not.toHaveBeenCalled()
     expect(draftChanged).not.toHaveBeenCalled()
   })

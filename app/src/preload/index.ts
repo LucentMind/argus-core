@@ -106,7 +106,8 @@ import {
   type DraftChange,
   type DraftRecord,
   type DraftRef,
-  type DraftSaved
+  type DraftSaved,
+  type DraftAdoptRequest
 } from '../shared/editorIpc'
 import type {
   TextDocSource,
@@ -508,7 +509,12 @@ const argus = {
       ipcRenderer.invoke(EDITOR_IPC.draftRead, ref),
     discardDraft: (ref: DraftRef): Promise<void> =>
       ipcRenderer.invoke(EDITOR_IPC.draftDiscard, ref),
-    listDrafts: (): Promise<DraftRecord[]> => ipcRenderer.invoke(EDITOR_IPC.draftList)
+    listDrafts: (): Promise<DraftRecord[]> => ipcRenderer.invoke(EDITOR_IPC.draftList),
+    /** Atomic legacy-draft adoption, done in main (see `DraftStore.adopt`): the new key is
+     *  written before the old one is discarded, so a crash mid-adoption leaves both rather than
+     *  neither. Resolves `true` once the write actually landed. */
+    adoptDraft: (req: DraftAdoptRequest): Promise<boolean> =>
+      ipcRenderer.invoke(EDITOR_IPC.draftAdopt, req)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
