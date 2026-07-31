@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createProposalsWatch } from '../proposalsWatch'
 import { proposalsDir } from '../paths'
+import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, onChanged: ReturnType<typeof vi.fn<() => void>>
 
@@ -22,7 +23,7 @@ describe('proposalsWatch', () => {
     const watcher = createProposalsWatch(argusHome, onChanged)
     try {
       fs.writeFileSync(path.join(proposalsDir(argusHome), 'foo.md'), '---\n---\nhi')
-      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: 15000 })
+      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
     } finally {
       watcher.close()
     }
@@ -33,10 +34,10 @@ describe('proposalsWatch', () => {
     try {
       const file = path.join(proposalsDir(argusHome), 'foo.md')
       fs.writeFileSync(file, '---\n---\nhi')
-      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: 15000 })
+      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
       onChanged.mockClear()
       fs.rmSync(file)
-      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: 15000 })
+      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
     } finally {
       watcher.close()
     }
@@ -49,7 +50,7 @@ describe('proposalsWatch', () => {
       fs.writeFileSync(path.join(dir, 'a.md'), '1')
       fs.writeFileSync(path.join(dir, 'b.md'), '2')
       fs.writeFileSync(path.join(dir, 'c.md'), '3')
-      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: 15000 })
+      await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
       // let the debounce window fully settle before asserting the burst collapsed
       await new Promise((r) => setTimeout(r, 800))
       // Windows fs.watch can emit multiple raw events per write, so this is not
@@ -63,7 +64,7 @@ describe('proposalsWatch', () => {
   it('stops firing after close()', async () => {
     const watcher = createProposalsWatch(argusHome, onChanged)
     fs.writeFileSync(path.join(proposalsDir(argusHome), 'foo.md'), 'hi')
-    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: 15000 })
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled(), { timeout: FS_WATCH_TIMEOUT })
     watcher.close()
     onChanged.mockClear()
     fs.writeFileSync(path.join(proposalsDir(argusHome), 'bar.md'), 'hi')

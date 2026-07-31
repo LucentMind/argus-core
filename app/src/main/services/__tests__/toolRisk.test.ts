@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { ToolRiskStore } from '../toolRisk'
 import { toolRiskPath } from '../paths'
+import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, store: ToolRiskStore
 
@@ -47,7 +48,9 @@ describe('ToolRiskStore', () => {
     store = new ToolRiskStore(argusHome)
     expect(store.get()).toEqual({})
     fs.writeFileSync(toolRiskPath(argusHome), JSON.stringify({ 'x/y': 'high' }), 'utf8')
-    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
-    await vi.waitFor(() => expect(store.get()).toEqual({ 'x/y': 'high' }), { timeout: 10_000 })
+    // Waiting on the OS to deliver a filesystem event, not on code — see fsWatchBudget.
+    await vi.waitFor(() => expect(store.get()).toEqual({ 'x/y': 'high' }), {
+      timeout: FS_WATCH_TIMEOUT
+    })
   })
 })

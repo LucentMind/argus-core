@@ -6,6 +6,7 @@ import { SettingsService } from '../settings'
 import { settingsPath } from '../paths'
 import { defaultSettings, settingsSchema } from '../../../shared/settings'
 import type { ResolvedToolRow } from '../../../shared/settings'
+import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, svc: SettingsService
 
@@ -86,8 +87,8 @@ describe('SettingsService', () => {
     let notified = false
     svc.subscribe(() => (notified = true))
     fs.writeFileSync(settingsPath(argusHome), '{"agent":{"maxSessions":7}}', 'utf8')
-    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
-    await vi.waitFor(() => expect(notified).toBe(true), { timeout: 10_000 })
+    // Waiting on the OS to deliver a filesystem event, not on code — see fsWatchBudget.
+    await vi.waitFor(() => expect(notified).toBe(true), { timeout: FS_WATCH_TIMEOUT })
     expect(svc.get().agent.maxSessions).toBe(7)
   })
 

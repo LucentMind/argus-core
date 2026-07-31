@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { ConnectorRegistry } from '../connectors'
 import { mcpServersPath } from '../paths'
+import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, reg: ConnectorRegistry
 
@@ -91,8 +92,8 @@ describe('ConnectorRegistry', () => {
       JSON.stringify({ a: { kind: 'stdio', config: {}, enabled: false } }),
       'utf8'
     )
-    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
-    await vi.waitFor(() => expect(notified).toBe(true), { timeout: 10_000 })
+    // Waiting on the OS to deliver a filesystem event, not on code — see fsWatchBudget.
+    await vi.waitFor(() => expect(notified).toBe(true), { timeout: FS_WATCH_TIMEOUT })
     expect(reg.get().a.enabled).toBe(false)
   })
 })

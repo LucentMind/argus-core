@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createCaseWatchHub, type CaseWatchHub } from '../caseWatch'
 import { caseDir } from '../paths'
+import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, hub: CaseWatchHub, events: string[]
 
@@ -42,7 +43,7 @@ describe('caseWatch hub', () => {
     // of half a second.
     await watchAndSettle('C1')
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'evidence', 'x.txt'), 'hi')
-    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: FS_WATCH_TIMEOUT })
   })
 
   it('suppress() swallows self-caused events inside the window', async () => {
@@ -107,7 +108,7 @@ describe('caseWatch hub', () => {
     fs.mkdirSync(path.join(caseDir(argusHome, 'C1'), 'artifacts'), { recursive: true })
     await watchAndSettle('C1')
     fs.writeFileSync(path.join(caseDir(argusHome, 'C1'), 'artifacts', 'ci-5.log'), 'hi')
-    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: FS_WATCH_TIMEOUT })
   })
 
   // The bare-dirname case, for both trees: deleting the whole tracked dir reports a
@@ -116,13 +117,13 @@ describe('caseWatch hub', () => {
   it('treats a whole-directory delete (bare "evidence") as relevant', async () => {
     await watchAndSettle('C1')
     fs.rmSync(path.join(caseDir(argusHome, 'C1'), 'evidence'), { recursive: true, force: true })
-    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: FS_WATCH_TIMEOUT })
   })
 
   it('treats a whole-directory delete (bare "artifacts") as relevant', async () => {
     fs.mkdirSync(path.join(caseDir(argusHome, 'C1'), 'artifacts'), { recursive: true })
     await watchAndSettle('C1')
     fs.rmSync(path.join(caseDir(argusHome, 'C1'), 'artifacts'), { recursive: true, force: true })
-    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: 10_000 })
+    await vi.waitFor(() => expect(events).toContain('C1'), { timeout: FS_WATCH_TIMEOUT })
   })
 })

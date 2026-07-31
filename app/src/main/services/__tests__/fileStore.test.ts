@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { JsonFileStore } from '../fileStore'
+import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
 
 let tmp: string, file: string, store: JsonFileStore
 
@@ -54,7 +55,7 @@ describe('JsonFileStore', () => {
     expect(fired).toBe(0)
     // external change
     fs.writeFileSync(file, '{"a":3}', 'utf8')
-    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
-    await vi.waitFor(() => expect(fired).toBeGreaterThan(0), { timeout: 10_000 })
+    // Waiting on the OS to deliver a filesystem event, not on code — see fsWatchBudget.
+    await vi.waitFor(() => expect(fired).toBeGreaterThan(0), { timeout: FS_WATCH_TIMEOUT })
   })
 })
