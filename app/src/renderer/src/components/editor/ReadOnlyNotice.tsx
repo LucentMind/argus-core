@@ -1,5 +1,6 @@
 import { Lock } from 'lucide-react'
 import { Btn } from '../ui'
+import { canEditCopy } from '../../../../shared/assetEditable'
 import { TIER_EXPLANATIONS, type TrustTier } from '../../../../shared/trustTiers'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 
@@ -11,15 +12,24 @@ export interface ReadOnlyNoticeProps {
 }
 
 /**
- * Spec §6.2: a protected asset opens read-only, with a prominent way out.
+ * Spec §6.2: a protected asset opens read-only, with a prominent way out **where one exists**.
  *
  * The way out is the point. Without it this is a dead end — and for skills it replaces a flatly
  * false error: `readSkill` returns the tier-winning copy while `writeUserSkill` always writes to
  * `skills-user`, so saving a bundled skill today fails with `"x" changed on disk since you
  * opened it` when nothing changed on disk at all.
  *
+ * But *Edit a copy* is only offered when the button leads somewhere — see {@link canEditCopy}.
+ * A `confluence` or `bundled` reference has no claim path (`hivemind.ts:568` refuses everything
+ * but an installed HiveMind reference), and offering it there fired an IPC that always rejects.
+ * Those tiers get the notice alone; their `TIER_EXPLANATIONS` sentence already says why, and
+ * there is deliberately no invented "save as a copy" capability standing in for it.
+ *
  * The explanation is `TIER_EXPLANATIONS`, not a second wording of the same fact — the Library
- * already says this about these tiers and the two must not drift.
+ * already says this about these tiers and the two must not drift. The asset's **name** is in the
+ * sentence rather than a `title` tooltip: several read-only tabs stay mounted at once and the
+ * banners were otherwise byte-identical, while a tooltip on a truncated sentence reveals the
+ * name instead of the elided text it is attached to.
  */
 export function ReadOnlyNotice({
   kind,
@@ -36,13 +46,15 @@ export function ReadOnlyNotice({
     >
       <span className="flex min-w-0 items-center gap-2">
         <Lock size={13} aria-hidden="true" className="shrink-0" />
-        <span className="truncate" title={name}>
-          This {kind} is read-only.{explanation ? ` ${explanation}` : ''}
+        <span className="truncate">
+          This {kind}, {name}, is read-only.{explanation ? ` ${explanation}` : ''}
         </span>
       </span>
-      <Btn variant="outline" onClick={onEditCopy}>
-        Edit a copy
-      </Btn>
+      {canEditCopy(kind, tier) && (
+        <Btn variant="outline" onClick={onEditCopy}>
+          Edit a copy
+        </Btn>
+      )}
     </div>
   )
 }

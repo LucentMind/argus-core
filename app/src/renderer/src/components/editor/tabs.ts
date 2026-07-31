@@ -119,10 +119,16 @@ export function setTabView(s: TabsState, id: string, view: TabViewState): TabsSt
 /**
  * *Edit a copy*: the tab keeps its slot but becomes a different asset.
  *
- * A **fresh id** on purpose (deviation 1). The replacement remounts the surface, which is how it
- * loses the `readOnly` it was built with — no `Compartment` needed, because a read-only tab has
- * no undo history worth preserving. The old view state goes with it: a different file wants a
- * different cursor.
+ * A **fresh id** on purpose (deviation 1). The replacement re-resolves the asset from disk under
+ * a new `AssetTab`, and the old view state goes with it: a different file wants a different
+ * cursor.
+ *
+ * The remount is **not** what makes the new pane editable, though it reads that way. `readOnly`
+ * is re-derived from the tier maps, and after a claim those can still be pre-claim — so the
+ * replacement pane can mount read-only. `CodeSurface` reconfigures `readOnly` through a
+ * compartment when the `refsync:changed` / `skills:changed` broadcast lands, which is what
+ * releases it; without that this depended on main happening to broadcast before the claim IPC
+ * returned.
  */
 export function replaceTab(s: TabsState, id: string, req: EditorOpenRequest): TabsState {
   const i = s.tabs.findIndex((t) => t.id === id)

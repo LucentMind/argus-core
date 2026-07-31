@@ -6,6 +6,8 @@ import {
   baseExtensions,
   fontSizeCompartment,
   fontSizeTheme,
+  readOnlyCompartment,
+  readOnlyExtension,
   wrapCompartment
 } from './extensions/setup'
 import { editorKeymap, type SurfaceCommands } from './extensions/keymap'
@@ -33,10 +35,20 @@ export interface CodeSurfaceProps {
   /** Scroll to this fraction when it changes and the change did not come from here. */
   scrollFraction?: number
   /**
-   * Read **once, at mount**, exactly like `initialDoc`. No `Compartment`: the compartments in
-   * this file exist to preserve undo history across a reconfiguration, and a read-only buffer
-   * has no undo history to preserve. Becoming editable happens by remounting under a new tab id
-   * (`tabs.ts` `replaceTab`), which is also correct for a fork — that opens a different file.
+   * **Live**, not mount-only — reconfigured through `readOnlyCompartment` whenever it changes.
+   *
+   * This reverses an earlier decision ("no `Compartment` needed: a read-only buffer has no undo
+   * history to preserve"), whose premise was that `readOnly` is known at mount. It is not. It is
+   * derived from `skills:list` / `refsync:get`, so a protected asset routinely mounts with the
+   * tier still unresolved, the predicate failing open, and the buffer **editable** — and applying
+   * the later `true` only at mount left the banner and the disabled Save sitting over a fully
+   * typable document. It also runs the other way: after a claim, `replaceTab` re-derives this
+   * from a tier map that has not yet seen `refsync:changed`, so the pane can mount read-only and
+   * has to be released when the broadcast lands.
+   *
+   * A compartment is what makes both directions safe: it reconfigures without rebuilding the
+   * view, so the document, undo history and cursor survive the flip even if the user has already
+   * typed. Do **not** replace it with a remount under a new React `key`.
    */
   readOnly?: boolean
   ref?: React.Ref<SurfaceHandle>
@@ -102,8 +114,7 @@ export function CodeSurface({
       state: EditorState.create({
         doc: initialDoc,
         extensions: [
-          ...baseExtensions({ fontSize, wrap }),
-          ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
+          ...baseExtensions({ fontSize, wrap, readOnly }),
           editorKeymap(commandsRef),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
           EditorView.updateListener.of((update) => {
@@ -135,9 +146,9 @@ export function CodeSurface({
       view.destroy()
       viewRef.current = null
     }
-    // Mount-only. `initialDoc`, `ariaLabel`, `readOnly` and the initial font size / wrap are
-    // seeds, not live inputs: the first three change only across a remount (the parent keys on
-    // the asset/tab), and the last two are reconfigured through their compartments below.
+    // Mount-only. `initialDoc`, `ariaLabel` and the initial font size / wrap / readOnly are
+    // seeds, not live inputs: the first two change only across a remount (the parent keys on
+    // the asset/tab), and the last three are reconfigured through their compartments below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -214,6 +225,14 @@ export function CodeSurface({
       effects: wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : [])
     })
   }, [wrap])
+
+  // The tier that decides this arrives asynchronously, so this is a real reconfiguration and not
+  // a no-op after mount — see the prop's doc comment.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: readOnlyCompartment.reconfigure(readOnlyExtension(readOnly))
+    })
+  }, [readOnly])
 
   useEffect(() => {
     const view = viewRef.current

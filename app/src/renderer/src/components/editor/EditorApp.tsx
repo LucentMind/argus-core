@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
 import { ConfirmHost } from '../ConfirmHost'
-import { confirm } from '../../lib/confirmStore'
+import { alert, confirm } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { drainOpenTabs } from './editorBootstrap'
@@ -196,8 +196,15 @@ export function EditorApp(): React.JSX.Element {
    * The two flows are asymmetric on purpose: a skill FORK creates a new name, so it needs the
    * name-entry dialog and its inline collision retry (`forkSkill` throws on a taken name); a
    * reference CLAIM keeps the same name and only changes the tier, so a plain confirm suffices.
-   * Both still finish through `replaceTab` — that is what remounts the surface without its
-   * `readOnly`, for either flow (see tabs.ts).
+   * Both still finish through `replaceTab`, which re-derives `readOnly` for the new pane (see
+   * tabs.ts).
+   *
+   * **Both flows report a rejected IPC.** The fork's goes to `ForkSkillDialog`, which is still on
+   * screen and can offer another name; the claim has no dialog left by then, so it goes to the
+   * app-wide `alert()` (lib/confirmStore) — the same convention `ObservabilitySettings` and
+   * `connectorForm` use for an IPC that rejects out of an event handler. Nothing here may be left
+   * as a bare unhandled rejection: this used to sit in a `catch`-less `void (async () => …)()`,
+   * and a claim that main refused looked exactly like a button that did nothing.
    */
   const editCopy = useCallback(
     (id: string, kind: AuthoringKind, name: string): void => {
@@ -214,9 +221,19 @@ export function EditorApp(): React.JSX.Element {
           confirmLabel: 'Claim'
         })
         if (!ok) return
-        await window.argus.hivemind.claimReference(name)
-        // Same name, new tier. Still a replaceTab: the surface has to remount to lose its
-        // `readOnly`, which is exactly what a fresh tab id buys (see tabs.ts's replaceTab).
+        try {
+          await window.argus.hivemind.claimReference(name)
+        } catch (e) {
+          await alert({
+            title: `Could not make "${name}" yours.`,
+            message: e instanceof Error ? e.message : String(e)
+          })
+          return
+        }
+        // Same name, new tier. Still a replaceTab: the fresh tab id re-resolves the asset, and
+        // the tier map it reads may still be the pre-claim one — `readOnly` is reconfigured
+        // through a Compartment when `refsync:changed` lands, so a stale read self-corrects
+        // instead of stranding the pane read-only (see CodeSurface's `readOnly` prop).
         setState((s) => replaceTab(s, id, { kind: 'reference', name, mode: 'edit' }))
       })()
     },
@@ -288,9 +305,11 @@ export function EditorApp(): React.JSX.Element {
           tier={forking.tier}
           onCancel={() => setForking(null)}
           onConfirm={async (newName) => {
-            // Deliberately does NOT catch: ForkSkillDialog surfaces a rejected (colliding) name
-            // inline and stays open for another try, which is what makes the collision
-            // recoverable instead of dumping the user back on a dead tab.
+            // This is the fork flow's error handling — deliberately a rejection rather than a
+            // catch. `ForkSkillDialog.submit` awaits this and renders what it throws in its own
+            // `role="alert"`, staying open for another name, which is what makes a collision
+            // recoverable instead of dumping the user back on a dead tab. Catching here (or
+            // routing to `alert()` like the claim above) would take that retry away.
             const { name } = await window.argus.skills.fork(forking.name, newName)
             setState((s) => replaceTab(s, forking.id, { kind: 'skill', name, mode: 'edit' }))
             setForking(null)

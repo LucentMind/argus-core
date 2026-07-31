@@ -1,4 +1,4 @@
-import { Compartment, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import {
   EditorView,
   drawSelection,
@@ -23,8 +23,28 @@ export const fontSizeCompartment = new Compartment()
 /** Reconfigured on Alt+Z. Same reasoning. */
 export const wrapCompartment = new Compartment()
 
+/**
+ * Reconfigured when the asset's **tier resolves**, which happens after mount.
+ *
+ * `readOnly` is derived from `skills:list` / `refsync:get`, both async. A pane routinely mounts
+ * before either lands, with the tier unknown and the predicate failing open — so the buffer
+ * starts EDITABLE and only later learns it is protected. Baking `EditorState.readOnly.of(false)`
+ * into the initial state left the banner up and Save disabled over a fully typable document.
+ *
+ * A compartment reconfigures without rebuilding the view, so the document, undo history and
+ * cursor survive the flip — which is what makes this safe even when the tier arrives after the
+ * user has typed. (Remounting under a new React `key` would throw that buffer away.)
+ */
+export const readOnlyCompartment = new Compartment()
+
 export function fontSizeTheme(px: number): Extension {
   return EditorView.theme({ '&': { fontSize: `${px}px` } })
+}
+
+/** Both halves of "cannot be typed into": `readOnly` refuses document changes, `editable` also
+ *  drops `contenteditable` so the caret and the OS IME stay out of it. */
+export function readOnlyExtension(on: boolean): Extension {
+  return on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []
 }
 
 /**
@@ -35,7 +55,11 @@ export function fontSizeTheme(px: number): Extension {
  * `setDiagnostics` from `CodeSurface` (see Task 4), which avoids the lint source's ~750ms
  * debounce racing the validation this app already computes on every keystroke.
  */
-export function baseExtensions(opts: { fontSize: number; wrap: boolean }): Extension[] {
+export function baseExtensions(opts: {
+  fontSize: number
+  wrap: boolean
+  readOnly: boolean
+}): Extension[] {
   return [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -53,6 +77,7 @@ export function baseExtensions(opts: { fontSize: number; wrap: boolean }): Exten
     argusHighlight(),
     argusTheme(),
     fontSizeCompartment.of(fontSizeTheme(opts.fontSize)),
-    wrapCompartment.of(opts.wrap ? EditorView.lineWrapping : [])
+    wrapCompartment.of(opts.wrap ? EditorView.lineWrapping : []),
+    readOnlyCompartment.of(readOnlyExtension(opts.readOnly))
   ]
 }

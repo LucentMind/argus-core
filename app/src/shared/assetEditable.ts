@@ -31,3 +31,27 @@ export function isAssetEditable(kind: AuthoringKind, tier: TierLookup): boolean 
   if (kind === 'skill') return tier === 'user'
   return !REFERENCE_LOCKED.includes(tier ?? '')
 }
+
+/**
+ * Does this read-only asset have a real *Edit a copy* path, or only an explanation?
+ *
+ * {@link isAssetEditable} locks three reference tiers, but only ONE of them can be copied out of.
+ * The two questions are not the same, and answering the second with the first offers a button
+ * whose IPC always rejects:
+ *
+ * - `skill` — `forkSkill` (`skillsResolver.ts:285`) copies any non-`user` skill into
+ *   `skills-user`, so every read-only skill has a way out.
+ * - `reference` — `claimReference` (`hivemind.ts:568`) refuses anything but an installed HiveMind
+ *   reference: `if (referenceTier(file) !== 'hivemind') throw`. This mirrors the gate the Library
+ *   already applies to its own Claim button (`LibraryPage.tsx:441`, `r.tier === 'hivemind'`), and
+ *   the two must not drift. A `confluence` reference is rebuilt from its page on every sync and a
+ *   `bundled` one ships with a pack — neither has anywhere to be claimed *from*, which is exactly
+ *   what their `TIER_EXPLANATIONS` sentence already tells the user.
+ *
+ * Editable assets answer `false`: there is nothing to copy out of an asset you can just type into.
+ */
+export function canEditCopy(kind: AuthoringKind, tier: TierLookup): boolean {
+  if (isAssetEditable(kind, tier)) return false
+  if (kind === 'skill') return true
+  return tier === 'hivemind'
+}

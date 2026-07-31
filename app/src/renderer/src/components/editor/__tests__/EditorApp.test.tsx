@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { EditorApp } from '../EditorApp'
 import type { SurfaceHandle } from '../surface'
 import type { EditorOpenRequest } from '../../../../../shared/editorIpc'
+import type { RefSyncPayload } from '../../../../../shared/referenceSync'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
@@ -51,12 +52,39 @@ vi.mock('../CodeSurface', () => ({
 
 let openTab: ((req: EditorOpenRequest) => void) | null = null
 let closeRequested: ((info: { dirtyCount: number }) => void) | null = null
+/** `refsync:changed`, held so a test can decide **when** the post-claim tier map arrives. Main
+ *  happens to broadcast before `hivemind:claim-reference` returns today, which is an ordering
+ *  coincidence, not a guarantee — the read-only release must not depend on it. */
+let refsyncChanged: ((p: RefSyncPayload) => void) | null = null
 const setDirty = vi.fn()
 const respondClose = vi.fn()
+
+/** The reference rows `refsync.get` starts every test with. `shared.md` is the only one a claim
+ *  can act on: `claimReference` refuses anything but an installed HiveMind reference. */
+const references = (sharedTier: string | null = 'hivemind'): RefSyncPayload['references'] => [
+  { file: 'notes.md', tier: null, lastSynced: null, sourceCount: 0, stale: false, author: null },
+  {
+    file: 'synced.md',
+    tier: 'confluence',
+    lastSynced: null,
+    sourceCount: 0,
+    stale: false,
+    author: null
+  },
+  {
+    file: 'shared.md',
+    tier: sharedTier,
+    lastSynced: null,
+    sourceCount: 0,
+    stale: false,
+    author: null
+  }
+]
 
 beforeEach(() => {
   openTab = null
   closeRequested = null
+  refsyncChanged = null
   setDirty.mockClear()
   respondClose.mockClear()
   window.argus = {
@@ -140,31 +168,18 @@ beforeEach(() => {
       // refsync:write's real result is a bare hash string, unlike skills:write's object.
       writeRef: vi.fn().mockResolvedValue('h2-new'),
       // Backs useAssetTiers: 'notes.md' is untagged (tier: null — hand-authored, editable);
-      // 'synced.md' is hive-managed (tier: 'confluence' — read-only).
+      // 'synced.md' is Confluence-synced and 'shared.md' HiveMind-installed (both read-only, but
+      // only the latter can be claimed).
       get: vi.fn().mockResolvedValue({
         config: {},
         loadError: null,
         cards: [],
-        references: [
-          {
-            file: 'notes.md',
-            tier: null,
-            lastSynced: null,
-            sourceCount: 0,
-            stale: false,
-            author: null
-          },
-          {
-            file: 'synced.md',
-            tier: 'confluence',
-            lastSynced: null,
-            sourceCount: 0,
-            stale: false,
-            author: null
-          }
-        ]
+        references: references()
       }),
-      onChanged: () => () => {}
+      onChanged: (cb: (p: RefSyncPayload) => void) => {
+        refsyncChanged = cb
+        return () => {}
+      }
     },
     hivemind: {
       claimReference: vi.fn().mockResolvedValue({})
@@ -590,12 +605,30 @@ describe('read-only tabs', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
   })
 
-  // Create mode has no tier to look up and must never be gated on one.
-  it('opens a create-mode tab editable', async () => {
+  it('opens a hivemind reference read-only', async () => {
     render(<EditorApp />)
-    act(() => openTab!({ kind: 'skill', name: 'brand-new', mode: 'create' }))
+    act(() => openTab!({ kind: 'reference', name: 'shared.md', mode: 'edit' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
+  })
+
+  // Create mode has no tier to look up and must never be gated on one. The name deliberately
+  // COLLIDES with the hivemind skill fixture: a name absent from both lists resolves to
+  // `undefined`, which fails open anyway, so it would pass with the create-mode guard deleted.
+  it('opens a create-mode tab editable even when its name matches a read-only asset', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'create' }))
     await screen.findByLabelText(/name/i)
+    // Give the tier lists (both awaited promises) time to land before concluding there is no
+    // notice — otherwise this would pass simply by racing them.
+    await act(async () => {})
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  // Several read-only tabs stay mounted at once, so the banners have to be told apart.
+  it('names the asset in the read-only sentence', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/synced\.md/)
   })
 })
 
@@ -612,31 +645,114 @@ describe('Edit a copy', () => {
     expect(await screen.findByRole('tab', { name: /my-copy/ })).toBeInTheDocument()
   })
 
+  // Types a NEW name on purpose. Forking in place leaves the request identical to the tab already
+  // open, so `openTab`'s "one tab per asset" dedupe would return the same single tab and this
+  // assertion would hold whether the fork replaced the tab or merely re-focused it. A distinct
+  // name is the only thing that tells `replaceTab` and `openTab` apart here.
   it('does not add a tab — it replaces the read-only one', async () => {
     render(<EditorApp />)
     act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const field = await screen.findByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'my-copy')
     await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
-    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(1))
+    await screen.findByRole('tab', { name: /my-copy/ })
+    expect(screen.getAllByRole('tab')).toHaveLength(1)
   })
 
   it('claims a reference in place and keeps its name', async () => {
     render(<EditorApp />)
-    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    act(() => openTab!({ kind: 'reference', name: 'shared.md', mode: 'edit' }))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     await userEvent.click(await screen.findByRole('button', { name: /^claim$/i }))
     await waitFor(() =>
-      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('synced.md')
+      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('shared.md')
     )
-    expect(await screen.findByRole('tab', { name: /synced\.md/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /shared\.md/ })).toBeInTheDocument()
   })
 
   it('leaves the tab alone when the claim is declined', async () => {
     render(<EditorApp />)
-    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    act(() => openTab!({ kind: 'reference', name: 'shared.md', mode: 'edit' }))
     await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
     await userEvent.click(await screen.findByRole('button', { name: /^cancel$/i }))
     expect(window.argus.hivemind.claimReference).not.toHaveBeenCalled()
     expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
+  })
+
+  // `claimReference` (hivemind.ts:568) refuses anything but an installed HiveMind reference, so
+  // offering the button here fired an IPC that always rejects. The explanation stands alone.
+  it('offers no Edit a copy for a confluence reference, only the explanation', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent(/rebuilt from its confluence page/i)
+    expect(screen.queryByRole('button', { name: /edit a copy/i })).not.toBeInTheDocument()
+  })
+
+  it('reports a rejected claim instead of doing nothing', async () => {
+    vi.mocked(window.argus.hivemind.claimReference).mockRejectedValueOnce(
+      new Error('Not an installed HiveMind reference: shared.md')
+    )
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'shared.md', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^claim$/i }))
+
+    expect(await screen.findByText(/could not make "shared\.md" yours/i)).toBeInTheDocument()
+    expect(await screen.findByText(/not an installed hivemind reference/i)).toBeInTheDocument()
+  })
+
+  // The fork flow's error handling is the dialog, NOT a catch in EditorApp: `forkSkill` throws on
+  // a name collision and staying open for another name is the recovery path.
+  it('reports a rejected fork inline and keeps the dialog open for another name', async () => {
+    vi.mocked(window.argus.skills.fork).mockRejectedValueOnce(
+      new Error('A skill named "my-skill" already exists.')
+    )
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const field = await screen.findByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'my-skill')
+    await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already exists/i)
+    expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
+  })
+
+  // Finding 3: `replaceTab` re-derives `readOnly` from a tier map that has not yet seen
+  // `refsync:changed`, so the replacement pane can mount read-only even though the claim is
+  // already on disk. It must be RELEASED when the broadcast lands, not stuck for the session.
+  it('releases the replacement tab when the post-claim tier broadcast arrives late', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'shared.md', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^claim$/i }))
+    await waitFor(() =>
+      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('shared.md')
+    )
+    // `refsync.onChanged` has NOT fired: the map still says hivemind, so the fresh tab re-derives
+    // read-only from stale data. Asserted rather than assumed — without this the release below
+    // would pass trivially on a tab that was never read-only in the first place.
+    await screen.findByLabelText('reference · shared.md')
+    expect(screen.getByRole('status')).toHaveTextContent(/read-only/i)
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+
+    // `useAssetTiers` reads only `references` off the payload; the rest of a real `RefSyncPayload`
+    // (the Confluence config, in particular) is irrelevant here and stubbing it in full would say
+    // nothing extra.
+    act(() =>
+      refsyncChanged!({
+        config: {},
+        loadError: null,
+        cards: [],
+        references: references('user')
+      } as unknown as RefSyncPayload)
+    )
+
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled()
   })
 })
