@@ -9,6 +9,7 @@ import { DiffView } from './DiffView'
 import { EditorPane } from './EditorPane'
 import { PreviewPane } from './PreviewPane'
 import { ProblemsPanel } from './ProblemsPanel'
+import { StatusBar, type SyncState } from './StatusBar'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
 import { clockTime } from '../../lib/time'
@@ -504,36 +505,39 @@ export function AssetPane({
   // overlay here — `EditorPane` hides the surface itself, in-place, while keeping it in this tree.
   const overlay = compare !== null || proposed !== null
 
+  // Spec §5.5. `dirty` is in the condition as well as `draftAt` because the draft write is
+  // debounced ~500ms in main: between the keystroke and `onDraftSaved`, the file genuinely is
+  // not saved, and claiming Saved would be a lie in exactly the window where it matters. `Draft`
+  // without a time reads as "pending", which is what it is — persist-before-adopt is preserved,
+  // because only `onDraftSaved` ever supplies the timestamp.
+  const sync: SyncState =
+    banner.kind === 'conflict' || banner.kind === 'stale'
+      ? 'conflict'
+      : draftAt !== null || dirty
+        ? 'draft'
+        : 'saved'
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b border-hair px-3 py-2">
         <span className="font-mono text-xs text-dim">
           {kind === 'skill' ? 'skills' : 'references'} / {name}
         </span>
-        <span className="flex items-center gap-3">
-          {draftAt && (
-            <span className="font-mono text-[11px] text-faint">Draft · {clockTime(draftAt)}</span>
-          )}
-          <span className="flex items-center gap-2">
-            <Btn
-              variant="ghost"
-              disabled={proposed !== null}
-              onClick={() => setViewMode(nextViewMode(prefs.viewMode))}
-            >
-              {prefs.viewMode === 'editor'
-                ? 'Split'
-                : prefs.viewMode === 'split'
-                  ? 'Preview'
-                  : 'Edit'}
-            </Btn>
-            <Btn
-              variant="primary"
-              disabled={busy || proposed !== null}
-              onClick={() => void onSave()}
-            >
-              Save
-            </Btn>
-          </span>
+        <span className="flex items-center gap-2">
+          <Btn
+            variant="ghost"
+            disabled={proposed !== null}
+            onClick={() => setViewMode(nextViewMode(prefs.viewMode))}
+          >
+            {prefs.viewMode === 'editor'
+              ? 'Split'
+              : prefs.viewMode === 'split'
+                ? 'Preview'
+                : 'Edit'}
+          </Btn>
+          <Btn variant="primary" disabled={busy || proposed !== null} onClick={() => void onSave()}>
+            Save
+          </Btn>
         </span>
       </div>
 
@@ -744,9 +748,6 @@ export function AssetPane({
         />
         <div className="flex items-center justify-end gap-2 border-t border-hair px-3 py-2">
           <span className="flex shrink-0 items-center gap-2">
-            <span className="font-mono text-[11px] text-faint">
-              {cursor.line}:{cursor.col}
-            </span>
             {provider && (
               <span className={`text-xs ${provider.ok ? 'text-faint' : 'text-danger'}`}>
                 {provider.ok ? provider.text : provider.reason}
@@ -771,6 +772,16 @@ export function AssetPane({
           onStopWaiting={stopWaiting}
         />
       )}
+
+      <StatusBar
+        cursor={cursor}
+        issues={issues}
+        sync={sync}
+        draftAt={draftAt}
+        viewMode={prefs.viewMode}
+        onProblems={() => setProblemsOpen((o) => !o)}
+        onCycleViewMode={() => setViewMode(nextViewMode(prefs.viewMode))}
+      />
     </div>
   )
 }
