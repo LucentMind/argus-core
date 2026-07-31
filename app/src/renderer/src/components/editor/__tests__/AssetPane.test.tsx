@@ -984,4 +984,34 @@ describe('AssetPane · command contract', () => {
     act(() => paneRef.current!.cycleViewMode())
     await waitFor(() => expect(onCommandState.mock.lastCall![0].viewMode).toBe('split'))
   })
+
+  // Pins the `commandState` memo's stability directly. `useAssistProvider` (mocked above) returns
+  // a brand-new object literal on every call, exactly like the real hook — so a re-render that
+  // changes nothing the memo reads must not re-fire the report effect. Before the fix, the memo's
+  // dependency array carried the whole `provider` object, which fails `Object.is` every render and
+  // defeats the memo unconditionally; the first assertion below fails against that code (verified:
+  // it reported a second time after a no-op re-render). The final assertion guards against the
+  // opposite mistake — a callback so dead the test would pass by never firing at all.
+  it('does not re-report on a no-op re-render, but does when a reported field actually changes', async () => {
+    const onCommandState = vi.fn()
+    const { rerender, surface } = mount({ active: true, onCommandState })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    // Let any pending async effects from mount (e.g. the active-pane disk freshness check) settle
+    // before taking the baseline count, so they can't be mistaken for the re-render under test.
+    await act(async () => {})
+    const callsAfterMount = onCommandState.mock.calls.length
+
+    // `tier` is display-only (passed straight to `StatusBar`) and appears nowhere in the
+    // `commandState` memo or its dependency list — a clean lever for "re-render, nothing
+    // reportable moved".
+    rerender({ tier: 'HiveMind' })
+    await act(async () => {})
+    expect(onCommandState.mock.calls.length).toBe(callsAfterMount)
+
+    // Now change something that genuinely belongs in `commandState`: an empty document is a
+    // blocking validation error, which flips `blocked`.
+    fireEvent.change(surface, { target: { value: '' } })
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].blocked).toBe(true))
+    expect(onCommandState.mock.calls.length).toBeGreaterThan(callsAfterMount)
+  })
 })

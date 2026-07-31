@@ -797,6 +797,14 @@ export function AssetPane({
     [commands]
   )
 
+  // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on
+  // every render and hands back a brand-new object literal each time, even though the underlying
+  // settings payload is stable — so `provider` fails `Object.is` every render regardless of
+  // whether anything about it actually changed. The memo below reads only `provider?.ok` from it
+  // (for `canDraft`/`canImprove`), so hoisting that one boolean out and depending on it — instead
+  // of the whole object — is what actually makes the memo stable.
+  const providerOk = provider?.ok
+
   // Every field is a primitive, on purpose: this object is rebuilt on every keystroke, and one
   // array or nested object in it would make the memo change identity every render and fire the
   // report effect below every time.
@@ -811,8 +819,8 @@ export function AssetPane({
       // the persist-before-adopt fact anyway — only `onDraftSaved` ever sets it, so Discard draft
       // is offered exactly when there is a confirmed file to discard.
       hasDraft: draftAt !== null,
-      canDraft: mode === 'create' && describe.trim() !== '' && provider?.ok !== false,
-      canImprove: doc.trim() !== '' && provider?.ok !== false,
+      canDraft: mode === 'create' && describe.trim() !== '' && providerOk !== false,
+      canImprove: doc.trim() !== '' && providerOk !== false,
       viewMode: prefs.viewMode,
       wrap: prefs.wrap
     }),
@@ -825,7 +833,7 @@ export function AssetPane({
       draftAt,
       describe,
       doc,
-      provider,
+      providerOk,
       prefs.viewMode,
       prefs.wrap
     ]
