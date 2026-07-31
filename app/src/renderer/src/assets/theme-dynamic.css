@@ -14,7 +14,7 @@
    editor BrowserWindow all need them and none of those live inside .dyn. Their tokens live in
    theme.css so classic and the editor resolve them too. */
 
-.dyn {
+:root:not([data-theme='light']) .dyn {
   /* ── dark tokens (the design reference, ported from the mock) ── */
   --void: #000000;
   --bg-1: #000000;

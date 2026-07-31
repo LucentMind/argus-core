@@ -59,6 +59,7 @@
   --glass-edge-h: rgba(255, 255, 255, 0.16);
   --card-shadow: 0 26px 52px -30px rgba(0, 0, 0, 0.98);
   --card-shadow-h: 0 40px 72px -32px #000;
+  /* brightness>1 is free on black (0 x 1.08 = 0) but re-whitens a light page */
   --glass-filter: blur(40px) saturate(200%) brightness(1.08);
   --glass-filter-h: blur(54px) saturate(230%) brightness(1.13);
   --cursor-ring: rgba(175, 220, 255, 0.95);
@@ -77,7 +78,9 @@
   /* The shared Card primitive's material. A SEPARATE token set from --panel-*, deliberately:
      .dyn overrides --panel-bg to #090b0e, and if .surface-card read that, every default Card
      inside the dynamic scope would darken. In dark these values reproduce today's flat
-     `border-hair bg-panel` card exactly. */
+     `border-hair bg-panel` card exactly — outside the `.dyn` scope. Inside `.dyn`, --bg-2
+     resolves to .dyn's own darker value, and that divergence is exactly what the constraint
+     wants. */
   --surface-bg: var(--bg-2);
   --surface-border: var(--hair);
   --surface-shadow: none;

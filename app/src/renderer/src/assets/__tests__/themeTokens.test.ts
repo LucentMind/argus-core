@@ -63,6 +63,47 @@ describe('theme tokens', () => {
     }
   })
 
+  // Task 3 relocated the dark material tokens from theme-dynamic.css's .dyn block into this
+  // :root block, byte-identical. Pin them here too: this is the exact moment they land in a file
+  // Tasks 4-10 will keep editing, and without this pin a one-line edit to any of them would ship
+  // green.
+  it('the relocated dark material tokens are unchanged', () => {
+    const dark = block(css, ':root {')
+    const expected: Record<string, string> = {
+      '--glass-bg': 'rgba(15, 17, 21, 0.34)',
+      '--glass-lens-1': 'rgba(255, 255, 255, 0.145)',
+      '--glass-lens-2': 'rgba(255, 255, 255, 0.05)',
+      '--glass-lens-3': 'rgba(255, 255, 255, 0.018)',
+      '--glass-lens-4': 'rgba(255, 255, 255, 0.055)',
+      '--glass-lens-5': 'rgba(255, 255, 255, 0.105)',
+      '--glass-cap': 'rgba(190, 220, 255, 0.1)',
+      '--glass-border': 'rgba(255, 255, 255, 0.16)',
+      '--glass-border-h': 'rgba(255, 255, 255, 0.26)',
+      '--glass-hi': 'rgba(255, 255, 255, 0.3)',
+      '--glass-hi-h': 'rgba(255, 255, 255, 0.44)',
+      '--glass-edge': 'rgba(255, 255, 255, 0.1)',
+      '--glass-edge-h': 'rgba(255, 255, 255, 0.16)',
+      '--card-shadow': '0 26px 52px -30px rgba(0, 0, 0, 0.98)',
+      '--card-shadow-h': '0 40px 72px -32px #000',
+      '--glass-filter': 'blur(40px) saturate(200%) brightness(1.08)',
+      '--glass-filter-h': 'blur(54px) saturate(230%) brightness(1.13)',
+      '--cursor-ring': 'rgba(175, 220, 255, 0.95)',
+      '--cursor-ring-2': 'rgba(255, 255, 255, 0.26)',
+      '--cursor-sheen': 'rgba(205, 230, 255, 0.16)',
+      '--cursor-sheen-2': 'rgba(190, 220, 255, 0.055)',
+      '--grain-op': '0.035',
+      '--panel-bg': '#090b0e',
+      '--panel-lens-1': 'rgba(255, 255, 255, 0.055)',
+      '--panel-lens-2': 'rgba(255, 255, 255, 0.016)',
+      '--panel-shadow': '0 18px 40px -30px rgba(0, 0, 0, 0.9)',
+      '--panel-border': 'rgba(255, 255, 255, 0.085)',
+      '--panel-hi': 'rgba(255, 255, 255, 0.11)'
+    }
+    for (const [name, value] of Object.entries(expected)) {
+      expect(decl(dark, name), `dark ${name}`).toBe(value)
+    }
+  })
+
   // The priority rails keep their CLASSIC colours in dark by aliasing existing tokens, so
   // adding them changes nothing that renders today.
   it('dark priority rails alias the existing accent tokens', () => {
@@ -170,8 +211,12 @@ describe('material scoping', () => {
   const theme = readCss('theme.css')
 
   it('the material tokens live in theme.css so classic and the editor resolve them', () => {
+    // Scoped to the dark :root block specifically: the requirement is that classic (dark) and
+    // the editor window can resolve these, not merely that the token string appears somewhere in
+    // the file (it would also appear in the light block alone, or nowhere near :root).
+    const dark = block(theme, ':root {')
     for (const token of ['--glass-bg', '--glass-border', '--card-shadow', '--panel-bg']) {
-      expect(theme, `${token} must be declared in theme.css`).toContain(`${token}:`)
+      expect(decl(dark, token), `${token} must be declared in theme.css's :root block`).toBeDefined()
     }
   })
 
@@ -187,7 +232,11 @@ describe('material scoping', () => {
     // Dialogs and the editor must not inherit them.
     expect(dyn).toMatch(/\.dyn-home \.glass-card \.gc-ring/)
     expect(dyn).toMatch(/\.dyn-home \.glass-card \.gc-sheen/)
-    expect(dyn).toMatch(/\.dyn-home \.glass-card \{[^}]*animation:/)
+    // Assert on the keyframe name, not just the presence of an `animation:` declaration — the
+    // reduced-motion rule below (`.dyn-home .glass-card { animation: none; }`) also matches a
+    // bare `animation:` check, so deleting the real entrance-animation rule would leave a
+    // weaker assertion green.
+    expect(dyn).toMatch(/\.dyn-home \.glass-card \{[^}]*animation:\s*dyn-card-in/)
     // …and the un-scoped recipe must NOT carry them.
     const recipe = dyn.slice(dyn.search(/^\.glass-card \{/m))
     expect(recipe.slice(0, recipe.indexOf('}'))).not.toContain('animation:')
@@ -200,9 +249,17 @@ describe('material scoping', () => {
   })
 
   it('--surface-* is not overridden inside .dyn', () => {
-    // .surface-card must stay byte-identical in dyn dark. Overriding --surface-* under .dyn
-    // would darken every default Card inside the dynamic scope.
-    const dynBlock = dyn.slice(dyn.indexOf('.dyn {'), dyn.indexOf(":root[data-theme='light'] .dyn"))
-    expect(dynBlock).not.toContain('--surface-')
+    // .surface-card must stay byte-identical in dyn dark AND dyn light. Overriding --surface-*
+    // under either .dyn block would darken (or otherwise restyle) every default Card inside the
+    // dynamic scope. Covers both the dark block (guarded by :not([data-theme='light'])) and the
+    // light block, not just the dark one.
+    const darkStart = dyn.indexOf(":root:not([data-theme='light']) .dyn {")
+    const lightStart = dyn.indexOf(":root[data-theme='light'] .dyn {")
+    const darkClose = dyn.indexOf('\n}', darkStart)
+    const lightClose = dyn.indexOf('\n}', lightStart)
+    const darkBlock = dyn.slice(darkStart, darkClose)
+    const lightBlock = dyn.slice(lightStart, lightClose)
+    expect(darkBlock).not.toContain('--surface-')
+    expect(lightBlock).not.toContain('--surface-')
   })
 })
