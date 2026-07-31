@@ -5,6 +5,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PrCompanionSection } from '../PrCompanionSection'
 import { prStatusStore } from '../../lib/prStatusStore'
+import { uiStore } from '../../lib/uiStore'
 import { confirm } from '../../lib/confirmStore'
 import type { PrStatus } from '../../../../shared/prStatus'
 import type { PrBinding } from '../../../../shared/pr'
@@ -63,6 +64,7 @@ const BINDING: PrBinding = {
 }
 
 beforeEach(() => {
+  uiStore.setDynamicTheme(false)
   vi.mocked(confirm).mockReset().mockResolvedValue(true)
   prStatusStore.hydrate({ c1: status() })
   ;(window as unknown as { argus: unknown }).argus = {
@@ -748,5 +750,24 @@ describe('PrCompanionSection pull request linking', () => {
     await act(async () => {
       releaseLink()
     })
+  })
+})
+
+describe('PrCompanionSection material', () => {
+  // Regression pin: an earlier version of the material gate applied `rounded-r3 p-2.5`
+  // unconditionally on the outer container and only gated the `glass-panel` class itself,
+  // so the classic theme picked up 10px of unexplained inset it never had before. The
+  // container already sits inside a rail `<aside>` with its own padding — any padding or
+  // radius class here at all, on top of that, is a layout change the classic theme must
+  // never see. (Same defect and same fix as ReposSection; see ReposSection.test.tsx.)
+  it('applies no padding or radius class to the outer container when the dynamic theme is off', async () => {
+    uiStore.setDynamicTheme(false)
+    const { container } = render(
+      <PrCompanionSection slug="c1" mode="review" onAnalyze={() => {}} />
+    )
+    await screen.findByText(/review required/i)
+    const root = container.firstElementChild
+    expect(root?.className).not.toMatch(/(^|\s)p-2\.5(\s|$)/)
+    expect(root?.className).not.toMatch(/(^|\s)rounded-r3(\s|$)/)
   })
 })
