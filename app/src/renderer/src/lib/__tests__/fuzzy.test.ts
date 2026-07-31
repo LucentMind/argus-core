@@ -11,7 +11,10 @@ describe('fuzzyMatch', () => {
   })
 
   it('is case-insensitive and reports positions into the target', () => {
-    expect(fuzzyMatch('JF', 'jira-fields.md')).toEqual({ score: expect.any(Number), positions: [0, 5] })
+    expect(fuzzyMatch('JF', 'jira-fields.md')).toEqual({
+      score: expect.any(Number),
+      positions: [0, 5]
+    })
   })
 
   it('prefers word-boundary hits over interior ones', () => {

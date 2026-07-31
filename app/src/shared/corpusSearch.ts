@@ -42,16 +42,16 @@ export const MENTION_TEXT_MAX = 200
  * name is the only needle. A title that merely restates the stem adds nothing and is dropped, or
  * every reference would scan its own stem twice.
  */
-export function needlesFor(item: {
-  kind: AuthoringKind
-  name: string
-  title: string
-}): string[] {
+export function needlesFor(item: { kind: AuthoringKind; name: string; title: string }): string[] {
   if (item.kind === 'skill') return [item.name]
   const stem = item.name.replace(/\.md$/i, '')
   const out = [item.name, stem]
   const title = item.title.trim()
-  if (title && title.toLowerCase() !== stem.toLowerCase() && title.toLowerCase() !== item.name.toLowerCase()) {
+  if (
+    title &&
+    title.toLowerCase() !== stem.toLowerCase() &&
+    title.toLowerCase() !== item.name.toLowerCase()
+  ) {
     out.push(title)
   }
   return out
@@ -76,10 +76,7 @@ export function findMentions(
   cap: number = MENTION_CAP
 ): { line: number; text: string }[] {
   if (needles.length === 0) return []
-  const re = new RegExp(
-    `(?<![\\w-])(?:${needles.map(escapeRe).join('|')})(?![\\w-])`,
-    'i'
-  )
+  const re = new RegExp(`(?<![\\w-])(?:${needles.map(escapeRe).join('|')})(?![\\w-])`, 'i')
   const out: { line: number; text: string }[] = []
   // Split on \n and strip a trailing \r rather than splitting on /\r?\n/: the line NUMBERS must
   // stay right on a CRLF file, and a stray \r left in `text` renders as a control character.
@@ -90,8 +87,7 @@ export function findMentions(
     const trimmed = raw.trim()
     out.push({
       line: i + 1,
-      text:
-        trimmed.length > MENTION_TEXT_MAX ? `${trimmed.slice(0, MENTION_TEXT_MAX)}…` : trimmed
+      text: trimmed.length > MENTION_TEXT_MAX ? `${trimmed.slice(0, MENTION_TEXT_MAX)}…` : trimmed
     })
   }
   return out
