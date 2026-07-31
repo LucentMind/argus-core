@@ -3,11 +3,20 @@ import { AssetPane } from './AssetPane'
 import { readAsset } from './assetIo'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
 import { bannerOnOpen, type DraftBanner } from '../../lib/draftState'
-import type { DraftRecord, EditorOpenRequest } from '../../../../shared/editorIpc'
+import type { DraftRecord, EditorOpenRequest, TabViewState } from '../../../../shared/editorIpc'
 
 export interface AssetTabProps {
   req: EditorOpenRequest
   onDirtyChange: (dirty: boolean) => void
+  /** This tab is the one on screen. */
+  active: boolean
+  readOnly: boolean
+  /** Shown in the status bar's badge slot (spec §5.5). */
+  tier?: string
+  onNameChange: (name: string) => void
+  onViewStateChange: (view: TabViewState) => void
+  /** Where this tab was looking when the app last exited. Applied on first activation. */
+  initialViewState?: TabViewState | null
 }
 
 interface Resolved {
@@ -29,7 +38,16 @@ interface Resolved {
  * buffer. Resolving first and mounting `AssetPane` with plain values deletes all of it: after
  * this point, content changes are transactions.
  */
-export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Element {
+export function AssetTab({
+  req,
+  onDirtyChange,
+  active,
+  readOnly,
+  tier,
+  onNameChange,
+  onViewStateChange,
+  initialViewState = null
+}: AssetTabProps): React.JSX.Element {
   const { kind, name, mode } = req
   const [resolved, setResolved] = useState<Resolved | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -50,8 +68,14 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
     let live = true
     void (async () => {
       const disk = await readAsset(kind, name)
-      let draft: DraftRecord | null
-      if (mode === 'create') {
+      let draft: DraftRecord | null = null
+      if (readOnly) {
+        // A read-only asset has no draft and must not acquire one (see AssetPane's `fileDraft`
+        // guard), so skip the read entirely rather than resolving a draft that can never apply.
+        // Gating here rather than inside the branches also skips the legacy ADOPTION below, which
+        // would otherwise write a new id-keyed record for a buffer the user cannot save.
+        draft = null
+      } else if (mode === 'create') {
         draft = await window.argus.editor.readDraft({ draftId })
         if (!draft) {
           // Legacy fallback (back-compat only — delete once no old drafts remain): a create-mode
@@ -107,7 +131,7 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
       const baseline = disk ? disk.content : mode === 'create' ? template(name) : ''
       // Create mode only. An edit-mode orphan (its asset deleted while a draft existed) is
       // Increment 5's quick-open problem — spec §10 cut Library visibility for drafts outright.
-      const all = mode === 'create' ? await window.argus.editor.listDrafts() : []
+      const all = mode === 'create' && !readOnly ? await window.argus.editor.listDrafts() : []
       if (!live) return
       setResolved({
         doc: draft ? draft.content : baseline,
@@ -129,7 +153,7 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
     return () => {
       live = false
     }
-  }, [kind, name, mode, draftId])
+  }, [kind, name, mode, draftId, readOnly])
 
   if (error) {
     return (
@@ -154,6 +178,12 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
       initialDraftAt={resolved.draftAt}
       otherDrafts={resolved.otherDrafts}
       onDirtyChange={onDirtyChange}
+      active={active}
+      readOnly={readOnly}
+      tier={tier}
+      onNameChange={onNameChange}
+      onViewStateChange={onViewStateChange}
+      initialViewState={initialViewState}
     />
   )
 }

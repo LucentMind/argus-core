@@ -157,9 +157,19 @@ export function CodeSurface({
         if (!view) return
         // Text.line THROWS out of range rather than clamping, so every caller's line number has
         // to be clamped here — a diagnostic on a line the user has since deleted is routine.
-        const n = Math.min(Math.max(1, Math.trunc(line)), view.state.doc.lines)
+        // `Number.isFinite` first, for the same reason `scrollTo` below guards its fraction: the
+        // restored view state comes out of a persisted JSON file, which is untrusted input, and
+        // NaN slips straight through the clamp (both `NaN < 1` and `NaN > lines` are false) and
+        // on past `Text.line`'s own range check into undefined behaviour.
+        const n = Number.isFinite(line)
+          ? Math.min(Math.max(1, Math.trunc(line)), view.state.doc.lines)
+          : 1
         const info = view.state.doc.line(n)
-        const pos = Math.min(info.from + Math.max(0, (opts?.col ?? 1) - 1), info.to)
+        // Same guard on the column, which arrives from the same persisted file: a NaN survives
+        // both `Math.max` and `Math.min` and reaches `dispatch` as an invalid selection anchor.
+        const rawCol = opts?.col ?? 1
+        const col = Number.isFinite(rawCol) ? rawCol : 1
+        const pos = Math.min(info.from + Math.max(0, col - 1), info.to)
         view.dispatch({ selection: { anchor: pos }, scrollIntoView: true })
         if (opts?.focus !== false) view.focus()
       },

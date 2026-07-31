@@ -66,7 +66,16 @@ beforeEach(() => {
 })
 
 const mount = (req: EditorOpenRequest = SKILL): void => {
-  render(<AssetTab req={req} onDirtyChange={vi.fn()} />)
+  render(
+    <AssetTab
+      req={req}
+      onDirtyChange={vi.fn()}
+      active={true}
+      readOnly={false}
+      onNameChange={vi.fn()}
+      onViewStateChange={vi.fn()}
+    />
+  )
 }
 
 const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({

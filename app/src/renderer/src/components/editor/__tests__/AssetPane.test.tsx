@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { AssetPane } from '../AssetPane'
-import type { SurfaceHandle } from '../surface'
+import type { CursorInfo, SurfaceHandle } from '../surface'
+import type { SurfaceCommands } from '../extensions/keymap'
+import type { ValidationIssue } from '../../../../../shared/assetValidation'
 import type { DraftSaved } from '../../../../../shared/editorIpc'
 
 vi.mock('../../library/assistProvider', () => ({
@@ -31,28 +33,39 @@ const setDoc = vi.fn()
 interface MockSurfaceProps {
   initialDoc: string
   ariaLabel: string
+  issues: ValidationIssue[]
+  commands: SurfaceCommands
   onDocChange: (doc: string) => void
+  onCursor: (info: CursorInfo) => void
+  onScrollFraction?: (fraction: number) => void
+  readOnly?: boolean
   ref?: { current: SurfaceHandle | null }
 }
+/** The last props `AssetPane` rendered the surface with. Tests both assert on them (`readOnly`)
+ *  and drive the pane through them, because the callbacks below are the only way to move the
+ *  document, the cursor or the scroll position without a real CodeMirror. */
+let surfaceProps: MockSurfaceProps = {} as MockSurfaceProps
+/** The half of `SurfaceHandle` that is pure output — what the pane *did* to the surface.
+ *  `getDoc`/`setDoc` stay implemented in the factory below, because other tests read them back. */
+const surfaceHandle = {
+  goToLine: vi.fn(),
+  requestMeasure: vi.fn(),
+  scrollTo: vi.fn(),
+  focus: vi.fn()
+}
 vi.mock('../CodeSurface', () => ({
-  CodeSurface: ({
-    initialDoc,
-    ariaLabel,
-    onDocChange,
-    ref
-  }: MockSurfaceProps): React.JSX.Element => {
+  CodeSurface: (props: MockSurfaceProps): React.JSX.Element => {
+    surfaceProps = props
+    const { initialDoc, ariaLabel, onDocChange, ref } = props
     if (ref) {
       ref.current = {
+        ...surfaceHandle,
         getDoc: () => globalThis.__doc ?? initialDoc,
         setDoc: (text: string) => {
           setDoc(text)
           globalThis.__doc = text
           onDocChange(text)
-        },
-        goToLine: vi.fn(),
-        focus: vi.fn(),
-        requestMeasure: vi.fn(),
-        scrollTo: vi.fn()
+        }
       }
     }
     globalThis.__doc ??= initialDoc
@@ -77,8 +90,22 @@ const skillsRead = vi.fn()
  *  status-bar-derivation tests below, which need to distinguish a pending draft from a dated one. */
 let draftSavedListener: ((s: DraftSaved) => void) | undefined
 
+const DISK = '---\nname: s\ndescription: d\n---\n\nbody\n'
+
 beforeEach(() => {
   vi.clearAllMocks()
+  surfaceProps = {} as MockSurfaceProps
+  surfaceHandle.goToLine.mockClear()
+  surfaceHandle.requestMeasure.mockClear()
+  surfaceHandle.scrollTo.mockClear()
+  surfaceHandle.focus.mockClear()
+  // Implementations, not just call history: `vi.clearAllMocks()` leaves a previous test's
+  // `mockRejectedValue`/`mockResolvedValue` in place, and every *active* pane now re-reads disk
+  // the moment it mounts (spec §4.4's focus check, gated on `active`). A leaked implementation
+  // would silently reload the buffer before the test's first keystroke. The default says what is
+  // true of a freshly opened asset: disk holds exactly what the pane was mounted with.
+  skillsRead.mockReset().mockResolvedValue({ content: DISK, hash: 'h1' })
+  skillsWrite.mockReset().mockResolvedValue({ hash: 'h2' })
   // Task 7's view mode / split fraction persist to localStorage (`lib/editorPrefs.ts`), not to
   // React state alone — leaving a prior test's mode behind would make the Preview-button label
   // (and thus which click gets you where) order-dependent.
@@ -100,8 +127,6 @@ beforeEach(() => {
   } as never
 })
 
-const DISK = '---\nname: s\ndescription: d\n---\n\nbody\n'
-
 function mount(
   overrides: Partial<React.ComponentProps<typeof AssetPane>> = {},
   /** `strict` wraps the tree in `<StrictMode>`, which double-invokes mount effects — the only
@@ -109,9 +134,14 @@ function mount(
   opts: { strict?: boolean } = {}
 ): {
   onDirtyChange: ReturnType<typeof vi.fn>
+  onNameChange: ReturnType<typeof vi.fn>
+  onViewStateChange: ReturnType<typeof vi.fn>
   surface: HTMLElement
+  rerender: (next: Partial<React.ComponentProps<typeof AssetPane>>) => void
 } {
   const onDirtyChange = vi.fn()
+  const onNameChange = vi.fn()
+  const onViewStateChange = vi.fn()
   const props: React.ComponentProps<typeof AssetPane> = {
     kind: 'skill',
     initialName: 's',
@@ -125,17 +155,47 @@ function mount(
     initialBanner: { kind: 'none' },
     initialDraftAt: null,
     otherDrafts: [],
+    active: true,
+    readOnly: false,
+    tier: undefined,
+    initialViewState: null,
     onDirtyChange,
+    onNameChange,
+    onViewStateChange,
     ...overrides
   }
   const tree = <AssetPane {...props} />
-  render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree)
+  const { rerender: rtlRerender } = render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree)
+  const rerender = (next: Partial<React.ComponentProps<typeof AssetPane>>): void => {
+    const merged = <AssetPane {...props} {...next} />
+    rtlRerender(opts.strict ? <StrictMode>{merged}</StrictMode> : merged)
+  }
   // Derived, not the literal 'skill · s': the create-mode cases below mount under a different
   // name and the surface's aria-label follows it.
   return {
     onDirtyChange,
-    surface: screen.getByLabelText(`${props.kind} · ${props.initialName}`)
+    onNameChange,
+    onViewStateChange,
+    surface: screen.getByLabelText(`${props.kind} · ${props.initialName}`),
+    rerender
   }
+}
+
+/**
+ * Arrange a save that is rejected because someone else wrote the file first.
+ *
+ * The concurrent edit lands *during* the save rather than before it, and that ordering is
+ * load-bearing now: an active pane re-reads disk the moment it mounts (spec §4.4's check, gated
+ * on `active` from Task 5). Pointing disk at a different hash up front would let that check
+ * reload the clean buffer and adopt `h2` as the baseHash, after which the save's own comparison
+ * finds nothing to conflict about. Driving it from inside the rejecting write is also immune to
+ * how many times the check runs — StrictMode double-invokes the effect that owns it.
+ */
+function diskMovesDuringSave(): void {
+  skillsWrite.mockImplementation(async () => {
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    throw new Error('changed on disk')
+  })
 }
 
 describe('AssetPane', () => {
@@ -252,8 +312,7 @@ describe('AssetPane', () => {
   })
 
   it('raises the conflict banner when a save is rejected because disk moved', async () => {
-    skillsWrite.mockRejectedValue(new Error('changed on disk'))
-    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    diskMovesDuringSave()
     const { surface } = mount()
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -268,8 +327,7 @@ describe('AssetPane', () => {
     // classification, which would leave the user with no banner and no explanation. Only a
     // StrictMode-wrapped render can see it; the plain conflict test above passes either way, and
     // the app's real entry point (`editor.tsx`) does wrap the tree in StrictMode.
-    skillsWrite.mockRejectedValue(new Error('changed on disk'))
-    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    diskMovesDuringSave()
     const { surface } = mount({}, { strict: true })
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -295,8 +353,7 @@ describe('AssetPane', () => {
   })
 
   it('"Use disk" replaces the document through the handle and discards the draft', async () => {
-    skillsWrite.mockRejectedValue(new Error('changed on disk'))
-    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    diskMovesDuringSave()
     const { surface } = mount()
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -313,8 +370,7 @@ describe('AssetPane', () => {
   })
 
   it('"Keep mine" keeps the text and re-files the draft against the new disk hash', async () => {
-    skillsWrite.mockRejectedValue(new Error('changed on disk'))
-    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    diskMovesDuringSave()
     const { surface } = mount()
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -328,8 +384,7 @@ describe('AssetPane', () => {
   })
 
   it('keeps the surface mounted while Compare is up', async () => {
-    skillsWrite.mockRejectedValue(new Error('changed on disk'))
-    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    diskMovesDuringSave()
     const { surface } = mount()
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -566,13 +621,192 @@ describe('AssetPane', () => {
 
   it('reads Conflict while a conflict banner is up', async () => {
     // Explicit rather than relying on the previous tests' state: `vi.clearAllMocks()` in
-    // `beforeEach` resets call history but not implementations, so an earlier conflict test's
-    // `mockRejectedValue`/`mockResolvedValue` would otherwise leak forward.
-    skillsWrite.mockRejectedValue(new Error('changed on disk'))
-    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    // `beforeEach` resets call history but not implementations, which is why `beforeEach` now
+    // also `mockReset`s these two back to a freshly-opened asset.
+    diskMovesDuringSave()
     const { surface } = mount()
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByText('Conflict')).toBeInTheDocument())
+  })
+})
+
+describe('read-only panes', () => {
+  it('disables Save', () => {
+    mount({ readOnly: true })
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
+
+  // Both assist actions write into the buffer. On a buffer that cannot be saved they produce
+  // text whose only possible destination is a draft that also must not exist (below).
+  it('disables Improve', () => {
+    mount({ readOnly: true })
+    expect(screen.getByRole('button', { name: /improve/i })).toBeDisabled()
+  })
+
+  it('marks the surface read-only', () => {
+    mount({ readOnly: true })
+    expect(surfaceProps.readOnly).toBe(true)
+  })
+
+  it('leaves the surface writable for an editable asset', () => {
+    mount({ readOnly: false })
+    expect(surfaceProps.readOnly).toBe(false)
+  })
+
+  // A read-only buffer cannot be typed into, so any draft it filed could only ever equal disk —
+  // and quick open (Increment 5) would surface it as an orphan for ever. Driven through the
+  // surface's own onDocChange because there is no user-facing way to move the text at all.
+  it('never files a draft', async () => {
+    mount({ readOnly: true })
+    act(() => surfaceProps.onDocChange('moved by something other than the user'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled())
+    expect(draftChanged).not.toHaveBeenCalled()
+  })
+
+  it('files a draft as usual when editable', async () => {
+    mount({ readOnly: false })
+    act(() => surfaceProps.onDocChange('typed'))
+    await waitFor(() => expect(draftChanged).toHaveBeenCalled())
+  })
+
+  // Ctrl+S reaches onSave through the CodeMirror keymap and the window-level fallback, neither
+  // of which consults the button's disabled attribute.
+  it('ignores a save command while read-only', async () => {
+    mount({ readOnly: true })
+    act(() => surfaceProps.commands.save())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled())
+    expect(skillsWrite).not.toHaveBeenCalled()
+  })
+
+  it('shows the tier in the status bar', () => {
+    mount({ readOnly: true, tier: 'HiveMind' })
+    expect(screen.getByTestId('tier-badge')).toHaveTextContent('HiveMind')
+  })
+})
+
+describe('background panes', () => {
+  // Spec §4.4 rejected an fs watcher on cost. One readAsset per mounted tab per window focus
+  // puts that cost straight back — and a banner on a tab you cannot see helps nobody.
+  it('does not re-read disk on window focus while inactive', async () => {
+    mount({ active: false })
+    skillsRead.mockClear()
+    act(() => window.dispatchEvent(new Event('focus')))
+    await act(async () => {})
+    expect(skillsRead).not.toHaveBeenCalled()
+  })
+
+  it('re-reads disk on window focus while active', async () => {
+    mount({ active: true })
+    skillsRead.mockClear()
+    act(() => window.dispatchEvent(new Event('focus')))
+    await waitFor(() => expect(skillsRead).toHaveBeenCalled())
+  })
+
+  // Becoming active is the moment a stale banner starts mattering, and it is the only moment the
+  // pane could have missed a focus event that fired while it was hidden.
+  it('re-reads disk when it becomes active', async () => {
+    const { rerender } = mount({ active: false })
+    skillsRead.mockClear()
+    rerender({ active: true })
+    await waitFor(() => expect(skillsRead).toHaveBeenCalled())
+  })
+
+  it('re-measures the surface when it becomes active', async () => {
+    const { rerender } = mount({ active: false })
+    rerender({ active: true })
+    await waitFor(() => expect(surfaceHandle.requestMeasure).toHaveBeenCalled())
+  })
+
+  // Restoring at mount would be wrong: a display-none view has no geometry, so the scroll and
+  // the goToLine land nowhere. First activation is the first moment the geometry is real.
+  it('applies a restored view state on first activation, not at mount', async () => {
+    const { rerender } = mount({
+      active: false,
+      initialViewState: { line: 7, col: 2, scrollFraction: 0.25 }
+    })
+    expect(surfaceHandle.goToLine).not.toHaveBeenCalled()
+    rerender({ active: true })
+    // focus:false — a background tab being restored must not pull the caret out of the tab the
+    // user is actually looking at.
+    await waitFor(() =>
+      expect(surfaceHandle.goToLine).toHaveBeenCalledWith(7, { col: 2, focus: false })
+    )
+  })
+
+  // Imperative, not through the `scrollFraction` prop: driving it from React state would be a
+  // synchronous setState in an effect body, which `react-hooks/set-state-in-effect` forbids.
+  it('restores the scroll position imperatively', async () => {
+    const { rerender } = mount({
+      active: false,
+      initialViewState: { line: 7, col: 2, scrollFraction: 0.25 }
+    })
+    rerender({ active: true })
+    await waitFor(() => expect(surfaceHandle.scrollTo).toHaveBeenCalledWith(0.25))
+  })
+
+  it('does not re-apply the restored view state on a later activation', async () => {
+    const { rerender } = mount({
+      active: false,
+      initialViewState: { line: 7, col: 2, scrollFraction: 0.25 }
+    })
+    rerender({ active: true })
+    await waitFor(() => expect(surfaceHandle.goToLine).toHaveBeenCalledTimes(1))
+    rerender({ active: false })
+    rerender({ active: true })
+    await waitFor(() => expect(surfaceHandle.requestMeasure).toHaveBeenCalledTimes(2))
+    expect(surfaceHandle.goToLine).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('name reporting', () => {
+  // The strip shows the name, and in create mode the name field owns it. Without this the strip
+  // would show the placeholder for the life of the tab.
+  it('reports a create-mode rename upward', async () => {
+    const { onNameChange } = mount({ mode: 'create', initialName: 'untitled' })
+    const field = screen.getByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'renamed-skill')
+    await waitFor(() => expect(onNameChange).toHaveBeenLastCalledWith('renamed-skill'))
+  })
+
+  it('reports the saved name after a save', async () => {
+    const { onNameChange } = mount()
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(onNameChange).toHaveBeenLastCalledWith('s'))
+  })
+})
+
+describe('view state reporting', () => {
+  it('reports cursor moves for persistence', async () => {
+    const { onViewStateChange } = mount()
+    act(() => surfaceProps.onCursor({ line: 4, col: 9, selected: 0 }))
+    await waitFor(() =>
+      expect(onViewStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ line: 4, col: 9 })
+      )
+    )
+  })
+
+  it('reports scroll for persistence', async () => {
+    const { onViewStateChange } = mount()
+    act(() => surfaceProps.onScrollFraction!(0.6))
+    await waitFor(() =>
+      expect(onViewStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ scrollFraction: 0.6 })
+      )
+    )
+  })
+
+  // Each callback carries the OTHER value from its mirror ref. Without the mirrors, a scroll
+  // would persist line 1 and a cursor move would persist fraction 0, so a restore would land
+  // in the right line with the wrong scroll or vice versa.
+  it('keeps line and scroll together across both callbacks', async () => {
+    const { onViewStateChange } = mount()
+    act(() => surfaceProps.onCursor({ line: 4, col: 9, selected: 0 }))
+    act(() => surfaceProps.onScrollFraction!(0.6))
+    await waitFor(() =>
+      expect(onViewStateChange).toHaveBeenLastCalledWith({ line: 4, col: 9, scrollFraction: 0.6 })
+    )
   })
 })

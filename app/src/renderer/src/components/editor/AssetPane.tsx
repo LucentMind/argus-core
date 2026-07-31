@@ -36,7 +36,7 @@ import {
 } from '../../../../shared/assetValidation'
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
-import type { DraftRecord } from '../../../../shared/editorIpc'
+import type { DraftRecord, TabViewState } from '../../../../shared/editorIpc'
 
 export interface AssetPaneProps {
   kind: AuthoringKind
@@ -71,6 +71,15 @@ export interface AssetPaneProps {
    */
   otherDrafts: DraftRecord[]
   onDirtyChange: (dirty: boolean) => void
+  /** This tab is the one on screen. */
+  active: boolean
+  readOnly: boolean
+  /** Shown in the status bar's badge slot (spec §5.5). */
+  tier?: string
+  onNameChange: (name: string) => void
+  onViewStateChange: (view: TabViewState) => void
+  /** Where this tab was looking when the app last exited. Applied on first activation. */
+  initialViewState?: TabViewState | null
 }
 
 /**
@@ -93,7 +102,13 @@ export function AssetPane({
   initialBanner,
   initialDraftAt,
   otherDrafts,
-  onDirtyChange
+  onDirtyChange,
+  active,
+  readOnly,
+  tier,
+  onNameChange,
+  onViewStateChange,
+  initialViewState = null
 }: AssetPaneProps): React.JSX.Element {
   const template = kind === 'skill' ? skillTemplate : referenceTemplate
   const surfaceRef = useRef<SurfaceHandle | null>(null)
@@ -138,6 +153,42 @@ export function AssetPane({
   useEffect(() => {
     bannerRef.current = banner
   }, [banner])
+
+  // The same discipline, for the two halves of the persisted view state. A `TabViewState` is one
+  // value, but it arrives from CodeMirror through two independent callbacks — so each one has to
+  // read the other half *now*. Left to a passive effect, a scroll landing in the same tick as a
+  // cursor move would persist the previous line, and a restore would put the caret on the right
+  // line at the wrong scroll offset.
+  const cursorRef = useRef<CursorInfo>({ line: 1, col: 1, selected: 0 })
+  const scrollFractionRef = useRef(0)
+
+  const handleCursor = useCallback(
+    (info: CursorInfo): void => {
+      cursorRef.current = info
+      setCursor(info)
+      onViewStateChange({
+        line: info.line,
+        col: info.col,
+        scrollFraction: scrollFractionRef.current
+      })
+    },
+    [onViewStateChange]
+  )
+
+  const handleScrollFraction = useCallback(
+    (f: number): void => {
+      scrollFractionRef.current = f
+      setEditorFraction(f)
+      // Fire-and-forget at this frequency: main owns the debounce, exactly as it does for
+      // `editor:draft-changed`, which already fires on every keystroke.
+      onViewStateChange({
+        line: cursorRef.current.line,
+        col: cursorRef.current.col,
+        scrollFraction: f
+      })
+    },
+    [onViewStateChange]
+  )
 
   // `onSave` is a plain function declared in the component body, so it is a new identity every
   // render and cannot be captured in the `commands` memo below with an empty dependency list.
@@ -225,6 +276,10 @@ export function AssetPane({
 
   const fileDraft = useCallback(
     (args: { name: string; content: string; baseHash: string | null }): void => {
+      // A read-only asset must not acquire a draft: Increment 5's quick open would list it as an
+      // orphan for ever, and there is no save that could ever retire it. One guard here rather
+      // than at each caller: this is the only path to `editor:draft-changed`.
+      if (readOnly) return
       draftFiled.current = true
       // Create mode's identity is `draftId`, carried on every write; edit mode's is kind+name,
       // already in `args.name`. See `keyOf` in main/services/drafts.ts for why the two schemes
@@ -237,7 +292,7 @@ export function AssetPane({
         ...(mode === 'create' ? { draftId } : {})
       })
     },
-    [kind, mode, draftId]
+    [kind, mode, draftId, readOnly]
   )
 
   const dropDraft = useCallback(
@@ -362,9 +417,15 @@ export function AssetPane({
     // `draftId`, not the name, so a rename never moves the file (see `keyOf` in
     // main/services/drafts.ts).
     fileDraft({ name: next, content, baseHash: baseHashRef.current })
+    // The tab strip shows the name, and in create mode this field owns it.
+    onNameChange(next)
   }
 
   async function onSave(): Promise<void> {
+    // Separate from the guard below, and first: the button's `disabled` is not the only way in —
+    // Ctrl+S arrives through the CodeMirror keymap and the window-level fallback, neither of
+    // which looks at the button at all.
+    if (readOnly) return
     // The Save *button* is disabled on `busy || proposed !== null`, but Ctrl+S reaches this
     // function through two paths that ignore the button entirely — the CodeMirror keymap and the
     // window-level fallback. Without this guard a double Ctrl+S (a very common habit) starts a
@@ -389,6 +450,7 @@ export function AssetPane({
       baseHashRef.current = newHash
       filedAsRef.current = savedAs
       setSavedName(savedAs)
+      onNameChange(savedAs)
       setLastSaved({ name: savedAs, content: savedContent })
       setBanner({ kind: 'none' })
       // What was written is the new baseline either way. When the buffer moved on during the
@@ -422,6 +484,10 @@ export function AssetPane({
   }
 
   async function assist(which: 'draft' | 'improve'): Promise<void> {
+    // Both actions end in text landing in the buffer, whose only destinations are a save and a
+    // draft — and a read-only pane has neither. The buttons are disabled too; this covers the
+    // keyboard and any future command surface that does not go through them.
+    if (readOnly) return
     const myRun = ++runId.current
     setBusy(true)
     setPhase(which)
@@ -525,8 +591,21 @@ export function AssetPane({
     [applyContent, dropDraft, fileDraft]
   )
 
-  /** Spec §4.4: no fs watcher — external changes are noticed here and at save. */
+  /**
+   * Spec §4.4: no fs watcher — external changes are noticed here and at save.
+   *
+   * Only the **active** tab listens. Every tab stays mounted (spec §6.1 as built), so an
+   * unconditional listener would fire one `readAsset` per open tab on every window focus — which
+   * is the cost §4.4 rejected a watcher to avoid, multiplied by the tab count. A tab you cannot
+   * see does not need its banner yet, so `active` is also in the dependency array: becoming
+   * active runs the check once, catching anything missed while hidden.
+   *
+   * `check()` is called directly in the effect body, not via `setState` — it dispatches an async
+   * IPC read and only ever calls `setState` inside a `.then`, so `react-hooks/set-state-in-effect`
+   * is satisfied. Do not hoist the `setBanner` out of the async callback.
+   */
   useEffect(() => {
+    if (!active) return
     const check = (): void => {
       // A banner already up means the user is mid-decision; do not move the ground under them.
       if (bannerRef.current.kind !== 'none') return
@@ -547,9 +626,28 @@ export function AssetPane({
         }
       })()
     }
+    check()
     window.addEventListener('focus', check)
     return () => window.removeEventListener('focus', check)
-  }, [kind, applyContent])
+  }, [kind, active, applyContent])
+
+  // Applied on first activation rather than at mount: a display-none view has no geometry, so a
+  // scroll or a `goToLine` issued at mount lands nowhere. This is also where the tab picks up
+  // the layout it could not compute while hidden.
+  const restoredRef = useRef(false)
+  useEffect(() => {
+    if (!active) return
+    surfaceRef.current?.requestMeasure()
+    if (restoredRef.current || !initialViewState) return
+    restoredRef.current = true
+    surfaceRef.current?.goToLine(initialViewState.line, {
+      col: initialViewState.col,
+      focus: false
+    })
+    // Imperative, NOT the `scrollFraction` prop's state setter: a synchronous setState in an
+    // effect body trips `react-hooks/set-state-in-effect`, which this repo forbids suppressing.
+    surfaceRef.current?.scrollTo(initialViewState.scrollFraction)
+  }, [active, initialViewState])
 
   // Resumable-drafts banner (Increment 5 pulled forward). Keying create-mode drafts by a stable
   // id (rather than the typed name) makes the silent-overwrite half of the original defect
@@ -608,7 +706,11 @@ export function AssetPane({
                 ? 'Preview'
                 : 'Edit'}
           </Btn>
-          <Btn variant="primary" disabled={busy || proposed !== null} onClick={() => void onSave()}>
+          <Btn
+            variant="primary"
+            disabled={busy || proposed !== null || readOnly}
+            onClick={() => void onSave()}
+          >
             Save
           </Btn>
         </span>
@@ -633,7 +735,7 @@ export function AssetPane({
           {proposed === null && prefs.viewMode !== 'preview' && (
             <Btn
               variant="outline"
-              disabled={busy || !describe.trim() || provider?.ok === false}
+              disabled={busy || !describe.trim() || provider?.ok === false || readOnly}
               onClick={() => void assist('draft')}
             >
               <Sparkles size={13} aria-hidden="true" />
@@ -791,9 +893,10 @@ export function AssetPane({
               fontSize={prefs.fontSize}
               wrap={prefs.wrap}
               commands={commands}
+              readOnly={readOnly}
               onDocChange={handleDocChange}
-              onCursor={setCursor}
-              onScrollFraction={setEditorFraction}
+              onCursor={handleCursor}
+              onScrollFraction={handleScrollFraction}
             />
           }
           preview={<PreviewPane doc={doc} scrollFraction={editorFraction} />}
@@ -813,7 +916,7 @@ export function AssetPane({
             )}
             <Btn
               variant="outline"
-              disabled={busy || !doc.trim() || provider?.ok === false}
+              disabled={busy || !doc.trim() || provider?.ok === false || readOnly}
               onClick={() => void assist('improve')}
             >
               <Sparkles size={13} aria-hidden="true" />
@@ -837,6 +940,7 @@ export function AssetPane({
         sync={sync}
         draftAt={draftAt}
         viewMode={prefs.viewMode}
+        tier={tier}
         onProblems={() => setProblemsOpen((o) => !o)}
         onCycleViewMode={() => setViewMode(nextViewMode(prefs.viewMode))}
       />
