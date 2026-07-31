@@ -5,7 +5,7 @@ import { ConfirmHost } from '../ConfirmHost'
 import { alert, confirm } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
-import { drainOpenTabs } from './editorBootstrap'
+import { drainOpenTabs, drainRestoreTabs } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
 import { isAssetEditable } from '../../../../shared/assetEditable'
 import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
@@ -26,7 +26,7 @@ import {
 } from './tabs'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { TierLookup } from '../../../../shared/assetEditable'
-import type { TabViewState } from '../../../../shared/editorIpc'
+import type { PersistedTabs, TabViewState } from '../../../../shared/editorIpc'
 
 interface TabPaneProps {
   tab: Tab
@@ -172,6 +172,49 @@ export function EditorApp(): React.JSX.Element {
   // passive effects — subscribing here alone would re-open the dropped-first-message bug that
   // Increment 1 fixed on the main side.
   useEffect(() => drainOpenTabs((req) => setState((s) => openTab(s, req))), [])
+
+  // Restore is a window-CREATION event (spec: main sends it only when `open()` creates the
+  // window, never when it merely focuses a live one), sent before the `openTab` that caused the
+  // creation. Folding each restored tab through `openTab` — rather than replacing `state`
+  // outright — is what makes that ordering pay off: the renderer dedupes on open, so if the
+  // asset that triggered the window's creation is already in the restored set, the later
+  // `openTab` focuses it instead of adding a duplicate. `drainRestoreTabs`, not a raw
+  // `onRestoreTabs` subscription, for the same did-finish-load-precedes-passive-effects reason
+  // as `drainOpenTabs` above.
+  useEffect(
+    () =>
+      drainRestoreTabs((restored) => {
+        setState((s) => {
+          const next = restored.tabs.reduce(
+            (acc, t) => openTab(acc, { kind: t.kind, name: t.name, mode: t.mode }, t.view),
+            s
+          )
+          const active = next.tabs[restored.activeIndex]
+          return active ? activateTab(next, active.id) : next
+        })
+      }),
+    []
+  )
+
+  // Fire-and-forget on every structural change AND every cursor move; main debounces the write
+  // (spec §4.2's policy, reused). `state` in the dependency array is deliberate — a shallower
+  // signal would miss cursor movement, which is half of what restore is for.
+  //
+  // The `emptyTabs` guard is load-bearing, not an optimisation. This effect also runs on MOUNT,
+  // when the window has no tabs yet and restore has not arrived — reporting `{ tabs: [] }` there
+  // tells main to persist an empty set over the one it is in the middle of restoring. The
+  // debounce happens to cover the race today (restore lands at `did-finish-load`, well inside
+  // 1s), but a persisted tab set must not depend on winning a race. An empty set is still
+  // reported normally once the user has closed their last tab, because `state` is no longer
+  // reference-equal to `emptyTabs` by then.
+  useEffect(() => {
+    if (state === emptyTabs) return
+    const report: PersistedTabs = {
+      tabs: state.tabs.map((t) => ({ kind: t.kind, name: t.name, mode: t.mode, view: t.view })),
+      activeIndex: state.tabs.findIndex((t) => t.id === state.activeId)
+    }
+    window.argus.editor.tabsChanged(report)
+  }, [state])
 
   // One stable identity for all N tabs — a functional update means this never has to close over
   // the current state, so `AssetPane`'s dirty effect and its unmount cleanup do not re-fire on

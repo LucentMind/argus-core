@@ -218,7 +218,8 @@ import {
   type EditorOpenRequest,
   type DraftChange,
   type DraftRef,
-  type DraftAdoptRequest
+  type DraftAdoptRequest,
+  type PersistedTabs
 } from '../shared/editorIpc'
 
 let agentService: AgentService | null = null
@@ -229,6 +230,10 @@ let editorWindowService: EditorWindowService | null = null
 // Module-scope, unlike the store it wraps: `before-quit` lives out here and must be able to
 // flush. See the flush calls in createWindow()'s 'closed' handler and in before-quit.
 let draftStore: DraftStore | null = null
+// Module-scope for the same reason as draftStore above: `before-quit` and the main window's
+// 'closed' handler both live outside registerIpc() and need to flush the tab set's debounce
+// before the editor renderer is force-closed.
+let flushTabs: (() => void) | null = null
 let panelHost: PanelHost | null = null
 let externalAppHost: ExternalAppHost | null = null
 
@@ -493,7 +498,8 @@ function registerIpc(): void {
       }
     }),
     loadBounds: () => editorWindowStore.load(),
-    saveBounds: (b) => editorWindowStore.save(b)
+    saveBounds: (b) => editorWindowStore.save(b),
+    loadTabs: () => editorWindowStore.loadTabs()
   })
   draftStore = new DraftStore({ argusHome })
   draftStore.onSaved((rec) => {
@@ -1615,6 +1621,27 @@ function registerIpc(): void {
     return draftStore?.adopt(req.legacy, req.change) ?? false
   })
 
+  // Main owns the debounce, exactly as it does for `editor:draft-changed` (spec §4.2): the
+  // renderer sends on every cursor move and never waits on a write. 1s rather than the draft
+  // store's ~500ms — losing a cursor position is a smaller harm than losing text.
+  let tabsTimer: NodeJS.Timeout | null = null
+  let pendingTabs: PersistedTabs | null = null
+  flushTabs = (): void => {
+    if (tabsTimer) {
+      clearTimeout(tabsTimer)
+      tabsTimer = null
+    }
+    if (pendingTabs) {
+      editorWindowStore.saveTabs(pendingTabs)
+      pendingTabs = null
+    }
+  }
+  ipcMain.on(EDITOR_IPC.tabsChanged, (_e, tabs: PersistedTabs) => {
+    pendingTabs = tabs
+    if (tabsTimer) clearTimeout(tabsTimer)
+    tabsTimer = setTimeout(flushTabs!, 1000)
+  })
+
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({
     argusHome,
@@ -2146,6 +2173,7 @@ function createWindow(): void {
     // Flush first: forceClose() destroys the editor renderer, and everything it typed since the
     // last debounce lives in draftStore's pending map, not in the window.
     draftStore?.flushAll()
+    flushTabs?.()
     // Spec §3.4: the editor is a dependent child, not a peer. Force-close — a confirm
     // prompt during teardown would be unanswerable, and the draft store above makes this
     // non-destructive. The service itself is not torn down: it is an app-lifetime singleton
@@ -2232,6 +2260,7 @@ app.on('before-quit', (event) => {
   // Cmd+Q / app.quit() with the editor still open: the main-window path above never ran, so
   // this is the only flush that happens. Synchronous by design — nothing here can await.
   draftStore?.flushAll()
+  flushTabs?.()
   editorWindowService?.forceClose()
   void agentService?.stopAll()
 

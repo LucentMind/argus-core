@@ -5,7 +5,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EditorApp } from '../EditorApp'
 import type { SurfaceHandle } from '../surface'
-import type { EditorOpenRequest } from '../../../../../shared/editorIpc'
+import type { EditorOpenRequest, PersistedTabs } from '../../../../../shared/editorIpc'
 import type { RefSyncPayload } from '../../../../../shared/referenceSync'
 
 vi.mock('../../library/assistProvider', () => ({
@@ -56,8 +56,12 @@ let closeRequested: ((info: { dirtyCount: number }) => void) | null = null
  *  happens to broadcast before `hivemind:claim-reference` returns today, which is an ordering
  *  coincidence, not a guarantee — the read-only release must not depend on it. */
 let refsyncChanged: ((p: RefSyncPayload) => void) | null = null
+/** `editor:restore-tabs`. Sent on window creation, before the `openTab` that caused it — see
+ *  the "tab-set restore" describe block below. */
+let restoreTabs: ((tabs: PersistedTabs) => void) | null = null
 const setDirty = vi.fn()
 const respondClose = vi.fn()
+const tabsChanged = vi.fn()
 
 /** The reference rows `refsync.get` starts every test with. `shared.md` is the only one a claim
  *  can act on: `claimReference` refuses anything but an installed HiveMind reference. */
@@ -85,8 +89,10 @@ beforeEach(() => {
   openTab = null
   closeRequested = null
   refsyncChanged = null
+  restoreTabs = null
   setDirty.mockClear()
   respondClose.mockClear()
+  tabsChanged.mockClear()
   window.argus = {
     editor: {
       open: vi.fn(),
@@ -108,7 +114,12 @@ beforeEach(() => {
       // Only exercised by a create-mode open (`AssetTab`'s `otherDrafts` resolution) — every
       // pre-existing test here opens in edit mode, so this was never needed until the "follows a
       // create-mode rename" test below.
-      listDrafts: vi.fn().mockResolvedValue([])
+      listDrafts: vi.fn().mockResolvedValue([]),
+      tabsChanged,
+      onRestoreTabs: (cb: (tabs: PersistedTabs) => void) => {
+        restoreTabs = cb
+        return () => {}
+      }
     },
     skills: {
       read: vi.fn().mockResolvedValue({
@@ -754,5 +765,104 @@ describe('Edit a copy', () => {
 
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled()
+  })
+})
+
+describe('tab-set restore', () => {
+  it('opens the restored tabs', async () => {
+    render(<EditorApp />)
+    act(() =>
+      restoreTabs!({
+        tabs: [
+          { kind: 'skill', name: 'my-skill', mode: 'edit', view: null },
+          { kind: 'reference', name: 'notes.md', mode: 'edit', view: null }
+        ],
+        activeIndex: 1
+      })
+    )
+    expect(await screen.findByRole('tab', { name: /my-skill/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /notes\.md/ })).toBeInTheDocument()
+  })
+
+  it('activates the tab that was active', async () => {
+    render(<EditorApp />)
+    act(() =>
+      restoreTabs!({
+        tabs: [
+          { kind: 'skill', name: 'my-skill', mode: 'edit', view: null },
+          { kind: 'reference', name: 'notes.md', mode: 'edit', view: null }
+        ],
+        activeIndex: 1
+      })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /notes\.md/ })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    )
+  })
+
+  // Restore lands first (main sends it before the openTab that created the window), so the
+  // clicked asset must focus its restored tab rather than opening a second one.
+  it('focuses rather than duplicates when the clicked asset was already restored', async () => {
+    render(<EditorApp />)
+    act(() =>
+      restoreTabs!({
+        tabs: [{ kind: 'skill', name: 'my-skill', mode: 'edit', view: null }],
+        activeIndex: 0
+      })
+    )
+    act(() => openTab!(SKILL))
+    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(1))
+  })
+
+  // The reporting effect also runs on MOUNT, before restore has arrived. Reporting an empty set
+  // there tells main to persist nothing over the set it is restoring — the debounce happens to
+  // cover it today, but a persisted tab set must not depend on winning a race.
+  it('reports nothing before the first tab arrives', async () => {
+    render(<EditorApp />)
+    await act(async () => {})
+    expect(tabsChanged).not.toHaveBeenCalled()
+  })
+
+  it('sends the tab set to main when a tab opens', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    await waitFor(() =>
+      expect(tabsChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          tabs: [expect.objectContaining({ kind: 'skill', name: 'my-skill' })],
+          activeIndex: 0
+        })
+      )
+    )
+  })
+
+  it('sends the tab set when a tab closes', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    await userEvent.click(screen.getByRole('button', { name: 'Close my-skill' }))
+    await waitFor(() => expect(tabsChanged).toHaveBeenLastCalledWith({ tabs: [], activeIndex: -1 }))
+  })
+
+  // A tab whose asset was deleted with no draft behind it resolves to AssetTab's error state.
+  // It is kept and closable — main restores blindly, and the honest report beats silently
+  // dropping a tab the user had open.
+  it('keeps a tab whose asset can no longer be read', async () => {
+    window.argus.skills.read = vi.fn().mockRejectedValue(new Error('No such skill: gone'))
+    render(<EditorApp />)
+    act(() =>
+      restoreTabs!({
+        tabs: [{ kind: 'skill', name: 'gone', mode: 'edit', view: null }],
+        activeIndex: 0
+      })
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not read/i)
+    expect(screen.getByRole('tab', { name: /gone/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Close gone' }))
+    await waitFor(() => expect(screen.queryByRole('tab')).not.toBeInTheDocument())
   })
 })

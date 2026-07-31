@@ -1,4 +1,4 @@
-import type { EditorOpenRequest } from '../../../../shared/editorIpc'
+import type { EditorOpenRequest, PersistedTabs } from '../../../../shared/editorIpc'
 
 /**
  * Module-scope subscription to `editor:open-tab`, established before `createRoot` runs.
@@ -26,10 +26,37 @@ const detachEarly: (() => void) | null = window.argus?.editor
   ? window.argus.editor.onOpenTab(deliver)
   : null
 
+/**
+ * Same race as `editor:open-tab` above, and the same fix: `restoreTabs` is queued behind
+ * `openTab` in `EditorWindowHandle.send`'s pre-`did-finish-load` buffer (see
+ * `electronEditorWindow.ts`) and both flush in one synchronous pass at `did-finish-load` — well
+ * before React's passive effects are guaranteed to have run. Without an equally early
+ * subscription here, the ordering contract `EditorWindowService.open` upholds (restore sent
+ * before the triggering openTab) would be worthless in the real window: the message that
+ * arrives first would be the one most likely to be dropped for want of a listener.
+ */
+const pendingRestore: PersistedTabs[] = []
+let restoreSink: ((tabs: PersistedTabs) => void) | null = null
+
+function deliverRestore(tabs: PersistedTabs): void {
+  if (restoreSink) restoreSink(tabs)
+  else pendingRestore.push(tabs)
+}
+
+// Guarded on `onRestoreTabs` specifically, not just `window.argus?.editor` (unlike the check
+// above) — `editorBootstrap.test.ts` stubs a bare `{ editor: { onOpenTab } }` to pin the openTab
+// path in isolation, and a broader guard here would throw on that stub's missing method.
+const detachRestoreEarly: (() => void) | null = window.argus?.editor?.onRestoreTabs
+  ? window.argus.editor.onRestoreTabs(deliverRestore)
+  : null
+
 // A no-op outside dev HMR (import.meta.hot is undefined in production and in tests): without
 // this, an HMR re-evaluation of this module leaves the previous ipcRenderer listener registered
 // alongside the new one, and every open-tab message after that arrives twice.
-import.meta.hot?.dispose(() => detachEarly?.())
+import.meta.hot?.dispose(() => {
+  detachEarly?.()
+  detachRestoreEarly?.()
+})
 
 /** Attach the live consumer and replay anything that arrived before it existed.
  *  Returns a detach function, so it drops straight into a `useEffect`. */
@@ -41,6 +68,17 @@ export function drainOpenTabs(cb: (req: EditorOpenRequest) => void): () => void 
   const detachLate = detachEarly ? null : window.argus.editor.onOpenTab(deliver)
   return () => {
     sink = null
+    detachLate?.()
+  }
+}
+
+/** Same shape as {@link drainOpenTabs}, for `editor:restore-tabs`. */
+export function drainRestoreTabs(cb: (tabs: PersistedTabs) => void): () => void {
+  restoreSink = cb
+  while (pendingRestore.length > 0) cb(pendingRestore.shift()!)
+  const detachLate = detachRestoreEarly ? null : window.argus.editor.onRestoreTabs(deliverRestore)
+  return () => {
+    restoreSink = null
     detachLate?.()
   }
 }

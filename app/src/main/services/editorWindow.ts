@@ -1,4 +1,9 @@
-import { EDITOR_IPC, type EditorOpenRequest, type WindowBounds } from '../../shared/editorIpc'
+import {
+  EDITOR_IPC,
+  type EditorOpenRequest,
+  type PersistedTabs,
+  type WindowBounds
+} from '../../shared/editorIpc'
 
 /** The editor window as this service needs it. An interface, not a BrowserWindow, so the
  *  service is unit-testable without Electron (house DI convention). */
@@ -22,6 +27,7 @@ export interface EditorWindowDeps {
   createWindow: EditorWindowFactory
   loadBounds: () => WindowBounds | null
   saveBounds: (bounds: WindowBounds) => void
+  loadTabs: () => PersistedTabs | null
 }
 
 /**
@@ -71,6 +77,13 @@ export class EditorWindowService {
         if (this.win !== win || win.isDestroyed()) return
         this.deps.saveBounds(win.getBounds())
       })
+
+      // Restore belongs to window CREATION, not to opening an asset: replaying the set into a
+      // live window would resurrect tabs the user had just closed. The order matters too —
+      // the renderer dedupes on open, so restore-then-open focuses the clicked asset when it
+      // was already among the restored tabs instead of opening a duplicate.
+      const restored = this.deps.loadTabs()
+      if (restored && restored.tabs.length > 0) win.send(EDITOR_IPC.restoreTabs, restored)
     } else {
       this.win!.focus()
     }

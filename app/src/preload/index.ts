@@ -107,7 +107,8 @@ import {
   type DraftRecord,
   type DraftRef,
   type DraftSaved,
-  type DraftAdoptRequest
+  type DraftAdoptRequest,
+  type PersistedTabs
 } from '../shared/editorIpc'
 import type {
   TextDocSource,
@@ -514,7 +515,18 @@ const argus = {
      *  written before the old one is discarded, so a crash mid-adoption leaves both rather than
      *  neither. Resolves `true` once the write actually landed. */
     adoptDraft: (req: DraftAdoptRequest): Promise<boolean> =>
-      ipcRenderer.invoke(EDITOR_IPC.draftAdopt, req)
+      ipcRenderer.invoke(EDITOR_IPC.draftAdopt, req),
+    /** Fire-and-forget: main owns the debounce, so the renderer never waits on a write. */
+    tabsChanged: (tabs: PersistedTabs): void => {
+      ipcRenderer.send(EDITOR_IPC.tabsChanged, tabs)
+    },
+    onRestoreTabs: (cb: (tabs: PersistedTabs) => void): (() => void) => {
+      const h = (_e: unknown, tabs: PersistedTabs): void => cb(tabs)
+      ipcRenderer.on(EDITOR_IPC.restoreTabs, h)
+      return () => {
+        ipcRenderer.off(EDITOR_IPC.restoreTabs, h)
+      }
+    }
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>

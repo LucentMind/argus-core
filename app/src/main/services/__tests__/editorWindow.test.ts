@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { EDITOR_IPC, type EditorOpenRequest, type WindowBounds } from '../../../shared/editorIpc'
+import {
+  EDITOR_IPC,
+  type EditorOpenRequest,
+  type PersistedTabs,
+  type WindowBounds
+} from '../../../shared/editorIpc'
 import {
   EditorWindowService,
   type EditorWindowHandle,
@@ -69,7 +74,7 @@ export class FakeEditorWindow implements EditorWindowHandle {
   }
 }
 
-function makeService(): {
+function makeService(overrides?: { loadTabs?: () => PersistedTabs | null }): {
   service: EditorWindowService
   created: FakeEditorWindow[]
   savedBounds: WindowBounds[]
@@ -84,7 +89,8 @@ function makeService(): {
   const service = new EditorWindowService({
     createWindow: factory,
     loadBounds: () => null,
-    saveBounds: (bounds) => savedBounds.push(bounds)
+    saveBounds: (bounds) => savedBounds.push(bounds),
+    loadTabs: overrides?.loadTabs ?? (() => null)
   })
   return { service, created, savedBounds }
 }
@@ -236,5 +242,66 @@ describe('EditorWindowService close handshake', () => {
     harness.service.open(SKILL)
     const next = harness.created[1]
     expect(next.userCloses()).toBe(true)
+  })
+})
+
+// makeService here returns { service, created, savedBounds } (created is an array — the file's
+// existing convention, see the comment above makeService) rather than the brief's { service, win
+// }. `win` below is always `created[0]` after the first open, taken post-open since the window
+// does not exist beforehand.
+describe('tab-set restore', () => {
+  const RESTORED: PersistedTabs = {
+    tabs: [{ kind: 'skill', name: 'was-open', mode: 'edit', view: null }],
+    activeIndex: 0
+  }
+
+  it('sends the persisted tab set when it creates the window', () => {
+    const { service, created } = makeService({ loadTabs: () => RESTORED })
+    service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
+    const win = created[0]
+    expect(win.sent).toContainEqual({ channel: EDITOR_IPC.restoreTabs, payload: RESTORED })
+  })
+
+  // Ordering is the whole contract: the renderer dedupes on open, so restore-then-open focuses
+  // the clicked asset if it was already among the restored tabs. The other order would leave
+  // the user staring at whatever tab restore made active.
+  it('sends the restore before the open that triggered it', () => {
+    const { service, created } = makeService({ loadTabs: () => RESTORED })
+    service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
+    const win = created[0]
+    const restore = win.sent.findIndex((s) => s.channel === EDITOR_IPC.restoreTabs)
+    const open = win.sent.findIndex((s) => s.channel === EDITOR_IPC.openTab)
+    expect(restore).toBeGreaterThanOrEqual(0)
+    expect(restore).toBeLessThan(open)
+  })
+
+  it('sends nothing to restore when there is no persisted set', () => {
+    const { service, created } = makeService({ loadTabs: () => null })
+    service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
+    const win = created[0]
+    expect(win.sent.some((s) => s.channel === EDITOR_IPC.restoreTabs)).toBe(false)
+  })
+
+  // Restore is a window-creation event, not an open event. A second open focuses a window that
+  // is already showing its tabs; replaying the set would resurrect tabs the user just closed.
+  it('does not restore again when a second asset opens into the live window', () => {
+    const { service, created } = makeService({ loadTabs: () => RESTORED })
+    service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
+    service.open({ kind: 'skill', name: 'second', mode: 'edit' })
+    const win = created[0]
+    expect(win.sent.filter((s) => s.channel === EDITOR_IPC.restoreTabs)).toHaveLength(1)
+  })
+
+  // The window dies with the app (spec §3.4), but it can also be closed and reopened within one
+  // session — and then the set it had is the one to come back to.
+  it('restores again after the window is closed and reopened', () => {
+    const { service, created } = makeService({ loadTabs: () => RESTORED })
+    service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
+    created[0].userCloses()
+    service.open({ kind: 'skill', name: 'again', mode: 'edit' })
+    const restores = created
+      .flatMap((w) => w.sent)
+      .filter((s) => s.channel === EDITOR_IPC.restoreTabs)
+    expect(restores.length).toBeGreaterThanOrEqual(1)
   })
 })
