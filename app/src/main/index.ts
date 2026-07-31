@@ -1604,7 +1604,14 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.skillsFork, async (_e, name: string, newName?: string) => {
     const created = forkSkill(argusHome, name, newName, await identity())
-    return { name: created, skills: skillsPayload().skills }
+    const payload = skillsPayload()
+    // Mirrors `skillsWrite` above, and `hivemindClaimReference`'s `refsyncChanged` below: a fork
+    // changes the tier of a skill OTHER windows are showing, and the editor window decides
+    // read-only from that tier. Without this the editor's tier map stays stale, so a
+    // fork-in-place (the dialog's default — same name) leaves the user's own new copy mounted
+    // READ-ONLY until the app restarts: they can make a copy and then cannot edit it.
+    broadcast(IPC.skillsChanged, payload)
+    return { name: created, skills: payload.skills }
   })
 
   // — authoring assist (skill/reference editor Draft + Improve) —
