@@ -9,6 +9,7 @@ import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { useGlassPointer } from '../lib/useGlassPointer'
+import { STATUS_ORDER, STATUS_WORD } from '../lib/caseStatus'
 import { StatusDot } from './StatusDot'
 
 export function CaseDashboard({
@@ -145,17 +146,14 @@ export function CaseDashboard({
     acc[c.status] = (acc[c.status] ?? 0) + 1
     return acc
   }, {})
-  const countLabel = (['open', 'analyzing', 'rca-drafted', 'closed'] as const)
-    .filter((s) => counts[s])
-    .map((s) => `${counts[s]} ${s}`)
+  const countLabel = STATUS_ORDER.filter((s) => counts[s])
+    .map((s) => `${counts[s]} ${STATUS_WORD[s]}`)
     .join(' · ')
 
-  const STATUS_MENU: { id: CaseStatus; label: string }[] = [
-    { id: 'open', label: 'Open' },
-    { id: 'analyzing', label: 'Analyzing' },
-    { id: 'rca-drafted', label: 'RCA drafted' },
-    { id: 'closed', label: 'Closed' }
-  ]
+  const STATUS_MENU: { id: CaseStatus; label: string }[] = STATUS_ORDER.map((id) => ({
+    id,
+    label: STATUS_WORD[id]
+  }))
   const statusItems: MenuItem[] = [
     { label: 'All statuses', onSelect: () => setStatusFilter('all') },
     ...STATUS_MENU.map((s) => ({ label: s.label, onSelect: () => setStatusFilter(s.id) }))

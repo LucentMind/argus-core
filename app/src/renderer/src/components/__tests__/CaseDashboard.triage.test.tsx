@@ -265,7 +265,7 @@ describe('CaseDashboard triage', () => {
         {...noopHandlers}
       />
     )
-    expect(screen.getByText(/1 open · 1 analyzing/)).toBeInTheDocument()
+    expect(screen.getByText(/1 Open · 1 Analyzing/)).toBeInTheDocument()
   })
 
   it('runs a bulk sync and reports the result', async () => {
@@ -354,13 +354,10 @@ describe('CaseDashboard triage', () => {
   })
 
   it('puts the counts below the wordmark, not above it', () => {
-    const { container } = render(
-      <CaseDashboard cases={[mkCase({ status: 'open' })]} {...noopHandlers} />
-    )
+    render(<CaseDashboard cases={[mkCase({ status: 'open' })]} {...noopHandlers} />)
     const heading = screen.getByRole('heading', { name: 'ARGUS' })
-    const counts = screen.getByText(/1 open/)
+    const counts = screen.getByText(/1 Open/)
     // Node.compareDocumentPosition: 4 = "counts follows heading in document order"
     expect(heading.compareDocumentPosition(counts) & 4).toBeTruthy()
-    expect(container).toBeTruthy()
   })
 })

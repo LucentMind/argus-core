@@ -6,6 +6,7 @@ import { PrRollupIcon } from './PrRollupDot'
 import { StatusDot } from './StatusDot'
 import { SyncBadge } from './SyncBadge'
 import { railTier } from '../lib/priorityRail'
+import { STATUS_WORD } from '../lib/caseStatus'
 import { Download, Trash2, MessageSquare, Paperclip } from 'lucide-react'
 
 /** Status colour as a text-* class: StatusDot fills from currentColor, and the word beside it
@@ -15,14 +16,6 @@ const STATUS_COLOR: Record<CaseStatus, string> = {
   analyzing: 'text-defect',
   'rca-drafted': 'text-review',
   closed: 'text-mute'
-}
-
-/** Display form. The DB values are kebab/lowercase; the card is prose. */
-const STATUS_WORD: Record<CaseStatus, string> = {
-  open: 'Open',
-  analyzing: 'Analyzing',
-  'rca-drafted': 'RCA drafted',
-  closed: 'Closed'
 }
 
 function statusLabel(c: CaseRecord): string {
