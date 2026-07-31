@@ -447,13 +447,20 @@
 
 /* Rails go to ground: inside the scope --bg-1 IS --void, so the rail becomes
    the same darkness as the page and only its hairline defines it. Objects
-   float on darkness, exactly as on home. */
-.dyn-case .dyn-rail {
+   float on darkness, exactly as on home. Shared verbatim by the case view's
+   evidence rail and Settings' nav rail — one rule, `.dyn .dyn-rail`, not two
+   copies that a future border tweak only remembers to update in one place. */
+.dyn .dyn-rail {
   background: transparent;
   border-color: var(--panel-border);
 }
 
-/* the priority accent, reusing the --p1/--p2/--p3 vocabulary of .gc-rail */
+/* the priority accent, reusing the --p1/--p2/--p3 vocabulary of .gc-rail. All
+   three tiers get a rule, matching the dashboard card's .gc-rail: a p3
+   (Low/Lowest) case still shows a rail there (main.css's classic .gc-rail[
+   data-tier='p3'] and .dyn-home's own override both paint one), so the case
+   header would otherwise be the one surface where a low-priority case reads
+   as accent-free. */
 .dyn-case .dyn-case-header::before {
   content: '';
   position: absolute;
@@ -465,6 +472,9 @@
 }
 .dyn-case .dyn-case-header[data-tier='p2']::before {
   background: linear-gradient(90deg, var(--p2), transparent 62%);
+}
+.dyn-case .dyn-case-header[data-tier='p3']::before {
+  background: linear-gradient(90deg, var(--p3), transparent 62%);
 }
 .dyn .glass-panel[data-tier='p1']::after,
 .dyn .glass-panel[data-tier='p2']::after {
@@ -484,10 +494,5 @@
 }
 
 /* ── settings ──────────────────────────────────────────────────────────── */
-
-/* same rule as the case rails: the tall column goes to ground, the cards in
-   the content area carry the material */
-.dyn-settings .dyn-rail {
-  background: transparent;
-  border-color: var(--panel-border);
-}
+/* Settings' own nav rail uses the shared `.dyn .dyn-rail` rule above — see
+   the "rails go to ground" comment there. */

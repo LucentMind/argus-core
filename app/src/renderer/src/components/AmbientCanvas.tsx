@@ -4,12 +4,27 @@ import type { BandConfig } from '../lib/ambientBands'
 import { hexToRgb01 } from '../lib/hexColor'
 
 /**
- * The ambient aurora behind the dashboard header — a raw-WebGL2 port of the
- * argus-ambient mock's hero panel (spec 2026-07-31-dynamic-theme-design.md §4).
+ * The dynamic theme's ambient light — a raw-WebGL2 canvas shared by all three
+ * `DynamicScope` variants (home/case/settings), switched by the `uMode`
+ * uniform: `uMode < 0.5` renders the home "blob" (a raw-WebGL2 port of the
+ * argus-ambient mock's hero panel, spec 2026-07-31-dynamic-theme-design.md
+ * §4), `uMode > 0.5` renders the case/settings "ribbon" — a wide, thin aurora
+ * fitted to a header strip (spec 2026-07-31-dynamic-theme-case-settings-
+ * design.md). Per-variant geometry (padding, feather, extra height, mode)
+ * comes from `BANDS` in `lib/ambientBands.ts`; this component only consumes it.
+ *
  * Deliberately dropped from the mock: the discrete glow-source loop (never
- * bound to anything but the hero) and the uTop clip (this canvas starts below
- * the TopBar in normal flow, so its own top edge is the clip). The canvas
- * scrolls WITH the content it is anchored to, so scrolling needs no handling.
+ * bound to anything but the home hero) and the uTop clip (this canvas starts
+ * below the TopBar in normal flow, so its own top edge is the clip, in all
+ * three variants).
+ *
+ * Scrolling differs by variant, and this component does not handle it either
+ * way — it just doesn't need to. On home the canvas scrolls WITH the content
+ * it is anchored to (there is no separate scroll container above it). On
+ * case/settings the canvas sits inside `DynamicScope`'s outer, non-scrolling
+ * flex column — only the content *below* the header/band scrolls, in its own
+ * `overflow-y-auto` region — so the band is fixed by construction and never
+ * scrolls at all.
  */
 
 const RES_SCALE = 0.55
@@ -344,7 +359,8 @@ export function AmbientCanvas({
     window.addEventListener('resize', onResize)
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => refresh()) : null
     if (ro && host.parentElement) ro.observe(host.parentElement)
-    // Michroma loading late changes the wordmark rect
+    // A late-loading web font (e.g. home's Michroma wordmark) reflows whatever
+    // element is the current `light` anchor, changing its measured rect.
     void document.fonts?.ready.then(() => refresh())
 
     refresh()

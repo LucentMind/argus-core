@@ -115,23 +115,38 @@ export function SettingsView({
           react-hooks/refs is a false positive here. */}
       {/* eslint-disable-next-line react-hooks/refs */}
       <div ref={anchors.setCutoff} className="flex shrink-0 items-end border-b border-hair pb-3.5">
-        <div className="w-48 shrink-0 px-3.5">
+        {/* pl-[22px]: matches the nav rail's own text indent below (p-3 + the button's
+            px-2.5), not the arbitrary px-3.5 this used to carry — so the wordmark lines up
+            with the nav items under it instead of sitting 8px to their left. */}
+        <div className="w-48 shrink-0 pl-[22px] pr-3.5">
           <span className="font-brand text-[13px] text-brand" style={{ letterSpacing: 5 }}>
             ARGUS
           </span>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-7">
-          <h1
-            // eslint-disable-next-line react-hooks/refs
-            ref={anchors.setLight}
-            data-testid="settings-title"
-            className="text-[23px] font-light text-ink"
-          >
-            {active.label}
-          </h1>
-          <p data-testid="settings-blurb" className="max-w-[62ch] text-xs text-dim">
-            {active.blurb}
-          </p>
+        {/* Masthead stays full width (unlike home, this is the one deliberately-unconditional
+            layout exception — see CLAUDE.md) so the ambient ribbon still lights the nav rail's
+            top edge. But the title/blurb themselves live in their own `mx-auto max-w-6xl`
+            column, mirroring the content column below (`min-w-0 flex-1 overflow-y-auto` >
+            `mx-auto max-w-6xl p-8`) exactly the way CaseDashboard keeps its wordmark inside the
+            same centred column as its cards. Below ~1344px (192px rail + 1152px max-w-6xl) this
+            renders identically to the old flex-1 span; above it, the title now tracks the
+            content instead of drifting toward the rail as the window widens — which also keeps
+            the ambient light (anchored to the h1 below) over the cards it is meant to land on,
+            not the empty gutter beside them. */}
+        <div className="min-w-0 flex-1">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-0.5 px-8">
+            <h1
+              // eslint-disable-next-line react-hooks/refs
+              ref={anchors.setLight}
+              data-testid="settings-title"
+              className="text-[23px] font-light text-ink"
+            >
+              {active.label}
+            </h1>
+            <p data-testid="settings-blurb" className="max-w-[62ch] text-xs text-dim">
+              {active.blurb}
+            </p>
+          </div>
         </div>
       </div>
       <div className="flex min-h-0 flex-1">
