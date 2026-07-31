@@ -47,16 +47,37 @@ export function Chip({
 
 export function Card({
   className = '',
+  variant = 'default',
+  style,
   onClick,
   children
 }: {
   className?: string
+  /** 'glass' renders the dynamic-theme liquid-glass container (theme-dynamic.css)
+   *  with its cursor-tracked ring/sheen layers. Only meaningful inside a
+   *  `.dynamic-home` scope — elsewhere the classes resolve to nothing. */
+  variant?: 'default' | 'glass'
+  style?: React.CSSProperties
   onClick?: () => void
   children: ReactNode
 }): React.JSX.Element {
+  if (variant === 'glass') {
+    return (
+      <div
+        onClick={onClick}
+        style={style}
+        className={`glass-card rounded-r3 ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      >
+        <i className="gc-ring" aria-hidden="true" />
+        <i className="gc-sheen" aria-hidden="true" />
+        {children}
+      </div>
+    )
+  }
   return (
     <div
       onClick={onClick}
+      style={style}
       className={`rounded-r3 border border-hair bg-panel transition-colors ${onClick ? 'cursor-pointer hover:border-hair2 hover:bg-hi' : ''} ${className}`}
     >
       {children}
