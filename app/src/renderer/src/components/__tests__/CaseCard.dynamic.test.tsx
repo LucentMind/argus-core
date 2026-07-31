@@ -66,6 +66,16 @@ describe('CaseCard dynamic variant', () => {
     expect(rail.getAttribute('data-tier')).toBe('p1')
   })
 
+  it('medium priority wires through as a p2 rail', () => {
+    const el = mount(
+      rec((c) => (c.jiraPriority = 'Medium')),
+      true
+    )
+    const rail = el.querySelector('[data-testid="priority-rail"]') as HTMLElement
+    expect(rail).not.toBeNull()
+    expect(rail.getAttribute('data-tier')).toBe('p2')
+  })
+
   it('rail marks needs-attention, not importance: no action items → no rail', () => {
     const el = mount(
       rec((c) => (c.actionItems = [])),

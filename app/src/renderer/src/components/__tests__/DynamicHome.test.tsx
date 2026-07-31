@@ -31,8 +31,10 @@ describe('DynamicHome', () => {
       </DynamicHome>
     )
     expect(screen.getByTestId('dynamic-home').className).toContain('dynamic-home')
+    expect(screen.getByTestId('dynamic-home').className).toContain('bg-void')
     expect(screen.getByTestId('ambient-fallback')).toBeTruthy()
     expect(screen.getByText('inner')).toBeTruthy()
+    expect(document.querySelector('.dyn-grain')).not.toBeNull()
   })
 
   it('reacts live to the store toggling', () => {

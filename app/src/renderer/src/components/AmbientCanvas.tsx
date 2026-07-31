@@ -216,6 +216,13 @@ export function AmbientCanvas({
     let disposed = false
     let raf = 0
 
+    /** Halts the rAF loop for good — used on context loss and on unmount, so
+     *  no frame keeps calling GL ops after the context is gone. */
+    const stop = (): void => {
+      disposed = true
+      cancelAnimationFrame(raf)
+    }
+
     /** Re-measures anchors and re-applies the palette. Cheap enough to be one
      *  function — it runs on resize/props change, not per frame. */
     const refresh = (): void => {
@@ -272,6 +279,7 @@ export function AmbientCanvas({
 
     const onLost = (e: Event): void => {
       e.preventDefault()
+      stop()
       setFallback(true)
     }
     canvas.addEventListener('webglcontextlost', onLost)
@@ -286,9 +294,8 @@ export function AmbientCanvas({
     raf = requestAnimationFrame(frame)
 
     return () => {
-      disposed = true
+      stop()
       api.current = null
-      cancelAnimationFrame(raf)
       window.removeEventListener('resize', onResize)
       canvas.removeEventListener('webglcontextlost', onLost)
       ro?.disconnect()
