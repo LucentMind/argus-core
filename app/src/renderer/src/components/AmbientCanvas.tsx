@@ -40,6 +40,7 @@ uniform vec4  uHero;   // wordmark rect, canvas-local CSS px (x, y, w, h)
 uniform float uHeroOn;
 uniform float uCutoff; // CSS px: light stops at the filter row
 uniform float uFeather;
+uniform float uFade;
 uniform vec2  uPad;
 uniform float uMode;
 uniform float uLight;  // 0 = dark theme, 1 = light theme
@@ -126,7 +127,7 @@ void main() {
   }
 
   /* ---- confine: below the cutoff nothing is lit ---- */
-  col *= 1.0 - smoothstep(uCutoff - uFeather, uCutoff + 16.0, px.y);
+  col *= 1.0 - smoothstep(uCutoff - uFeather, uCutoff + uFade, px.y);
 
   /* ---- grade ---- */
   vec2  uv  = px / uRes;
@@ -235,6 +236,7 @@ export function AmbientCanvas({
       heroOn: gl.getUniformLocation(prog, 'uHeroOn'),
       cutoff: gl.getUniformLocation(prog, 'uCutoff'),
       feather: gl.getUniformLocation(prog, 'uFeather'),
+      fade: gl.getUniformLocation(prog, 'uFade'),
       pad: gl.getUniformLocation(prog, 'uPad'),
       mode: gl.getUniformLocation(prog, 'uMode'),
       light: gl.getUniformLocation(prog, 'uLight'),
@@ -277,6 +279,7 @@ export function AmbientCanvas({
       gl.uniform2f(u.buf, canvas.width, canvas.height)
       gl.uniform1f(u.cutoff, cutoff)
       gl.uniform1f(u.feather, band.feather)
+      gl.uniform1f(u.fade, band.fade)
       gl.uniform2f(u.pad, band.pad[0], band.pad[1])
       gl.uniform1f(u.mode, band.mode)
       if (lightEl) {

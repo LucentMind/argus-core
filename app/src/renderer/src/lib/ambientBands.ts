@@ -15,12 +15,15 @@ export interface BandConfig {
   mode: 0 | 1
   /** How far the canvas extends past the cutoff, CSS px. */
   extra: number
+  /** How far BELOW the cutoff the fade completes, CSS px. Must be <= `extra`,
+   *  or the fade runs off the bottom of the canvas and leaves a hard seam. */
+  fade: number
 }
 
 /** Per-view band geometry. Values settled against the mock in
  *  `argus-docs/superpowers/assets/2026-07-31-dynamic-theme-case-settings.html`. */
 export const BANDS: Record<DynamicVariant, BandConfig> = {
-  home: { pad: [320, 145], feather: 110, mode: 0, extra: 50 },
-  case: { pad: [240, 62], feather: 30, mode: 1, extra: 16 },
-  settings: { pad: [300, 92], feather: 64, mode: 1, extra: 16 }
+  home: { pad: [320, 145], feather: 110, mode: 0, extra: 50, fade: 24 },
+  case: { pad: [240, 62], feather: 30, mode: 1, extra: 16, fade: 16 },
+  settings: { pad: [300, 92], feather: 64, mode: 1, extra: 16, fade: 16 }
 }

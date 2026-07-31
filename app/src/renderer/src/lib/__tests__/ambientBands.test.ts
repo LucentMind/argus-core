@@ -7,7 +7,7 @@ import { hexToRgb01 } from '../hexColor'
 
 describe('BANDS', () => {
   it('home keeps the shipped blob geometry', () => {
-    expect(BANDS.home).toEqual({ pad: [320, 145], feather: 110, mode: 0, extra: 50 })
+    expect(BANDS.home).toEqual({ pad: [320, 145], feather: 110, mode: 0, extra: 50, fade: 24 })
   })
 
   it('case and settings are ribbons with a band-sized feather', () => {
@@ -15,6 +15,12 @@ describe('BANDS', () => {
     expect(BANDS.settings.mode).toBe(1)
     // the shipped 110px fade starts above a 44px-tall band and erases it
     expect(BANDS.case.feather).toBeLessThan(44)
+  })
+
+  it('every variant keeps fade within the canvas — fade must not exceed extra, or the low edge of the confine band runs off the bottom of the canvas and leaves a hard seam', () => {
+    for (const variant of Object.values(BANDS)) {
+      expect(variant.fade).toBeLessThanOrEqual(variant.extra)
+    }
   })
 })
 
