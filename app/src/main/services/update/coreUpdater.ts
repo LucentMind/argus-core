@@ -1,5 +1,8 @@
 import type { UpdateStatus, CoreUpdatePayload } from '../../../shared/updates'
 
+/** Safely extract a message string from any rejection value. */
+const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+
 /**
  * The seam over electron-updater. Deliberately four methods: everything the service needs and
  * nothing electron-updater-shaped, so the state machine can be tested without Electron.
@@ -65,7 +68,7 @@ export class CoreUpdaterService {
    */
   async check(opts: { manual: boolean }): Promise<CoreUpdatePayload> {
     const p = this.status.phase
-    if (p === 'unsupported' || p === 'checking' || p === 'downloading') return this.payload()
+    if (p === 'unsupported' || p === 'checking' || p === 'downloading' || p === 'ready') return this.payload()
     this.set({ phase: 'checking' })
     try {
       const found = await this.deps.backend.check()
@@ -75,7 +78,7 @@ export class CoreUpdaterService {
           : { phase: 'idle' }
       )
     } catch (err) {
-      const message = (err as Error).message
+      const message = messageOf(err)
       if (opts.manual) this.set({ phase: 'error', message, at: this.now() })
       else {
         console.warn(`[update] boot check failed: ${message}`)
@@ -93,7 +96,7 @@ export class CoreUpdaterService {
       await this.deps.backend.download()
       this.set({ phase: 'ready', version })
     } catch (err) {
-      this.set({ phase: 'error', message: (err as Error).message, at: this.now() })
+      this.set({ phase: 'error', message: messageOf(err), at: this.now() })
     }
     return this.payload()
   }

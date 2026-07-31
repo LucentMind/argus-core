@@ -114,4 +114,46 @@ describe('CoreUpdaterService', () => {
     await s.download()
     expect(seen).toHaveLength(2)
   })
+
+  it('check() is a no-op when ready, preserving the staged update', async () => {
+    const b = fakeBackend({ check: vi.fn(async () => ({ version: '1.1.0' })) })
+    const s = svc(b)
+    await s.check({ manual: true })
+    await s.download()
+    const beforeCheck = s.payload().status
+    expect(beforeCheck).toEqual({ phase: 'ready', version: '1.1.0' })
+    // Call check again while ready
+    await s.check({ manual: true })
+    // Backend should not have been called a second time
+    expect(b.check).toHaveBeenCalledOnce()
+    // Status should still be ready with the same version
+    expect(s.payload().status).toEqual({ phase: 'ready', version: '1.1.0' })
+  })
+
+  it('re-entrancy guard prevents concurrent check() calls', async () => {
+    let release: (v: null) => void = () => {}
+    const b = fakeBackend({
+      check: vi.fn((): Promise<null> => new Promise((r) => { release = r }))
+    })
+    const s = svc(b)
+    // Start first check but don't await it
+    const firstCheck = s.check({ manual: true })
+    // Synchronously call check again (should be guarded)
+    await s.check({ manual: true })
+    // Backend should only have been called once, not twice
+    expect(b.check).toHaveBeenCalledOnce()
+    // Resolve the first check
+    release(null)
+    await firstCheck
+  })
+
+  it('handles non-Error rejections by converting to string message', async () => {
+    const b = fakeBackend({ check: vi.fn(async () => { throw 'boom' }) })
+    const result = await svc(b).check({ manual: true })
+    expect(result.status).toEqual({
+      phase: 'error',
+      message: 'boom',
+      at: 1000
+    })
+  })
 })
