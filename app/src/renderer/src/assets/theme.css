@@ -26,6 +26,12 @@
   --analytics: #c2a6fa;
   --danger: #f27a6b;
 
+  /* Priority rails. Aliases in dark so the classic rail colours are exactly what they were
+     before this block existed; the light block and .dyn each give them real values. */
+  --p1: var(--danger);
+  --p2: var(--defect);
+  --p3: var(--mute);
+
   /* Brand wordmark — pale ice on the dark surface; swaps to a deep navy
      below so it doesn't wash out on paper */
   --brand: #e2f4ff;
@@ -37,24 +43,35 @@
 }
 
 :root[data-theme='light'] {
-  --void: #f5f3ee;
-  --bg-1: #faf8f3;
+  /* Cool wash palette (spec 2026-08-01-light-theme-redesign-design.md §4). Replaces the warm
+     paper palette. `--void` must stay an opaque hex: Btn variant="primary" renders
+     `bg-signal text-void`, so this token doubles as "label on an accent fill". */
+  --void: #eef2f9;
+  --bg-1: #eef2f9;
   --bg-2: #ffffff;
-  --bg-hi: #f0eee7;
-  --bg-over: #eae8e1;
+  --bg-hi: rgba(255, 255, 255, 0.62);
+  --bg-over: rgba(255, 255, 255, 0.76);
 
-  --ink: #18181b;
-  --dim: rgba(24, 24, 27, 0.7);
-  --mute: rgba(24, 24, 27, 0.5);
-  --faint: rgba(24, 24, 27, 0.25);
-  --hair: rgba(0, 0, 0, 0.06);
-  --hair-2: rgba(0, 0, 0, 0.12);
-  --scrollbar-thumb: rgba(24, 24, 27, 0.3);
-  --scrollbar-thumb-hover: rgba(24, 24, 27, 0.5);
+  --ink: #101823;
+  --dim: rgba(28, 42, 64, 0.68);
+  --mute: rgba(28, 42, 64, 0.5);
+  --faint: rgba(28, 42, 64, 0.3);
+  --hair: rgba(26, 48, 84, 0.09);
+  --hair-2: rgba(26, 48, 84, 0.15);
+  --scrollbar-thumb: rgba(28, 42, 64, 0.26);
+  --scrollbar-thumb-hover: rgba(28, 42, 64, 0.42);
 
-  --signal: #1567b3;
-  --defect: #9a6700;
-  --brand: #16232e;
+  --signal: #1f6fd0;
+  --defect: #b3760a;
+  --danger: #c93b3b;
+  --review: #1e8f5c;
+  --analytics: #7351c9;
+  /* The references' wordmark is an airy mid-slate, not the near-black #16232e it was. */
+  --brand: #3a4c66;
+
+  --p1: #c93b3b;
+  --p2: #b3760a;
+  --p3: rgba(28, 42, 64, 0.5);
 }
 
 @theme inline {
