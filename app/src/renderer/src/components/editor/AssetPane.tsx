@@ -268,7 +268,12 @@ export function AssetPane({
         // have already dropped or re-filed the draft themselves, so `draftFiled` is false and
         // this is a no-op. `renameCreate` is the one exception: it re-files immediately after,
         // so it pays one redundant discard in the rare untouched-rename path.
-        if (draftFiled.current) dropDraft(filedAsRef.current)
+        if (draftFiled.current) {
+          dropDraft(filedAsRef.current)
+          // The banner describes a draft that no longer exists. Only `restored` is cleared —
+          // `stale`/`conflict` describe the file on disk, not the draft, and are still true.
+          setBanner((b) => (b.kind === 'restored' ? { kind: 'none' } : b))
+        }
         return
       }
       fileDraft({ name: filedAsRef.current, content: text, baseHash: baseHashRef.current })
@@ -328,7 +333,14 @@ export function AssetPane({
     const previous = filedAsRef.current
     setName(next)
     setError(null)
-    const untouched = docRef.current === baselineRef.current
+    // `lastSaved === null` is load-bearing, not belt-and-braces. "The buffer equals the baseline"
+    // is NOT the same question as "is this still untouched boilerplate": `onSave` sets
+    // `baselineRef.current = savedContent`, so after a save the equality flips back to true and a
+    // rename would regenerate the template over the user's just-saved body. Increment 2 got this
+    // right with `bufferPristine`, a **monotone** flag a save never reset. Collapsing it into
+    // `baselineRef` is correct for `dirty` (which is why `savedClean` stayed separate) but wrong
+    // here — this is the third consumer, and it needs the discarded meaning.
+    const untouched = lastSaved === null && docRef.current === baselineRef.current
     const content = untouched ? template(next) : docRef.current
     if (untouched) applyContent(content, content)
     filedAsRef.current = next
@@ -343,6 +355,12 @@ export function AssetPane({
   }
 
   async function onSave(): Promise<void> {
+    // The Save *button* is disabled on `busy || proposed !== null`, but Ctrl+S reaches this
+    // function through two paths that ignore the button entirely — the CodeMirror keymap and the
+    // window-level fallback. Without this guard a double Ctrl+S (a very common habit) starts a
+    // second save while the first is in flight, and the second fails in a way that reports a
+    // conflict that does not exist.
+    if (busy || proposed !== null) return
     if (blocked) {
       setError(issues.find((i) => i.severity === 'error')!.message)
       return

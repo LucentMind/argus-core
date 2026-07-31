@@ -10,6 +10,7 @@ import {
 } from './extensions/setup'
 import { editorKeymap, type SurfaceCommands } from './extensions/keymap'
 import { partitionIssues } from '../../lib/diagnostics'
+import { scrollFractionOf } from '../../lib/scrollSync'
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { ValidationIssue } from '../../../../shared/assetValidation'
 
@@ -116,8 +117,7 @@ export function CodeSurface({
     const scroller = view.scrollDOM
     const report = (): void => {
       if (applyingScroll.current) return
-      const range = scroller.scrollHeight - scroller.clientHeight
-      onScrollRef.current?.(range > 0 ? scroller.scrollTop / range : 0)
+      onScrollRef.current?.(scrollFractionOf(scroller))
     }
     scroller.addEventListener('scroll', report, { passive: true })
 

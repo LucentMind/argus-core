@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -99,7 +100,12 @@ beforeEach(() => {
 
 const DISK = '---\nname: s\ndescription: d\n---\n\nbody\n'
 
-function mount(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}): {
+function mount(
+  overrides: Partial<React.ComponentProps<typeof AssetPane>> = {},
+  /** `strict` wraps the tree in `<StrictMode>`, which double-invokes mount effects — the only
+   *  way a test can see a mount-effect ref that is never re-armed. */
+  opts: { strict?: boolean } = {}
+): {
   onDirtyChange: ReturnType<typeof vi.fn>
   surface: HTMLElement
 } {
@@ -117,7 +123,8 @@ function mount(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}):
     onDirtyChange,
     ...overrides
   }
-  render(<AssetPane {...props} />)
+  const tree = <AssetPane {...props} />
+  render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree)
   // Derived, not the literal 'skill · s': the create-mode cases below mount under a different
   // name and the surface's aria-label follows it.
   return {
@@ -158,6 +165,21 @@ describe('AssetPane', () => {
     await userEvent.type(surface, '{backspace}')
     await waitFor(() => expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 's' }))
     expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('clears the restored-draft banner when the user hand-reverts to the baseline', async () => {
+    // `handleDocChange`'s equality branch drops the draft, so without clearing the banner the
+    // screen contradicts itself: the status bar reads Saved while a "Restored unsaved draft"
+    // banner still offers a Discard button for a draft that no longer exists.
+    const { surface } = mount({
+      initialDoc: `${DISK}typed`,
+      initialDraftAt: '2026-07-31T15:42:00.000Z',
+      initialBanner: { kind: 'restored', updatedAt: '2026-07-31T15:42:00.000Z' }
+    })
+    expect(screen.getByText(/Restored unsaved draft/)).toBeInTheDocument()
+    await userEvent.type(surface, '{backspace}{backspace}{backspace}{backspace}{backspace}')
+    await waitFor(() => expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 's' }))
+    expect(screen.queryByText(/Restored unsaved draft/)).not.toBeInTheDocument()
   })
 
   it('does not touch the draft store when a merely-opened file is left alone', async () => {
@@ -231,6 +253,40 @@ describe('AssetPane', () => {
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+  })
+
+  it('still raises the conflict banner under StrictMode double-invoked mount effects', async () => {
+    // Restored from Increment 2. It guards a bug this repo has recorded as biting twice: a mount
+    // effect that reuses the same ref across StrictMode's *simulated* cleanup leaves
+    // `liveRef.current === false` for the component's entire real lifetime, so every guarded
+    // async path silently takes its "unmounted" branch — here, the post-save conflict
+    // classification, which would leave the user with no banner and no explanation. Only a
+    // StrictMode-wrapped render can see it; the plain conflict test above passes either way, and
+    // the app's real entry point (`editor.tsx`) does wrap the tree in StrictMode.
+    skillsWrite.mockRejectedValue(new Error('changed on disk'))
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    const { surface } = mount({}, { strict: true })
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+  })
+
+  it('ignores a second save while one is already in flight', async () => {
+    let release: (v: { hash: string }) => void = () => {}
+    skillsWrite.mockReturnValue(
+      new Promise((r) => {
+        release = r
+      })
+    )
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(skillsWrite).toHaveBeenCalledTimes(1))
+    // The keyboard paths bypass the button's disabled state.
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(skillsWrite).toHaveBeenCalledTimes(1)
+    release({ hash: 'h2' })
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
   })
 
   it('"Use disk" replaces the document through the handle and discards the draft', async () => {
@@ -327,6 +383,24 @@ describe('AssetPane', () => {
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false))
+  })
+
+  it('does not regenerate the template when a create-mode asset is renamed after saving', async () => {
+    // `onSave` moves the baseline to the saved content, so an equality-only "untouched" check
+    // flips back to true after a save and the next name keystroke wipes the saved body.
+    skillsWrite.mockResolvedValue({ hash: 'h2' })
+    const { surface } = mount({
+      mode: 'create',
+      initialName: 's',
+      initialDoc: DISK,
+      initialBaseline: DISK
+    })
+    await userEvent.type(surface, 'real body text')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(skillsWrite).toHaveBeenCalled())
+    setDoc.mockClear()
+    await userEvent.type(screen.getByLabelText('skill name'), 'X')
+    expect(setDoc).not.toHaveBeenCalled()
   })
 
   it('offers other create-mode drafts to resume', async () => {
