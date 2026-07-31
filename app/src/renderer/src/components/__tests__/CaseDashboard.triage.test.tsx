@@ -336,6 +336,15 @@ describe('CaseDashboard triage', () => {
     expect(screen.getAllByTestId('status-dot').length).toBeGreaterThan(0)
   })
 
+  it('gives the status dot and its word the same text-* colour class — they can never disagree', () => {
+    render(<CaseDashboard cases={[mkCase({ status: 'analyzing' })]} {...noopHandlers} />)
+    const dot = screen.getByTestId('status-dot')
+    const dotColorClass = dot.className.split(' ').find((cls) => cls.startsWith('text-'))
+    expect(dotColorClass).toBeTruthy()
+    const word = screen.getByText('Analyzing')
+    expect(word.classList.contains(dotColorClass as string)).toBe(true)
+  })
+
   it('spells out the rca-drafted status', () => {
     render(<CaseDashboard cases={[mkCase({ status: 'rca-drafted' })]} {...noopHandlers} />)
     expect(screen.getByText('RCA drafted')).toBeTruthy()

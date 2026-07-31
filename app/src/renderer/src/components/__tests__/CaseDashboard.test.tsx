@@ -189,6 +189,38 @@ describe('CaseDashboard', () => {
     expect(screen.queryByText('Route missing')).toBeNull()
   })
 
+  it('narrows by status AND priority together, not just one filter at a time', () => {
+    const threeCases: CaseRecord[] = [
+      ...twoCases,
+      {
+        ...cases[0],
+        id: 3,
+        slug: 'NAV-3',
+        title: 'Signal drop',
+        status: 'open',
+        jiraPriority: 'High'
+      }
+    ]
+    render(
+      <CaseDashboard
+        cases={threeCases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /status/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
+    fireEvent.click(screen.getByRole('button', { name: /priority/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'High' }))
+    // NAV-1 is High but analyzing (wrong status); NAV-2 is open but Low (wrong priority);
+    // only NAV-3 satisfies both at once.
+    expect(screen.getByText('Signal drop')).toBeTruthy()
+    expect(screen.queryByText('Bearing jumps')).toBeNull()
+    expect(screen.queryByText('Route missing')).toBeNull()
+  })
+
   it('an explicit Closed filter overrides the hide-closed default', () => {
     const withClosed = [
       ...twoCases,

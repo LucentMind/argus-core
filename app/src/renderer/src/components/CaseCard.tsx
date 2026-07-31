@@ -57,7 +57,7 @@ export function CaseCard({
   /** Cached CI rollup for this case's bound PR. Absent when the case has no PR — the dashboard
    *  reads the cache and passes only what it has, so the card never fetches anything itself. */
   prRollup?: PrRollup
-  /** Dynamic-theme skin: glass container, staggered entrance, priority rail. */
+  /** Dynamic-theme skin: glass container, staggered entrance. */
   dynamic?: boolean
   /** Grid position — drives the entrance stagger delay in dynamic mode. */
   index?: number

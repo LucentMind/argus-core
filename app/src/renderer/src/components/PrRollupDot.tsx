@@ -3,9 +3,11 @@ import type { LucideIcon } from 'lucide-react'
 import type { PrRollup } from '../../../shared/prStatus'
 
 /**
- * The one CI indicator, shared by the companion header, the case-header chip and the dashboard
- * cards, so those three can never drift into three colour vocabularies. Colour is never the only
- * signal: each state carries a distinct accessible name.
+ * The one CI indicator. This dot form is shared by the companion header (HeaderChips.tsx) and
+ * the case-header chip (PrCompanionSection.tsx); the dashboard cards use the icon form below
+ * (`PrRollupIcon`) instead. Both forms read off the same `TONE` map, so they can never drift
+ * into different colour vocabularies. Colour is never the only signal: each state carries a
+ * distinct accessible name.
  *
  * `bg-signal` (the app's positive accent) rather than a literal green: it is the only "good"
  * token with a light-theme override, and this palette has no green that survives on paper.
@@ -52,11 +54,12 @@ export function PrRollupDot({
 /**
  * The footer form of the same signal. Each state's accessible name is derived from `TONE` to
  * keep them in sync. Colour comes from the same token set as `TONE`, but as `text-*` (an icon
- * strokes with currentColor, it does not fill with a background); the `none` and `unavailable`
- * states use `text-mute` instead of their TONE background tokens, because `--hair-2` and a
- * border are unsuited to icon strokes. Each state additionally differs in glyph — so the states
- * stay distinguishable where two of them share amber, and without relying on animation as the only
- * cue.
+ * strokes with currentColor, it does not fill with a background). Only `none` actually swaps
+ * tokens here — its TONE background is `--hair-2`, unsuited to an icon stroke, so the icon form
+ * falls back to `text-mute`; `unavailable`'s TONE already uses the `mute` token (a `border-mute`
+ * outline), so its icon form needs no substitution at all. Each state additionally differs in
+ * glyph — so the states stay distinguishable where two of them share amber, and without relying
+ * on animation as the only cue.
  */
 const ICON: Record<PrRollup, { Glyph: LucideIcon; className: string; label: string }> = {
   passing: { Glyph: CircleCheck, className: 'text-signal', label: TONE.passing.label },
