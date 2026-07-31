@@ -1,6 +1,6 @@
 import { keymap } from '@codemirror/view'
 import { defaultKeymap, historyKeymap } from '@codemirror/commands'
-import { searchKeymap } from '@codemirror/search'
+import { openSearchPanel, searchKeymap } from '@codemirror/search'
 import { closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
 import { markdownKeymap } from '@codemirror/lang-markdown'
 import type { Extension } from '@codemirror/state'
@@ -73,6 +73,15 @@ export function editorKeymap(cmds: { current: SurfaceCommands }): Extension {
         cmds.current.toggleWrap()
         return true
       }
+    },
+    // Spec §5.7 names Ctrl+H, and `searchKeymap` does not bind it (verified against 6.7.1:
+    // Mod-f, F3, Mod-g, Escape, Mod-Shift-l, Mod-Alt-g, Mod-d). The panel is the same one Mod-f
+    // opens — it carries the replace row whenever the document is editable — so this is the
+    // chord, not a second surface.
+    {
+      key: 'Mod-h',
+      preventDefault: true,
+      run: openSearchPanel
     },
     {
       key: 'Mod-Shift-v',
