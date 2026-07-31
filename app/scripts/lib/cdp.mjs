@@ -131,7 +131,7 @@ export const docText = (conn) =>
  * *editor* window for the Library — presenting as "the Library never loaded". Re-running any
  * phase against an already-open app hits this.
  */
-export const mainWindow = async (targets) => targets.find((t) => !t.url.includes('editor.html'))
+export const mainWindow = (targets) => targets.find((t) => !t.url.includes('editor.html'))
 
 /**
  * Put the editor into a known view mode before asserting anything about it.

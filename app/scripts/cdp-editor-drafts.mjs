@@ -45,7 +45,8 @@ import {
   report,
   SURFACE,
   docText,
-  focusEnd
+  focusEnd,
+  mainWindow
 } from './lib/cdp.mjs'
 
 const PORT = process.env.CDP_PORT || '9223'
@@ -103,7 +104,10 @@ const gotoLibrary = async (main) => {
 
 /** Open the editor window on the first skill the Library offers, and return both connections. */
 const openEditor = async () => {
-  const main = await connect((await listTargets())[0])
+  // `compare` runs against a boot that may already have an editor window open (this gate's own
+  // header says `compare` doesn't need a fresh restart), so `listTargets()[0]` is not reliably
+  // the main window — select it by URL instead.
+  const main = await connect(mainWindow(await listTargets()))
   await gotoLibrary(main)
   await main.evalJs(`document.querySelector('[aria-label^="Edit \\u00b7 "]').click()`)
   let target = null

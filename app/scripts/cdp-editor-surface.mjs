@@ -27,7 +27,8 @@ import {
   report,
   SURFACE,
   docText,
-  focusEnd
+  focusEnd,
+  mainWindow
 } from './lib/cdp.mjs'
 
 const PORT = process.env.CDP_PORT || '9223'
@@ -70,7 +71,9 @@ const gotoLibrary = async (main) => {
   )
 }
 
-const main = await connect((await listTargets())[0])
+// listTargets()[0] is only the main window on a fresh boot; select by URL so a rerun against an
+// already-open editor window doesn't get the editor connection here instead.
+const main = await connect(mainWindow(await listTargets()))
 await gotoLibrary(main)
 await main.evalJs(`document.querySelector('[aria-label^="Edit \\u00b7 "]').click()`)
 let target = null
