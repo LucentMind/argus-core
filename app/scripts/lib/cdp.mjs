@@ -113,6 +113,46 @@ export const report = () => {
 export const SURFACE = '.cm-content[aria-label^="skill · "]'
 
 /**
+ * The surface belonging to the tab that is actually on screen.
+ *
+ * {@link SURFACE} is a SINGLE-surface selector, and correct only while one asset is open. Every
+ * tab stays mounted (spec §6.1), so with N tabs there are N `.cm-content` nodes and
+ * `querySelector` returns the FIRST — the first-*opened* tab, never reliably the visible one.
+ * `offsetParent === null` is how the `display:none` ones are excluded; `checkVisibility` is not
+ * available in every Electron the app supports.
+ *
+ * An expression, not a selector string: no CSS selector can ask about computed style. Interpolate
+ * it into a template literal the page parses.
+ */
+export const VISIBLE_SURFACE = `(() => {
+  const all = Array.from(document.querySelectorAll('.cm-content'))
+  return all.find((e) => e.offsetParent !== null) || null
+})()`
+
+/** The tab panel that is actually on screen — the counterpart of {@link VISIBLE_SURFACE} for
+ *  everything outside the editing surface (banners, the status bar, Save). */
+export const VISIBLE_PANEL = `(() => {
+  const all = Array.from(document.querySelectorAll('[role="tabpanel"]'))
+  return all.find((e) => e.offsetParent !== null) || null
+})()`
+
+/**
+ * Click the tab whose accessible name contains `name`.
+ *
+ * `includes`, not equality: `TabBar`'s label is `${kind} · ${name}${dirty ? ' · unsaved changes'
+ * : ''} (tab)`, so a dirty tab's name is a substring of a longer string that changes as the user
+ * types.
+ */
+export const clickTab = (conn, name) =>
+  conn.evalJs(`(() => {
+    const t = Array.from(document.querySelectorAll('[role="tab"]'))
+      .find((x) => (x.getAttribute('aria-label') || '').includes(${JSON.stringify(name)}))
+    if (!t) return false
+    t.click()
+    return true
+  })()`)
+
+/**
  * The document as text.
  *
  * CAVEAT, and it is why every gate fixture is a short file: CodeMirror virtualises long
@@ -155,17 +195,24 @@ export const toEditorMode = async (conn) => {
   }
 }
 
+/** Focus `elExpr` and put the caret at the end of it, so `insertText` appends. */
+const focusEndOf = (elExpr) => `(() => {
+  const el = ${elExpr}
+  if (!el) return false
+  el.focus()
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  const sel = getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  return true
+})()`
+
 /** Put the caret at the end of the document and focus it, so `insertText` appends. */
-export const focusEnd = async (conn) => {
-  await conn.evalJs(`(() => {
-    const el = document.querySelector(${JSON.stringify(SURFACE)})
-    el.focus()
-    const range = document.createRange()
-    range.selectNodeContents(el)
-    range.collapse(false)
-    const sel = getSelection()
-    sel.removeAllRanges()
-    sel.addRange(range)
-    return true
-  })()`)
-}
+export const focusEnd = (conn) =>
+  conn.evalJs(focusEndOf(`document.querySelector(${JSON.stringify(SURFACE)})`))
+
+/** {@link focusEnd} for a window with several tabs open: the visible surface, not the first one
+ *  in the DOM. See {@link VISIBLE_SURFACE} — with a single tab the two are the same element. */
+export const focusVisibleEnd = (conn) => conn.evalJs(focusEndOf(VISIBLE_SURFACE))
