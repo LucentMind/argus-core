@@ -26,6 +26,7 @@ function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
 beforeEach(() => {
   localStorage.clear()
   uiStore.setTheme('dark')
+  uiStore.setDynamicTheme(false)
   settingsStore.reset()
   window.argus = {
     settings: {
@@ -46,6 +47,16 @@ describe('GeneralSettings', () => {
     render(<GeneralSettings payload={payload()} />)
     fireEvent.change(screen.getByLabelText('Theme'), { target: { value: 'light' } })
     expect(uiStore.get().theme).toBe('light')
+    expect(window.argus.settings.patch).not.toHaveBeenCalled()
+  })
+
+  it('dynamic theme switch writes uiStore (renderer-local), not IPC', () => {
+    render(<GeneralSettings payload={payload()} />)
+    const sw = screen.getByRole('switch', { name: 'Dynamic theme' })
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(sw)
+    expect(uiStore.get().dynamicTheme).toBe(true)
+    expect(sw.getAttribute('aria-checked')).toBe('true')
     expect(window.argus.settings.patch).not.toHaveBeenCalled()
   })
 

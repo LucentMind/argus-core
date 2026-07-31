@@ -29,6 +29,16 @@ export function GeneralSettings({ payload }: { payload: SettingsPayload }): Reac
           onChange={(v) => uiStore.setTheme(v as Theme)}
         />
       </SettingRow>
+      <SettingRow
+        label="Dynamic theme"
+        description="Ambient dashboard styling — this window only (stored locally)"
+      >
+        <Switch
+          checked={ui.dynamicTheme}
+          onChange={(v) => uiStore.setDynamicTheme(v)}
+          aria-label="Dynamic theme"
+        />
+      </SettingRow>
       <SettingRow label="UI scale" description="Zoom the whole interface (this window only)">
         <SelectField
           aria-label="UI scale"
