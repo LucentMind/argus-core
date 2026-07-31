@@ -86,7 +86,8 @@ describe('SettingsService', () => {
     let notified = false
     svc.subscribe(() => (notified = true))
     fs.writeFileSync(settingsPath(argusHome), '{"agent":{"maxSessions":7}}', 'utf8')
-    await vi.waitFor(() => expect(notified).toBe(true), { timeout: 3000 })
+    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
+    await vi.waitFor(() => expect(notified).toBe(true), { timeout: 10_000 })
     expect(svc.get().agent.maxSessions).toBe(7)
   })
 

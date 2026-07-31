@@ -47,6 +47,7 @@ describe('ToolRiskStore', () => {
     store = new ToolRiskStore(argusHome)
     expect(store.get()).toEqual({})
     fs.writeFileSync(toolRiskPath(argusHome), JSON.stringify({ 'x/y': 'high' }), 'utf8')
-    await vi.waitFor(() => expect(store.get()).toEqual({ 'x/y': 'high' }), { timeout: 3000 })
+    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
+    await vi.waitFor(() => expect(store.get()).toEqual({ 'x/y': 'high' }), { timeout: 10_000 })
   })
 })

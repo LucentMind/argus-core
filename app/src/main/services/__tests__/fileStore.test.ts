@@ -54,6 +54,7 @@ describe('JsonFileStore', () => {
     expect(fired).toBe(0)
     // external change
     fs.writeFileSync(file, '{"a":3}', 'utf8')
-    await vi.waitFor(() => expect(fired).toBeGreaterThan(0), { timeout: 3000 })
+    // fs.watch latency is OS-dependent (FSEvents coalesces); 10s matches caseWatch.test.ts
+    await vi.waitFor(() => expect(fired).toBeGreaterThan(0), { timeout: 10_000 })
   })
 })
