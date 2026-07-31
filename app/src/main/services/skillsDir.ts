@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { refTier } from './refSync/refFrontmatter'
+import { withFrontmatter } from '../../shared/frontmatter'
 import { NON_PACK_TIERS } from '../../shared/trustTiers'
 
 export function sharedSkillsDir(argusHome: string): string {
@@ -101,17 +102,59 @@ export function seedSharedAssets(
   argusHome: string,
   sources: { skills: string[]; references: string[] }
 ): void {
-  const keepTiered = (_src: string, destFile: string): boolean => !isNonPackTiered(destFile)
-  for (const [srcs, dest, filter] of [
-    [sources.skills, sharedSkillsDir(argusHome), undefined],
-    [sources.references, sharedReferencesDir(argusHome), keepTiered]
-  ] as const) {
-    fs.mkdirSync(dest, { recursive: true })
-    for (const src of srcs) {
-      if (fs.existsSync(src) && path.resolve(src) !== path.resolve(dest)) {
-        fs.cpSync(src, dest, { recursive: true, force: true, filter })
-      }
+  const skillsDest = sharedSkillsDir(argusHome)
+  fs.mkdirSync(skillsDest, { recursive: true })
+  for (const src of sources.skills) {
+    if (fs.existsSync(src) && path.resolve(src) !== path.resolve(skillsDest)) {
+      fs.cpSync(src, skillsDest, { recursive: true, force: true })
     }
+  }
+
+  const refsDest = sharedReferencesDir(argusHome)
+  fs.mkdirSync(refsDest, { recursive: true })
+  for (const src of sources.references) {
+    if (fs.existsSync(src) && path.resolve(src) !== path.resolve(refsDest)) {
+      seedReferenceTree(src, refsDest)
+    }
+  }
+}
+
+/**
+ * Copy one reference seed source, stamping every markdown file `trust_tier: bundled`.
+ *
+ * A plain `cpSync` is not enough, because the stamp is the whole point. Seeded references used to
+ * land UNTAGGED, and an untagged reference is treated as hand-authored: the writer stamps it
+ * `trust_tier: user` on save (`ReferenceSyncService.writeReference`) and the editor lets you type
+ * into it. So a bundled doc could be edited, silently become yours on first save — which also
+ * detaches it from re-seeding, since `isNonPackTiered` then protects it — and then be
+ * *permanently* deleted, with nothing left to restore it. Stamping here makes "bundled" a fact
+ * about the file rather than an inference from where it happens to sit, and it backfills existing
+ * homes for free: their untagged copies are untiered, so this refresh rewrites them stamped.
+ *
+ * `bundled` is deliberately NOT in `NON_PACK_TIERS`, so a stamped copy is still refreshed by the
+ * next seed and still reaped when its pack is uninstalled. Only the tiers that mean "someone took
+ * ownership" are skipped.
+ *
+ * Recursive because references nest (see `listReferenceFiles`' walk); a flat pass would leave a
+ * whole subtree untagged. Non-markdown files are copied byte-for-byte — frontmatter is a markdown
+ * convention, and reading an image through a utf8 round trip would corrupt it.
+ */
+function seedReferenceTree(src: string, dest: string): void {
+  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, ent.name)
+    const to = path.join(dest, ent.name)
+    if (ent.isDirectory()) {
+      fs.mkdirSync(to, { recursive: true })
+      seedReferenceTree(from, to)
+      continue
+    }
+    if (!ent.isFile()) continue
+    if (isNonPackTiered(to)) continue
+    if (!ent.name.endsWith('.md')) {
+      fs.copyFileSync(from, to)
+      continue
+    }
+    fs.writeFileSync(to, withFrontmatter(fs.readFileSync(from, 'utf8'), { trust_tier: 'bundled' }))
   }
 }
 
