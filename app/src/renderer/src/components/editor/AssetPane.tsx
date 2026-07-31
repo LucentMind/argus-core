@@ -9,7 +9,15 @@ import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
 import { CodeSurface } from './CodeSurface'
 import { DiffView } from './DiffView'
 import { readAsset, writeAsset } from './assetIo'
+import type { SurfaceCommands } from './extensions/keymap'
 import { clockTime } from '../../lib/time'
+import {
+  clampFontSize,
+  FONT_DEFAULT,
+  nextViewMode,
+  readPrefs,
+  writePrefs
+} from '../../lib/editorPrefs'
 import {
   isConflict,
   onExternalChange,
@@ -92,6 +100,7 @@ export function AssetPane({
   const [phase, setPhase] = useState<'draft' | 'improve' | null>(null)
   const [proposed, setProposed] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
+  const [prefs, setPrefs] = useState(readPrefs)
   // A snapshot taken when Compare was clicked. State, not a live ref read: the repo's
   // react-hooks/refs rule forbids reading `.current` during render, and this is rendered
   // straight from the function body.
@@ -112,6 +121,37 @@ export function AssetPane({
   useEffect(() => {
     bannerRef.current = banner
   }, [banner])
+
+  // `onSave` is a plain function declared in the component body, so it is a new identity every
+  // render and cannot be captured in the `commands` memo below with an empty dependency list.
+  const onSaveRef = useRef(onSave)
+  useEffect(() => {
+    onSaveRef.current = onSave
+  })
+
+  const commands = useMemo<SurfaceCommands>(
+    () => ({
+      save: () => void onSaveRef.current(),
+      changeFontSize: (delta) =>
+        setPrefs((p) => {
+          const fontSize = delta === 0 ? FONT_DEFAULT : clampFontSize(p.fontSize + delta)
+          writePrefs({ fontSize })
+          return { ...p, fontSize }
+        }),
+      toggleWrap: () =>
+        setPrefs((p) => {
+          writePrefs({ wrap: !p.wrap })
+          return { ...p, wrap: !p.wrap }
+        }),
+      cycleViewMode: () =>
+        setPrefs((p) => {
+          const viewMode = nextViewMode(p.viewMode)
+          writePrefs({ viewMode })
+          return { ...p, viewMode }
+        })
+    }),
+    []
+  )
 
   const runId = useRef(0)
   // Guards every async resolution against landing after unmount. The setup function must assign
@@ -667,8 +707,9 @@ export function AssetPane({
           initialDoc={initialDoc}
           ariaLabel={`${kind} · ${initialName}`}
           issues={issues}
-          fontSize={13}
-          wrap={true}
+          fontSize={prefs.fontSize}
+          wrap={prefs.wrap}
+          commands={commands}
           onDocChange={handleDocChange}
           onCursor={setCursor}
         />

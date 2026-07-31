@@ -8,6 +8,7 @@ import {
   fontSizeTheme,
   wrapCompartment
 } from './extensions/setup'
+import { editorKeymap, type SurfaceCommands } from './extensions/keymap'
 import { partitionIssues } from '../../lib/diagnostics'
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { ValidationIssue } from '../../../../shared/assetValidation'
@@ -23,6 +24,7 @@ export interface CodeSurfaceProps {
   issues: ValidationIssue[]
   fontSize: number
   wrap: boolean
+  commands: SurfaceCommands
   onDocChange: (doc: string) => void
   onCursor: (info: CursorInfo) => void
   /** Fires on scroll, as a 0–1 fraction, for the split preview's scroll sync. */
@@ -50,6 +52,7 @@ export function CodeSurface({
   issues,
   fontSize,
   wrap,
+  commands,
   onDocChange,
   onCursor,
   onScrollFraction,
@@ -72,6 +75,11 @@ export function CodeSurface({
     onScrollRef.current = onScrollFraction
   }, [onDocChange, onCursor, onScrollFraction])
 
+  const commandsRef = useRef(commands)
+  useEffect(() => {
+    commandsRef.current = commands
+  }, [commands])
+
   /** Set while this component is applying an incoming `scrollFraction`, so the scroll event it
    *  causes is not reported straight back out as user scrolling — which would make the two panes
    *  chase each other. */
@@ -86,6 +94,7 @@ export function CodeSurface({
         doc: initialDoc,
         extensions: [
           ...baseExtensions({ fontSize, wrap }),
+          editorKeymap(commandsRef),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onDocChangeRef.current(update.state.doc.toString())
