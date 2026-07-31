@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { AssetTab } from '../AssetTab'
-import type { DraftRecord, EditorOpenRequest } from '../../../../../shared/editorIpc'
+import type { DraftRecord, DraftRef, EditorOpenRequest } from '../../../../../shared/editorIpc'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
@@ -30,19 +30,23 @@ vi.mock('../CodeSurface', () => ({
 const SKILL_BODY = '---\nname: my-skill\ndescription: Use when testing.\n---\n\n# hi\n'
 const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit' }
 
-const readDraft = vi.fn<() => Promise<DraftRecord | null>>()
+const draftChanged = vi.fn()
+const readDraft = vi.fn<(ref: DraftRef) => Promise<DraftRecord | null>>()
+const discardDraft = vi.fn<(ref: DraftRef) => Promise<void>>()
 const skillsRead = vi.fn()
 const listDrafts = vi.fn<() => Promise<DraftRecord[]>>()
 
 beforeEach(() => {
+  draftChanged.mockReset()
   readDraft.mockReset().mockResolvedValue(null)
+  discardDraft.mockReset().mockResolvedValue(undefined)
   listDrafts.mockReset().mockResolvedValue([])
   skillsRead.mockReset().mockResolvedValue({ content: SKILL_BODY, hash: 'h1' })
   window.argus = {
     editor: {
-      draftChanged: vi.fn(),
+      draftChanged,
       readDraft,
-      discardDraft: vi.fn().mockResolvedValue(undefined),
+      discardDraft,
       open: vi.fn().mockResolvedValue(undefined),
       listDrafts,
       onDraftSaved: () => () => {}
@@ -56,6 +60,16 @@ beforeEach(() => {
 const mount = (req: EditorOpenRequest = SKILL): void => {
   render(<AssetTab req={req} onDirtyChange={vi.fn()} />)
 }
+
+const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
+  kind: 'skill',
+  name: 'my-skill',
+  mode: 'edit',
+  content: SKILL_BODY,
+  baseHash: 'h1',
+  updatedAt: '2026-07-30T15:42:00.000Z',
+  ...over
+})
 
 /**
  * `AssetTab` is a loader: it reads disk and the draft store, picks the opening banner, and mounts
@@ -71,14 +85,9 @@ describe('AssetTab', () => {
   })
 
   it('opens the draft text under a restore banner when there is one', async () => {
-    readDraft.mockResolvedValue({
-      kind: 'skill',
-      name: 'my-skill',
-      mode: 'edit',
-      content: `${SKILL_BODY}drafted`,
-      baseHash: 'h1',
-      updatedAt: '2026-07-30T15:42:00.000Z'
-    })
+    readDraft.mockResolvedValue(
+      aDraft({ content: `${SKILL_BODY}drafted`, updatedAt: '2026-07-30T15:42:00.000Z' })
+    )
     mount()
     expect(await screen.findByLabelText('skill · my-skill')).toHaveValue(`${SKILL_BODY}drafted`)
     expect(screen.getByText(/Restored unsaved draft from/)).toBeInTheDocument()
@@ -100,5 +109,116 @@ describe('AssetTab', () => {
     mount()
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not read skill "my-skill".')
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+  })
+})
+
+// draft-id-rekey: create mode no longer keys drafts by kind+name (see keyOf in
+// main/services/drafts.ts). AssetTab mints (or adopts) a stable draftId once per mount and reads
+// the draft store by that id instead.
+describe('AssetTab create-mode identity (draft-id-rekey)', () => {
+  it('reads a resumed draft by the draftId carried on the open request', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: my-skill'))
+    readDraft.mockImplementation(async (ref) =>
+      'draftId' in ref && ref.draftId === 'resumed-id'
+        ? aDraft({
+            name: 'my-skill',
+            mode: 'create',
+            content: '# resumed draft content\n',
+            baseHash: null,
+            draftId: 'resumed-id'
+          })
+        : null
+    )
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name: 'my-skill', mode: 'create', draftId: 'resumed-id' }}
+        onDirtyChange={vi.fn()}
+      />
+    )
+
+    expect(await screen.findByLabelText('skill · my-skill')).toHaveValue(
+      '# resumed draft content\n'
+    )
+    expect(readDraft).toHaveBeenCalledWith({ draftId: 'resumed-id' })
+    // Resolved directly by id — the legacy kind+name fallback below must never fire when the id
+    // lookup already found something.
+    expect(readDraft).not.toHaveBeenCalledWith({ kind: 'skill', name: 'my-skill' })
+  })
+
+  it('mints a fresh non-empty draftId for a brand new create tab and reads by it', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: brand-new'))
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name: 'brand-new', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+      />
+    )
+    await screen.findByLabelText('skill · brand-new')
+    await waitFor(() => expect(readDraft).toHaveBeenCalled())
+    const [ref] = readDraft.mock.calls[0] as [DraftRef]
+    expect('draftId' in ref && typeof ref.draftId === 'string' && ref.draftId.length > 0).toBe(true)
+  })
+})
+
+// draft-id-rekey back-compat: a create-mode draft written before draftId existed has no
+// `draftId` field and is still keyed by kind+name. It must remain resumable, and quietly move
+// onto the new scheme the moment its tab is opened, rather than needing a migration pass.
+describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
+  it('adopts a legacy create-mode draft: content preserved, re-filed under the id key, legacy key discarded', async () => {
+    skillsRead.mockRejectedValue(new Error('No such skill: hij'))
+    listDrafts.mockResolvedValue([])
+    // Nothing is ever filed under a draftId here (a fresh tab has none yet to look up); the
+    // legacy record sits at the old kind+name key instead.
+    readDraft.mockImplementation(async (ref) =>
+      'draftId' in ref
+        ? null
+        : ref.name === 'hij'
+          ? aDraft({ name: 'hij', mode: 'create', content: '# hij\n', baseHash: null })
+          : null
+    )
+    render(
+      <AssetTab req={{ kind: 'skill', name: 'hij', mode: 'create' }} onDirtyChange={vi.fn()} />
+    )
+
+    // Content preserved: the legacy record's bytes open in the tab, not a fresh template.
+    const ta = await screen.findByLabelText('skill · hij')
+    expect(ta).toHaveValue('# hij\n')
+
+    // Re-filed under this tab's new id-based key.
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'skill',
+          name: 'hij',
+          mode: 'create',
+          content: '# hij\n',
+          baseHash: null,
+          draftId: expect.any(String)
+        })
+      )
+    )
+    // Legacy key discarded so it cannot linger and reappear in the resumable-drafts banner.
+    await waitFor(() => expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 'hij' }))
+  })
+
+  it('does not adopt an edit-mode draft that happens to sit at the same kind+name key', async () => {
+    // New skill always opens as `my-skill`, so a real asset named "my-skill" being edited
+    // elsewhere can leave a draft at exactly the kind+name key a fresh create tab's legacy
+    // fallback would look up. That draft belongs to a different tab entirely and must never be
+    // discarded or re-filed by this one.
+    skillsRead.mockRejectedValue(new Error('No such skill: my-skill'))
+    listDrafts.mockResolvedValue([])
+    readDraft.mockImplementation(async (ref) =>
+      'draftId' in ref ? null : aDraft({ mode: 'edit', content: 'someone else is editing this' })
+    )
+    render(
+      <AssetTab req={{ kind: 'skill', name: 'my-skill', mode: 'create' }} onDirtyChange={vi.fn()} />
+    )
+
+    // Falls through to the create template instead of adopting the edit-mode draft's content.
+    const ta = await screen.findByLabelText('skill · my-skill')
+    expect((ta as HTMLTextAreaElement).value).toContain('name: my-skill')
+    expect(discardDraft).not.toHaveBeenCalled()
+    expect(draftChanged).not.toHaveBeenCalled()
   })
 })

@@ -114,6 +114,9 @@ function mount(
     kind: 'skill',
     initialName: 's',
     mode: 'edit',
+    // Edit mode's identity is the file itself (see keyOf in main/services/drafts.ts) — the
+    // create-mode-only tests below override this with a real id.
+    draftId: '',
     initialDoc: DISK,
     initialBaseline: DISK,
     initialHash: 'h1',
@@ -343,14 +346,23 @@ describe('AssetPane', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/frontmatter/i)
   })
 
-  it('re-keys the draft when a create-mode name is edited', async () => {
-    mount({ mode: 'create', initialName: 'new-skill', initialDoc: 'seed', initialBaseline: 'seed' })
+  it('carries the stable draftId (not a name-based re-key) when a create-mode name is edited', async () => {
+    mount({
+      mode: 'create',
+      draftId: 'draft-1',
+      initialName: 'new-skill',
+      initialDoc: 'seed',
+      initialBaseline: 'seed'
+    })
     await userEvent.type(screen.getByLabelText('skill name'), 'X')
     await waitFor(() => expect(draftChanged).toHaveBeenCalled())
     expect(draftChanged.mock.calls.at(-1)![0]).toMatchObject({
       name: 'new-skillX',
-      replaces: { kind: 'skill', name: 'new-skill' }
+      draftId: 'draft-1'
     })
+    // `replaces` no longer exists on the wire at all (see DraftChange in shared/editorIpc.ts) —
+    // the draft's storage key never depended on the typed name, so there is nothing to route.
+    expect(draftChanged.mock.calls.every((c) => !('replaces' in (c[0] as object)))).toBe(true)
   })
 
   it('reseeds the template when a create-mode draft is discarded', async () => {
@@ -360,6 +372,7 @@ describe('AssetPane', () => {
     skillsRead.mockRejectedValue(new Error('ENOENT'))
     mount({
       mode: 'create',
+      draftId: 'draft-1',
       initialName: 'new-skill',
       initialDoc: 'typed body',
       initialBaseline: 'seed',
@@ -369,12 +382,15 @@ describe('AssetPane', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
     await waitFor(() => expect(setDoc).toHaveBeenCalled())
     expect(setDoc.mock.calls.at(-1)![0]).toContain('name: new-skill')
+    // Create mode discards by draftId, not by name — its storage key never depended on it.
+    expect(discardDraft).toHaveBeenCalledWith({ draftId: 'draft-1' })
   })
 
   it('stops reporting dirty after a create-mode save, even with a Describe prompt typed', async () => {
     skillsWrite.mockResolvedValue({ hash: 'h2' })
     const { onDirtyChange } = mount({
       mode: 'create',
+      draftId: 'draft-1',
       initialName: 's',
       initialDoc: DISK,
       initialBaseline: DISK
@@ -391,6 +407,7 @@ describe('AssetPane', () => {
     skillsWrite.mockResolvedValue({ hash: 'h2' })
     const { surface } = mount({
       mode: 'create',
+      draftId: 'draft-1',
       initialName: 's',
       initialDoc: DISK,
       initialBaseline: DISK
@@ -411,6 +428,7 @@ describe('AssetPane', () => {
     globalThis.window.argus.authoring.draft = vi.fn().mockResolvedValue({ content: 'GENERATED' })
     const { surface } = mount({
       mode: 'create',
+      draftId: 'draft-1',
       initialName: 's',
       initialDoc: DISK,
       initialBaseline: DISK
@@ -426,11 +444,43 @@ describe('AssetPane', () => {
     expect(setDoc).not.toHaveBeenCalled()
   })
 
-  it('offers other create-mode drafts to resume', async () => {
+  it('offers another create-mode draft, and resumes it through editor.open carrying its name and draftId', async () => {
     const open = vi.fn()
     globalThis.window.argus.editor.open = open
     mount({
       mode: 'create',
+      draftId: 'draft-1',
+      initialName: 'new-skill',
+      initialDoc: 'seed',
+      initialBaseline: 'seed',
+      otherDrafts: [
+        {
+          kind: 'skill',
+          name: 'half-written',
+          mode: 'create',
+          content: 'x',
+          baseHash: null,
+          updatedAt: '2026-07-31T10:00:00.000Z',
+          draftId: 'other-draft-id'
+        }
+      ]
+    })
+    expect(screen.getByText(/1 unsaved new skill from earlier/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'half-written' }))
+    expect(open).toHaveBeenCalledWith({
+      kind: 'skill',
+      name: 'half-written',
+      mode: 'create',
+      draftId: 'other-draft-id'
+    })
+  })
+
+  it('resumes a legacy draft (no draftId) by name only, so the resumed tab can adopt it by name', async () => {
+    const open = vi.fn()
+    globalThis.window.argus.editor.open = open
+    mount({
+      mode: 'create',
+      draftId: 'draft-1',
       initialName: 'new-skill',
       initialDoc: 'seed',
       initialBaseline: 'seed',
@@ -442,17 +492,24 @@ describe('AssetPane', () => {
           content: 'x',
           baseHash: null,
           updatedAt: '2026-07-31T10:00:00.000Z'
+          // no draftId — a legacy record
         }
       ]
     })
-    expect(screen.getByText(/1 unsaved new skill from earlier/i)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'half-written' }))
     expect(open).toHaveBeenCalledWith({ kind: 'skill', name: 'half-written', mode: 'create' })
+    expect(open.mock.calls[0]?.[0]).not.toHaveProperty('draftId')
   })
 
-  it('warns before a typed name silently overwrites an existing draft', async () => {
+  // The regression test for the reported defect: typing a name that matches an existing draft
+  // used to synchronously replace that draft's pending copy with this tab's own content
+  // (`DraftStore.writeKey` keyed by name, last-write-wins). With create mode keyed by `draftId`
+  // instead, the two drafts occupy different storage keys from the start, so there is nothing for
+  // the typed name to collide with — no banner, and no write anywhere near the other draft.
+  it('shows no collision banner when the typed name matches another draft, and never touches it', async () => {
     mount({
       mode: 'create',
+      draftId: 'draft-1',
       initialName: 'new-skill',
       initialDoc: 'seed',
       initialBaseline: 'seed',
@@ -463,16 +520,19 @@ describe('AssetPane', () => {
           mode: 'create',
           content: 'x',
           baseHash: null,
-          updatedAt: '2026-07-31T10:00:00.000Z'
+          updatedAt: '2026-07-31T10:00:00.000Z',
+          draftId: 'other-draft-id'
         }
       ]
     })
-    // `DraftStore.writeKey` is still last-write-wins; the fix is that the overwrite becomes
-    // visible to the person typing rather than happening without a word.
     await userEvent.type(screen.getByLabelText('skill name'), 'X')
-    expect(
-      screen.getByText(/already exists — what you type here will replace it/i)
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/already exists/)).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(draftChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({ name: 'new-skillX', draftId: 'draft-1' })
+      )
+    )
+    expect(discardDraft).not.toHaveBeenCalled()
   })
 
   // The `sync` derivation in AssetPane, not just the StatusBar it feeds — StatusBar.test.tsx only

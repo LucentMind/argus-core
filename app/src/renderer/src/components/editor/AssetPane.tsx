@@ -43,6 +43,13 @@ export interface AssetPaneProps {
   /** Skill folder / reference file name. In create mode, the initial value of the name field. */
   initialName: string
   mode: 'edit' | 'create'
+  /**
+   * Create mode's stable identity, minted once by `AssetTab` when the tab opened — the typed
+   * name lives only in the record body, never the storage key (see `keyOf` in
+   * main/services/drafts.ts). Empty string in edit mode, whose identity is the file itself and
+   * is never used here.
+   */
+  draftId: string
   /** What the surface opens with: the draft when there is one, otherwise disk or the template. */
   initialDoc: string
   /**
@@ -79,6 +86,7 @@ export function AssetPane({
   kind,
   initialName,
   mode,
+  draftId,
   initialDoc,
   initialBaseline,
   initialHash,
@@ -216,25 +224,31 @@ export function AssetPane({
   const draftFiled = useRef(initialDraftAt !== null)
 
   const fileDraft = useCallback(
-    (args: {
-      name: string
-      content: string
-      baseHash: string | null
-      replaces?: { kind: AuthoringKind; name: string }
-    }): void => {
+    (args: { name: string; content: string; baseHash: string | null }): void => {
       draftFiled.current = true
-      window.argus.editor.draftChanged({ kind, mode, ...args })
+      // Create mode's identity is `draftId`, carried on every write; edit mode's is kind+name,
+      // already in `args.name`. See `keyOf` in main/services/drafts.ts for why the two schemes
+      // differ — `replaces` (the old rename re-key routing) is gone, because a rename no longer
+      // moves the storage key at all.
+      window.argus.editor.draftChanged({
+        kind,
+        mode,
+        ...args,
+        ...(mode === 'create' ? { draftId } : {})
+      })
     },
-    [kind, mode]
+    [kind, mode, draftId]
   )
 
   const dropDraft = useCallback(
     (name: string): void => {
       draftFiled.current = false
       setDraftAt(null)
-      void window.argus.editor.discardDraft({ kind, name })
+      // Create mode discards by `draftId`; `name` is only meaningful for edit mode's kind+name
+      // identity (see `keyOf` in main/services/drafts.ts).
+      void window.argus.editor.discardDraft(mode === 'create' ? { draftId } : { kind, name })
     },
-    [kind]
+    [kind, mode, draftId]
   )
 
   /** Replace the document *and* declare what the new "no unsaved work" text is, in that order. */
@@ -330,7 +344,6 @@ export function AssetPane({
   /** Create mode: while the document is still the untouched template, keep the frontmatter
    *  `name:` in step with the name field. Once the user has edited it, never again. */
   function renameCreate(next: string): void {
-    const previous = filedAsRef.current
     setName(next)
     setError(null)
     // `lastSaved === null` is load-bearing, not belt-and-braces. "The buffer equals the baseline"
@@ -345,13 +358,10 @@ export function AssetPane({
     if (untouched) applyContent(content, content)
     filedAsRef.current = next
     // Persisted explicitly rather than through `handleDocChange`: a typed name is work even when
-    // the document did not move, and §4.5's re-key is only reachable from here.
-    fileDraft({
-      name: next,
-      content,
-      baseHash: baseHashRef.current,
-      ...(next !== previous ? { replaces: { kind, name: previous } } : {})
-    })
+    // the document did not move. No re-key here any more — create mode's storage key is
+    // `draftId`, not the name, so a rename never moves the file (see `keyOf` in
+    // main/services/drafts.ts).
+    fileDraft({ name: next, content, baseHash: baseHashRef.current })
   }
 
   async function onSave(): Promise<void> {
@@ -541,11 +551,21 @@ export function AssetPane({
     return () => window.removeEventListener('focus', check)
   }, [kind, applyContent])
 
-  // `name` is React state here, so the collision needs no mirrored copy of it — the original
-  // needed `typedName` only because the name lived inside AssetEditor.
-  const collision = otherDrafts.find((d) => d.name === name) ?? null
-  const resumeDraft = (target: string): void => {
-    void window.argus.editor.open({ kind, name: target, mode: 'create' })
+  // Resumable-drafts banner (Increment 5 pulled forward). Keying create-mode drafts by a stable
+  // id (rather than the typed name) makes the silent-overwrite half of the original defect
+  // impossible outright — two create drafts sharing a name now coexist on disk — so there is no
+  // collision to warn about here any more, only drafts to offer back.
+  const resumeDraft = (d: DraftRecord): void => {
+    // `draftId` carries a modern draft's identity forward so the resumed tab finds it by id. Its
+    // absence here means a legacy record (predates draft ids, still keyed by kind+name) — the
+    // resumed tab's mount-time fallback (see AssetTab's resolve effect) picks it up by name
+    // instead and adopts it onto a freshly minted id.
+    void window.argus.editor.open({
+      kind,
+      name: d.name,
+      mode: 'create',
+      ...(d.draftId ? { draftId: d.draftId } : {})
+    })
   }
 
   const compare =
@@ -659,46 +679,31 @@ export function AssetPane({
         </div>
       )}
 
-      {mode === 'create' &&
-        otherDrafts.length > 0 &&
-        (collision ? (
-          <div
-            role="status"
-            className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-review/40 bg-review/10 px-3 py-1.5 text-xs text-review"
-          >
-            <span>
-              A draft named &quot;{collision.name}&quot; already exists — what you type here will
-              replace it.
-            </span>
-            <Btn variant="outline" onClick={() => resumeDraft(collision.name)}>
-              Resume it
-            </Btn>
-          </div>
-        ) : (
-          <div
-            role="status"
-            className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
-          >
-            <span>
-              {otherDrafts.length} unsaved new{' '}
-              {kind === 'skill'
-                ? otherDrafts.length === 1
-                  ? 'skill'
-                  : 'skills'
-                : otherDrafts.length === 1
-                  ? 'reference'
-                  : 'references'}{' '}
-              from earlier.
-            </span>
-            <span className="flex flex-wrap gap-2">
-              {otherDrafts.map((d) => (
-                <Btn key={d.name} variant="ghost" onClick={() => resumeDraft(d.name)}>
-                  {d.name}
-                </Btn>
-              ))}
-            </span>
-          </div>
-        ))}
+      {mode === 'create' && otherDrafts.length > 0 && (
+        <div
+          role="status"
+          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
+        >
+          <span>
+            {otherDrafts.length} unsaved new{' '}
+            {kind === 'skill'
+              ? otherDrafts.length === 1
+                ? 'skill'
+                : 'skills'
+              : otherDrafts.length === 1
+                ? 'reference'
+                : 'references'}{' '}
+            from earlier.
+          </span>
+          <span className="flex flex-wrap gap-2">
+            {otherDrafts.map((d) => (
+              <Btn key={d.draftId ?? d.name} variant="ghost" onClick={() => resumeDraft(d)}>
+                {d.name}
+              </Btn>
+            ))}
+          </span>
+        </div>
+      )}
 
       {error && (
         <div

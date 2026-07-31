@@ -33,12 +33,51 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
   const { kind, name, mode } = req
   const [resolved, setResolved] = useState<Resolved | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Create-mode identity: a stable id, minted once when this tab opens rather than derived from
+  // the typed name (which the user is actively editing — keying on it would make every keystroke
+  // a rename, and two create tabs that happen to land on the same typed name would silently
+  // overwrite one another; see `keyOf`'s doc comment in main/services/drafts.ts for the defect
+  // this replaces). A `useState` initializer, not a value computed in the effect below, so it
+  // stays put for this mount's whole life — the only thing that ever changes it is EditorApp
+  // remounting this tab (it keys AssetTab on kind/name/mode/draftId). `req.draftId` carries an
+  // existing draft's id forward when resuming it (see `resumeDraft` in AssetPane). Edit mode
+  // never uses this — the file itself is the identity — so it stays ''.
+  const [draftId] = useState<string>(() =>
+    mode === 'create' ? (req.draftId ?? crypto.randomUUID()) : ''
+  )
 
   useEffect(() => {
     let live = true
     void (async () => {
       const disk = await readAsset(kind, name)
-      const draft = await window.argus.editor.readDraft({ kind, name })
+      let draft: DraftRecord | null
+      if (mode === 'create') {
+        draft = await window.argus.editor.readDraft({ draftId })
+        if (!draft) {
+          // Legacy fallback (back-compat only — delete once no old drafts remain): a create-mode
+          // draft written before draft ids existed has no `draftId` and is still keyed by
+          // kind+name (see keyOf in main/services/drafts.ts). Guard on `mode === 'create'` too:
+          // an edit-mode draft can legitimately sit at this same kind+name key (its own,
+          // unrelated, identity), and must never be mistaken for an orphaned create draft.
+          const legacy = await window.argus.editor.readDraft({ kind, name })
+          if (legacy && legacy.mode === 'create' && !legacy.draftId) {
+            draft = legacy
+            // Adopt it: keep the content, re-file under this tab's stable id, and discard the
+            // legacy key so it doesn't linger and reappear in the resumable-drafts banner.
+            window.argus.editor.draftChanged({
+              kind: legacy.kind,
+              name: legacy.name,
+              mode: legacy.mode,
+              content: legacy.content,
+              baseHash: legacy.baseHash,
+              draftId
+            })
+            await window.argus.editor.discardDraft({ kind, name })
+          }
+        }
+      } else {
+        draft = await window.argus.editor.readDraft({ kind, name })
+      }
       if (!live) return
       const template = kind === 'skill' ? skillTemplate : referenceTemplate
       if (!disk && mode !== 'create' && !draft) {
@@ -63,8 +102,11 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
         hash: draft ? draft.baseHash : (disk?.hash ?? null),
         banner: bannerOnOpen(draft, disk),
         draftAt: draft?.updatedAt ?? null,
+        // Excluded by `draftId`, not `name`: two create drafts can now legitimately share a
+        // typed name, so name is no longer a valid proxy for "this tab's own draft" — its stable
+        // id is.
         otherDrafts: all
-          .filter((d) => d.kind === kind && d.mode === 'create' && d.name !== name)
+          .filter((d) => d.kind === kind && d.mode === 'create' && d.draftId !== draftId)
           .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
           // Cap: the banner is a strip of buttons, not a list view. Increment 5's quick-open
           // Drafts section is where the rest live.
@@ -74,7 +116,7 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
     return () => {
       live = false
     }
-  }, [kind, name, mode])
+  }, [kind, name, mode, draftId])
 
   if (error) {
     return (
@@ -91,6 +133,7 @@ export function AssetTab({ req, onDirtyChange }: AssetTabProps): React.JSX.Eleme
       kind={kind}
       initialName={name}
       mode={mode}
+      draftId={draftId}
       initialDoc={resolved.doc}
       initialBaseline={resolved.baseline}
       initialHash={resolved.hash}

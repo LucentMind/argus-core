@@ -3,17 +3,36 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { draftsDir } from './paths'
 import type { AuthoringKind } from '../../shared/authoringIpc'
-import type { DraftChange, DraftRecord } from '../../shared/editorIpc'
+import type { DraftChange, DraftRecord, DraftRef } from '../../shared/editorIpc'
+
+function hash16(s: string): string {
+  return crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 16)
+}
 
 /**
- * First 16 hex chars of sha256("<kind>:<name>").
+ * First 16 hex chars of sha256("<kind>:<name>"). Edit-mode identity: the file on disk really is
+ * addressed by kind+name, so a rename really is a different asset.
  *
  * Hashed rather than escaped: reference names carry ".md", skill names are folder names, and
  * nothing guarantees either stays flat forever — escaping is a filename-bug generator. The
  * real identity lives in the record body, which is what `read` hands back.
  */
 export function draftKey(kind: AuthoringKind, name: string): string {
-  return crypto.createHash('sha256').update(`${kind}:${name}`, 'utf8').digest('hex').slice(0, 16)
+  return hash16(`${kind}:${name}`)
+}
+
+/**
+ * Dispatches a `DraftRef` to its storage key.
+ *
+ * Create-mode drafts do NOT key by kind+name: the name is a field the user is actively typing,
+ * so every keystroke would be a rename, and two create drafts that happen to land on the same
+ * typed name would silently overwrite one another (the defect this scheme replaces). Create-mode
+ * identity is instead a stable id, minted once when the tab opens and carried in the record body,
+ * independent of what gets typed. Edit-mode identity has no such problem — the file itself is the
+ * identity — so it keeps the kind+name key unchanged.
+ */
+export function keyOf(ref: DraftRef): string {
+  return 'draftId' in ref ? hash16(`draft:${ref.draftId}`) : draftKey(ref.kind, ref.name)
 }
 
 export interface DraftStoreDeps {
@@ -39,8 +58,6 @@ export class DraftStore {
   private readonly now: () => Date
   private pending = new Map<string, DraftRecord>()
   private timers = new Map<string, NodeJS.Timeout>()
-  /** newKey → the keys it has replaced, all deleted once newKey lands. */
-  private superseded = new Map<string, Set<string>>()
   private saved: ((rec: DraftRecord) => void) | null = null
 
   constructor(deps: DraftStoreDeps) {
@@ -55,41 +72,24 @@ export class DraftStore {
     this.saved = cb
   }
 
-  read(kind: AuthoringKind, name: string): DraftRecord | null {
-    const key = draftKey(kind, name)
+  read(ref: DraftRef): DraftRecord | null {
+    const key = keyOf(ref)
     // The queued copy is up to `debounceMs` newer than disk. A read that ignored it would hand
     // a stale buffer to a tab reopened moments after it was closed.
     return this.pending.get(key) ?? this.readFile(key)
   }
 
   queue(change: DraftChange): void {
-    const key = draftKey(change.kind, change.name)
-    if (change.replaces) {
-      const oldKey = draftKey(change.replaces.kind, change.replaces.name)
-      if (oldKey !== key) {
-        this.cancel(oldKey)
-        this.pending.delete(oldKey)
-        const stranded = this.superseded.get(key) ?? new Set<string>()
-        stranded.add(oldKey)
-        // Absorb whatever the old key had itself superseded. A second rename inside one
-        // debounce window means the old key's write never fired, so its own ancestors are
-        // still on disk and nothing else will ever delete them.
-        for (const ancestor of this.superseded.get(oldKey) ?? []) stranded.add(ancestor)
-        this.superseded.delete(oldKey)
-        // A chain that returns to a name it already used (a → b → a) would otherwise list
-        // the live key as stranded and delete the file it just wrote.
-        stranded.delete(key)
-        this.superseded.set(key, stranded)
-      }
-    }
-    // Built field by field rather than spread-minus-`replaces`: `replaces` is wire-only routing
-    // and must never reach the file.
+    // Create mode carries its own stable id; edit mode's identity is still kind+name. See
+    // `keyOf` for why the two schemes differ.
+    const key = keyOf(change.draftId ? { draftId: change.draftId } : change)
     this.pending.set(key, {
       kind: change.kind,
       name: change.name,
       mode: change.mode,
       content: change.content,
       baseHash: change.baseHash,
+      ...(change.draftId ? { draftId: change.draftId } : {}),
       updatedAt: this.now().toISOString()
     })
     this.cancel(key)
@@ -131,29 +131,10 @@ export class DraftStore {
     return [...byKey.values()]
   }
 
-  discard(kind: AuthoringKind, name: string): void {
-    const key = draftKey(kind, name)
+  discard(ref: DraftRef): void {
+    const key = keyOf(ref)
     this.cancel(key)
     this.pending.delete(key)
-    const stranded = this.superseded.get(key)
-    this.superseded.delete(key)
-    // The stranded ancestors are the same logical draft under names the user abandoned mid-
-    // rename; discarding the live key must take them with it.
-    for (const old of stranded ?? []) {
-      try {
-        fs.rmSync(this.file(old))
-      } catch {
-        /* never written, or already gone */
-      }
-      // Hardening (final-review-fixes-2): the same Finding-4 leak, one key over — a rename
-      // whose write failed at the rename step leaves `<old>.json.tmp` behind, and this ancestor
-      // loop is the only place that key's lifetime is ever known to end.
-      try {
-        fs.rmSync(this.tmpFile(old))
-      } catch {
-        /* never written, or already renamed away */
-      }
-    }
     try {
       fs.rmSync(this.file(key))
     } catch {
@@ -226,27 +207,6 @@ export class DraftStore {
       return
     }
     this.pending.delete(key)
-    const stranded = this.superseded.get(key)
-    if (stranded) {
-      // §4.5 ordering: the new key is on disk before any old one goes, so a crash between
-      // the two leaves two drafts rather than none.
-      for (const old of stranded) {
-        try {
-          fs.rmSync(this.file(old))
-        } catch {
-          /* the rename happened before this key was ever written */
-        }
-        // Hardening (final-review-fixes-2): same leak as discard()'s ancestor loop above — a
-        // rename whose write failed at the rename step leaves `<old>.json.tmp` behind, and
-        // nothing else ever sweeps a superseded key's temp file.
-        try {
-          fs.rmSync(this.tmpFile(old))
-        } catch {
-          /* never written, or already renamed away */
-        }
-      }
-      this.superseded.delete(key)
-    }
     this.saved?.(rec)
   }
 }

@@ -30,6 +30,9 @@ export interface EditorOpenRequest {
   kind: AuthoringKind
   name: string
   mode: 'edit' | 'create'
+  /** Set only when resuming an existing create-mode draft: carries its stable id forward so the
+   *  resumed tab finds the same draft by id instead of minting a fresh one. */
+  draftId?: string
 }
 
 export interface WindowBounds {
@@ -46,8 +49,9 @@ export const EDITOR_DEFAULT_SIZE = { width: 1100, height: 780 } as const
 export const EDITOR_MIN_SIZE = { width: 720, height: 520 } as const
 
 /**
- * One autosaved buffer. Written to `argusHome/drafts/<key>.json`, where the key is a hash of
- * kind+name (see `draftKey`) — so the real identity lives here in the body.
+ * One autosaved buffer. Written to `argusHome/drafts/<key>.json`, where the key is either a hash
+ * of kind+name (edit mode, `draftKey`) or of `draftId` (create mode) — see `keyOf` in
+ * main/services/drafts.ts. Either way, the real identity lives here in the body.
  */
 export interface DraftRecord {
   kind: AuthoringKind
@@ -58,18 +62,21 @@ export interface DraftRecord {
    *  makes staleness detectable at open (spec §4.1). */
   baseHash: string | null
   updatedAt: string
+  /** Stable id for a create-mode draft, minted once when its tab opens (see `keyOf` in
+   *  main/services/drafts.ts) — the record's real key in create mode, independent of `name`.
+   *  Absent for edit-mode drafts, whose identity is the file itself, and absent on a create-mode
+   *  record written before this field existed (back-compat; adopted on open, AssetTab.tsx). */
+  draftId?: string
 }
 
-export interface DraftChange extends Omit<DraftRecord, 'updatedAt'> {
-  /** Set when the create-mode name field moved: the store re-keys so the draft follows the
-   *  name instead of stranding under the old one (spec §4.5). */
-  replaces?: { kind: AuthoringKind; name: string }
-}
+export type DraftChange = Omit<DraftRecord, 'updatedAt'>
 
-export interface DraftRef {
-  kind: AuthoringKind
-  name: string
-}
+/**
+ * How a draft is addressed. Edit-mode identity is the file (kind+name); create-mode identity is
+ * the stable `draftId` minted when its tab opened, independent of the (mutable) typed name — see
+ * `keyOf` in main/services/drafts.ts for why the two schemes differ.
+ */
+export type DraftRef = { kind: AuthoringKind; name: string } | { draftId: string }
 
 /** main → renderer, after the bytes are on disk. */
 export interface DraftSaved {

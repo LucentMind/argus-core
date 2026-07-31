@@ -1605,12 +1605,9 @@ function registerIpc(): void {
   ipcMain.on(EDITOR_IPC.draftChanged, (_e, change: DraftChange) => {
     draftStore?.queue(change)
   })
-  ipcMain.handle(
-    EDITOR_IPC.draftRead,
-    (_e, ref: DraftRef) => draftStore?.read(ref.kind, ref.name) ?? null
-  )
+  ipcMain.handle(EDITOR_IPC.draftRead, (_e, ref: DraftRef) => draftStore?.read(ref) ?? null)
   ipcMain.handle(EDITOR_IPC.draftDiscard, (_e, ref: DraftRef) => {
-    draftStore?.discard(ref.kind, ref.name)
+    draftStore?.discard(ref)
   })
   ipcMain.handle(EDITOR_IPC.draftList, () => draftStore?.list() ?? [])
 

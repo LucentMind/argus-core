@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { DraftStore, draftKey } from '../drafts'
+import { DraftStore, draftKey, keyOf } from '../drafts'
 import type { DraftChange, DraftRecord } from '../../../shared/editorIpc'
 
 let home: string
@@ -30,6 +30,8 @@ const CHANGE: DraftChange = {
 const file = (kind: 'skill' | 'reference', name: string): string =>
   path.join(home, 'drafts', `${draftKey(kind, name)}.json`)
 
+const idFile = (draftId: string): string => path.join(home, 'drafts', `${keyOf({ draftId })}.json`)
+
 describe('draftKey', () => {
   it('is a 16-char hex key', () => {
     expect(draftKey('skill', 'my-skill')).toMatch(/^[0-9a-f]{16}$/)
@@ -44,9 +46,29 @@ describe('draftKey', () => {
   })
 })
 
+describe('keyOf', () => {
+  it('keys an edit-mode ref (kind+name) the same as draftKey', () => {
+    expect(keyOf({ kind: 'skill', name: 'my-skill' })).toBe(draftKey('skill', 'my-skill'))
+  })
+
+  it('gives two create drafts that share a name different keys, since it never reads name', () => {
+    // The whole point of the id-based scheme: two create tabs both typed "shared" should not
+    // land on the same storage key just because the field currently holds the same text.
+    expect(keyOf({ draftId: 'draft-a' })).not.toBe(keyOf({ draftId: 'draft-b' }))
+  })
+
+  it('gives the same key for the same draftId every time', () => {
+    expect(keyOf({ draftId: 'draft-a' })).toBe(keyOf({ draftId: 'draft-a' }))
+  })
+
+  it('is a 16-char hex key for a draftId ref too', () => {
+    expect(keyOf({ draftId: 'draft-a' })).toMatch(/^[0-9a-f]{16}$/)
+  })
+})
+
 describe('DraftStore write and read', () => {
   it('has no draft before anything is queued', () => {
-    expect(store().read('skill', 'my-skill')).toBeNull()
+    expect(store().read({ kind: 'skill', name: 'my-skill' })).toBeNull()
   })
 
   it('writes a queued change to drafts/<key>.json on flush', () => {
@@ -61,7 +83,7 @@ describe('DraftStore write and read', () => {
     const s = store()
     s.queue(CHANGE)
     s.flushAll()
-    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+    expect(store().read({ kind: 'skill', name: 'my-skill' })?.content).toBe('# typing\n')
   })
 
   it('reads the queued copy before it reaches disk', () => {
@@ -69,37 +91,99 @@ describe('DraftStore write and read', () => {
     const s = store()
     s.queue(CHANGE)
     s.queue({ ...CHANGE, content: 'newer' })
-    expect(s.read('skill', 'my-skill')?.content).toBe('newer')
+    expect(s.read({ kind: 'skill', name: 'my-skill' })?.content).toBe('newer')
   })
 
-  it('keeps `replaces` out of the persisted record', () => {
+  it('records a create-mode draft under its draftId, with a null baseHash', () => {
     const s = store()
-    s.queue({ ...CHANGE, replaces: { kind: 'skill', name: 'old-name' } })
+    s.queue({
+      kind: 'skill',
+      name: 'brand-new',
+      mode: 'create',
+      content: 'x',
+      baseHash: null,
+      draftId: 'draft-1'
+    })
     s.flushAll()
-    const raw = JSON.parse(fs.readFileSync(file('skill', 'my-skill'), 'utf8')) as Record<
-      string,
-      unknown
-    >
-    expect(raw.replaces).toBeUndefined()
-  })
-
-  it('records a create-mode draft with a null baseHash', () => {
-    const s = store()
-    s.queue({ kind: 'skill', name: 'brand-new', mode: 'create', content: 'x', baseHash: null })
-    s.flushAll()
-    expect(store().read('skill', 'brand-new')?.baseHash).toBeNull()
+    expect(store().read({ draftId: 'draft-1' })?.baseHash).toBeNull()
+    expect(store().read({ draftId: 'draft-1' })?.content).toBe('x')
+    // Not reachable by name — that key space belongs to edit mode only, from here on.
+    expect(store().read({ kind: 'skill', name: 'brand-new' })).toBeNull()
   })
 
   it('returns null rather than throwing on a corrupt draft file', () => {
     fs.mkdirSync(path.join(home, 'drafts'), { recursive: true })
     fs.writeFileSync(file('skill', 'my-skill'), '{not json', 'utf8')
-    expect(store().read('skill', 'my-skill')).toBeNull()
+    expect(store().read({ kind: 'skill', name: 'my-skill' })).toBeNull()
   })
 
   it('returns null rather than throwing on a draft file missing its content', () => {
     fs.mkdirSync(path.join(home, 'drafts'), { recursive: true })
     fs.writeFileSync(file('skill', 'my-skill'), JSON.stringify({ kind: 'skill' }), 'utf8')
-    expect(store().read('skill', 'my-skill')).toBeNull()
+    expect(store().read({ kind: 'skill', name: 'my-skill' })).toBeNull()
+  })
+})
+
+// The regression test for the reported defect: keying create-mode drafts by the typed name meant
+// every keystroke in the name field was a rename, and a second create draft that happened to land
+// on the same name silently overwrote the first's pending copy. This must fail against a
+// name-keyed store — two `queue()` calls for different drafts that share a `name` collide on the
+// same key — and pass once create mode keys by `draftId`.
+describe('DraftStore create-mode identity (draft-id-rekey)', () => {
+  it('two create drafts with the same name coexist on disk; neither overwrites the other', () => {
+    const s = store()
+    s.queue({
+      kind: 'skill',
+      name: 'shared',
+      mode: 'create',
+      content: 'first',
+      baseHash: null,
+      draftId: 'draft-a'
+    })
+    s.flushAll()
+    s.queue({
+      kind: 'skill',
+      name: 'shared',
+      mode: 'create',
+      content: 'second',
+      baseHash: null,
+      draftId: 'draft-b'
+    })
+    s.flushAll()
+
+    expect(fs.existsSync(idFile('draft-a'))).toBe(true)
+    expect(fs.existsSync(idFile('draft-b'))).toBe(true)
+    expect(store().read({ draftId: 'draft-a' })?.content).toBe('first')
+    expect(store().read({ draftId: 'draft-b' })?.content).toBe('second')
+  })
+
+  it('renaming the name field in create mode does not move the draft to a new key', () => {
+    const s = store()
+    s.queue({
+      kind: 'skill',
+      name: 'brand-new',
+      mode: 'create',
+      content: 'x',
+      baseHash: null,
+      draftId: 'draft-1'
+    })
+    s.flushAll()
+    const before = fs.existsSync(idFile('draft-1'))
+
+    s.queue({
+      kind: 'skill',
+      name: 'brand-new2',
+      mode: 'create',
+      content: 'x2',
+      baseHash: null,
+      draftId: 'draft-1'
+    })
+    s.flushAll()
+
+    expect(before).toBe(true)
+    // Same key throughout — the record's own `name` field moved, but nothing re-filed it.
+    expect(store().read({ draftId: 'draft-1' })?.content).toBe('x2')
+    expect(store().read({ draftId: 'draft-1' })?.name).toBe('brand-new2')
   })
 })
 
@@ -108,21 +192,37 @@ describe('DraftStore.discard', () => {
     const s = store()
     s.queue(CHANGE)
     s.flushAll()
-    s.discard('skill', 'my-skill')
+    s.discard({ kind: 'skill', name: 'my-skill' })
     expect(fs.existsSync(file('skill', 'my-skill'))).toBe(false)
-    expect(s.read('skill', 'my-skill')).toBeNull()
+    expect(s.read({ kind: 'skill', name: 'my-skill' })).toBeNull()
   })
 
   it('drops a change queued but not yet written', () => {
     const s = store()
     s.queue(CHANGE)
-    s.discard('skill', 'my-skill')
+    s.discard({ kind: 'skill', name: 'my-skill' })
     s.flushAll()
     expect(fs.existsSync(file('skill', 'my-skill'))).toBe(false)
   })
 
   it('is a no-op when there is no draft', () => {
-    expect(() => store().discard('skill', 'nothing')).not.toThrow()
+    expect(() => store().discard({ kind: 'skill', name: 'nothing' })).not.toThrow()
+  })
+
+  it('discards a create-mode draft by its draftId', () => {
+    const s = store()
+    s.queue({
+      kind: 'skill',
+      name: 'brand-new',
+      mode: 'create',
+      content: 'x',
+      baseHash: null,
+      draftId: 'draft-1'
+    })
+    s.flushAll()
+    s.discard({ draftId: 'draft-1' })
+    expect(fs.existsSync(idFile('draft-1'))).toBe(false)
+    expect(s.read({ draftId: 'draft-1' })).toBeNull()
   })
 
   // Finding 4: writeKey writes `<key>.json.tmp` before renaming it onto `<key>.json`. If the
@@ -140,7 +240,7 @@ describe('DraftStore.discard', () => {
     // something that was never there.
     expect(fs.existsSync(tmp)).toBe(true)
 
-    s.discard('skill', 'my-skill')
+    s.discard({ kind: 'skill', name: 'my-skill' })
     expect(fs.existsSync(tmp)).toBe(false)
     expect(fs.existsSync(file('skill', 'my-skill'))).toBe(false)
   })
@@ -149,90 +249,7 @@ describe('DraftStore.discard', () => {
     const s = store()
     s.queue(CHANGE)
     s.flushAll()
-    expect(() => s.discard('skill', 'my-skill')).not.toThrow()
-  })
-
-  // Hardening (final-review-fixes-2): the same Finding-4 leak, one key over. A rename whose
-  // write fails at the rename step leaves `<oldKey>.json.tmp` behind under the *ancestor's* key,
-  // not the live one — discard's ancestor loop is the only place that key's lifetime is ever
-  // known to end, so it has to sweep the temp file too, not just `<oldKey>.json`.
-  it("sweeps a stranded ancestor's .tmp file when the live key is discarded before its own write", () => {
-    const s = store()
-    const tmpA = `${file('skill', 'a')}.tmp`
-    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
-      throw new Error('EPERM: rename failed')
-    })
-    s.queue({ ...CHANGE, name: 'a' })
-    s.flushAll()
-    renameSpy.mockRestore()
-    // Sanity: 'a' really did leave a temp file behind rather than a fully-written one.
-    expect(fs.existsSync(tmpA)).toBe(true)
-    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
-
-    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
-    s.discard('skill', 'b')
-    expect(fs.existsSync(tmpA)).toBe(false)
-  })
-})
-
-describe('DraftStore rename chains', () => {
-  it('deletes every stranded key when a rename moves twice inside one debounce window', () => {
-    const s = store()
-    s.queue({ ...CHANGE, name: 'a' })
-    s.flushAll()
-    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
-    s.queue({ ...CHANGE, name: 'c', replaces: { kind: 'skill', name: 'b' } })
-    s.flushAll()
-
-    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
-    expect(fs.existsSync(file('skill', 'b'))).toBe(false)
-    expect(store().read('skill', 'c')?.content).toBe('# typing\n')
-  })
-
-  it('keeps the draft when a rename chain returns to a name it already used', () => {
-    const s = store()
-    s.queue({ ...CHANGE, name: 'a' })
-    s.flushAll()
-    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
-    s.queue({ ...CHANGE, name: 'a', replaces: { kind: 'skill', name: 'b' } })
-    s.flushAll()
-
-    expect(store().read('skill', 'a')?.content).toBe('# typing\n')
-    expect(fs.existsSync(file('skill', 'b'))).toBe(false)
-  })
-
-  it('discard removes the names the draft was renamed away from', () => {
-    const s = store()
-    s.queue({ ...CHANGE, name: 'a' })
-    s.flushAll()
-    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
-    s.discard('skill', 'b')
-    s.flushAll()
-
-    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
-    expect(fs.existsSync(file('skill', 'b'))).toBe(false)
-  })
-
-  // Hardening (final-review-fixes-2): mirrors the discard-side test above, but for the ancestor
-  // loop that runs after a *successful* write — `writeKey`'s own stranded-ancestor cleanup, not
-  // `discard`'s.
-  it("sweeps a stranded ancestor's .tmp file once the renamed-to key finishes writing", () => {
-    const s = store()
-    const tmpA = `${file('skill', 'a')}.tmp`
-    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
-      throw new Error('EPERM: rename failed')
-    })
-    s.queue({ ...CHANGE, name: 'a' })
-    s.flushAll()
-    renameSpy.mockRestore()
-    expect(fs.existsSync(tmpA)).toBe(true)
-    expect(fs.existsSync(file('skill', 'a'))).toBe(false)
-
-    s.queue({ ...CHANGE, name: 'b', replaces: { kind: 'skill', name: 'a' } })
-    s.flushAll()
-
-    expect(fs.existsSync(tmpA)).toBe(false)
-    expect(store().read('skill', 'b')?.content).toBe('# typing\n')
+    expect(() => s.discard({ kind: 'skill', name: 'my-skill' })).not.toThrow()
   })
 })
 
@@ -289,8 +306,8 @@ describe('DraftStore debounce', () => {
     s.queue(CHANGE)
     s.queue({ kind: 'reference', name: 'notes.md', mode: 'edit', content: 'r', baseHash: 'h' })
     vi.advanceTimersByTime(500)
-    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
-    expect(store().read('reference', 'notes.md')?.content).toBe('r')
+    expect(store().read({ kind: 'skill', name: 'my-skill' })?.content).toBe('# typing\n')
+    expect(store().read({ kind: 'reference', name: 'notes.md' })?.content).toBe('r')
   })
 
   it('flushAll writes the pending change immediately and cancels its timer', () => {
@@ -299,7 +316,7 @@ describe('DraftStore debounce', () => {
     s.onSaved((r) => seen.push(r))
     s.queue(CHANGE)
     s.flushAll()
-    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+    expect(store().read({ kind: 'skill', name: 'my-skill' })?.content).toBe('# typing\n')
     // The cancelled timer must not fire a second write after the flush.
     vi.advanceTimersByTime(2000)
     expect(seen).toHaveLength(1)
@@ -308,45 +325,6 @@ describe('DraftStore debounce', () => {
   it('flushAll on an empty store is a no-op', () => {
     const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
     expect(() => s.flushAll()).not.toThrow()
-  })
-})
-
-describe('DraftStore re-key on rename (spec §4.5)', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('moves the draft to the new name and removes the old file', () => {
-    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
-    s.queue({ ...CHANGE, name: 'old-name' })
-    vi.advanceTimersByTime(500)
-    expect(fs.existsSync(file('skill', 'old-name'))).toBe(true)
-
-    s.queue({ ...CHANGE, name: 'new-name', replaces: { kind: 'skill', name: 'old-name' } })
-    vi.advanceTimersByTime(500)
-
-    expect(fs.existsSync(file('skill', 'old-name'))).toBe(false)
-    expect(store().read('skill', 'new-name')?.content).toBe('# typing\n')
-  })
-
-  it('drops the old name from the queue so it is never written after the rename', () => {
-    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
-    s.queue({ ...CHANGE, name: 'old-name' })
-    // Renamed before the old key's timer ever fired.
-    s.queue({ ...CHANGE, name: 'new-name', replaces: { kind: 'skill', name: 'old-name' } })
-    vi.advanceTimersByTime(500)
-    expect(fs.existsSync(file('skill', 'old-name'))).toBe(false)
-    expect(fs.existsSync(file('skill', 'new-name'))).toBe(true)
-  })
-
-  it('ignores a `replaces` that names the same asset', () => {
-    const s = new DraftStore({ argusHome: home, now: () => NOW, debounceMs: 500 })
-    s.queue({ ...CHANGE, replaces: { kind: 'skill', name: 'my-skill' } })
-    vi.advanceTimersByTime(500)
-    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
   })
 })
 
@@ -381,6 +359,23 @@ describe('DraftStore.list', () => {
     fs.writeFileSync(file('skill', 'my-skill'), '{not json', 'utf8')
     expect(store().list()).toEqual([])
   })
+
+  it('includes create-mode drafts, carrying their draftId', () => {
+    const s = store()
+    s.queue({
+      kind: 'skill',
+      name: 'brand-new',
+      mode: 'create',
+      content: 'x',
+      baseHash: null,
+      draftId: 'draft-1'
+    })
+    s.flushAll()
+    const rec = store()
+      .list()
+      .find((r) => r.name === 'brand-new')
+    expect(rec?.draftId).toBe('draft-1')
+  })
 })
 
 describe('DraftStore write failure', () => {
@@ -399,11 +394,11 @@ describe('DraftStore write failure', () => {
     s.queue(CHANGE)
     vi.advanceTimersByTime(500)
     // Persist-before-adopt: nothing on disk, so the queued copy must still be there.
-    expect(s.read('skill', 'my-skill')?.content).toBe('# typing\n')
+    expect(s.read({ kind: 'skill', name: 'my-skill' })?.content).toBe('# typing\n')
 
     fs.rmSync(path.join(home, 'drafts'))
     s.flushAll()
-    expect(store().read('skill', 'my-skill')?.content).toBe('# typing\n')
+    expect(store().read({ kind: 'skill', name: 'my-skill' })?.content).toBe('# typing\n')
   })
 
   it('does not announce a save that did not happen', () => {
