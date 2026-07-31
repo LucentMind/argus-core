@@ -138,8 +138,29 @@ describe('the wash ground', () => {
     // root, and CARDS in observability/MetricCards, the Observability range select, and
     // MenuButton's dropdown. Blanketing it would hand those three the page wash as their fill.
     // The sweep splits the two uses at each call site instead.
-    const rule = main.slice(main.indexOf('--wash'))
-    expect(rule).toContain('.bg-void')
-    expect(rule.slice(0, rule.indexOf('}'))).not.toContain('.bg-deep')
+    //
+    // This walks backward from each wash declaration to its enclosing selector (rather than
+    // slicing forward from the `--wash` token, which lands mid-declaration and never reaches a
+    // selector at all) so the assertion actually inspects selector text.
+    const declaration = 'background-image: var(--wash)'
+    const selectors: string[] = []
+    let searchFrom = 0
+    for (;;) {
+      const idx = main.indexOf(declaration, searchFrom)
+      if (idx < 0) break
+      const openBrace = main.lastIndexOf('{', idx)
+      const prevCloseBrace = main.lastIndexOf('}', openBrace)
+      const preceding = main
+        .slice(prevCloseBrace + 1, openBrace)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .trim()
+      selectors.push(preceding)
+      searchFrom = idx + declaration.length
+    }
+    expect(selectors.length).toBeGreaterThan(0)
+    const combined = selectors.join(' ')
+    expect(combined).toContain('body')
+    expect(combined).toContain('.bg-void')
+    expect(combined).not.toContain('.bg-deep')
   })
 })

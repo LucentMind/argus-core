@@ -14,13 +14,7 @@
 
    .bg-deep is deliberately absent: it paints ground in some places and cards in others. See the
    themeTokens test for the list. */
-:root[data-theme='light'] body {
-  background-image: var(--wash);
-  background-attachment: fixed;
-  background-size: cover;
-}
-
-:root[data-theme='light'] .bg-void {
+:root[data-theme='light'] :is(body, .bg-void) {
   background-image: var(--wash);
   background-attachment: fixed;
   background-size: cover;
