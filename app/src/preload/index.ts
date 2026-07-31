@@ -84,6 +84,7 @@ import type {
   UsageStatsPayload
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
+import type { CoreUpdatePayload } from '../shared/updates'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
 import type { PrStatus } from '../shared/prStatus'
@@ -234,6 +235,17 @@ const argus = {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.packsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.packsChanged, listener)
+    }
+  },
+  update: {
+    status: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateStatus),
+    check: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateCheck),
+    download: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateDownload),
+    restart: (): Promise<void> => ipcRenderer.invoke(IPC.updateRestart),
+    onChanged: (cb: (p: CoreUpdatePayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: CoreUpdatePayload): void => cb(p)
+      ipcRenderer.on(IPC.updateChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.updateChanged, listener)
     }
   },
   panels: {

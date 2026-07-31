@@ -177,6 +177,10 @@ import { createExtractors } from './services/packs/extractors'
 import { PacksStateStore } from './services/packs/packsState'
 import { installPack, uninstallPack, inspectBundleSource } from './services/packs/install'
 import { listInstalledPacks } from './services/packs/packsService'
+import { autoUpdater } from 'electron-updater'
+import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
+import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
+import { registerUpdateIpc } from './services/update/updateIpc'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
 import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './services/panels/protocol'
@@ -882,6 +886,23 @@ function registerIpc(): void {
     app.relaunch()
     app.quit()
   })
+
+  // — app auto-update (notify first; spec §3) —
+  // The backend is only constructed when packaged: electron-updater reads app metadata that
+  // does not exist in an unpackaged build, and the service reports `unsupported` there anyway.
+  const coreUpdater = new CoreUpdaterService({
+    backend: app.isPackaged ? createElectronUpdaterBackend(autoUpdater) : noopBackend,
+    currentVersion: app.getVersion(),
+    supported: app.isPackaged
+  })
+  registerUpdateIpc({
+    handle: (channel, fn) => ipcMain.handle(channel, () => fn()),
+    broadcast,
+    service: coreUpdater
+  })
+  // Deferred past window creation so it does not contend with startup, and silent on failure —
+  // an offline user must not meet a failure banner on every launch.
+  setTimeout(() => void coreUpdater.check({ manual: false }), 5_000).unref()
 
   // — panels (webPanel host; 3a-2) —
   const panelWindow = (
