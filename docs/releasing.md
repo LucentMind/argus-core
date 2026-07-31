@@ -32,5 +32,10 @@ Publishing the draft *is* the act of making an update available.
   trip a SmartScreen "unrecognized app" warning, exactly as manual downloads do today. To fix:
   add `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` to the build workflow mirroring the macOS leg, and
   pin `publisherName` in `electron-builder.yml`.
+  With no `publisherName` configured, publisher verification is the one check that's off — the
+  only things binding a downloaded installer to Argus are GitHub's TLS and release-write access
+  on this repo. That makes release-write access on this repo equivalent to code execution on
+  every installed copy of Argus. This is the accepted posture for now, not an oversight; revisit
+  it when Windows signing lands.
 - macOS updates require the new build to be signed by the same Developer ID team as the
   installed one. `build.yml` already asserts the team identity.

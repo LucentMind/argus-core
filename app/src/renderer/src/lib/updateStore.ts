@@ -14,7 +14,12 @@ class UpdateStore {
     return this.payload
   }
 
-  /** The banner hides once dismissed, until a different phase or version shows up. */
+  /**
+   * The banner hides once dismissed, until a different phase or version shows up.
+   * Deliberately survives an available → idle → available round trip for the SAME version:
+   * the user already declined that version, and idle carries no version to key on anyway. It
+   * only recurs if the release is un-published and re-published (or a new version ships).
+   */
   isDismissed(phase: 'available' | 'ready', version: string): boolean {
     return this.dismissedKey === `${phase}:${version}`
   }
@@ -39,8 +44,8 @@ class UpdateStore {
     this.set(await window.argus.update.download())
   }
 
-  restart(): void {
-    void window.argus.update.restart()
+  async restart(): Promise<void> {
+    this.set(await window.argus.update.restart())
   }
 
   dismiss(): void {

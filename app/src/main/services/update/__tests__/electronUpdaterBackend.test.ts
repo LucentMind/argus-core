@@ -41,6 +41,15 @@ describe('createElectronUpdaterBackend', () => {
     expect(au.allowPrerelease).toBe(false)
   })
 
+  it('installs a permanent error sink at construction time, before any check() runs', () => {
+    const au = fakeAu()
+    createElectronUpdaterBackend(au)
+    // electron-updater emits 'error' out-of-band (Squirrel ctor handler, installer spawn
+    // failures) outside any check() window. EventEmitter throws on an unhandled 'error' with
+    // zero listeners, so this sink must exist from construction, not just during a check.
+    expect(au.listenerCount('error')).toBe(1)
+  })
+
   it('resolves a found update from the update-available event', async () => {
     const au = fakeAu()
     const b = createElectronUpdaterBackend(au)
@@ -82,7 +91,9 @@ describe('createElectronUpdaterBackend', () => {
     // Assert listener counts are back to 0 after the first check settles — cleanup occurred
     expect(au.listenerCount('update-available')).toBe(0)
     expect(au.listenerCount('update-not-available')).toBe(0)
-    expect(au.listenerCount('error')).toBe(0)
+    // The permanent error sink installed at construction survives settle(): it's back to 1,
+    // not 0 — settle() removes only check()'s own transient 'error' listener.
+    expect(au.listenerCount('error')).toBe(1)
 
     const second = b.check()
     au.emit('update-available', { version: '2.0.0' })
@@ -101,7 +112,8 @@ describe('createElectronUpdaterBackend', () => {
     // Assert listener counts are back to 0 after rejection — cleanup occurred on this path too
     expect(au.listenerCount('update-available')).toBe(0)
     expect(au.listenerCount('update-not-available')).toBe(0)
-    expect(au.listenerCount('error')).toBe(0)
+    // Back to 1 (the permanent sink), not 0 — see the construction-time test above.
+    expect(au.listenerCount('error')).toBe(1)
   })
 
   it('forwards rounded download progress', () => {

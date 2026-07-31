@@ -895,6 +895,8 @@ function registerIpc(): void {
     currentVersion: app.getVersion(),
     supported: app.isPackaged
   })
+  // Disposer intentionally discarded: this registration lives for the process lifetime and
+  // there is nothing that ever tears it down.
   registerUpdateIpc({
     handle: (channel, fn) => ipcMain.handle(channel, () => fn()),
     broadcast,

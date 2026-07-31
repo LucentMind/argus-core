@@ -23,7 +23,7 @@ export function UpdateBanner(): React.JSX.Element | null {
       {status.phase === 'available' ? (
         <Btn onClick={() => void updateStore.download()}>Download</Btn>
       ) : (
-        <Btn onClick={() => updateStore.restart()}>Restart now</Btn>
+        <Btn onClick={() => void updateStore.restart()}>Restart now</Btn>
       )}
       <Btn onClick={() => updateStore.dismiss()} aria-label="Dismiss update notice">
         Dismiss

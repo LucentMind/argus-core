@@ -241,7 +241,7 @@ const argus = {
     status: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateStatus),
     check: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateCheck),
     download: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateDownload),
-    restart: (): Promise<void> => ipcRenderer.invoke(IPC.updateRestart),
+    restart: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateRestart),
     onChanged: (cb: (p: CoreUpdatePayload) => void): (() => void) => {
       const listener = (_e: unknown, p: CoreUpdatePayload): void => cb(p)
       ipcRenderer.on(IPC.updateChanged, listener)

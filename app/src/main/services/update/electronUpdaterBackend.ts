@@ -36,6 +36,14 @@ export function createElectronUpdaterBackend(au: AutoUpdaterLike): UpdaterBacken
     for (const cb of progressCbs) cb(pct)
   })
 
+  // EventEmitter throws when 'error' is emitted with no listener, and electron-updater emits it
+  // out-of-band (Squirrel on macOS from a constructor-registered handler, installer spawn on
+  // Windows) — outside any check() window, where check()'s transient listener is gone. This sink
+  // only logs: check() still reports in-check failures through its own listener.
+  au.on('error', (payload) => {
+    console.warn('[update] autoUpdater error:', payload)
+  })
+
   return {
     // Settled from the EVENTS rather than from `checkForUpdates()`'s return value: that promise
     // resolves in both the update and no-update cases and its shape has shifted across

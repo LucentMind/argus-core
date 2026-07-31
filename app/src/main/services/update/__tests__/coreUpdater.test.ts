@@ -116,6 +116,23 @@ describe('CoreUpdaterService', () => {
     expect(b.quitAndInstall).toHaveBeenCalledOnce()
   })
 
+  it('a restart whose quitAndInstall throws reports the error, mirroring check/download', async () => {
+    const b = fakeBackend({
+      check: vi.fn(async () => ({ version: '1.1.0' })),
+      quitAndInstall: vi.fn(() => {
+        throw new Error('installer failed to spawn')
+      })
+    })
+    const s = svc(b)
+    await s.check({ manual: true })
+    await s.download()
+    expect(s.restart().status).toEqual({
+      phase: 'error',
+      message: 'installer failed to spawn',
+      at: 1000
+    })
+  })
+
   it('notifies subscribers on every transition and stops after unsubscribe', async () => {
     const b = fakeBackend({ check: vi.fn(async () => ({ version: '1.1.0' })) })
     const s = svc(b)

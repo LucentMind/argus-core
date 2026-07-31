@@ -15,7 +15,7 @@ function stubApi(over: Partial<Record<string, unknown>> = {}): void {
       status: vi.fn(async () => idle),
       check: vi.fn(async () => idle),
       download: vi.fn(async () => idle),
-      restart: vi.fn(async () => {}),
+      restart: vi.fn(async () => idle),
       onChanged: vi.fn(() => () => {}),
       ...over
     }
@@ -57,7 +57,7 @@ describe('UpdateSettings', () => {
   })
 
   it('offers a restart once bytes are staged', async () => {
-    const restart = vi.fn(async () => {})
+    const restart = vi.fn(async () => idle)
     stubApi({
       status: vi.fn(async () => ({
         currentVersion: '1.0.8',
@@ -91,5 +91,31 @@ describe('UpdateSettings', () => {
     })
     render(<UpdateSettings />)
     expect(await screen.findByText(/offline/)).toBeInTheDocument()
+  })
+
+  it('does not say "Check failed" for an error that came from a failed download', async () => {
+    // Regression: the error phase is also produced by download() (see coreUpdater.ts), so its
+    // wording must stay neutral about which step failed.
+    stubApi({
+      status: vi.fn(async () => ({
+        currentVersion: '1.0.8',
+        status: { phase: 'error', message: 'disk full', at: 1 }
+      }))
+    })
+    render(<UpdateSettings />)
+    expect(await screen.findByText(/disk full/)).toBeInTheDocument()
+    expect(screen.queryByText(/check failed/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a checking description, not a stale "up to date", while a check is in flight', async () => {
+    stubApi({
+      status: vi.fn(async () => ({
+        currentVersion: '1.0.8',
+        status: { phase: 'checking' }
+      }))
+    })
+    render(<UpdateSettings />)
+    expect(await screen.findByText(/checking for updates/i)).toBeInTheDocument()
+    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument()
   })
 })

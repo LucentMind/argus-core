@@ -18,7 +18,7 @@ function stubApi(initial: CoreUpdatePayload = idle): void {
       status: vi.fn(async () => initial),
       check: vi.fn(async () => initial),
       download: vi.fn(async () => initial),
-      restart: vi.fn(async () => {}),
+      restart: vi.fn(async () => initial),
       onChanged: vi.fn((cb: (p: CoreUpdatePayload) => void) => {
         onChangedCb = cb
         return () => {

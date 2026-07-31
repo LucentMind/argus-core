@@ -102,8 +102,14 @@ export class CoreUpdaterService {
     return this.payload()
   }
 
-  restart(): void {
-    if (this.status.phase === 'ready') this.deps.backend.quitAndInstall()
+  restart(): CoreUpdatePayload {
+    if (this.status.phase !== 'ready') return this.payload()
+    try {
+      this.deps.backend.quitAndInstall()
+    } catch (err) {
+      this.set({ phase: 'error', message: messageOf(err), at: this.now() })
+    }
+    return this.payload()
   }
 
   private set(status: UpdateStatus): void {

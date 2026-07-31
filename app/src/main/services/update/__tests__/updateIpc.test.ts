@@ -98,4 +98,22 @@ describe('registerUpdateIpc', () => {
     // Assert backend's quitAndInstall was called exactly once
     expect(backend.quitAndInstall).toHaveBeenCalledTimes(1)
   })
+
+  it('restart handler surfaces a quitAndInstall failure as an error payload', async () => {
+    const { handlers } = harness({
+      quitAndInstall: vi.fn(() => {
+        throw new Error('installer failed to spawn')
+      })
+    })
+    await handlers.get(IPC.updateCheck)!()
+    await handlers.get(IPC.updateDownload)!()
+    const payload = (await handlers.get(IPC.updateRestart)!()) as {
+      status: { phase: string; message?: string }
+    }
+    expect(payload.status).toEqual({
+      phase: 'error',
+      message: 'installer failed to spawn',
+      at: expect.any(Number)
+    })
+  })
 })
