@@ -86,4 +86,32 @@ describe('TopBar', () => {
     const nav = screen.getByRole('navigation', { name: 'Recent cases' })
     expect(nav.querySelectorAll('[data-tab-separator]')).toHaveLength(1)
   })
+
+  it('is a drag region, inset past the system buttons, with every control opted out', () => {
+    uiStore.openTab('NAV-1')
+    render(
+      <TopBar
+        activeSlug="NAV-1"
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onObservability={vi.fn()}
+      />
+    )
+    const header = screen.getByRole('banner')
+    expect(header.className).toContain('argus-drag')
+    // Without the inset the theme toggle sits underneath the close button.
+    expect(header.className).toContain('argus-titlebar-inset')
+
+    // A drag region swallows clicks AND scroll, so everything the user operates has to opt out —
+    // including the tab nav, which scrolls horizontally once the tabs overflow.
+    const interactive: HTMLElement[] = [
+      ...screen.getAllByRole('button'),
+      screen.getByRole('navigation', { name: 'Recent cases' })
+    ]
+    expect(interactive.length).toBeGreaterThan(4)
+    for (const el of interactive) {
+      expect(el.className).toContain('argus-nodrag')
+    }
+  })
 })

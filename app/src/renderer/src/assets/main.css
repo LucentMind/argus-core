@@ -237,3 +237,33 @@ body {
 .gc-rail[data-tier='p3'] {
   background: var(--mute);
 }
+
+/* Frameless-window chrome (spec 2026-07-31-frameless-window-chrome).
+
+   Plain CSS rather than Tailwind utilities, for the same reason as .argus-shimmer above: a
+   brand-new utility class is generated only once the content scanner has seen it, so under HMR
+   its first render is unstyled — which reads as a bug that isn't one.
+
+   env(titlebar-area-*) is supplied by Electron's titleBarOverlay: `x` is the left edge of the
+   draggable area (0 on Windows, ~78px on macOS past the traffic lights) and `width` its extent,
+   so the right-hand term is exactly the width of the OS button cluster. The fallbacks collapse
+   this to a plain 12px gutter anywhere the vars are absent — a normal browser, and the jsdom
+   suite.
+
+   The 0.75rem is the horizontal padding these bars used to take from Tailwind's `px-3`. It is
+   folded in here rather than left on the element: unlayered CSS beats `@layer utilities`, so
+   this rule wins outright and would otherwise silently drop the utility's padding. */
+.argus-drag {
+  -webkit-app-region: drag;
+}
+
+.argus-nodrag {
+  -webkit-app-region: no-drag;
+}
+
+.argus-titlebar-inset {
+  padding-left: calc(0.75rem + env(titlebar-area-x, 0px));
+  padding-right: calc(
+    0.75rem + 100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px)
+  );
+}
