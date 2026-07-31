@@ -214,3 +214,26 @@ body {
 :root[data-theme='light'] .argus-dot {
   box-shadow: 0 0 5px 0 color-mix(in srgb, currentColor 35%, transparent);
 }
+
+/* Priority rail. Positioned here rather than only in theme-dynamic.css so the classic themes
+   get it too — the rail is information (this case needs attention, at this priority), not part
+   of the dynamic skin. Tiers map onto existing tokens; .dynamic-home overrides only the colours
+   with its own --p1/--p2/--p3, and out-specifies these selectors, so the dynamic look is
+   unchanged and the cascade order does not matter. */
+.gc-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 2;
+}
+.gc-rail[data-tier='p1'] {
+  background: var(--danger);
+}
+.gc-rail[data-tier='p2'] {
+  background: var(--defect);
+}
+.gc-rail[data-tier='p3'] {
+  background: var(--mute);
+}

@@ -303,14 +303,6 @@
 /* priority accent rail — only on cards that need attention (CaseCard decides).
    Colored via data-tier rather than an inline var(): the mapping stays next to
    the tokens, and jsdom's cssstyle can't silently drop it in tests. */
-.dynamic-home .gc-rail {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  z-index: 2;
-}
 .dynamic-home .gc-rail[data-tier='p1'] {
   background: var(--p1);
 }

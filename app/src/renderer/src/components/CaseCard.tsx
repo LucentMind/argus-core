@@ -52,9 +52,9 @@ export function CaseCard({
   // chip would render the identical fact twice past day 7. The item still
   // exists in the model — triageRank uses it to sort neglected cases up.
   const infos = c.actionItems.filter((i) => i.severity === 'info' && i.kind !== 'stale')
-  const tier = dynamic ? railTier(c.jiraPriority) : null
-  // Rail = needs attention (mock's has-unread semantics), not importance:
-  // a dashboard of uniformly-railed cards says nothing.
+  const tier = railTier(c.jiraPriority)
+  // Rail = needs attention (the mock's has-unread semantics), not importance: a dashboard of
+  // uniformly-railed cards says nothing.
   const showRail = tier !== null && actions.length > 0
   const recency = c.jiraKey && c.jiraSyncedAt ? formatSyncRecency(c.jiraSyncedAt) : null
 
@@ -63,7 +63,7 @@ export function CaseCard({
       onClick={() => onOpen(c.slug)}
       variant={dynamic ? 'glass' : 'default'}
       style={dynamic ? ({ '--d': `${50 + index * 40}ms` } as React.CSSProperties) : undefined}
-      className="group flex flex-col gap-2 p-4"
+      className="group relative flex flex-col gap-2 overflow-hidden p-4"
     >
       {showRail && (
         <i data-testid="priority-rail" data-tier={tier} aria-hidden="true" className="gc-rail" />

@@ -50,10 +50,12 @@ function mount(c: CaseRecord, dynamic: boolean, index = 0): HTMLElement {
 }
 
 describe('CaseCard dynamic variant', () => {
-  it('classic mode is untouched: no glass, no rail', () => {
+  it('classic mode drops the glass but keeps the rail — the rail is layout, not skin', () => {
     const el = mount(rec(), false)
     expect(el.querySelector('.glass-card')).toBeNull()
-    expect(el.querySelector('[data-testid="priority-rail"]')).toBeNull()
+    const rail = el.querySelector('[data-testid="priority-rail"]')
+    expect(rail).not.toBeNull()
+    expect(rail?.getAttribute('data-tier')).toBe('p1')
   })
 
   it('dynamic + priority + action item → glass card with a p1 rail and stagger delay', () => {
