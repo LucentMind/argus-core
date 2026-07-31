@@ -28,7 +28,13 @@ export const EDITOR_IPC = {
    *  atomically — see `DraftStore.adopt`. Replaces a renderer-driven `draftChanged` +
    *  `discardDraft` pair, which could delete the only on-disk copy before the debounced write
    *  that was meant to replace it ever landed. */
-  draftAdopt: 'editor:draft-adopt'
+  draftAdopt: 'editor:draft-adopt',
+  /** renderer → main: the open tab set moved (opened, closed, switched, cursor). Main
+   *  debounces and persists — the same policy as `draftChanged`, for the same reason. */
+  tabsChanged: 'editor:tabs-changed',
+  /** main → renderer: the tab set this window had when the app last exited. Sent on window
+   *  creation, before the `openTab` that caused the creation. */
+  restoreTabs: 'editor:restore-tabs'
 } as const
 
 export interface EditorOpenRequest {
@@ -109,4 +115,18 @@ export interface TabViewState {
   col: number
   /** 0–1, the same fraction the split preview's scroll sync already speaks. */
   scrollFraction: number
+}
+
+/** One open editor tab, as persisted across restarts. */
+export interface PersistedTab {
+  kind: AuthoringKind
+  name: string
+  mode: 'edit' | 'create'
+  view: TabViewState | null
+}
+
+/** The full open-tab set for one editor window. */
+export interface PersistedTabs {
+  tabs: PersistedTab[]
+  activeIndex: number
 }
