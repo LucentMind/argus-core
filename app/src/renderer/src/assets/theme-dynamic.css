@@ -1,0 +1,381 @@
+/* Dynamic theme (ambient dashboard) — scoped skin.
+   Spec: argus-docs/superpowers/specs/2026-07-31-dynamic-theme-design.md.
+   Plain CSS on purpose: the recipes (mask-composite ring, multi-layer inset shadows,
+   keyframed gradients) don't fit Tailwind utility form, and plain CSS is emitted
+   unconditionally — no stale-CSS-under-HMR trap for brand-new classes.
+
+   Everything is scoped under .dynamic-home. theme.css maps every Tailwind color
+   through raw vars (@theme inline), so re-declaring the raw vars here restyles
+   every utility inside the scope and nothing outside it. */
+
+.dynamic-home {
+  /* ── dark tokens (the design reference, ported from the mock) ── */
+  --void: #000000;
+  --bg-1: #000000;
+  --bg-2: #0c0e12;
+  --bg-hi: rgba(255, 255, 255, 0.05);
+  --bg-over: rgba(255, 255, 255, 0.03);
+
+  --ink: #dfe2e6;
+  --dim: #8b9097;
+  --mute: #61666d;
+  --faint: rgba(223, 226, 230, 0.18);
+  --hair: rgba(255, 255, 255, 0.075);
+  --hair-2: rgba(255, 255, 255, 0.12);
+
+  --signal: #56aef7;
+  --defect: #e6a94a;
+  --danger: #ef5f5f;
+  --review: #4ec98a;
+  --analytics: #a98cf0;
+
+  /* priority rails (Task: CaseCard) */
+  --p1: #ef5f5f;
+  --p2: #e6a94a;
+  --p3: #8b9097;
+
+  /* liquid glass — additive white lens on black. There is no light behind the
+     grid (the aurora stops above it), so the volume comes from the glass body
+     itself: lens gradient, top bevel, edge rims, cursor ring + sheen. */
+  --glass-bg: rgba(15, 17, 21, 0.34);
+  --glass-lens-1: rgba(255, 255, 255, 0.145);
+  --glass-lens-2: rgba(255, 255, 255, 0.05);
+  --glass-lens-3: rgba(255, 255, 255, 0.018);
+  --glass-lens-4: rgba(255, 255, 255, 0.055);
+  --glass-lens-5: rgba(255, 255, 255, 0.105);
+  --glass-cap: rgba(190, 220, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-border-h: rgba(255, 255, 255, 0.26);
+  --glass-hi: rgba(255, 255, 255, 0.3);
+  --glass-hi-h: rgba(255, 255, 255, 0.44);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-edge-h: rgba(255, 255, 255, 0.16);
+  --card-shadow: 0 26px 52px -30px rgba(0, 0, 0, 0.98);
+  --card-shadow-h: 0 40px 72px -32px #000;
+  /* brightness>1 is free on black (0 x 1.08 = 0) but re-whitens a light page */
+  --glass-filter: blur(40px) saturate(200%) brightness(1.08);
+  --glass-filter-h: blur(54px) saturate(230%) brightness(1.13);
+  --cursor-ring: rgba(175, 220, 255, 0.95);
+  --cursor-ring-2: rgba(255, 255, 255, 0.26);
+  --cursor-sheen: rgba(205, 230, 255, 0.16);
+  --cursor-sheen-2: rgba(190, 220, 255, 0.055);
+  --grain-op: 0.035;
+}
+
+:root[data-theme='light'] .dynamic-home {
+  /* ── light tokens — NEW design (spec §6), not the mock's light mode. ──
+     The mock's glass-on-light physics are kept (they are the only way glass
+     reads on light): tinted ground below the glass in luminance, panes lifted
+     by drop shadows rather than white highlights, a thin waist where the page
+     tints through. The palette mirrors dark's character at deeper chroma.
+     These values are STARTING POINTS — final tuning happens over CDP
+     screenshots (Task 11), criterion: "the same room with the lights on". */
+  --void: #e7ebf3;
+  --bg-1: #e7ebf3;
+  --bg-2: #ffffff;
+  --bg-hi: rgba(255, 255, 255, 0.65);
+  --bg-over: rgba(255, 255, 255, 0.75);
+
+  --ink: #171b21;
+  --dim: #5b626c;
+  --mute: #858c96;
+  --faint: rgba(23, 27, 33, 0.22);
+  --hair: rgba(16, 22, 32, 0.1);
+  --hair-2: rgba(16, 22, 32, 0.16);
+
+  --signal: #1f6fd0;
+  --defect: #a9700a;
+  --danger: #c93b3b;
+  --review: #1e8f5c;
+  --analytics: #7351c9;
+
+  --p1: #c93b3b;
+  --p2: #a9700a;
+  --p3: #6b727c;
+
+  --glass-bg: rgba(255, 255, 255, 0.38);
+  --glass-lens-1: rgba(255, 255, 255, 0.62);
+  --glass-lens-2: rgba(255, 255, 255, 0.24);
+  --glass-lens-3: rgba(255, 255, 255, 0.05);
+  --glass-lens-4: rgba(255, 255, 255, 0.19);
+  --glass-lens-5: rgba(255, 255, 255, 0.44);
+  --glass-cap: rgba(105, 155, 225, 0.15);
+  --glass-border: rgba(25, 38, 62, 0.13);
+  --glass-border-h: rgba(31, 111, 208, 0.46);
+  --glass-hi: rgba(255, 255, 255, 0.9);
+  --glass-hi-h: rgba(255, 255, 255, 1);
+  --glass-edge: rgba(25, 38, 62, 0.05);
+  --glass-edge-h: rgba(25, 38, 62, 0.08);
+  --card-shadow:
+    0 1px 2px rgba(18, 28, 48, 0.06), 0 8px 20px -6px rgba(18, 28, 48, 0.14),
+    0 22px 42px -18px rgba(18, 28, 48, 0.15);
+  --card-shadow-h:
+    0 2px 5px rgba(18, 28, 48, 0.08), 0 14px 30px -8px rgba(18, 28, 48, 0.19),
+    0 36px 64px -22px rgba(18, 28, 48, 0.22);
+  /* SPEC INVARIANT: no brightness() at rest on light — it un-does the transparency */
+  --glass-filter: blur(26px) saturate(175%);
+  --glass-filter-h: blur(36px) saturate(200%) brightness(1.03);
+  --cursor-ring: rgba(40, 110, 200, 0.6);
+  --cursor-ring-2: rgba(40, 110, 200, 0.16);
+  --cursor-sheen: rgba(60, 125, 205, 0.13);
+  --cursor-sheen-2: rgba(60, 125, 205, 0.05);
+  --grain-op: 0.022;
+}
+
+/* ── ambient canvas + fallback ─────────────────────────────────────────── */
+
+.dynamic-home .dyn-ambient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  /* height is set by AmbientCanvas from the measured filter-row bottom */
+  pointer-events: none;
+}
+
+/* WebGL unavailable (old GPU, context lost, jsdom) → static CSS light */
+.dynamic-home .dyn-ambient-fallback {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 420px;
+  pointer-events: none;
+  background: radial-gradient(
+    760px 320px at 24% 210px,
+    color-mix(in srgb, var(--signal) 20%, transparent),
+    transparent 70%
+  );
+}
+
+/* ── film grain ────────────────────────────────────────────────────────── */
+
+.dynamic-home .dyn-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--grain-op);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='180' height='180' filter='url(%23n)'/></svg>");
+  /* background-position drift, not the mock's transform drift — a transformed
+     inset:-50% layer would bleed outside the scope over the TopBar */
+  animation: dyn-grain-drift 6s steps(6) infinite;
+}
+@keyframes dyn-grain-drift {
+  0% {
+    background-position: 0 0;
+  }
+  16% {
+    background-position: -60px 40px;
+  }
+  33% {
+    background-position: 40px -60px;
+  }
+  50% {
+    background-position: -40px -40px;
+  }
+  66% {
+    background-position: 60px 20px;
+  }
+  83% {
+    background-position: -20px 60px;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* ── liquid glass card ─────────────────────────────────────────────────── */
+
+.dynamic-home .glass-card {
+  position: relative;
+  --mx: 50%;
+  --my: 50%;
+  border: 1px solid var(--glass-border);
+  background:
+    linear-gradient(
+      146deg,
+      var(--glass-lens-1) 0%,
+      var(--glass-lens-2) 26%,
+      var(--glass-lens-3) 52%,
+      var(--glass-lens-4) 78%,
+      var(--glass-lens-5) 100%
+    ),
+    radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%), var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1.5px 0 var(--glass-hi),
+    inset 1px 0 0 var(--glass-edge),
+    inset -1px 0 0 var(--glass-edge),
+    inset 0 -1.5px 0 var(--glass-edge),
+    inset 0 -22px 40px -26px var(--glass-edge),
+    var(--card-shadow);
+  isolation: isolate;
+  overflow: hidden;
+  transition:
+    transform 0.42s cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 0.42s ease,
+    box-shadow 0.42s ease,
+    backdrop-filter 0.42s ease;
+  opacity: 0;
+  animation: dyn-card-in 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes dyn-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.994);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dynamic-home .glass-card:hover {
+  transform: translateY(-5px);
+  border-color: var(--glass-border-h);
+  backdrop-filter: var(--glass-filter-h);
+  -webkit-backdrop-filter: var(--glass-filter-h);
+  box-shadow:
+    inset 0 1.5px 0 var(--glass-hi-h),
+    inset 1px 0 0 var(--glass-edge-h),
+    inset -1px 0 0 var(--glass-edge-h),
+    inset 0 -1.5px 0 var(--glass-edge-h),
+    inset 0 -26px 46px -26px var(--glass-edge-h),
+    var(--card-shadow-h);
+}
+
+/* content sits above the ring/sheen/rail layers */
+.dynamic-home .glass-card > *:not(.gc-ring):not(.gc-sheen):not(.gc-rail) {
+  position: relative;
+  z-index: 1;
+}
+
+/* border light — a 1px ring lit around the cursor, via mask-composite */
+.dynamic-home .glass-card .gc-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(
+    260px circle at var(--mx) var(--my),
+    var(--cursor-ring),
+    var(--cursor-ring-2) 36%,
+    transparent 66%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.38s ease;
+  pointer-events: none;
+}
+.dynamic-home .glass-card:hover .gc-ring {
+  opacity: 1;
+}
+
+/* interior sheen pooled under the cursor */
+.dynamic-home .glass-card .gc-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    360px circle at var(--mx) var(--my),
+    var(--cursor-sheen),
+    var(--cursor-sheen-2) 34%,
+    transparent 62%
+  );
+  opacity: 0;
+  transition: opacity 0.38s ease;
+  pointer-events: none;
+}
+.dynamic-home .glass-card:hover .gc-sheen {
+  opacity: 1;
+}
+
+/* priority accent rail — only on cards that need attention (CaseCard decides).
+   Colored via data-tier rather than an inline var(): the mapping stays next to
+   the tokens, and jsdom's cssstyle can't silently drop it in tests. */
+.dynamic-home .gc-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 2;
+}
+.dynamic-home .gc-rail[data-tier='p1'] {
+  background: var(--p1);
+}
+.dynamic-home .gc-rail[data-tier='p2'] {
+  background: var(--p2);
+}
+.dynamic-home .gc-rail[data-tier='p3'] {
+  background: var(--p3);
+}
+
+/* ── warm gradient primary ("New case") ────────────────────────────────── */
+/* Layered onto Btn variant="primary": background-image paints over the
+   utility's background-color; the scoped two-class selector out-specifies
+   single-class utilities for color/border. Static gradient at rest; on hover
+   only background-position animates, so it stays cheap. */
+.dynamic-home .dyn-btn-primary {
+  border-color: transparent;
+  color: #2a1602;
+  font-weight: 500;
+  background-image: linear-gradient(135deg, #ffc84d 0%, #ff9d2b 55%, #f59218 100%);
+  background-size: 100% 100%;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.38) inset,
+    0 0 0 1px rgba(255, 180, 70, 0.3),
+    0 10px 26px -14px rgba(255, 150, 40, 0.75);
+}
+.dynamic-home .dyn-btn-primary:hover {
+  background-image: linear-gradient(
+    115deg,
+    #ffe07a 0%,
+    #ffb03a 26%,
+    #ff8412 52%,
+    #ffc24a 78%,
+    #ffe07a 100%
+  );
+  background-size: 280% 280%;
+  animation: dyn-grad-flow 3.4s ease-in-out infinite;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 0 0 1px rgba(255, 195, 90, 0.5),
+    0 14px 34px -14px rgba(255, 150, 40, 0.95);
+}
+@keyframes dyn-grad-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* ── reduced motion ────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .dynamic-home .glass-card {
+    animation: none;
+    opacity: 1;
+  }
+  .dynamic-home .dyn-grain {
+    animation: none;
+  }
+  .dynamic-home .dyn-btn-primary:hover {
+    animation: none;
+  }
+}

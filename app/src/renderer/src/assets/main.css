@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './theme.css';
+@import './theme-dynamic.css';
 
 body {
   @apply bg-void text-ink font-sans antialiased;
