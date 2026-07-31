@@ -114,3 +114,32 @@ describe('theme tokens', () => {
     }
   })
 })
+
+describe('the wash ground', () => {
+  const theme = readCss('theme.css')
+  const main = readCss('main.css')
+
+  it('--wash is declared in the light block only', () => {
+    expect(theme).toMatch(/--wash:/)
+    const darkEnd = theme.indexOf(":root[data-theme='light']")
+    expect(theme.slice(0, darkEnd)).not.toContain('--wash:')
+  })
+
+  it('the ground rule anchors the wash to the viewport', () => {
+    // background-attachment: fixed is load-bearing, not decoration: every ground-painting
+    // element samples the SAME viewport-anchored gradient, so nested and stacked containers
+    // line up into one continuous wash with no new layer and no z-index work.
+    expect(main).toMatch(/background-attachment:\s*fixed/)
+    expect(main).toMatch(/background-image:\s*var\(--wash\)/)
+  })
+
+  it('the ground rule covers body and .bg-void but NOT .bg-deep', () => {
+    // bg-deep does two unrelated jobs today: ground in TopBar / PanelTabStrip / the editor
+    // root, and CARDS in observability/MetricCards, the Observability range select, and
+    // MenuButton's dropdown. Blanketing it would hand those three the page wash as their fill.
+    // The sweep splits the two uses at each call site instead.
+    const rule = main.slice(main.indexOf('--wash'))
+    expect(rule).toContain('.bg-void')
+    expect(rule.slice(0, rule.indexOf('}'))).not.toContain('.bg-deep')
+  })
+})

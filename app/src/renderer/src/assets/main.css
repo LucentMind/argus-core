@@ -2,6 +2,30 @@
 @import './theme.css';
 @import './theme-dynamic.css';
 
+/* The light-theme ground (spec §5).
+   Unlayered plain CSS on purpose — same reason as .argus-shimmer below: it is emitted
+   unconditionally, so a brand-new class never renders unstyled on its first HMR pass.
+
+   `background-attachment: fixed` is the whole trick. Every element that paints the ground
+   samples the SAME viewport-anchored gradient, so nested and stacked ground containers line up
+   into one continuous wash with no extra layer and no z-index work — and the editor window gets
+   it for free, being just another body. This only adds background-image; the Tailwind utility's
+   background-color stays underneath and is simply covered.
+
+   .bg-deep is deliberately absent: it paints ground in some places and cards in others. See the
+   themeTokens test for the list. */
+:root[data-theme='light'] body {
+  background-image: var(--wash);
+  background-attachment: fixed;
+  background-size: cover;
+}
+
+:root[data-theme='light'] .bg-void {
+  background-image: var(--wash);
+  background-attachment: fixed;
+  background-size: cover;
+}
+
 body {
   @apply bg-void text-ink font-sans antialiased;
   font-size: 14px;

@@ -72,6 +72,14 @@
   --p1: #c93b3b;
   --p2: #b3760a;
   --p3: rgba(28, 42, 64, 0.5);
+
+  /* The ground. White bloom top-left, periwinkle pool bottom-right — the references' diagonal
+     wash. Painted through background-attachment: fixed (main.css) so every ground-painting
+     element samples the same viewport-anchored gradient. */
+  --wash:
+    radial-gradient(120% 90% at 88% 108%, rgba(150, 182, 232, 0.55) 0%, transparent 62%),
+    radial-gradient(90% 70% at 4% -6%, rgba(255, 255, 255, 0.95) 0%, transparent 60%),
+    linear-gradient(146deg, #fbfcfe 0%, #eef2f9 42%, #dde6f5 76%, #cfdcf1 100%);
 }
 
 @theme inline {
