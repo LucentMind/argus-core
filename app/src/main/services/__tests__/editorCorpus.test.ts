@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 import { EditorCorpusService, type CorpusDeps } from '../editorCorpus'
 
@@ -150,5 +150,47 @@ describe('EditorCorpusService.findReferences', () => {
       'reference:INDEX.md',
       'reference:routing.md'
     ])
+  })
+
+  it('calls listSkills exactly once per findReferences call, regardless of corpus size', () => {
+    // Production listSkills is a closure over resolveSkills(), which does a readdirSync per
+    // tier plus a readFileSync per skill on every invocation. body() used to re-derive a
+    // skill's dir by calling listSkills() again for every skill item in the corpus, turning
+    // one findReferences() call into N+1 listSkills() calls for N skills. Pin the count so a
+    // regression back to that shape fails loudly instead of merely "being slower".
+    const listSkills = vi.fn(() => [
+      {
+        name: 'triage',
+        dir: path.join(HOME, 'skills-user', 'triage'),
+        description: 'Triage a case',
+        tier: 'user'
+      },
+      {
+        name: 'other',
+        dir: path.join(HOME, 'skills-user', 'other'),
+        description: 'Another skill',
+        tier: 'user'
+      }
+    ])
+    const files: Record<string, string> = {
+      [path.join(REFS, 'jira-fields.md')]: '---\ntitle: Jira fields\ntrust_tier: user\n---\nbody\n',
+      [path.join(HOME, 'skills-user', 'triage', 'SKILL.md')]:
+        'read jira-fields.md before triaging\n',
+      [path.join(HOME, 'skills-user', 'other', 'SKILL.md')]: 'unrelated content\n'
+    }
+    const s = new EditorCorpusService({
+      argusHome: HOME,
+      listSkills,
+      fs: {
+        readDir: (dir) => (dir === REFS ? ['jira-fields.md'] : []),
+        readFile: (f) => {
+          const hit = files[f]
+          if (hit === undefined) throw new Error(`ENOENT ${f}`)
+          return hit
+        }
+      }
+    })
+    s.findReferences({ kind: 'reference', name: 'jira-fields.md' })
+    expect(listSkills).toHaveBeenCalledTimes(1)
   })
 })

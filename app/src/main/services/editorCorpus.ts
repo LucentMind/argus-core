@@ -66,11 +66,20 @@ export class EditorCorpusService {
   }
 
   /** Body of an asset, or null when it cannot be read. A skill directory with no `SKILL.md`
-   *  is real (see `skillsIndexForDistill` in index.ts) and must not throw here. */
-  private body(kind: AuthoringKind, name: string): string | null {
+   *  is real (see `skillsIndexForDistill` in index.ts) and must not throw here.
+   *
+   *  `skills` is the caller's already-resolved `listSkills()` result: `findReferences` calls
+   *  this once per corpus item, and `listSkills` in production is a synchronous `readdirSync` +
+   *  per-skill `readFileSync` closure, so re-deriving it here would turn one public call into
+   *  N+1 filesystem sweeps. */
+  private body(
+    kind: AuthoringKind,
+    name: string,
+    skills: { name: string; dir: string }[]
+  ): string | null {
     try {
       if (kind === 'reference') return this.io.readFile(path.join(this.refsDir(), name))
-      const skill = this.deps.listSkills().find((s) => s.name === name)
+      const skill = skills.find((s) => s.name === name)
       if (!skill) return null
       return this.io.readFile(path.join(skill.dir, 'SKILL.md'))
     } catch {
@@ -78,8 +87,11 @@ export class EditorCorpusService {
     }
   }
 
-  list(): CorpusItem[] {
-    const skills: CorpusItem[] = this.deps.listSkills().map((s) => ({
+  /** Builds the full corpus from an already-resolved skills list, so callers that also need
+   *  `body()` afterwards (`findReferences`) can share one `listSkills()` call instead of each
+   *  method fetching its own. */
+  private buildList(skills: { name: string; description: string; tier: string }[]): CorpusItem[] {
+    const skillItems: CorpusItem[] = skills.map((s) => ({
       kind: 'skill' as const,
       name: s.name,
       title: '',
@@ -104,18 +116,23 @@ export class EditorCorpusService {
         tier: refTier(raw)
       })
     }
-    return [...skills, ...references]
+    return [...skillItems, ...references]
+  }
+
+  list(): CorpusItem[] {
+    return this.buildList(this.deps.listSkills())
   }
 
   findReferences(target: { kind: AuthoringKind; name: string }): ReferenceHit[] {
-    const corpus = this.list()
+    const skills = this.deps.listSkills()
+    const corpus = this.buildList(skills)
     const self = corpus.find((c) => c.kind === target.kind && c.name === target.name)
     if (!self) return []
     const needles = needlesFor(self)
     const hits: ReferenceHit[] = []
     for (const item of corpus) {
       if (item.kind === target.kind && item.name === target.name) continue
-      const raw = this.body(item.kind, item.name)
+      const raw = this.body(item.kind, item.name, skills)
       if (raw === null) continue
       for (const m of findMentions(raw, needles)) {
         hits.push({ kind: item.kind, name: item.name, line: m.line, text: m.text })
