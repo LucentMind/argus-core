@@ -8,7 +8,13 @@ describe('Card glass variant', () => {
     const { container } = render(<Card>content</Card>)
     expect(container.querySelector('.glass-card')).toBeNull()
     expect(container.querySelector('.gc-ring')).toBeNull()
-    expect(container.firstElementChild!.className).toContain('bg-panel')
+    expect(container.firstElementChild!.className.split(/\s+/).filter(Boolean)).toEqual([
+      'rounded-r3',
+      'border',
+      'border-hair',
+      'bg-panel',
+      'transition-colors'
+    ])
   })
 
   it('glass variant renders ring + sheen layers and the glass class', () => {
@@ -32,5 +38,10 @@ describe('Card glass variant', () => {
       </Card>
     )
     expect((container.firstElementChild as HTMLElement).className).toContain('cursor-pointer')
+  })
+
+  it('glass variant without onClick has no pointer affordance', () => {
+    const { container } = render(<Card variant="glass">x</Card>)
+    expect((container.firstElementChild as HTMLElement).className).not.toContain('cursor-pointer')
   })
 })
