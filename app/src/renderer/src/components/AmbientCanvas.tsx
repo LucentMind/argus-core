@@ -156,7 +156,7 @@ export function AmbientCanvas({
   filters: HTMLElement | null
   theme: Theme
 }): React.JSX.Element {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const hostRef = useRef<HTMLDivElement | null>(null)
   const [fallback, setFallback] = useState(false)
   // Latest props, readable from inside the one-shot GL effect without rebuilding it.
   const latest = useRef({ hero, filters, theme })
@@ -167,8 +167,16 @@ export function AmbientCanvas({
   const api = useRef<{ refresh: () => void } | null>(null)
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const host = hostRef.current
+    if (!host) return
+    // A FRESH canvas per effect run — never reuse the JSX element. Under StrictMode's
+    // dev double-mount, cleanup's loseContext() poisons the previous element:
+    // getContext('webgl2') on it returns the same lost context forever, so a reused
+    // canvas silently falls back on every dev boot.
+    const canvas = host.ownerDocument.createElement('canvas')
+    canvas.className = 'dyn-ambient'
+    canvas.dataset.testid = 'ambient-canvas'
+    canvas.setAttribute('aria-hidden', 'true')
     let gl: WebGL2RenderingContext | null = null
     try {
       gl = canvas.getContext('webgl2', {
@@ -213,6 +221,8 @@ export function AmbientCanvas({
       palB: gl.getUniformLocation(prog, 'uPalB')
     }
 
+    host.appendChild(canvas)
+
     let disposed = false
     let raf = 0
 
@@ -227,7 +237,7 @@ export function AmbientCanvas({
      *  function — it runs on resize/props change, not per frame. */
     const refresh = (): void => {
       if (disposed || !gl) return
-      const wrapper = canvas.parentElement
+      const wrapper = host.parentElement
       if (!wrapper) return
       const { hero: heroEl, filters: filtersEl, theme: th } = latest.current
       const wr = wrapper.getBoundingClientRect()
@@ -286,7 +296,7 @@ export function AmbientCanvas({
     const onResize = (): void => refresh()
     window.addEventListener('resize', onResize)
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => refresh()) : null
-    if (ro && canvas.parentElement) ro.observe(canvas.parentElement)
+    if (ro && host.parentElement) ro.observe(host.parentElement)
     // Michroma loading late changes the wordmark rect
     void document.fonts?.ready.then(() => refresh())
 
@@ -302,6 +312,7 @@ export function AmbientCanvas({
       // release the context deterministically — navigating home->case->home
       // ten times must not accumulate ten live contexts
       gl?.getExtension('WEBGL_lose_context')?.loseContext()
+      canvas.remove()
     }
   }, [])
 
@@ -315,12 +326,5 @@ export function AmbientCanvas({
       <div className="dyn-ambient-fallback" data-testid="ambient-fallback" aria-hidden="true" />
     )
   }
-  return (
-    <canvas
-      ref={canvasRef}
-      className="dyn-ambient"
-      data-testid="ambient-canvas"
-      aria-hidden="true"
-    />
-  )
+  return <div ref={hostRef} data-testid="ambient-canvas-host" aria-hidden="true" />
 }
