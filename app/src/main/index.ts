@@ -1639,7 +1639,7 @@ function registerIpc(): void {
   ipcMain.on(EDITOR_IPC.tabsChanged, (_e, tabs: PersistedTabs) => {
     pendingTabs = tabs
     if (tabsTimer) clearTimeout(tabsTimer)
-    tabsTimer = setTimeout(flushTabs!, 1000)
+    tabsTimer = setTimeout(() => flushTabs?.(), 1000)
   })
 
   // — hivemind (spec §2.3) —

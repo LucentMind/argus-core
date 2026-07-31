@@ -840,6 +840,33 @@ describe('tab-set restore', () => {
     )
   })
 
+  // The report carries `t.name` (the LIVE name), not `t.req.name` (the request as minted, frozen
+  // by design — see tabs.ts). Every other test in this file opens in `edit` mode, where the two
+  // are identical, so mutating the reporting effect to `t.req.name` left the whole suite green.
+  // A create-mode tab that has been renamed is the only place they differ.
+  it('reports the typed name of a renamed create-mode tab, not the original request', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'untitled', mode: 'create' }))
+    const field = await screen.findByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'renamed')
+
+    await waitFor(() =>
+      expect(tabsChanged).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          tabs: [expect.objectContaining({ name: 'renamed', mode: 'create' })],
+          activeIndex: 0
+        })
+      )
+    )
+    // The frozen request's name must never appear in the report — restoring on it would reopen
+    // an asset the user renamed away from.
+    const reported = tabsChanged.mock.calls.flatMap(
+      (c) => (c[0] as PersistedTabs).tabs as Array<{ name: string }>
+    )
+    expect(reported.at(-1)!.name).toBe('renamed')
+  })
+
   it('sends the tab set when a tab closes', async () => {
     render(<EditorApp />)
     act(() => openTab!(SKILL))

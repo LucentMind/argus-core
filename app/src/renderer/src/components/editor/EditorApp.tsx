@@ -5,7 +5,7 @@ import { ConfirmHost } from '../ConfirmHost'
 import { alert, confirm } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
-import { drainOpenTabs, drainRestoreTabs } from './editorBootstrap'
+import { drainEditorMessages } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
 import { isAssetEditable } from '../../../../shared/assetEditable'
 import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
@@ -167,23 +167,30 @@ export function EditorApp(): React.JSX.Element {
     window.argus.editor.setDirty(dirty)
   }, [dirty])
 
-  // Drains the module-scope buffer (see editorBootstrap.ts). NOT a raw onOpenTab subscription:
-  // main flushes its queued open-tab message on `did-finish-load`, which can precede React's
-  // passive effects — subscribing here alone would re-open the dropped-first-message bug that
-  // Increment 1 fixed on the main side.
-  useEffect(() => drainOpenTabs((req) => setState((s) => openTab(s, req))), [])
-
-  // Restore is a window-CREATION event (spec: main sends it only when `open()` creates the
-  // window, never when it merely focuses a live one), sent before the `openTab` that caused the
-  // creation. Folding each restored tab through `openTab` — rather than replacing `state`
-  // outright — is what makes that ordering pay off: the renderer dedupes on open, so if the
-  // asset that triggered the window's creation is already in the restored set, the later
-  // `openTab` focuses it instead of adding a duplicate. `drainRestoreTabs`, not a raw
-  // `onRestoreTabs` subscription, for the same did-finish-load-precedes-passive-effects reason
-  // as `drainOpenTabs` above.
+  /**
+   * The window's ONE inbound message consumer. Drains the module-scope queue (see
+   * editorBootstrap.ts) — NOT raw `onOpenTab`/`onRestoreTabs` subscriptions: main flushes its
+   * queued messages on `did-finish-load`, which can precede React's passive effects, so
+   * subscribing here alone would re-open the dropped-first-message bug that Increment 1 fixed
+   * on the main side.
+   *
+   * **One effect, dispatching by tag, on purpose.** Restore is a window-CREATION event (spec:
+   * main sends it only when `open()` creates the window, never when it merely focuses a live
+   * one), sent BEFORE the `openTab` that caused the creation. Folding each restored tab through
+   * `openTab` — rather than replacing `state` outright — is what makes that ordering pay off:
+   * the renderer dedupes on open, so if the asset that triggered the window's creation is
+   * already in the restored set, the later `openTab` focuses it instead of adding a duplicate,
+   * and the restored tab ORDER survives. Two effects over two buffers would silently re-decide
+   * that order by their declaration order here; one queue makes it structural.
+   */
   useEffect(
     () =>
-      drainRestoreTabs((restored) => {
+      drainEditorMessages((m) => {
+        if (m.kind === 'open') {
+          setState((s) => openTab(s, m.req))
+          return
+        }
+        const restored = m.tabs
         setState((s) => {
           const next = restored.tabs.reduce(
             (acc, t) => openTab(acc, { kind: t.kind, name: t.name, mode: t.mode }, t.view),

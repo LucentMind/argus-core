@@ -299,9 +299,10 @@ describe('tab-set restore', () => {
     service.open({ kind: 'skill', name: 'clicked', mode: 'edit' })
     created[0].userCloses()
     service.open({ kind: 'skill', name: 'again', mode: 'edit' })
-    const restores = created
-      .flatMap((w) => w.sent)
-      .filter((s) => s.channel === EDITOR_IPC.restoreTabs)
-    expect(restores.length).toBeGreaterThanOrEqual(1)
+    // Asserted on the SECOND window specifically. Flat-mapping `sent` across every created
+    // window and asserting `>= 1` was vacuous: the first window alone always contributes one
+    // restore, so the assertion held even with a latch making restore fire only ever once.
+    expect(created).toHaveLength(2)
+    expect(created[1].sent.some((s) => s.channel === EDITOR_IPC.restoreTabs)).toBe(true)
   })
 })
