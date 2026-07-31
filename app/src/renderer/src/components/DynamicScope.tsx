@@ -2,8 +2,9 @@ import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { uiStore } from '../lib/uiStore'
 import { AmbientAnchorContext, type AmbientAnchors } from '../lib/ambientAnchors'
 import { AmbientCanvas } from './AmbientCanvas'
+import { BANDS, type DynamicVariant } from '../lib/ambientBands'
 
-export type DynamicVariant = 'home' | 'case' | 'settings'
+export type { DynamicVariant }
 
 /**
  * Scope wrapper for the dynamic theme (specs 2026-07-31-dynamic-theme-design.md
@@ -40,7 +41,7 @@ export function DynamicScope({
       className={`dyn dyn-${variant} relative min-h-full bg-void`}
       data-testid={`dynamic-${variant}`}
     >
-      <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} />
+      <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />
       <div className="dyn-grain" aria-hidden="true" />
       <AmbientAnchorContext.Provider value={anchors}>
         <div className="relative z-[1]">{children}</div>

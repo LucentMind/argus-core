@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Theme } from '../lib/uiStore'
+import type { BandConfig } from '../lib/ambientBands'
+import { hexToRgb01 } from '../lib/hexColor'
 
 /**
  * The ambient aurora behind the dashboard header — a raw-WebGL2 port of the
@@ -11,7 +13,6 @@ import type { Theme } from '../lib/uiStore'
  */
 
 const RES_SCALE = 0.55
-const CUTOFF_FEATHER = 50 // canvas extends this far past the filter row (px)
 
 /** Light-theme aurora pastels (spec §6 — starting values, tuned at CDP stage).
  *  The light `uBg` is NOT listed here: it is read from the resolved scoped
@@ -20,6 +21,7 @@ const CUTOFF_FEATHER = 50 // canvas extends this far past the filter row (px)
 const LIGHT_PAL_A: [number, number, number] = [0.3, 0.48, 0.82]
 const LIGHT_PAL_B: [number, number, number] = [0.94, 0.66, 0.32]
 const BLACK: [number, number, number] = [0, 0, 0]
+const WHITE: [number, number, number] = [1, 1, 1]
 
 const VERT = `#version 300 es
 void main() {
@@ -37,6 +39,9 @@ uniform float uTime;
 uniform vec4  uHero;   // wordmark rect, canvas-local CSS px (x, y, w, h)
 uniform float uHeroOn;
 uniform float uCutoff; // CSS px: light stops at the filter row
+uniform float uFeather;
+uniform vec2  uPad;
+uniform float uMode;
 uniform float uLight;  // 0 = dark theme, 1 = light theme
 uniform vec3  uBg;     // page colour (light theme) — MUST equal scoped --void
 uniform vec3  uPalA;   // cool pastel, light theme
@@ -68,13 +73,17 @@ void main() {
   // by the render scale.
   vec2 px = vec2(gl_FragCoord.x / uBuf.x, 1.0 - gl_FragCoord.y / uBuf.y) * uRes;
   vec3 col = vec3(0.0);
+  float sc = clamp(uRes.x / 1100.0, 1.0, 1.7);
 
-  /* ---- the panel behind ARGUS ---- */
-  if (uHeroOn > 0.5) {
-    float sc   = clamp(uRes.x / 1100.0, 1.0, 1.7);
+  vec3 deep  = vec3(0.130, 0.200, 0.560);
+  vec3 cyan  = vec3(0.220, 0.660, 0.950);
+  vec3 ember = vec3(0.620, 0.360, 0.100);
+
+  if (uHeroOn > 0.5 && uMode < 0.5) {
+    /* ---- blob: the home geometry, driven by uPad ---- */
     vec2  c    = uHero.xy + uHero.zw * 0.5;
-    vec2  hs   = uHero.zw * 0.5 + vec2(320.0 * sc, 145.0);
-    float d    = sdRoundBox(px - c, hs, 145.0);
+    vec2  hs   = uHero.zw * 0.5 + vec2(uPad.x * sc, uPad.y);
+    float d    = sdRoundBox(px - c, hs, min(145.0, uPad.y));
     float fall = exp(-max(d, 0.0) / 205.0);
     fall *= mix(1.0, 0.06, smoothstep(0.0, 250.0, px.y - (c.y + hs.y * 0.7)));
 
@@ -83,10 +92,6 @@ void main() {
       vec2 q  = vec2(fbm(n * 1.4 + vec2(0.0, uTime * 0.130)),
                      fbm(n * 1.4 + vec2(5.2, 1.3) - vec2(uTime * 0.105, 0.0)));
       float a = fbm(n * 1.7 + 1.7 * q + vec2(uTime * 0.060, 0.0));
-
-      vec3 deep  = vec3(0.130, 0.200, 0.560);
-      vec3 cyan  = vec3(0.220, 0.660, 0.950);
-      vec3 ember = vec3(0.620, 0.360, 0.100);
 
       vec3 tint = mix(deep, cyan, smoothstep(0.34, 0.78, a));
       tint      = mix(tint, ember, smoothstep(0.30, 0.02, a) * 0.45);
@@ -98,11 +103,30 @@ void main() {
 
       col += tint * (body + rim) + cyan * sheen;
     }
+  } else if (uMode > 0.5) {
+    /* ---- ribbon: a wide, thin aurora that fits a header strip. The blob's
+       radial falloff is tuned for a 145px-tall halo and mostly clips away in a
+       44px band; this one is anisotropic by construction. ---- */
+    float cy   = uCutoff * 0.42;
+    float env  = exp(-pow((px.y - cy) / (uCutoff * 0.78), 2.0));
+    vec2  n    = vec2(px.x / (700.0 * sc), (px.y - cy) / 150.0);
+    vec2  q    = vec2(fbm(n * 1.1 + vec2(uTime * 0.055, 0.0)),
+                      fbm(n * 1.1 + vec2(3.4, 1.7) - vec2(uTime * 0.041, 0.0)));
+    float a    = fbm(n * 1.35 + 1.5 * q + vec2(uTime * 0.030, 0.0));
+    /* brighter near the light anchor (the case id / the page title) */
+    float lat  = mix(0.34, 1.0,
+                 exp(-pow((px.x - (uHero.x + uHero.z * 0.5)) / (uRes.x * 0.42), 2.0)));
+    lat = mix(1.0, lat, uHeroOn);
+    vec3 tint = mix(deep, cyan, smoothstep(0.36, 0.80, a));
+    tint      = mix(tint, ember, smoothstep(0.32, 0.04, a) * 0.42);
+    float body  = env * lat * (0.30 + 1.35 * a);
+    float sheen = exp(-pow((px.x - uRes.x * (0.5 + 0.42 * sin(uTime * 0.22))) / (330.0 * sc), 2.0))
+                  * env * 0.45;
+    col += tint * body + cyan * sheen;
   }
 
-  /* ---- confine: past the filter row nothing is lit, so the case grid sits
-     on darkness and the glass reads on its own specular ---- */
-  col *= 1.0 - smoothstep(uCutoff - 110.0, uCutoff + 24.0, px.y);
+  /* ---- confine: below the cutoff nothing is lit ---- */
+  col *= 1.0 - smoothstep(uCutoff - uFeather, uCutoff + 16.0, px.y);
 
   /* ---- grade ---- */
   vec2  uv  = px / uRes;
@@ -127,13 +151,6 @@ void main() {
   }
 }`
 
-function hexToRgb01(hex: string): [number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
-  if (!m) return BLACK
-  const n = parseInt(m[1], 16)
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
-}
-
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader | null {
   const sh = gl.createShader(type)
   if (!sh) return null
@@ -150,19 +167,21 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
 export function AmbientCanvas({
   light,
   cutoff,
-  theme
+  theme,
+  band
 }: {
   light: HTMLElement | null
   cutoff: HTMLElement | null
   theme: Theme
+  band: BandConfig
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [fallback, setFallback] = useState(false)
   // Latest props, readable from inside the one-shot GL effect without rebuilding it.
-  const latest = useRef({ light, cutoff, theme })
+  const latest = useRef({ light, cutoff, theme, band })
   useEffect(() => {
-    latest.current = { light, cutoff, theme }
-  }, [light, cutoff, theme])
+    latest.current = { light, cutoff, theme, band }
+  }, [light, cutoff, theme, band])
   // measure+palette entry point the props effect below pokes after re-renders.
   const api = useRef<{ refresh: () => void } | null>(null)
 
@@ -215,6 +234,9 @@ export function AmbientCanvas({
       hero: gl.getUniformLocation(prog, 'uHero'),
       heroOn: gl.getUniformLocation(prog, 'uHeroOn'),
       cutoff: gl.getUniformLocation(prog, 'uCutoff'),
+      feather: gl.getUniformLocation(prog, 'uFeather'),
+      pad: gl.getUniformLocation(prog, 'uPad'),
+      mode: gl.getUniformLocation(prog, 'uMode'),
       light: gl.getUniformLocation(prog, 'uLight'),
       bg: gl.getUniformLocation(prog, 'uBg'),
       palA: gl.getUniformLocation(prog, 'uPalA'),
@@ -239,11 +261,11 @@ export function AmbientCanvas({
       if (disposed || !gl) return
       const wrapper = host.parentElement
       if (!wrapper) return
-      const { light: lightEl, cutoff: cutoffEl, theme: th } = latest.current
+      const { light: lightEl, cutoff: cutoffEl, theme: th, band } = latest.current
       const wr = wrapper.getBoundingClientRect()
       const cutoff = cutoffEl ? cutoffEl.getBoundingClientRect().bottom - wr.top : 460
       const w = Math.max(1, Math.round(wr.width))
-      const h = Math.max(1, Math.round(cutoff + CUTOFF_FEATHER))
+      const h = Math.max(1, Math.round(cutoff + band.extra))
       canvas.style.height = `${h}px`
       const scale = Math.min(window.devicePixelRatio || 1, 2) * RES_SCALE
       canvas.width = Math.max(1, Math.round(w * scale))
@@ -254,6 +276,9 @@ export function AmbientCanvas({
       // must match what gl_FragCoord sees, or every light drifts by the error
       gl.uniform2f(u.buf, canvas.width, canvas.height)
       gl.uniform1f(u.cutoff, cutoff)
+      gl.uniform1f(u.feather, band.feather)
+      gl.uniform2f(u.pad, band.pad[0], band.pad[1])
+      gl.uniform1f(u.mode, band.mode)
       if (lightEl) {
         const hr = lightEl.getBoundingClientRect()
         gl.uniform4f(u.hero, hr.x - wr.x, hr.y - wr.y, hr.width, hr.height)
@@ -263,9 +288,12 @@ export function AmbientCanvas({
       }
       // SPEC INVARIANT: light uBg = the resolved scoped --void, read from CSS,
       // never a duplicated constant — the two must match exactly or a seam
-      // appears where the canvas ends.
+      // appears where the canvas ends. WHITE, not black, is the safe fallback on
+      // a light page: a black ground would be a full-page seam, not a subtle one.
       const light = th === 'light'
-      const bg = light ? hexToRgb01(getComputedStyle(wrapper).getPropertyValue('--void')) : BLACK
+      const bg = light
+        ? (hexToRgb01(getComputedStyle(wrapper).getPropertyValue('--void')) ?? WHITE)
+        : BLACK
       gl.uniform1f(u.light, light ? 1 : 0)
       gl.uniform3f(u.bg, bg[0], bg[1], bg[2])
       const palA = light ? LIGHT_PAL_A : BLACK
@@ -316,10 +344,10 @@ export function AmbientCanvas({
     }
   }, [])
 
-  // anchors/theme changed → re-measure and re-palette without rebuilding GL
+  // anchors/theme/band changed → re-measure and re-palette without rebuilding GL
   useEffect(() => {
     api.current?.refresh()
-  }, [light, cutoff, theme])
+  }, [light, cutoff, theme, band])
 
   if (fallback) {
     return (
