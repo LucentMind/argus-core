@@ -8,6 +8,7 @@ import { CodeSurface } from './CodeSurface'
 import { DiffView } from './DiffView'
 import { EditorPane } from './EditorPane'
 import { PreviewPane } from './PreviewPane'
+import { ProblemsPanel } from './ProblemsPanel'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
 import { clockTime } from '../../lib/time'
@@ -102,6 +103,7 @@ export function AssetPane({
   const [proposed, setProposed] = useState<string | null>(null)
   const [prefs, setPrefs] = useState(readPrefs)
   const [editorFraction, setEditorFraction] = useState(0)
+  const [problemsOpen, setProblemsOpen] = useState(false)
 
   const setViewMode = useCallback((viewMode: ViewMode) => {
     writePrefs({ viewMode })
@@ -734,19 +736,13 @@ export function AssetPane({
           }
           preview={<PreviewPane doc={doc} scrollFraction={editorFraction} />}
         />
-        <div className="flex items-center justify-between gap-2 border-t border-hair px-3 py-2">
-          <span className="flex flex-col gap-0.5">
-            {issues.map((i, n) => (
-              <span
-                key={n}
-                role={i.severity === 'error' ? undefined : 'status'}
-                className={`text-xs ${i.severity === 'error' ? 'text-danger' : 'text-review'}`}
-              >
-                {i.severity === 'error' ? '⚠' : '•'} {i.message}
-                {i.line !== undefined && ` (line ${i.line})`}
-              </span>
-            ))}
-          </span>
+        <ProblemsPanel
+          issues={issues}
+          open={problemsOpen}
+          onToggle={() => setProblemsOpen((o) => !o)}
+          onGoToLine={(line) => surfaceRef.current?.goToLine(line)}
+        />
+        <div className="flex items-center justify-end gap-2 border-t border-hair px-3 py-2">
           <span className="flex shrink-0 items-center gap-2">
             <span className="font-mono text-[11px] text-faint">
               {cursor.line}:{cursor.col}
