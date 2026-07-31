@@ -1,8 +1,8 @@
 /**
  * Starting text for a new asset. A plain `.ts` module because
  * `react-refresh/only-export-components` forbids a component file exporting anything but the
- * component and types — which is why these had eslint-disable comments while they lived in
- * `AssetEditor.tsx`. Those comments go away with the move.
+ * component and types — so co-locating these with a component required a per-export
+ * eslint-disable. Here they need none.
  */
 export function skillTemplate(name: string): string {
   return [

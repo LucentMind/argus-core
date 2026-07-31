@@ -32,9 +32,11 @@ const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit'
 
 const readDraft = vi.fn<() => Promise<DraftRecord | null>>()
 const skillsRead = vi.fn()
+const listDrafts = vi.fn<() => Promise<DraftRecord[]>>()
 
 beforeEach(() => {
   readDraft.mockReset().mockResolvedValue(null)
+  listDrafts.mockReset().mockResolvedValue([])
   skillsRead.mockReset().mockResolvedValue({ content: SKILL_BODY, hash: 'h1' })
   window.argus = {
     editor: {
@@ -42,7 +44,7 @@ beforeEach(() => {
       readDraft,
       discardDraft: vi.fn().mockResolvedValue(undefined),
       open: vi.fn().mockResolvedValue(undefined),
-      listDrafts: vi.fn().mockResolvedValue([]),
+      listDrafts,
       onDraftSaved: () => () => {}
     },
     skills: { read: skillsRead, write: vi.fn() },
@@ -80,6 +82,14 @@ describe('AssetTab', () => {
     mount()
     expect(await screen.findByLabelText('skill · my-skill')).toHaveValue(`${SKILL_BODY}drafted`)
     expect(screen.getByText(/Restored unsaved draft from/)).toBeInTheDocument()
+  })
+
+  it('does not query the draft list in edit mode', async () => {
+    // The resumable-drafts banner is create-mode only (spec §4.5). An edit-mode tab asking for
+    // every draft on disk is both wasted IPC and the shape a leak into edit mode would take.
+    mount()
+    expect(await screen.findByLabelText('skill · my-skill')).toBeInTheDocument()
+    expect(listDrafts).not.toHaveBeenCalled()
   })
 
   it('reports the failure instead of hanging on Loading forever', async () => {

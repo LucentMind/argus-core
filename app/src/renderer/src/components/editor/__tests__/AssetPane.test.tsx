@@ -139,6 +139,22 @@ describe('AssetPane', () => {
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
   })
 
+  it('discards the draft when the user hand-reverts back to the baseline', async () => {
+    const { onDirtyChange, surface } = mount()
+    await userEvent.type(surface, 'X')
+    await waitFor(() => expect(draftChanged).toHaveBeenCalled())
+    await userEvent.type(surface, '{backspace}')
+    await waitFor(() => expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 's' }))
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('does not touch the draft store when a merely-opened file is left alone', async () => {
+    mount()
+    await waitFor(() => expect(screen.getByLabelText('skill · s')).toBeInTheDocument())
+    expect(draftChanged).not.toHaveBeenCalled()
+    expect(discardDraft).not.toHaveBeenCalled()
+  })
+
   it('opens a restored draft dirty, because a draft is unsaved work by definition', () => {
     const { onDirtyChange } = mount({
       initialDoc: `${DISK}typed`,
@@ -148,7 +164,7 @@ describe('AssetPane', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Restored unsaved draft')
   })
 
-  it('accepts an assist proposal through setDoc, so it lands in the undo history', async () => {
+  it('routes an accepted assist proposal through setDoc, not through a value re-render', async () => {
     globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
     const { surface } = mount()
     await userEvent.type(surface, 'x')
@@ -156,8 +172,24 @@ describe('AssetPane', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Accept' })).toBeEnabled())
     await userEvent.click(screen.getByRole('button', { name: 'Accept' }))
     // The assertion that is really about defect §1.1.1: the accept goes through the handle (one
-    // transaction) and never through a re-render of the surface with a new value.
+    // transaction) and never through a re-render of the surface with a new value. Undo itself is
+    // CodeMirror's behaviour and is covered by the CDP gate, not by this.
     expect(setDoc).toHaveBeenCalledWith('PROPOSED')
+  })
+
+  it('keeps the surface mounted while an assist proposal is shown', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Accept' })).toBeEnabled())
+    expect(surface).toBeInTheDocument()
+  })
+
+  it('keeps the surface mounted while previewing', async () => {
+    const { surface } = mount()
+    await userEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(surface).toBeInTheDocument()
   })
 
   it('raises the conflict banner when a save is rejected because disk moved', async () => {
@@ -176,9 +208,15 @@ describe('AssetPane', () => {
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+    draftChanged.mockClear()
     await userEvent.click(screen.getByRole('button', { name: 'Use disk' }))
     expect(setDoc).toHaveBeenLastCalledWith('OTHER')
     expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 's' })
+    // The assertion that actually pins `applyContent`'s ordering contract. `setDoc` re-enters
+    // `handleDocChange` synchronously; if the refs were written *after* the dispatch, that
+    // re-entry would compare against the old baseline and file a draft for content the user
+    // just chose to throw away. Without this line the test passes either way.
+    expect(draftChanged).not.toHaveBeenCalled()
   })
 
   it('"Keep mine" keeps the text and re-files the draft against the new disk hash', async () => {
@@ -225,6 +263,38 @@ describe('AssetPane', () => {
       name: 'new-skillX',
       replaces: { kind: 'skill', name: 'new-skill' }
     })
+  })
+
+  it('reseeds the template when a create-mode draft is discarded', async () => {
+    // Explicit, because `vi.clearAllMocks()` clears calls but not implementations — without this
+    // the conflict cases above leave `skillsRead` resolving to a file, and a create-mode asset by
+    // definition has none.
+    skillsRead.mockRejectedValue(new Error('ENOENT'))
+    mount({
+      mode: 'create',
+      initialName: 'new-skill',
+      initialDoc: 'typed body',
+      initialBaseline: 'seed',
+      initialDraftAt: '2026-07-31T15:42:00.000Z',
+      initialBanner: { kind: 'restored', updatedAt: '2026-07-31T15:42:00.000Z' }
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Discard draft' }))
+    await waitFor(() => expect(setDoc).toHaveBeenCalled())
+    expect(setDoc.mock.calls.at(-1)![0]).toContain('name: new-skill')
+  })
+
+  it('stops reporting dirty after a create-mode save, even with a Describe prompt typed', async () => {
+    skillsWrite.mockResolvedValue({ hash: 'h2' })
+    const { onDirtyChange } = mount({
+      mode: 'create',
+      initialName: 's',
+      initialDoc: DISK,
+      initialBaseline: DISK
+    })
+    await userEvent.type(screen.getByLabelText('describe it'), 'a thing')
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false))
   })
 
   it('offers other create-mode drafts to resume', async () => {

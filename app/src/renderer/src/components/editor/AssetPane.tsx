@@ -96,6 +96,8 @@ export function AssetPane({
   // react-hooks/refs rule forbids reading `.current` during render, and this is rendered
   // straight from the function body.
   const [compareSnapshot, setCompareSnapshot] = useState<string | null>(null)
+  /** Name + content of the last successful write; `null` until one lands. Drives `savedClean`. */
+  const [lastSaved, setLastSaved] = useState<{ name: string; content: string } | null>(null)
   const provider = useAssistProvider()
 
   // Mirrors of the four values that async paths and CodeMirror callbacks have to read *now*
@@ -126,6 +128,37 @@ export function AssetPane({
     }
   }, [])
 
+  /**
+   * Whether a draft file is believed to exist for this asset right now. Seeded from what
+   * `AssetTab` resolved, then maintained by `fileDraft` / `dropDraft` below.
+   *
+   * Needed because "the buffer equals the baseline" and "there is no draft on disk" are
+   * different facts, and conflating them is what let a hand-revert strand a draft.
+   */
+  const draftFiled = useRef(initialDraftAt !== null)
+
+  const fileDraft = useCallback(
+    (args: {
+      name: string
+      content: string
+      baseHash: string | null
+      replaces?: { kind: AuthoringKind; name: string }
+    }): void => {
+      draftFiled.current = true
+      window.argus.editor.draftChanged({ kind, mode, ...args })
+    },
+    [kind, mode]
+  )
+
+  const dropDraft = useCallback(
+    (name: string): void => {
+      draftFiled.current = false
+      setDraftAt(null)
+      void window.argus.editor.discardDraft({ kind, name })
+    },
+    [kind]
+  )
+
   /** Replace the document *and* declare what the new "no unsaved work" text is, in that order. */
   const applyContent = useCallback((text: string, nextBaseline: string): void => {
     // The refs are written before the dispatch, not after. `surface.setDoc` calls back into
@@ -144,21 +177,25 @@ export function AssetPane({
       docRef.current = text
       setDoc(text)
       setError(null)
-      // Spec §4.2: a file you merely opened never gets a draft. Equality with the baseline also
-      // covers every programmatic reset that declares a new baseline (Use disk, discard draft, a
-      // save landing, a create-mode template regeneration) — those must not re-persist what they
-      // just settled. A deliberate revert back to the baseline text is caught here too, and
-      // correctly: the draft file is removed by whichever path set that baseline.
-      if (text === baselineRef.current) return
-      window.argus.editor.draftChanged({
-        kind,
-        name: filedAsRef.current,
-        mode,
-        content: text,
-        baseHash: baseHashRef.current
-      })
+      if (text === baselineRef.current) {
+        // Spec §4.2: a file you merely opened never gets a draft, so equality is normally
+        // "nothing to persist". But equality is reached two ways, and one of them is a
+        // **deliberate hand-revert** — type X, then backspace. The draft written on that
+        // keystroke still holds the deleted text, while `dirty` below is about to report clean:
+        // the window would close without a word, and the next open would hand the user back
+        // text they threw away, under a "Restored unsaved draft" banner.
+        //
+        // The other way to reach equality is a programmatic reset that declared a new baseline
+        // (Use disk, discard draft, a save landing, a create-mode template regeneration). Those
+        // have already dropped or re-filed the draft themselves, so `draftFiled` is false and
+        // this is a no-op. `renameCreate` is the one exception: it re-files immediately after,
+        // so it pays one redundant discard in the rare untouched-rename path.
+        if (draftFiled.current) dropDraft(filedAsRef.current)
+        return
+      }
+      fileDraft({ name: filedAsRef.current, content: text, baseHash: baseHashRef.current })
     },
-    [kind, mode]
+    [fileDraft, dropDraft]
   )
 
   useEffect(
@@ -186,13 +223,19 @@ export function AssetPane({
    * `busy` and `proposed` count: closing mid-run throws the run away, and an unresolved proposal
    * is work the user has not decided on. In create mode a typed name and a typed Describe prompt
    * are real work even while the document is still the untouched template.
+   *
+   * `savedClean` keys on `lastSaved` rather than on `baseline` deliberately: `lastSaved === null`
+   * until a save actually lands, which is what lets a typed Describe prompt count as work
+   * *before* the first save and stop counting after it. Without that gate the canonical create
+   * flow — name, Describe prompt, body, Save — leaves the pane reporting dirty for the rest of
+   * its life, because `describe` is never cleared and `mode` never changes.
    */
+  const savedClean = lastSaved !== null && lastSaved.name === name && lastSaved.content === doc
   const dirty =
     proposed !== null ||
     busy ||
-    doc !== baseline ||
-    name !== savedName ||
-    (mode === 'create' && describe.trim() !== '')
+    (!savedClean &&
+      (doc !== baseline || name !== savedName || (mode === 'create' && describe.trim() !== '')))
 
   useEffect(() => {
     onDirtyChange(dirty)
@@ -213,10 +256,8 @@ export function AssetPane({
     filedAsRef.current = next
     // Persisted explicitly rather than through `handleDocChange`: a typed name is work even when
     // the document did not move, and §4.5's re-key is only reachable from here.
-    window.argus.editor.draftChanged({
-      kind,
+    fileDraft({
       name: next,
-      mode,
       content,
       baseHash: baseHashRef.current,
       ...(next !== previous ? { replaces: { kind, name: previous } } : {})
@@ -242,24 +283,18 @@ export function AssetPane({
       baseHashRef.current = newHash
       filedAsRef.current = savedAs
       setSavedName(savedAs)
+      setLastSaved({ name: savedAs, content: savedContent })
       setBanner({ kind: 'none' })
       // What was written is the new baseline either way. When the buffer moved on during the
       // round trip it stays dirty against it, which is exactly right.
       baselineRef.current = savedContent
       setBaseline(savedContent)
       if (docRef.current === savedContent) {
-        setDraftAt(null)
-        void window.argus.editor.discardDraft({ kind, name: savedAs })
+        dropDraft(savedAs)
       } else {
         // Re-file against the hash just written, or a restore would compare against a hash this
         // very save invalidated and cry staleness.
-        window.argus.editor.draftChanged({
-          kind,
-          name: savedAs,
-          mode,
-          content: docRef.current,
-          baseHash: newHash
-        })
+        fileDraft({ name: savedAs, content: docRef.current, baseHash: newHash })
         setError(
           'Saved, but you kept typing while it was saving — those newer changes have not been saved yet.'
         )
@@ -322,19 +357,31 @@ export function AssetPane({
   }
 
   const discardDraft = useCallback(async (): Promise<void> => {
-    await window.argus.editor.discardDraft({ kind, name: filedAsRef.current })
+    dropDraft(filedAsRef.current)
     const disk = await readAsset(kind, filedAsRef.current)
     if (!liveRef.current) return
-    setDraftAt(null)
     setBanner({ kind: 'none' })
     if (disk) {
       baseHashRef.current = disk.hash
       applyContent(disk.content, disk.content)
+    } else if (mode === 'create') {
+      // A create-mode draft has no file on disk to fall back to. Reseed the template, as
+      // Increment 2 did via its remount — without this the drafted text stays on screen, the
+      // pane stays dirty against it, and the very next keystroke files the draft that was just
+      // discarded.
+      const seeded = template(name)
+      baseHashRef.current = null
+      applyContent(seeded, seeded)
+    } else {
+      // Edit mode with nothing readable. `readAsset` swallows every error to null, so this is a
+      // transient IPC failure as often as a deleted asset — either way, say so rather than
+      // leaving the pane silently half-resolved.
+      setError(`Could not re-read ${kind} "${filedAsRef.current}".`)
     }
     // Increment 2 had to unmount the editor before these awaits, because a keystroke landing
     // mid-flight would be silently reverted by the remount that followed. That hazard is gone:
     // this is a transaction, so anything typed in the gap is one Ctrl+Z away rather than lost.
-  }, [kind, applyContent])
+  }, [kind, mode, name, template, applyContent, dropDraft])
 
   const apply = useCallback(
     (action: ConflictAction): void => {
@@ -346,25 +393,24 @@ export function AssetPane({
       setBanner({ kind: 'none' })
       if (next.discardDraft) {
         // Use disk: the document becomes exactly what is on disk, so that is the new baseline
-        // and the pane is genuinely clean.
-        void window.argus.editor.discardDraft({ kind, name: filedAsRef.current })
-        setDraftAt(null)
+        // and the pane is genuinely clean. Dropped *before* `applyContent`, so the re-entrant
+        // equality check inside `handleDocChange` sees `draftFiled` already false and does not
+        // discard a second time.
+        dropDraft(filedAsRef.current)
         applyContent(next.content, next.content)
       } else {
         // Keep mine: the text does not move, but the draft file on disk still carries the
         // pre-resolution `baseHash`. Left alone, the next reopen would compare that stale hash
         // against disk and re-ask a question the user already answered — so re-file it against
         // the new hash. `draftAt` is untouched: only `onDraftSaved` may claim a draft is kept.
-        window.argus.editor.draftChanged({
-          kind,
+        fileDraft({
           name: filedAsRef.current,
-          mode,
           content: next.content,
           baseHash: next.baseHash
         })
       }
     },
-    [kind, mode, applyContent]
+    [applyContent, dropDraft, fileDraft]
   )
 
   /** Spec §4.4: no fs watcher — external changes are noticed here and at save. */
