@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EditorApp } from '../EditorApp'
 import type { SurfaceHandle } from '../surface'
@@ -108,7 +108,6 @@ beforeEach(() => {
       respondClose,
       draftChanged: vi.fn(),
       readDraft: vi.fn().mockResolvedValue(null),
-      listDrafts: vi.fn().mockResolvedValue([]),
       discardDraft: vi.fn().mockResolvedValue(undefined),
       onDraftSaved: () => () => {},
       // Only exercised by a create-mode open (`AssetTab`'s `otherDrafts` resolution) — every
@@ -433,13 +432,20 @@ describe('EditorApp resuming a same-named draft', () => {
 
     // The resumed id must actually be looked up...
     await waitFor(() => expect(readDraft).toHaveBeenCalledWith({ draftId: 'resumed-id' }))
-    // ...and its content must actually reach the textarea, proving AssetTab really remounted
-    // against the new id rather than the click silently doing nothing.
-    await waitFor(() =>
-      expect(screen.getByLabelText<HTMLTextAreaElement>('skill · my-skill').value).toBe(
+    // ...and its content must reach the surface of the tab now ON SCREEN.
+    //
+    // Scoped to the active panel rather than queried globally, because since Increment 4 the
+    // resume opens a SECOND tab and every tab stays MOUNTED — so two surfaces legitimately carry
+    // the label `skill · my-skill` and a bare `getByLabelText` throws "found multiple elements".
+    // Resolving through the tab's own `aria-controls` is what makes "the one the user is looking
+    // at" expressible; it also means this still fails if the resume silently focused the old tab.
+    await waitFor(() => {
+      const panelId = screen.getByRole('tab', { selected: true }).getAttribute('aria-controls')!
+      const panel = document.getElementById(panelId)!
+      expect(within(panel).getByLabelText<HTMLTextAreaElement>('skill · my-skill').value).toBe(
         '# resumed draft content\n'
       )
-    )
+    })
   })
 })
 

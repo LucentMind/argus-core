@@ -64,7 +64,18 @@ export function tabPanelElementId(id: string): string {
 /** Spec §6.1's "one tab per asset". Reads the tab's CURRENT name, so a create-mode rename is
  *  immediately visible to it. */
 function sameAsset(t: Tab, req: EditorOpenRequest): boolean {
-  return t.kind === req.kind && t.name === req.name && t.mode === req.mode
+  return (
+    t.kind === req.kind &&
+    t.name === req.name &&
+    t.mode === req.mode &&
+    // `draftId` is part of a create-mode tab's IDENTITY, not an extra field. Every "New skill"
+    // opens as the same kind/name/mode, and resuming a specific draft from the resumable-drafts
+    // banner re-sends that same triple with a different id (drafts are id-keyed — see `keyOf` in
+    // main/services/drafts.ts). Without this clause the resume would dedupe onto the tab already
+    // open and silently do nothing, which is the single most likely case.
+    // Compared against the FROZEN request: `renameTab` moves `name`, never `req`.
+    (t.req.draftId ?? null) === (req.draftId ?? null)
+  )
 }
 
 function mint(s: TabsState, req: EditorOpenRequest, view: TabViewState | null): Tab {

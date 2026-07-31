@@ -65,7 +65,10 @@ beforeEach(() => {
   } as never
 })
 
-const mount = (req: EditorOpenRequest = SKILL, opts: { readOnly?: boolean } = {}): void => {
+const mount = (
+  req: EditorOpenRequest = SKILL,
+  opts: { readOnly?: boolean } = {}
+): ReturnType<typeof render> =>
   render(
     <AssetTab
       req={req}
@@ -76,7 +79,6 @@ const mount = (req: EditorOpenRequest = SKILL, opts: { readOnly?: boolean } = {}
       onViewStateChange={vi.fn()}
     />
   )
-}
 
 const aDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
   kind: 'skill',
@@ -150,6 +152,10 @@ describe('AssetTab create-mode identity (draft-id-rekey)', () => {
       <AssetTab
         req={{ kind: 'skill', name: 'my-skill', mode: 'create', draftId: 'resumed-id' }}
         onDirtyChange={vi.fn()}
+        active={true}
+        readOnly={false}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
       />
     )
 
@@ -168,6 +174,10 @@ describe('AssetTab create-mode identity (draft-id-rekey)', () => {
       <AssetTab
         req={{ kind: 'skill', name: 'brand-new', mode: 'create' }}
         onDirtyChange={vi.fn()}
+        active={true}
+        readOnly={false}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
       />
     )
     await screen.findByLabelText('skill · brand-new')
@@ -194,7 +204,14 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
           : null
     )
     render(
-      <AssetTab req={{ kind: 'skill', name: 'hij', mode: 'create' }} onDirtyChange={vi.fn()} />
+      <AssetTab
+        req={{ kind: 'skill', name: 'hij', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        active={true}
+        readOnly={false}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
+      />
     )
 
     // Content preserved: the legacy record's bytes open in the tab, not a fresh template.
@@ -234,7 +251,14 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
       'draftId' in ref ? null : aDraft({ mode: 'edit', content: 'someone else is editing this' })
     )
     render(
-      <AssetTab req={{ kind: 'skill', name: 'my-skill', mode: 'create' }} onDirtyChange={vi.fn()} />
+      <AssetTab
+        req={{ kind: 'skill', name: 'my-skill', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        active={true}
+        readOnly={false}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
+      />
     )
 
     // Falls through to the create template instead of adopting the edit-mode draft's content.
@@ -258,7 +282,14 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
       })
     })
     const { unmount } = render(
-      <AssetTab req={{ kind: 'skill', name: 'hij', mode: 'create' }} onDirtyChange={vi.fn()} />
+      <AssetTab
+        req={{ kind: 'skill', name: 'hij', mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        active={true}
+        readOnly={false}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
+      />
     )
     // Tear the effect down (cleanup sets `live = false`) before the legacy lookup ever resolves.
     unmount()

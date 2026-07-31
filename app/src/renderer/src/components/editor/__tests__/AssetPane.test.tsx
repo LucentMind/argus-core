@@ -796,6 +796,9 @@ describe('window-level shortcuts across mounted panes', () => {
     initialBanner: { kind: 'none' },
     initialDraftAt: null,
     otherDrafts: [],
+    // Required since drafts moved to id-keying; unused in edit mode (`fileDraft` only carries it
+    // for `mode === 'create'`), but each pane still gets its own so nothing can key-collide.
+    draftId: `draft-${name}`,
     active,
     readOnly: false,
     tier: undefined,
