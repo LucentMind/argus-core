@@ -6,9 +6,13 @@ import { CircleCheck, TriangleAlert, Minus } from 'lucide-react'
  * Freshness and health of the Jira link, in one footer slot.
  *
  * The icon carries health and the text carries age, because a badge that only ever said "Synced"
- * carried neither. The word "synced" is deliberately absent: the check glyph already says it, and
- * the failure state needs those characters for "failed" — the two states must stay the same width
- * or cards reflow against each other as sync results land.
+ * carried neither. The word "synced" is deliberately absent from the badge text: the check glyph
+ * already says it, and the failure state spends those characters on "failed" instead.
+ *
+ * The failed state is therefore wider than the clean one, on purpose. Nothing here bounds that
+ * difference — it is affordable because the status indicator sits in the card's TOP row, leaving
+ * the footer with room to spare at three-column width. The widest case (`failed 3d ago` beside
+ * both metrics and a CI glyph) is on the live-verification checklist for exactly this reason.
  */
 export function SyncBadge({ c }: { c: CaseRecord }): React.JSX.Element | null {
   // No ticket, no sync to report. An empty slot here is correct, not a gap.
