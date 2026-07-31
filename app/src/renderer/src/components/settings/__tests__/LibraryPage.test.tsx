@@ -23,7 +23,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: ['hivemind', 'bundled'],
       shadowDiverged: false,
-      author: null,
+      author: null
     },
     {
       name: 'my-notes',
@@ -32,7 +32,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null,
+      author: null
     },
     {
       name: 'hive-probe',
@@ -41,7 +41,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null,
+      author: null
     },
     {
       name: 'analyze-applog',
@@ -50,7 +50,7 @@ const initial: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null,
+      author: null
     }
   ]
 }
@@ -64,7 +64,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: ['bundled'],
       shadowDiverged: false,
-      author: null,
+      author: null
     },
     {
       name: 'my-notes',
@@ -73,7 +73,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null,
+      author: null
     },
     {
       name: 'hive-probe',
@@ -82,7 +82,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null,
+      author: null
     },
     {
       name: 'analyze-applog',
@@ -91,7 +91,7 @@ const afterAdopt: SkillsPayload = {
       enabled: true,
       shadows: [],
       shadowDiverged: false,
-      author: null,
+      author: null
     }
   ]
 }
@@ -845,7 +845,7 @@ describe('LibraryPage cross-window refresh', () => {
             shadows: [],
             // Shadows nothing, so it cannot have diverged from a shadowed original.
             shadowDiverged: false,
-            author: null,
+            author: null
           }
         ]
       })
@@ -880,7 +880,7 @@ describe('forked skill rows', () => {
     enabled: true,
     shadows: ['hivemind'],
     shadowDiverged: true,
-    author: null,
+    author: null
   }
 
   it('shows Adopt upstream without needing hover, and no Delete', async () => {

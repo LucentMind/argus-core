@@ -6,12 +6,7 @@ import { promisify } from 'node:util'
 import { hivemindCloneDir, hivemindSkillsDir, hivemindStatePath, userSkillsDir } from './paths'
 import { sharedReferencesDir } from './skillsDir'
 import { frontmatterDescriptionAndAuthor } from './agent/skillsResolver'
-import {
-  withFrontmatter,
-  fmBlock,
-  fmField,
-  removeFrontmatterKeys
-} from '../../shared/frontmatter'
+import { withFrontmatter, fmBlock, fmField, removeFrontmatterKeys } from '../../shared/frontmatter'
 import { stampAuthorship, parseAuthorship, type Identity } from '../../shared/authorship'
 import { JsonFileStore } from './fileStore'
 import type {
