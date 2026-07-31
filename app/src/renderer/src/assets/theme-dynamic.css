@@ -4,10 +4,15 @@
    keyframed gradients) don't fit Tailwind utility form, and plain CSS is emitted
    unconditionally — no stale-CSS-under-HMR trap for brand-new classes.
 
-   Everything is scoped under .dyn; per-view rules under .dyn-home / .dyn-case /
-   .dyn-settings. theme.css maps every Tailwind color through raw vars (@theme
-   inline), so re-declaring the raw vars here restyles every utility inside the
-   scope and nothing outside it. */
+   The ambient skin (raw-var overrides, the entrance animation, the cursor-tracked ring/sheen)
+   is scoped under .dyn; per-view rules under .dyn-home / .dyn-case / .dyn-settings. theme.css
+   maps every Tailwind color through raw vars (@theme inline), so re-declaring the raw vars here
+   restyles every utility inside the scope and nothing outside it.
+
+   The material recipes (.glass-card, .glass-panel) live in this file for editorial proximity to
+   the skin that motivated them, but are deliberately UN-scoped: dialogs, app chrome and the
+   editor BrowserWindow all need them and none of those live inside .dyn. Their tokens live in
+   theme.css so classic and the editor resolve them too. */
 
 .dyn {
   /* ── dark tokens (the design reference, ported from the mock) ── */
@@ -34,111 +39,14 @@
   --p1: #ef5f5f;
   --p2: #e6a94a;
   --p3: #8b9097;
-
-  /* liquid glass — additive white lens on black. There is no light behind the
-     grid (the aurora stops above it), so the volume comes from the glass body
-     itself: lens gradient, top bevel, edge rims, cursor ring + sheen. */
-  --glass-bg: rgba(15, 17, 21, 0.34);
-  --glass-lens-1: rgba(255, 255, 255, 0.145);
-  --glass-lens-2: rgba(255, 255, 255, 0.05);
-  --glass-lens-3: rgba(255, 255, 255, 0.018);
-  --glass-lens-4: rgba(255, 255, 255, 0.055);
-  --glass-lens-5: rgba(255, 255, 255, 0.105);
-  --glass-cap: rgba(190, 220, 255, 0.1);
-  --glass-border: rgba(255, 255, 255, 0.16);
-  --glass-border-h: rgba(255, 255, 255, 0.26);
-  --glass-hi: rgba(255, 255, 255, 0.3);
-  --glass-hi-h: rgba(255, 255, 255, 0.44);
-  --glass-edge: rgba(255, 255, 255, 0.1);
-  --glass-edge-h: rgba(255, 255, 255, 0.16);
-  --card-shadow: 0 26px 52px -30px rgba(0, 0, 0, 0.98);
-  --card-shadow-h: 0 40px 72px -32px #000;
-  /* brightness>1 is free on black (0 x 1.08 = 0) but re-whitens a light page */
-  --glass-filter: blur(40px) saturate(200%) brightness(1.08);
-  --glass-filter-h: blur(54px) saturate(230%) brightness(1.13);
-  --cursor-ring: rgba(175, 220, 255, 0.95);
-  --cursor-ring-2: rgba(255, 255, 255, 0.26);
-  --cursor-sheen: rgba(205, 230, 255, 0.16);
-  --cursor-sheen-2: rgba(190, 220, 255, 0.055);
-  --grain-op: 0.035;
-
-  /* the cheap panel material: lens + bevel + rim + shadow, no backdrop-filter.
-     Over a ~120px card the lens traverses its whole range and reads as glass;
-     over an 800px rail it changes by fractions of a percent and does not. That
-     asymmetry is why the material sits on cards and not on containers. */
-  --panel-bg: #090b0e;
-  --panel-lens-1: rgba(255, 255, 255, 0.055);
-  --panel-lens-2: rgba(255, 255, 255, 0.016);
-  --panel-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
-  --panel-border: rgba(255, 255, 255, 0.085);
-  --panel-hi: rgba(255, 255, 255, 0.11);
 }
 
 :root[data-theme='light'] .dyn {
-  /* ── light tokens — NEW design (spec §6), not the mock's light mode. ──
-     The mock's glass-on-light physics are kept (they are the only way glass
-     reads on light): tinted ground below the glass in luminance, panes lifted
-     by drop shadows rather than white highlights, a thin waist where the page
-     tints through. The palette mirrors dark's character at deeper chroma.
-     These values are STARTING POINTS — final tuning happens over CDP
-     screenshots (Task 11), criterion: "the same room with the lights on". */
-  --void: #e7ebf3;
-  --bg-1: #e7ebf3;
-  --bg-2: #ffffff;
-  --bg-hi: rgba(255, 255, 255, 0.65);
-  --bg-over: rgba(255, 255, 255, 0.75);
-
-  --ink: #171b21;
-  --dim: #5b626c;
-  --mute: #858c96;
-  --faint: rgba(23, 27, 33, 0.22);
-  --hair: rgba(16, 22, 32, 0.1);
-  --hair-2: rgba(16, 22, 32, 0.16);
-
-  --signal: #1f6fd0;
-  --defect: #a9700a;
-  --danger: #c93b3b;
-  --review: #1e8f5c;
-  --analytics: #7351c9;
-
-  --p1: #c93b3b;
-  --p2: #a9700a;
-  --p3: #6b727c;
-
-  --glass-bg: rgba(255, 255, 255, 0.38);
-  --glass-lens-1: rgba(255, 255, 255, 0.62);
-  --glass-lens-2: rgba(255, 255, 255, 0.24);
-  --glass-lens-3: rgba(255, 255, 255, 0.05);
-  --glass-lens-4: rgba(255, 255, 255, 0.19);
-  --glass-lens-5: rgba(255, 255, 255, 0.44);
-  --glass-cap: rgba(105, 155, 225, 0.15);
-  --glass-border: rgba(25, 38, 62, 0.13);
-  --glass-border-h: rgba(31, 111, 208, 0.46);
-  --glass-hi: rgba(255, 255, 255, 0.9);
-  --glass-hi-h: rgba(255, 255, 255, 1);
-  --glass-edge: rgba(25, 38, 62, 0.05);
-  --glass-edge-h: rgba(25, 38, 62, 0.08);
-  --card-shadow:
-    0 1px 2px rgba(18, 28, 48, 0.06), 0 8px 20px -6px rgba(18, 28, 48, 0.14),
-    0 22px 42px -18px rgba(18, 28, 48, 0.15);
-  --card-shadow-h:
-    0 2px 5px rgba(18, 28, 48, 0.08), 0 14px 30px -8px rgba(18, 28, 48, 0.19),
-    0 36px 64px -22px rgba(18, 28, 48, 0.22);
-  /* SPEC INVARIANT: no brightness() at rest on light — it un-does the transparency */
-  --glass-filter: blur(26px) saturate(175%);
-  --glass-filter-h: blur(36px) saturate(200%) brightness(1.03);
-  --cursor-ring: rgba(40, 110, 200, 0.6);
-  --cursor-ring-2: rgba(40, 110, 200, 0.16);
-  --cursor-sheen: rgba(60, 125, 205, 0.13);
-  --cursor-sheen-2: rgba(60, 125, 205, 0.05);
-  --grain-op: 0.022;
-
-  --panel-bg: #f4f6fb;
-  --panel-lens-1: rgba(255, 255, 255, 0.95);
-  --panel-lens-2: rgba(255, 255, 255, 0.4);
-  --panel-shadow: 0 1px 2px rgba(18, 28, 48, 0.05), 0 12px 28px -18px rgba(18, 28, 48, 0.22);
-  --panel-border: rgba(25, 38, 62, 0.1);
-  --panel-hi: rgba(255, 255, 255, 0.85);
+  /* The shared light palette (theme.css) now supplies the tokens and both materials. What is
+     left here is only what the ambient scope needs on top: the band must read as a brightening
+     OF the wash, not as a separate object sitting on it. */
+  --glass-cap: rgba(105, 155, 225, 0.13);
+  --grain-op: 0.014;
 }
 
 /* ── ambient canvas + fallback ─────────────────────────────────────────── */
@@ -206,7 +114,9 @@
 
 /* ── liquid glass card ─────────────────────────────────────────────────── */
 
-.dyn-home .glass-card {
+/* The material — un-scoped: dialogs, chrome and the editor window are all outside .dyn and
+   still need it. */
+.glass-card {
   position: relative;
   --mx: 50%;
   --my: 50%;
@@ -237,6 +147,11 @@
     border-color 0.42s ease,
     box-shadow 0.42s ease,
     backdrop-filter 0.42s ease;
+}
+
+/* Home's own behaviour on top of the material: the entrance animation. Dialogs and the editor
+   deliberately do NOT get this — a settings dialog that flies in every open is a bug. */
+.dyn-home .glass-card {
   opacity: 0;
   animation: dyn-card-in 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
   animation-delay: var(--d, 0ms);
@@ -252,7 +167,7 @@
   }
 }
 
-.dyn-home .glass-card:hover {
+.glass-card:hover {
   transform: translateY(-5px);
   border-color: var(--glass-border-h);
   backdrop-filter: var(--glass-filter-h);
@@ -267,7 +182,7 @@
 }
 
 /* content sits above the ring/sheen/rail layers */
-.dyn-home .glass-card > *:not(.gc-ring):not(.gc-sheen):not(.gc-rail) {
+.glass-card > *:not(.gc-ring):not(.gc-sheen):not(.gc-rail) {
   position: relative;
   z-index: 1;
 }
@@ -433,7 +348,7 @@
    padding stay with each consumer, because a rail card and the composer want
    different ones. Two names for one material is how a second, subtly-different
    material gets born. */
-.dyn .glass-panel {
+.glass-panel {
   position: relative;
   border: 1px solid var(--panel-border);
   background:

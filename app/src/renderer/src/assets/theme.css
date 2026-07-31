@@ -40,6 +40,47 @@
   --mo-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
   --mo: 200ms cubic-bezier(0.2, 0, 0.2, 1);
   --mo-slow: 320ms cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ── material tokens ──────────────────────────────────────────────────────
+     Here rather than in theme-dynamic.css's .dyn block so the classic theme and the editor
+     window resolve them too. .dyn still overrides the ones its own skin needs. */
+  --glass-bg: rgba(15, 17, 21, 0.34);
+  --glass-lens-1: rgba(255, 255, 255, 0.145);
+  --glass-lens-2: rgba(255, 255, 255, 0.05);
+  --glass-lens-3: rgba(255, 255, 255, 0.018);
+  --glass-lens-4: rgba(255, 255, 255, 0.055);
+  --glass-lens-5: rgba(255, 255, 255, 0.105);
+  --glass-cap: rgba(190, 220, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-border-h: rgba(255, 255, 255, 0.26);
+  --glass-hi: rgba(255, 255, 255, 0.3);
+  --glass-hi-h: rgba(255, 255, 255, 0.44);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-edge-h: rgba(255, 255, 255, 0.16);
+  --card-shadow: 0 26px 52px -30px rgba(0, 0, 0, 0.98);
+  --card-shadow-h: 0 40px 72px -32px #000;
+  --glass-filter: blur(40px) saturate(200%) brightness(1.08);
+  --glass-filter-h: blur(54px) saturate(230%) brightness(1.13);
+  --cursor-ring: rgba(175, 220, 255, 0.95);
+  --cursor-ring-2: rgba(255, 255, 255, 0.26);
+  --cursor-sheen: rgba(205, 230, 255, 0.16);
+  --cursor-sheen-2: rgba(190, 220, 255, 0.055);
+  --grain-op: 0.035;
+
+  --panel-bg: #090b0e;
+  --panel-lens-1: rgba(255, 255, 255, 0.055);
+  --panel-lens-2: rgba(255, 255, 255, 0.016);
+  --panel-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
+  --panel-border: rgba(255, 255, 255, 0.085);
+  --panel-hi: rgba(255, 255, 255, 0.11);
+
+  /* The shared Card primitive's material. A SEPARATE token set from --panel-*, deliberately:
+     .dyn overrides --panel-bg to #090b0e, and if .surface-card read that, every default Card
+     inside the dynamic scope would darken. In dark these values reproduce today's flat
+     `border-hair bg-panel` card exactly. */
+  --surface-bg: var(--bg-2);
+  --surface-border: var(--hair);
+  --surface-shadow: none;
 }
 
 :root[data-theme='light'] {
@@ -80,6 +121,45 @@
     radial-gradient(120% 90% at 88% 108%, rgba(150, 182, 232, 0.55) 0%, transparent 62%),
     radial-gradient(90% 70% at 4% -6%, rgba(255, 255, 255, 0.95) 0%, transparent 60%),
     linear-gradient(146deg, #fbfcfe 0%, #eef2f9 42%, #dde6f5 76%, #cfdcf1 100%);
+
+  /* ── material tokens, light (spec §6) ─────────────────────────────────────
+     SPEC INVARIANT: no brightness() at rest on light — it un-does the transparency. */
+  --glass-bg: rgba(255, 255, 255, 0.46);
+  --glass-lens-1: rgba(255, 255, 255, 0.78);
+  --glass-lens-2: rgba(255, 255, 255, 0.46);
+  --glass-lens-3: rgba(255, 255, 255, 0.46);
+  --glass-lens-4: rgba(255, 255, 255, 0.52);
+  --glass-lens-5: rgba(255, 255, 255, 0.6);
+  --glass-cap: rgba(120, 165, 230, 0.1);
+  --glass-border: rgba(26, 48, 84, 0.09);
+  --glass-border-h: rgba(31, 111, 208, 0.32);
+  --glass-hi: rgba(255, 255, 255, 0.85);
+  --glass-hi-h: rgba(255, 255, 255, 1);
+  --glass-edge: rgba(26, 48, 84, 0.04);
+  --glass-edge-h: rgba(26, 48, 84, 0.06);
+  --card-shadow: 0 1px 2px rgba(24, 44, 80, 0.04), 0 14px 30px -14px rgba(24, 44, 80, 0.16);
+  --card-shadow-h: 0 2px 4px rgba(24, 44, 80, 0.06), 0 22px 44px -16px rgba(24, 44, 80, 0.22);
+  --glass-filter: blur(22px) saturate(150%);
+  --glass-filter-h: blur(28px) saturate(165%) brightness(1.03);
+  --cursor-ring: rgba(40, 110, 200, 0.5);
+  --cursor-ring-2: rgba(40, 110, 200, 0.12);
+  --cursor-sheen: rgba(60, 125, 205, 0.1);
+  --cursor-sheen-2: rgba(60, 125, 205, 0.04);
+  --grain-op: 0.018;
+
+  /* .glass-panel and .surface-card are given the SAME values here on purpose: in light the two
+     materials must be indistinguishable, and matching them by construction is what stops them
+     drifting apart. In dark they are legitimately different. */
+  --panel-bg: #fdfdfe;
+  --panel-lens-1: rgba(255, 255, 255, 0);
+  --panel-lens-2: rgba(255, 255, 255, 0);
+  --panel-shadow: 0 1px 2px rgba(24, 44, 80, 0.04), 0 14px 30px -14px rgba(24, 44, 80, 0.16);
+  --panel-border: rgba(26, 48, 84, 0.09);
+  --panel-hi: rgba(255, 255, 255, 0.9);
+
+  --surface-bg: #fdfdfe;
+  --surface-border: rgba(26, 48, 84, 0.09);
+  --surface-shadow: 0 1px 2px rgba(24, 44, 80, 0.04), 0 14px 30px -14px rgba(24, 44, 80, 0.16);
 }
 
 @theme inline {

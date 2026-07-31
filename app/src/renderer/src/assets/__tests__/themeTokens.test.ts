@@ -164,3 +164,45 @@ describe('the wash ground', () => {
     expect(combined).not.toContain('.bg-deep')
   })
 })
+
+describe('material scoping', () => {
+  const dyn = readCss('theme-dynamic.css')
+  const theme = readCss('theme.css')
+
+  it('the material tokens live in theme.css so classic and the editor resolve them', () => {
+    for (const token of ['--glass-bg', '--glass-border', '--card-shadow', '--panel-bg']) {
+      expect(theme, `${token} must be declared in theme.css`).toContain(`${token}:`)
+    }
+  })
+
+  it('the material recipes are un-scoped', () => {
+    // The recipe must not be prefixed — dialogs, chrome and the editor window all live outside
+    // any .dyn scope and still need it.
+    expect(dyn).toMatch(/^\.glass-card \{/m)
+    expect(dyn).toMatch(/^\.glass-panel \{/m)
+  })
+
+  it('the home-only behaviour keeps its scope', () => {
+    // The entrance animation and the cursor-tracked ring/sheen are home's, not the material's.
+    // Dialogs and the editor must not inherit them.
+    expect(dyn).toMatch(/\.dyn-home \.glass-card \.gc-ring/)
+    expect(dyn).toMatch(/\.dyn-home \.glass-card \.gc-sheen/)
+    expect(dyn).toMatch(/\.dyn-home \.glass-card \{[^}]*animation:/)
+    // …and the un-scoped recipe must NOT carry them.
+    const recipe = dyn.slice(dyn.search(/^\.glass-card \{/m))
+    expect(recipe.slice(0, recipe.indexOf('}'))).not.toContain('animation:')
+  })
+
+  it('light keeps the no-brightness-at-rest invariant', () => {
+    const light = theme.slice(theme.indexOf(":root[data-theme='light']"))
+    const filter = light.match(/--glass-filter:\s*([^;]+);/)![1]
+    expect(filter).not.toContain('brightness')
+  })
+
+  it('--surface-* is not overridden inside .dyn', () => {
+    // .surface-card must stay byte-identical in dyn dark. Overriding --surface-* under .dyn
+    // would darken every default Card inside the dynamic scope.
+    const dynBlock = dyn.slice(dyn.indexOf('.dyn {'), dyn.indexOf(":root[data-theme='light'] .dyn"))
+    expect(dynBlock).not.toContain('--surface-')
+  })
+})
