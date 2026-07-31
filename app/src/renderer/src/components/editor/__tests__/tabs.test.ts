@@ -9,7 +9,8 @@ import {
   replaceTab,
   setTabDirty,
   setTabView,
-  dirtyCount
+  dirtyCount,
+  cycleTab
 } from '../tabs'
 
 const SKILL = { kind: 'skill', name: 'my-skill', mode: 'edit' } as const
@@ -274,5 +275,29 @@ describe('activateTab', () => {
   it('ignores an id that is not open', () => {
     const s = openTab(emptyTabs, SKILL)
     expect(activateTab(s, 'nope')).toEqual(s)
+  })
+})
+
+describe('cycleTab', () => {
+  const three = ['a', 'b', 'c'].reduce(
+    (s, n) => openTab(s, { kind: 'skill', name: n, mode: 'edit' }),
+    emptyTabs
+  )
+
+  it('moves right and wraps', () => {
+    expect(cycleTab({ ...three, activeId: 't3' }, 1).activeId).toBe('t1')
+  })
+
+  it('moves left and wraps', () => {
+    expect(cycleTab({ ...three, activeId: 't1' }, -1).activeId).toBe('t3')
+  })
+
+  it('is a no-op with no tabs', () => {
+    expect(cycleTab(emptyTabs, 1)).toBe(emptyTabs)
+  })
+
+  it('is a no-op when nothing is active', () => {
+    const s = { ...three, activeId: null }
+    expect(cycleTab(s, 1)).toBe(s)
   })
 })

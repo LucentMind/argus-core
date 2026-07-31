@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EditorApp } from '../EditorApp'
 import type { SurfaceHandle } from '../surface'
@@ -55,8 +55,18 @@ let openTab: ((req: EditorOpenRequest) => void) | null = null
 let closeRequested: ((info: { dirtyCount: number }) => void) | null = null
 /** `refsync:changed`, held so a test can decide **when** the post-claim tier map arrives. Main
  *  happens to broadcast before `hivemind:claim-reference` returns today, which is an ordering
- *  coincidence, not a guarantee — the read-only release must not depend on it. */
-let refsyncChanged: ((p: RefSyncPayload) => void) | null = null
+ *  coincidence, not a guarantee — the read-only release must not depend on it.
+ *
+ *  A LIST, not a single slot: `EditorApp` now has two independent subscribers to this channel —
+ *  `useAssetTiers` (the tier map `readOnly` reads) and `useEditorAssets` (Task 9's palette corpus,
+ *  which also refreshes on a reference change). A single captured callback only kept whichever
+ *  subscribed LAST, so firing it silently stopped reaching `useAssetTiers` the moment the second
+ *  subscriber joined — the real IPC bridge fans a broadcast out to every listener, and the fake
+ *  has to as well or it tests a bridge that doesn't exist. */
+let refsyncListeners: Array<(p: RefSyncPayload) => void> = []
+const refsyncChanged = (p: RefSyncPayload): void => {
+  for (const cb of refsyncListeners) cb(p)
+}
 /** `editor:restore-tabs`. Sent on window creation, before the `openTab` that caused it — see
  *  the "tab-set restore" describe block below. */
 let restoreTabs: ((tabs: PersistedTabs) => void) | null = null
@@ -89,7 +99,7 @@ const references = (sharedTier: string | null = 'hivemind'): RefSyncPayload['ref
 beforeEach(() => {
   openTab = null
   closeRequested = null
-  refsyncChanged = null
+  refsyncListeners = []
   restoreTabs = null
   setDirty.mockClear()
   respondClose.mockClear()
@@ -113,8 +123,19 @@ beforeEach(() => {
       onDraftSaved: () => () => {},
       // Only exercised by a create-mode open (`AssetTab`'s `otherDrafts` resolution) — every
       // pre-existing test here opens in edit mode, so this was never needed until the "follows a
-      // create-mode rename" test below.
+      // create-mode rename" test below. Task 10's palette tests override this per-test where a
+      // draft row needs to appear (see the `commands` describe block below) — the empty default
+      // here matters: `AssetPane`'s "unsaved new skills" banner is also `role="status"`, and
+      // several read-only tests already assert `queryByRole('status')` is absent.
       listDrafts: vi.fn().mockResolvedValue([]),
+      // Backs `useEditorAssets` (Task 9), which `EditorApp` now mounts unconditionally — every
+      // test in this file renders `EditorApp`, so this has to exist even where the palette is
+      // never opened. `triage` is the one asset the `commands` describe block below searches for.
+      corpus: vi
+        .fn()
+        .mockResolvedValue([
+          { kind: 'skill', name: 'triage', title: '', description: 'd', tier: 'user' }
+        ]),
       tabsChanged,
       onRestoreTabs: (cb: (tabs: PersistedTabs) => void) => {
         restoreTabs = cb
@@ -188,8 +209,10 @@ beforeEach(() => {
         references: references()
       }),
       onChanged: (cb: (p: RefSyncPayload) => void) => {
-        refsyncChanged = cb
-        return () => {}
+        refsyncListeners.push(cb)
+        return () => {
+          refsyncListeners = refsyncListeners.filter((l) => l !== cb)
+        }
       }
     },
     hivemind: {
@@ -829,7 +852,7 @@ describe('Edit a copy', () => {
     // (the Confluence config, in particular) is irrelevant here and stubbing it in full would say
     // nothing extra.
     act(() =>
-      refsyncChanged!({
+      refsyncChanged({
         config: {},
         loadError: null,
         cards: [],
@@ -965,5 +988,83 @@ describe('tab-set restore', () => {
     expect(screen.getByRole('tab', { name: /gone/ })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Close gone' }))
     await waitFor(() => expect(screen.queryByRole('tab')).not.toBeInTheDocument())
+  })
+})
+
+// Task 10: EditorApp becomes the window's single command host — one keymap, one palette, fed by
+// the registry `buildCommands` assembles (lib/commands.ts) and the corpus `useEditorAssets` reads.
+describe('EditorApp · commands', () => {
+  it('opens the palette on Ctrl+P and closes it on a second Escape', async () => {
+    render(<EditorApp />)
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true })
+    expect(await screen.findByRole('combobox')).toBeTruthy()
+  })
+
+  it('opens the palette pre-filled with > on Ctrl+Shift+P', async () => {
+    render(<EditorApp />)
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true, shiftKey: true })
+    const input = await screen.findByRole<HTMLInputElement>('combobox')
+    expect(input.getAttribute('value') ?? input.value).toBe('>')
+  })
+
+  it('opens the picked asset in a tab', async () => {
+    render(<EditorApp />)
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true })
+    const input = await screen.findByRole('combobox')
+    fireEvent.change(input, { target: { value: 'triage' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(await screen.findByRole('tab', { name: /triage/ })).toBeTruthy()
+  })
+
+  it('does not act on a window shortcut while the palette is open', async () => {
+    render(<EditorApp />)
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true })
+    await screen.findByRole('combobox')
+    fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
+    // Still open: the palette owns the keyboard while it is up.
+    expect(screen.getByRole('combobox')).toBeTruthy()
+  })
+
+  // The brief for this task delivers the open via a standalone `emitOpenTab` helper, called
+  // BEFORE `render`. This file has no such helper — its established convention (used throughout
+  // every other describe block above) is the `openTab` variable that `window.argus.editor.
+  // onOpenTab`'s stub captures, called AFTER `render`, because that variable is only assigned
+  // once `EditorApp`'s mount effect subscribes. Following the file's convention instead, per the
+  // task instructions.
+  it('closes the active tab on Ctrl+W', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'triage', mode: 'edit' }))
+    await screen.findByRole('tab', { name: /triage/ })
+    fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /triage/ })).toBeNull())
+  })
+
+  it('ignores a shortcut CodeMirror already handled', async () => {
+    render(<EditorApp />)
+    const e = new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, cancelable: true })
+    e.preventDefault()
+    window.dispatchEvent(e)
+    expect(screen.queryByRole('combobox')).toBeNull()
+  })
+
+  it('discards a draft from the palette and drops its row', async () => {
+    vi.mocked(window.argus.editor.listDrafts).mockResolvedValue([
+      {
+        kind: 'skill',
+        name: 'half',
+        mode: 'create',
+        content: '',
+        baseHash: null,
+        updatedAt: '2026-07-30T10:00:00.000Z',
+        draftId: 'd1'
+      }
+    ])
+    render(<EditorApp />)
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true })
+    const row = await screen.findByRole('option', { name: /half/ })
+    fireEvent.click(within(row).getByRole('button', { name: /discard/i }))
+    await waitFor(() =>
+      expect(window.argus.editor.discardDraft).toHaveBeenCalledWith({ draftId: 'd1' })
+    )
   })
 })

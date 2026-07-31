@@ -1,17 +1,26 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
+import { CommandPalette } from './CommandPalette'
 import { ConfirmHost } from '../ConfirmHost'
 import { alert, confirm } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { drainEditorMessages } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
+import { useEditorAssets } from '../../lib/editorAssets'
 import { isAssetEditable } from '../../../../shared/assetEditable'
 import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
 import {
+  buildCommands,
+  commandForEvent,
+  type AssetPaneHandle,
+  type PaneCommandState
+} from '../../lib/commands'
+import {
   activateTab,
   closeTab,
+  cycleTab,
   dirtyCount,
   emptyTabs,
   markTabSaved,
@@ -27,6 +36,7 @@ import {
 } from './tabs'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { TierLookup } from '../../../../shared/assetEditable'
+import type { AssetRow } from '../../lib/palette'
 import type { PersistedTabs, TabViewState } from '../../../../shared/editorIpc'
 
 interface TabPaneProps {
@@ -48,6 +58,12 @@ interface TabPaneProps {
   /** *Edit a copy* (spec §6.2). Takes the same primitives as the other callbacks above, not the
    *  whole `Tab` — see the comment on `handleEditCopy`. */
   onEditCopy: (id: string, kind: AuthoringKind, name: string) => void
+  /** What the ACTIVE pane reports upward, tagged with the tab it came from — see the comment on
+   *  `reported` in `EditorApp`. */
+  onCommandState: (id: string, s: PaneCommandState) => void
+  /** The window's way into this pane's imperative handle. A callback ref, so React calls it with
+   *  `null` on unmount — see the comment on `handlePaneRef` below. */
+  registerPane: (id: string, h: AssetPaneHandle | null) => void
 }
 
 /**
@@ -74,9 +90,13 @@ interface TabPaneProps {
  * is a `PreviewPane` mounted in all N tabs and react-markdown re-parses every hidden tab's
  * document on every keystroke. A bare `memo` is correct and complete here because both of its
  * preconditions hold: `patch` (tabs.ts) preserves the object identity of every tab it did not
- * touch, and all five callbacks below arrive from `useCallback`s in `EditorApp` that never
+ * touch, and all seven callbacks below arrive from `useCallback`s in `EditorApp` that never
  * re-create (`onEditCopy` moves only when a tier list is re-broadcast). Do not "simplify" either
- * of those into an inline arrow.
+ * of those into an inline arrow. The two newest — `onCommandState` and `registerPane` — get the
+ * exact same treatment for the exact same reason: an inline `.map` arrow for either would be a
+ * fresh identity every render, and `registerPane` in particular is a callback REF, so a fresh
+ * identity every render would call it with `null` then a new handle on every single keystroke
+ * anywhere in the window.
  */
 const TabPane = memo(function TabPane({
   tab,
@@ -87,7 +107,9 @@ const TabPane = memo(function TabPane({
   onNameChange,
   onSaved,
   onViewStateChange,
-  onEditCopy
+  onEditCopy,
+  onCommandState,
+  registerPane
 }: TabPaneProps): React.JSX.Element {
   const handleDirtyChange = useCallback(
     (d: boolean) => onDirtyChange(tab.id, d),
@@ -117,6 +139,17 @@ const TabPane = memo(function TabPane({
   const handleEditCopy = useCallback(
     () => onEditCopy(tab.id, tab.kind, tab.name),
     [tab.id, tab.kind, tab.name, onEditCopy]
+  )
+  const handleCommandState = useCallback(
+    (s: PaneCommandState) => onCommandState(tab.id, s),
+    [tab.id, onCommandState]
+  )
+  // A CALLBACK ref, so React hands us `null` on unmount and the map cannot leak a handle for a
+  // tab that is gone. Bound on `tab.id` for the same identity-stability reason as every other
+  // callback here: an inline arrow would re-register on every EditorApp render.
+  const handlePaneRef = useCallback(
+    (h: AssetPaneHandle | null) => registerPane(tab.id, h),
+    [tab.id, registerPane]
   )
   // `Chip`-style provenance badge (spec §5.5): the Library's one-word labels, not the raw tier
   // string. An unresolved or untagged tier gets no badge — a raw slug in the status bar would
@@ -158,6 +191,8 @@ const TabPane = memo(function TabPane({
         onNameChange={handleNameChange}
         onSaved={handleSaved}
         onViewStateChange={handleViewStateChange}
+        onCommandState={handleCommandState}
+        paneRef={handlePaneRef}
       />
     </div>
   )
@@ -192,6 +227,162 @@ export function EditorApp(): React.JSX.Element {
     dirtyRef.current = dirty
     window.argus.editor.setDirty(dirty)
   }, [dirty])
+
+  const { rows: assetRows, refresh: refreshAssets } = useEditorAssets()
+  /** `''` when closed is not a valid closed-state — an empty query is a legitimate OPEN palette.
+   *  `null` is closed; a string is open, and its content picks the mode. */
+  const [palette, setPalette] = useState<string | null>(null)
+
+  /**
+   * Every mounted pane's handle, keyed by tab id. A ref and not state: this is read at press
+   * time from inside a command's `run()`, never during render — which is the whole reason the
+   * registry takes state and actions through separate channels (see lib/commands.ts).
+   */
+  const handles = useRef(new Map<string, AssetPaneHandle>())
+  const registerPane = useCallback((id: string, h: AssetPaneHandle | null): void => {
+    if (h) handles.current.set(id, h)
+    else handles.current.delete(id)
+  }, [])
+
+  /**
+   * What the ACTIVE pane last reported. One slot, tagged with the tab it came from, rather than
+   * a map: a tab switch would otherwise leave the toolbar reading the previous tab's state until
+   * the new pane's first report lands, and the tag makes that window resolve to `null` (every
+   * pane-scoped command disabled) instead of to a lie.
+   */
+  const [reported, setReported] = useState<{ id: string; state: PaneCommandState } | null>(null)
+  const onCommandState = useCallback((id: string, s: PaneCommandState): void => {
+    setReported({ id, state: s })
+  }, [])
+  const paneState = reported && reported.id === state.activeId ? reported.state : null
+
+  // Read across event handlers, so it must reflect the tab set NOW rather than at subscribe
+  // time — the same discipline `dirtyRef` above already uses, for the same reason.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const activePane = useCallback((): AssetPaneHandle | null => {
+    const id = stateRef.current.activeId
+    return id ? (handles.current.get(id) ?? null) : null
+  }, [])
+  const dirtyPanes = useCallback(
+    (): AssetPaneHandle[] =>
+      stateRef.current.tabs
+        .filter((t) => t.dirty)
+        .map((t) => handles.current.get(t.id))
+        .filter((h): h is AssetPaneHandle => h !== undefined),
+    []
+  )
+
+  const openPalette = useCallback(
+    (prefix: string): void => {
+      // Re-read as it opens: the Drafts section is the part that goes stale fastest, and a draft
+      // write is debounced in main rather than broadcast.
+      refreshAssets()
+      setPalette(prefix)
+    },
+    [refreshAssets]
+  )
+
+  const commands = useMemo(
+    () =>
+      buildCommands({
+        pane: paneState,
+        activePane,
+        dirtyPanes,
+        dirtyCount: dirty,
+        tabCount: state.tabs.length,
+        window: {
+          quickOpen: () => openPalette(''),
+          commandPalette: () => openPalette('>'),
+          closeTab: () => setState((s) => (s.activeId ? closeTab(s, s.activeId) : s)),
+          nextTab: () => setState((s) => cycleTab(s, 1)),
+          prevTab: () => setState((s) => cycleTab(s, -1))
+        }
+      }),
+    [paneState, activePane, dirtyPanes, dirty, state.tabs.length, openPalette]
+  )
+
+  /**
+   * The window's ONE keymap, and the replacement for the per-pane `window` listener that used to
+   * live in `AssetPane`.
+   *
+   * `defaultPrevented` is the handshake with CodeMirror's own keymap: that keymap sets it
+   * whenever it handled the key, so a chord both of them know (Ctrl+S, Ctrl+±, Alt+Z) fires once
+   * while the editor has focus and still works when it does not — which is the case Preview mode
+   * creates, since it marks the editor subtree `inert` and focus falls to `<body>`.
+   *
+   * A matched-but-DISABLED command still swallows the key. Letting a disabled Ctrl+W fall
+   * through hands it to Electron, which closes the window.
+   *
+   * The listener is registered once and reads the current descriptors through a ref: rebuilding
+   * it on every `commands` identity would re-register on every keystroke.
+   */
+  const commandsRef = useRef(commands)
+  useEffect(() => {
+    commandsRef.current = commands
+  }, [commands])
+  const paletteOpenRef = useRef(false)
+  useEffect(() => {
+    paletteOpenRef.current = palette !== null
+  }, [palette])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      // The palette owns the keyboard while it is up, including its own Escape handling.
+      if (paletteOpenRef.current) return
+      const cmd = commandForEvent(commandsRef.current, e)
+      if (!cmd) return
+      e.preventDefault()
+      if (cmd.enabled) cmd.run()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const pickAsset = useCallback((row: AssetRow): void => {
+    if (row.draft) {
+      // A create draft resumes under its own id (drafts are id-keyed — `keyOf` in
+      // main/services/drafts.ts); an ORPHANED edit draft has no file left, so it opens in edit
+      // mode and `AssetTab`'s resolve finds the draft with no disk behind it.
+      setState((s) =>
+        openTab(s, {
+          kind: row.draft!.kind,
+          name: row.name,
+          mode: row.draft!.mode,
+          ...(row.draft!.draftId ? { draftId: row.draft!.draftId } : {})
+        })
+      )
+      return
+    }
+    setState((s) => openTab(s, { kind: row.kind as AuthoringKind, name: row.name, mode: 'edit' }))
+  }, [])
+
+  const discardDraftRow = useCallback(
+    (row: AssetRow): void => {
+      if (!row.draft) return
+      void (async () => {
+        try {
+          await window.argus.editor.discardDraft(
+            row.draft!.draftId
+              ? { draftId: row.draft!.draftId }
+              : { kind: row.draft!.kind, name: row.name }
+          )
+        } catch (e) {
+          await alert({
+            title: `Could not discard the draft for "${row.name}".`,
+            message: e instanceof Error ? e.message : String(e)
+          })
+          return
+        }
+        refreshAssets()
+      })()
+    },
+    [refreshAssets]
+  )
 
   /**
    * The window's ONE inbound message consumer. Drains the module-scope queue (see
@@ -384,11 +575,24 @@ export function EditorApp(): React.JSX.Element {
                 onSaved={onSaved}
                 onViewStateChange={onViewStateChange}
                 onEditCopy={editCopy}
+                onCommandState={onCommandState}
+                registerPane={registerPane}
               />
             )
           })
         )}
       </div>
+      {palette !== null && (
+        <CommandPalette
+          raw={palette}
+          onRawChange={setPalette}
+          commands={commands}
+          assets={assetRows}
+          onPickAsset={pickAsset}
+          onDiscardDraft={discardDraftRow}
+          onClose={() => setPalette(null)}
+        />
+      )}
       {forking && (
         <ForkSkillDialog
           sourceName={forking.name}
