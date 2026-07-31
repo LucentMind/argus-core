@@ -60,7 +60,14 @@ export function EditorApp(): React.JSX.Element {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 border border-hair bg-panel">
         {open ? (
           <AssetTab
-            key={`${open.kind}/${open.name}/${open.mode}`}
+            // `draftId` is part of the identity, not just an extra field: two create-mode tabs
+            // can legitimately share kind/name/mode (every "New skill" opens as `my-skill`), and
+            // resuming a specific draft from the banner re-sends the *same* kind/name/mode with a
+            // different `draftId`. AssetTab only adopts an incoming `draftId` through its
+            // `useState` initializer, which runs once per mount — without the id in this key,
+            // that resume would produce an identical key, React would not remount, and the click
+            // would silently do nothing.
+            key={`${open.kind}/${open.name}/${open.mode}/${open.draftId ?? ''}`}
             req={open}
             onDirtyChange={setDirty}
           />

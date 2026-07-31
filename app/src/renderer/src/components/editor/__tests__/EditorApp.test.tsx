@@ -72,6 +72,7 @@ beforeEach(() => {
       respondClose,
       draftChanged: vi.fn(),
       readDraft: vi.fn().mockResolvedValue(null),
+      listDrafts: vi.fn().mockResolvedValue([]),
       discardDraft: vi.fn().mockResolvedValue(undefined),
       onDraftSaved: () => () => {}
     },
@@ -284,6 +285,56 @@ describe('EditorApp save wiring', () => {
         'my-skill',
         expect.any(String),
         'h1-second'
+      )
+    )
+  })
+})
+
+// draft-id-rekey gap: create-mode drafts are keyed by a stable `draftId`, but EditorApp's
+// AssetTab key must include it too. Resuming a draft whose name matches the currently open tab's
+// name (the single most likely case — every "New skill" opens as `my-skill`) produces an
+// identical kind/name/mode, so without `draftId` in the key React never remounts AssetTab and the
+// incoming `draftId` never takes effect — the click on the resumable-drafts banner silently does
+// nothing.
+describe('EditorApp resuming a same-named draft', () => {
+  const CREATE: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'create' }
+
+  it("remounts and resolves the resumed draft when it shares the open tab's kind/name/mode", async () => {
+    // Force the create-mode path (no existing asset on disk to fall back to) so the tab's
+    // content is unambiguous evidence of which draft it resolved against.
+    vi.mocked(window.argus.skills.read).mockRejectedValue(new Error('No such skill: my-skill'))
+    const readDraft = vi.mocked(window.argus.editor.readDraft)
+    readDraft.mockImplementation(async (ref) =>
+      'draftId' in ref && ref.draftId === 'resumed-id'
+        ? {
+            kind: 'skill',
+            name: 'my-skill',
+            mode: 'create',
+            content: '# resumed draft content\n',
+            baseHash: null,
+            updatedAt: '2026-07-30T15:00:00.000Z',
+            draftId: 'resumed-id'
+          }
+        : null
+    )
+
+    render(<EditorApp />)
+    openTab!(CREATE)
+    const area = await screen.findByLabelText<HTMLTextAreaElement>('skill · my-skill')
+    // The first tab opened with nothing to restore, so it seeded the create template.
+    expect(area.value).toContain('name: my-skill')
+
+    // Same kind/name/mode as the tab already open, but a different draftId — the shape a click
+    // on the resumable-drafts banner produces.
+    openTab!({ ...CREATE, draftId: 'resumed-id' })
+
+    // The resumed id must actually be looked up...
+    await waitFor(() => expect(readDraft).toHaveBeenCalledWith({ draftId: 'resumed-id' }))
+    // ...and its content must actually reach the textarea, proving AssetTab really remounted
+    // against the new id rather than the click silently doing nothing.
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLTextAreaElement>('skill · my-skill').value).toBe(
+        '# resumed draft content\n'
       )
     )
   })
