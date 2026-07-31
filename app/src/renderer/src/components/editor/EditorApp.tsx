@@ -3,7 +3,12 @@ import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
 import { ConfirmHost } from '../ConfirmHost'
 import { confirm } from '../../lib/confirmStore'
+import { ForkSkillDialog } from '../settings/ForkSkillDialog'
+import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { drainOpenTabs } from './editorBootstrap'
+import { useAssetTiers } from '../../lib/assetTiers'
+import { isAssetEditable } from '../../../../shared/assetEditable'
+import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
 import {
   activateTab,
   closeTab,
@@ -11,6 +16,7 @@ import {
   emptyTabs,
   openTab,
   renameTab,
+  replaceTab,
   setTabDirty,
   setTabView,
   tabElementId,
@@ -18,14 +24,27 @@ import {
   type Tab,
   type TabsState
 } from './tabs'
+import type { AuthoringKind } from '../../../../shared/authoringIpc'
+import type { TierLookup } from '../../../../shared/assetEditable'
 import type { TabViewState } from '../../../../shared/editorIpc'
 
 interface TabPaneProps {
   tab: Tab
   active: boolean
+  /** Computed once per render in the `.map` below, off `useAssetTiers`/`isAssetEditable` — kept
+   *  out of this component so its own re-renders (which can be frequent; see the identity-
+   *  stability note above) never re-run that lookup. */
+  readOnly: boolean
+  /** Raw tier, for `ReadOnlyNotice`'s explanation and the status-bar badge below. `undefined`
+   *  (unresolved) and `null` (untagged) both mean "no badge, and never read-only" — see
+   *  assetTiers.ts. */
+  tier: TierLookup
   onDirtyChange: (id: string, dirty: boolean) => void
   onNameChange: (id: string, name: string) => void
   onViewStateChange: (id: string, view: TabViewState) => void
+  /** *Edit a copy* (spec §6.2). Takes the same primitives as the other three callbacks below,
+   *  not the whole `Tab` — see the comment on `handleEditCopy`. */
+  onEditCopy: (id: string, kind: AuthoringKind, name: string) => void
 }
 
 /**
@@ -47,9 +66,12 @@ interface TabPaneProps {
 function TabPane({
   tab,
   active,
+  readOnly,
+  tier,
   onDirtyChange,
   onNameChange,
-  onViewStateChange
+  onViewStateChange,
+  onEditCopy
 }: TabPaneProps): React.JSX.Element {
   const handleDirtyChange = useCallback(
     (d: boolean) => onDirtyChange(tab.id, d),
@@ -63,6 +85,19 @@ function TabPane({
     (v: TabViewState) => onViewStateChange(tab.id, v),
     [tab.id, onViewStateChange]
   )
+  // Same treatment as the three callbacks above: bound on `tab.id`/`tab.kind`/`tab.req.name`
+  // rather than closing over `tab` itself. `tab` is not identity-stable across a dirty toggle
+  // (`patch` in tabs.ts spreads a fresh object for the same id on every keystroke elsewhere in
+  // the window), so closing over it here would defeat the whole point of pulling `TabPane` out
+  // of the `.map` — see the file-level comment on this component.
+  const handleEditCopy = useCallback(
+    () => onEditCopy(tab.id, tab.kind, tab.req.name),
+    [tab.id, tab.kind, tab.req.name, onEditCopy]
+  )
+  // `Chip`-style provenance badge (spec §5.5): the Library's one-word labels, not the raw tier
+  // string. An unresolved or untagged tier gets no badge — a raw slug in the status bar would
+  // read as a bug, and neither case is ever read-only anyway (see assetEditable.ts).
+  const tierLabel = tier && tier in TIER_LABELS ? TIER_LABELS[tier as TrustTier] : undefined
 
   return (
     // The whole class string swaps rather than toggling the `hidden` ATTRIBUTE: `[hidden]`
@@ -76,6 +111,14 @@ function TabPane({
       aria-labelledby={tabElementId(tab.id)}
       className={active ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
     >
+      {readOnly && (
+        <ReadOnlyNotice
+          kind={tab.kind}
+          name={tab.req.name}
+          tier={tier ?? null}
+          onEditCopy={handleEditCopy}
+        />
+      )}
       <AssetTab
         // `tab.req`, NOT a request rebuilt from `tab.name`. The two differ exactly while a
         // create-mode tab is being renamed, and rebuilding would re-run AssetTab's resolve
@@ -83,7 +126,8 @@ function TabPane({
         // draft under a live buffer. See tabs.ts's note on `req`.
         req={tab.req}
         active={active}
-        readOnly={false}
+        readOnly={readOnly}
+        tier={tierLabel}
         initialViewState={tab.view}
         onDirtyChange={handleDirtyChange}
         onNameChange={handleNameChange}
@@ -106,6 +150,14 @@ function TabPane({
 export function EditorApp(): React.JSX.Element {
   const [state, setState] = useState<TabsState>(emptyTabs)
   const dirty = dirtyCount(state)
+  const tierOf = useAssetTiers()
+  // Only a skill fork needs a name-entry dialog (a claim keeps its name) — `tier` here is the
+  // skill triple `ForkSkillDialog` expects, and a read-only skill is never `user` (assetEditable.ts).
+  const [forking, setForking] = useState<{
+    id: string
+    name: string
+    tier: 'bundled' | 'hivemind'
+  } | null>(null)
 
   // Read across the async confirm in the close handler so the answer reflects the tab set now,
   // not when the subscription was created.
@@ -135,6 +187,41 @@ export function EditorApp(): React.JSX.Element {
   }, [])
   const onActivate = useCallback((id: string) => setState((s) => activateTab(s, id)), [])
   const onClose = useCallback((id: string) => setState((s) => closeTab(s, id)), [])
+
+  /**
+   * *Edit a copy* (spec §6.2). Takes `(id, kind, name)` rather than a whole `Tab` so `TabPane`
+   * can bind it on the same primitives as the other tab callbacks — see the comment on
+   * `handleEditCopy` there.
+   *
+   * The two flows are asymmetric on purpose: a skill FORK creates a new name, so it needs the
+   * name-entry dialog and its inline collision retry (`forkSkill` throws on a taken name); a
+   * reference CLAIM keeps the same name and only changes the tier, so a plain confirm suffices.
+   * Both still finish through `replaceTab` — that is what remounts the surface without its
+   * `readOnly`, for either flow (see tabs.ts).
+   */
+  const editCopy = useCallback(
+    (id: string, kind: AuthoringKind, name: string): void => {
+      if (kind === 'skill') {
+        const tier = tierOf(kind, name)
+        setForking({ id, name, tier: tier === 'bundled' ? 'bundled' : 'hivemind' })
+        return
+      }
+      void (async () => {
+        const ok = await confirm({
+          title: `Make "${name}" yours?`,
+          message:
+            'It is restamped as your own reference and becomes shareable. Updates no longer track HiveMind.',
+          confirmLabel: 'Claim'
+        })
+        if (!ok) return
+        await window.argus.hivemind.claimReference(name)
+        // Same name, new tier. Still a replaceTab: the surface has to remount to lose its
+        // `readOnly`, which is exactly what a fresh tab id buys (see tabs.ts's replaceTab).
+        setState((s) => replaceTab(s, id, { kind: 'reference', name, mode: 'edit' }))
+      })()
+    },
+    [tierOf]
+  )
 
   useEffect(
     () =>
@@ -173,18 +260,43 @@ export function EditorApp(): React.JSX.Element {
             Nothing open. Pick a skill or reference in the Library.
           </div>
         ) : (
-          state.tabs.map((t) => (
-            <TabPane
-              key={t.id}
-              tab={t}
-              active={t.id === state.activeId}
-              onDirtyChange={onDirtyChange}
-              onNameChange={onNameChange}
-              onViewStateChange={onViewStateChange}
-            />
-          ))
+          state.tabs.map((t) => {
+            // Create mode has no tier to look up and must never be gated on one — a create-mode
+            // tab is always editable, and this skips the lookup rather than trusting `undefined`
+            // (unresolved) to happen to fail open the same way.
+            const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.req.name)
+            const readOnly = t.mode !== 'create' && !isAssetEditable(t.kind, tier)
+            return (
+              <TabPane
+                key={t.id}
+                tab={t}
+                active={t.id === state.activeId}
+                readOnly={readOnly}
+                tier={tier}
+                onDirtyChange={onDirtyChange}
+                onNameChange={onNameChange}
+                onViewStateChange={onViewStateChange}
+                onEditCopy={editCopy}
+              />
+            )
+          })
         )}
       </div>
+      {forking && (
+        <ForkSkillDialog
+          sourceName={forking.name}
+          tier={forking.tier}
+          onCancel={() => setForking(null)}
+          onConfirm={async (newName) => {
+            // Deliberately does NOT catch: ForkSkillDialog surfaces a rejected (colliding) name
+            // inline and stays open for another try, which is what makes the collision
+            // recoverable instead of dumping the user back on a dead tab.
+            const { name } = await window.argus.skills.fork(forking.name, newName)
+            setState((s) => replaceTab(s, forking.id, { kind: 'skill', name, mode: 'edit' }))
+            setForking(null)
+          }}
+        />
+      )}
       <ConfirmHost />
     </div>
   )

@@ -91,12 +91,83 @@ beforeEach(() => {
       // a bare hash. The 'h1-new' vs 'h1' distinction (and h2 vs h2-new below) lets assertions
       // tell "the hash the read gave us" apart from "the hash the write gave back" instead of
       // both accidentally being the same literal.
-      write: vi.fn().mockResolvedValue({ skills: [], hash: 'h1-new' })
+      write: vi.fn().mockResolvedValue({ skills: [], hash: 'h1-new' }),
+      // Backs useAssetTiers (Task 7): 'theirs' is the fixture's one read-only (hivemind) skill,
+      // everything else this file opens is a plain 'user' skill.
+      list: vi.fn().mockResolvedValue({
+        skills: [
+          {
+            name: 'my-skill',
+            tier: 'user',
+            description: '',
+            enabled: true,
+            shadows: [],
+            shadowDiverged: false,
+            author: null
+          },
+          {
+            name: 'other-skill',
+            tier: 'user',
+            description: '',
+            enabled: true,
+            shadows: [],
+            shadowDiverged: false,
+            author: null
+          },
+          {
+            name: 'theirs',
+            tier: 'hivemind',
+            description: '',
+            enabled: true,
+            shadows: [],
+            shadowDiverged: false,
+            author: null
+          }
+        ]
+      }),
+      onChanged: () => () => {},
+      // Echoes back the requested name (real forkSkill's result names what was actually created),
+      // rather than a fixed literal, so the "forks under the name the user picks" test proves the
+      // tab really followed the returned name and not a hardcoded one.
+      fork: vi
+        .fn()
+        .mockImplementation((name: string, newName?: string) =>
+          Promise.resolve({ name: newName ?? name, skills: [] })
+        )
     },
     refsync: {
       readRef: vi.fn().mockResolvedValue({ content: '# ref\n', hash: 'h2' }),
       // refsync:write's real result is a bare hash string, unlike skills:write's object.
-      writeRef: vi.fn().mockResolvedValue('h2-new')
+      writeRef: vi.fn().mockResolvedValue('h2-new'),
+      // Backs useAssetTiers: 'notes.md' is untagged (tier: null — hand-authored, editable);
+      // 'synced.md' is hive-managed (tier: 'confluence' — read-only).
+      get: vi.fn().mockResolvedValue({
+        config: {},
+        loadError: null,
+        cards: [],
+        references: [
+          {
+            file: 'notes.md',
+            tier: null,
+            lastSynced: null,
+            sourceCount: 0,
+            stale: false,
+            author: null
+          },
+          {
+            file: 'synced.md',
+            tier: 'confluence',
+            lastSynced: null,
+            sourceCount: 0,
+            stale: false,
+            author: null
+          }
+        ]
+      }),
+      onChanged: () => () => {}
+    },
+    hivemind: {
+      claimReference: vi.fn().mockResolvedValue({})
     }
   } as never
 })
@@ -487,5 +558,85 @@ describe('tab/panel ARIA relationship', () => {
     const firstArea = screen.getByLabelText('skill · my-skill')
     const firstPanel = firstArea.closest('[role="tabpanel"]')
     expect(firstPanel).not.toHaveAttribute('aria-hidden')
+  })
+})
+
+describe('read-only tabs', () => {
+  it('opens a hivemind skill read-only', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
+
+  it('opens a user skill editable', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  // The regression guard from finding 1: an untagged reference is hand-authored and editable.
+  it('opens an untagged reference editable', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'notes.md', mode: 'edit' }))
+    await screen.findByLabelText('reference · notes.md')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('opens a confluence reference read-only', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
+  })
+
+  // Create mode has no tier to look up and must never be gated on one.
+  it('opens a create-mode tab editable', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'brand-new', mode: 'create' }))
+    await screen.findByLabelText(/name/i)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+})
+
+describe('Edit a copy', () => {
+  it('forks a skill under the name the user picks and swaps the tab to it', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    const field = await screen.findByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'my-copy')
+    await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
+    await waitFor(() => expect(window.argus.skills.fork).toHaveBeenCalledWith('theirs', 'my-copy'))
+    expect(await screen.findByRole('tab', { name: /my-copy/ })).toBeInTheDocument()
+  })
+
+  it('does not add a tab — it replaces the read-only one', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
+    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(1))
+  })
+
+  it('claims a reference in place and keeps its name', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^claim$/i }))
+    await waitFor(() =>
+      expect(window.argus.hivemind.claimReference).toHaveBeenCalledWith('synced.md')
+    )
+    expect(await screen.findByRole('tab', { name: /synced\.md/ })).toBeInTheDocument()
+  })
+
+  it('leaves the tab alone when the claim is declined', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'synced.md', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /^cancel$/i }))
+    expect(window.argus.hivemind.claimReference).not.toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent(/read-only/i)
   })
 })
