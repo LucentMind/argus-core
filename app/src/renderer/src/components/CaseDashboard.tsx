@@ -9,6 +9,8 @@ import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { useGlassPointer } from '../lib/useGlassPointer'
+import { greetingFor } from '../lib/greeting'
+import { githubLogin } from '../lib/githubIdentity'
 import { STATUS_ORDER, STATUS_WORD } from '../lib/caseStatus'
 import { StatusDot } from './StatusDot'
 
@@ -29,6 +31,7 @@ export function CaseDashboard({
   const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [pendingKnowledge, setPendingKnowledge] = useState(0)
+  const [login, setLogin] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [showClosed, setShowClosed] = useState(false)
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'all'>('all')
@@ -53,6 +56,19 @@ export function CaseDashboard({
         if (mounted) setPendingKnowledge(p.proposals.length)
       })
       .catch(() => undefined)
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // Cached in githubIdentity for the renderer's lifetime, so remounting home on every return
+  // from a case doesn't re-spawn gh. Resolves null (never rejects) when gh is absent or logged
+  // out, which renders the bare greeting.
+  useEffect(() => {
+    let mounted = true
+    void githubLogin().then((l) => {
+      if (mounted) setLogin(l)
+    })
     return () => {
       mounted = false
     }
@@ -172,15 +188,15 @@ export function CaseDashboard({
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2.5">
         <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h1
-              ref={anchors.setLight}
-              className="font-brand font-normal leading-[1.2] text-brand"
-              style={{ fontSize: 32, letterSpacing: 11 }}
-            >
-              ARGUS
+          <div className="flex flex-col gap-2.5">
+            {/* Still the ambient light source (the aurora anchors to this rect), but no longer
+                the wordmark — that moved to the top bar. Sans, not the brand face: Michroma at
+                letterSpacing 11 is built for five letters, not a sentence. */}
+            <h1 ref={anchors.setLight} className="text-[30px] font-light leading-[1.2] text-ink">
+              {greetingFor(new Date())}
+              {login ? `, ${login}` : ''}
             </h1>
             {pendingKnowledge > 0 && (
               <p className="flex items-center gap-2 text-xs text-dim">
@@ -208,15 +224,19 @@ export function CaseDashboard({
             stale `.current` read, so the compiler's react-hooks/refs heuristic
             here is a false positive. */}
         {/* eslint-disable-next-line react-hooks/refs */}
-        <div ref={anchors.setCutoff} className="mt-2 flex flex-wrap items-center gap-2">
+        <div ref={anchors.setCutoff} className="flex flex-wrap items-center gap-2">
+          {/* The input is sized DOWN to the buttons rather than the buttons up to it: `Btn`'s
+              h-7 comes from BTN_BASE, and a height class appended at the call site is resolved
+              by Tailwind's emission order, not attribute order — see IconBtn's note in ui.tsx.
+              Matching the primitive costs nothing and can't silently stop working. */}
           <div className="relative">
             <Search
-              size={14}
+              size={13}
               aria-hidden="true"
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mute"
             />
             <input
-              className="h-8 w-56 rounded-r2 border border-hair bg-overlay pl-8 pr-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
+              className="h-7 w-56 rounded-r2 border border-hair2 bg-overlay pl-7 pr-2.5 text-xs text-ink placeholder:text-mute transition-colors focus:border-faint"
               placeholder="Search cases…"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -229,18 +249,21 @@ export function CaseDashboard({
             variant="outline"
             align="left"
           />
-          <Checkbox
-            checked={showClosed}
-            onChange={setShowClosed}
-            aria-label="Show closed cases"
-            label="Show closed"
-          />
-          <div className="h-5 w-px shrink-0 bg-hair" aria-hidden="true" />
-          <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
-            <RefreshCw size={13} aria-hidden="true" />
-            {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
-          </Btn>
+          {/* Left of the ml-auto on purpose: the note appears only after a sync finishes, and
+              inside the right-hand group it would shove Sync all and Show closed sideways. */}
           {syncNote && <span className="text-xs text-dim">{syncNote}</span>}
+          <div className="ml-auto flex items-center gap-3">
+            <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
+              <RefreshCw size={13} aria-hidden="true" />
+              {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
+            </Btn>
+            <Checkbox
+              checked={showClosed}
+              onChange={setShowClosed}
+              aria-label="Show closed cases"
+              label="Show closed"
+            />
+          </div>
         </div>
       </div>
       <div ref={gridRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -30,8 +30,19 @@ export function TopBar({
 
   return (
     <header className="flex h-16 items-center gap-1.5 border-b border-hair bg-deep px-3">
-      <button className={ACTION_BTN} onClick={onHome} aria-label="All cases" title="All cases">
-        <Home size={21} strokeWidth={1.5} />
+      {/* Wordmark and home control are one button, not two adjacent things: the brand belongs
+          top-left on every view, and the top bar is the only chrome that renders on all of them —
+          which is what lets home and Settings drop their local copies of the wordmark. */}
+      <button
+        className="flex h-10 shrink-0 items-center gap-1.5 rounded-r2 border border-hair px-3 text-dim transition-colors hover:border-hair2 hover:bg-hair hover:text-ink"
+        onClick={onHome}
+        aria-label="All cases"
+        title="All cases"
+      >
+        <span className="font-brand text-[13px] text-brand" style={{ letterSpacing: 5 }}>
+          ARGUS
+        </span>
+        <Home size={18} strokeWidth={1.5} />
       </button>
       <div className="mx-1 h-6 w-px bg-hair" />
       <nav

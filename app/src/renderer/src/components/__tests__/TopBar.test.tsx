@@ -52,6 +52,15 @@ describe('TopBar', () => {
     expect(onHome).toHaveBeenCalled()
   })
 
+  // The wordmark lives here and only here — home and Settings dropped their own copies, so a
+  // regression that split these back into two controls would leave the app unbranded.
+  it('carries the wordmark inside the home button, not beside it', () => {
+    render(<TopBar activeSlug={null} onHome={vi.fn()} onSelect={vi.fn()} onSettings={vi.fn()} />)
+    const home = screen.getByRole('button', { name: 'All cases' })
+    expect(home.textContent).toContain('ARGUS')
+    expect(screen.getAllByText('ARGUS')).toHaveLength(1)
+  })
+
   it('gear button fires onSettings', () => {
     const onSettings = vi.fn()
     render(<TopBar activeSlug={null} onHome={vi.fn()} onSelect={vi.fn()} onSettings={onSettings} />)

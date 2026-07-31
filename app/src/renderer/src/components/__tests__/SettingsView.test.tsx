@@ -454,6 +454,24 @@ describe('SettingsView', () => {
       expect(screen.getByTestId('settings-blurb').textContent).toBeTruthy()
     })
 
+    // The wordmark moved to the top bar's home button; a second copy here would put two brand
+    // marks in one window.
+    it('carries no wordmark of its own', async () => {
+      render(<SettingsView onClose={vi.fn()} />)
+      await screen.findByRole('button', { name: /General/ })
+      expect(screen.queryByText('ARGUS')).toBeNull()
+    })
+
+    // Blurbs vary from 46 to 97 chars; a masthead that grows a line when you navigate shifts
+    // the whole content column, so the line count is pinned rather than left to the text.
+    it('keeps the title and blurb to one line each, with the full blurb on hover', async () => {
+      render(<SettingsView onClose={vi.fn()} initialPage={'proposals'} />)
+      const blurb = await screen.findByTestId('settings-blurb')
+      expect(blurb.className).toContain('truncate')
+      expect(blurb.getAttribute('title')).toBe(blurb.textContent)
+      expect(screen.getByTestId('settings-title').className).toContain('truncate')
+    })
+
     it('follows the active page when switching via the nav', async () => {
       render(<SettingsView onClose={vi.fn()} />)
       await screen.findByRole('button', { name: /General/ })

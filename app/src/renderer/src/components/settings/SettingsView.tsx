@@ -115,14 +115,10 @@ export function SettingsView({
           react-hooks/refs is a false positive here. */}
       {/* eslint-disable-next-line react-hooks/refs */}
       <div ref={anchors.setCutoff} className="flex shrink-0 items-end border-b border-hair pb-3.5">
-        {/* pl-[22px]: matches the nav rail's own text indent below (p-3 + the button's
-            px-2.5), not the arbitrary px-3.5 this used to carry — so the wordmark lines up
-            with the nav items under it instead of sitting 8px to their left. */}
-        <div className="w-48 shrink-0 pl-[22px] pr-3.5">
-          <span className="font-brand text-[13px] text-brand" style={{ letterSpacing: 5 }}>
-            ARGUS
-          </span>
-        </div>
+        {/* Spacer, not a container. The wordmark moved into the top bar's home button — one brand
+            mark per window — but this column's width is still load-bearing: it is what holds the
+            title on the same x as the content column beside the nav rail. */}
+        <div className="w-48 shrink-0" aria-hidden="true" />
         {/* Masthead stays full width (unlike home, this is the one deliberately-unconditional
             layout exception — see CLAUDE.md) so the ambient ribbon still lights the nav rail's
             top edge. But the title/blurb themselves live in their own `mx-auto max-w-6xl`
@@ -139,11 +135,18 @@ export function SettingsView({
               // eslint-disable-next-line react-hooks/refs
               ref={anchors.setLight}
               data-testid="settings-title"
-              className="text-[23px] font-light text-ink"
+              className="truncate text-[23px] font-light text-ink"
             >
               {active.label}
             </h1>
-            <p data-testid="settings-blurb" className="max-w-[62ch] text-xs text-dim">
+            {/* Single line, always: several blurbs wrap at narrow widths, and a masthead that
+                grows by a line on navigation shoves the whole content column down. `title`
+                keeps the full text reachable when it is clipped. */}
+            <p
+              data-testid="settings-blurb"
+              title={active.blurb}
+              className="truncate text-xs text-dim"
+            >
               {active.blurb}
             </p>
           </div>

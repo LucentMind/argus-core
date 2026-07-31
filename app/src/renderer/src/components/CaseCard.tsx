@@ -6,6 +6,7 @@ import { PrRollupIcon } from './PrRollupDot'
 import { StatusDot } from './StatusDot'
 import { SyncBadge } from './SyncBadge'
 import { railTier } from '../lib/priorityRail'
+import { priorityIconFor } from '../lib/priorityIcon'
 import { STATUS_WORD } from '../lib/caseStatus'
 import { Download, Trash2, MessageSquare, Paperclip } from 'lucide-react'
 
@@ -73,6 +74,7 @@ export function CaseCard({
   // in the model — triageRank uses it to sort neglected cases up.
   const infos = c.actionItems.filter((i) => i.severity === 'info' && i.kind !== 'stale')
   const tier = railTier(c.jiraPriority)
+  const priority = priorityIconFor(c.jiraPriority)
   // Rail = needs attention (the mock's has-unread semantics), not importance: a dashboard of
   // uniformly-railed cards says nothing.
   const showRail = tier !== null && actions.length > 0
@@ -82,15 +84,32 @@ export function CaseCard({
       onClick={() => onOpen(c.slug)}
       variant={dynamic ? 'glass' : 'default'}
       style={dynamic ? ({ '--d': `${50 + index * 40}ms` } as React.CSSProperties) : undefined}
-      className="group relative flex min-h-[186px] flex-col gap-2 overflow-hidden p-4"
+      className="group relative flex min-h-[158px] flex-col gap-1.5 overflow-hidden p-4"
     >
       {showRail && (
         <i data-testid="priority-rail" data-tier={tier} aria-hidden="true" className="gc-rail" />
       )}
       <div className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-sm text-defect">{c.slug}</span>
-          {c.jiraPriority && <Chip tone="neutral">{c.jiraPriority}</Chip>}
+          <span className="truncate font-mono text-sm text-signal">{c.slug}</span>
+          {/* Jira-style glyph where we recognise the scheme, the bare word where we don't —
+              priority names are per-project, and an unmapped value must still be readable
+              rather than silently vanishing. */}
+          {priority ? (
+            // The label and tooltip live on the wrapper, not the svg: lucide's prop type has no
+            // `title`, and a glyph with no text needs an accessible name either way.
+            <span
+              data-testid="priority-icon"
+              role="img"
+              aria-label={`Priority: ${c.jiraPriority}`}
+              title={c.jiraPriority!}
+              className={`shrink-0 ${priority.className}`}
+            >
+              <priority.Icon size={15} strokeWidth={2.5} aria-hidden="true" />
+            </span>
+          ) : (
+            c.jiraPriority && <Chip tone="neutral">{c.jiraPriority}</Chip>
+          )}
         </span>
         <span className={`flex shrink-0 items-center gap-1.5 text-xs ${STATUS_COLOR[c.status]}`}>
           <StatusDot color={STATUS_COLOR[c.status]} />

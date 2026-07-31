@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CaseDashboard } from '../CaseDashboard'
 import { settingsStore } from '../../lib/settingsStore'
+import { resetGithubIdentity } from '../../lib/githubIdentity'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseRecord } from '../../../../shared/types'
 import { DEFAULT_MODE } from '../../../../shared/modes'
@@ -58,6 +59,9 @@ beforeEach(() => {
     }
   } as never
   settingsStore.reset()
+  // The login is memoised for the renderer's lifetime, which in a test file means "for the whole
+  // file" — without this the first case to resolve it decides the greeting for every later one.
+  resetGithubIdentity()
 })
 
 describe('CaseDashboard', () => {
@@ -121,6 +125,48 @@ describe('CaseDashboard', () => {
     // hide-closed defaults to on — reveal the closed case first
     fireEvent.click(screen.getByLabelText('Show closed cases'))
     expect(screen.getByText('Closed · wont-fix')).toBeTruthy()
+  })
+
+  describe('greeting', () => {
+    function renderHome(): void {
+      render(
+        <CaseDashboard
+          cases={[]}
+          onOpen={vi.fn()}
+          onNew={vi.fn()}
+          onImport={vi.fn()}
+          onDeleted={vi.fn()}
+        />
+      )
+    }
+
+    it('greets by time of day and addresses the gh user', async () => {
+      window.argus.sourceControl = {
+        status: vi.fn().mockResolvedValue({ authenticated: true, login: 'octocat' })
+      } as never
+      renderHome()
+      const heading = await screen.findByRole('heading', {
+        name: /^Good (morning|afternoon|evening), octocat$/
+      })
+      expect(heading).toBeTruthy()
+    })
+
+    // gh is optional: not installed, not logged in, or an IPC failure must all leave a usable
+    // masthead rather than an empty one or a thrown render.
+    it('falls back to the bare greeting when there is no gh login', async () => {
+      window.argus.sourceControl = {
+        status: vi.fn().mockResolvedValue({ authenticated: false, login: null })
+      } as never
+      renderHome()
+      expect(
+        await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening)$/ })
+      ).toBeTruthy()
+    })
+
+    it('no longer prints the wordmark — that moved to the top bar', () => {
+      renderHome()
+      expect(screen.queryByText('ARGUS')).toBeNull()
+    })
   })
 
   it('New and Import actions share one tile', () => {

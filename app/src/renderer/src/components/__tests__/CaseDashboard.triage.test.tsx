@@ -206,7 +206,8 @@ describe('CaseDashboard triage', () => {
 
   it('shows the jira priority', () => {
     render(<CaseDashboard cases={[mkCase({ jiraPriority: 'High' })]} {...noopHandlers} />)
-    expect(screen.getByText(/High/)).toBeInTheDocument()
+    // A glyph now, so the priority name survives only as the accessible name.
+    expect(screen.getByLabelText('Priority: High')).toBeInTheDocument()
   })
 
   it('renders a sync failure on the card itself', () => {
@@ -318,11 +319,19 @@ describe('CaseDashboard triage', () => {
     expect(await screen.findByText(/nope/)).toBeInTheDocument()
   })
 
-  it('shows the Jira priority as a neutral pill, not as footer prose', () => {
+  it('shows a recognised Jira priority as a severity-coloured glyph, not as text', () => {
     render(<CaseDashboard cases={[mkCase({ jiraPriority: 'High' })]} {...noopHandlers} />)
-    const pill = screen.getByText('High')
-    expect(pill.className).toContain('text-dim')
-    expect(pill.className).not.toContain('text-danger')
+    const icon = screen.getByTestId('priority-icon')
+    expect(icon.className).toContain('text-danger')
+    expect(screen.queryByText('High')).toBeNull()
+  })
+
+  // Priority schemes are per-project, so an unmapped value has to degrade to the word rather
+  // than to nothing — dropping it would silently lose the only priority signal on the card.
+  it('falls back to the text chip for a priority scheme it does not recognise', () => {
+    render(<CaseDashboard cases={[mkCase({ jiraPriority: 'Escalated' })]} {...noopHandlers} />)
+    expect(screen.queryByTestId('priority-icon')).toBeNull()
+    expect(screen.getByText('Escalated')).toBeInTheDocument()
   })
 
   it('omits the pill entirely when the case has no priority', () => {
@@ -362,9 +371,9 @@ describe('CaseDashboard triage', () => {
     expect(title.textContent).toBe('CLONE - [NAV]Stopover reached too early and route missing')
   })
 
-  it('puts the counts below the wordmark, not above it', () => {
+  it('puts the counts below the greeting, not above it', () => {
     render(<CaseDashboard cases={[mkCase({ status: 'open' })]} {...noopHandlers} />)
-    const heading = screen.getByRole('heading', { name: 'ARGUS' })
+    const heading = screen.getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ })
     const counts = screen.getByText(/1 Open/)
     // Node.compareDocumentPosition: 4 = "counts follows heading in document order"
     expect(heading.compareDocumentPosition(counts) & 4).toBeTruthy()
