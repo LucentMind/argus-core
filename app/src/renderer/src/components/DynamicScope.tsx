@@ -33,14 +33,14 @@ export function DynamicScope({
   )
   const [light, setLight] = useState<HTMLElement | null>(null)
   const [cutoff, setCutoff] = useState<HTMLElement | null>(null)
-  const anchors = useMemo<AmbientAnchors>(() => ({ setHero: setLight, setFilters: setCutoff }), [])
+  const anchors = useMemo<AmbientAnchors>(() => ({ setLight, setCutoff }), [])
   if (!ui.dynamicTheme) return <>{children}</>
   return (
     <div
       className={`dyn dyn-${variant} relative min-h-full bg-void`}
       data-testid={`dynamic-${variant}`}
     >
-      <AmbientCanvas hero={light} filters={cutoff} theme={ui.theme} />
+      <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} />
       <div className="dyn-grain" aria-hidden="true" />
       <AmbientAnchorContext.Provider value={anchors}>
         <div className="relative z-[1]">{children}</div>

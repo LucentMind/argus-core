@@ -148,21 +148,21 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
 }
 
 export function AmbientCanvas({
-  hero,
-  filters,
+  light,
+  cutoff,
   theme
 }: {
-  hero: HTMLElement | null
-  filters: HTMLElement | null
+  light: HTMLElement | null
+  cutoff: HTMLElement | null
   theme: Theme
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [fallback, setFallback] = useState(false)
   // Latest props, readable from inside the one-shot GL effect without rebuilding it.
-  const latest = useRef({ hero, filters, theme })
+  const latest = useRef({ light, cutoff, theme })
   useEffect(() => {
-    latest.current = { hero, filters, theme }
-  }, [hero, filters, theme])
+    latest.current = { light, cutoff, theme }
+  }, [light, cutoff, theme])
   // measure+palette entry point the props effect below pokes after re-renders.
   const api = useRef<{ refresh: () => void } | null>(null)
 
@@ -239,9 +239,9 @@ export function AmbientCanvas({
       if (disposed || !gl) return
       const wrapper = host.parentElement
       if (!wrapper) return
-      const { hero: heroEl, filters: filtersEl, theme: th } = latest.current
+      const { light: lightEl, cutoff: cutoffEl, theme: th } = latest.current
       const wr = wrapper.getBoundingClientRect()
-      const cutoff = filtersEl ? filtersEl.getBoundingClientRect().bottom - wr.top : 460
+      const cutoff = cutoffEl ? cutoffEl.getBoundingClientRect().bottom - wr.top : 460
       const w = Math.max(1, Math.round(wr.width))
       const h = Math.max(1, Math.round(cutoff + CUTOFF_FEATHER))
       canvas.style.height = `${h}px`
@@ -254,8 +254,8 @@ export function AmbientCanvas({
       // must match what gl_FragCoord sees, or every light drifts by the error
       gl.uniform2f(u.buf, canvas.width, canvas.height)
       gl.uniform1f(u.cutoff, cutoff)
-      if (heroEl) {
-        const hr = heroEl.getBoundingClientRect()
+      if (lightEl) {
+        const hr = lightEl.getBoundingClientRect()
         gl.uniform4f(u.hero, hr.x - wr.x, hr.y - wr.y, hr.width, hr.height)
         gl.uniform1f(u.heroOn, 1)
       } else {
@@ -319,7 +319,7 @@ export function AmbientCanvas({
   // anchors/theme changed → re-measure and re-palette without rebuilding GL
   useEffect(() => {
     api.current?.refresh()
-  }, [hero, filters, theme])
+  }, [light, cutoff, theme])
 
   if (fallback) {
     return (

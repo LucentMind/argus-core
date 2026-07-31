@@ -176,7 +176,7 @@ export function CaseDashboard({
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
             <h1
-              ref={anchors.setHero}
+              ref={anchors.setLight}
               className="font-brand font-normal leading-[1.2] text-brand"
               style={{ fontSize: 32, letterSpacing: 11 }}
             >
@@ -203,12 +203,12 @@ export function CaseDashboard({
             </Btn>
           </div>
         </div>
-        {/* anchors.setHero/setFilters are useState setters used directly as ref
+        {/* anchors.setLight/setCutoff are useState setters used directly as ref
             callbacks (the React-documented way to observe a DOM node) — not a
             stale `.current` read, so the compiler's react-hooks/refs heuristic
             here is a false positive. */}
         {/* eslint-disable-next-line react-hooks/refs */}
-        <div ref={anchors.setFilters} className="mt-2 flex flex-wrap items-center gap-2">
+        <div ref={anchors.setCutoff} className="mt-2 flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search
               size={14}

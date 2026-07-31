@@ -1,21 +1,23 @@
 import { createContext, useContext } from 'react'
 
 export interface AmbientAnchors {
-  /** Ref callback for the ARGUS wordmark <h1> — the aurora anchors to its rect. */
-  setHero: (el: HTMLElement | null) => void
-  /** Ref callback for the filter row — the light fades out at its bottom edge. */
-  setFilters: (el: HTMLElement | null) => void
+  /** Ref callback for the view's light source — the aurora anchors to its rect.
+   *  Home: the ARGUS wordmark. Case: the case-id menu button. Settings: the page title. */
+  setLight: (el: HTMLElement | null) => void
+  /** Ref callback for the element whose bottom edge the light dies at.
+   *  Home: the filter row. Case: the header. Settings: the masthead. */
+  setCutoff: (el: HTMLElement | null) => void
 }
 
 const noop = (): void => undefined
 
 /**
- * Default no-ops so CaseDashboard can attach its anchor refs unconditionally —
+ * Default no-ops so views can attach their anchor refs unconditionally —
  * outside a dynamic DynamicScope (classic mode, tests) they simply go nowhere.
  */
 export const AmbientAnchorContext = createContext<AmbientAnchors>({
-  setHero: noop,
-  setFilters: noop
+  setLight: noop,
+  setCutoff: noop
 })
 
 export function useAmbientAnchors(): AmbientAnchors {
