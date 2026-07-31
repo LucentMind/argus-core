@@ -43,10 +43,10 @@ describe('PrRollupIcon', () => {
   })
 
   it('gives each state its own glyph, not colour alone', () => {
-    const { container: passing } = render(<PrRollupIcon rollup="passing" />)
     const { container: unstable } = render(<PrRollupIcon rollup="unstable" />)
-    expect(passing.querySelector('svg')?.innerHTML).not.toBe(
-      unstable.querySelector('svg')?.innerHTML
+    const { container: running } = render(<PrRollupIcon rollup="running" />)
+    expect(unstable.querySelector('svg')?.innerHTML).not.toBe(
+      running.querySelector('svg')?.innerHTML
     )
   })
 

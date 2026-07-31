@@ -50,18 +50,21 @@ export function PrRollupDot({
 }
 
 /**
- * The footer form of the same signal. Colour comes from the same token per state as `TONE`, but
- * as `text-*` (an icon strokes with currentColor, it does not fill with a background), and each
- * state additionally differs in glyph — so the states stay distinguishable where two of them
- * share amber, and without relying on animation as the only cue.
+ * The footer form of the same signal. Each state's accessible name is derived from `TONE` to
+ * keep them in sync. Colour comes from the same token set as `TONE`, but as `text-*` (an icon
+ * strokes with currentColor, it does not fill with a background); the `none` and `unavailable`
+ * states use `text-mute` instead of their TONE background tokens, because `--hair-2` and a
+ * border are unsuited to icon strokes. Each state additionally differs in glyph — so the states
+ * stay distinguishable where two of them share amber, and without relying on animation as the only
+ * cue.
  */
 const ICON: Record<PrRollup, { Glyph: LucideIcon; className: string; label: string }> = {
-  passing: { Glyph: CircleCheck, className: 'text-signal', label: 'Checks passing' },
-  failing: { Glyph: CircleX, className: 'text-danger', label: 'Checks failing' },
-  unstable: { Glyph: CircleAlert, className: 'text-defect', label: 'Some checks did not pass' },
-  running: { Glyph: LoaderCircle, className: 'text-defect', label: 'Checks running' },
-  none: { Glyph: Circle, className: 'text-mute', label: 'No checks' },
-  unavailable: { Glyph: CircleHelp, className: 'text-mute', label: 'Status unavailable' }
+  passing: { Glyph: CircleCheck, className: 'text-signal', label: TONE.passing.label },
+  failing: { Glyph: CircleX, className: 'text-danger', label: TONE.failing.label },
+  unstable: { Glyph: CircleAlert, className: 'text-defect', label: TONE.unstable.label },
+  running: { Glyph: LoaderCircle, className: 'text-defect', label: TONE.running.label },
+  none: { Glyph: Circle, className: 'text-mute', label: TONE.none.label },
+  unavailable: { Glyph: CircleHelp, className: 'text-mute', label: TONE.unavailable.label }
 }
 
 export function PrRollupIcon({
