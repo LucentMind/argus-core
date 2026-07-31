@@ -12,6 +12,7 @@ import { SearchBar } from './components/SearchBar'
 import { SettingsView, type SettingsDeepLink } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
 import { TopBar } from './components/TopBar'
+import { UpdateBanner } from './components/UpdateBanner'
 import { citationsTray } from './lib/citationsTray'
 import { viewerForFileNode } from './lib/fileRouting'
 import { composerDraft } from './lib/composerDraft'
@@ -164,6 +165,7 @@ function App(): React.JSX.Element {
         onSettings={() => openSettings()}
         onObservability={openObservability}
       />
+      <UpdateBanner />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {view.kind === 'home' ? (
           <DynamicScope variant="home">

@@ -98,6 +98,14 @@ beforeEach(() => {
         loadError: null
       })),
       onChanged: vi.fn(() => () => {})
+    },
+    // UpdateBanner mounts app-wide (Task 4) and starts the update store on mount.
+    update: {
+      status: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      check: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      download: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      restart: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
     }
   } as never
 })

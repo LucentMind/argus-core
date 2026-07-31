@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { GeneralSettings } from '../GeneralSettings'
 import { onboardingReplay } from '../../../lib/onboardingStore'
@@ -14,6 +14,20 @@ const payload: SettingsPayload = {
   dataRoot: { path: 'C:/tmp/argus', fromEnv: false },
   loadError: null
 }
+
+beforeEach(() => {
+  // UpdateSettings (Task 4) now renders inside GeneralSettings and starts the
+  // update store unconditionally on mount.
+  window.argus = {
+    update: {
+      status: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      check: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      download: vi.fn(async () => ({ currentVersion: '1.0.0', status: { phase: 'idle' } })),
+      restart: vi.fn(async () => {}),
+      onChanged: vi.fn(() => () => {})
+    }
+  } as never
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
