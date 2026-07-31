@@ -71,6 +71,8 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
       <IconBtn
         aria-label="Code graph"
         title="Code graph"
+        // xs to match the Unlink repo button it shares a row with in ReposSection
+        size="xs"
         className={building ? 'animate-pulse' : built?.status === 'failed' ? 'text-danger' : ''}
         onClick={() => setOpen((o) => !o)}
       >

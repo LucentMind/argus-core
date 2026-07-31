@@ -126,7 +126,7 @@ function CheckRow({
               ? 'Pull this job log as evidence and analyze the failure'
               : 'Not a GitHub Actions job — Argus cannot read this check’s log'
           }
-          className="h-5 w-5"
+          size="xs"
           disabled={!analyzable}
           onClick={() => onAnalyze(c.name)}
         >
@@ -377,7 +377,7 @@ export function PrCompanionSection({
           <IconBtn
             aria-label="Link PR"
             title="Link a pull request"
-            className="h-5 w-5"
+            size="xs"
             disabled={busy}
             onClick={() => setPrDraft((d) => (d === null ? '' : null))}
           >
@@ -387,7 +387,7 @@ export function PrCompanionSection({
             <IconBtn
               aria-label="Find PRs"
               title="Search linked repos for this ticket's pull requests"
-              className="h-5 w-5"
+              size="xs"
               disabled={busy}
               onClick={() => {
                 setSearching(true)
@@ -404,6 +404,7 @@ export function PrCompanionSection({
             <IconBtn
               aria-label="Unlink pull request"
               title="Unlink pull request"
+              size="xs"
               className="hover:text-danger"
               disabled={busy}
               onClick={() => void unlink()}
@@ -490,7 +491,7 @@ export function PrCompanionSection({
             <IconBtn
               aria-label="Open pull request on GitHub"
               title="Open on GitHub"
-              className="h-5 w-5"
+              size="xs"
               onClick={() => void window.argus.openExternal(status.url)}
             >
               <ExternalLink size={12} />

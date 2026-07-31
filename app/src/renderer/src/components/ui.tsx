@@ -117,8 +117,11 @@ export function Btn({
   return <button {...props} className={`${BTN_BASE} ${BTN_VARIANTS[variant]} ${className}`} />
 }
 
-/* Small square icon button for top-bar controls. */
+/* Small square icon button. `md` is the top-bar control; `sm` fits tight footer slots; `xs` is
+   for dense list rows, where an md square exactly fills a `h-7` row and its hover fill reads as
+   highlighting the whole row rather than as a control inside it. */
 const ICON_BTN_SIZE = {
+  xs: 'h-5 w-5',
   sm: 'h-6 w-6',
   md: 'h-7 w-7'
 } as const
@@ -128,10 +131,12 @@ export function IconBtn({
   size = 'md',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  /** 'sm' for tight footer slots; defaults to the top-bar 'md' size. Baked into the base
-   *  class string rather than appended by callers — a caller-supplied `h-6 w-6` after the
-   *  base `h-7 w-7` is a same-specificity tie that stylesheet order (not string order)
-   *  decides, and Tailwind emits `.h-6` before `.h-7`, so the override silently lost. */
+  /** Defaults to the top-bar 'md'. Interpolated into the base string rather than appended by
+   *  the caller: a caller-supplied `h-5 w-5` lands after the base `h-7 w-7` in the same
+   *  `class`, but both are single-class selectors of equal specificity, so stylesheet order
+   *  decides — and Tailwind emits `.h-5`/`.h-6` before `.h-7`, so the base always won and the
+   *  override was silently inert. Attribute order is irrelevant. jsdom resolves no cascade,
+   *  so no test can catch that regression. */
   size?: keyof typeof ICON_BTN_SIZE
 }): React.JSX.Element {
   return (

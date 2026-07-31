@@ -102,7 +102,7 @@ export function ReposSection({
           <IconBtn
             aria-label="Link repo"
             title="Link a local repo"
-            className="h-5 w-5"
+            size="xs"
             onClick={() => void link()}
           >
             <FolderGit2 size={13} />
@@ -146,7 +146,8 @@ export function ReposSection({
               <IconBtn
                 aria-label="Unlink repo"
                 title="Unlink repo"
-                className="h-5 w-5 hover:text-danger"
+                size="xs"
+                className="hover:text-danger"
                 onClick={() => void unlink(w)}
               >
                 <Unlink size={12} />
@@ -190,7 +191,7 @@ export function ReposSection({
             <IconBtn
               aria-label={`Dismiss ${p.name} error`}
               title="Dismiss"
-              className="h-5 w-5"
+              size="xs"
               onClick={() => pending.dismiss(p.id)}
             >
               ×

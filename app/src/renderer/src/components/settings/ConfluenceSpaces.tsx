@@ -96,7 +96,7 @@ export function ConfluenceSpaces(): React.JSX.Element {
                     title={tokenWarning ?? 'Sync space'}
                     disabled={syncing === card.key || Boolean(tokenWarning)}
                     onClick={() => void syncNow(card.key)}
-                    className="h-5 w-5"
+                    size="xs"
                   >
                     <RefreshCw size={12} className={syncing === card.key ? 'animate-spin' : ''} />
                   </IconBtn>
