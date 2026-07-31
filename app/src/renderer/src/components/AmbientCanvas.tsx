@@ -307,13 +307,29 @@ export function AmbientCanvas({
     }
     api.current = { refresh }
 
-    const rate = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1
-    const start = performance.now()
+    // Read live, not snapshotted at mount: AmbientCanvas is a long-lived instance (DynamicScope
+    // reuses the same component across home/case/settings — React reconciles same-type elements
+    // at the same tree position instead of remounting on a view switch, so this effect's mount
+    // can predate the user's current OS motion setting by however long the app has been open).
+    // A `MediaQueryList` `change` listener would be the conventional fix, but CDP's
+    // `Emulation.setEmulatedMedia` (what task-9's CDP acceptance and any future one uses to
+    // simulate this) flips `matches` without ever firing that event — verified empirically, not
+    // a documented guarantee to rely on. Reading `.matches` fresh every frame is cheap and reacts
+    // within one frame regardless of how the preference changed.
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let elapsed = 0
+    let lastNow = performance.now()
     const frame = (now: number): void => {
       if (disposed || !gl) return
       raf = requestAnimationFrame(frame)
+      const dt = (now - lastNow) / 1000
+      lastNow = now
       if (document.hidden) return
-      gl.uniform1f(u.time, ((now - start) / 1000) * rate)
+      // Integrate with the rate ACTIVE during each interval, rather than multiplying total
+      // elapsed time by the current rate — the latter jumps uTime backward/forward the instant
+      // the preference flips mid-session.
+      elapsed += dt * (reducedMotionQuery.matches ? 0.3 : 1)
+      gl.uniform1f(u.time, elapsed)
       gl.clear(gl.COLOR_BUFFER_BIT)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
