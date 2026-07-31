@@ -416,7 +416,13 @@ export function AssetPane({
     setBusy(true)
     setPhase(which)
     setError(null)
-    const wasUntouched = docRef.current === baselineRef.current
+    // `lastSaved === null` for the same reason `renameCreate` needs it: `onSave` moves
+    // `baselineRef` to the saved content, so an equality-only check reads "untouched" again after
+    // a save — and this branch decides whether to write the model's output straight into the
+    // document or route it through the review diff. Getting it wrong here replaces saved work
+    // with generated text and never shows the user a diff. The previous increment used a monotone
+    // `bufferPristine` flag that a save never reset; this restores that meaning.
+    const wasUntouched = lastSaved === null && docRef.current === baselineRef.current
     const docAtRequest = docRef.current
     try {
       const req = { kind, name, text: which === 'draft' ? describe : docRef.current }

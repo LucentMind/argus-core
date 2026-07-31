@@ -403,6 +403,29 @@ describe('AssetPane', () => {
     expect(setDoc).not.toHaveBeenCalled()
   })
 
+  it('routes a Draft result through the diff once the asset has been saved', async () => {
+    // Same bug family as the post-save rename: after a save the baseline equals the document
+    // again, so an equality-only "untouched" check would land generated text straight over the
+    // saved body with no diff to accept or discard.
+    skillsWrite.mockResolvedValue({ hash: 'h2' })
+    globalThis.window.argus.authoring.draft = vi.fn().mockResolvedValue({ content: 'GENERATED' })
+    const { surface } = mount({
+      mode: 'create',
+      initialName: 's',
+      initialDoc: DISK,
+      initialBaseline: DISK
+    })
+    await userEvent.type(screen.getByLabelText('describe it'), 'a thing')
+    await userEvent.type(surface, 'real body text')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(skillsWrite).toHaveBeenCalled())
+    setDoc.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: /draft/i }))
+    // The proposal diff, not a direct write.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Accept' })).toBeInTheDocument())
+    expect(setDoc).not.toHaveBeenCalled()
+  })
+
   it('offers other create-mode drafts to resume', async () => {
     const open = vi.fn()
     globalThis.window.argus.editor.open = open
