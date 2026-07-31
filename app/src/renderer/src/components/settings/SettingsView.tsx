@@ -3,6 +3,7 @@ import { visiblePages, type PageId } from './settingsPages'
 import { useSettingsPayload } from '../../lib/settingsStore'
 import { useProposalCounts } from '../../lib/proposalsStore'
 import { useEscapeLayer } from '../../lib/escapeLayer'
+import { useAmbientAnchors } from '../../lib/ambientAnchors'
 import type { ProposalType } from '../../../../shared/proposals'
 import { GeneralSettings } from './GeneralSettings'
 import { AgentSettings } from './AgentSettings'
@@ -68,6 +69,11 @@ export function SettingsView({
   const [libraryKind, setLibraryKind] = useState<LibraryKind | undefined>(init.kind)
   const counts = useProposalCounts()
   const pages = visiblePages(devTools)
+  const anchors = useAmbientAnchors()
+  // `pages`, not PAGES: an active page that the dev gate would hide must still fall back to
+  // pages[0] rather than land on undefined (resolveDeepLink already keeps `page` inside
+  // `pages`, but this stays defensive against the two agreeing on the filtered set).
+  const active = pages.find((p) => p.id === page) ?? pages[0]
 
   useEscapeLayer({ onEscape: onClose })
 
@@ -97,105 +103,133 @@ export function SettingsView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <nav
-        aria-label="Settings sections"
-        className="flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair bg-deep p-3"
-      >
-        {/* `pages`, not PAGES — the group-header lookup must read the same filtered array, or
-            hiding the last page in a group leaves its heading behind with nothing under it. */}
-        {pages.map((p, i) => (
-          <Fragment key={p.id}>
-            {(i === 0 || pages[i - 1].group !== p.group) && (
-              <div
-                className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-faint ${
-                  i === 0 ? 'pt-1' : 'pt-3'
+    <div className="flex min-h-0 flex-1 flex-col pt-6">
+      {/* anchors.setCutoff/setLight are useState setters used directly as ref callbacks (the
+          React-documented way to observe a DOM node) — not a stale `.current` read, so
+          react-hooks/refs is a false positive here. */}
+      {/* eslint-disable-next-line react-hooks/refs */}
+      <div ref={anchors.setCutoff} className="flex shrink-0 items-end border-b border-hair pb-3.5">
+        <div className="w-48 shrink-0 px-3.5">
+          <span className="font-brand text-[13px] text-brand" style={{ letterSpacing: 5 }}>
+            ARGUS
+          </span>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-7">
+          <h1
+            // eslint-disable-next-line react-hooks/refs
+            ref={anchors.setLight}
+            data-testid="settings-title"
+            className="text-[23px] font-light text-ink"
+          >
+            {active.label}
+          </h1>
+          <p data-testid="settings-blurb" className="max-w-[62ch] text-xs text-dim">
+            {active.blurb}
+          </p>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <nav
+          aria-label="Settings sections"
+          className="flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair bg-deep p-3"
+        >
+          {/* `pages`, not PAGES — the group-header lookup must read the same filtered array, or
+              hiding the last page in a group leaves its heading behind with nothing under it. */}
+          {pages.map((p, i) => (
+            <Fragment key={p.id}>
+              {(i === 0 || pages[i - 1].group !== p.group) && (
+                <div
+                  className={`px-2.5 pb-1 font-mono text-[9px] uppercase tracking-wide text-faint ${
+                    i === 0 ? 'pt-1' : 'pt-3'
+                  }`}
+                >
+                  {p.group}
+                </div>
+              )}
+              <button
+                data-onboarding-anchor={ANCHOR[p.id]}
+                disabled={!p.enabled}
+                className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
+                  page === p.id
+                    ? 'bg-hi text-ink'
+                    : p.enabled
+                      ? 'text-dim hover:bg-hair hover:text-ink'
+                      : 'text-faint'
                 }`}
+                onClick={() => goTo(p.id)}
               >
-                {p.group}
+                <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
+                <span className="flex-1">{p.label}</span>
+                {p.id === 'proposals' && (counts?.pendingCount ?? 0) > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal"
+                  >
+                    {counts!.pendingCount}
+                  </span>
+                )}
+                {!p.enabled && (
+                  <span className="font-mono text-[9px] uppercase tracking-wide text-faint">
+                    soon
+                  </span>
+                )}
+              </button>
+            </Fragment>
+          ))}
+        </nav>
+        {/* scrollbar-gutter: content that grows past the fold (opening a memory editor, expanding
+            a provider) must not shove every control left by the scrollbar's width. Reserving the
+            gutter keeps the page width constant whether or not the bar is showing. */}
+        <div className="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-8">
+            {payload?.loadError && (
+              <div
+                role="alert"
+                className="flex items-center gap-3 rounded-r2 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+              >
+                <span className="flex-1">
+                  {payload.loadError.startsWith('settings save failed')
+                    ? payload.loadError
+                    : `settings.json could not be parsed — using defaults. (${payload.loadError})`}
+                </span>
+                <button
+                  className="underline transition-colors hover:text-ink"
+                  onClick={() => void window.argus.settings.reveal('settingsFile')}
+                >
+                  Open file
+                </button>
               </div>
             )}
-            <button
-              data-onboarding-anchor={ANCHOR[p.id]}
-              disabled={!p.enabled}
-              className={`flex items-center gap-2 rounded-r2 px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-default ${
-                page === p.id
-                  ? 'bg-hi text-ink'
-                  : p.enabled
-                    ? 'text-dim hover:bg-hair hover:text-ink'
-                    : 'text-faint'
-              }`}
-              onClick={() => goTo(p.id)}
-            >
-              <p.Icon size={15} strokeWidth={1.5} className="shrink-0" />
-              <span className="flex-1">{p.label}</span>
-              {p.id === 'proposals' && (counts?.pendingCount ?? 0) > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="rounded-full bg-signal/15 px-1.5 font-mono text-[10px] text-signal"
-                >
-                  {counts!.pendingCount}
-                </span>
-              )}
-              {!p.enabled && (
-                <span className="font-mono text-[9px] uppercase tracking-wide text-faint">
-                  soon
-                </span>
-              )}
-            </button>
-          </Fragment>
-        ))}
-      </nav>
-      {/* scrollbar-gutter: content that grows past the fold (opening a memory editor, expanding
-          a provider) must not shove every control left by the scrollbar's width. Reserving the
-          gutter keeps the page width constant whether or not the bar is showing. */}
-      <div className="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-8">
-          {payload?.loadError && (
-            <div
-              role="alert"
-              className="flex items-center gap-3 rounded-r2 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
-            >
-              <span className="flex-1">
-                {payload.loadError.startsWith('settings save failed')
-                  ? payload.loadError
-                  : `settings.json could not be parsed — using defaults. (${payload.loadError})`}
-              </span>
-              <button
-                className="underline transition-colors hover:text-ink"
-                onClick={() => void window.argus.settings.reveal('settingsFile')}
-              >
-                Open file
-              </button>
-            </div>
-          )}
-          <OverrideBanner devTools={devTools} />
-          {(page === 'library' || page === 'proposals') && <KnowledgeFlowStrip onNavigate={goTo} />}
-          {payload && page === 'general' && <GeneralSettings payload={payload} />}
-          {payload && page === 'agent' && <AgentSettings payload={payload} />}
-          {page === 'health' && <HealthSettings />}
-          {page === 'connectors' && <ConnectorsSettings />}
-          {page === 'proposals' && (
-            <ProposalsPage
-              // Remount on preset change (see Tier-1 rationale): wipes transient state deliberately.
-              key={proposalTypes?.join(',') ?? 'all'}
-              initialTypes={proposalTypes}
-              onOpenHivemind={() => goTo('team')}
-            />
-          )}
-          {page === 'library' && (
-            <LibraryPage
-              // Same remount idiom as ProposalsPage: an alias/banner preset forces a fresh page.
-              key={libraryKind ?? 'all'}
-              initialKind={libraryKind}
-              onReviewProposals={openProposals}
-            />
-          )}
-          {payload && page === 'team' && <HivemindSettings payload={payload} />}
-          {payload && page === 'sources' && <SourcesPage settings={payload} />}
-          {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
-          {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
-          {page === 'prompts' && <PromptsDevPage />}
+            <OverrideBanner devTools={devTools} />
+            {(page === 'library' || page === 'proposals') && (
+              <KnowledgeFlowStrip onNavigate={goTo} />
+            )}
+            {payload && page === 'general' && <GeneralSettings payload={payload} />}
+            {payload && page === 'agent' && <AgentSettings payload={payload} />}
+            {page === 'health' && <HealthSettings />}
+            {page === 'connectors' && <ConnectorsSettings />}
+            {page === 'proposals' && (
+              <ProposalsPage
+                // Remount on preset change (see Tier-1 rationale): wipes transient state deliberately.
+                key={proposalTypes?.join(',') ?? 'all'}
+                initialTypes={proposalTypes}
+                onOpenHivemind={() => goTo('team')}
+              />
+            )}
+            {page === 'library' && (
+              <LibraryPage
+                // Same remount idiom as ProposalsPage: an alias/banner preset forces a fresh page.
+                key={libraryKind ?? 'all'}
+                initialKind={libraryKind}
+                onReviewProposals={openProposals}
+              />
+            )}
+            {payload && page === 'team' && <HivemindSettings payload={payload} />}
+            {payload && page === 'sources' && <SourcesPage settings={payload} />}
+            {page === 'memory' && <MemorySettings onReviewProposals={openProposals} />}
+            {payload && page === 'observability' && <ObservabilitySettings payload={payload} />}
+            {page === 'prompts' && <PromptsDevPage />}
+          </div>
         </div>
       </div>
     </div>

@@ -445,4 +445,53 @@ describe('SettingsView', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'share back to the team' }))
     expect((await screen.findByRole('button', { name: 'Team' })).className).toContain('bg-hi')
   })
+
+  describe('masthead', () => {
+    it('shows the active page title and blurb on initial mount', async () => {
+      render(<SettingsView onClose={vi.fn()} />)
+      await screen.findByRole('button', { name: /General/ })
+      expect(screen.getByTestId('settings-title')).toHaveTextContent('General')
+      expect(screen.getByTestId('settings-blurb').textContent).toBeTruthy()
+    })
+
+    it('follows the active page when switching via the nav', async () => {
+      render(<SettingsView onClose={vi.fn()} />)
+      await screen.findByRole('button', { name: /General/ })
+      fireEvent.click(screen.getByRole('button', { name: /^Health$/ }))
+      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Health'))
+      expect(screen.getByTestId('settings-blurb').textContent).toContain('checks Argus runs')
+    })
+
+    it('follows a deep link that arrives while Settings is already open', async () => {
+      const onClose = vi.fn()
+      const { rerender } = render(<SettingsView onClose={onClose} />)
+      await screen.findByRole('button', { name: /General/ })
+      rerender(<SettingsView onClose={onClose} initialPage={'health'} />)
+      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Health'))
+    })
+
+    it('follows a legacy-alias deep link (hivemind -> Team)', async () => {
+      render(<SettingsView onClose={vi.fn()} initialPage={'hivemind'} />)
+      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Team'))
+    })
+
+    it('falls back to General, not undefined, for an unrecognised initialPage', async () => {
+      render(<SettingsView onClose={vi.fn()} initialPage={'tools' as never} />)
+      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('General'))
+    })
+
+    it('shows the Prompts title when the dev-tools gate is on and Prompts is active', async () => {
+      currentPayload = payload({ devTools: true })
+      window.argus.devPrompts.catalog = vi.fn(async () => ({
+        entries: [],
+        modes: ['investigation'],
+        activeOverrideIds: [],
+        loadError: null
+      }))
+      render(<SettingsView onClose={vi.fn()} />)
+      await screen.findByRole('button', { name: /General/ })
+      fireEvent.click(screen.getByRole('button', { name: /^Prompts$/ }))
+      await waitFor(() => expect(screen.getByTestId('settings-title')).toHaveTextContent('Prompts'))
+    })
+  })
 })

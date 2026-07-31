@@ -179,7 +179,9 @@ function App(): React.JSX.Element {
             </div>
           </DynamicScope>
         ) : view.kind === 'settings' ? (
-          <SettingsView onClose={closeSettings} initialPage={view.page} />
+          <DynamicScope variant="settings">
+            <SettingsView onClose={closeSettings} initialPage={view.page} />
+          </DynamicScope>
         ) : view.kind === 'observability' ? (
           <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
         ) : (
