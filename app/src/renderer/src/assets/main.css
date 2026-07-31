@@ -198,3 +198,19 @@ body {
     background: var(--hair-2);
   }
 }
+
+/* Status-dot bloom.
+   Plain CSS rather than a Tailwind utility, for the same reason as .argus-shimmer above: a
+   brand-new utility class is generated only once the content scanner has seen it, so under HMR
+   its first render is unstyled — which reads as a bug that isn't one.
+
+   currentColor drives the fill (via `bg-current`) and the halo together, so one text-* class
+   colours both. Light theme tightens the bloom hard: an 8px halo on paper reads as a printing
+   defect rather than as light. */
+.argus-dot {
+  box-shadow: 0 0 8px 1px color-mix(in srgb, currentColor 55%, transparent);
+}
+
+:root[data-theme='light'] .argus-dot {
+  box-shadow: 0 0 5px 0 color-mix(in srgb, currentColor 35%, transparent);
+}
