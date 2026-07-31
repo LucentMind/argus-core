@@ -58,4 +58,25 @@ describe('descriptorsFor', () => {
     const ids = descriptorsFor({ ...FABLE, supportsFastMode: true }).map((d) => d.id)
     expect(ids).toEqual(['effort', 'contextWindow', 'fastMode', 'thinking'])
   })
+
+  it('emits Context Window with exactly two choices in the correct order and defaults', () => {
+    const descriptor = descriptorsFor(FABLE).find((d) => d.id === 'contextWindow')
+    expect(descriptor?.type).toBe('select')
+    if (descriptor?.type === 'select') {
+      expect(descriptor.options).toEqual([
+        { value: '200k', label: '200k', isDefault: true },
+        { value: '1m', label: '1M' }
+      ])
+    }
+  })
+
+  it('defaults effort to the first level when high is not available', () => {
+    const noHigh = { ...FABLE, supportedEffortLevels: ['low', 'medium', 'xhigh', 'max'] }
+    const effort = descriptorsFor(noHigh).find((d) => d.id === 'effort')
+    expect(effort?.type).toBe('select')
+    if (effort?.type === 'select') {
+      const defaultOption = effort.options.find((o) => o.isDefault)
+      expect(defaultOption?.value).toBe('low')
+    }
+  })
 })
