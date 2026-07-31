@@ -110,7 +110,20 @@ const openEditor = async () => {
   // the main window — select it by URL instead.
   const main = await connect(mainWindow(await listTargets()))
   await gotoLibrary(main)
-  await main.evalJs(`document.querySelector('[aria-label^="Edit \\u00b7 "]').click()`)
+  // Ask the app which skill is USER-tier rather than clicking the first `Edit ·` button in DOM
+  // order. The Library renders that button for every skill regardless of tier
+  // (`LibraryPage.tsx`, the skill row's Edit `Btn` is ungated), and since Increment 4 a
+  // bundled/hivemind asset opens READ-ONLY — where `fileDraft` returns early by design, so this
+  // gate's whole subject, the draft, is never written. Whether the first button happened to be
+  // user-tier was previously invisible; a scratch home that also carries seeded pack skills makes
+  // it a coin flip. Selecting by name removes the fixture sensitivity entirely.
+  await main.evalJs(`(async () => {
+    const { skills } = await window.argus.skills.list()
+    const mine = skills.find((s) => s.tier === 'user')
+    if (!mine) throw new Error('the scratch ARGUS_HOME holds no user-tier skill — see this gate\\'s header')
+    document.querySelector('[aria-label="Edit \\u00b7 ' + mine.name + '"]').click()
+    return mine.name
+  })()`)
   let target = null
   await waitFor('the editor window', async () => {
     target = (await listTargets()).find((t) => t.url.includes('editor.html'))
