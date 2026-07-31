@@ -34,7 +34,9 @@ vi.mock('../CodeSurface', () => ({
         getDoc: () => initialDoc,
         setDoc: (text: string) => onDocChange(text),
         goToLine: vi.fn(),
-        focus: vi.fn()
+        focus: vi.fn(),
+        requestMeasure: vi.fn(),
+        scrollTo: vi.fn()
       }
     }
     return (

@@ -32,6 +32,13 @@ export interface CodeSurfaceProps {
   onScrollFraction?: (fraction: number) => void
   /** Scroll to this fraction when it changes and the change did not come from here. */
   scrollFraction?: number
+  /**
+   * Read **once, at mount**, exactly like `initialDoc`. No `Compartment`: the compartments in
+   * this file exist to preserve undo history across a reconfiguration, and a read-only buffer
+   * has no undo history to preserve. Becoming editable happens by remounting under a new tab id
+   * (`tabs.ts` `replaceTab`), which is also correct for a fork — that opens a different file.
+   */
+  readOnly?: boolean
   ref?: React.Ref<SurfaceHandle>
 }
 
@@ -58,6 +65,7 @@ export function CodeSurface({
   onCursor,
   onScrollFraction,
   scrollFraction,
+  readOnly = false,
   ref
 }: CodeSurfaceProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -95,6 +103,7 @@ export function CodeSurface({
         doc: initialDoc,
         extensions: [
           ...baseExtensions({ fontSize, wrap }),
+          ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
           editorKeymap(commandsRef),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
           EditorView.updateListener.of((update) => {
@@ -126,9 +135,9 @@ export function CodeSurface({
       view.destroy()
       viewRef.current = null
     }
-    // Mount-only. `initialDoc`, `ariaLabel` and the initial font size / wrap are seeds, not live
-    // inputs: the first two change only across a remount (the parent keys on the asset), and the
-    // last two are reconfigured through their compartments below.
+    // Mount-only. `initialDoc`, `ariaLabel`, `readOnly` and the initial font size / wrap are
+    // seeds, not live inputs: the first three change only across a remount (the parent keys on
+    // the asset/tab), and the last two are reconfigured through their compartments below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -143,20 +152,29 @@ export function CodeSurface({
         // entire point of defect §1.1.1's fix.
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
       },
-      goToLine: (line) => {
+      goToLine: (line, opts) => {
         const view = viewRef.current
         if (!view) return
-        // Clamped for the same reason `partitionIssues` clamps: the line can outrun a document
-        // that shrank, and `doc.line()` throws rather than saturating.
-        const n = Math.min(Math.max(1, line), view.state.doc.lines)
-        const pos = view.state.doc.line(n).from
-        view.dispatch({
-          selection: { anchor: pos },
-          effects: EditorView.scrollIntoView(pos, { y: 'center' })
-        })
-        view.focus()
+        // Text.line THROWS out of range rather than clamping, so every caller's line number has
+        // to be clamped here — a diagnostic on a line the user has since deleted is routine.
+        const n = Math.min(Math.max(1, Math.trunc(line)), view.state.doc.lines)
+        const info = view.state.doc.line(n)
+        const pos = Math.min(info.from + Math.max(0, (opts?.col ?? 1) - 1), info.to)
+        view.dispatch({ selection: { anchor: pos }, scrollIntoView: true })
+        if (opts?.focus !== false) view.focus()
       },
-      focus: () => viewRef.current?.focus()
+      focus: () => viewRef.current?.focus(),
+      requestMeasure: () => viewRef.current?.requestMeasure(),
+      scrollTo: (fraction) => {
+        const view = viewRef.current
+        if (!view) return
+        const scroller = view.scrollDOM
+        const span = scroller.scrollHeight - scroller.clientHeight
+        // Clamped: a fraction from a persisted file is untrusted input, and a NaN here would
+        // silently leave the scroller at 0 rather than throwing anywhere visible.
+        const f = Number.isFinite(fraction) ? Math.min(Math.max(fraction, 0), 1) : 0
+        scroller.scrollTop = span > 0 ? span * f : 0
+      }
     }),
     [initialDoc]
   )

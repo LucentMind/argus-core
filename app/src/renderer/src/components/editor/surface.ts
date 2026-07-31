@@ -16,10 +16,36 @@ export interface SurfaceHandle {
    * assist accept, "Use disk", "Keep mine", discard draft, create-mode template regeneration.
    */
   setDoc(text: string): void
-  /** Put the cursor on a 1-indexed line, scroll it into view, and take focus. Out-of-range lines
-   *  are clamped, never thrown. */
-  goToLine(line: number): void
+  /**
+   * Put the cursor on a 1-indexed line and scroll it into view. Out-of-range lines are clamped,
+   * never thrown — `Text.line(n)` throws past the end of the document.
+   *
+   * Focus by default, because the problems panel's click-to-line wants it. Restore passes
+   * `focus: false`: a tab being restored is not necessarily the tab the user is looking at, and
+   * stealing focus into a background tab would move the caret out from under them.
+   */
+  goToLine(line: number, opts?: { col?: number; focus?: boolean }): void
   focus(): void
+  /**
+   * Re-measure after the element becomes visible again.
+   *
+   * Every tab stays mounted and the inactive ones are `display: none` (spec §6.1 as built —
+   * see the plan's deviation 3). CodeMirror caches viewport geometry and cannot measure a
+   * display-none element, so a tab revealed after a switch comes back with a collapsed
+   * viewport: no visible text past the first screenful, and a gutter of the wrong width.
+   * Invisible to jsdom, which has no layout at all — asserted by the CDP gate.
+   */
+  requestMeasure(): void
+  /**
+   * Scroll to a 0–1 fraction of the document.
+   *
+   * Imperative rather than through the existing `scrollFraction` **prop** because restore runs
+   * from an effect, and driving it through React state would mean a synchronous `setState` in an
+   * effect body — which `react-hooks/set-state-in-effect` forbids and this repo does not allow
+   * suppressing. The prop stays for split-preview sync, which is driven by a render, not an
+   * effect.
+   */
+  scrollTo(fraction: number): void
 }
 
 export interface CursorInfo {

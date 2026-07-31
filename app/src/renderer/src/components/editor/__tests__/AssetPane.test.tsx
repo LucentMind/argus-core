@@ -50,7 +50,9 @@ vi.mock('../CodeSurface', () => ({
           onDocChange(text)
         },
         goToLine: vi.fn(),
-        focus: vi.fn()
+        focus: vi.fn(),
+        requestMeasure: vi.fn(),
+        scrollTo: vi.fn()
       }
     }
     globalThis.__doc ??= initialDoc
