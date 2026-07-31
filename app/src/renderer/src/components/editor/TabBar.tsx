@@ -95,7 +95,16 @@ export function TabBar({
               role="tab"
               tabIndex={active ? 0 : -1}
               aria-selected={active}
-              aria-label={`${t.kind} · ${t.name}${t.dirty ? ' · unsaved changes' : ''}`}
+              // `(tab)` suffix, not just `${t.kind} · ${t.name}`: the active tab's own editor
+              // surface carries that exact string as ITS accessible name too (AssetPane's
+              // `ariaLabel={`${kind} · ${initialName}`}`), and both are on screen at once — this
+              // strip is never the only thing rendered. Task 6 is the first place `TabBar` and
+              // `AssetPane` ever mount together, and without this suffix `getByLabelText`/
+              // `findByLabelText` for the surface resolves to whichever of the two exists first
+              // (this div, always — it renders synchronously; the surface waits on `AssetTab`'s
+              // async resolve), not a "sometimes" bug but a deterministic wrong-element match.
+              // A suffix, not a prefix: `TabBar.test.tsx` anchors its kind/name regex at `^`.
+              aria-label={`${t.kind} · ${t.name}${t.dirty ? ' · unsaved changes' : ''} (tab)`}
               onClick={() => onActivate(t.id)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {

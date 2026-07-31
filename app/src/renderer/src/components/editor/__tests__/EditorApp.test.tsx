@@ -76,7 +76,11 @@ beforeEach(() => {
       readDraft: vi.fn().mockResolvedValue(null),
       listDrafts: vi.fn().mockResolvedValue([]),
       discardDraft: vi.fn().mockResolvedValue(undefined),
-      onDraftSaved: () => () => {}
+      onDraftSaved: () => () => {},
+      // Only exercised by a create-mode open (`AssetTab`'s `otherDrafts` resolution) — every
+      // pre-existing test here opens in edit mode, so this was never needed until the "follows a
+      // create-mode rename" test below.
+      listDrafts: vi.fn().mockResolvedValue([])
     },
     skills: {
       read: vi.fn().mockResolvedValue({
@@ -339,5 +343,116 @@ describe('EditorApp resuming a same-named draft', () => {
         '# resumed draft content\n'
       )
     )
+  })
+})
+
+const OTHER: EditorOpenRequest = { kind: 'skill', name: 'other-skill', mode: 'edit' }
+
+describe('multiple tabs', () => {
+  it('opens a second asset in a second tab', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
+  })
+
+  // The point of the whole increment: nothing unmounts on a switch, so undo history, cursor and
+  // a running assist all survive. `toBeInTheDocument` is the observable proxy for that here —
+  // the undo half is asserted for real by the CDP gate.
+  it('keeps the first tab mounted when the second opens', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    expect(screen.getByLabelText('skill · my-skill')).toBeInTheDocument()
+  })
+
+  it('focuses the existing tab when the same asset is opened again', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    act(() => openTab!(SKILL))
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /my-skill/ })).toHaveAttribute('aria-selected', 'true')
+    )
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
+  })
+
+  it('switches tabs from the strip', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    await userEvent.click(screen.getByRole('tab', { name: /my-skill/ }))
+    expect(screen.getByRole('tab', { name: /my-skill/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('unmounts a tab when it is closed', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    await userEvent.click(screen.getByRole('button', { name: 'Close my-skill' }))
+    await waitFor(() => expect(screen.queryByLabelText('skill · my-skill')).not.toBeInTheDocument())
+  })
+
+  it('shows the empty state again after the last tab closes', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    await userEvent.click(screen.getByRole('button', { name: 'Close my-skill' }))
+    expect(await screen.findByText(/nothing open/i)).toBeInTheDocument()
+  })
+})
+
+describe('dirty aggregation', () => {
+  // Increment 1 built setDirtyCount and the "N tabs have unsaved changes" copy for exactly this.
+  // Until now the window could only ever report 0 or 1.
+  it('reports the number of dirty tabs, not a boolean', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(1))
+    act(() => openTab!(OTHER))
+    await userEvent.type(await screen.findByLabelText('skill · other-skill'), 'y')
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(2))
+  })
+
+  it('stops counting a tab that was closed while dirty', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(1))
+    await userEvent.click(screen.getByRole('button', { name: 'Close my-skill' }))
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(0))
+  })
+
+  it('marks the dirty tab in the strip', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    act(() => openTab!(OTHER))
+    await userEvent.type(await screen.findByLabelText('skill · other-skill'), 'y')
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /other-skill/ })).toHaveAccessibleName(/unsaved/i)
+    )
+    expect(screen.getByRole('tab', { name: /my-skill/ })).not.toHaveAccessibleName(/unsaved/i)
+  })
+})
+
+describe('tab labels', () => {
+  it('follows a create-mode rename in the strip', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'untitled', mode: 'create' }))
+    const field = await screen.findByLabelText(/name/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, 'renamed')
+    await waitFor(() => expect(screen.getByRole('tab', { name: /renamed/ })).toBeInTheDocument())
   })
 })
