@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CaseRecord } from '../../../shared/types'
 import { Btn, SectionLabel } from './ui'
 import { FolderInput, Plus } from 'lucide-react'
@@ -6,6 +6,9 @@ import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { usePrStatuses } from '../lib/prStatusStore'
+import { uiStore } from '../lib/uiStore'
+import { useAmbientAnchors } from '../lib/ambientAnchors'
+import { useGlassPointer } from '../lib/useGlassPointer'
 
 export function CaseDashboard({
   cases,
@@ -29,6 +32,14 @@ export function CaseDashboard({
   const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
   const settings = useSettingsPayload()
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  const dynamic = ui.dynamicTheme
+  const anchors = useAmbientAnchors()
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  useGlassPointer(gridRef, dynamic)
 
   useEffect(() => {
     let mounted = true
@@ -139,6 +150,7 @@ export function CaseDashboard({
           <div className="flex flex-col gap-1">
             <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
             <h1
+              ref={anchors.setHero}
               className="font-brand font-normal leading-[1.2] text-brand"
               style={{ fontSize: 32, letterSpacing: 11 }}
             >
@@ -149,7 +161,11 @@ export function CaseDashboard({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Btn variant="primary" className="h-9 px-4 text-sm" onClick={onNew}>
+            <Btn
+              variant="primary"
+              className={`h-9 px-4 text-sm${dynamic ? ' dyn-btn-primary' : ''}`}
+              onClick={onNew}
+            >
               <Plus size={16} aria-hidden="true" /> New case
             </Btn>
             <Btn variant="outline" className="h-9 px-4 text-sm" onClick={onImport}>
@@ -157,7 +173,12 @@ export function CaseDashboard({
             </Btn>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        {/* anchors.setHero/setFilters are useState setters used directly as ref
+            callbacks (the React-documented way to observe a DOM node) — not a
+            stale `.current` read, so the compiler's react-hooks/refs heuristic
+            here is a false positive. */}
+        {/* eslint-disable-next-line react-hooks/refs */}
+        <div ref={anchors.setFilters} className="mt-2 flex flex-wrap items-center gap-2">
           <input
             className="h-8 w-56 rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
             placeholder="Filter cases…"
@@ -179,11 +200,13 @@ export function CaseDashboard({
           {syncNote && <span className="text-xs text-dim">{syncNote}</span>}
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((c) => (
+      <div ref={gridRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {visible.map((c, i) => (
           <CaseCard
             key={c.slug}
             c={c}
+            dynamic={dynamic}
+            index={i}
             onOpen={onOpen}
             onExport={(slug) => void exportCase(slug)}
             onDelete={(slug) => void requestDelete(slug)}
