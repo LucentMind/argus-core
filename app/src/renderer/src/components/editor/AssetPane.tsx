@@ -519,8 +519,8 @@ export function AssetPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between border-b border-hair px-3 py-2">
-        <span className="font-mono text-xs text-dim">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hair bg-hi px-4 py-2.5">
+        <span className="truncate font-mono text-xs text-dim">
           {kind === 'skill' ? 'skills' : 'references'} / {name}
         </span>
         <span className="flex items-center gap-2">
@@ -542,7 +542,7 @@ export function AssetPane({
       </div>
 
       {mode === 'create' && (
-        <div className="flex items-center gap-2 border-b border-hair px-3 py-2">
+        <div className="flex items-center gap-2 border-b border-hair bg-hi px-4 py-2">
           <input
             aria-label={`${kind} name`}
             value={name}
@@ -746,7 +746,7 @@ export function AssetPane({
           onToggle={() => setProblemsOpen((o) => !o)}
           onGoToLine={(line) => surfaceRef.current?.goToLine(line)}
         />
-        <div className="flex items-center justify-end gap-2 border-t border-hair px-3 py-2">
+        <div className="flex items-center justify-end gap-2 border-t border-hair bg-hi px-4 py-2">
           <span className="flex shrink-0 items-center gap-2">
             {provider && (
               <span className={`text-xs ${provider.ok ? 'text-faint' : 'text-danger'}`}>

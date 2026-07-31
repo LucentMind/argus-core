@@ -56,18 +56,20 @@ export function EditorApp(): React.JSX.Element {
   )
 
   return (
-    <div className="flex h-screen flex-col bg-panel text-ink">
-      {open ? (
-        <AssetTab
-          key={`${open.kind}/${open.name}/${open.mode}`}
-          req={open}
-          onDirtyChange={setDirty}
-        />
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-dim">
-          Nothing open. Pick a skill or reference in the Library.
-        </div>
-      )}
+    <div className="flex h-screen flex-col bg-deep p-3 text-ink">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 border border-hair bg-panel">
+        {open ? (
+          <AssetTab
+            key={`${open.kind}/${open.name}/${open.mode}`}
+            req={open}
+            onDirtyChange={setDirty}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-dim">
+            Nothing open. Pick a skill or reference in the Library.
+          </div>
+        )}
+      </div>
       <ConfirmHost />
     </div>
   )
