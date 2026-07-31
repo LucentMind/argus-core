@@ -118,14 +118,26 @@ export function Btn({
 }
 
 /* Small square icon button for top-bar controls. */
+const ICON_BTN_SIZE = {
+  sm: 'h-6 w-6',
+  md: 'h-7 w-7'
+} as const
+
 export function IconBtn({
   className = '',
+  size = 'md',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>): React.JSX.Element {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** 'sm' for tight footer slots; defaults to the top-bar 'md' size. Baked into the base
+   *  class string rather than appended by callers — a caller-supplied `h-6 w-6` after the
+   *  base `h-7 w-7` is a same-specificity tie that stylesheet order (not string order)
+   *  decides, and Tailwind emits `.h-6` before `.h-7`, so the override silently lost. */
+  size?: keyof typeof ICON_BTN_SIZE
+}): React.JSX.Element {
   return (
     <button
       {...props}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40 ${className}`}
+      className={`inline-flex ${ICON_BTN_SIZE[size]} shrink-0 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink disabled:opacity-40 ${className}`}
     />
   )
 }

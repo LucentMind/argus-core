@@ -160,7 +160,8 @@ export function CaseCard({
             <IconBtn
               aria-label={`Export ${c.slug}`}
               title="Export case"
-              className="h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+              size="sm"
+              className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={(e) => {
                 e.stopPropagation() // the Card itself opens the case
                 onExport(c.slug)
@@ -171,7 +172,8 @@ export function CaseCard({
             <IconBtn
               aria-label={`Delete ${c.slug}`}
               title="Delete case"
-              className="h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+              size="sm"
+              className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={(e) => {
                 e.stopPropagation() // the Card itself opens the case
                 onDelete(c.slug)
