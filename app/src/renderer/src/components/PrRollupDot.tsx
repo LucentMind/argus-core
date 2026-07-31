@@ -1,3 +1,5 @@
+import { CircleCheck, CircleX, CircleAlert, LoaderCircle, Circle, CircleHelp } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { PrRollup } from '../../../shared/prStatus'
 
 /**
@@ -44,5 +46,35 @@ export function PrRollupDot({
       style={{ width: size, height: size }}
       className={`inline-block shrink-0 rounded-full ${tone.className}`}
     />
+  )
+}
+
+/**
+ * The footer form of the same signal. Colour comes from the same token per state as `TONE`, but
+ * as `text-*` (an icon strokes with currentColor, it does not fill with a background), and each
+ * state additionally differs in glyph — so the states stay distinguishable where two of them
+ * share amber, and without relying on animation as the only cue.
+ */
+const ICON: Record<PrRollup, { Glyph: LucideIcon; className: string; label: string }> = {
+  passing: { Glyph: CircleCheck, className: 'text-signal', label: 'Checks passing' },
+  failing: { Glyph: CircleX, className: 'text-danger', label: 'Checks failing' },
+  unstable: { Glyph: CircleAlert, className: 'text-defect', label: 'Some checks did not pass' },
+  running: { Glyph: LoaderCircle, className: 'text-defect', label: 'Checks running' },
+  none: { Glyph: Circle, className: 'text-mute', label: 'No checks' },
+  unavailable: { Glyph: CircleHelp, className: 'text-mute', label: 'Status unavailable' }
+}
+
+export function PrRollupIcon({
+  rollup,
+  size = 13
+}: {
+  rollup: PrRollup
+  size?: number
+}): React.JSX.Element {
+  const { Glyph, className, label } = ICON[rollup]
+  return (
+    <span role="img" aria-label={label} title={label} className={`inline-flex ${className}`}>
+      <Glyph size={size} aria-hidden="true" />
+    </span>
   )
 }

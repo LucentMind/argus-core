@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { PrRollupDot } from '../PrRollupDot'
+import { PrRollupDot, PrRollupIcon } from '../PrRollupDot'
 
 describe('PrRollupDot', () => {
   it('names the state for screen readers rather than relying on colour alone', () => {
@@ -33,5 +33,27 @@ describe('PrRollupDot', () => {
     expect(unstable).toContain('bg-defect')
     expect(running).toContain('border-defect')
     expect(running).not.toContain('bg-defect')
+  })
+})
+
+describe('PrRollupIcon', () => {
+  it('reuses the dot vocabulary — same accessible name per state', () => {
+    render(<PrRollupIcon rollup="failing" />)
+    expect(screen.getByRole('img', { name: 'Checks failing' })).toBeTruthy()
+  })
+
+  it('gives each state its own glyph, not colour alone', () => {
+    const { container: passing } = render(<PrRollupIcon rollup="passing" />)
+    const { container: unstable } = render(<PrRollupIcon rollup="unstable" />)
+    expect(passing.querySelector('svg')?.innerHTML).not.toBe(
+      unstable.querySelector('svg')?.innerHTML
+    )
+  })
+
+  it('tints from the same token set as the dot', () => {
+    render(<PrRollupIcon rollup="unstable" />)
+    expect(screen.getByRole('img', { name: 'Some checks did not pass' }).className).toContain(
+      'text-defect'
+    )
   })
 })
