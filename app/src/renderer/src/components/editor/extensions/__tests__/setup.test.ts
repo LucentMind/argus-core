@@ -38,7 +38,14 @@ describe('baseExtensions', () => {
 
   it('reconfigures the font size through its compartment', () => {
     const state = create()
-    const next = state.update({ effects: fontSizeCompartment.reconfigure(fontSizeTheme(20)) }).state
+    const twenty = fontSizeTheme(20)
+    const next = state.update({ effects: fontSizeCompartment.reconfigure(twenty) }).state
+    // `get()` is the assertion that actually discriminates. `reconfigure` on a compartment that
+    // is not in the extension tree is a silent no-op — so asserting only that the document
+    // survived would pass just as well with the compartment deleted and a fixed font size baked
+    // into `argusTheme()`, which is precisely the regression this test exists to catch.
+    // `get()` returns `undefined` in that case.
+    expect(fontSizeCompartment.get(next)).toBe(twenty)
     expect(next.doc.toString()).toBe('hello\nworld')
   })
 })
