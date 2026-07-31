@@ -72,6 +72,10 @@ const skillsRead = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Task 7's view mode / split fraction persist to localStorage (`lib/editorPrefs.ts`), not to
+  // React state alone — leaving a prior test's mode behind would make the Preview-button label
+  // (and thus which click gets you where) order-dependent.
+  localStorage.clear()
   globalThis.__doc = undefined
   globalThis.window.argus = {
     editor: {
@@ -186,10 +190,14 @@ describe('AssetPane', () => {
     expect(surface).toBeInTheDocument()
   })
 
-  it('keeps the surface mounted while previewing', async () => {
+  it('keeps the surface mounted but inert while previewing', async () => {
     const { surface } = mount()
+    // The header control is three-way now (Task 7): Editor -> Split -> Preview -> Edit. Two
+    // clicks from the default 'editor' mode land on Preview.
+    await userEvent.click(screen.getByRole('button', { name: 'Split' }))
     await userEvent.click(screen.getByRole('button', { name: 'Preview' }))
     expect(surface).toBeInTheDocument()
+    expect(surface.parentElement).toHaveAttribute('inert')
   })
 
   it('raises the conflict banner when a save is rejected because disk moved', async () => {

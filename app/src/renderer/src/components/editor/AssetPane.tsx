@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Btn } from '../ui'
 import { AssistProgress } from '../library/AssistProgress'
 import { useAssistProvider } from '../library/assistProvider'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
 import { CodeSurface } from './CodeSurface'
 import { DiffView } from './DiffView'
+import { EditorPane } from './EditorPane'
+import { PreviewPane } from './PreviewPane'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
 import { clockTime } from '../../lib/time'
@@ -16,7 +16,8 @@ import {
   FONT_DEFAULT,
   nextViewMode,
   readPrefs,
-  writePrefs
+  writePrefs,
+  type ViewMode
 } from '../../lib/editorPrefs'
 import {
   isConflict,
@@ -99,8 +100,13 @@ export function AssetPane({
   const [busy, setBusy] = useState(false)
   const [phase, setPhase] = useState<'draft' | 'improve' | null>(null)
   const [proposed, setProposed] = useState<string | null>(null)
-  const [preview, setPreview] = useState(false)
   const [prefs, setPrefs] = useState(readPrefs)
+  const [editorFraction, setEditorFraction] = useState(0)
+
+  const setViewMode = useCallback((viewMode: ViewMode) => {
+    writePrefs({ viewMode })
+    setPrefs((p) => ({ ...p, viewMode }))
+  }, [])
   // A snapshot taken when Compare was clicked. State, not a live ref read: the repo's
   // react-hooks/refs rule forbids reading `.current` during render, and this is rendered
   // straight from the function body.
@@ -490,10 +496,11 @@ export function AssetPane({
     compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')
       ? { disk: banner.disk, snapshot: compareSnapshot }
       : null
-  // Anything that takes the editor's place on screen. All three keep the surface **mounted**
-  // (see the wrapper below): unmounting CodeMirror discards undo history and cursor position on
-  // top of the text, which is Increment 2's Finding 1 with higher stakes.
-  const overlay = compare !== null || proposed !== null || preview
+  // Anything that takes the editor's place on screen. Both keep the surface **mounted** (see the
+  // wrapper below): unmounting CodeMirror discards undo history and cursor position on top of
+  // the text, which is Increment 2's Finding 1 with higher stakes. Preview mode is not an
+  // overlay here — `EditorPane` hides the surface itself, in-place, while keeping it in this tree.
+  const overlay = compare !== null || proposed !== null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -506,8 +513,16 @@ export function AssetPane({
             <span className="font-mono text-[11px] text-faint">Draft · {clockTime(draftAt)}</span>
           )}
           <span className="flex items-center gap-2">
-            <Btn variant="ghost" disabled={proposed !== null} onClick={() => setPreview(!preview)}>
-              {preview ? 'Edit' : 'Preview'}
+            <Btn
+              variant="ghost"
+              disabled={proposed !== null}
+              onClick={() => setViewMode(nextViewMode(prefs.viewMode))}
+            >
+              {prefs.viewMode === 'editor'
+                ? 'Split'
+                : prefs.viewMode === 'split'
+                  ? 'Preview'
+                  : 'Edit'}
             </Btn>
             <Btn
               variant="primary"
@@ -536,7 +551,7 @@ export function AssetPane({
             onChange={(e) => setDescribe(e.target.value)}
             className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
-          {proposed === null && !preview && (
+          {proposed === null && prefs.viewMode !== 'preview' && (
             <Btn
               variant="outline"
               disabled={busy || !describe.trim() || provider?.ok === false}
@@ -686,12 +701,6 @@ export function AssetPane({
         />
       )}
 
-      {preview && !compare && proposed === null && (
-        <div className="markdown-body min-h-0 flex-1 overflow-auto p-4 text-sm leading-relaxed text-ink">
-          <Markdown remarkPlugins={[remarkGfm]}>{doc}</Markdown>
-        </div>
-      )}
-
       {/* `contents` when nothing is overlaying, so the surface's own flex sizing is unchanged.
           `hidden` removes it from layout without unmounting it. `inert` + `aria-hidden` because
           Tailwind's `hidden` is only display:none where a stylesheet is loaded — true in the real
@@ -702,16 +711,28 @@ export function AssetPane({
         inert={overlay}
         aria-hidden={overlay || undefined}
       >
-        <CodeSurface
-          ref={surfaceRef}
-          initialDoc={initialDoc}
-          ariaLabel={`${kind} · ${initialName}`}
-          issues={issues}
-          fontSize={prefs.fontSize}
-          wrap={prefs.wrap}
-          commands={commands}
-          onDocChange={handleDocChange}
-          onCursor={setCursor}
+        <EditorPane
+          viewMode={prefs.viewMode}
+          splitFraction={prefs.splitFraction}
+          onSplitFraction={(splitFraction) => {
+            writePrefs({ splitFraction })
+            setPrefs((p) => ({ ...p, splitFraction }))
+          }}
+          surface={
+            <CodeSurface
+              ref={surfaceRef}
+              initialDoc={initialDoc}
+              ariaLabel={`${kind} · ${initialName}`}
+              issues={issues}
+              fontSize={prefs.fontSize}
+              wrap={prefs.wrap}
+              commands={commands}
+              onDocChange={handleDocChange}
+              onCursor={setCursor}
+              onScrollFraction={setEditorFraction}
+            />
+          }
+          preview={<PreviewPane doc={doc} scrollFraction={editorFraction} />}
         />
         <div className="flex items-center justify-between gap-2 border-t border-hair px-3 py-2">
           <span className="flex flex-col gap-0.5">
