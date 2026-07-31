@@ -55,6 +55,16 @@ function stripTitle(rawDest: string): string {
 }
 
 /**
+ * Hard cap on how many characters of a candidate destination `findDestEnd` will scan looking for
+ * the matching `)`. A real link destination is a filename; Windows' own path limit is 260
+ * characters, so 2048 is generous headroom while still bounding the worst case per candidate. A
+ * destination whose balancing `)` (if any) lies past this many characters is treated as not a
+ * link, rather than paying for an unbounded scan — see the quadratic-behind-many-unclosed-parens
+ * case in `scanLinks`'s doc comment.
+ */
+const MAX_DEST_LENGTH = 2048
+
+/**
  * Finds every `[label](target)` construct in `doc` in a single left-to-right pass.
  *
  * This used to be one backtracking regex. A label pattern like `[^\]\n]*` scans to end-of-line
@@ -63,7 +73,7 @@ function stripTitle(rawDest: string): string {
  * citations, `[TODO` notes, pasted text) could freeze the editor for seconds. The hand-rolled
  * scanner below never backtracks: every index is visited a bounded number of times.
  *
- * Two things make that true even though it looks like nested loops:
+ * Three things make that true even though it looks like nested loops:
  *  - `nextCloseBracket` (finding the `]` that is followed by `(`) is driven by a cursor, `bp`,
  *    that is shared across every `[` on the current line and only ever moves forward. A run of
  *    unmatched `[` characters makes that cursor scan to end-of-line once, on behalf of the first
@@ -73,25 +83,48 @@ function stripTitle(rawDest: string): string {
  *    recent `]( ` position. Several `[` in a row can all propose the same `]( ` as their
  *    candidate closing bracket (when none of them individually close first) — without the cache,
  *    each would redo the same paren-depth scan over the same destination text.
+ *  - That memo only helps when candidates share a closing bracket. It does nothing when every
+ *    `[` has its own distinct, immediately-following `](` and the destination never closes before
+ *    end-of-line — e.g. several unfinished draft links on one line, `[a](`, `[b](`, `[c](` — each
+ *    `[` then triggers its own fresh scan to `lineEnd`, which is quadratic over such a line.
+ *    Two more bounds close that gap: `lastParenOnLine` is computed once per line (as the outer
+ *    loop crosses into it) and lets `findDestEnd` reject a candidate in O(1) when there is no `)`
+ *    left anywhere on the line to close it; and `MAX_DEST_LENGTH` caps how far any single
+ *    candidate scan can run, for the remaining case where `)` characters exist further along the
+ *    line but paren depth never returns to zero before them.
  */
 export function scanLinks(doc: string): MdLink[] {
   const out: MdLink[] = []
   const len = doc.length
 
   // State for the current line. Reset every time we cross a newline.
+  let lineStart = 0
   let lineEnd = 0
   let bp = 0
   let noMoreClose = false
   let cachedCloseBracket = -1
   let cachedDestEnd = -2
+  // Index of the last `)` on the current line, or -1 if the line has none. Computed once per
+  // line by a bounded backward scan over [lineStart, lineEnd) only — never past the line's own
+  // start — so the total cost across every line is O(document length), not O(document length)
+  // repeated per line.
+  let lastParenOnLine = -1
 
   const startNewLine = (from: number): void => {
     const nl = doc.indexOf('\n', from)
+    lineStart = from
     lineEnd = nl === -1 ? len : nl
     bp = from
     noMoreClose = false
     cachedCloseBracket = -1
     cachedDestEnd = -2
+    lastParenOnLine = -1
+    for (let p = lineEnd - 1; p >= lineStart; p--) {
+      if (doc.charCodeAt(p) === 41 /* ')' */) {
+        lastParenOnLine = p
+        break
+      }
+    }
   }
 
   // Finds the first index >= `from` (within the current line) where `]` is immediately
@@ -110,13 +143,30 @@ export function scanLinks(doc: string): MdLink[] {
 
   // Given the index of a qualifying `]`, finds the index of the matching `)` that closes the
   // `(` two characters later, tracking paren depth so a balanced `(`/`)` pair inside the
-  // destination doesn't end it early. Returns -1 if the line ends first (unbalanced).
+  // destination doesn't end it early. Returns -1 if the line ends first (unbalanced), if no `)`
+  // remains anywhere on the line to close it, or if the destination runs past MAX_DEST_LENGTH.
   const findDestEnd = (closeBracket: number): number => {
     if (closeBracket === cachedCloseBracket) return cachedDestEnd
+    const destStart = closeBracket + 2
+
+    // Mechanism 1: the line's last `)` is already known (computed once when we entered this
+    // line). If it falls before where the destination would even start, there is nothing left
+    // on the line that could ever close it — reject in O(1) instead of scanning to `lineEnd`.
+    if (lastParenOnLine === -1 || lastParenOnLine < destStart) {
+      cachedCloseBracket = closeBracket
+      cachedDestEnd = -1
+      return -1
+    }
+
+    // Mechanism 2: even though a `)` exists further along the line, paren depth may never
+    // return to zero before it (many stray `(` and few `)`). Cap how far this single scan is
+    // allowed to run so that case is bounded too, rather than unbounded by `lineEnd`.
+    const scanLimit = Math.min(lineEnd, destStart + MAX_DEST_LENGTH)
+
     let depth = 1
-    let k = closeBracket + 2
+    let k = destStart
     let result = -1
-    while (k < lineEnd) {
+    while (k < scanLimit) {
       const c = doc[k]
       if (c === '(') depth++
       else if (c === ')') {

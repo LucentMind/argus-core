@@ -48,6 +48,47 @@ describe('scanLinks', () => {
     expect(elapsed).toBeLessThan(1000)
   })
 
+  it('stays fast on a line full of distinct never-closing draft links', () => {
+    // Regression guard for the reintroduced quadratic finding: each `[` here has its own,
+    // immediately-following `](`, so the old `findDestEnd` memo (keyed on a single most-recent
+    // candidate) never hits, and every one of them re-scanned to end-of-line. At n = 20,000 that
+    // measured ~7.6s before the fix (per-line `lastParenOnLine` precompute: this line contains no
+    // `)` anywhere, so every candidate is rejected in O(1)). 1000ms is a generous bound to avoid
+    // flaking on a loaded CI runner.
+    const n = 20_000
+    const doc = 'Check out [this thing]('.repeat(n)
+    const start = performance.now()
+    const result = scanLinks(doc)
+    const elapsed = performance.now() - start
+    expect(result).toEqual([])
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('stays fast on many distinct empty draft links with no closing paren at all', () => {
+    // Same finding, simplest shape: measured ~1.4s at n = 20,000 before the fix.
+    const n = 20_000
+    const doc = '[]('.repeat(n)
+    const start = performance.now()
+    const result = scanLinks(doc)
+    const elapsed = performance.now() - start
+    expect(result).toEqual([])
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('stays fast when `)` characters exist but paren depth never balances', () => {
+    // Regression guard for the case `lastParenOnLine` alone can't catch: a `)` does exist later
+    // on the line, but each candidate's paren depth only grows, so without a hard cap on
+    // destination length every candidate would still scan all the way to `lineEnd` looking for a
+    // balance point that never comes for it. `MAX_DEST_LENGTH` bounds each scan instead.
+    const n = 20_000
+    const doc = '[a]((('.repeat(n) + ')' // many stray `(`, one stray `)` at the very end
+    const start = performance.now()
+    const result = scanLinks(doc)
+    const elapsed = performance.now() - start
+    expect(result).toEqual([])
+    expect(elapsed).toBeLessThan(1000)
+  })
+
   it('reports the whole construct even when the destination contains a balanced paren', () => {
     const doc = 'see [a](x(1).md) end'
     const links = scanLinks(doc)
