@@ -141,6 +141,9 @@ describe('TabBar', () => {
       screen.getByRole('tab', { name: /alpha/ }).focus()
       await userEvent.keyboard('{ArrowRight}')
       expect(onActivate).toHaveBeenCalledWith('t2')
+      // `onActivate` here is a mock that never updates `activeId`, so this proves the imperative
+      // `.focus()` call in TabBar itself, not a re-render driven by a new `activeId`.
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: /beta/ }))
     })
 
     it('wraps ArrowRight from the last tab back to the first', async () => {
@@ -149,6 +152,7 @@ describe('TabBar', () => {
       screen.getByRole('tab', { name: /notes\.md/ }).focus()
       await userEvent.keyboard('{ArrowRight}')
       expect(onActivate).toHaveBeenCalledWith('t1')
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: /alpha/ }))
     })
 
     it('moves activation to the previous tab on ArrowLeft, wrapping before the first tab', async () => {
@@ -157,6 +161,7 @@ describe('TabBar', () => {
       screen.getByRole('tab', { name: /alpha/ }).focus()
       await userEvent.keyboard('{ArrowLeft}')
       expect(onActivate).toHaveBeenCalledWith('t3')
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: /notes\.md/ }))
     })
 
     it('jumps to the first tab on Home and the last tab on End', async () => {
@@ -165,9 +170,11 @@ describe('TabBar', () => {
       screen.getByRole('tab', { name: /beta/ }).focus()
       await userEvent.keyboard('{Home}')
       expect(onActivate).toHaveBeenCalledWith('t1')
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: /alpha/ }))
       onActivate.mockClear()
       await userEvent.keyboard('{End}')
       expect(onActivate).toHaveBeenCalledWith('t3')
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: /notes\.md/ }))
     })
 
     // Only the active tab (and its close button) is a tab stop. Before the fix, every close
