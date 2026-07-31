@@ -109,8 +109,10 @@ import {
   type DraftRef,
   type DraftSaved,
   type DraftAdoptRequest,
-  type PersistedTabs
+  type PersistedTabs,
+  type FindReferencesRequest
 } from '../shared/editorIpc'
+import type { CorpusItem, ReferenceHit } from '../shared/corpusSearch'
 import type {
   TextDocSource,
   TextDocOpenResult,
@@ -542,7 +544,11 @@ const argus = {
       return () => {
         ipcRenderer.off(EDITOR_IPC.restoreTabs, h)
       }
-    }
+    },
+    /** Every asset quick open can offer (spec §6.2). Read on demand — main does not cache it. */
+    corpus: (): Promise<CorpusItem[]> => ipcRenderer.invoke(EDITOR_IPC.corpus),
+    findReferences: (req: FindReferencesRequest): Promise<ReferenceHit[]> =>
+      ipcRenderer.invoke(EDITOR_IPC.findReferences, req)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
