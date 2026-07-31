@@ -100,3 +100,13 @@ export interface DraftAdoptRequest {
   legacy: { kind: AuthoringKind; name: string }
   change: DraftChange & { draftId: string }
 }
+
+/** Where a tab was looking. Persisted with the tab set so a restart lands you back in place. */
+export interface TabViewState {
+  /** 1-indexed, clamped on restore — `Text.line(n)` throws out of range. */
+  line: number
+  /** 1-indexed. */
+  col: number
+  /** 0–1, the same fraction the split preview's scroll sync already speaks. */
+  scrollFraction: number
+}
