@@ -253,7 +253,7 @@ describe('CaseDashboard triage', () => {
         {...noopHandlers}
       />
     )
-    await userEvent.type(screen.getByPlaceholderText('Filter cases…'), 'PROJ-9')
+    await userEvent.type(screen.getByPlaceholderText('Search cases…'), 'PROJ-9')
     expect(screen.queryByText('alpha')).not.toBeInTheDocument()
     expect(screen.getByText('beta')).toBeInTheDocument()
   })

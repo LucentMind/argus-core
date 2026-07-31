@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CaseRecord } from '../../../shared/types'
-import { Btn, SectionLabel } from './ui'
-import { FolderInput, Plus } from 'lucide-react'
+import { Btn, Checkbox, SectionLabel } from './ui'
+import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { useSettingsPayload } from '../lib/settingsStore'
@@ -183,22 +183,28 @@ export function CaseDashboard({
             here is a false positive. */}
         {/* eslint-disable-next-line react-hooks/refs */}
         <div ref={anchors.setFilters} className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            className="h-8 w-56 rounded-r2 border border-hair bg-overlay px-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
-            placeholder="Filter cases…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <label className="flex items-center gap-1.5 text-xs text-dim">
-            <input
-              type="checkbox"
-              aria-label="Show closed cases"
-              checked={showClosed}
-              onChange={(e) => setShowClosed(e.target.checked)}
+          <div className="relative">
+            <Search
+              size={14}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mute"
             />
-            Show closed
-          </label>
+            <input
+              className="h-8 w-56 rounded-r2 border border-hair bg-overlay pl-8 pr-3 text-sm text-ink placeholder:text-mute transition-colors focus:border-hair2"
+              placeholder="Search cases…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+          <Checkbox
+            checked={showClosed}
+            onChange={setShowClosed}
+            aria-label="Show closed cases"
+            label="Show closed"
+          />
+          <div className="h-5 w-px shrink-0 bg-hair" aria-hidden="true" />
           <Btn onClick={() => void syncAll()} disabled={syncing !== null}>
+            <RefreshCw size={13} aria-hidden="true" />
             {syncing ? `syncing ${syncing.done}/${syncing.total}…` : 'Sync all'}
           </Btn>
           {syncNote && <span className="text-xs text-dim">{syncNote}</span>}

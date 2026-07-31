@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { Check } from 'lucide-react'
 
 const CHIP_TONES = {
   neutral: 'text-dim border-hair',
@@ -319,5 +320,48 @@ export function SkeletonRows({ count = 3 }: { count?: number }): React.JSX.Eleme
         </div>
       ))}
     </div>
+  )
+}
+
+/**
+ * Checkbox with a drawn box.
+ *
+ * The input stays in the DOM as `sr-only peer` rather than `hidden`: it must remain focusable,
+ * label-queryable and clickable — `hidden` would take it out of the accessibility tree and break
+ * both keyboard use and every `getByLabelText` in the suite.
+ */
+export function Checkbox({
+  checked,
+  onChange,
+  label,
+  'aria-label': ariaLabel
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void
+  label: ReactNode
+  'aria-label'?: string
+}): React.JSX.Element {
+  return (
+    <label className="inline-flex cursor-pointer select-none items-center gap-1.5 text-xs text-dim">
+      <input
+        type="checkbox"
+        aria-label={ariaLabel}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer sr-only"
+      />
+      <span className="grid h-3.5 w-3.5 place-items-center rounded-r1 border border-hair2 bg-overlay text-void transition-colors peer-checked:border-signal peer-checked:bg-signal peer-focus-visible:border-faint">
+        {/* The tick is driven from React state, not `peer-checked:` — `peer-*` only matches
+            later SIBLINGS of the peer, and this svg is a descendant of one, so the variant
+            would never fire. The box itself is a sibling, so it can use peer-checked. */}
+        <Check
+          size={10}
+          strokeWidth={3.5}
+          className={checked ? 'opacity-100' : 'opacity-0'}
+          aria-hidden="true"
+        />
+      </span>
+      {label}
+    </label>
   )
 }
