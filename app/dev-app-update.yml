@@ -1,0 +1,8 @@
+# Lets the updater be exercised under `electron-vite dev`, where app-update.yml (generated into
+# the packaged resources) does not exist. Already covered by the `files:` exclusion list in
+# electron-builder.yml, so it cannot ship. Note CoreUpdaterService reports `unsupported` when
+# app.isPackaged is false, so exercising the updater in dev also means temporarily forcing
+# `supported: true` in index.ts — this file only removes the config obstacle.
+provider: github
+owner: LucentMind
+repo: argus-core

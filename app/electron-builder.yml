@@ -93,6 +93,10 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
+# The scaffold placeholder this replaced was never a real destination. `build.yml` already
+# uploads latest.yml + blockmaps to a GitHub Release, so the github provider reads assets that
+# are already being produced. A public repo's releases feed needs no token at build or runtime.
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: LucentMind
+  repo: argus-core
