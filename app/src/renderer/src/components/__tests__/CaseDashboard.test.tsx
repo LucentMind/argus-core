@@ -137,4 +137,90 @@ describe('CaseDashboard', () => {
     const importBtn = screen.getByRole('button', { name: /import case/i })
     expect(newBtn.parentElement).toBe(importBtn.parentElement)
   })
+
+  const twoCases: CaseRecord[] = [
+    {
+      ...cases[0],
+      slug: 'NAV-1',
+      title: 'Bearing jumps',
+      status: 'analyzing',
+      jiraPriority: 'High'
+    },
+    {
+      ...cases[0],
+      id: 2,
+      slug: 'NAV-2',
+      title: 'Route missing',
+      status: 'open',
+      jiraPriority: 'Low'
+    }
+  ]
+
+  it('filters by status', () => {
+    render(
+      <CaseDashboard
+        cases={twoCases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /status/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
+    expect(screen.queryByText('Bearing jumps')).toBeNull()
+    expect(screen.getByText('Route missing')).toBeTruthy()
+  })
+
+  it('filters by priority, offering only the values actually present', () => {
+    render(
+      <CaseDashboard
+        cases={twoCases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /priority/i }))
+    expect(screen.queryByRole('menuitem', { name: 'Medium' })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'High' }))
+    expect(screen.getByText('Bearing jumps')).toBeTruthy()
+    expect(screen.queryByText('Route missing')).toBeNull()
+  })
+
+  it('an explicit Closed filter overrides the hide-closed default', () => {
+    const withClosed = [
+      ...twoCases,
+      { ...cases[0], id: 3, slug: 'NAV-3', title: 'Old bug', status: 'closed' as const }
+    ]
+    render(
+      <CaseDashboard
+        cases={withClosed}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('Old bug')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /status/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Closed' }))
+    expect(screen.getByText('Old bug')).toBeTruthy()
+  })
+
+  it('the trigger names the active filter', () => {
+    render(
+      <CaseDashboard
+        cases={twoCases}
+        onOpen={vi.fn()}
+        onNew={vi.fn()}
+        onImport={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /status/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }))
+    expect(screen.getByRole('button', { name: /status: open/i })).toBeTruthy()
+  })
 })

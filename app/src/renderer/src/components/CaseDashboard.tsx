@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { CaseRecord } from '../../../shared/types'
-import { Btn, Checkbox, SectionLabel } from './ui'
+import type { CaseRecord, CaseStatus } from '../../../shared/types'
+import { Btn, Checkbox, MenuButton, SectionLabel, type MenuItem } from './ui'
 import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
 import { CaseCard } from './CaseCard'
 import { DeleteCaseDialog } from './DeleteCaseDialog'
@@ -30,6 +30,8 @@ export function CaseDashboard({
   const [pendingKnowledge, setPendingKnowledge] = useState(0)
   const [filter, setFilter] = useState('')
   const [showClosed, setShowClosed] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<CaseStatus | 'all'>('all')
+  const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
   const settings = useSettingsPayload()
@@ -127,7 +129,11 @@ export function CaseDashboard({
 
   const q = filter.trim().toLowerCase()
   const visible = cases.filter((c) => {
-    if (!showClosed && c.status === 'closed') return false
+    // An explicit Closed filter is a stronger statement of intent than the standing
+    // hide-closed default, so it wins.
+    if (!showClosed && statusFilter !== 'closed' && c.status === 'closed') return false
+    if (statusFilter !== 'all' && c.status !== statusFilter) return false
+    if (priorityFilter !== 'all' && c.jiraPriority !== priorityFilter) return false
     if (!q) return true
     return (
       c.slug.toLowerCase().includes(q) ||
@@ -143,6 +149,28 @@ export function CaseDashboard({
     .filter((s) => counts[s])
     .map((s) => `${counts[s]} ${s}`)
     .join(' · ')
+
+  const STATUS_MENU: { id: CaseStatus; label: string }[] = [
+    { id: 'open', label: 'Open' },
+    { id: 'analyzing', label: 'Analyzing' },
+    { id: 'rca-drafted', label: 'RCA drafted' },
+    { id: 'closed', label: 'Closed' }
+  ]
+  const statusItems: MenuItem[] = [
+    { label: 'All statuses', onSelect: () => setStatusFilter('all') },
+    ...STATUS_MENU.map((s) => ({ label: s.label, onSelect: () => setStatusFilter(s.id) }))
+  ]
+  // Derived, not hardcoded: the priority scheme is per-Jira-project, so the menu offers exactly
+  // the values on screen and nothing else.
+  const priorities = [...new Set(cases.map((c) => c.jiraPriority).filter((p): p is string => !!p))]
+  const priorityItems: MenuItem[] = [
+    { label: 'All priorities', onSelect: () => setPriorityFilter('all') },
+    ...priorities.map((p) => ({ label: p, onSelect: () => setPriorityFilter(p) }))
+  ]
+  const statusTrigger =
+    statusFilter === 'all'
+      ? 'Status'
+      : `Status: ${STATUS_MENU.find((s) => s.id === statusFilter)?.label ?? statusFilter}`
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
@@ -196,6 +224,13 @@ export function CaseDashboard({
               onChange={(e) => setFilter(e.target.value)}
             />
           </div>
+          <MenuButton label={statusTrigger} items={statusItems} variant="outline" align="left" />
+          <MenuButton
+            label={priorityFilter === 'all' ? 'Priority' : `Priority: ${priorityFilter}`}
+            items={priorityItems}
+            variant="outline"
+            align="left"
+          />
           <Checkbox
             checked={showClosed}
             onChange={setShowClosed}
