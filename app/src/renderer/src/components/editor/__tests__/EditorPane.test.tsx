@@ -55,4 +55,14 @@ describe('EditorPane', () => {
     await userEvent.keyboard('{ArrowRight}')
     expect(onSplitFraction).toHaveBeenLastCalledWith(0.8)
   })
+
+  it('reports its position and range to assistive tech', () => {
+    render(
+      <EditorPane viewMode="split" splitFraction={0.35} onSplitFraction={vi.fn()} {...parts} />
+    )
+    const splitter = screen.getByRole('separator', { name: 'Resize preview' })
+    expect(splitter).toHaveAttribute('aria-valuenow', '35')
+    expect(splitter).toHaveAttribute('aria-valuemin', '20')
+    expect(splitter).toHaveAttribute('aria-valuemax', '80')
+  })
 })

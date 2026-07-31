@@ -76,8 +76,16 @@ export function EditorPane({
           role="separator"
           aria-label="Resize preview"
           aria-orientation="vertical"
+          // A focusable, movable separator that reports no position tells a screen-reader user
+          // it exists and nothing about what it does. These three are what make the arrow keys
+          // discoverable.
+          aria-valuenow={Math.round(splitFraction * 100)}
+          aria-valuemin={20}
+          aria-valuemax={80}
           tabIndex={0}
-          onPointerDown={() => {
+          onPointerDown={(e) => {
+            // Without this a fast drag selects the text it passes over in both panes.
+            e.preventDefault()
             dragging.current = true
           }}
           onKeyDown={(e) => {

@@ -35,7 +35,15 @@ export function PreviewPane({
       applying.current = false
     })
     return () => cancelAnimationFrame(id)
-  }, [scrollFraction, doc])
+    // `scrollFraction` only — deliberately **not** `doc`. Depending on the document re-runs this
+    // on every keystroke and re-pins the preview to whatever fraction the editor last reported,
+    // which silently undoes any manual scrolling of the preview pane: read ahead in the preview,
+    // type one character, and it snaps back. The case `doc` was meant to cover — markdown reflow
+    // changing `scrollHeight` under a stale fraction — resolves itself, because typing past the
+    // fold scrolls the editor, which reports a fresh fraction and re-syncs. Sync is approximate
+    // by design (§5.5); re-asserting it on every keystroke is more than the design asks for and
+    // costs a reasonable user action.
+  }, [scrollFraction])
 
   return (
     <div
