@@ -6,6 +6,14 @@
  * Must not import from `src/main`: `tsconfig.web.json` excludes it, and a shared→main import
  * breaks `typecheck:web`.
  */
+/**
+ * Machine-readable failure kinds, for the few cases where the UI must branch rather than just
+ * print a sentence — a pinned-origin refusal offers "download it manually" instead of a retry.
+ * Optional: Core's updater sets no code, and `describeUpdate` never reads it.
+ */
+export type UpdateErrorCode =
+  'feed' | 'redirect' | 'insecure' | 'origin-pin' | 'too-large' | 'checksum' | 'install'
+
 export type UpdateStatus =
   | { phase: 'idle' }
   /** Structurally impossible here — an unpackaged build. Not an error; never shown as one. */
@@ -15,7 +23,7 @@ export type UpdateStatus =
   | { phase: 'downloading'; percent: number }
   /** Bytes are staged; a restart applies them. */
   | { phase: 'ready'; version: string }
-  | { phase: 'error'; message: string; at: number }
+  | { phase: 'error'; message: string; at: number; code?: UpdateErrorCode }
 
 /** Everything the app-update surface renders. */
 export interface CoreUpdatePayload {
