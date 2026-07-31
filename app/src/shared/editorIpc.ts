@@ -21,7 +21,9 @@ export const EDITOR_IPC = {
   /** renderer → main: the draft for an asset, or null. */
   draftRead: 'editor:draft-read',
   /** renderer → main: delete it (saved, or discarded by hand). */
-  draftDiscard: 'editor:draft-discard'
+  draftDiscard: 'editor:draft-discard',
+  /** renderer → main: every draft currently known, for the resumable-drafts banner. */
+  draftList: 'editor:draft-list'
 } as const
 
 export interface EditorOpenRequest {

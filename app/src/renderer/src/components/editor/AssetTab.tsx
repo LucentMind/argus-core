@@ -11,7 +11,7 @@ import {
   type ConflictAction,
   type DraftBanner
 } from '../../lib/draftState'
-import type { EditorOpenRequest } from '../../../../shared/editorIpc'
+import type { DraftRecord, EditorOpenRequest } from '../../../../shared/editorIpc'
 
 export interface AssetTabProps {
   req: EditorOpenRequest
@@ -47,6 +47,15 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
   const [banner, setBanner] = useState<DraftBanner>({ kind: 'none' })
   const [draftAt, setDraftAt] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
+  // Increment 5 pulled forward (spec §4.5, §10 cut the Library half): other create-mode drafts
+  // this tab could resume. `null` until the fetch below settles, so no banner flashes before it
+  // has an answer. Only ever populated in create mode — see the effect below.
+  const [otherDrafts, setOtherDrafts] = useState<DraftRecord[] | null>(null)
+  // The name currently in the name field, mirrored out of `draft.onChange` so the resumable-
+  // drafts banner can recompute its collision wording as the user types — `AssetEditor` reports
+  // renames only through that callback, and reading `filedAs.current` (a ref) during render
+  // would trip this repo's react-hooks/refs lint rule.
+  const [typedName, setTypedName] = useState(initialName)
   // Non-null while the compare view is open, holding a snapshot of the buffer taken at the
   // moment "Compare" was clicked. Not `buffer.current` read live: React's eslint react-hooks/refs
   // rule forbids reading a ref's `.current` during render (it can change without a re-render),
@@ -179,6 +188,22 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
           load: () => Promise.reject(new Error(`Could not read ${kind} "${initialName}".`))
         })
       }
+
+      // After the resolve above settles: find other create-mode drafts this tab could resume.
+      // Create mode only — an edit-mode orphan (its asset deleted) is Increment 5's problem, not
+      // this one (spec §4.5, §10 cut Library visibility). `filedAs.current` is still `initialName`
+      // here, nothing has been typed yet, so this is exactly "every other create draft".
+      if (mode === 'create') {
+        const all = await window.argus.editor.listDrafts()
+        if (!live) return
+        const others = all
+          .filter((d) => d.kind === kind && d.mode === 'create' && d.name !== initialName)
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+          // Cap: the banner is a strip of buttons, not a list view — Increment 5's quick-open
+          // Drafts section is where the rest live.
+          .slice(0, 5)
+        setOtherDrafts(others)
+      }
     })()
     return () => {
       live = false
@@ -191,6 +216,9 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
     () => ({
       onChange: (content: string, name: string): void => {
         buffer.current = content
+        // Drives the resumable-drafts banner's collision wording (below). Unconditional, ahead
+        // of the mount-echo skip below it: even the swallowed echo carries the true current name.
+        setTypedName(name)
         const renamed = name !== filedAs.current
         const replaces = renamed ? { kind, name: filedAs.current } : undefined
         filedAs.current = name
@@ -439,6 +467,56 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
     <span className="font-mono text-[11px] text-faint">Draft · {shortTime(draftAt)}</span>
   ) : null
 
+  // Resumable-drafts banner (Increment 5 pulled forward). `collision` is the answer to the
+  // silent-overwrite half of the defect: DraftStore.writeKey still writes over an existing key
+  // unconditionally (last-write-wins is unchanged), but that is now visible to the user typing
+  // the name instead of happening without a word.
+  const collision = otherDrafts?.find((d) => d.name === typedName) ?? null
+  const resumeDraft = (name: string): void => {
+    void window.argus.editor.open({ kind, name, mode: 'create' })
+  }
+  const draftsBannerNode =
+    mode === 'create' && otherDrafts && otherDrafts.length > 0 ? (
+      collision ? (
+        <div
+          role="status"
+          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-review/40 bg-review/10 px-3 py-1.5 text-xs text-review"
+        >
+          <span>
+            A draft named &quot;{collision.name}&quot; already exists — what you type here will
+            replace it.
+          </span>
+          <Btn variant="outline" onClick={() => resumeDraft(collision.name)}>
+            Resume it
+          </Btn>
+        </div>
+      ) : (
+        <div
+          role="status"
+          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
+        >
+          <span>
+            {otherDrafts.length} unsaved new{' '}
+            {kind === 'skill'
+              ? otherDrafts.length === 1
+                ? 'skill'
+                : 'skills'
+              : otherDrafts.length === 1
+                ? 'reference'
+                : 'references'}{' '}
+            from earlier.
+          </span>
+          <span className="flex flex-wrap gap-2">
+            {otherDrafts.map((d) => (
+              <Btn key={d.name} variant="ghost" onClick={() => resumeDraft(d.name)}>
+                {d.name}
+              </Btn>
+            ))}
+          </span>
+        </div>
+      )
+    ) : null
+
   if (!init) {
     return <div className="flex flex-1 items-center justify-center text-sm text-dim">Loading…</div>
   }
@@ -510,7 +588,12 @@ export function AssetTab({ req, onDirtyChange, onClose }: AssetTabProps): React.
           name={initialName}
           mode={mode}
           chrome="window"
-          banner={bannerNode}
+          banner={
+            <>
+              {bannerNode}
+              {draftsBannerNode}
+            </>
+          }
           status={status}
           draft={draft}
           onDirtyChange={handleDirty}

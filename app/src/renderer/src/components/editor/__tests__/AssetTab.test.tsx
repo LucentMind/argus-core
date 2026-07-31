@@ -17,6 +17,8 @@ const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit'
 const draftChanged = vi.fn()
 const readDraft = vi.fn<() => Promise<DraftRecord | null>>()
 const discardDraft = vi.fn().mockResolvedValue(undefined)
+const openEditor = vi.fn().mockResolvedValue(undefined)
+const listDrafts = vi.fn<() => Promise<DraftRecord[]>>()
 const skillsRead = vi.fn()
 const skillsWrite = vi.fn()
 let draftSaved: ((s: DraftSaved) => void) | null = null
@@ -24,7 +26,9 @@ let draftSaved: ((s: DraftSaved) => void) | null = null
 beforeEach(() => {
   draftChanged.mockClear()
   discardDraft.mockClear()
+  openEditor.mockClear()
   readDraft.mockReset().mockResolvedValue(null)
+  listDrafts.mockReset().mockResolvedValue([])
   skillsRead.mockReset().mockResolvedValue({ content: SKILL_BODY, hash: 'h1' })
   skillsWrite.mockReset().mockResolvedValue({ skills: [], hash: 'h2' })
   draftSaved = null
@@ -33,6 +37,8 @@ beforeEach(() => {
       draftChanged,
       readDraft,
       discardDraft,
+      open: openEditor,
+      listDrafts,
       onDraftSaved: (cb: (s: DraftSaved) => void) => {
         draftSaved = cb
         return () => {}
@@ -552,6 +558,79 @@ describe('AssetTab conflict on save', () => {
 
     expect(await editor()).toHaveValue(`${SKILL_BODY}X`)
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
+  })
+})
+
+// Increment 5 pulled forward: a draft renamed away from its tab's opening name used to be
+// unreachable — nothing ever looked it up again. This banner offers it back through the
+// ordinary `editor.open` → open-tab → remount path, and warns instead of silently overwriting
+// when the typed name collides with an existing stranded draft.
+describe('AssetTab resumable drafts banner (create mode)', () => {
+  const otherDraft = (over: Partial<DraftRecord> = {}): DraftRecord => ({
+    kind: 'skill',
+    name: 'hij',
+    mode: 'create',
+    content: '# hij\n',
+    baseHash: null,
+    updatedAt: '2026-07-30T15:00:00.000Z',
+    ...over
+  })
+
+  const create = (name = 'my-skill'): void => {
+    skillsRead.mockRejectedValue(new Error(`No such skill: ${name}`))
+    render(
+      <AssetTab
+        req={{ kind: 'skill', name, mode: 'create' }}
+        onDirtyChange={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+  }
+
+  it('offers an unrelated create-mode draft found on disk, and resumes it through editor.open', async () => {
+    listDrafts.mockResolvedValue([otherDraft()])
+    create()
+
+    expect(await screen.findByText('1 unsaved new skill from earlier.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'hij' }))
+    expect(openEditor).toHaveBeenCalledWith({ kind: 'skill', name: 'hij', mode: 'create' })
+  })
+
+  it('switches to the collision wording once the typed name matches an existing draft', async () => {
+    listDrafts.mockResolvedValue([otherDraft({ name: 'hij' })])
+    create()
+
+    const nameField = await screen.findByLabelText('skill name')
+    await userEvent.clear(nameField)
+    await userEvent.type(nameField, 'hij')
+
+    expect(
+      await screen.findByText(
+        'A draft named "hij" already exists — what you type here will replace it.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/unsaved new skills? from earlier/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /resume it/i }))
+    expect(openEditor).toHaveBeenCalledWith({ kind: 'skill', name: 'hij', mode: 'create' })
+  })
+
+  it('shows no banner when there are no other drafts', async () => {
+    listDrafts.mockResolvedValue([])
+    create()
+
+    await screen.findByRole('textbox', { name: /skill · my-skill/i })
+    expect(screen.queryByText(/unsaved new/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/already exists/)).not.toBeInTheDocument()
+  })
+
+  it('never appears for an edit-mode tab', async () => {
+    listDrafts.mockResolvedValue([otherDraft()])
+    mount() // default SKILL fixture is mode: 'edit'
+    await editor()
+
+    expect(listDrafts).not.toHaveBeenCalled()
+    expect(screen.queryByText(/unsaved new/)).not.toBeInTheDocument()
   })
 })
 

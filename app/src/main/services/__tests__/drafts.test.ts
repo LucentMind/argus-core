@@ -350,6 +350,39 @@ describe('DraftStore re-key on rename (spec §4.5)', () => {
   })
 })
 
+describe('DraftStore.list', () => {
+  it('returns [] when the drafts dir does not exist yet', () => {
+    expect(store().list()).toEqual([])
+  })
+
+  it('returns every draft written to disk', () => {
+    const s = store()
+    s.queue({ ...CHANGE, name: 'a' })
+    s.queue({ ...CHANGE, name: 'b' })
+    s.flushAll()
+    const names = store()
+      .list()
+      .map((r) => r.name)
+      .sort()
+    expect(names).toEqual(['a', 'b'])
+  })
+
+  it('prefers a pending change over its disk copy', () => {
+    const s = store()
+    s.queue(CHANGE)
+    s.flushAll()
+    s.queue({ ...CHANGE, content: 'still typing' })
+    const rec = s.list().find((r) => r.name === 'my-skill')
+    expect(rec?.content).toBe('still typing')
+  })
+
+  it('skips a corrupt draft file rather than throwing', () => {
+    fs.mkdirSync(path.join(home, 'drafts'), { recursive: true })
+    fs.writeFileSync(file('skill', 'my-skill'), '{not json', 'utf8')
+    expect(store().list()).toEqual([])
+  })
+})
+
 describe('DraftStore write failure', () => {
   beforeEach(() => {
     vi.useFakeTimers()

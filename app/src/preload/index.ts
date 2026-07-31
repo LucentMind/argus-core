@@ -506,7 +506,9 @@ const argus = {
     },
     readDraft: (ref: DraftRef): Promise<DraftRecord | null> =>
       ipcRenderer.invoke(EDITOR_IPC.draftRead, ref),
-    discardDraft: (ref: DraftRef): Promise<void> => ipcRenderer.invoke(EDITOR_IPC.draftDiscard, ref)
+    discardDraft: (ref: DraftRef): Promise<void> =>
+      ipcRenderer.invoke(EDITOR_IPC.draftDiscard, ref),
+    listDrafts: (): Promise<DraftRecord[]> => ipcRenderer.invoke(EDITOR_IPC.draftList)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>

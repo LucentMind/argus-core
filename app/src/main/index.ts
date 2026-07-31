@@ -1612,6 +1612,7 @@ function registerIpc(): void {
   ipcMain.handle(EDITOR_IPC.draftDiscard, (_e, ref: DraftRef) => {
     draftStore?.discard(ref.kind, ref.name)
   })
+  ipcMain.handle(EDITOR_IPC.draftList, () => draftStore?.list() ?? [])
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({

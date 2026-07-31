@@ -106,6 +106,31 @@ export class DraftStore {
     }
   }
 
+  /**
+   * Every draft currently known. Added for the resumable-drafts banner (spec §4.5 pulled
+   * forward): a create-mode tab needs to find drafts filed under names other than its own.
+   *
+   * Disk copies first, then the pending map merged over them — same reasoning as `read()`: a
+   * queued change is up to `debounceMs` newer than what made it to disk.
+   */
+  list(): DraftRecord[] {
+    const byKey = new Map<string, DraftRecord>()
+    let entries: string[] = []
+    try {
+      entries = fs.readdirSync(this.dir)
+    } catch {
+      entries = []
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith('.json')) continue
+      const key = entry.slice(0, -'.json'.length)
+      const rec = this.readFile(key)
+      if (rec) byKey.set(key, rec)
+    }
+    for (const [key, rec] of this.pending) byKey.set(key, rec)
+    return [...byKey.values()]
+  }
+
   discard(kind: AuthoringKind, name: string): void {
     const key = draftKey(kind, name)
     this.cancel(key)
