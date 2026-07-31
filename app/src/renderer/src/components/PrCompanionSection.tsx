@@ -374,7 +374,7 @@ export function PrCompanionSection({
 
   return (
     <div
-      className={`flex flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : ''}`}
+      className={`flex flex-col gap-2 ${dynamic ? 'glass-panel rounded-r3 p-2.5' : ''}`}
       data-tier={status?.rollup === 'failing' ? 'p1' : undefined}
     >
       <SectionLabel>
