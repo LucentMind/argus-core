@@ -49,12 +49,20 @@ describe('CoreUpdaterService', () => {
   })
 
   it('a failed BOOT check falls back to idle and is not surfaced as an error', async () => {
-    const b = fakeBackend({ check: vi.fn(async () => { throw new Error('ENOTFOUND') }) })
+    const b = fakeBackend({
+      check: vi.fn(async () => {
+        throw new Error('ENOTFOUND')
+      })
+    })
     expect((await svc(b).check({ manual: false })).status).toEqual({ phase: 'idle' })
   })
 
   it('a failed MANUAL check reports the error', async () => {
-    const b = fakeBackend({ check: vi.fn(async () => { throw new Error('ENOTFOUND') }) })
+    const b = fakeBackend({
+      check: vi.fn(async () => {
+        throw new Error('ENOTFOUND')
+      })
+    })
     expect((await svc(b).check({ manual: true })).status).toEqual({
       phase: 'error',
       message: 'ENOTFOUND',
@@ -79,7 +87,12 @@ describe('CoreUpdaterService', () => {
     let release: () => void = () => {}
     const b = fakeBackend({
       check: vi.fn(async () => ({ version: '1.1.0' })),
-      download: vi.fn(() => new Promise<void>((r) => { release = r }))
+      download: vi.fn(
+        () =>
+          new Promise<void>((r) => {
+            release = r
+          })
+      )
     })
     const s = svc(b)
     await s.check({ manual: true })
@@ -133,7 +146,12 @@ describe('CoreUpdaterService', () => {
   it('re-entrancy guard prevents concurrent check() calls', async () => {
     let release: (v: null) => void = () => {}
     const b = fakeBackend({
-      check: vi.fn((): Promise<null> => new Promise((r) => { release = r }))
+      check: vi.fn(
+        (): Promise<null> =>
+          new Promise((r) => {
+            release = r
+          })
+      )
     })
     const s = svc(b)
     // Start first check but don't await it
@@ -148,7 +166,11 @@ describe('CoreUpdaterService', () => {
   })
 
   it('handles non-Error rejections by converting to string message', async () => {
-    const b = fakeBackend({ check: vi.fn(async () => { throw 'boom' }) })
+    const b = fakeBackend({
+      check: vi.fn(async () => {
+        throw 'boom'
+      })
+    })
     const result = await svc(b).check({ manual: true })
     expect(result.status).toEqual({
       phase: 'error',

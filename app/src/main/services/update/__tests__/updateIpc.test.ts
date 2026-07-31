@@ -3,7 +3,15 @@ import { registerUpdateIpc } from '../updateIpc'
 import { CoreUpdaterService, type UpdaterBackend } from '../coreUpdater'
 import { IPC } from '../../../../shared/ipc'
 
-function harness(backendOverrides: Partial<UpdaterBackend> = {}) {
+interface HarnessFixture {
+  service: CoreUpdaterService
+  handlers: Map<string, () => unknown>
+  broadcasts: Array<{ channel: string; payload: unknown }>
+  off: () => void
+  backend: UpdaterBackend
+}
+
+function harness(backendOverrides: Partial<UpdaterBackend> = {}): HarnessFixture {
   const backend = {
     check: vi.fn(async () => ({ version: '1.1.0' })),
     download: vi.fn(async () => {}),
@@ -42,7 +50,11 @@ describe('registerUpdateIpc', () => {
   })
 
   it('the check handler runs a MANUAL check, so failures are surfaced', async () => {
-    const { handlers } = harness({ check: vi.fn(async () => { throw new Error('offline') }) })
+    const { handlers } = harness({
+      check: vi.fn(async () => {
+        throw new Error('offline')
+      })
+    })
     const p = (await handlers.get(IPC.updateCheck)!()) as { status: { phase: string } }
     expect(p.status.phase).toBe('error')
   })
@@ -69,7 +81,9 @@ describe('registerUpdateIpc', () => {
     // Drive service to available state
     await handlers.get(IPC.updateCheck)!()
     // Invoke download handler
-    const payload = (await handlers.get(IPC.updateDownload)!()) as { status: { phase: string; version?: string } }
+    const payload = (await handlers.get(IPC.updateDownload)!()) as {
+      status: { phase: string; version?: string }
+    }
     // Assert outcome reachable only through service.download()
     expect(payload.status).toEqual({ phase: 'ready', version: '1.1.0' })
   })

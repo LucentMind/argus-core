@@ -68,7 +68,8 @@ export class CoreUpdaterService {
    */
   async check(opts: { manual: boolean }): Promise<CoreUpdatePayload> {
     const p = this.status.phase
-    if (p === 'unsupported' || p === 'checking' || p === 'downloading' || p === 'ready') return this.payload()
+    if (p === 'unsupported' || p === 'checking' || p === 'downloading' || p === 'ready')
+      return this.payload()
     this.set({ phase: 'checking' })
     try {
       const found = await this.deps.backend.check()
