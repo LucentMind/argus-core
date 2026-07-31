@@ -112,4 +112,102 @@ describe('TabBar', () => {
     )
     expect(container).toBeEmptyDOMElement()
   })
+
+  describe('keyboard', () => {
+    it('activates the focused tab on Enter', async () => {
+      const onActivate = vi.fn()
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={onActivate} onClose={vi.fn()} />)
+      screen.getByRole('tab', { name: /alpha/ }).focus()
+      await userEvent.keyboard('{Enter}')
+      expect(onActivate).toHaveBeenCalledWith('t1')
+    })
+
+    it('activates the focused tab on Space', async () => {
+      const onActivate = vi.fn()
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={onActivate} onClose={vi.fn()} />)
+      screen.getByRole('tab', { name: /alpha/ }).focus()
+      await userEvent.keyboard(' ')
+      expect(onActivate).toHaveBeenCalledWith('t1')
+    })
+
+    // Roving tabindex, automatic activation (WAI-ARIA tabs pattern): ArrowRight/ArrowLeft both
+    // move focus AND activate the adjacent tab, wrapping at the ends. This is the same model
+    // already implied by mouse click-to-activate, and it keeps tabIndex tied to `activeId` alone
+    // — no extra "focused but not active" state is needed on top of the one flag (menuOpen) this
+    // component is allowed to own.
+    it('moves activation to the next tab on ArrowRight, wrapping past the last tab', async () => {
+      const onActivate = vi.fn()
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={onActivate} onClose={vi.fn()} />)
+      screen.getByRole('tab', { name: /alpha/ }).focus()
+      await userEvent.keyboard('{ArrowRight}')
+      expect(onActivate).toHaveBeenCalledWith('t2')
+    })
+
+    it('wraps ArrowRight from the last tab back to the first', async () => {
+      const onActivate = vi.fn()
+      render(<TabBar tabs={TABS} activeId="t3" onActivate={onActivate} onClose={vi.fn()} />)
+      screen.getByRole('tab', { name: /notes\.md/ }).focus()
+      await userEvent.keyboard('{ArrowRight}')
+      expect(onActivate).toHaveBeenCalledWith('t1')
+    })
+
+    it('moves activation to the previous tab on ArrowLeft, wrapping before the first tab', async () => {
+      const onActivate = vi.fn()
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={onActivate} onClose={vi.fn()} />)
+      screen.getByRole('tab', { name: /alpha/ }).focus()
+      await userEvent.keyboard('{ArrowLeft}')
+      expect(onActivate).toHaveBeenCalledWith('t3')
+    })
+
+    it('jumps to the first tab on Home and the last tab on End', async () => {
+      const onActivate = vi.fn()
+      render(<TabBar tabs={TABS} activeId="t2" onActivate={onActivate} onClose={vi.fn()} />)
+      screen.getByRole('tab', { name: /beta/ }).focus()
+      await userEvent.keyboard('{Home}')
+      expect(onActivate).toHaveBeenCalledWith('t1')
+      onActivate.mockClear()
+      await userEvent.keyboard('{End}')
+      expect(onActivate).toHaveBeenCalledWith('t3')
+    })
+
+    // Only the active tab (and its close button) is a tab stop. Before the fix, every close
+    // button was reachable via Tab regardless of its own tab's tabIndex, so a keyboard-only user
+    // could never reach an inactive tab at all — verified empirically against the unfixed code.
+    it('keeps an inactive tab and its close button out of the sequential tab order', () => {
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
+      expect(screen.getByRole('tab', { name: /beta/ })).toHaveAttribute('tabIndex', '-1')
+      expect(screen.getByRole('button', { name: 'Close beta' })).toHaveAttribute('tabIndex', '-1')
+      expect(screen.getByRole('tab', { name: /alpha/ })).toHaveAttribute('tabIndex', '0')
+      expect(screen.getByRole('button', { name: 'Close alpha' })).toHaveAttribute('tabIndex', '0')
+    })
+
+    it('closes the overflow menu on Escape', async () => {
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
+      await userEvent.click(screen.getByRole('button', { name: /all tabs/i }))
+      expect(screen.getAllByRole('menuitem')).toHaveLength(3)
+      await userEvent.keyboard('{Escape}')
+      expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+    })
+
+    it('closes the overflow menu on an outside click', async () => {
+      render(
+        <div>
+          <button type="button">outside</button>
+          <TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />
+        </div>
+      )
+      await userEvent.click(screen.getByRole('button', { name: /all tabs/i }))
+      expect(screen.getAllByRole('menuitem')).toHaveLength(3)
+      await userEvent.click(screen.getByRole('button', { name: 'outside' }))
+      expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+    })
+
+    it('sets aria-haspopup on the overflow trigger', () => {
+      render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
+      expect(screen.getByRole('button', { name: /all tabs/i })).toHaveAttribute(
+        'aria-haspopup',
+        'menu'
+      )
+    })
+  })
 })

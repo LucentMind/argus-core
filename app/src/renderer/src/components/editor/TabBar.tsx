@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, X } from 'lucide-react'
 import type { Tab } from './tabs'
 
@@ -25,16 +25,73 @@ export function TabBar({
   onClose
 }: TabBarProps): React.JSX.Element | null {
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  // Keyed by tab id so arrow/Home/End navigation can move DOM focus to a tab that is about to
+  // become active (see `onTablistKeyDown`). A ref, not state — this component owns no state
+  // beyond `menuOpen`.
+  const tabRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  // Mirrors MenuButton's dismissal effect (ui.tsx): closes on Escape and on a click outside the
+  // trigger/menu. TabBar doesn't reuse MenuButton itself — its trigger is a bare chevron-only
+  // icon button with its own layout, and MenuButton's trigger always renders a label plus a
+  // "▾" affordance, which would either duplicate the chevron or force a layout that isn't this
+  // strip's. Mirroring the effect gets the same dismissal behaviour without disturbing the strip.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDoc = (e: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
   if (tabs.length === 0) return null
+
+  // Roving tabindex (WAI-ARIA tabs pattern), automatic activation: ArrowLeft/ArrowRight move
+  // focus AND activate the adjacent tab (wrapping at the ends); Home/End jump to the first/last
+  // tab. Automatic activation was the deliberate choice, not manual — it matches the existing
+  // click-to-activate behaviour, and it means `tabIndex` can stay tied to `activeId` alone
+  // (0 on the active tab, -1 on the rest) instead of needing a separate "focused but not
+  // selected" bit of state that this presentational component otherwise has no reason to own.
+  const onTablistKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const idx = tabs.findIndex((t) => t.id === activeId)
+    if (idx === -1) return
+    let nextIdx: number | null = null
+    if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length
+    else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length
+    else if (e.key === 'Home') nextIdx = 0
+    else if (e.key === 'End') nextIdx = tabs.length - 1
+    if (nextIdx === null) return
+    e.preventDefault()
+    const next = tabs[nextIdx]
+    onActivate(next.id)
+    // tabIndex on the newly-active tab only flips to 0 on the next render; focus it directly so
+    // the roving-tabindex model works within this same keystroke.
+    tabRefs.current[next.id]?.focus()
+  }
 
   return (
     <div className="flex shrink-0 items-stretch border-b border-hair bg-hi">
-      <div role="tablist" className="flex min-w-0 flex-1 overflow-x-auto">
+      <div
+        role="tablist"
+        className="flex min-w-0 flex-1 overflow-x-auto"
+        onKeyDown={onTablistKeyDown}
+      >
         {tabs.map((t) => {
           const active = t.id === activeId
           return (
             <div
               key={t.id}
+              ref={(el) => {
+                tabRefs.current[t.id] = el
+              }}
               role="tab"
               tabIndex={active ? 0 : -1}
               aria-selected={active}
@@ -55,6 +112,11 @@ export function TabBar({
               <button
                 type="button"
                 aria-label={`Close ${t.name}`}
+                // A nested native <button> stays a tab stop regardless of its ancestor's
+                // tabIndex, so without pinning this to the tab's own roving state, every close
+                // button would be reachable via Tab even when its tab is not — incoherent, and
+                // it starved keyboard users of ever reaching an inactive tab at all.
+                tabIndex={active ? 0 : -1}
                 // Without this the same click also reaches the tab's onClick and activates the
                 // tab that is being removed.
                 onClick={(e) => {
@@ -70,10 +132,11 @@ export function TabBar({
         })}
       </div>
       {tabs.length > 1 && (
-        <div className="relative shrink-0">
+        <div className="relative shrink-0" ref={menuRef}>
           <button
             type="button"
             aria-label="All tabs"
+            aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((o) => !o)}
             className="flex h-full items-center px-2 text-faint hover:text-ink"
