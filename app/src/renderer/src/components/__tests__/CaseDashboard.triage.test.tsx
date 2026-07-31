@@ -260,4 +260,27 @@ describe('CaseDashboard triage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sync all' }))
     expect(await screen.findByText(/nope/)).toBeInTheDocument()
   })
+
+  it('shows the Jira priority as a neutral pill, not as footer prose', () => {
+    render(<CaseDashboard cases={[mkCase({ jiraPriority: 'High' })]} {...noopHandlers} />)
+    const pill = screen.getByText('High')
+    expect(pill.className).toContain('text-dim')
+    expect(pill.className).not.toContain('text-danger')
+  })
+
+  it('omits the pill entirely when the case has no priority', () => {
+    render(<CaseDashboard cases={[mkCase({ jiraPriority: null })]} {...noopHandlers} />)
+    expect(screen.queryByText(/^(Highest|High|Medium|Low|Lowest)$/)).toBeNull()
+  })
+
+  it('pairs the status word with a glowing dot', () => {
+    render(<CaseDashboard cases={[mkCase({ status: 'analyzing' })]} {...noopHandlers} />)
+    expect(screen.getByText('Analyzing')).toBeTruthy()
+    expect(screen.getAllByTestId('status-dot').length).toBeGreaterThan(0)
+  })
+
+  it('spells out the rca-drafted status', () => {
+    render(<CaseDashboard cases={[mkCase({ status: 'rca-drafted' })]} {...noopHandlers} />)
+    expect(screen.getByText('RCA drafted')).toBeTruthy()
+  })
 })

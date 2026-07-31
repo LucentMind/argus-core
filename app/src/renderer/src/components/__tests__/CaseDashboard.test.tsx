@@ -74,7 +74,7 @@ describe('CaseDashboard', () => {
     )
     fireEvent.click(screen.getByText('Bearing jumps'))
     expect(onOpen).toHaveBeenCalledWith('NAV-1')
-    expect(screen.getByText('analyzing')).toBeTruthy()
+    expect(screen.getByText('Analyzing')).toBeTruthy()
   })
 
   it('New case card opens the dialog via onNew', () => {
@@ -120,7 +120,7 @@ describe('CaseDashboard', () => {
     )
     // hide-closed defaults to on — reveal the closed case first
     fireEvent.click(screen.getByLabelText('Show closed cases'))
-    expect(screen.getByText('closed · wont-fix')).toBeTruthy()
+    expect(screen.getByText('Closed · wont-fix')).toBeTruthy()
   })
 
   it('New and Import actions share one tile', () => {

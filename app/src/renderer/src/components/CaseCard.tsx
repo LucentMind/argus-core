@@ -3,14 +3,30 @@ import { formatSyncRecency, type ActionItem } from '../../../shared/triage'
 import type { PrRollup } from '../../../shared/prStatus'
 import { Card, Chip, IconBtn } from './ui'
 import { PrRollupDot } from './PrRollupDot'
+import { StatusDot } from './StatusDot'
 import { railTier } from '../lib/priorityRail'
 import { Download, Trash2 } from 'lucide-react'
 
-const STATUS_TONE: Record<CaseStatus, 'signal' | 'defect' | 'review' | 'neutral'> = {
-  open: 'signal',
-  analyzing: 'defect',
-  'rca-drafted': 'review',
-  closed: 'neutral'
+/** Status colour as a text-* class: StatusDot fills from currentColor, and the word beside it
+ *  takes the same class, so dot and label can never disagree. */
+const STATUS_COLOR: Record<CaseStatus, string> = {
+  open: 'text-signal',
+  analyzing: 'text-defect',
+  'rca-drafted': 'text-review',
+  closed: 'text-mute'
+}
+
+/** Display form. The DB values are kebab/lowercase; the card is prose. */
+const STATUS_WORD: Record<CaseStatus, string> = {
+  open: 'Open',
+  analyzing: 'Analyzing',
+  'rca-drafted': 'RCA drafted',
+  closed: 'Closed'
+}
+
+function statusLabel(c: CaseRecord): string {
+  // The resolution stays in its stored lowercase form — it is a slug (`wont-fix`), not a sentence.
+  return c.status === 'closed' && c.resolution ? `Closed · ${c.resolution}` : STATUS_WORD[c.status]
 }
 
 /** Action-item tones reuse the existing chip vocabulary — no new colors. */
@@ -68,12 +84,13 @@ export function CaseCard({
       {showRail && (
         <i data-testid="priority-rail" data-tier={tier} aria-hidden="true" className="gc-rail" />
       )}
-      <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5">
-          <span className="font-mono text-sm text-defect">{c.slug}</span>
+      <div className="flex items-start justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-mono text-sm text-defect">{c.slug}</span>
+          {c.jiraPriority && <Chip tone="neutral">{c.jiraPriority}</Chip>}
           {prRollup && <PrRollupDot rollup={prRollup} />}
         </span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex shrink-0 items-center gap-1.5">
           <IconBtn
             aria-label={`Export ${c.slug}`}
             title="Export case"
@@ -96,9 +113,10 @@ export function CaseCard({
           >
             <Trash2 size={14} />
           </IconBtn>
-          <Chip tone={STATUS_TONE[c.status]}>
-            {c.status === 'closed' && c.resolution ? `closed · ${c.resolution}` : c.status}
-          </Chip>
+          <span className={`flex items-center gap-1.5 text-xs ${STATUS_COLOR[c.status]}`}>
+            <StatusDot color={STATUS_COLOR[c.status]} />
+            {statusLabel(c)}
+          </span>
         </span>
       </div>
       <div className="text-sm text-ink">{c.title}</div>
@@ -123,9 +141,8 @@ export function CaseCard({
           </span>
         ) : (
           <>
-            {c.jiraKey ?? 'no ticket'}
-            {c.jiraPriority ? ` · ${c.jiraPriority}` : ''} · updated{' '}
-            {new Date(c.updatedAt).toLocaleDateString()}
+            {/* Priority now lives in the top-row pill — stating it here too would repeat it. */}
+            {c.jiraKey ?? 'no ticket'} · updated {new Date(c.updatedAt).toLocaleDateString()}
             {recency ? ` · ${recency}` : ''}
           </>
         )}
