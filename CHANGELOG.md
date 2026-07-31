@@ -1,8 +1,8 @@
 # Changelog
 
-## v1.0.8 — 2026-07-30
+## v1.0.8 — 2026-07-31
 
-9 commits, 37 files changed (+3,558 / −17).
+391 commits since v1.0.7, 397 files changed (+39,150 / −1,546).
 
 ### Added
 
@@ -26,6 +26,135 @@
   candidates via the `claude` CLI (prompt over stdin), and LLM-judges old-vs-new per
   item against the human reject labels (verdicts improved/unchanged/regressed/
   needs-human), emitting `report.md` and `details.jsonl`.
+
+**Layered code review and PR write-back**
+
+- A data-driven review-layer registry compiles into driver-neutral subagent
+  definitions, fanned out per layer where the backend supports subagents (Claude and
+  Copilot so far); findings now carry a layer, a severity, and a diff anchor pinned
+  to their first citation, with a layer filter and severity badges in the findings
+  pane.
+- Two new review-action tools, both stopping at the existing human-approval card:
+  `post_review_comment` (MEDIUM, editable body) posts a finding as an inline PR
+  comment, and `push_review_change` (HIGH, non-editable) applies a finding's
+  suggested change and commits/pushes it to the PR head branch. A batch-apply flow
+  lets several selected findings push in one turn. All `gh` access now goes through
+  one thin seam (`services/github.ts`).
+- One pull request per case, enforced by a unique index on `pr_bindings` — a finding
+  can only cite `repo/path:line`, never a PR number, so several bindings per case
+  made a finding's target PR unknowable. Manual linking (url, `owner/repo#N`, or bare
+  number) and automatic discovery both replace the case's single binding, with a
+  picker that pre-selects non-backport PRs and guards against replace/race hazards.
+
+**PR and CI status companion**
+
+- One batched GraphQL call per refresh populates a `pr_status_cache` row per case,
+  feeding a rollup dot on the case header and every dashboard card, a divided
+  checks panel in the review-mode companion section (required vs. non-blocking,
+  cancelled runs bucketed separately), and GitHub's own merge-state text.
+- `fetch_check_logs`, a LOW auto-run tool, pulls a failed check's Actions job log and
+  ingests it as evidence (origin `ci`), and a composed turn drives CI-failure
+  analysis from it. The poller idles rather than stops once a run goes terminal, so a
+  restarted check is still picked up.
+
+**Evidence scoped by mode**
+
+- Evidence and artifacts now live under per-mode directories with shared scope
+  vocabulary (`investigation` default, `review` for PR review mode): ingest, rescan,
+  watch, search, and the files pane all route by the session's active mode, and
+  review-mode evidence is relabeled "Code review artifacts" with search hidden.
+
+**Editor window, increment 2**
+
+- The single-editor-window shell (increment 1) now hosts a real editor: CodeMirror
+  replaces the old textarea, with a YAML-frontmatter-aware markdown mode, app-token
+  theming, a persisted font size/wrap and the spec's keymap, a problems panel wired
+  to validation, and a status bar with sync state.
+- A hashed-key draft store with atomic writes/discard autosaves through main, with a
+  banner state machine for stale/colliding/conflicting drafts and a shared `DiffView`
+  used for assist review, staleness, and save conflicts alike. A split preview pane
+  with a draggable splitter and proportional scroll sync rounds out the window.
+  CDP-gated tests cover draft flush/restore across a quit and undoable-assist accept.
+
+**Dynamic theme — ambient canvas**
+
+- A "Dynamic theme" toggle in Settings > General turns on a raw-WebGL2 aurora
+  background (`AmbientCanvas`) behind the dashboard, plus glass variants of `Card`
+  and `CaseCard` (ring/sheen layers, a priority-tier rail with stagger, and a
+  `useGlassPointer` cursor-tracking hook for the highlight). Scoped CSS tokens keep
+  the effect confined to the dashboard's `DynamicHome` wrapper.
+
+**Library rights-groups and asset authoring**
+
+- The Library's five origin tiers are now presented as three rights-groups, with
+  badges that name the actual origin instead of a tier id and an overrides chip using
+  the same vocabulary. Claim and update-available surface directly on library rows.
+- `AssetEditor` gained real validation, a live preview, and LLM-backed Draft/Improve
+  assist (via the headless runner, provider-blind); a New menu, inline Edit, and
+  fork-then-edit ("Edit a copy", with rename) replace the old flow, all opening in the
+  editor window rather than an in-page modal.
+
+**Authorship trail**
+
+- Skill, reference, and proposal writes are now stamped with author/origin/
+  contributor frontmatter (day-resolution, YAML-safe, merged so the on-disk file
+  always owns the byline). The Library viewer and Browse rows show who wrote and who
+  forked an asset.
+
+**HiveMind update safety**
+
+- Before an update or download can overwrite a local asset, `localDivergence` detects
+  unpushed edits and a shadowing check (`shadowedByUser`) warns when a user's fork
+  would keep shadowing an upstream update, showing what the overwrite would discard.
+  Push now happens from a throwaway worktree so a hive clone's HEAD never moves, and
+  a tier restamp is reported independently of content divergence.
+
+**Synthetic seed data**
+
+- A new `scripts/seed` orchestrator materializes a realistic ARGUS_HOME for manual
+  verification: cases/sessions/turns, evidence and artifact trees, proposals and
+  every skill/reference tier, distill jobs in every state, a findings matrix covering
+  every severity/layer/state combination, and a cloned test repo with a worktree per
+  pull request — all with self-verifying invariants and a refusal to run against a
+  real ARGUS_HOME.
+
+**Release and CI**
+
+- macOS releases are signed with a Developer ID and notarized in CI, so the app opens
+  without a Gatekeeper right-click; the DMG is submitted and stapled separately from
+  the `.app`.
+- CI now runs typecheck, lint and tests on every push to main (not just Windows), and
+  test budgets get CI-conditional headroom to stop starved runners from flaking.
+
+### Changed
+
+- The findings pane was reworked around severity-ranked rail cards with hover-reveal
+  actions and a selection footer for batch apply, and is keyed by case slug so
+  switching cases can't leak stale findings.
+- Loading states across evidence, findings, repos, and the PR section now share
+  pending-state hooks and skeleton primitives, and a rejected reload keeps the
+  last-known list instead of clearing it.
+- PR worktree setup runs faster: linked repos are described in parallel and the PR
+  head is probed with `ls-remote` before fetching.
+- Claude Code's built-in auto-memory subsystem is now disabled for Argus sessions —
+  it was writing "remember this" notes to `~/.claude` instead of Argus's own
+  `write_memory`, invisibly to the Memory settings page and to bundles.
+
+### Fixed
+
+- **Drafts.** Create-mode drafts are now keyed by a stable id instead of the typed
+  name; a legacy draft is adopted atomically (never delete-then-write); resuming a
+  draft that shares the open tab's name remounts the tab instead of showing stale
+  content.
+- **Build/CSP.** Vite no longer inlines a font the packaged app's CSP blocks; zod's
+  JIT probe no longer trips the renderer CSP.
+- **Review mode.** Several PR-binding and citation hazards closed: ambiguous PR
+  citations are rejected instead of guessing, the picker's replace-confirm can no
+  longer be bypassed by a case switch or an overlapping search, and citation/preview
+  resolution recognizes remote-derived repo names.
+- Mermaid diagrams no longer flicker while a message is still streaming in.
+- Theme changes now propagate to every open window, not just the one that changed
+  them.
 
 ## v1.0.7 — 2026-07-27
 
