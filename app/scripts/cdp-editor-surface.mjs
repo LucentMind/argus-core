@@ -28,7 +28,8 @@ import {
   SURFACE,
   docText,
   focusEnd,
-  mainWindow
+  mainWindow,
+  toEditorMode
 } from './lib/cdp.mjs'
 
 const PORT = process.env.CDP_PORT || '9223'
@@ -87,6 +88,11 @@ await waitFor('the CodeMirror surface to render', () =>
 )
 check('the editing surface is CodeMirror, not a textarea', true)
 
+// `viewMode` is persisted: a previous session left in Preview makes this boot open in Preview,
+// where the surface is `inert` and every editor-scoped binding is correctly unreachable. Every
+// assertion below assumes Editor, so normalise first or they all fail for the wrong reason.
+await toEditorMode(editor)
+
 const skillName = await editor.evalJs(
   `document.querySelector(${JSON.stringify(SURFACE)}).getAttribute('aria-label').replace(/^skill\\s*\\u00b7\\s*/, '')`
 )
@@ -124,14 +130,19 @@ const afterUndo = await waitFor(
   'the document after undo',
   async () => {
     const t = await docText(editor)
-    return t.includes(MARKER) ? t : false
+    return t.trim() === beforeAccept.trim() ? t : false
   },
   10000
 ).catch(() => null)
+// Full-text equality, not `includes(MARKER)`. The marker reappearing only proves that *some* of
+// the pre-accept text came back; Improve's output is real model output and deliberately
+// unasserted, so a response that happened to leave the marker's line alone while changing the
+// rest would satisfy a substring check without undo having restored anything. This assertion is
+// the reason the increment exists — it has to be the strict one.
 check(
   'Ctrl+Z after accepting an assist draft returns the pre-accept text (defect §1.1.1)',
-  afterUndo !== null && afterUndo.includes(MARKER),
-  afterUndo === null ? 'the marker never came back' : afterUndo.slice(-80)
+  afterUndo !== null,
+  afterUndo === null ? 'the document never returned to its pre-accept state' : afterUndo.slice(-80)
 )
 
 // ── §8.3 step 4 — a validation error is locatable (defect §1.1.2) ─────────────────────────────
@@ -180,41 +191,49 @@ check('clicking the problems row jumps to the offending line', position.startsWi
 // reach, because it needs a real window-focus event after a second, independent writer.
 const skillFile = path.join(HOME, 'skills-user', skillName, 'SKILL.md')
 const original = fs.readFileSync(skillFile, 'utf8')
-fs.writeFileSync(skillFile, `${original}\n<!-- changed on disk by the surface gate -->\n`, 'utf8')
+// Everything from here to the restore runs inside a try/finally. This span mutates a real file
+// in the scratch home, and five `waitFor`s follow it — any of which can throw. Without the
+// finally, a single failed assertion leaves SKILL.md permanently carrying the gate's marker
+// comment, so the next run starts from a corrupted fixture.
+try {
+  fs.writeFileSync(skillFile, `${original}\n<!-- changed on disk by the surface gate -->\n`, 'utf8')
 
-await main.send('Page.bringToFront')
-await sleep(500)
-await editor.send('Page.bringToFront')
+  await main.send('Page.bringToFront')
+  await sleep(500)
+  await editor.send('Page.bringToFront')
 
-const banner = await waitFor('the staleness banner after refocus', async () => {
-  const text = await editor.evalJs(
-    `Array.from(document.querySelectorAll('[role="status"]')).map((n) => n.textContent).join(' | ')`
+  const banner = await waitFor('the staleness banner after refocus', async () => {
+    const text = await editor.evalJs(
+      `Array.from(document.querySelectorAll('[role="status"]')).map((n) => n.textContent).join(' | ')`
+    )
+    return /changed on disk since your draft|saved version is newer/i.test(text) ? text : false
+  })
+  check('an external edit noticed on focus raises the staleness banner', true, banner)
+
+  check('Compare is offered', await click(editor, /^compare$/i))
+  const diff = await waitFor('the diff view', () =>
+    editor.evalJs(
+      `!!document.querySelector('[role="group"][aria-label="On disk compared with Yours"]')`
+    )
   )
-  return /changed on disk since your draft|saved version is newer/i.test(text) ? text : false
-})
-check('an external edit noticed on focus raises the staleness banner', true, banner)
+  check('Compare renders a diff', diff)
 
-check('Compare is offered', await click(editor, /^compare$/i))
-const diff = await waitFor('the diff view', () =>
-  editor.evalJs(
-    `!!document.querySelector('[role="group"][aria-label="On disk compared with Yours"]')`
+  const surfaceStillMounted = await editor.evalJs(
+    `!!document.querySelector(${JSON.stringify(SURFACE)})`
   )
-)
-check('Compare renders a diff', diff)
-
-const surfaceStillMounted = await editor.evalJs(
-  `!!document.querySelector(${JSON.stringify(SURFACE)})`
-)
-check(
-  'the surface stays mounted while comparing (undo history and cursor survive)',
-  surfaceStillMounted
-)
-
-// Cleanup, so a re-run starts from the same footing.
-fs.writeFileSync(skillFile, original, 'utf8')
-await editor.evalJs(
-  `window.argus.editor.discardDraft({ kind: 'skill', name: ${JSON.stringify(skillName)} })`
-)
+  check(
+    'the surface stays mounted while comparing (undo history and cursor survive)',
+    surfaceStillMounted
+  )
+} finally {
+  // Restore unconditionally, so a failed assertion above cannot poison the next run.
+  fs.writeFileSync(skillFile, original, 'utf8')
+  await editor
+    .evalJs(
+      `window.argus.editor.discardDraft({ kind: 'skill', name: ${JSON.stringify(skillName)} })`
+    )
+    .catch(() => {})
+}
 editor.close()
 main.close()
 report()

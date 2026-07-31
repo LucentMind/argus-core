@@ -46,7 +46,8 @@ import {
   SURFACE,
   docText,
   focusEnd,
-  mainWindow
+  mainWindow,
+  toEditorMode
 } from './lib/cdp.mjs'
 
 const PORT = process.env.CDP_PORT || '9223'
@@ -119,6 +120,11 @@ const openEditor = async () => {
   await waitFor('the asset to render', () =>
     editor.evalJs(`!!document.querySelector(${JSON.stringify(SURFACE)})`)
   )
+  // `viewMode` is persisted: a previous session left in Preview makes this boot open in Preview,
+  // where the surface is `inert` and every editor-scoped binding is correctly unreachable. Every
+  // phase below assumes Editor, so normalise once here rather than at each of the three call
+  // sites, or they all fail for the wrong reason.
+  await toEditorMode(editor)
   return { main, editor }
 }
 
