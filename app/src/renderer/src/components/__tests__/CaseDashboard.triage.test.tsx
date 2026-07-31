@@ -78,18 +78,75 @@ beforeEach(() => {
 })
 
 describe('CaseDashboard triage', () => {
-  it('renders action items as chips', () => {
+  it('renders comment volume as an icon and a number, not as prose', () => {
     render(
       <CaseDashboard
         cases={[
           mkCase({
-            actionItems: [{ kind: 'comments', severity: 'action', label: '2 new comments' }]
+            actionItems: [
+              { kind: 'comments', severity: 'action', label: '2 new comments', count: 2 }
+            ]
           })
         ]}
         {...noopHandlers}
       />
     )
-    expect(screen.getByText('2 new comments')).toBeInTheDocument()
+    const metric = screen.getByTestId('metric-comments')
+    expect(metric.textContent).toBe('2')
+    expect(metric.getAttribute('title')).toBe('2 new comments')
+    expect(screen.queryByText('2 new comments')).toBeNull()
+  })
+
+  it('never reddens comments or attachments, however many there are', () => {
+    render(
+      <CaseDashboard
+        cases={[
+          mkCase({
+            actionItems: [
+              { kind: 'comments', severity: 'action', label: '9 new comments', count: 9 },
+              { kind: 'attachments', severity: 'action', label: '4 new attachments', count: 4 }
+            ]
+          })
+        ]}
+        {...noopHandlers}
+      />
+    )
+    for (const id of ['metric-comments', 'metric-attachments']) {
+      const el = screen.getByTestId(id)
+      expect(el.className).toContain('text-defect')
+      expect(el.className).not.toContain('text-danger')
+    }
+  })
+
+  it('omits a metric with nothing to report', () => {
+    render(<CaseDashboard cases={[mkCase({ actionItems: [] })]} {...noopHandlers} />)
+    expect(screen.queryByTestId('metric-comments')).toBeNull()
+  })
+
+  it('keeps non-numeric action items as chips', () => {
+    render(
+      <CaseDashboard
+        cases={[
+          mkCase({
+            actionItems: [
+              { kind: 'sync-error', severity: 'action', label: 'sync failed — auth' },
+              { kind: 'status', severity: 'action', label: 'status → In Review' }
+            ]
+          })
+        ]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.getByText('sync failed — auth')).toBeInTheDocument()
+    expect(screen.getByText('status → In Review')).toBeInTheDocument()
+  })
+
+  it('reserves the action slots so hovering never reflows the footer', () => {
+    render(<CaseDashboard cases={[mkCase()]} {...noopHandlers} />)
+    const slots = screen.getByTestId('card-actions')
+    expect(slots.className).toContain('w-[52px]')
+    expect(screen.getByLabelText('Export NAV-1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Delete NAV-1')).toBeInTheDocument()
   })
 
   it('renders info items as muted text, not chips', () => {
@@ -109,7 +166,7 @@ describe('CaseDashboard triage', () => {
         {...noopHandlers}
       />
     )
-    expect(screen.getByText(/synced 2d ago/)).toBeInTheDocument()
+    expect(screen.getByTestId('sync-badge').textContent).toBe('2d ago')
   })
 
   it('says "synced today" for a case synced within the day', () => {
@@ -119,7 +176,7 @@ describe('CaseDashboard triage', () => {
         {...noopHandlers}
       />
     )
-    expect(screen.getByText(/synced today/)).toBeInTheDocument()
+    expect(screen.getByTestId('sync-badge').textContent).toBe('today')
   })
 
   it('shows no recency for a case with no jira key', () => {
@@ -144,7 +201,7 @@ describe('CaseDashboard triage', () => {
         {...noopHandlers}
       />
     )
-    expect(screen.getAllByText(/synced 9d ago/)).toHaveLength(1)
+    expect(screen.getAllByText(/9d ago/)).toHaveLength(1)
   })
 
   it('shows the jira priority', () => {
