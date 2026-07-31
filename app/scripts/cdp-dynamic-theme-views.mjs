@@ -76,9 +76,14 @@ async function setViewport(conn, width, height) {
 async function clearViewport(conn) {
   await sendOk(conn, 'Emulation.clearDeviceMetricsOverride', {})
 }
+/** Always emulates an EXPLICIT value, never an empty feature list. Sending `features: []`
+ *  clears the override and falls back to the host's real OS setting — so on a machine that
+ *  has "reduce motion" enabled system-wide, the `false` case silently measures the reduced
+ *  rate and the check fails for a reason that has nothing to do with the app. The whole
+ *  point of emulation here is to make the measurement independent of the host. */
 async function setReducedMotion(conn, on) {
   await sendOk(conn, 'Emulation.setEmulatedMedia', {
-    features: on ? [{ name: 'prefers-reduced-motion', value: 'reduce' }] : []
+    features: [{ name: 'prefers-reduced-motion', value: on ? 'reduce' : 'no-preference' }]
   })
 }
 
