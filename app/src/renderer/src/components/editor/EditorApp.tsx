@@ -13,6 +13,8 @@ import {
   renameTab,
   setTabDirty,
   setTabView,
+  tabElementId,
+  tabPanelElementId,
   type Tab,
   type TabsState
 } from './tabs'
@@ -30,14 +32,17 @@ interface TabPaneProps {
  * One tab's slot. Pulled out of `EditorApp`'s `.map` so each of `AssetTab`'s three callback props
  * gets an identity that is stable across `EditorApp` re-renders, not a fresh closure every time.
  *
- * `AssetPane`'s dirty-report effect depends on `[dirty, onDirtyChange]` (by design — it has to
- * see a prop-identity change to requery). A `.map`-inline `(d) => onDirtyChange(t.id, d)` is a new
- * function on every `EditorApp` render, so that effect would refire on *every* render regardless
- * of whether `dirty` actually changed; `setTabDirty` always returns a new `TabsState` (`tabs.ts`'s
- * `patch` maps unconditionally), so every refire triggers another `EditorApp` render — an
- * unbounded render loop that reproduces as an OOM the moment a second tab exists to feed it.
- * Binding `tab.id` inside this component via `useCallback` keeps the identity fixed for the life
- * of the tab, so the effect only re-fires when `dirty` itself flips.
+ * This is not about `setTabDirty`/`patch` returning a new `TabsState` object — making `patch`
+ * identity-preserving still OOMs on the very first keystroke, and one tab is enough to trigger
+ * it. The real driver is `AssetPane.tsx:383`'s `useEffect(() => () => onDirtyChange(false),
+ * [onDirtyChange])` alongside its report effect at `AssetPane.tsx:378`
+ * (`useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])`). A `.map`-inline
+ * `(d) => onDirtyChange(t.id, d)` is a new function on every `EditorApp` render, and on every such
+ * change React runs `:383`'s cleanup (writing `false`) and then `:378`'s setup (writing `true`) —
+ * two genuine `dirty` transitions per render, each triggering another `EditorApp` render, which
+ * mints another new callback. No amount of memoizing `patch` absorbs that; only a stable
+ * `onDirtyChange` identity does. Binding `tab.id` inside this component via `useCallback` is what
+ * supplies that stability, so neither effect re-fires except when `dirty` itself actually flips.
  */
 function TabPane({
   tab,
@@ -65,7 +70,12 @@ function TabPane({
     // "hidden" tab would render on top of the active one. Tailwind's `hidden` utility is
     // `display: none`, which also takes the subtree out of the a11y tree — no
     // `aria-hidden`, which on a subtree containing the focused element would be a bug.
-    <div className={active ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+    <div
+      id={tabPanelElementId(tab.id)}
+      role="tabpanel"
+      aria-labelledby={tabElementId(tab.id)}
+      className={active ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+    >
       <AssetTab
         // `tab.req`, NOT a request rebuilt from `tab.name`. The two differ exactly while a
         // create-mode tab is being renamed, and rebuilding would re-run AssetTab's resolve

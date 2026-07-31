@@ -456,3 +456,36 @@ describe('tab labels', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: /renamed/ })).toBeInTheDocument())
   })
 })
+
+// Task 6 is the first place `TabBar` (role="tab") and the panes (previously bare divs) ever mount
+// together, and the WAI-ARIA tabs pattern was only half built: no `role="tabpanel"`, no ids, no
+// `aria-controls`/`aria-labelledby` linking either side. This proves the two ends actually point
+// at each other, not just that each element independently carries the right role.
+describe('tab/panel ARIA relationship', () => {
+  it('wires the active tab to its panel via aria-controls and aria-labelledby', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    const area = await screen.findByLabelText('skill · my-skill')
+    const tab = screen.getByRole('tab', { name: /my-skill/ })
+    const panel = area.closest('[role="tabpanel"]') as HTMLElement | null
+    expect(panel).not.toBeNull()
+    expect(tab.id).not.toBe('')
+    expect(panel!.id).not.toBe('')
+    expect(tab).toHaveAttribute('aria-controls', panel!.id)
+    expect(panel).toHaveAttribute('aria-labelledby', tab.id)
+  })
+
+  // A second, inactive tab's panel is `hidden` (display: none), which already removes it from the
+  // accessibility tree — `aria-hidden` on top would be a bug on a subtree that can contain the
+  // focused element (see the comment in EditorApp.tsx). This pins that it is absent.
+  it('does not mark an inactive panel aria-hidden', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    const firstArea = screen.getByLabelText('skill · my-skill')
+    const firstPanel = firstArea.closest('[role="tabpanel"]')
+    expect(firstPanel).not.toHaveAttribute('aria-hidden')
+  })
+})

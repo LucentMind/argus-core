@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, X } from 'lucide-react'
-import type { Tab } from './tabs'
+import { tabElementId, tabPanelElementId, type Tab } from './tabs'
 
 export interface TabBarProps {
   tabs: Tab[]
@@ -92,7 +92,9 @@ export function TabBar({
               ref={(el) => {
                 tabRefs.current[t.id] = el
               }}
+              id={tabElementId(t.id)}
               role="tab"
+              aria-controls={tabPanelElementId(t.id)}
               tabIndex={active ? 0 : -1}
               aria-selected={active}
               // `(tab)` suffix, not just `${t.kind} · ${t.name}`: the active tab's own editor

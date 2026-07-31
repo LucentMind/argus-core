@@ -774,6 +774,56 @@ describe('background panes', () => {
   })
 })
 
+describe('window-level shortcuts across mounted panes', () => {
+  // Every tab stays mounted (spec §6.1), so every `AssetPane` — visible or not — registers its
+  // own `window` keydown listener for the fallback shortcuts. Reproduces the probe that found
+  // this empirically: two panes mounted, only the second active, Ctrl+S fired at the window
+  // level (as it is whenever focus has been blurred out of CodeMirror — preview mode, the
+  // create-mode name/describe inputs, any banner button). Before the fix, the FIRST-registered
+  // listener — the first-*opened* tab, never the one on screen — wins the race and calls
+  // `preventDefault()` before the active pane's own listener ever runs.
+  // Each pane needs its own frontmatter `name:` — `validateSkill` rejects a mismatch between it
+  // and the folder name, which would block the save this test is trying to observe.
+  const diskFor = (name: string): string => `---\nname: ${name}\ndescription: d\n---\n\nbody\n`
+
+  const panelProps = (name: string, active: boolean): React.ComponentProps<typeof AssetPane> => ({
+    kind: 'skill',
+    initialName: name,
+    mode: 'edit',
+    initialDoc: diskFor(name),
+    initialBaseline: diskFor(name),
+    initialHash: 'h1',
+    initialBanner: { kind: 'none' },
+    initialDraftAt: null,
+    otherDrafts: [],
+    active,
+    readOnly: false,
+    tier: undefined,
+    initialViewState: null,
+    onDirtyChange: vi.fn(),
+    onNameChange: vi.fn(),
+    onViewStateChange: vi.fn()
+  })
+
+  it('routes a window-level Ctrl+S to the active pane, not the first-opened one', async () => {
+    render(
+      <>
+        <AssetPane {...panelProps('first-opened', false)} />
+        <AssetPane {...panelProps('second-opened', true)} />
+      </>
+    )
+    await waitFor(() => expect(screen.getByLabelText('skill · second-opened')).toBeInTheDocument())
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(skillsWrite).toHaveBeenCalledTimes(1))
+    // The assertion that actually pins the regression: which pane's name reached `skills.write`.
+    // Pre-fix this is `'first-opened'` — the hidden tab — while the visible dirty tab is never
+    // saved at all.
+    expect(skillsWrite).toHaveBeenCalledWith('second-opened', diskFor('second-opened'), 'h1')
+  })
+})
+
 describe('name reporting', () => {
   // The strip shows the name, and in create mode the name field owns it. Without this the strip
   // would show the placeholder for the life of the tab.

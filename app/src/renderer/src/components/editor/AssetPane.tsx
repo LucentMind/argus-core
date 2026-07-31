@@ -232,8 +232,19 @@ export function AssetPane({
    *
    * `defaultPrevented` is the handshake with CodeMirror's keymap: that keymap sets it whenever it
    * handled the key, so this never double-fires while the editor has focus.
+   *
+   * Gated on `active`, like the external-change effect below: every tab stays mounted (spec
+   * §6.1), so every `AssetPane` on screen or not registers a `window` listener. Without this
+   * guard, the FIRST-registered listener — the first-*opened* tab, never the visible one — wins
+   * every race: it runs `commands.save()` (or the font-size/wrap/preview command) and calls
+   * `preventDefault()` before any later pane's listener sees the key, so every other tab silently
+   * loses the shortcut to whichever tab happened to open first. Proven by driving a real window:
+   * two tabs, the second active and dirty, Ctrl+S at the window level saved the hidden first tab
+   * and left the visible dirty one untouched. `active` is in the dependency array so switching
+   * tabs re-registers each pane's listener against its current activation state.
    */
   useEffect(() => {
+    if (!active) return
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.defaultPrevented) return
       const mod = e.ctrlKey || e.metaKey
@@ -248,7 +259,7 @@ export function AssetPane({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [commands])
+  }, [commands, active])
 
   const runId = useRef(0)
   // Guards every async resolution against landing after unmount. The setup function must assign

@@ -41,6 +41,20 @@ export interface TabsState {
 
 export const emptyTabs: TabsState = { tabs: [], activeId: null, nextId: 1 }
 
+/**
+ * Stable DOM ids for the WAI-ARIA tabs pattern (spec §6.1), derived from a tab's synthetic `id`
+ * rather than re-invented separately in `TabBar` (the `role="tab"`) and `EditorApp` (the
+ * `role="tabpanel"`) — one naming convention in one place is what keeps `aria-controls` and
+ * `aria-labelledby` pointed at each other instead of drifting apart under an edit to either file.
+ */
+export function tabElementId(id: string): string {
+  return `tab-${id}`
+}
+
+export function tabPanelElementId(id: string): string {
+  return `tabpanel-${id}`
+}
+
 /** Spec §6.1's "one tab per asset". Reads the tab's CURRENT name, so a create-mode rename is
  *  immediately visible to it. */
 function sameAsset(t: Tab, req: EditorOpenRequest): boolean {
