@@ -25,6 +25,7 @@ import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
+import { titleBarWindowOptions, type TitleBarTheme } from './services/titleBar'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -233,6 +234,15 @@ let providerStatusService: ProviderStatusService | null = null
 let langfuseExporter: LangfuseExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let editorWindowService: EditorWindowService | null = null
+/**
+ * The theme main believes the UI is on. Windows are constructed before any renderer can report
+ * one, so the first main window opens on this default and self-corrects the instant uiStore's
+ * constructor fires `panels:set-theme` (see the handler that maintains this, Task 3). A light-
+ * theme user gets one frame of dark-tinted system buttons; persisting the theme in main to close
+ * that gap is more machinery than the flash is worth. An editor window opened later is already
+ * correct, because it reads this after the first report has landed.
+ */
+let lastTheme: TitleBarTheme = 'dark'
 // Module-scope, unlike the store it wraps: `before-quit` lives out here and must be able to
 // flush. See the flush calls in createWindow()'s 'closed' handler and in before-quit.
 let draftStore: DraftStore | null = null
@@ -517,13 +527,17 @@ function registerIpc(): void {
   // Published to the module-scope handle the main-window `closed` and `before-quit` paths use.
   flushTabs = flushPendingTabs
   editorWindowService = new EditorWindowService({
-    createWindow: makeElectronEditorWindowFactory(join(__dirname, '../preload/index.js'), (w) => {
-      if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        w.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/editor.html`)
-      } else {
-        w.loadFile(join(__dirname, '../renderer/editor.html'))
-      }
-    }),
+    createWindow: makeElectronEditorWindowFactory(
+      join(__dirname, '../preload/index.js'),
+      (w) => {
+        if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+          w.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/editor.html`)
+        } else {
+          w.loadFile(join(__dirname, '../renderer/editor.html'))
+        }
+      },
+      () => lastTheme
+    ),
     loadBounds: () => editorWindowStore.load(),
     saveBounds: (b) => editorWindowStore.save(b),
     loadTabs: () => editorWindowStore.loadTabs(),
@@ -2217,6 +2231,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     icon,
+    ...titleBarWindowOptions('main', lastTheme),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

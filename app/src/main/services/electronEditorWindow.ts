@@ -2,6 +2,7 @@ import { BrowserWindow, screen } from 'electron'
 import { clampToDisplays } from '../../shared/editorWindowBounds'
 import { EDITOR_DEFAULT_SIZE, EDITOR_MIN_SIZE, type WindowBounds } from '../../shared/editorIpc'
 import type { EditorWindowFactory, EditorWindowHandle } from './editorWindow'
+import { titleBarWindowOptions, type TitleBarTheme } from './titleBar'
 
 /**
  * The real window. Deliberately thin: create-or-focus, the close veto, and bounds clamping are
@@ -10,7 +11,8 @@ import type { EditorWindowFactory, EditorWindowHandle } from './editorWindow'
  */
 export function makeElectronEditorWindowFactory(
   preloadPath: string,
-  loadEditor: (win: BrowserWindow) => void
+  loadEditor: (win: BrowserWindow) => void,
+  getTheme: () => TitleBarTheme
 ): EditorWindowFactory {
   return (saved: WindowBounds | null): EditorWindowHandle => {
     // clampToDisplays treats workAreas[0] as the primary display, but
@@ -34,7 +36,9 @@ export function makeElectronEditorWindowFactory(
       minHeight: EDITOR_MIN_SIZE.height,
       show: false,
       autoHideMenuBar: true,
+      // The caption bar no longer renders this, but the taskbar entry and Alt-Tab still do.
       title: 'Argus — Editor',
+      ...titleBarWindowOptions('editor', getTheme()),
       webPreferences: { preload: preloadPath, sandbox: false }
     })
 
