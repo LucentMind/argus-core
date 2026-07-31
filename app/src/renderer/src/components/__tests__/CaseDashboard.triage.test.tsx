@@ -352,4 +352,15 @@ describe('CaseDashboard triage', () => {
     expect(title.className).toContain('line-clamp-2')
     expect(title.textContent).toBe('CLONE - [NAV]Stopover reached too early and route missing')
   })
+
+  it('puts the counts below the wordmark, not above it', () => {
+    const { container } = render(
+      <CaseDashboard cases={[mkCase({ status: 'open' })]} {...noopHandlers} />
+    )
+    const heading = screen.getByRole('heading', { name: 'ARGUS' })
+    const counts = screen.getByText(/1 open/)
+    // Node.compareDocumentPosition: 4 = "counts follows heading in document order"
+    expect(heading.compareDocumentPosition(counts) & 4).toBeTruthy()
+    expect(container).toBeTruthy()
+  })
 })

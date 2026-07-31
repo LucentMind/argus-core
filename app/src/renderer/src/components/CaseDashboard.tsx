@@ -9,6 +9,7 @@ import { usePrStatuses } from '../lib/prStatusStore'
 import { uiStore } from '../lib/uiStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { useGlassPointer } from '../lib/useGlassPointer'
+import { StatusDot } from './StatusDot'
 
 export function CaseDashboard({
   cases,
@@ -148,7 +149,6 @@ export function CaseDashboard({
       <div className="flex flex-col gap-1">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
             <h1
               ref={anchors.setHero}
               className="font-brand font-normal leading-[1.2] text-brand"
@@ -157,8 +157,12 @@ export function CaseDashboard({
               ARGUS
             </h1>
             {pendingKnowledge > 0 && (
-              <p className="text-xs text-dim">Knowledge review pending: {pendingKnowledge}</p>
+              <p className="flex items-center gap-2 text-xs text-dim">
+                Knowledge review pending: {pendingKnowledge}
+                <StatusDot color="text-defect" size={6} />
+              </p>
             )}
+            <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Btn
