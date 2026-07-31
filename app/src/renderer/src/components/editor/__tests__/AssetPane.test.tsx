@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { StrictMode } from 'react'
+import { StrictMode, createRef } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,6 +9,7 @@ import type { CursorInfo, SurfaceHandle } from '../surface'
 import type { SurfaceCommands } from '../extensions/keymap'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
 import type { DraftSaved } from '../../../../../shared/editorIpc'
+import type { AssetPaneHandle } from '../../../lib/commands'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: () => ({ ok: true, text: 'claude · sonnet' })
@@ -51,7 +52,8 @@ const surfaceHandle = {
   goToLine: vi.fn(),
   requestMeasure: vi.fn(),
   scrollTo: vi.fn(),
-  focus: vi.fn()
+  focus: vi.fn(),
+  openGotoLine: vi.fn()
 }
 vi.mock('../CodeSurface', () => ({
   CodeSurface: (props: MockSurfaceProps): React.JSX.Element => {
@@ -99,6 +101,7 @@ beforeEach(() => {
   surfaceHandle.requestMeasure.mockClear()
   surfaceHandle.scrollTo.mockClear()
   surfaceHandle.focus.mockClear()
+  surfaceHandle.openGotoLine.mockClear()
   // Implementations, not just call history: `vi.clearAllMocks()` leaves a previous test's
   // `mockRejectedValue`/`mockResolvedValue` in place, and every *active* pane now re-reads disk
   // the moment it mounts (spec §4.4's focus check, gated on `active`). A leaked implementation
@@ -179,6 +182,36 @@ function mount(
     surface: screen.getByLabelText(`${props.kind} · ${props.initialName}`),
     rerender
   }
+}
+
+/**
+ * Task 7's command contract, spread over `AssetPaneProps` in the same shape `mount` above builds
+ * by hand. Kept separate from `mount` rather than reused: those tests assert on `mount`'s return
+ * shape (`surface`, `rerender`, the three callback mocks), while these only need `screen` and
+ * whatever `paneRef`/`onCommandState` the caller passed in.
+ */
+function renderPane(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}): void {
+  const props: React.ComponentProps<typeof AssetPane> = {
+    kind: 'skill',
+    initialName: 's',
+    mode: 'edit',
+    draftId: '',
+    initialDoc: DISK,
+    initialBaseline: DISK,
+    initialHash: 'h1',
+    initialBanner: { kind: 'none' },
+    initialDraftAt: null,
+    otherDrafts: [],
+    active: true,
+    readOnly: false,
+    tier: undefined,
+    initialViewState: null,
+    onDirtyChange: vi.fn(),
+    onNameChange: vi.fn(),
+    onViewStateChange: vi.fn(),
+    ...overrides
+  }
+  render(<AssetPane {...props} />)
 }
 
 /**
@@ -884,5 +917,71 @@ describe('view state reporting', () => {
     await waitFor(() =>
       expect(onViewStateChange).toHaveBeenLastCalledWith({ line: 4, col: 9, scrollFraction: 0.6 })
     )
+  })
+})
+
+describe('AssetPane · command contract', () => {
+  it('reports its state on mount', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: true, onCommandState })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    expect(onCommandState.mock.lastCall![0]).toMatchObject({
+      mode: 'edit',
+      readOnly: false,
+      busy: false,
+      proposing: false,
+      blocked: false,
+      hasDraft: false
+    })
+  })
+
+  it('reports again when the document stops validating', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: true, onCommandState })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    // An empty document is a blocking validation error for both kinds.
+    fireEvent.change(screen.getByRole('textbox', { name: /skill · /i }), { target: { value: '' } })
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].blocked).toBe(true))
+  })
+
+  it('reports canImprove off for an empty document', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: true, initialDoc: '', initialBaseline: '', onCommandState })
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].canImprove).toBe(false))
+  })
+
+  it('does not report from an INACTIVE pane', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: false, onCommandState })
+    // Give any effect a chance to run before asserting the negative.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /skill · /i })).toBeTruthy())
+    expect(onCommandState).not.toHaveBeenCalled()
+  })
+
+  it('exposes a handle whose save writes the asset', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ active: true, paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    paneRef.current!.save()
+    await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalled())
+  })
+
+  it('exposes a handle whose save is refused on a read-only pane', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ active: true, readOnly: true, paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    paneRef.current!.save()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.argus.skills.write).not.toHaveBeenCalled()
+  })
+
+  it('exposes a handle whose cycleViewMode moves the view mode it then reports', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    const onCommandState = vi.fn()
+    renderPane({ active: true, paneRef, onCommandState })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    expect(onCommandState.mock.lastCall![0].viewMode).toBe('editor')
+    act(() => paneRef.current!.cycleViewMode())
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].viewMode).toBe('split'))
   })
 })

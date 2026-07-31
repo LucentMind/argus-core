@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { Btn } from '../ui'
 import { AssistProgress } from '../library/AssistProgress'
@@ -37,6 +37,7 @@ import {
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { DraftRecord, TabViewState } from '../../../../shared/editorIpc'
+import type { AssetPaneHandle, PaneCommandState } from '../../lib/commands'
 
 export interface AssetPaneProps {
   kind: AuthoringKind
@@ -89,6 +90,20 @@ export interface AssetPaneProps {
   onViewStateChange: (view: TabViewState) => void
   /** Where this tab was looking when the app last exited. Applied on first activation. */
   initialViewState?: TabViewState | null
+  /**
+   * The window's way IN. Held by `EditorApp` in a ref map and called only from event handlers —
+   * never read during render, which is the constraint the whole registry design is built around
+   * (see lib/commands.ts).
+   */
+  paneRef?: React.Ref<AssetPaneHandle>
+  /**
+   * The window's way OUT: everything `enabled` needs, as plain data.
+   *
+   * Only the ACTIVE pane reports. Every tab stays mounted (spec §6.1), so an unconditional
+   * report would have N panes racing to overwrite one slot in `EditorApp` and the toolbar would
+   * enable and disable itself according to whichever hidden tab re-rendered last.
+   */
+  onCommandState?: (state: PaneCommandState) => void
 }
 
 /**
@@ -118,7 +133,9 @@ export function AssetPane({
   onNameChange,
   onSaved,
   onViewStateChange,
-  initialViewState = null
+  initialViewState = null,
+  paneRef,
+  onCommandState
 }: AssetPaneProps): React.JSX.Element {
   const template = kind === 'skill' ? skillTemplate : referenceTemplate
   const surfaceRef = useRef<SurfaceHandle | null>(null)
@@ -750,6 +767,74 @@ export function AssetPane({
       : draftAt !== null || dirty
         ? 'draft'
         : 'saved'
+
+  // `onSave` and `assist` are plain function declarations in the component body, so they are new
+  // identities every render. The handle reads them through this ref for the same reason
+  // `commands` does (see `onSaveRef` above): a `useImperativeHandle` that depended on them would
+  // hand `EditorApp` a new object on every keystroke, and the ref map would churn.
+  const actionsRef = useRef({ onSave, assist, discardDraft })
+  useEffect(() => {
+    actionsRef.current = { onSave, assist, discardDraft }
+  })
+
+  useImperativeHandle(
+    paneRef,
+    (): AssetPaneHandle => ({
+      save: () => void actionsRef.current.onSave(),
+      improve: () => void actionsRef.current.assist('improve'),
+      draft: () => void actionsRef.current.assist('draft'),
+      discardDraft: () => void actionsRef.current.discardDraft(),
+      cycleViewMode: () => commands.cycleViewMode(),
+      changeFontSize: (delta) => commands.changeFontSize(delta),
+      toggleWrap: () => commands.toggleWrap(),
+      openGotoLine: () => surfaceRef.current?.openGotoLine(),
+      focus: () => surfaceRef.current?.focus()
+    }),
+    // `paneRef` is not listed: React's `useImperativeHandle` already re-runs this factory whenever
+    // the ref itself changes (it appends `ref` to the effect's own dependencies internally), which
+    // is exactly why `react-hooks/exhaustive-deps` flags an explicit `paneRef` entry here as
+    // unnecessary.
+    [commands]
+  )
+
+  // Every field is a primitive, on purpose: this object is rebuilt on every keystroke, and one
+  // array or nested object in it would make the memo change identity every render and fire the
+  // report effect below every time.
+  const commandState = useMemo<PaneCommandState>(
+    () => ({
+      mode,
+      readOnly,
+      busy,
+      proposing: proposed !== null,
+      blocked,
+      // `draftAt` and not `draftFiled.current`: a ref may not be read during render, and this is
+      // the persist-before-adopt fact anyway — only `onDraftSaved` ever sets it, so Discard draft
+      // is offered exactly when there is a confirmed file to discard.
+      hasDraft: draftAt !== null,
+      canDraft: mode === 'create' && describe.trim() !== '' && provider?.ok !== false,
+      canImprove: doc.trim() !== '' && provider?.ok !== false,
+      viewMode: prefs.viewMode,
+      wrap: prefs.wrap
+    }),
+    [
+      mode,
+      readOnly,
+      busy,
+      proposed,
+      blocked,
+      draftAt,
+      describe,
+      doc,
+      provider,
+      prefs.viewMode,
+      prefs.wrap
+    ]
+  )
+
+  useEffect(() => {
+    if (!active) return
+    onCommandState?.(commandState)
+  }, [active, commandState, onCommandState])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

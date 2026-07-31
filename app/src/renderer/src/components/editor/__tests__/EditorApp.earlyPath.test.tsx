@@ -30,7 +30,8 @@ vi.mock('../CodeSurface', () => ({
         goToLine: vi.fn(),
         focus: vi.fn(),
         requestMeasure: vi.fn(),
-        scrollTo: vi.fn()
+        scrollTo: vi.fn(),
+        openGotoLine: vi.fn()
       }
     }
     return (

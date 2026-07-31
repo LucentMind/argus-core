@@ -49,6 +49,14 @@ export interface SurfaceHandle {
    * `scrollFraction` prop. This method is the only way to scroll the editing surface.
    */
   scrollTo(fraction: number): void
+  /**
+   * Open CodeMirror's own go-to-line panel.
+   *
+   * Not a `goToLine(n)` with a number: the *prompt* is the feature, and `@codemirror/search`
+   * ships one already bound to `Mod-Alt-g`. The command registry advertises that same chord
+   * rather than inventing a second one (see `gotoLine` in lib/commands.ts).
+   */
+  openGotoLine(): void
 }
 
 export interface CursorInfo {

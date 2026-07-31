@@ -2,6 +2,7 @@ import { useEffect, useImperativeHandle, useRef } from 'react'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
+import { gotoLine } from '@codemirror/search'
 import {
   baseExtensions,
   fontSizeCompartment,
@@ -190,6 +191,14 @@ export function CodeSurface({
         // silently leave the scroller at 0 rather than throwing anywhere visible.
         const f = Number.isFinite(fraction) ? Math.min(Math.max(fraction, 0), 1) : 0
         scroller.scrollTop = span > 0 ? span * f : 0
+      },
+      openGotoLine: () => {
+        const view = viewRef.current
+        if (!view) return
+        // The panel takes focus itself; focusing the view first is what makes the panel appear
+        // over the RIGHT editor when several tabs are mounted and one was just revealed.
+        view.focus()
+        gotoLine(view)
       }
     }),
     [initialDoc]

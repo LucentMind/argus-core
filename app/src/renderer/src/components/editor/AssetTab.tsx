@@ -3,6 +3,7 @@ import { AssetPane } from './AssetPane'
 import { readAsset } from './assetIo'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
 import { bannerOnOpen, type DraftBanner } from '../../lib/draftState'
+import type { AssetPaneHandle, PaneCommandState } from '../../lib/commands'
 import type { DraftRecord, EditorOpenRequest, TabViewState } from '../../../../shared/editorIpc'
 
 export interface AssetTabProps {
@@ -22,6 +23,12 @@ export interface AssetTabProps {
   onViewStateChange: (view: TabViewState) => void
   /** Where this tab was looking when the app last exited. Applied on first activation. */
   initialViewState?: TabViewState | null
+  /** Forwarded straight to `AssetPane` untouched — this component resolves disk and drafts, not
+   *  the command contract. Stays null/silent while this component is in its `error` or
+   *  `Loading…` branch below; every consumer of the handle already null-checks (see `on()` in
+   *  lib/commands.ts). */
+  paneRef?: React.Ref<AssetPaneHandle>
+  onCommandState?: (state: PaneCommandState) => void
 }
 
 interface Resolved {
@@ -52,7 +59,9 @@ export function AssetTab({
   onNameChange,
   onSaved,
   onViewStateChange,
-  initialViewState = null
+  initialViewState = null,
+  paneRef,
+  onCommandState
 }: AssetTabProps): React.JSX.Element {
   const { kind, name, mode } = req
   const [resolved, setResolved] = useState<Resolved | null>(null)
@@ -191,6 +200,8 @@ export function AssetTab({
       onSaved={onSaved}
       onViewStateChange={onViewStateChange}
       initialViewState={initialViewState}
+      paneRef={paneRef}
+      onCommandState={onCommandState}
     />
   )
 }
