@@ -219,6 +219,52 @@ describe('installPack', () => {
   })
 })
 
+describe('origin pin recording', () => {
+  it('records the pin from an installed manifest that declares updateUrl', async () => {
+    const src = makeBundleDir({ updateUrl: 'https://vendor.example/packs/feed.json' })
+    const res = await installPack(src, { argusHome: home, state, host: HOST })
+    expect(res.ok).toBe(true)
+    const pin = state.getSource('sample')
+    expect(pin?.origin).toBe('https://vendor.example')
+    expect(pin?.updateUrl).toBe('https://vendor.example/packs/feed.json')
+    expect(typeof pin?.installedAt).toBe('number')
+  })
+
+  it('records no pin when the manifest declares no updateUrl', async () => {
+    const res = await installPack(makeBundleDir({}), { argusHome: home, state, host: HOST })
+    expect(res.ok).toBe(true)
+    expect(state.getSource('sample')).toBeUndefined()
+  })
+
+  it('CLEARS a stale pin when an upgrade drops updateUrl', async () => {
+    // Otherwise a pack that stops publishing a feed keeps being checked against a URL its
+    // vendor has abandoned, and the pin outlives the manifest that justified it.
+    await installPack(makeBundleDir({ updateUrl: 'https://vendor.example/feed.json' }), {
+      argusHome: home,
+      state,
+      host: HOST
+    })
+    expect(state.getSource('sample')).toBeDefined()
+    await installPack(makeBundleDir({ version: '2.0.0' }), { argusHome: home, state, host: HOST })
+    expect(state.getSource('sample')).toBeUndefined()
+  })
+
+  it('re-pins when an upgrade names a different feed', async () => {
+    // Legitimate: this bundle arrived through an already-trusted channel (a human file-pick,
+    // or an update that itself passed the pin), so it may move the pin. A FEED never can.
+    await installPack(makeBundleDir({ updateUrl: 'https://old.example/feed.json' }), {
+      argusHome: home,
+      state,
+      host: HOST
+    })
+    await installPack(
+      makeBundleDir({ version: '2.0.0', updateUrl: 'https://new.example/feed.json' }),
+      { argusHome: home, state, host: HOST }
+    )
+    expect(state.getSource('sample')?.origin).toBe('https://new.example')
+  })
+})
+
 describe('uninstallPack', () => {
   it('removes the pack dir, reaps untiered seeded assets, protects tiered refs, clears state', async () => {
     // install a pack that ships a skill + two references

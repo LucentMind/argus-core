@@ -165,6 +165,21 @@ export const packManifestSchema = z
       .string()
       .regex(/^[a-z0-9]+-[a-z0-9]+$/, 'platform must be <os>-<arch>')
       .optional(),
+    /** HTTPS URL of the vendor's update feed. Absent ⇒ this pack is never update-checked.
+     *  The origin of this URL becomes the trust-on-first-use pin recorded at install time
+     *  (spec §6): it ships inside a bundle a human already vouched for, which is the only
+     *  authority a later automated update inherits. */
+    updateUrl: z
+      .string()
+      .url()
+      .refine((u) => {
+        try {
+          return new URL(u).protocol === 'https:'
+        } catch {
+          return false
+        }
+      }, 'updateUrl must be https')
+      .optional(),
     persona: z.string().min(1).optional(),
     binaries: z.array(packBinarySchema).default([]),
     detectors: z.array(packDetectorSchema).default([]),

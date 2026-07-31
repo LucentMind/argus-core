@@ -230,6 +230,30 @@ describe('platform field + PACK_API_VERSION', () => {
   })
 })
 
+describe('updateUrl field', () => {
+  it('accepts an https updateUrl and rejects http', () => {
+    expect(
+      packManifestSchema.parse({
+        id: 'x',
+        displayName: 'X',
+        version: '1.0.0',
+        argusApi: '^1',
+        updateUrl: 'https://vendor.example/feed.json'
+      }).updateUrl
+    ).toBe('https://vendor.example/feed.json')
+
+    expect(() =>
+      packManifestSchema.parse({
+        id: 'x',
+        displayName: 'X',
+        version: '1.0.0',
+        argusApi: '^1',
+        updateUrl: 'http://vendor.example/feed.json'
+      })
+    ).toThrow(/https/)
+  })
+})
+
 describe('windows[] schema', () => {
   const base = { id: 'nav', displayName: 'Nav', version: '1.0.0', argusApi: '^1' }
 

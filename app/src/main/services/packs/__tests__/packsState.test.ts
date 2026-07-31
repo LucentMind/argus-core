@@ -47,3 +47,56 @@ describe('PacksStateStore', () => {
     reopened.close()
   })
 })
+
+describe('pack sources (the origin pin)', () => {
+  it('defaults to an empty map for a state file written before sources existed', () => {
+    // A pre-Increment-2 file has only `packs`. Reading must not throw or invent entries.
+    fs.mkdirSync(path.dirname(packsStatePath(home)), { recursive: true })
+    fs.writeFileSync(packsStatePath(home), JSON.stringify({ packs: { alpha: '1.0.0' } }))
+    const s = new PacksStateStore(home)
+    expect(s.listSources()).toEqual({})
+    expect(s.get('alpha')).toBe('1.0.0')
+  })
+
+  it('round-trips a source and leaves the versions map untouched', () => {
+    const state = new PacksStateStore(home)
+    state.set('alpha', '1.0.0')
+    state.setSource('alpha', {
+      origin: 'https://vendor.example',
+      updateUrl: 'https://vendor.example/feed.json',
+      installedAt: 111
+    })
+    const reopened = new PacksStateStore(home)
+    expect(reopened.getSource('alpha')).toEqual({
+      origin: 'https://vendor.example',
+      updateUrl: 'https://vendor.example/feed.json',
+      installedAt: 111
+    })
+    expect(reopened.get('alpha')).toBe('1.0.0')
+  })
+
+  it('setSource(id, null) clears the pin', () => {
+    const state = new PacksStateStore(home)
+    state.setSource('alpha', {
+      origin: 'https://vendor.example',
+      updateUrl: 'https://vendor.example/feed.json',
+      installedAt: 111
+    })
+    state.setSource('alpha', null)
+    expect(new PacksStateStore(home).getSource('alpha')).toBeUndefined()
+  })
+
+  it('remove() clears the version AND the pin, so an uninstalled pack leaves no provenance', () => {
+    const state = new PacksStateStore(home)
+    state.set('alpha', '1.0.0')
+    state.setSource('alpha', {
+      origin: 'https://vendor.example',
+      updateUrl: 'https://vendor.example/feed.json',
+      installedAt: 111
+    })
+    state.remove('alpha')
+    const reopened = new PacksStateStore(home)
+    expect(reopened.get('alpha')).toBeUndefined()
+    expect(reopened.getSource('alpha')).toBeUndefined()
+  })
+})

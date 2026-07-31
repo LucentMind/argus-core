@@ -121,6 +121,19 @@ export async function installPack(
     staging = null // consumed by the rename
 
     state.set(manifest.id, manifest.version)
+    // The pin is derived from the manifest we just installed, and CLEARED when that manifest
+    // declares no updateUrl — a pack that stops publishing a feed must stop being checked
+    // rather than retaining a pin from a previous install.
+    state.setSource(
+      manifest.id,
+      manifest.updateUrl
+        ? {
+            origin: new URL(manifest.updateUrl).origin,
+            updateUrl: manifest.updateUrl,
+            installedAt: Date.now()
+          }
+        : null
+    )
     return {
       ok: true,
       id: manifest.id,
