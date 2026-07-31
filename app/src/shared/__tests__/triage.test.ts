@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CaseRecord } from '../types'
-import { deriveActionItems, formatSyncRecency, hasUpstreamChange, triageRank } from '../triage'
+import { deriveActionItems, formatSyncAge, formatSyncRecency, hasUpstreamChange, triageRank } from '../triage'
 
 const NOW = new Date('2026-07-20T12:00:00.000Z')
 
@@ -58,12 +58,12 @@ describe('deriveActionItems', () => {
 
   it('flags new comments with a count', () => {
     const items = deriveActionItems(mkCase({ jiraCommentCount: 5 }), NOW)
-    expect(items).toContainEqual({ kind: 'comments', severity: 'action', label: '2 new comments' })
+    expect(items).toContainEqual({ kind: 'comments', severity: 'action', label: '2 new comments', count: 2 })
   })
 
   it('singularises a single new comment', () => {
     const items = deriveActionItems(mkCase({ jiraCommentCount: 4 }), NOW)
-    expect(items).toContainEqual({ kind: 'comments', severity: 'action', label: '1 new comment' })
+    expect(items).toContainEqual({ kind: 'comments', severity: 'action', label: '1 new comment', count: 1 })
   })
 
   it('ignores a comment count below the baseline (deletions)', () => {
@@ -76,7 +76,8 @@ describe('deriveActionItems', () => {
     expect(items).toContainEqual({
       kind: 'attachments',
       severity: 'action',
-      label: '2 new attachments'
+      label: '2 new attachments',
+      count: 2
     })
   })
 
@@ -172,5 +173,48 @@ describe('triageRank', () => {
     expect(triageRank([{ kind: 'sync-error', severity: 'action', label: 'x' }])).toBeLessThan(
       triageRank([{ kind: 'comments', severity: 'action', label: 'y' }])
     )
+  })
+})
+
+describe('formatSyncAge', () => {
+  it('says today inside the first day', () => {
+    expect(formatSyncAge('2026-07-08T00:00:00Z', new Date('2026-07-08T18:00:00Z'))).toBe('today')
+  })
+
+  it('counts whole days after that', () => {
+    expect(formatSyncAge('2026-07-08T00:00:00Z', new Date('2026-07-11T00:00:00Z'))).toBe('3d ago')
+  })
+
+  it('is the stem formatSyncRecency prefixes, so the two can never drift', () => {
+    const at = '2026-07-08T00:00:00Z'
+    const now = new Date('2026-07-11T00:00:00Z')
+    expect(formatSyncRecency(at, now)).toBe(`synced ${formatSyncAge(at, now)}`)
+  })
+})
+
+describe('deriveActionItems counts', () => {
+  it('carries the comment delta as a number, not only as prose', () => {
+    const c = mkCase({
+      jiraCommentCount: 5,
+      reviewBaseline: { status: 'Open', commentCount: 2, attachmentIds: [] }
+    })
+    const item = deriveActionItems(c).find((i) => i.kind === 'comments')
+    expect(item?.count).toBe(3)
+    expect(item?.label).toBe('3 new comments')
+  })
+
+  it('carries the attachment delta as a number', () => {
+    const c = mkCase({
+      jiraAttachmentIds: ['a', 'b'],
+      reviewBaseline: { status: 'Open', commentCount: 0, attachmentIds: ['a'] }
+    })
+    const item = deriveActionItems(c).find((i) => i.kind === 'attachments')
+    expect(item?.count).toBe(1)
+    expect(item?.label).toBe('1 new attachment')
+  })
+
+  it('leaves count unset on kinds that have no magnitude', () => {
+    const c = mkCase({ lastSyncError: { code: 'auth', message: 'nope', at: '2026-07-08T00:00:00Z' } })
+    expect(deriveActionItems(c).find((i) => i.kind === 'sync-error')?.count).toBeUndefined()
   })
 })

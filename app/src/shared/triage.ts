@@ -9,6 +9,10 @@ export interface ActionItem {
   kind: ActionItemKind
   severity: 'action' | 'info'
   label: string
+  /** Magnitude, for the kinds that have one (`comments`, `attachments`). The card renders these
+   *  as an icon + number; `label` stays the prose form the chips and the overview still use.
+   *  Absent on `sync-error`/`status`/`stale`/`idle`, which are states, not quantities. */
+  count?: number
 }
 
 /** Rank order — lower sorts first. Also the order items appear on a card. */
@@ -33,12 +37,20 @@ function plural(n: number, noun: string): string {
 }
 
 /**
- * How long ago we last talked to Jira, as the card footer and the `stale` item
- * both phrase it. One formatter so the two can never drift apart.
+ * How long ago we last talked to Jira, with no leading verb: `today`, `3d ago`. The card footer
+ * pairs this with an icon that already says "sync", so it must not repeat the word.
+ */
+export function formatSyncAge(syncedAtIso: string, now: Date = new Date()): string {
+  const days = daysBetween(syncedAtIso, now)
+  return days < 1 ? 'today' : `${days}d ago`
+}
+
+/**
+ * The same fact as a standalone sentence, for the `stale` item which has no icon beside it.
+ * Built from formatSyncAge so the two phrasings can never drift apart.
  */
 export function formatSyncRecency(syncedAtIso: string, now: Date = new Date()): string {
-  const days = daysBetween(syncedAtIso, now)
-  return days < 1 ? 'synced today' : `synced ${days}d ago`
+  return `synced ${formatSyncAge(syncedAtIso, now)}`
 }
 
 /**
@@ -77,12 +89,22 @@ export function deriveActionItems(c: CaseRecord, now: Date = new Date()): Action
     }
     const newComments = (c.jiraCommentCount ?? 0) - base.commentCount
     if (newComments > 0) {
-      items.push({ kind: 'comments', severity: 'action', label: plural(newComments, 'comment') })
+      items.push({
+        kind: 'comments',
+        severity: 'action',
+        label: plural(newComments, 'comment'),
+        count: newComments
+      })
     }
     const known = new Set(base.attachmentIds)
     const fresh = c.jiraAttachmentIds.filter((id) => !known.has(id)).length
     if (fresh > 0) {
-      items.push({ kind: 'attachments', severity: 'action', label: plural(fresh, 'attachment') })
+      items.push({
+        kind: 'attachments',
+        severity: 'action',
+        label: plural(fresh, 'attachment'),
+        count: fresh
+      })
     }
   }
 
