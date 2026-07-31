@@ -4,10 +4,47 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EditorApp } from '../EditorApp'
+import type { SurfaceHandle } from '../surface'
 import type { EditorOpenRequest } from '../../../../../shared/editorIpc'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
+}))
+
+// CodeMirror cannot run under jsdom: it measures real DOM, and jsdom's `textRange().getClientRects`
+// does not exist — a real `EditorView` throws out of its measure loop on every mount (spec §8.2
+// says as much). The surface is proven by the CDP gate in Task 11; these window-level tests only
+// need something that reports document changes, so it is a textarea. Same mock shape as
+// AssetPane.test.tsx, minus the parts only that file's assertions need.
+interface MockSurfaceProps {
+  initialDoc: string
+  ariaLabel: string
+  onDocChange: (doc: string) => void
+  ref?: { current: SurfaceHandle | null }
+}
+vi.mock('../CodeSurface', () => ({
+  CodeSurface: ({
+    initialDoc,
+    ariaLabel,
+    onDocChange,
+    ref
+  }: MockSurfaceProps): React.JSX.Element => {
+    if (ref) {
+      ref.current = {
+        getDoc: () => initialDoc,
+        setDoc: (text: string) => onDocChange(text),
+        goToLine: vi.fn(),
+        focus: vi.fn()
+      }
+    }
+    return (
+      <textarea
+        aria-label={ariaLabel}
+        defaultValue={initialDoc}
+        onChange={(e) => onDocChange(e.target.value)}
+      />
+    )
+  }
 }))
 
 let openTab: ((req: EditorOpenRequest) => void) | null = null
@@ -225,10 +262,9 @@ describe('EditorApp save wiring', () => {
     const area = await screen.findByLabelText('skill · my-skill')
     await userEvent.type(area, 'x')
 
-    // Hold the first write pending so we can move the buffer while it's in flight — that's
-    // what makes AssetEditor keep the editor open after this save resolves (it only closes
-    // when the buffer at resolution time still matches what was sent), so a second, real save
-    // happens in the same session and we can inspect what baseHash it used.
+    // Hold the first write pending so we can move the document while it's in flight — that is
+    // what makes the pane report "you kept typing" rather than settling clean, so a second, real
+    // save happens in the same session and we can inspect what baseHash it used.
     let resolveWrite: (v: { skills: never[]; hash: string }) => void = () => {}
     vi.mocked(window.argus.skills.write).mockImplementationOnce(
       () => new Promise((resolve) => (resolveWrite = resolve))
@@ -239,7 +275,7 @@ describe('EditorApp save wiring', () => {
     resolveWrite({ skills: [], hash: 'h1-second' })
 
     // Confirms the editor stayed open (didn't adopt undefined and silently misbehave) and that
-    // AssetEditor did adopt the returned hash into baseHash, per the comment on its save prop.
+    // the pane adopted the returned hash into baseHash, per the comment on `writeAsset`.
     await screen.findByText(/kept typing while it was saving/i)
 
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))

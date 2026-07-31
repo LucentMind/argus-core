@@ -62,7 +62,6 @@ export function EditorApp(): React.JSX.Element {
           key={`${open.kind}/${open.name}/${open.mode}`}
           req={open}
           onDirtyChange={setDirty}
-          onClose={() => setOpen(null)}
         />
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-dim">

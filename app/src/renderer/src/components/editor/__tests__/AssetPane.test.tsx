@@ -1,0 +1,278 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import '@testing-library/jest-dom/vitest'
+import { AssetPane } from '../AssetPane'
+import type { SurfaceHandle } from '../surface'
+
+vi.mock('../../library/assistProvider', () => ({
+  useAssistProvider: () => ({ ok: true, text: 'claude · sonnet' })
+}))
+
+declare global {
+  /** The mocked surface's document, shared between the component and the fake handle below. */
+  var __doc: string | undefined
+}
+
+/**
+ * `CodeSurface` is mocked, not rendered.
+ *
+ * Spec §8.2 is explicit that CodeMirror rendering is out of vitest's reach — it measures real
+ * DOM and jsdom has no layout — and that the tests must not pretend otherwise by asserting on
+ * CodeMirror internals. What *is* worth testing is everything around it: the draft gate, the
+ * dirty derivation, the conflict verbs, the assist flow. So the mock is a textarea plus a real
+ * implementation of `SurfaceHandle`, and the assertions are about which handle calls happen and
+ * what gets sent to main. The surface itself is proven by the CDP gate in Task 11.
+ */
+const setDoc = vi.fn()
+interface MockSurfaceProps {
+  initialDoc: string
+  ariaLabel: string
+  onDocChange: (doc: string) => void
+  ref?: { current: SurfaceHandle | null }
+}
+vi.mock('../CodeSurface', () => ({
+  CodeSurface: ({
+    initialDoc,
+    ariaLabel,
+    onDocChange,
+    ref
+  }: MockSurfaceProps): React.JSX.Element => {
+    if (ref) {
+      ref.current = {
+        getDoc: () => globalThis.__doc ?? initialDoc,
+        setDoc: (text: string) => {
+          setDoc(text)
+          globalThis.__doc = text
+          onDocChange(text)
+        },
+        goToLine: vi.fn(),
+        focus: vi.fn()
+      }
+    }
+    globalThis.__doc ??= initialDoc
+    return (
+      <textarea
+        aria-label={ariaLabel}
+        defaultValue={initialDoc}
+        onChange={(e) => {
+          globalThis.__doc = e.target.value
+          onDocChange(e.target.value)
+        }}
+      />
+    )
+  }
+}))
+
+const draftChanged = vi.fn()
+const discardDraft = vi.fn()
+const skillsWrite = vi.fn()
+const skillsRead = vi.fn()
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  globalThis.__doc = undefined
+  globalThis.window.argus = {
+    editor: {
+      draftChanged,
+      discardDraft,
+      onDraftSaved: () => () => {}
+    },
+    skills: { read: skillsRead, write: skillsWrite },
+    refsync: { readRef: vi.fn(), writeRef: vi.fn() },
+    authoring: { draft: vi.fn(), improve: vi.fn() }
+  } as never
+})
+
+const DISK = '---\nname: s\ndescription: d\n---\n\nbody\n'
+
+function mount(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}): {
+  onDirtyChange: ReturnType<typeof vi.fn>
+  surface: HTMLElement
+} {
+  const onDirtyChange = vi.fn()
+  const props: React.ComponentProps<typeof AssetPane> = {
+    kind: 'skill',
+    initialName: 's',
+    mode: 'edit',
+    initialDoc: DISK,
+    initialBaseline: DISK,
+    initialHash: 'h1',
+    initialBanner: { kind: 'none' },
+    initialDraftAt: null,
+    otherDrafts: [],
+    onDirtyChange,
+    ...overrides
+  }
+  render(<AssetPane {...props} />)
+  // Derived, not the literal 'skill · s': the create-mode cases below mount under a different
+  // name and the surface's aria-label follows it.
+  return {
+    onDirtyChange,
+    surface: screen.getByLabelText(`${props.kind} · ${props.initialName}`)
+  }
+}
+
+describe('AssetPane', () => {
+  it('does not draft a file that was merely opened', async () => {
+    mount()
+    await waitFor(() => expect(screen.getByLabelText('skill · s')).toBeInTheDocument())
+    expect(draftChanged).not.toHaveBeenCalled()
+  })
+
+  it('drafts the buffer once it diverges from the baseline', async () => {
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await waitFor(() => expect(draftChanged).toHaveBeenCalled())
+    expect(draftChanged.mock.calls.at(-1)![0]).toMatchObject({
+      kind: 'skill',
+      name: 's',
+      baseHash: 'h1'
+    })
+  })
+
+  it('reports dirty only after the document leaves the baseline', async () => {
+    const { onDirtyChange, surface } = mount()
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    await userEvent.type(surface, 'x')
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true))
+  })
+
+  it('opens a restored draft dirty, because a draft is unsaved work by definition', () => {
+    const { onDirtyChange } = mount({
+      initialDoc: `${DISK}typed`,
+      initialBanner: { kind: 'restored', updatedAt: '2026-07-31T15:42:00.000Z' }
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    expect(screen.getByRole('status')).toHaveTextContent('Restored unsaved draft')
+  })
+
+  it('accepts an assist proposal through setDoc, so it lands in the undo history', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Accept' })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: 'Accept' }))
+    // The assertion that is really about defect §1.1.1: the accept goes through the handle (one
+    // transaction) and never through a re-render of the surface with a new value.
+    expect(setDoc).toHaveBeenCalledWith('PROPOSED')
+  })
+
+  it('raises the conflict banner when a save is rejected because disk moved', async () => {
+    skillsWrite.mockRejectedValue(new Error('changed on disk'))
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+  })
+
+  it('"Use disk" replaces the document through the handle and discards the draft', async () => {
+    skillsWrite.mockRejectedValue(new Error('changed on disk'))
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Use disk' }))
+    expect(setDoc).toHaveBeenLastCalledWith('OTHER')
+    expect(discardDraft).toHaveBeenCalledWith({ kind: 'skill', name: 's' })
+  })
+
+  it('"Keep mine" keeps the text and re-files the draft against the new disk hash', async () => {
+    skillsWrite.mockRejectedValue(new Error('changed on disk'))
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+    draftChanged.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep mine' }))
+    // Not just "the draft survives": it must be re-filed against h2, or the next reopen compares
+    // a stale baseHash against disk and asks the same question again.
+    expect(draftChanged).toHaveBeenCalledWith(expect.objectContaining({ baseHash: 'h2' }))
+    expect(discardDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps the surface mounted while Compare is up', async () => {
+    skillsWrite.mockRejectedValue(new Error('changed on disk'))
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText(/saved version is newer/i)).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Compare' }))
+    // Increment 2 Finding 1, carried forward and now stricter: unmounting the surface would
+    // discard undo history and cursor position on top of the text.
+    expect(surface).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'On disk compared with Yours' })).toBeInTheDocument()
+  })
+
+  it('blocks Save while validation has an error', async () => {
+    mount({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(skillsWrite).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent(/frontmatter/i)
+  })
+
+  it('re-keys the draft when a create-mode name is edited', async () => {
+    mount({ mode: 'create', initialName: 'new-skill', initialDoc: 'seed', initialBaseline: 'seed' })
+    await userEvent.type(screen.getByLabelText('skill name'), 'X')
+    await waitFor(() => expect(draftChanged).toHaveBeenCalled())
+    expect(draftChanged.mock.calls.at(-1)![0]).toMatchObject({
+      name: 'new-skillX',
+      replaces: { kind: 'skill', name: 'new-skill' }
+    })
+  })
+
+  it('offers other create-mode drafts to resume', async () => {
+    const open = vi.fn()
+    globalThis.window.argus.editor.open = open
+    mount({
+      mode: 'create',
+      initialName: 'new-skill',
+      initialDoc: 'seed',
+      initialBaseline: 'seed',
+      otherDrafts: [
+        {
+          kind: 'skill',
+          name: 'half-written',
+          mode: 'create',
+          content: 'x',
+          baseHash: null,
+          updatedAt: '2026-07-31T10:00:00.000Z'
+        }
+      ]
+    })
+    expect(screen.getByText(/1 unsaved new skill from earlier/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'half-written' }))
+    expect(open).toHaveBeenCalledWith({ kind: 'skill', name: 'half-written', mode: 'create' })
+  })
+
+  it('warns before a typed name silently overwrites an existing draft', async () => {
+    mount({
+      mode: 'create',
+      initialName: 'new-skill',
+      initialDoc: 'seed',
+      initialBaseline: 'seed',
+      otherDrafts: [
+        {
+          kind: 'skill',
+          name: 'new-skillX',
+          mode: 'create',
+          content: 'x',
+          baseHash: null,
+          updatedAt: '2026-07-31T10:00:00.000Z'
+        }
+      ]
+    })
+    // `DraftStore.writeKey` is still last-write-wins; the fix is that the overwrite becomes
+    // visible to the person typing rather than happening without a word.
+    await userEvent.type(screen.getByLabelText('skill name'), 'X')
+    expect(
+      screen.getByText(/already exists — what you type here will replace it/i)
+    ).toBeInTheDocument()
+  })
+})

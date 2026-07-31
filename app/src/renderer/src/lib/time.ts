@@ -24,6 +24,12 @@ export function shortStamp(iso: string): string {
   })
 }
 
+// Wall-clock only, no date: the editor's draft and restore stamps are always same-session
+// ("Draft · 3:42 PM"). Deliberately distinct from shortStamp, which leads with month/day.
+export function clockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
 // Evidence-chip meta row stamp: day + short month + 24h time, e.g. "14 Mar, 09:32".
 // Deliberately distinct from shortStamp (numeric month/day + AM/PM, used by the case bar).
 export function chipStamp(iso: string): string {

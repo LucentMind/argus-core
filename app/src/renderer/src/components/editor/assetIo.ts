@@ -25,7 +25,7 @@ export async function readAsset(kind: AuthoringKind, name: string): Promise<Asse
 }
 
 /** Resolves to the hash of the bytes actually written — the caller must adopt it as its next
- *  baseHash (see AssetEditor's `save` prop). Rejects; conflict classification is the caller's. */
+ *  baseHash (see `AssetPane.onSave`). Rejects; conflict classification is the caller's. */
 export async function writeAsset(
   kind: AuthoringKind,
   name: string,
