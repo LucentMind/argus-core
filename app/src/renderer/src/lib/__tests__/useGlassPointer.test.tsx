@@ -46,6 +46,17 @@ describe('useGlassPointer', () => {
     expect(card.style.getPropertyValue('--my')).toBe('')
   })
 
+  it('does not clear the vars when the pointer moves within the card', () => {
+    const { getByTestId } = render(<Grid active={true} />)
+    const card = getByTestId('card')
+    fireEvent.pointerMove(card, { clientX: 10, clientY: 10 })
+    expect(card.style.getPropertyValue('--mx')).not.toBe('')
+    // leaving the card element for a child of the card is not a real exit
+    fireEvent.pointerOut(card, { relatedTarget: getByTestId('inner') })
+    expect(card.style.getPropertyValue('--mx')).toBe('10.0px')
+    expect(card.style.getPropertyValue('--my')).toBe('10.0px')
+  })
+
   it('attaches nothing when inactive', () => {
     const { getByTestId } = render(<Grid active={false} />)
     fireEvent.pointerMove(getByTestId('card'), { clientX: 10, clientY: 10 })
