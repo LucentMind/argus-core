@@ -2,7 +2,7 @@ import { BrowserWindow, screen } from 'electron'
 import { clampToDisplays } from '../../shared/editorWindowBounds'
 import { EDITOR_DEFAULT_SIZE, EDITOR_MIN_SIZE, type WindowBounds } from '../../shared/editorIpc'
 import type { EditorWindowFactory, EditorWindowHandle } from './editorWindow'
-import { titleBarWindowOptions, type TitleBarTheme } from './titleBar'
+import { applyOverlay, titleBarWindowOptions, type TitleBarTheme } from './titleBar'
 
 /**
  * The real window. Deliberately thin: create-or-focus, the close veto, and bounds clamping are
@@ -119,7 +119,8 @@ export function makeElectronEditorWindowFactory(
             cb()
           }
         })
-      }
+      },
+      applyTheme: (theme) => applyOverlay(win, 'editor', theme)
     }
   }
 }

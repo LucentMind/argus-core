@@ -4,6 +4,7 @@ import {
   type PersistedTabs,
   type WindowBounds
 } from '../../shared/editorIpc'
+import type { TitleBarTheme } from './titleBar'
 
 /** The editor window as this service needs it. An interface, not a BrowserWindow, so the
  *  service is unit-testable without Electron (house DI convention). */
@@ -19,6 +20,8 @@ export interface EditorWindowHandle {
   onClosed(cb: () => void): void
   /** The window was moved or resized. */
   onBoundsChanged(cb: () => void): void
+  /** Re-tint the window's native system buttons after a theme change. */
+  applyTheme(theme: TitleBarTheme): void
 }
 
 export type EditorWindowFactory = (bounds: WindowBounds | null) => EditorWindowHandle
@@ -65,6 +68,14 @@ export class EditorWindowService {
 
   setDirtyCount(n: number): void {
     this.dirtyCount = n
+  }
+
+  /**
+   * Fan a theme change out to the window. Main owns this rather than the renderer because the
+   * system buttons are painted by the OS, not by the page — no amount of CSS moves them.
+   */
+  applyTheme(theme: TitleBarTheme): void {
+    this.handle()?.applyTheme(theme)
   }
 
   open(req: EditorOpenRequest): void {

@@ -25,7 +25,7 @@ import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
-import { titleBarWindowOptions, type TitleBarTheme } from './services/titleBar'
+import { applyOverlay, titleBarWindowOptions, type TitleBarTheme } from './services/titleBar'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -1049,6 +1049,13 @@ function registerIpc(): void {
     // made in one window is invisible to the others until they reload. Fan it out here: this
     // handler already sees every theme change, including the one fired at construction.
     broadcast(IPC.uiThemeChanged, theme)
+    // The native chrome needs the same treatment for a different reason: the system buttons are
+    // drawn by the OS over our page, so the renderer's own theme swap cannot reach them. This is
+    // also where main learns the theme at all — `lastTheme` is what a window opened later is
+    // constructed with.
+    lastTheme = theme
+    applyOverlay(mainWindow, 'main', theme)
+    editorWindowService?.applyTheme(theme)
   })
   ipcMain.handle(IPC.panelsDecls, () =>
     packRegistry.windowDecls().map((w) => ({
