@@ -183,32 +183,34 @@ function App(): React.JSX.Element {
         ) : view.kind === 'observability' ? (
           <ObservabilityView onOpenCase={openCase} onClose={() => setView(prevView)} />
         ) : (
-          <CaseWorkspace
-            slug={view.slug}
-            jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
-            jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
-            status={cases.find((c) => c.slug === view.slug)?.status ?? 'open'}
-            resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
-            activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
-            onStatusChanged={() => void reload()}
-            onModeSwitched={() => void reload()}
-            onOpenHit={handleOpenHit}
-            onOpenCitation={(id, start, end) =>
-              setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
-            }
-            onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
-            onOpenCase={openCase}
-            onOpenRepoFile={(repoName, relPath, start, end) =>
-              setViewer({
-                kind: 'repoFile',
-                slug: view.slug,
-                repoName,
-                relPath,
-                focusStart: start,
-                focusEnd: end
-              })
-            }
-          />
+          <DynamicScope variant="case">
+            <CaseWorkspace
+              slug={view.slug}
+              jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
+              jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
+              status={cases.find((c) => c.slug === view.slug)?.status ?? 'open'}
+              resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
+              activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
+              onStatusChanged={() => void reload()}
+              onModeSwitched={() => void reload()}
+              onOpenHit={handleOpenHit}
+              onOpenCitation={(id, start, end) =>
+                setViewer({ kind: 'evidence', evidenceId: id, focusStart: start, focusEnd: end })
+              }
+              onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
+              onOpenCase={openCase}
+              onOpenRepoFile={(repoName, relPath, start, end) =>
+                setViewer({
+                  kind: 'repoFile',
+                  slug: view.slug,
+                  repoName,
+                  relPath,
+                  focusStart: start,
+                  focusEnd: end
+                })
+              }
+            />
+          </DynamicScope>
         )}
       </div>
       {viewer?.kind === 'evidence' && (

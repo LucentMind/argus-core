@@ -33,6 +33,7 @@ import type {
   UnifiedHit
 } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
+import { useAmbientAnchors } from '../lib/ambientAnchors'
 import type { ModeId } from '../../../shared/modes'
 
 export function CaseWorkspace({
@@ -80,6 +81,7 @@ export function CaseWorkspace({
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
   )
+  const anchors = useAmbientAnchors()
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
@@ -385,37 +387,52 @@ export function CaseWorkspace({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-hair bg-deep px-4 py-2">
+      {/* anchors.setCutoff/setLight are useState setters used directly as ref
+          callbacks (the React-documented way to observe a DOM node) — not a
+          stale `.current` read, so react-hooks/refs is a false positive here. */}
+      <header
+        // eslint-disable-next-line react-hooks/refs
+        ref={anchors.setCutoff}
+        className={`flex items-center gap-3 border-b border-hair px-4 py-2 ${
+          ui.dynamicTheme ? 'dyn-case-header' : 'bg-deep'
+        }`}
+      >
         {/* The case id is the trigger for the case-action menu (Close as / Export),
             each a submenu — keeps a crowded bar to one control. */}
-        <MenuButton
-          label={slug}
-          triggerClassName="font-mono text-sm! text-defect!"
-          align="left"
-          items={[
-            ...(jiraKey
-              ? [
+        {/* eslint-disable-next-line react-hooks/refs */}
+        <span ref={anchors.setLight} className="inline-flex">
+          <MenuButton
+            label={slug}
+            triggerClassName="font-mono text-sm! text-defect!"
+            align="left"
+            items={[
+              ...(jiraKey
+                ? [
+                    {
+                      label: 'Open in Jira',
+                      onSelect: () => void window.argus.jira.openIssue(slug)
+                    }
+                  ]
+                : []),
+              { label: closeAsLabel, children: statusItems },
+              {
+                label: 'Export',
+                children: [
+                  { label: 'Export case…', onSelect: () => void exportBundle(true) },
                   {
-                    label: 'Open in Jira',
-                    onSelect: () => void window.argus.jira.openIssue(slug)
+                    label: 'Export without transcripts…',
+                    onSelect: () => void exportBundle(false)
                   }
                 ]
-              : []),
-            { label: closeAsLabel, children: statusItems },
-            {
-              label: 'Export',
-              children: [
-                { label: 'Export case…', onSelect: () => void exportBundle(true) },
-                { label: 'Export without transcripts…', onSelect: () => void exportBundle(false) }
-              ]
-            },
-            {
-              label: 'Re-distill',
-              disabled: status !== 'closed',
-              onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
-            }
-          ]}
-        />
+              },
+              {
+                label: 'Re-distill',
+                disabled: status !== 'closed',
+                onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
+              }
+            ]}
+          />
+        </span>
         {/* key: reset refresh state (summary note, last-synced) when switching cases */}
         <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}

@@ -372,3 +372,40 @@
     animation: none;
   }
 }
+
+/* ── case view ─────────────────────────────────────────────────────────── */
+
+.dyn-case .dyn-ambient,
+.dyn-settings .dyn-ambient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+.dyn-case .dyn-ambient-fallback,
+.dyn-settings .dyn-ambient-fallback {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  pointer-events: none;
+  background: radial-gradient(
+    700px 160px at 22% 100%,
+    color-mix(in srgb, var(--signal) 22%, transparent),
+    transparent 70%
+  );
+}
+
+/* The header goes translucent so the band reads THROUGH it. This is the only
+   backdrop-filter in the case view: one 44px element, never a scroll container. */
+.dyn-case .dyn-case-header {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border-bottom-color: var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-hi);
+}

@@ -35,16 +35,30 @@ export function DynamicScope({
   const [light, setLight] = useState<HTMLElement | null>(null)
   const [cutoff, setCutoff] = useState<HTMLElement | null>(null)
   const anchors = useMemo<AmbientAnchors>(() => ({ setLight, setCutoff }), [])
-  if (!ui.dynamicTheme) return <>{children}</>
+  const on = ui.dynamicTheme
+  // Home keeps the fragment-when-off shape: it ships, it is verified, and the
+  // classic home DOM must stay byte-identical.
+  if (variant === 'home' && !on) return <>{children}</>
+
+  // case/settings ALWAYS render the wrapper. The fragment↔wrapper swap remounts
+  // the whole subtree, and the toggle lives in Settings — so with a settings
+  // variant it would remount the page it is on, discarding scroll position and
+  // any unsaved draft in an open memory or skill editor.
+  const layout =
+    variant === 'home' ? 'relative min-h-full' : 'relative flex min-h-0 flex-1 flex-col'
   return (
     <div
-      className={`dyn dyn-${variant} relative min-h-full bg-void`}
+      className={`${on ? `dyn dyn-${variant} bg-void ` : ''}${layout}`}
       data-testid={`dynamic-${variant}`}
     >
-      <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />
-      <div className="dyn-grain" aria-hidden="true" />
+      {on && <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />}
+      {on && variant === 'home' && <div className="dyn-grain" aria-hidden="true" />}
       <AmbientAnchorContext.Provider value={anchors}>
-        <div className="relative z-[1]">{children}</div>
+        {variant === 'home' ? (
+          <div className="relative z-[1]">{children}</div>
+        ) : (
+          <div className="relative z-[1] flex min-h-0 flex-1 flex-col">{children}</div>
+        )}
       </AmbientAnchorContext.Provider>
     </div>
   )
