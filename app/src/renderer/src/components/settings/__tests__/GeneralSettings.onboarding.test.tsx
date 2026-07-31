@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 import { GeneralSettings } from '../GeneralSettings'
 import { onboardingReplay } from '../../../lib/onboardingStore'
 import { tourStore } from '../../../lib/tourStore'
+import { updateStore } from '../../../lib/updateStore'
 import { defaultSettings } from '../../../../../shared/settings'
 import type { SettingsPayload } from '../../../../../shared/settings'
 
@@ -16,6 +17,7 @@ const payload: SettingsPayload = {
 }
 
 beforeEach(() => {
+  updateStore.clearForTests()
   // UpdateSettings (Task 4) now renders inside GeneralSettings and starts the
   // update store unconditionally on mount.
   window.argus = {

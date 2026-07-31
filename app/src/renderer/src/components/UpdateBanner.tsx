@@ -11,7 +11,7 @@ export function UpdateBanner(): React.JSX.Element | null {
   useEffect(() => updateStore.start(), [])
 
   if (status.phase !== 'available' && status.phase !== 'ready') return null
-  if (updateStore.isDismissed(status.version)) return null
+  if (updateStore.isDismissed(status.phase, status.version)) return null
 
   return (
     <div className="flex items-center gap-3 border-b border-hair bg-panel px-4 py-2 text-sm">

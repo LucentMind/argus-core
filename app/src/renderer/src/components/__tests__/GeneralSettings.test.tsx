@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GeneralSettings } from '../settings/GeneralSettings'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
+import { updateStore } from '../../lib/updateStore'
 import { confirm } from '../../lib/confirmStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 
@@ -28,6 +29,7 @@ beforeEach(() => {
   uiStore.setTheme('dark')
   uiStore.setDynamicTheme(false)
   settingsStore.reset()
+  updateStore.clearForTests()
   window.argus = {
     settings: {
       get: vi.fn(async () => payload()),

@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
 import { settingsStore } from '../lib/settingsStore'
 import { accessStore } from '../lib/accessStore'
+import { updateStore } from '../lib/updateStore'
 import { __resetEscapeLayersForTest } from '../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../shared/settings'
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   __resetEscapeLayersForTest()
   settingsStore.reset()
   accessStore.reset()
+  updateStore.clearForTests()
   window.argus = {
     cases: {
       list: vi.fn(async () => [])

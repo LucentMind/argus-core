@@ -9,6 +9,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { proposalsStore } from '../../lib/proposalsStore'
 import { referenceSyncStore } from '../../lib/referenceSyncStore'
 import { connectorsStore } from '../../lib/connectorsStore'
+import { updateStore } from '../../lib/updateStore'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_PRESETS } from '../../../../shared/connectors'
@@ -76,6 +77,7 @@ beforeEach(() => {
   // need the same fresh-mount treatment as settings/proposals above.
   referenceSyncStore.reset()
   connectorsStore.reset()
+  updateStore.clearForTests()
   window.argus = {
     settings: {
       get: vi.fn(async () => currentPayload),

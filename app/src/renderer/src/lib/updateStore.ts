@@ -6,7 +6,7 @@ import type { CoreUpdatePayload } from '../../../shared/updates'
  */
 class UpdateStore {
   private payload: CoreUpdatePayload = { currentVersion: '', status: { phase: 'idle' } }
-  private dismissedVersion: string | null = null
+  private dismissedKey: string | null = null
   private readonly listeners = new Set<() => void>()
   private started = false
 
@@ -14,9 +14,9 @@ class UpdateStore {
     return this.payload
   }
 
-  /** The banner hides once dismissed, until a different version shows up. */
-  isDismissed(version: string): boolean {
-    return this.dismissedVersion === version
+  /** The banner hides once dismissed, until a different phase or version shows up. */
+  isDismissed(phase: 'available' | 'ready', version: string): boolean {
+    return this.dismissedKey === `${phase}:${version}`
   }
 
   subscribe(cb: () => void): () => void {
@@ -45,7 +45,13 @@ class UpdateStore {
 
   dismiss(): void {
     const s = this.payload.status
-    this.dismissedVersion = s.phase === 'available' || s.phase === 'ready' ? s.version : null
+    this.dismissedKey =
+      s.phase === 'available' || s.phase === 'ready' ? `${s.phase}:${s.version}` : null
+    // UpdateBanner's useSyncExternalStore snapshot is `this.payload`; isDismissed() is derived
+    // state that lives outside it. React skips re-rendering when getSnapshot returns the same
+    // reference, so a dismissal that only touches `dismissedKey` would never reach the banner —
+    // give the snapshot a new identity so the subscriber actually re-renders.
+    this.payload = { ...this.payload }
     this.emit()
   }
 
@@ -53,7 +59,7 @@ class UpdateStore {
    *  Named to match the existing `reposStore.clearForTests()` precedent. */
   clearForTests(): void {
     this.payload = { currentVersion: '', status: { phase: 'idle' } }
-    this.dismissedVersion = null
+    this.dismissedKey = null
     this.started = false
     this.listeners.clear()
   }

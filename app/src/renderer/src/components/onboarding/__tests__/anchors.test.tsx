@@ -3,9 +3,11 @@ import { render } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SettingsView } from '../../settings/SettingsView'
 import { settingsStore } from '../../../lib/settingsStore'
+import { updateStore } from '../../../lib/updateStore'
 import { defaultSettings } from '../../../../../shared/settings'
 
 beforeEach(() => {
+  updateStore.clearForTests()
   window.argus = {
     settings: {
       get: vi.fn(async () => ({
