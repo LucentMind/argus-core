@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { AssetPane } from '../AssetPane'
 import type { SurfaceHandle } from '../surface'
+import type { DraftSaved } from '../../../../../shared/editorIpc'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: () => ({ ok: true, text: 'claude · sonnet' })
@@ -69,6 +70,9 @@ const draftChanged = vi.fn()
 const discardDraft = vi.fn()
 const skillsWrite = vi.fn()
 const skillsRead = vi.fn()
+/** Captured so tests can fire the "bytes are on disk" confirmation themselves — see the
+ *  status-bar-derivation tests below, which need to distinguish a pending draft from a dated one. */
+let draftSavedListener: ((s: DraftSaved) => void) | undefined
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -77,11 +81,15 @@ beforeEach(() => {
   // (and thus which click gets you where) order-dependent.
   localStorage.clear()
   globalThis.__doc = undefined
+  draftSavedListener = undefined
   globalThis.window.argus = {
     editor: {
       draftChanged,
       discardDraft,
-      onDraftSaved: () => () => {}
+      onDraftSaved: (cb: (s: DraftSaved) => void) => {
+        draftSavedListener = cb
+        return () => {}
+      }
     },
     skills: { read: skillsRead, write: skillsWrite },
     refsync: { readRef: vi.fn(), writeRef: vi.fn() },
@@ -352,5 +360,44 @@ describe('AssetPane', () => {
     expect(
       screen.getByText(/already exists — what you type here will replace it/i)
     ).toBeInTheDocument()
+  })
+
+  // The `sync` derivation in AssetPane, not just the StatusBar it feeds — StatusBar.test.tsx only
+  // proves the bar renders each state, not which state AssetPane picks.
+  it('reads Saved for a file that was merely opened', async () => {
+    mount()
+    await waitFor(() => expect(screen.getByLabelText('skill · s')).toBeInTheDocument())
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
+  it('reads Draft the moment you type, before the debounced write lands', async () => {
+    // The `|| dirty` clause. Between the keystroke and `onDraftSaved` the file genuinely is not
+    // saved. Bare `Draft`, no timestamp — persist-before-adopt means only a confirmed write may
+    // date it.
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await waitFor(() => expect(screen.getByText('Draft')).toBeInTheDocument())
+    expect(screen.queryByText(/^Draft ·/)).not.toBeInTheDocument()
+  })
+
+  it('dates the draft only once main confirms the write', async () => {
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await waitFor(() => expect(screen.getByText('Draft')).toBeInTheDocument())
+    // Fire the message main sends after the bytes are on disk.
+    draftSavedListener!({ kind: 'skill', name: 's', updatedAt: '2026-07-31T15:42:00.000Z' })
+    await waitFor(() => expect(screen.getByText(/^Draft ·/)).toBeInTheDocument())
+  })
+
+  it('reads Conflict while a conflict banner is up', async () => {
+    // Explicit rather than relying on the previous tests' state: `vi.clearAllMocks()` in
+    // `beforeEach` resets call history but not implementations, so an earlier conflict test's
+    // `mockRejectedValue`/`mockResolvedValue` would otherwise leak forward.
+    skillsWrite.mockRejectedValue(new Error('changed on disk'))
+    skillsRead.mockResolvedValue({ content: 'OTHER', hash: 'h2' })
+    const { surface } = mount()
+    await userEvent.type(surface, 'x')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText('Conflict')).toBeInTheDocument())
   })
 })
