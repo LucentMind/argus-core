@@ -2,7 +2,8 @@ import { BrowserWindow, screen } from 'electron'
 import { clampToDisplays } from '../../shared/editorWindowBounds'
 import { EDITOR_DEFAULT_SIZE, EDITOR_MIN_SIZE, type WindowBounds } from '../../shared/editorIpc'
 import type { EditorWindowFactory, EditorWindowHandle } from './editorWindow'
-import { applyOverlay, titleBarWindowOptions, type TitleBarTheme } from './titleBar'
+import { applyOverlay, type TitleBarTheme } from './titleBar'
+import { editorWindowOptions } from './windowOptions'
 
 /**
  * The real window. Deliberately thin: create-or-focus, the close veto, and bounds clamping are
@@ -39,8 +40,7 @@ export function makeElectronEditorWindowFactory(
       autoHideMenuBar: true,
       // The caption bar no longer renders this, but the taskbar entry and Alt-Tab still do.
       title: 'Argus — Editor',
-      ...titleBarWindowOptions('editor', getTheme(), process.platform, getScale()),
-      webPreferences: { preload: preloadPath, sandbox: false }
+      ...editorWindowOptions(getTheme(), getScale(), preloadPath)
     })
 
     win.on('ready-to-show', () => win.show())

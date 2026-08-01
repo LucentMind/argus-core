@@ -25,12 +25,8 @@ import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
-import {
-  pushScaleIfChanged,
-  pushThemeIfChanged,
-  titleBarWindowOptions,
-  type TitleBarTheme
-} from './services/titleBar'
+import { pushScaleIfChanged, pushThemeIfChanged, type TitleBarTheme } from './services/titleBar'
+import { mainWindowOptions } from './services/windowOptions'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -2263,12 +2259,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    icon,
-    ...titleBarWindowOptions('main', lastTheme, process.platform, lastScale),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
+    ...mainWindowOptions(lastTheme, lastScale, icon, join(__dirname, '../preload/index.js'))
   })
 
   mainWindow.on('ready-to-show', () => {
