@@ -79,6 +79,32 @@ describe('useEditorAssets', () => {
     expect(result.current.refresh).toBe(first)
   })
 
+  // Finding 7: a broadcast-driven refresh (`skills:changed` / `refsync:changed`) fires on ANY
+  // change to either corpus, not only one that touches this window's rows — so it commonly
+  // returns content identical to what is already held. Minting a fresh array anyway would give
+  // `EditorApp`'s `linkTargets` memo a new identity for no semantic reason, defeating every
+  // mounted `TabPane`'s `memo`.
+  it('keeps the rows array identity across a refresh whose content did not change', async () => {
+    const { result } = renderHook(() => useEditorAssets())
+    await waitFor(() => expect(result.current.rows).toHaveLength(2))
+    const first = result.current.rows
+    act(() => result.current.refresh())
+    await waitFor(() => expect(window.argus.editor.corpus).toHaveBeenCalledTimes(2))
+    expect(result.current.rows).toBe(first)
+  })
+
+  it('mints a new rows array when the refreshed content actually differs', async () => {
+    const { result } = renderHook(() => useEditorAssets())
+    await waitFor(() => expect(result.current.rows).toHaveLength(2))
+    const first = result.current.rows
+    ;(window.argus.editor.corpus as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { kind: 'skill', name: 'triage', title: '', description: 'CHANGED', tier: 'user' }
+    ])
+    act(() => result.current.refresh())
+    await waitFor(() => expect(result.current.rows).not.toBe(first))
+    expect(result.current.rows[0]?.description).toBe('CHANGED')
+  })
+
   it('survives an IPC failure with an empty list rather than an unhandled rejection', async () => {
     ;(window.argus.editor.corpus as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('nope'))
     const { result } = renderHook(() => useEditorAssets())

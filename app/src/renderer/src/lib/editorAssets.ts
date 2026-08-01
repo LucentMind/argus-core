@@ -2,6 +2,39 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { corpusRows, draftRows, type AssetRow } from './palette'
 
 /**
+ * Field-by-field, not `===`: every refresh mints fresh row objects (`corpusRows`/`draftRows`
+ * build new object literals every call), so a reference comparison would never be equal even
+ * when nothing changed. `draft` is optional and only ever primitives, so a flat comparison is
+ * enough.
+ */
+function sameRow(a: AssetRow, b: AssetRow): boolean {
+  return (
+    a.id === b.id &&
+    a.kind === b.kind &&
+    a.name === b.name &&
+    a.title === b.title &&
+    a.description === b.description &&
+    a.tier === b.tier &&
+    a.draft?.draftId === b.draft?.draftId &&
+    a.draft?.kind === b.draft?.kind &&
+    a.draft?.mode === b.draft?.mode &&
+    a.draft?.updatedAt === b.draft?.updatedAt
+  )
+}
+
+/**
+ * Finding 7: a broadcast-driven refresh (`skills:changed` / `refsync:changed`) commonly returns
+ * content identical to what is already held — the broadcast fires on ANY change to either
+ * corpus, not only one that touches this window's asset list. Minting a fresh array every time
+ * anyway means `EditorApp`'s `linkTargets` memo (which depends on `rows`) gets a new identity for
+ * no semantic reason, which in turn defeats every mounted `TabPane`'s `memo` — see the comment on
+ * `linkTargets` in EditorApp.tsx.
+ */
+function sameRows(a: readonly AssetRow[], b: readonly AssetRow[]): boolean {
+  return a.length === b.length && a.every((row, i) => sameRow(row, b[i]!))
+}
+
+/**
  * Everything quick open can offer (spec §6.2): every skill and reference, plus the drafts that
  * have no asset row of their own (§4.5).
  *
@@ -35,11 +68,13 @@ export function useEditorAssets(): { rows: AssetRow[]; refresh: () => void } {
           window.argus.editor.listDrafts()
         ])
         if (!live.current || runId.current !== my) return
-        setRows([...corpusRows(corpus), ...draftRows(drafts, corpus)])
+        const next = [...corpusRows(corpus), ...draftRows(drafts, corpus)]
+        // Skip the identity churn when nothing actually changed — see `sameRows` above.
+        setRows((prev) => (sameRows(prev, next) ? prev : next))
       } catch {
         // Swallowed deliberately, matching `useAssetTiers`: a palette that opens empty is far
         // better than a window that will not render because one read failed.
-        if (live.current && runId.current === my) setRows([])
+        if (live.current && runId.current === my) setRows((prev) => (prev.length === 0 ? prev : []))
       }
     })()
   }, [])
