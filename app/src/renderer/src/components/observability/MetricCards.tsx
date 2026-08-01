@@ -11,10 +11,7 @@ export function StatCard({
   id?: string
 }): React.JSX.Element {
   return (
-    <div
-      data-card-id={id}
-      className="flex flex-col gap-1 rounded-r2 border border-hair bg-deep p-4"
-    >
+    <div data-card-id={id} className="flex flex-col gap-1 rounded-r2 surface-card p-4">
       <span className="text-xs uppercase tracking-wide text-dim">{label}</span>
       <span className="text-2xl font-semibold text-ink">{value}</span>
       {sub && <span className="text-xs text-mute">{sub}</span>}
