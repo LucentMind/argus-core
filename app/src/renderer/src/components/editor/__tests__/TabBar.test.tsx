@@ -26,13 +26,19 @@ describe('TabBar', () => {
   // (`expect(read('TabBar.tsx')).toContain('glass-chrome')`), which passed no matter where in the
   // file the class sat. This renders the strip and asserts on the root element's own className,
   // the way ModalShell.test.tsx / MenuButton.test.tsx already pin `.overlay-card`/`.overlay-menu`.
-  it('the strip carries the frosted chrome material, not glass-card', () => {
+  // AMENDED ON REBASE (2026-08-01). `main` moved this strip inside a draggable `TitleBarStrip`
+  // while the light-theme branch was in flight, so it no longer carries its own material —
+  // `glass-chrome` on a drag region has never been looked at and would risk the same class of
+  // bug `.glass-card` already caused here once (its unlayered `overflow: hidden` clipped the
+  // "All tabs" dropdown, and its `border` shorthand beat `border-x-0`). The editor's light
+  // treatment is deferred; what this pins is the part that must not regress either way.
+  it('the strip never carries a layout-bearing material', () => {
     const { container } = render(
       <TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />
     )
     const cls = container.firstElementChild!.className
-    expect(cls).toContain('glass-chrome')
     expect(cls).not.toContain('glass-card')
+    expect(cls).not.toContain('glass-panel')
   })
 
   it('renders one tab per open asset', () => {

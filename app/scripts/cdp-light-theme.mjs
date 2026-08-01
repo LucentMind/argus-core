@@ -266,7 +266,9 @@ async function main() {
   await sendOk(conn, 'Page.reload', {})
   await waitFor('app to reboot in light mode', () =>
     conn
-      .evalJs(`document.readyState === 'complete' && document.documentElement.getAttribute('data-theme')`)
+      .evalJs(
+        `document.readyState === 'complete' && document.documentElement.getAttribute('data-theme')`
+      )
       .then((v) => v === 'light')
       .catch(() => false)
   )
@@ -278,7 +280,8 @@ async function main() {
   const dbPath = path.join(HOME, 'argus.db')
   const db = new DatabaseSync(dbPath, { readOnly: true })
   const caseRow = db.prepare('SELECT id, slug FROM cases WHERE slug = ?').get(SLUG)
-  if (!caseRow) throw new Error(`fixture case ${SLUG} not found in ${dbPath} — run the seed script first`)
+  if (!caseRow)
+    throw new Error(`fixture case ${SLUG} not found in ${dbPath} — run the seed script first`)
   const sessionRow = db
     .prepare('SELECT id FROM sessions WHERE case_id = ? ORDER BY id DESC LIMIT 1')
     .get(caseRow.id)
@@ -374,7 +377,9 @@ async function main() {
   // ── 3. New-case dialog (light). ──
   await gotoHome(conn)
   await clickByText(conn, 'New case')
-  await waitFor('New case dialog', () => conn.evalJs(`!!document.querySelector('[data-testid="modal-backdrop"]')`))
+  await waitFor('New case dialog', () =>
+    conn.evalJs(`!!document.querySelector('[data-testid="modal-backdrop"]')`)
+  )
   await sleep(200)
   await shot(conn, '11-new-case-dialog-light')
   await clickSelector(conn, 'button[aria-label="Close"]')
@@ -396,7 +401,10 @@ async function main() {
   await typeInto(conn, 'textarea[placeholder^="Message the analyst"]', '/')
   const popupShown = await waitFor(
     'skills popup (or confirmation none matched)',
-    () => conn.evalJs(`document.querySelector('textarea[placeholder^="Message the analyst"]')?.value === '/'`),
+    () =>
+      conn.evalJs(
+        `document.querySelector('textarea[placeholder^="Message the analyst"]')?.value === '/'`
+      ),
     5000
   ).catch(() => false)
   await sleep(200)
@@ -445,7 +453,9 @@ async function main() {
   })()`)
   if (!agentStoreOk) {
     const err = await conn.evalJs(`window.__agentStoreImportError || 'unknown'`)
-    console.error(`  could not import agentStore for capture — skipping approval/question/mermaid: ${err}`)
+    console.error(
+      `  could not import agentStore for capture — skipping approval/question/mermaid: ${err}`
+    )
   } else {
     const base = (type, payload) =>
       `{ eventId: crypto.randomUUID(), caseId: ${CASE_ID}, caseSlug: ${JSON.stringify(SLUG)}, sessionId: ${SESSION_ID}, turnId: null, ts: new Date().toISOString(), type: ${JSON.stringify(type)}, payload: ${JSON.stringify(payload)} }`
@@ -460,7 +470,9 @@ async function main() {
         argsPreview: 'rm -rf /tmp/scratch-build-artifacts'
       })})`
     )
-    await waitFor('ApprovalCard rendered', () => conn.evalJs(`!!document.querySelector('.text-danger, .border-danger\\\\/40')`)).catch(() => {})
+    await waitFor('ApprovalCard rendered', () =>
+      conn.evalJs(`!!document.querySelector('.text-danger, .border-danger\\\\/40')`)
+    ).catch(() => {})
     await sleep(300)
     await shot(conn, '18-approval-card-light')
     await conn.evalJs(
@@ -503,8 +515,7 @@ async function main() {
     // 7c. Mermaid block + lightbox.
     await conn.evalJs(
       `window.__agentStoreForCapture.apply(${base('assistant.message', {
-        text:
-          'Here is the flow:\n\n```mermaid\ngraph TD\n  A[Ingest evidence] --> B{P1?}\n  B -- yes --> C[Notify on-call]\n  B -- no --> D[Queue for triage]\n  C --> E[Open case]\n  D --> E\n```\n'
+        text: 'Here is the flow:\n\n```mermaid\ngraph TD\n  A[Ingest evidence] --> B{P1?}\n  B -- yes --> C[Notify on-call]\n  B -- no --> D[Queue for triage]\n  C --> E[Open case]\n  D --> E\n```\n'
       })})`
     )
     const mermaidOk = await waitFor(
@@ -538,7 +549,8 @@ async function main() {
     await waitFor(
       'the Library page with a user-tier Edit button',
       async () => {
-        if (await main.evalJs(`!!document.querySelector('[aria-label^="Edit \\u00b7 "]')`)) return true
+        if (await main.evalJs(`!!document.querySelector('[aria-label^="Edit \\u00b7 "]')`))
+          return true
         await main.evalJs(`(() => {
           const gear = document.querySelector('button[aria-label="Settings"]')
           if (gear && !document.querySelector('nav[aria-label="Settings sections"]')) gear.click()
@@ -564,7 +576,9 @@ async function main() {
     console.error('  editor window never appeared — no editor screenshots or editor checks')
   } else {
     editor = await connect(editorTarget)
-    await waitFor('editor renders an asset', () => editor.evalJs(`!!document.querySelector('.cm-content')`))
+    await waitFor('editor renders an asset', () =>
+      editor.evalJs(`!!document.querySelector('.cm-content')`)
+    )
     await sleep(400)
     await shot(editor, '21-editor-light')
     await setTheme(conn, 'dark')

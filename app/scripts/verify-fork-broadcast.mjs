@@ -53,7 +53,11 @@ const tierAfter = await main.evalJs(`(() => {
   return s ? s.tier : 'MISSING'
 })()`)
 // This is what the editor's tier map reads, and therefore what releases read-only.
-check('the broadcast payload reports the forked skill as user-tier', tierAfter === 'user', tierAfter)
+check(
+  'the broadcast payload reports the forked skill as user-tier',
+  tierAfter === 'user',
+  tierAfter
+)
 
 await main.evalJs(`(() => { window.__off && window.__off(); return true })()`)
 main.close()

@@ -114,7 +114,7 @@ export function CommandPalette({
   return (
     <div
       data-testid="palette-backdrop"
-      className="fixed inset-0 z-50 flex justify-center bg-black/40 pt-[12vh]"
+      className="modal-scrim fixed inset-0 z-50 flex justify-center pt-[12vh]"
       onMouseDown={onClose}
     >
       <div
