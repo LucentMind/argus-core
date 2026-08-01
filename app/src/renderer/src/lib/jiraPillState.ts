@@ -1,4 +1,4 @@
-import { shortStamp } from './time'
+import { chipStamp } from './time'
 import type { JiraRefreshSummary } from '../../../shared/jira'
 
 export type JiraPillPhase =
@@ -48,6 +48,6 @@ export function jiraPillFace(phase: JiraPillPhase, syncedAt: string | null): Jir
     return { label: parts.join(' · '), tone: 'changed' }
   }
   return syncedAt
-    ? { label: shortStamp(syncedAt), tone: 'neutral' }
+    ? { label: chipStamp(syncedAt), tone: 'neutral' }
     : { label: 'never', tone: 'stale' }
 }

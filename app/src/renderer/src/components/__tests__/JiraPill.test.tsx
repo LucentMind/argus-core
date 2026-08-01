@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { JiraPill } from '../JiraPill'
-import { shortStamp } from '../../lib/time'
+import { chipStamp } from '../../lib/time'
 import type { JiraRefreshSummary } from '../../../../shared/jira'
 
 const SYNCED_AT = '2026-07-31T14:01:00.000Z'
@@ -40,9 +40,16 @@ describe('JiraPill', () => {
   it('shows the issue key and a resting timestamp', () => {
     render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
     expect(screen.getByText('NAVPOR-10068')).toBeTruthy()
-    // Assert the actual shortStamp rendering, not just non-empty — a non-empty check would
+    // Assert the actual chipStamp rendering, not just non-empty — a non-empty check would
     // also pass if the pill showed 'never' (a different state/tone entirely).
-    expect(screen.getByTestId('jira-pill-state').textContent).toBe(shortStamp(SYNCED_AT))
+    expect(screen.getByTestId('jira-pill-state').textContent).toBe(chipStamp(SYNCED_AT))
+  })
+
+  it('uses the same stamp format in the popover as on the face', async () => {
+    const user = userEvent.setup()
+    render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
+    await user.click(screen.getByRole('button', { name: 'Jira details' }))
+    expect(screen.getByText(`Last refreshed ${chipStamp(SYNCED_AT)}`)).toBeTruthy()
   })
 
   it('reports counts on the face after a refresh that found changes', async () => {

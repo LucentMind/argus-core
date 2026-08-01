@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { jiraPillFace, summaryHasChanges } from '../jiraPillState'
-import { shortStamp } from '../time'
+import { chipStamp } from '../time'
 import type { JiraRefreshSummary } from '../../../../shared/jira'
 
 const SYNCED_AT = '2026-07-31T14:01:00.000Z'
@@ -22,7 +22,7 @@ function summary(overrides?: Partial<JiraRefreshSummary>): JiraRefreshSummary {
 describe('jiraPillFace', () => {
   it('shows an absolute clock stamp at rest', () => {
     expect(jiraPillFace({ kind: 'idle' }, SYNCED_AT)).toEqual({
-      label: shortStamp(SYNCED_AT),
+      label: chipStamp(SYNCED_AT),
       tone: 'neutral'
     })
   })

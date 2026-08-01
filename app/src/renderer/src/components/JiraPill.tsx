@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { RefreshCw, Loader2 } from 'lucide-react'
 import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
 import { jiraPillFace, type JiraPillPhase, type JiraPillTone } from '../lib/jiraPillState'
-import { shortStamp } from '../lib/time'
+import { chipStamp } from '../lib/time'
 import type { JiraRefreshSummary } from '../../../shared/jira'
 
 const TONE: Record<JiraPillTone, string> = {
@@ -124,7 +124,7 @@ export function JiraPill({
               )}
             </div>
             <div className="mt-2 border-t border-hair pt-2 text-xs text-dim">
-              {lastSynced ? `Last refreshed ${shortStamp(lastSynced)}` : 'Never refreshed'}
+              {lastSynced ? `Last refreshed ${chipStamp(lastSynced)}` : 'Never refreshed'}
               {phase.kind === 'result' && <div className="mt-1">{summarize(phase.summary)}</div>}
               {phase.kind === 'error' && (
                 <div role="alert" className="mt-1 text-danger">
