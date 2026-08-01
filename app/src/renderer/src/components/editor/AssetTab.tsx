@@ -3,7 +3,7 @@ import { AssetPane } from './AssetPane'
 import { readAsset } from './assetIo'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
 import { bannerOnOpen, type DraftBanner } from '../../lib/draftState'
-import type { AssetPaneHandle, PaneCommandState } from '../../lib/commands'
+import type { AssetPaneHandle, Command, PaneCommandState } from '../../lib/commands'
 import type { DraftRecord, EditorOpenRequest, TabViewState } from '../../../../shared/editorIpc'
 
 export interface AssetTabProps {
@@ -29,6 +29,9 @@ export interface AssetTabProps {
    *  lib/commands.ts). */
   paneRef?: React.Ref<AssetPaneHandle>
   onCommandState?: (state: PaneCommandState) => void
+  /** Forwarded straight to `AssetPane` untouched — see its doc comment on this same prop. `TabPane`
+   *  in EditorApp.tsx passes this only when this tab is active. */
+  commands?: readonly Command[]
 }
 
 interface Resolved {
@@ -61,7 +64,8 @@ export function AssetTab({
   onViewStateChange,
   initialViewState = null,
   paneRef,
-  onCommandState
+  onCommandState,
+  commands
 }: AssetTabProps): React.JSX.Element {
   const { kind, name, mode } = req
   const [resolved, setResolved] = useState<Resolved | null>(null)
@@ -202,6 +206,7 @@ export function AssetTab({
       initialViewState={initialViewState}
       paneRef={paneRef}
       onCommandState={onCommandState}
+      commands={commands}
     />
   )
 }

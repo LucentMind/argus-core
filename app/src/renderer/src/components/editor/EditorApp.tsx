@@ -15,6 +15,7 @@ import {
   buildCommands,
   commandForEvent,
   type AssetPaneHandle,
+  type Command,
   type PaneCommandState
 } from '../../lib/commands'
 import {
@@ -64,6 +65,10 @@ interface TabPaneProps {
   /** The window's way into this pane's imperative handle. A callback ref, so React calls it with
    *  `null` on unmount — see the comment on `handlePaneRef` below. */
   registerPane: (id: string, h: AssetPaneHandle | null) => void
+  /** The window's registry (spec §6.4), rebuilt whenever the active pane reports. Forwarded to
+   *  `AssetTab` only when `active` — see the comment below on why every OTHER tab gets a stable
+   *  `undefined` instead of this same, constantly-rebuilt array. */
+  commands: readonly Command[]
 }
 
 /**
@@ -109,7 +114,8 @@ const TabPane = memo(function TabPane({
   onViewStateChange,
   onEditCopy,
   onCommandState,
-  registerPane
+  registerPane,
+  commands
 }: TabPaneProps): React.JSX.Element {
   const handleDirtyChange = useCallback(
     (d: boolean) => onDirtyChange(tab.id, d),
@@ -193,6 +199,11 @@ const TabPane = memo(function TabPane({
         onViewStateChange={handleViewStateChange}
         onCommandState={handleCommandState}
         paneRef={handlePaneRef}
+        // Only the active tab gets the real, constantly-rebuilt array — every other tab gets a
+        // stable `undefined` instead of racing to re-render on every keystroke the active pane
+        // makes (spec §6.4; see the OOM class of bug this file's other comments already document
+        // for `onDirtyChange`/`registerPane`).
+        commands={active ? commands : undefined}
       />
     </div>
   )
@@ -577,6 +588,7 @@ export function EditorApp(): React.JSX.Element {
                 onEditCopy={editCopy}
                 onCommandState={onCommandState}
                 registerPane={registerPane}
+                commands={commands}
               />
             )
           })

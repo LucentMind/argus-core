@@ -37,7 +37,7 @@ import {
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { DraftRecord, TabViewState } from '../../../../shared/editorIpc'
-import type { AssetPaneHandle, PaneCommandState } from '../../lib/commands'
+import type { AssetPaneHandle, Command, PaneCommandState } from '../../lib/commands'
 
 export interface AssetPaneProps {
   kind: AuthoringKind
@@ -104,6 +104,16 @@ export interface AssetPaneProps {
    * enable and disable itself according to whichever hidden tab re-rendered last.
    */
   onCommandState?: (state: PaneCommandState) => void
+  /**
+   * The window's command descriptors for THIS pane (spec §6.4). Every toolbar button below reads
+   * its `enabled` and its `run` from here, so a button and its shortcut cannot disagree.
+   *
+   * Optional for the same reason `onSaved` is: this component's own tests mount without a host.
+   * The window always supplies it — see `TabPane` in EditorApp.tsx — and `EditorApp.test.tsx`
+   * pins the wiring end to end. When it is absent the buttons fall back to the local handlers
+   * below, which is a TEST path and not a second source of truth.
+   */
+  commands?: readonly Command[]
 }
 
 /**
@@ -135,7 +145,8 @@ export function AssetPane({
   onViewStateChange,
   initialViewState = null,
   paneRef,
-  onCommandState
+  onCommandState,
+  commands
 }: AssetPaneProps): React.JSX.Element {
   const template = kind === 'skill' ? skillTemplate : referenceTemplate
   const surfaceRef = useRef<SurfaceHandle | null>(null)
@@ -218,13 +229,17 @@ export function AssetPane({
   )
 
   // `onSave` is a plain function declared in the component body, so it is a new identity every
-  // render and cannot be captured in the `commands` memo below with an empty dependency list.
+  // render and cannot be captured in the `surfaceCommands` memo below with an empty dependency
+  // list.
   const onSaveRef = useRef(onSave)
   useEffect(() => {
     onSaveRef.current = onSave
   })
 
-  const commands = useMemo<SurfaceCommands>(
+  // Named `surfaceCommands`, not `commands`: that name is the window's descriptor list prop
+  // (spec §6.4, `cmdFor` below), and this is CodeMirror's own keymap surface — a different
+  // contract (see `SurfaceCommands` in extensions/keymap.ts).
+  const surfaceCommands = useMemo<SurfaceCommands>(
     () => ({
       save: () => void onSaveRef.current(),
       changeFontSize: (delta) =>
@@ -730,8 +745,8 @@ export function AssetPane({
 
   // `onSave` and `assist` are plain function declarations in the component body, so they are new
   // identities every render. The handle reads them through this ref for the same reason
-  // `commands` does (see `onSaveRef` above): a `useImperativeHandle` that depended on them would
-  // hand `EditorApp` a new object on every keystroke, and the ref map would churn.
+  // `surfaceCommands` does (see `onSaveRef` above): a `useImperativeHandle` that depended on them
+  // would hand `EditorApp` a new object on every keystroke, and the ref map would churn.
   const actionsRef = useRef({ onSave, assist, discardDraft })
   useEffect(() => {
     actionsRef.current = { onSave, assist, discardDraft }
@@ -744,9 +759,9 @@ export function AssetPane({
       improve: () => void actionsRef.current.assist('improve'),
       draft: () => void actionsRef.current.assist('draft'),
       discardDraft: () => void actionsRef.current.discardDraft(),
-      cycleViewMode: () => commands.cycleViewMode(),
-      changeFontSize: (delta) => commands.changeFontSize(delta),
-      toggleWrap: () => commands.toggleWrap(),
+      cycleViewMode: () => surfaceCommands.cycleViewMode(),
+      changeFontSize: (delta) => surfaceCommands.changeFontSize(delta),
+      toggleWrap: () => surfaceCommands.toggleWrap(),
       openGotoLine: () => surfaceRef.current?.openGotoLine(),
       focus: () => surfaceRef.current?.focus()
     }),
@@ -754,7 +769,7 @@ export function AssetPane({
     // the ref itself changes (it appends `ref` to the effect's own dependencies internally), which
     // is exactly why `react-hooks/exhaustive-deps` flags an explicit `paneRef` entry here as
     // unnecessary.
-    [commands]
+    [surfaceCommands]
   )
 
   // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on
@@ -804,6 +819,39 @@ export function AssetPane({
     onCommandState?.(commandState)
   }, [active, commandState, onCommandState])
 
+  /**
+   * The descriptor for `id`, or a local fallback. Returns `null` when the window supplied a list
+   * that does not carry this command, so the button is omitted rather than guessed at — an id
+   * missing from the registry means the window does not offer that action here (spec §6.4).
+   */
+  const cmdFor = (
+    id: string,
+    fallback: { enabled: boolean; run: () => void }
+  ): { enabled: boolean; run: () => void } | null => {
+    if (!commands) return fallback
+    const hit = commands.find((c) => c.id === id)
+    return hit ? { enabled: hit.enabled, run: hit.run } : null
+  }
+
+  const saveCmd = cmdFor('save', {
+    enabled: !busy && proposed === null && !readOnly,
+    run: () => void onSave()
+  })
+  // The button's LABEL stays local — it names the *next* mode, which is a rendering concern, not
+  // a command concern. Only `enabled` and `run` come from the descriptor.
+  const viewCmd = cmdFor('cycleViewMode', {
+    enabled: proposed === null,
+    run: () => setViewMode(nextViewMode(prefs.viewMode))
+  })
+  const draftCmd = cmdFor('draft', {
+    enabled: !busy && describe.trim() !== '' && provider?.ok !== false && !readOnly,
+    run: () => void assist('draft')
+  })
+  const improveCmd = cmdFor('improve', {
+    enabled: !busy && doc.trim() !== '' && provider?.ok !== false && !readOnly,
+    run: () => void assist('improve')
+  })
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hair bg-hi px-4 py-2.5">
@@ -811,24 +859,20 @@ export function AssetPane({
           {kind === 'skill' ? 'skills' : 'references'} / {name}
         </span>
         <span className="flex items-center gap-2">
-          <Btn
-            variant="ghost"
-            disabled={proposed !== null}
-            onClick={() => setViewMode(nextViewMode(prefs.viewMode))}
-          >
-            {prefs.viewMode === 'editor'
-              ? 'Split'
-              : prefs.viewMode === 'split'
-                ? 'Preview'
-                : 'Edit'}
-          </Btn>
-          <Btn
-            variant="primary"
-            disabled={busy || proposed !== null || readOnly}
-            onClick={() => void onSave()}
-          >
-            Save
-          </Btn>
+          {viewCmd && (
+            <Btn variant="ghost" disabled={!viewCmd.enabled} onClick={viewCmd.run}>
+              {prefs.viewMode === 'editor'
+                ? 'Split'
+                : prefs.viewMode === 'split'
+                  ? 'Preview'
+                  : 'Edit'}
+            </Btn>
+          )}
+          {saveCmd && (
+            <Btn variant="primary" disabled={!saveCmd.enabled} onClick={saveCmd.run}>
+              Save
+            </Btn>
+          )}
         </span>
       </div>
 
@@ -848,12 +892,8 @@ export function AssetPane({
             onChange={(e) => setDescribe(e.target.value)}
             className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
-          {proposed === null && prefs.viewMode !== 'preview' && (
-            <Btn
-              variant="outline"
-              disabled={busy || !describe.trim() || provider?.ok === false || readOnly}
-              onClick={() => void assist('draft')}
-            >
+          {proposed === null && prefs.viewMode !== 'preview' && draftCmd && (
+            <Btn variant="outline" disabled={!draftCmd.enabled} onClick={draftCmd.run}>
               <Sparkles size={13} aria-hidden="true" />
               Draft
             </Btn>
@@ -1008,7 +1048,7 @@ export function AssetPane({
               issues={issues}
               fontSize={prefs.fontSize}
               wrap={prefs.wrap}
-              commands={commands}
+              commands={surfaceCommands}
               readOnly={readOnly}
               onDocChange={handleDocChange}
               onCursor={handleCursor}
@@ -1030,14 +1070,12 @@ export function AssetPane({
                 {provider.ok ? provider.text : provider.reason}
               </span>
             )}
-            <Btn
-              variant="outline"
-              disabled={busy || !doc.trim() || provider?.ok === false || readOnly}
-              onClick={() => void assist('improve')}
-            >
-              <Sparkles size={13} aria-hidden="true" />
-              Improve
-            </Btn>
+            {improveCmd && (
+              <Btn variant="outline" disabled={!improveCmd.enabled} onClick={improveCmd.run}>
+                <Sparkles size={13} aria-hidden="true" />
+                Improve
+              </Btn>
+            )}
           </span>
         </div>
       </div>

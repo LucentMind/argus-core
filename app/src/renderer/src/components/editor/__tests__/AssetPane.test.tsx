@@ -9,7 +9,7 @@ import type { CursorInfo, SurfaceHandle } from '../surface'
 import type { SurfaceCommands } from '../extensions/keymap'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
 import type { DraftSaved } from '../../../../../shared/editorIpc'
-import type { AssetPaneHandle } from '../../../lib/commands'
+import type { AssetPaneHandle, Command } from '../../../lib/commands'
 
 vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: () => ({ ok: true, text: 'claude · sonnet' })
@@ -952,5 +952,44 @@ describe('AssetPane · command contract', () => {
     fireEvent.change(surface, { target: { value: '' } })
     await waitFor(() => expect(onCommandState.mock.lastCall![0].blocked).toBe(true))
     expect(onCommandState.mock.calls.length).toBeGreaterThan(callsAfterMount)
+  })
+})
+
+describe('AssetPane · toolbar from descriptors', () => {
+  const cmd = (id: string, over: Partial<Command> = {}): Command => ({
+    id,
+    title: id,
+    section: 'File',
+    enabled: true,
+    run: vi.fn(),
+    ...over
+  })
+
+  it('disables Save when the descriptor says so, whatever the pane thinks', async () => {
+    renderPane({ active: true, commands: [cmd('save', { enabled: false })] })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+  })
+
+  it('runs the descriptor, not a local handler', async () => {
+    const save = cmd('save')
+    renderPane({ active: true, commands: [save] })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(save.run).toHaveBeenCalledOnce()
+    expect(window.argus.skills.write).not.toHaveBeenCalled()
+  })
+
+  it('hides Improve when no descriptor for it is supplied', async () => {
+    renderPane({ active: true, commands: [cmd('save')] })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /improve/i })).toBeNull()
+  })
+
+  it('still works standalone, with no descriptors at all', async () => {
+    renderPane({ active: true })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalled())
   })
 })
