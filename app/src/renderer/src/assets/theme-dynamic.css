@@ -348,13 +348,19 @@
   );
 }
 
-/* The header goes translucent so the band reads THROUGH it. This is the only
-   backdrop-filter in the case view: one 44px element, never a scroll container. */
-.dyn-case .dyn-case-header {
+/* The case group's material. Named `-bar`, not `-header`, and scoped to the group rather
+   than to a full-bleed header: the group lives inside TopBar now, which renders on Home and
+   Settings too. `.dyn-case` here comes from the group's own nested scope class, not from a
+   DynamicScope ancestor — TopBar is outside every scope.
+
+   No backdrop-filter any more. Its whole purpose was "the band reads THROUGH the header";
+   the bar is above the canvas now and there is nothing behind it to blur, so the filter
+   would cost a compositor layer for no visible effect. */
+.dyn-case .dyn-case-bar {
   position: relative;
   background: var(--glass-bg);
-  backdrop-filter: blur(18px) saturate(160%);
-  border-bottom-color: var(--glass-border);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-r2);
   box-shadow: inset 0 1px 0 var(--glass-hi);
 }
 
@@ -385,25 +391,23 @@
   border-color: var(--panel-border);
 }
 
-/* the priority accent, reusing the --p1/--p2/--p3 vocabulary of .gc-rail. All
-   three tiers get a rule, matching the dashboard card's .gc-rail: a p3
-   (Low/Lowest) case still shows a rail there (main.css's classic .gc-rail[
-   data-tier='p3'] and .dyn-home's own override both paint one), so the case
-   header would otherwise be the one surface where a low-priority case reads
-   as accent-free. */
-.dyn-case .dyn-case-header::before {
+/* the priority accent, reusing the --p1/--p2/--p3 vocabulary of .gc-rail. All three tiers
+   get a rule, matching the dashboard card's .gc-rail: a p3 (Low/Lowest) case still shows a
+   rail there, so the case group would otherwise be the one surface where a low-priority case
+   reads as accent-free. */
+.dyn-case .dyn-case-bar::before {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
 }
-.dyn-case .dyn-case-header[data-tier='p1']::before {
+.dyn-case .dyn-case-bar[data-tier='p1']::before {
   background: linear-gradient(90deg, var(--p1), transparent 62%);
 }
-.dyn-case .dyn-case-header[data-tier='p2']::before {
+.dyn-case .dyn-case-bar[data-tier='p2']::before {
   background: linear-gradient(90deg, var(--p2), transparent 62%);
 }
-.dyn-case .dyn-case-header[data-tier='p3']::before {
+.dyn-case .dyn-case-bar[data-tier='p3']::before {
   background: linear-gradient(90deg, var(--p3), transparent 62%);
 }
 .dyn .glass-panel[data-tier='p1']::after,

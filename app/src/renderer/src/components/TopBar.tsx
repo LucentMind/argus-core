@@ -8,6 +8,7 @@ import { HeaderChips } from './HeaderChips'
 import { HeaderNotice } from './HeaderNotice'
 import { JiraPill } from './JiraPill'
 import { ModeSwitcher } from './ModeSwitcher'
+import { railTier } from '../lib/priorityRail'
 import { DEFAULT_MODE } from '../../../shared/modes'
 import type { CaseRecord } from '../../../shared/types'
 
@@ -84,7 +85,18 @@ export function TopBar({
               the bar. */}
           <div
             data-testid="case-group"
-            className="argus-nodrag flex h-8 shrink-0 items-center gap-2"
+            data-tier={
+              ui.dynamicTheme
+                ? (railTier(activeCase?.jiraPriority ?? null) ?? undefined)
+                : undefined
+            }
+            className={`argus-nodrag flex h-8 shrink-0 items-center gap-2 ${
+              // TopBar renders outside DynamicScope, so the group carries its own scope.
+              // `.dyn` is a plain class that re-declares the raw token vars and `theme.css`
+              // maps every Tailwind colour through them — so it nests, and this restyles the
+              // group without moving the bar into the scope tree.
+              ui.dynamicTheme ? 'dyn dyn-case dyn-case-bar px-2' : ''
+            }`}
           >
             <CaseAnchor
               slug={activeSlug}

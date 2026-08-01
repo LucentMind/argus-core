@@ -26,6 +26,7 @@ beforeEach(() => {
   if (uiStore.get().theme !== 'dark') uiStore.setTheme('dark')
   if (!uiStore.get().showToolCalls) uiStore.setShowToolCalls(true)
   caseBarStore.reset()
+  uiStore.setDynamicTheme(false)
   window.argus = {
     modes: { available: vi.fn(async () => ['investigation', 'review']) },
     distill: { status: vi.fn(async () => null), onChanged: vi.fn(() => () => {}) },
@@ -395,6 +396,61 @@ describe('TopBar', () => {
       resolveRetry(runningJob)
     })
     expect(screen.queryByText('distilling…')).toBeNull()
+  })
+
+  it('leaves the case group unscoped when the dynamic theme is off', () => {
+    uiStore.setDynamicTheme(false)
+    render(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={{ ...CASE, jiraPriority: 'Highest' } as never}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const group = screen.getByTestId('case-group')
+    expect(group.className).not.toContain('dyn')
+    expect(group.hasAttribute('data-tier')).toBe(false)
+  })
+
+  it('scopes the case group itself, since TopBar renders outside DynamicScope', () => {
+    uiStore.setDynamicTheme(true)
+    render(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={{ ...CASE, jiraPriority: 'Highest' } as never}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    const group = screen.getByTestId('case-group')
+    expect(group.className).toContain('dyn-case-bar')
+    // `dyn` and `dyn-case` carry the token block and the variant rules respectively; without
+    // both, the group resolves the classic tokens and seams against the case body.
+    expect(group.classList.contains('dyn')).toBe(true)
+    expect(group.classList.contains('dyn-case')).toBe(true)
+    expect(group.getAttribute('data-tier')).toBe('p1')
+  })
+
+  it('keeps the priority tint inside the case group, never on the bar', () => {
+    uiStore.setDynamicTheme(true)
+    render(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={{ ...CASE, jiraPriority: 'Highest' } as never}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    // The bar renders on Home and Settings too, where an active case's Jira priority has no
+    // business tinting the app chrome.
+    expect(screen.getByRole('banner').hasAttribute('data-tier')).toBe(false)
   })
 
   it('ignores busy state published for a different case', async () => {
