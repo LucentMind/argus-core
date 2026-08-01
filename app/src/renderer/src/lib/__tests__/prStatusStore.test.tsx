@@ -2,8 +2,24 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, act } from '@testing-library/react'
-import { anyRunning, prStatusStore, usePrStatuses } from '../prStatusStore'
+import {
+  anyRunning,
+  prStatusStore,
+  usePrStatuses,
+  RETURN_REFRESH_DEBOUNCE_MS
+} from '../prStatusStore'
 import type { PrStatus } from '../../../../shared/prStatus'
+
+/**
+ * jsdom's `visibilityState` is a getter with no setter, so the suite redefines it. Note what this
+ * means for the tests below: they drive the events themselves, and therefore prove only that the
+ * hook reacts correctly to them. Whether Electron actually fires `visibilitychange` when a window
+ * is minimised is NOT observable here and needs a live check.
+ */
+function setVisibility(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
 
 const status = (over: Partial<PrStatus> = {}): PrStatus => ({
   owner: 'acme',
@@ -28,6 +44,8 @@ let unsubscribe: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.useFakeTimers()
+  // Redefining `visibilityState` persists across tests, so every test starts from visible.
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
   prStatusStore.hydrate({})
   statusList = vi.fn(async () => ({}))
   statusRefresh = vi.fn(async () => ({ c1: status() }))
@@ -214,6 +232,139 @@ describe('usePrStatuses', () => {
     })
     expect(statusRefresh).toHaveBeenCalledTimes(2)
     expect(screen.getByTestId('rollups')).toHaveTextContent('c1:passing')
+  })
+})
+
+describe('usePrStatuses visibility gating', () => {
+  /** Keep a check pending so the FAST cadence is armed — the strictest setting to suspend. */
+  const pending = [
+    { name: 'build', bucket: 'pending' as const, required: false, url: null, jobId: null }
+  ]
+
+  async function mountRunning(): Promise<ReturnType<typeof render>> {
+    statusRefresh.mockResolvedValue({ c1: status({ rollup: 'running', checks: pending }) })
+    const view = render(<Probe slugs={['c1']} interval={20_000} />)
+    await act(async () => {})
+    expect(statusRefresh).toHaveBeenCalledTimes(1)
+    return view
+  }
+
+  it('stops refreshing entirely while the window is hidden', async () => {
+    await mountRunning()
+
+    await act(async () => {
+      setVisibility('hidden')
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(600_000) // 30 fast intervals
+    })
+
+    expect(statusRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes once on return, after the debounce', async () => {
+    await mountRunning()
+    await act(async () => {
+      setVisibility('hidden')
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(120_000)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      setVisibility('visible')
+    })
+    // Not yet — the refresh is debounced, not immediate.
+    expect(statusRefresh).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(RETURN_REFRESH_DEBOUNCE_MS)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('coalesces the focus + visibilitychange pair a single window restore emits', async () => {
+    await mountRunning()
+    await act(async () => {
+      setVisibility('hidden')
+    })
+
+    // Restoring a minimised window fires BOTH. One user action must cost one fetch.
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      setVisibility('visible')
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(RETURN_REFRESH_DEBOUNCE_MS)
+    })
+
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('resumes the normal cadence after returning', async () => {
+    await mountRunning()
+    await act(async () => {
+      setVisibility('hidden')
+    })
+    await act(async () => {
+      setVisibility('visible')
+      vi.advanceTimersByTime(RETURN_REFRESH_DEBOUNCE_MS)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
+
+    // Still running, so the chain must be re-armed at the FAST interval, not left stopped.
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+    })
+    expect(statusRefresh).toHaveBeenCalledTimes(3)
+  })
+
+  it('refreshes on focus when the window was visible all along (alt-tab back)', async () => {
+    await mountRunning()
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(RETURN_REFRESH_DEBOUNCE_MS)
+    })
+
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps polling a visible window that merely lost focus', async () => {
+    // A dashboard on a second monitor is still being read. Blur must not gate it — this is the
+    // deliberate divergence from t3code, which only ever refreshes ON focus.
+    await mountRunning()
+
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+    })
+
+    expect(statusRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves no listener behind after unmounting while hidden', async () => {
+    const view = await mountRunning()
+    await act(async () => {
+      setVisibility('hidden')
+    })
+    view.unmount()
+    const before = statusRefresh.mock.calls.length
+
+    // A torn-down mount must not wake up: the resume path is exactly where a leaked listener
+    // would show itself, since the poll timer alone is already cleared by suspension.
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      setVisibility('visible')
+      vi.advanceTimersByTime(RETURN_REFRESH_DEBOUNCE_MS * 5)
+    })
+
+    expect(statusRefresh).toHaveBeenCalledTimes(before)
   })
 })
 

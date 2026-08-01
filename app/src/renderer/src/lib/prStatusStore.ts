@@ -120,6 +120,15 @@ export function anyRunning(statuses: (PrStatus | null)[]): boolean {
 export const IDLE_POLL_MULTIPLIER = 3
 
 /**
+ * How long to wait after the window comes back before refreshing.
+ *
+ * Sized to coalesce events, not to rate-limit the user: restoring a minimised window fires
+ * `focus` AND `visibilitychange`, and one user action must cost one fetch. Shorter risks two
+ * fetches for one restore; longer is perceptible as staleness on return.
+ */
+export const RETURN_REFRESH_DEBOUNCE_MS = 1000
+
+/**
  * Subscribe to these cases' statuses, seeding from cache and refreshing on mount, then polling —
  * quickly while some check is non-terminal, slowly once they have all settled.
  *
@@ -127,6 +136,18 @@ export const IDLE_POLL_MULTIPLIER = 3
  * condition, so the cadence always reflects the state that was actually observed. It is torn
  * down on slug-list change and on unmount, so a case switch cannot leave a timer refreshing a
  * case nobody is looking at — that teardown, not a stop condition, is what bounds the poll.
+ *
+ * The chain is additionally gated on whether anyone can SEE the window. Hidden suspends it
+ * outright; coming back refreshes once and resumes. Losing focus while still visible does
+ * nothing — a dashboard open on a second monitor is being read, and gating it on focus would
+ * freeze exactly the surface whose whole job is to stay current.
+ *
+ * Suspending is a full stop rather than a slowdown on purpose: Chromium already throttles timers
+ * in a hidden page to roughly 1/min (Electron's `backgroundThrottling` defaults to true and is
+ * not overridden), so a second, weaker slowdown layered on top would be one more state to reason
+ * about for no gain. The win here is less the saved ticks than the refresh on return: without it
+ * a restored dashboard shows data up to `intervalMs * IDLE_POLL_MULTIPLIER` old and has no way to
+ * hurry the next one.
  */
 export function usePrStatuses(slugs: string[], intervalMs: number): Record<string, PrStatus> {
   const all = useSyncExternalStore(
@@ -144,7 +165,19 @@ export function usePrStatuses(slugs: string[], intervalMs: number): Record<strin
     if (list.length === 0) return
 
     let cancelled = false
+    // Distinct from `cancelled`, which means torn down. This mount is still live and WILL resume,
+    // so the two cannot share a flag: `cancelled` is checked to abandon work, `suspended` to
+    // withhold the next arming.
+    let suspended = document.visibilityState === 'hidden'
     let timer: ReturnType<typeof setTimeout> | null = null
+    let debounce: ReturnType<typeof setTimeout> | null = null
+
+    const clearPoll = (): void => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
 
     const tick = async (): Promise<void> => {
       let failed = false
@@ -157,7 +190,9 @@ export function usePrStatuses(slugs: string[], intervalMs: number): Record<strin
         // same defect as stopping at all-terminal, just with a rarer trigger.
         failed = true
       }
-      if (cancelled) return
+      // A tick already in flight when the window hid is allowed to settle — its result is still
+      // worth adopting — but must not re-arm, or suspension would last exactly one interval.
+      if (cancelled || suspended) return
       const running = !failed && anyRunning(list.map((s) => prStatusStore.get(s)))
       timer = setTimeout(
         () => void tick(),
@@ -166,8 +201,43 @@ export function usePrStatuses(slugs: string[], intervalMs: number): Record<strin
     }
 
     void prStatusStore.load(list).then(() => {
-      if (!cancelled) void tick()
+      if (!cancelled && !suspended) void tick()
     })
+
+    const suspend = (): void => {
+      suspended = true
+      clearPoll()
+      if (debounce) {
+        clearTimeout(debounce)
+        debounce = null
+      }
+    }
+
+    /** Idempotent by construction: re-entry restarts the debounce rather than stacking fetches. */
+    const resume = (): void => {
+      if (cancelled) return
+      suspended = false
+      if (debounce) clearTimeout(debounce)
+      debounce = setTimeout(() => {
+        debounce = null
+        if (cancelled || suspended) return
+        // Supersede any tick still armed from before the window went away, so returning cannot
+        // leave two chains running.
+        clearPoll()
+        void tick()
+      }, RETURN_REFRESH_DEBOUNCE_MS)
+    }
+
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'hidden') suspend()
+      else resume()
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    // `focus` does not bubble, so this fires for the window itself and not for focusing an input.
+    // It covers the transition `visibilitychange` misses: alt-tabbing back to a window that was
+    // never hidden, only unfocused.
+    window.addEventListener('focus', resume)
 
     const off = window.argus.pr.onStatusChanged((changed) => {
       if (!cancelled && changed.some((s) => list.includes(s))) void prStatusStore.load(list)
@@ -175,7 +245,10 @@ export function usePrStatuses(slugs: string[], intervalMs: number): Record<strin
 
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      clearPoll()
+      if (debounce) clearTimeout(debounce)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', resume)
       off()
     }
   }, [key, intervalMs])
