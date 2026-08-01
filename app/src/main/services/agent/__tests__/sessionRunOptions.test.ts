@@ -51,6 +51,23 @@ describe('session run options', () => {
     db.prepare(`UPDATE sessions SET run_options = ? WHERE id = ?`).run('not json', sessionId)
     expect(sessionRunOptions(db, sessionId)).toEqual([])
   })
+
+  it('returns false for a session id that does not exist', () => {
+    expect(setSessionRunOptions(db, 999999, [{ id: 'effort', value: 'xhigh' }])).toBe(false)
+  })
+
+  it('reports no change when the same selections are supplied in a different order', () => {
+    setSessionRunOptions(db, sessionId, [
+      { id: 'effort', value: 'max' },
+      { id: 'thinking', value: true }
+    ])
+    expect(
+      setSessionRunOptions(db, sessionId, [
+        { id: 'thinking', value: true },
+        { id: 'effort', value: 'max' }
+      ])
+    ).toBe(false)
+  })
 })
 
 describe('session permission mode', () => {
@@ -66,5 +83,9 @@ describe('session permission mode', () => {
   it('rejects a value that is not a real permission mode', () => {
     db.prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run('bogus', sessionId)
     expect(sessionPermissionMode(db, sessionId)).toBeNull()
+  })
+
+  it('returns false for a session id that does not exist', () => {
+    expect(setSessionPermissionMode(db, 999999, 'acceptEdits')).toBe(false)
   })
 })
