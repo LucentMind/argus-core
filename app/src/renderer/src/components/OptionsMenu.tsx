@@ -57,12 +57,6 @@ export function OptionSection({
   )
 }
 
-// Re-exported for Task 13's collapsed menu, which needs the same label derivation as this
-// file's chips. Fast refresh only reloads this file's components on edit; harmless for a
-// pure re-export of a shared/ helper.
-// eslint-disable-next-line react-refresh/only-export-components
-export { selectionLabel }
-
 /** One chip per descriptor, reusing `OptionChip`'s overlay and positioning verbatim so the
  *  two popups (this wide row, and Task 13's narrow collapsed menu) cannot drift apart. */
 export function DescriptorChip({
@@ -85,15 +79,30 @@ export function DescriptorChip({
   currentOverride?: string | boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const text = label ?? selectionLabel(descriptor, selections)
+  // A boolean chip showing only its value renders as a bare "On"/"Off", and Fast Mode and
+  // Thinking sit next to each other — two identical chips, tellable apart only by hovering
+  // for the tooltip. So booleans show WHICH toggle they are and put the state in a dot,
+  // exactly the idiom the Tool results button beside them already uses. Select chips keep
+  // value-only: their vocabularies (High/Extra High/Max/Ultracode… and 200k/1M) are unique
+  // and self-describing, and the row has no width to spare — see COLLAPSE_AT_PX.
+  const isBoolean = descriptor.type === 'boolean'
+  const on = selectionValue(descriptor, selections) === true
   return (
     <div className="relative">
       <button
         type="button"
         title={descriptor.label}
+        // The visible text is the toggle's NAME for a boolean, so its state has to reach the
+        // accessibility tree some other way than the label.
+        {...(isBoolean ? { 'aria-label': `${descriptor.label}: ${text}` } : {})}
         className="flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
         onClick={() => setOpen(!open)}
       >
-        <span>{label ?? selectionLabel(descriptor, selections)}</span>
+        <span>{isBoolean ? descriptor.label : text}</span>
+        {isBoolean && (
+          <span className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-review' : 'bg-faint'}`} />
+        )}
         <ChevronDown size={10} strokeWidth={1.5} />
       </button>
       {open && (

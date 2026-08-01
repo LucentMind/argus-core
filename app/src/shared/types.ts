@@ -126,7 +126,10 @@ export interface SessionSummary {
   /** The mode axis this session is pinned to (e.g. `'investigation'`, `'review'`) —
    *  stamped at creation (sessions.mode), same pattern as driverKind/instanceId/model. */
   mode: ModeId
-  /** Per-session option selections (see shared/runOptions.ts). Empty means all defaults. */
+  /** Per-session option selections (see shared/runOptions.ts). Empty means all defaults.
+   *  Always sorted by `id` — `sessions.run_options` is normalised that way on write
+   *  (sessionStore.ts's `normalizeRunOptions`) so two selections differing only in array
+   *  order compare equal. Do NOT read insertion order out of this; look ids up by name. */
   runOptions: RunOptionSelection[]
   /** Per-session permission mode. Null means "use the settings default". */
   permissionMode: PermissionMode | null

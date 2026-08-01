@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { fetchCatalog, catalogFor, clearCatalogCache } from '../catalog'
+import { descriptorsFor } from '../../../../../../shared/runOptions'
 import type { CreateQueryFn } from '../index'
 import fixture from '../__fixtures__/models-2-1-220.json'
 
@@ -209,5 +210,21 @@ describe('catalogFor', () => {
 
   it('returns null for a model the catalog does not know', async () => {
     expect(await catalogFor(fakeQuery(fixture), undefined, 'gpt-5.4')).toBeNull()
+  })
+
+  // C1: sessions are pinned by STATIC wire slug (defaultModelRef seeds from CLAUDE_MODELS),
+  // and not one `value` in a real catalog is a claude-* string. This is the same resolution
+  // the Composer performs, through the same shared matcher (shared/modelIdentity.ts) — if
+  // these two ever diverge again, the composer offers options the wire silently drops.
+  it('resolves the static wire slug a session is actually pinned to', async () => {
+    const fable = await catalogFor(fakeQuery(fixture), undefined, 'claude-fable-5')
+    expect(fable?.value).toBe('fable')
+    expect(descriptorsFor(fable!).map((d) => d.id)).toEqual(['effort', 'contextWindow', 'thinking'])
+  })
+
+  it('resolves a session pinned at the 1M suffix to its base row', async () => {
+    expect((await catalogFor(fakeQuery(fixture), undefined, 'claude-fable-5[1m]'))?.value).toBe(
+      'fable'
+    )
   })
 })

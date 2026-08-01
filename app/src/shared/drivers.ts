@@ -7,6 +7,7 @@ import {
   type ProviderInstance
 } from './settings'
 import type { ModelOptionInfo } from './runOptions'
+import { findModelEntry, modelMatches, type ModelIdentity } from './modelIdentity'
 
 export interface FieldAnnotation {
   control: 'text' | 'password' | 'textarea' | 'select' | 'switch' | 'number'
@@ -26,6 +27,28 @@ export interface CatalogModel {
   slug: string
   name: string
   isCustom?: boolean
+  /** Wire slug this row's `slug` resolves to, when the row came from a runtime catalog whose
+   *  key is a CLI alias (`opus[1m]` → `claude-opus-5[1m]`). Carried so a session pinned to a
+   *  STATIC slug still resolves to its alias row — see `shared/modelIdentity.ts`. Absent on
+   *  static and custom rows, whose `slug` already is the wire slug. */
+  resolvedModel?: string
+}
+
+/** A picker row as `shared/modelIdentity.ts` sees it. */
+function rowIdentity(m: CatalogModel): ModelIdentity {
+  return m.resolvedModel === undefined
+    ? { value: m.slug }
+    : { value: m.slug, resolvedModel: m.resolvedModel }
+}
+
+/** The picker row a pinned model names, via the SHARED resolver the Claude driver's
+ *  `catalogFor` also uses — so the composer's chip and the wire can never name different
+ *  models. Null when no row matches (e.g. a model the CLI has since dropped). */
+export function findModelRow<T extends CatalogModel>(
+  rows: readonly T[],
+  model: string | null | undefined
+): T | null {
+  return findModelEntry(rows, model, rowIdentity)
 }
 
 /**
@@ -385,6 +408,11 @@ export interface AggregatedModel extends CatalogModel {
  * suppress every other instance's rows. An instance present in the map with an empty row
  * list is treated as "no override" (falls through to its normal rows) so callers can pass a
  * catalog that hasn't loaded yet without special-casing it.
+ *
+ * A substituted instance still gets that instance's OWN model preferences applied — see
+ * {@link applyModelPreferences}. Bypassing them (as this used to) meant a model the user
+ * hid in Settings reappeared, a custom model they added became unselectable, and their
+ * favourites/ordering silently stopped applying the moment a catalog loaded.
  */
 export function allVisibleModels(
   s: AppSettings,
@@ -392,7 +420,10 @@ export function allVisibleModels(
 ): AggregatedModel[] {
   return enabledInstances(s).flatMap(({ id, instance, driver }) => {
     const override = rowOverrides?.[id]
-    const rows = override && override.length > 0 ? override : orderedVisibleModels(s, id)
+    const rows =
+      override && override.length > 0
+        ? applyModelPreferences(s, id, [...override, ...customModelRows(s, id, override)])
+        : orderedVisibleModels(s, id)
     return rows.map((m) => ({
       ...m,
       instanceId: id,
@@ -468,41 +499,59 @@ const EMPTY_PREFS: ModelPreferences = {
   modelOrder: []
 }
 
+/**
+ * One instance's hand-added custom models, as rows — deduped against `existing` through the
+ * shared resolver (so a custom `claude-opus-5` is not offered twice next to the runtime
+ * catalog's `opus[1m]` row, which is the same model) and against each other.
+ */
+function customModelRows(
+  s: AppSettings,
+  instanceId: string,
+  existing: readonly CatalogModel[]
+): CatalogModel[] {
+  const inst = s.agent.providerInstances[instanceId]
+  if (!inst || !inst.enabled) return []
+  const cfg = driverConfig<Record<string, unknown>>(inst.driver, inst.config)
+  const rawCustom = Array.isArray(cfg.customModels) ? cfg.customModels : []
+  const seen = new Set<string>()
+  const customs: CatalogModel[] = []
+  for (const slug of rawCustom) {
+    if (typeof slug !== 'string' || seen.has(slug)) continue
+    if (existing.some((m) => modelMatches(rowIdentity(m), slug))) continue
+    seen.add(slug)
+    customs.push({ slug, name: slug, isCustom: true })
+  }
+  return customs
+}
+
 /** The driver's static catalog plus that instance's hand-added custom models (deduped, flagged). */
 export function instanceModels(s: AppSettings, instanceId?: string): CatalogModel[] {
   const id = instanceId ?? defaultInstanceId(s)
   const inst = s.agent.providerInstances[id]
   if (!inst || !inst.enabled) return [] // same gate as activeInstanceConfig
-  const driver = getDriver(inst.driver)
-  const catalog = driver?.models ?? []
-  const cfg = driverConfig<Record<string, unknown>>(inst.driver, inst.config)
-  const rawCustom = Array.isArray(cfg.customModels) ? cfg.customModels : []
-  const catalogSlugs = new Set(catalog.map((m) => m.slug))
-  const seen = new Set<string>()
-  const customs: CatalogModel[] = []
-  for (const slug of rawCustom) {
-    if (typeof slug !== 'string' || catalogSlugs.has(slug) || seen.has(slug)) continue
-    seen.add(slug)
-    customs.push({ slug, name: slug, isCustom: true })
-  }
-  return [...catalog, ...customs]
+  const catalog = getDriver(inst.driver)?.models ?? []
+  return [...catalog, ...customModelRows(s, id, catalog)]
 }
 
 /**
  * The model rows to offer for a Claude instance.
  *
- * Converts one instance's reported runtime catalog into model rows. The decision of
- * whether and when this catalog substitutes rows is made in {@link allVisibleModels}
- * via its per-instance `rowOverrides` parameter, not here. Substitution is per-instance
- * by design: with multiple providers enabled at once, the model picker is how the user
- * switches between them, so one instance's catalog must never suppress other providers.
+ * Purely a CONVERSION of one instance's reported runtime catalog into picker rows — it
+ * merges nothing (the old `staticModels` parameter was dead: the only production call site
+ * passed `[]`). Whether and when these rows substitute is decided in {@link allVisibleModels}
+ * via its per-instance `rowOverrides` parameter. Substitution is per-instance by design:
+ * with multiple providers enabled at once, the model picker is how the user switches between
+ * them, so one instance's catalog must never suppress other providers.
+ *
+ * `resolvedModel` is carried through deliberately — without it a session pinned to a static
+ * wire slug matches no alias-keyed row at all (see `shared/modelIdentity.ts`).
  */
-export function mergeCatalogModels(
-  staticModels: readonly CatalogModel[],
-  catalog: readonly ModelOptionInfo[]
-): CatalogModel[] {
-  if (catalog.length === 0) return [...staticModels]
-  return catalog.map((m) => ({ slug: m.value, name: m.displayName }))
+export function catalogModelRows(catalog: readonly ModelOptionInfo[]): CatalogModel[] {
+  return catalog.map((m) => ({
+    slug: m.value,
+    name: m.displayName,
+    ...(m.resolvedModel === undefined ? {} : { resolvedModel: m.resolvedModel })
+  }))
 }
 
 /**
@@ -526,12 +575,59 @@ function sortModels(models: readonly CatalogModel[], prefs: ModelPreferences): C
   })
 }
 
+/**
+ * Rewrite one instance's stored preferences so their slugs name ROWS of `rows`.
+ *
+ * A preference is stored as whatever slug the picker offered when the user set it — in
+ * practice a static wire slug like `claude-opus-5`. Substituted runtime rows are keyed by CLI
+ * alias (`opus[1m]`), so string equality against them matches nothing, which is how hiding a
+ * model in Settings stopped taking effect the moment a catalog loaded. Mapping goes through
+ * the same shared resolver as everything else.
+ *
+ * A preference that maps to NO row is simply dropped from the rewritten list — it is not a
+ * reason to drop or reorder anything. `modelOrder` keeps the user's ordering; where one
+ * preference maps to several rows they all take that rank position, in row order.
+ */
+function translatePreferences(
+  rows: readonly CatalogModel[],
+  prefs: ModelPreferences
+): ModelPreferences {
+  const mapped = (slugs: readonly string[]): string[] => {
+    const out: string[] = []
+    for (const pref of slugs) {
+      for (const r of rows) {
+        if (modelMatches(rowIdentity(r), pref) && !out.includes(r.slug)) out.push(r.slug)
+      }
+    }
+    return out
+  }
+  return {
+    ...prefs,
+    hiddenModels: mapped(prefs.hiddenModels),
+    favoriteModels: mapped(prefs.favoriteModels),
+    modelOrder: mapped(prefs.modelOrder)
+  }
+}
+
+/** `orderedVisibleModels`' hide-then-sort step, applied to rows supplied by the caller —
+ *  used by {@link allVisibleModels}' substitution path so a loaded catalog does not discard
+ *  the instance's Settings preferences. */
+function applyModelPreferences(
+  s: AppSettings,
+  instanceId: string,
+  rows: readonly CatalogModel[]
+): CatalogModel[] {
+  const prefs = translatePreferences(rows, s.agent.modelPreferences[instanceId] ?? EMPTY_PREFS)
+  return sortModels(
+    rows.filter((m) => !prefs.hiddenModels.includes(m.slug)),
+    prefs
+  )
+}
+
 /** Ordered models with hidden ones filtered out — what session/Composer pickers should offer. */
 export function orderedVisibleModels(s: AppSettings, instanceId?: string): CatalogModel[] {
   const id = instanceId ?? defaultInstanceId(s)
-  const prefs = s.agent.modelPreferences[id] ?? EMPTY_PREFS
-  const visible = instanceModels(s, id).filter((m) => !prefs.hiddenModels.includes(m.slug))
-  return sortModels(visible, prefs)
+  return applyModelPreferences(s, id, instanceModels(s, id))
 }
 
 /** Same ordering, but hidden models stay in the list (struck-through) — for the settings list view. */

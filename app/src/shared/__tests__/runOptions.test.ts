@@ -120,6 +120,18 @@ describe('selectionValue', () => {
     // a string stored against a boolean descriptor is garbage, not truthy
     expect(selectionValue(fast, [{ id: 'fastMode', value: 'yes' }])).toBe(false)
   })
+
+  // Inverted control: alwaysThinkingEnabled is ON when absent, so an unset Thinking toggle
+  // that read `false` was reporting the opposite of what the wire does.
+  it('treats a defaultOn boolean as ON until it is explicitly stored false', () => {
+    const thinking = descriptorsFor(FABLE).find((d) => d.id === 'thinking')!
+    expect(selectionValue(thinking, null)).toBe(true)
+    expect(selectionValue(thinking, [])).toBe(true)
+    expect(selectionValue(thinking, [{ id: 'thinking', value: false }])).toBe(false)
+    expect(selectionValue(thinking, [{ id: 'thinking', value: true }])).toBe(true)
+    // garbage falls back to the descriptor's default, not to false
+    expect(selectionValue(thinking, [{ id: 'thinking', value: 'no' }])).toBe(true)
+  })
 })
 
 describe('pruneSelections', () => {
@@ -141,6 +153,16 @@ describe('pruneSelections', () => {
     const ds = descriptorsFor(FABLE)
     expect(pruneSelections(ds, [{ id: 'effort', value: 'high' }])).toEqual([])
   })
+
+  // Same "store only what differs from the default" rule, applied to the inverted toggle:
+  // for Thinking it is `false` that is worth persisting and `true` that is the no-op.
+  it('persists the off half of a defaultOn boolean and drops the on half', () => {
+    const ds = descriptorsFor(FABLE)
+    expect(pruneSelections(ds, [{ id: 'thinking', value: false }])).toEqual([
+      { id: 'thinking', value: false }
+    ])
+    expect(pruneSelections(ds, [{ id: 'thinking', value: true }])).toEqual([])
+  })
 })
 
 describe('selectionLabel', () => {
@@ -156,6 +178,12 @@ describe('selectionLabel', () => {
     )!
     expect(selectionLabel(fast, [{ id: 'fastMode', value: true }])).toBe('On')
     expect(selectionLabel(fast, null)).toBe('Off')
+  })
+
+  it('labels an unset defaultOn boolean "On", not "Off"', () => {
+    const thinking = descriptorsFor(FABLE).find((d) => d.id === 'thinking')!
+    expect(selectionLabel(thinking, null)).toBe('On')
+    expect(selectionLabel(thinking, [{ id: 'thinking', value: false }])).toBe('Off')
   })
 })
 
@@ -234,14 +262,25 @@ describe('claudeSettingsFor', () => {
     })
   })
 
-  it('carries fastMode and thinking', () => {
+  it('carries fastMode', () => {
     const ds = descriptorsFor({ ...FABLE, supportsFastMode: true })
-    expect(
-      claudeSettingsFor(ds, [
-        { id: 'fastMode', value: true },
-        { id: 'thinking', value: true }
-      ])
-    ).toEqual({ fastMode: true, alwaysThinkingEnabled: true })
+    expect(claudeSettingsFor(ds, [{ id: 'fastMode', value: true }])).toEqual({ fastMode: true })
+  })
+
+  // Per the SDK, absent and `true` both mean thinking is ON — only `false` says anything. So
+  // the ONLY value worth sending is `false`, and the old `alwaysThinkingEnabled: true` write
+  // made both chip positions no-ops on the wire.
+  it('sends alwaysThinkingEnabled only to turn thinking OFF', () => {
+    const ds = descriptorsFor(FABLE)
+    expect(claudeSettingsFor(ds, [{ id: 'thinking', value: false }])).toEqual({
+      alwaysThinkingEnabled: false
+    })
+  })
+
+  it('sends nothing for thinking when it is on, whether stored or merely unset', () => {
+    const ds = descriptorsFor(FABLE)
+    expect(claudeSettingsFor(ds, null)).toEqual({})
+    expect(claudeSettingsFor(ds, [{ id: 'thinking', value: true }])).toEqual({})
   })
 })
 

@@ -7,11 +7,14 @@ import type { Attachment } from '../lib/composerAttachments'
 import {
   allVisibleModels,
   capabilitiesFor,
+  catalogModelRows,
   defaultInstanceId,
   defaultModelRef,
-  mergeCatalogModels,
+  findModelRow,
+  instanceModels,
   type AggregatedModel
 } from '../../../shared/drivers'
+import { findModelEntry } from '../../../shared/modelIdentity'
 import {
   PERMISSION_MODE_LABELS,
   MODE_BY_LABEL,
@@ -104,16 +107,27 @@ function Divider(): React.JSX.Element {
 }
 
 /**
- * Collapse threshold in CSS px, sized for the widest realistic chip row (Model +
- * Reasoning + Context + Fast Mode + Access + Tool results). A model with fewer
- * descriptors therefore collapses slightly earlier than strictly necessary, which is
- * harmless.
+ * Collapse threshold in CSS px.
+ *
+ * The widest row a model can produce is Model + FOUR descriptor chips (Reasoning, Context
+ * Window, Fast Mode, Thinking — the previous docstring enumerated only three and omitted
+ * Thinking) + Access + Tool results + Send, with a divider and a `gap-2` between each. At
+ * `text-xs` those add up to roughly:
+ *
+ *   Model ~130 · Reasoning ~90 · Context ~56 · Fast Mode ~100 · Thinking ~95 ·
+ *   Access ~125-155 · Tool results ~114 · Send 32 · dividers+gaps ~62   =>  ~800-830px
+ *
+ * The threshold is deliberately set BELOW that worst case rather than at it. Collapsing a
+ * row that would still have fit costs the user every chip at once, on panes that are common;
+ * the 700-830 band instead just runs tight, and only for a model that reports all four
+ * descriptors while the Access chip carries its longest label. 560 was well under even the
+ * typical row and is what let five chips crowd together unlabelled.
  *
  * Deliberately a fixed threshold rather than an overflow measurement
  * (`scrollWidth > clientWidth`): collapsing changes the width, which can un-trigger
  * the condition and oscillate.
  */
-const COLLAPSE_AT_PX = 560
+const COLLAPSE_AT_PX = 700
 
 /** Shown on the Reasoning section when the word appears in the body rather than the leading
  *  marker we wrote — stripping it there would mangle the user's own message, so the section
@@ -200,7 +214,7 @@ export function Composer({
   // Claude ↔ Codex ↔ Copilot ↔ Cursor switching from the composer chip.
   const catalogInstanceId = session?.instanceId ?? null
   const catalog = useModelCatalog(catalogInstanceId)
-  const catalogRows = mergeCatalogModels([], catalog)
+  const catalogRows = catalogModelRows(catalog)
   const rowOverrides =
     catalogInstanceId && catalogRows.length > 0 ? { [catalogInstanceId]: catalogRows } : undefined
   // Every enabled provider's models in one list. Provider names are appended only when more
@@ -217,23 +231,46 @@ export function Composer({
   // What this chat is pinned to. A session created before multi-provider has a null model,
   // so fall back to the settings default (which still honours a hand-set config.model) —
   // the chip is never blank, and it shows what a send would actually use.
+  //
+  // `findModelRow` is the SHARED resolver (shared/modelIdentity.ts) the Claude driver's
+  // `catalogFor` also uses. Plain `slug === session.model` used to be the comparison here,
+  // and it never matched once a runtime catalog loaded: catalog rows are keyed by CLI alias
+  // (`fable`), sessions are pinned by wire slug (`claude-fable-5`). Every chat therefore fell
+  // through to `models[0]` and its chip read "Default (recommended)".
   const fallback = settingsPayload ? defaultModelRef(settingsPayload.settings) : undefined
+  const ownInstance = models.filter((m) => m.instanceId === session?.instanceId)
+  const pinnedRow =
+    findModelRow(ownInstance, session?.model) ?? findModelRow(models, session?.model)
   const current =
-    models.find((m) => m.instanceId === session?.instanceId && m.slug === session?.model) ??
-    models.find((m) => m.slug === session?.model) ??
-    models.find((m) => m.instanceId === fallback?.instanceId && m.slug === fallback?.slug) ??
-    models[0]
-  const model = current ? modelOptionLabel(current, showProvider) : modelOptions[0]
+    pinnedRow ??
+    // Only when the session names no model of its own — a session pinned to something we
+    // cannot resolve must NOT silently display the settings default (see `unresolvedLabel`).
+    (session?.model
+      ? null
+      : (findModelRow(
+          models.filter((m) => m.instanceId === fallback?.instanceId),
+          fallback?.slug
+        ) ?? models[0]))
+  // A session pinned to a model the loaded catalog no longer offers (say `claude-opus-4-8`
+  // after the CLI dropped it) resolves to no row at all. Name it anyway — the static
+  // catalog's display name when we still know it, else the raw slug — rather than showing
+  // some other model's name as if it were this chat's. Gated on `settingsPayload`, because
+  // before it arrives there are no rows to fail against yet: that is "still loading", not
+  // "unresolvable", and the static placeholder below is the better thing to show.
+  const unresolvedLabel =
+    !current && session?.model && settingsPayload
+      ? (instanceModels(settingsPayload.settings, session.instanceId ?? undefined).find(
+          (m) => m.slug === session.model
+        )?.name ?? session.model)
+      : null
+  const model = current
+    ? modelOptionLabel(current, showProvider)
+    : (unresolvedLabel ?? modelOptions[0])
 
-  // Run-option descriptors come from what the CLI reports about the PINNED model, not the
-  // static AggregatedModel row — `current.slug` looks the catalog row up directly, falling
-  // back to a `[1m]`-stripped match so a session pinned at the 1M suffix still finds its
-  // base row's capabilities.
-  const info = current
-    ? (catalog.find((m) => m.value === current.slug) ??
-      catalog.find((m) => m.resolvedModel?.replace(/\[1m\]$/, '') === current.slug) ??
-      null)
-    : null
+  // Run-option descriptors come from what the CLI reports about the model THIS SESSION IS
+  // PINNED TO — the same string `catalogFor` resolves in the main process, through the same
+  // shared matcher. Anything else and the composer offers options the wire then drops.
+  const info = findModelEntry(catalog, session?.model ?? current?.slug, (m) => m)
   const descriptors: RunOptionDescriptor[] = info ? descriptorsFor(info) : []
   const selections = session?.runOptions ?? []
 

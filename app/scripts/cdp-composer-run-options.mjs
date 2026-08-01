@@ -3,7 +3,7 @@
  * CDP acceptance for Task 15 — the composer's responsive run-option row (spec's
  * composer-run-options feature). The claim under test is a *layout* claim: at a wide chat
  * pane the Reasoning/Context Window/Access/Tool results controls render as individual chips,
- * and once the row's own measured width drops below `COLLAPSE_AT_PX` (560px, see
+ * and once the row's own measured width drops below `COLLAPSE_AT_PX` (700px, see
  * `Composer.tsx`) they collapse into a single "More options" menu — driven by a live
  * `ResizeObserver` on the row (`useDensity` in Composer.tsx).
  *
@@ -53,6 +53,19 @@ import {
 
 const PORT = process.env.CDP_PORT || '9231'
 const CASE_TITLE = 'Composer run options fixture'
+
+/** What `composer-run-options-fixture.mjs` pins the seeded session to (a WIRE slug). */
+const PINNED_MODEL = 'claude-sonnet-5'
+/**
+ * Display names that legitimately mean `claude-sonnet-5`, depending on where the catalog came
+ * from: the live CLI reports it as the alias row `sonnet` / "Sonnet"; the offline
+ * STATIC_FALLBACK (catalog.ts) reports it as `claude-sonnet-5` / "Claude Sonnet 5". Anything
+ * else — most importantly "Default (recommended)", the first row of a real catalog — means
+ * the composer resolved the pinned model to the WRONG row. That is exactly what happened
+ * before: this gate passed while the chip named a model the session was not pinned to, and
+ * every run option was being dropped on the wire, because it never looked at the chip.
+ */
+const MODEL_CHIP_OK = ['Sonnet', 'Claude Sonnet 5']
 
 const conn = await connect(mainWindow(await list(PORT)))
 
@@ -154,12 +167,42 @@ const reasoningLabel = () =>
     return btn ? btn.textContent.trim() : null
   })()`)
 
+/** The Model chip's own displayed text. Survives both densities — the Model chip is one of
+ *  the two controls the collapse never folds away. */
+const modelLabel = () =>
+  conn.evalJs(`(() => {
+    const btn = document.querySelector('button[title="Model"]')
+    return btn ? btn.textContent.trim() : null
+  })()`)
+
 // ── boot: wide viewport, fresh load, confirm this is the right app ────────────────────────
 
 await setViewport(1600, 900)
 await reload()
 await identityGate()
 await openCase()
+
+// ── 0. the model chip names the model the session is actually pinned to ───────────────────
+//
+// This gate used to have nothing to say about the model chip, which is how a Critical defect
+// reached final review with fourteen green task reviews behind it: the runtime catalog keys
+// rows by CLI alias (`sonnet`), the session is pinned by wire slug (`claude-sonnet-5`), the
+// composer compared the two directly, never matched, and fell through to `models[0]` — so
+// EVERY chat displayed "Default (recommended)" while the main process independently resolved
+// a different row (or none) and silently dropped every run option off the wire.
+//
+// Note that check 1 below now depends on this too: the Reasoning/Context chips are built from
+// the descriptors of the model the session is pinned to, so their mere presence only means
+// something once the chip is proven to name the right model.
+
+{
+  const label = await modelLabel()
+  check(
+    `0. the model chip names the pinned model (${PINNED_MODEL}), not catalog row 0`,
+    MODEL_CHIP_OK.includes(label),
+    { label, accepted: MODEL_CHIP_OK, pinned: PINNED_MODEL }
+  )
+}
 
 // ── 1. wide composer: density=wide, Reasoning + Context Window chips both present ─────────
 
@@ -172,11 +215,11 @@ await openCase()
   )
 }
 
-// ── 2. narrow the chat pane (<560px row) and confirm the flip ─────────────────────────────
+// ── 2. narrow the chat pane (<700px row) and confirm the flip ─────────────────────────────
 //
 // The row's own width, not the window's, is what the component measures (`useDensity`
-// observes `rowRef`, COLLAPSE_AT_PX = 560). Rather than compute the exact aside/findings-pane
-// arithmetic that would put the row at exactly 560px, this drives the viewport down to a width
+// observes `rowRef`, COLLAPSE_AT_PX = 700). Rather than compute the exact aside/findings-pane
+// arithmetic that would put the row at exactly 700px, this drives the viewport down to a width
 // where <main>'s own CSS floor (`CHAT_MIN_WIDTH` = 360px, see uiStore.ts/CaseWorkspace.tsx)
 // is what ends up binding — reliable regardless of the evidence/findings panes' current
 // widths, and still well under the threshold once the composer's own padding is subtracted.
@@ -195,10 +238,10 @@ await waitFor('composer row to narrow', () => readRow().then((r) => r.density ==
 {
   const narrow = await readRow()
   check(
-    '2. narrow composer (<560px row): density=narrow, Reasoning/Context chips gone, "More options" exists',
+    '2. narrow composer (<700px row): density=narrow, Reasoning/Context chips gone, "More options" exists',
     narrow.density === 'narrow' &&
       narrow.rowWidth !== null &&
-      narrow.rowWidth < 560 &&
+      narrow.rowWidth < 700 &&
       !narrow.reasoningChip &&
       !narrow.contextChip &&
       narrow.moreOptions,
@@ -279,6 +322,20 @@ check(
   labelAfterReload === 'Ultracode',
   labelAfterReload
 )
+
+// ── 6. and the model chip still names the pinned model after a full remount ───────────────
+//
+// Same claim as check 0, but from cold: the resolution happens against a catalog that is
+// already cached in the main process by now, which is the state most real sessions open in.
+
+{
+  const label = await modelLabel()
+  check(
+    `6. after a reload the model chip still names ${PINNED_MODEL}`,
+    MODEL_CHIP_OK.includes(label),
+    { label, accepted: MODEL_CHIP_OK }
+  )
+}
 
 conn.close()
 report()

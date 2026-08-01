@@ -11,6 +11,13 @@ import { DRIVERS } from '../../../../shared/drivers'
 import { clearCatalogStore } from '../../lib/catalogStore'
 import type { ModelOptionInfo } from '../../../../shared/runOptions'
 import type { SessionSummary } from '../../../../shared/types'
+// The REAL captured CLI catalog, not a hand-written approximation of it. Every stub in this
+// file used to invent full `claude-*` slugs as the row `value`, which the branch's own
+// captured evidence flatly contradicts — the CLI keys rows by ALIAS (`fable`, `sonnet`,
+// `haiku`) and reports the wire slug separately as `resolvedModel`. Those stubs are the
+// reason fourteen reviews all missed that a session pinned by wire slug matched no row at
+// all. Importing the fixture makes that class of divergence impossible to reintroduce.
+import CLI_CATALOG from '../../../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
 
 // jsdom never fires a real ResizeObserver — this stub only needs to capture the callback
 // so setRowWidth (below) can drive it by hand; the lifecycle methods are intentionally inert.
@@ -169,7 +176,13 @@ describe('Composer', () => {
   it("the runtime catalog supersedes the static list for the session's instance, surfacing a model the static list lacks", async () => {
     window.argus.models.catalog = vi.fn(async (instanceId: string) => {
       expect(instanceId).toBe('claude-default')
-      return [{ value: 'opus[1m]', displayName: 'Opus (1M context)' }]
+      return [
+        {
+          value: 'opus[1m]',
+          resolvedModel: 'claude-opus-5[1m]',
+          displayName: 'Opus (1M context)'
+        }
+      ]
     })
     const onModelChange = vi.fn()
     render(
@@ -222,7 +235,13 @@ describe('Composer', () => {
     }))
     window.argus.models.catalog = vi.fn(async (instanceId: string) => {
       expect(instanceId).toBe('claude-default')
-      return [{ value: 'opus[1m]', displayName: 'Opus (1M context)' }]
+      return [
+        {
+          value: 'opus[1m]',
+          resolvedModel: 'claude-opus-5[1m]',
+          displayName: 'Opus (1M context)'
+        }
+      ]
     })
     render(
       <Composer
@@ -252,6 +271,107 @@ describe('Composer', () => {
     // ...but Copilot, a completely different enabled instance, must still be offered —
     // the model picker is how the user switches provider.
     expect(items).toContain('Auto · Copilot')
+  })
+
+  // ── C1 regression: alias-keyed catalog vs static-slug pin ──────────────────────────────
+  //
+  // The runtime catalog keys rows by CLI ALIAS (`fable`, `sonnet`); sessions are pinned by
+  // WIRE SLUG (`claude-fable-5`), because defaultModelRef seeds from the static CLAUDE_MODELS
+  // list. Matching slug-against-alias never hit, so EVERY chat fell through to models[0] and
+  // its chip read "Default (recommended)" — and the descriptor lookup, keyed off that wrong
+  // row, disagreed with what the main process resolved for the real pinned model.
+  const pinnedToStaticSlug = (model: string): SessionSummary => ({
+    id: 1,
+    title: '',
+    turnCount: 0,
+    updatedAt: '',
+    driverKind: 'claude-agent-sdk',
+    instanceId: 'claude-default',
+    model,
+    mode: 'investigation',
+    runOptions: [],
+    permissionMode: null
+  })
+
+  it('resolves a session pinned to a STATIC slug against the alias-keyed runtime catalog', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
+    )
+    // the row whose resolvedModel is claude-fable-5 — NOT models[0]
+    expect(await screen.findByText('Fable')).toBeInTheDocument()
+    expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
+    // ...and the descriptors resolve for THAT row, which is what reaches the wire
+    expect(screen.getByTitle('Reasoning')).toBeInTheDocument()
+    expect(screen.getByTitle('Context Window')).toBeInTheDocument()
+  })
+
+  it('names a pinned model the catalog no longer offers instead of showing models[0]', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-opus-4-8')} />
+    )
+    // The CLI dropped this model, so there is no row for it — and `catalogFor` in the main
+    // process likewise resolves nothing, so no run option would reach the wire. The chip must
+    // say what the chat is actually pinned to rather than borrow another row's name, and the
+    // option chips must be absent, matching what a send would really do.
+    expect(await screen.findByText('Claude Opus 4.8')).toBeInTheDocument()
+    expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
+  })
+
+  // ── I2 regression: substituting catalog rows used to discard model preferences ──────────
+  it('keeps a hidden model hidden once the runtime catalog loads', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        // stored as the WIRE slug, which is all the settings UI ever offered
+        s.agent.modelPreferences['claude-default'] = {
+          hiddenModels: ['claude-sonnet-5'],
+          favoriteModels: [],
+          modelOrder: []
+        }
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
+    )
+    fireEvent.click(await screen.findByText('Fable'))
+    const items = within(screen.getByRole('menu', { name: 'Model' }))
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // the alias row whose resolvedModel is the hidden wire slug must be gone...
+    expect(items).not.toContain('Sonnet')
+    // ...without taking the rest of the catalog with it
+    expect(items).toContain('Fable')
+    expect(items).toContain('Opus (1M context)')
+  })
+
+  it('still offers a custom model for the instance once the runtime catalog loads', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        s.agent.providerInstances['claude-default'].config = { customModels: ['my-internal-model'] }
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
+    )
+    fireEvent.click(await screen.findByText('Fable'))
+    const items = within(screen.getByRole('menu', { name: 'Model' }))
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toContain('my-internal-model')
   })
 
   it('picking a model re-pins the session rather than only changing local state', async () => {
@@ -478,20 +598,13 @@ const SESSION: SessionSummary = {
 
 describe('Composer option chips', () => {
   beforeEach(() => {
+    // The real captured CLI catalog. SESSION below is pinned to `claude-fable-5`, a WIRE
+    // slug, which resolves to the `fable` ALIAS row through the shared matcher — the exact
+    // path C1 broke. The previous stub here invented `value: 'claude-fable-5'`, a shape the
+    // CLI never emits, which is precisely why the mismatch survived fourteen reviews.
     window.argus = {
       ...window.argus,
-      models: {
-        catalog: async () => [
-          {
-            value: 'claude-fable-5',
-            displayName: 'Fable',
-            supportsEffort: true,
-            supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-            supportsAdaptiveThinking: true
-          },
-          { value: 'claude-haiku-4-5', displayName: 'Haiku' }
-        ]
-      },
+      models: { catalog: async () => CLI_CATALOG as ModelOptionInfo[] },
       skills: { list: async () => ({ skills: [] }) }
     } as never
   })
@@ -501,6 +614,40 @@ describe('Composer option chips', () => {
     await waitFor(() => expect(screen.getByTitle('Reasoning')).toBeInTheDocument())
     expect(screen.getByTitle('Context Window')).toBeInTheDocument()
     expect(screen.queryByText('High · 200k')).not.toBeInTheDocument()
+  })
+
+  // I5: a boolean chip that rendered only its value was a bare "Off" — and Fast Mode and
+  // Thinking sit side by side, so two adjacent chips were indistinguishable without hovering.
+  it('names the boolean toggle on its chip instead of showing a bare On/Off', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    const thinking = await screen.findByTitle('Thinking')
+    expect(thinking).toHaveTextContent('Thinking')
+    // state still reachable, just not as the visible label
+    expect(thinking).toHaveAttribute('aria-label', 'Thinking: On')
+  })
+
+  // I3: alwaysThinkingEnabled is ON unless explicitly false, so an unset toggle rendering
+  // "Off" reported the opposite of what the wire does.
+  it('shows Thinking as On by default, matching what the SDK actually does', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Thinking'))
+    expect(screen.getByRole('menuitem', { name: 'On' })).toHaveClass('text-ink')
+    expect(screen.getByRole('menuitem', { name: 'Off' })).toHaveClass('text-dim')
+  })
+
+  it('persists only the meaningful half of the Thinking toggle', async () => {
+    const onRunOptionsChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onRunOptionsChange={onRunOptionsChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Thinking'))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Off' }))
+    expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'thinking', value: false }])
   })
 
   it('offers Ultracode and Ultrathink in the Reasoning menu', async () => {

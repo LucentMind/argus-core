@@ -98,6 +98,19 @@ const memoryHygieneSchema = z.looseObject({
   trackingStartedAt: z.string().default('')
 })
 
+/**
+ * Stamps for one-time settings upgrades (`main/services/settingsMigrations.ts`). Each key is
+ * an ISO timestamp, `''` meaning "has not run". They live in their own section rather than
+ * beside the setting they fix, so a migration is never confused for a user preference and so
+ * `stripDefaults` keeps them (a stamp always differs from its `''` default once written).
+ */
+const migrationsSchema = z.looseObject({
+  /** When the stored `agent.defaultPermissionMode` of `bypassPermissions` was reset, after
+   *  that mode stopped being inert. Presence — not the mode's value — is what makes the
+   *  reset run exactly once, so a Bypass chosen deliberately afterwards survives. */
+  bypassDefaultReset: z.string().default('')
+})
+
 const uiSchema = z.looseObject({
   /** "How knowledge flows" strip on the Library/Proposals pages — once dismissed it never returns. */
   knowledgeStripDismissed: z.boolean().default(false)
@@ -128,7 +141,8 @@ export const settingsSchema = z.looseObject({
   observability: observabilitySchema.default(() => observabilitySchema.parse({})),
   onboarding: onboardingSchema.default(() => onboardingSchema.parse({})),
   memoryHygiene: memoryHygieneSchema.default(() => memoryHygieneSchema.parse({})),
-  ui: uiSchema.default(() => uiSchema.parse({}))
+  ui: uiSchema.default(() => uiSchema.parse({})),
+  migrations: migrationsSchema.default(() => migrationsSchema.parse({}))
 })
 
 export type AppSettings = z.infer<typeof settingsSchema>

@@ -1,34 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import { mergeCatalogModels } from '../drivers'
+import { catalogModelRows } from '../drivers'
 
-const STATIC = [
-  { slug: 'claude-fable-5', name: 'Claude Fable 5' },
-  { slug: 'claude-opus-4-7', name: 'Claude Opus 4.7' }
-]
 const CATALOG = [
   { value: 'opus[1m]', resolvedModel: 'claude-opus-5[1m]', displayName: 'Opus (1M context)' },
-  { value: 'fable', resolvedModel: 'claude-fable-5', displayName: 'Fable' }
+  { value: 'fable', resolvedModel: 'claude-fable-5', displayName: 'Fable' },
+  { value: 'auto', displayName: 'Auto' }
 ]
 
-describe('mergeCatalogModels', () => {
-  it('uses the runtime catalog when it has entries', () => {
-    const merged = mergeCatalogModels(STATIC, CATALOG)
-    expect(merged.map((m) => m.slug)).toEqual(['opus[1m]', 'fable'])
-    expect(merged[0].name).toBe('Opus (1M context)')
+describe('catalogModelRows', () => {
+  it('converts the runtime catalog into picker rows', () => {
+    const rows = catalogModelRows(CATALOG)
+    expect(rows.map((m) => m.slug)).toEqual(['opus[1m]', 'fable', 'auto'])
+    expect(rows[0].name).toBe('Opus (1M context)')
   })
 
   // This is the bug that motivated the whole runtime approach.
   it('surfaces Opus 5, which the static list does not contain', () => {
-    const merged = mergeCatalogModels(STATIC, CATALOG)
-    expect(merged.some((m) => m.slug === 'opus[1m]')).toBe(true)
+    expect(catalogModelRows(CATALOG).some((m) => m.slug === 'opus[1m]')).toBe(true)
   })
 
-  it('drops models the CLI no longer offers', () => {
-    const merged = mergeCatalogModels(STATIC, CATALOG)
-    expect(merged.some((m) => m.slug === 'claude-opus-4-7')).toBe(false)
+  // C1: without this the row cannot be matched against a session pinned by wire slug, which
+  // is how every chat's chip came to read "Default (recommended)".
+  it('carries resolvedModel through, and omits the key when the CLI reports none', () => {
+    const rows = catalogModelRows(CATALOG)
+    expect(rows[0].resolvedModel).toBe('claude-opus-5[1m]')
+    expect(rows[2]).not.toHaveProperty('resolvedModel')
   })
 
-  it('falls back to the static list when the catalog is empty', () => {
-    expect(mergeCatalogModels(STATIC, [])).toEqual(STATIC)
+  it('produces nothing from an empty catalog, leaving substitution to the caller', () => {
+    expect(catalogModelRows([])).toEqual([])
   })
 })

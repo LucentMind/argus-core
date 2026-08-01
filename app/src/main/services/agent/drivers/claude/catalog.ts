@@ -1,5 +1,6 @@
 import os from 'node:os'
 import type { ModelOptionInfo } from '../../../../../shared/runOptions'
+import { findModelEntry } from '../../../../../shared/modelIdentity'
 import type { CreateQueryFn } from './index'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 
@@ -8,6 +9,11 @@ import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
  * disappears when the CLI cannot be reached. The real catalog is version-dependent —
  * the same alias resolves to a different model across CLI versions — so this is a
  * floor, never a source of truth.
+ *
+ * Note the shape difference from a REAL catalog, which is deliberate and not the alias/slug
+ * confusion `shared/modelIdentity.ts` exists to fix: these rows are not derived from any CLI,
+ * so they are keyed by the wire slug a session is actually pinned to and report no separate
+ * `resolvedModel`. `findModelEntry` handles both shapes.
  */
 const STATIC_FALLBACK: ModelOptionInfo[] = [
   {
@@ -147,21 +153,16 @@ export function fetchCatalog(
   return p
 }
 
-/** The catalog entry for one model, matched by alias first then by resolved wire slug
- *  so sessions pinned before the alias change keep resolving. */
+/** The catalog entry for one model, resolved through the SHARED matcher
+ *  (`shared/modelIdentity.ts`) that `Composer.tsx` also uses — main and renderer must never
+ *  disagree about which row a pinned model is, or the composer offers options the wire then
+ *  silently drops. */
 export async function catalogFor(
   createQuery: CreateQueryFn,
   cliPath: string | undefined,
   model: string | undefined
 ): Promise<ModelOptionInfo | null> {
   if (!model) return null
-  const bare = model.replace(/\[1m\]$/, '')
   const models = await fetchCatalog(createQuery, cliPath ? { cliPath } : {})
-  return (
-    models.find((m) => m.value === model || m.value === bare) ??
-    models.find(
-      (m) => m.resolvedModel === model || m.resolvedModel?.replace(/\[1m\]$/, '') === bare
-    ) ??
-    null
-  )
+  return findModelEntry(models, model, (m) => m)
 }

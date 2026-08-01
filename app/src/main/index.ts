@@ -16,6 +16,7 @@ import {
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
+import { migrateBypassDefault } from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
 import { PromptCaptureStore } from './services/prompts/capture'
 import { PromptStore } from './services/prompts/store'
@@ -457,6 +458,10 @@ function registerIpc(): void {
 
   // Usage-stats epoch: stamped once; anchors the memory-hygiene grace period (spec §2).
   ensureTrackingStarted(settingsService)
+
+  // One-time upgrade: a `bypassPermissions` default set back when it was inert must not
+  // silently go live now that it is paired with allowDangerouslySkipPermissions.
+  migrateBypassDefault(settingsService)
 
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.

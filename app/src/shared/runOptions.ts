@@ -25,7 +25,16 @@ export type RunOptionDescriptor =
       /** Values applied by prefixing the prompt rather than by a wire flag. */
       promptInjected?: readonly string[]
     }
-  | { type: 'boolean'; id: string; label: string }
+  | {
+      type: 'boolean'
+      id: string
+      label: string
+      /** The value this toggle has when nothing is stored. Present because not every SDK
+       *  boolean is off-by-default: `alwaysThinkingEnabled` is ON unless explicitly `false`
+       *  (absent and `true` mean the same thing), so a chip that rendered an unset boolean as
+       *  "Off" was reporting the opposite of what the wire actually does. */
+      defaultOn?: boolean
+    }
 
 export type RunOptionSelection = { id: string; value: string | boolean }
 
@@ -83,7 +92,11 @@ export function descriptorsFor(info: ModelOptionInfo): RunOptionDescriptor[] {
 
   if (info.supportsFastMode) out.push({ type: 'boolean', id: 'fastMode', label: 'Fast Mode' })
   if (info.supportsAdaptiveThinking) {
-    out.push({ type: 'boolean', id: 'thinking', label: 'Thinking' })
+    // Inverted deliberately (see `defaultOn`): thinking is ON unless the SDK is told
+    // `alwaysThinkingEnabled: false`, so this control defaults to On and only "Off" is a
+    // real, wire-visible choice. Writing `true` — which is what it used to do — was a no-op
+    // in both positions, while an unset boolean rendered as "Off".
+    out.push({ type: 'boolean', id: 'thinking', label: 'Thinking', defaultOn: true })
   }
   return out
 }
@@ -100,14 +113,16 @@ function rawStored(
  *
  * Selects fall back to `isDefault` when the stored value is absent OR is not a
  * choice this model offers — that second half is what stops a value from
- * sticking across a model switch. Booleans are off unless explicitly true.
+ * sticking across a model switch. Booleans take the stored boolean when there is
+ * one and the descriptor's `defaultOn` otherwise; anything non-boolean stored
+ * against a boolean descriptor is garbage and falls back the same way.
  */
 export function selectionValue(
   d: RunOptionDescriptor,
   stored: readonly RunOptionSelection[] | null | undefined
 ): string | boolean | undefined {
   const raw = rawStored(stored, d.id)
-  if (d.type === 'boolean') return raw === true
+  if (d.type === 'boolean') return typeof raw === 'boolean' ? raw : (d.defaultOn ?? false)
   if (typeof raw === 'string' && d.options.some((o) => o.value === raw)) return raw
   return d.options.find((o) => o.isDefault)?.value
 }
@@ -125,7 +140,11 @@ export function pruneSelections(
   for (const d of ds) {
     const raw = rawStored(stored, d.id)
     if (d.type === 'boolean') {
-      if (raw === true) out.push({ id: d.id, value: true })
+      // Same rule as selects: store only what DIFFERS from the default. For a `defaultOn`
+      // toggle that means `false` is the value worth persisting and `true` is the no-op.
+      if (typeof raw === 'boolean' && raw !== (d.defaultOn ?? false)) {
+        out.push({ id: d.id, value: raw })
+      }
       continue
     }
     if (typeof raw !== 'string') continue
@@ -208,8 +227,11 @@ export function claudeSettingsFor(
   if (effort && selectionValue(effort, stored) === 'ultracode') out.ultracode = true
   const fast = ds.find((d) => d.id === 'fastMode')
   if (fast && selectionValue(fast, stored) === true) out.fastMode = true
+  // Only `false` is meaningful for alwaysThinkingEnabled — absent and `true` both leave
+  // thinking on — so this writes the flag ONLY when the user has actually turned it off.
+  // Sending `true` (the old behaviour) made both chip positions no-ops on the wire.
   const thinking = ds.find((d) => d.id === 'thinking')
-  if (thinking && selectionValue(thinking, stored) === true) out.alwaysThinkingEnabled = true
+  if (thinking && selectionValue(thinking, stored) === false) out.alwaysThinkingEnabled = false
   return out
 }
 
