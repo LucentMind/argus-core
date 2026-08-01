@@ -194,6 +194,11 @@ export function CaseDashboard({
             {/* Still the ambient light source (the aurora anchors to this rect), but no longer
                 the wordmark — that moved to the top bar. Sans, not the brand face: Michroma at
                 letterSpacing 11 is built for five letters, not a sentence. */}
+            {/* `font-light` is weight 300 and it only became real when main.tsx/editor.tsx started
+                importing @fontsource/geist-sans/300.css. Before that only 400/500/600 were loaded,
+                300 had no matching face, and CSS font matching fell back to 400 — browsers
+                synthesise bolder, never lighter, so the masthead silently rendered at the same
+                weight as everything else. Removing the 300 import re-breaks this line, quietly. */}
             <h1 ref={anchors.setLight} className="text-[30px] font-light leading-[1.2] text-ink">
               {greetingFor(new Date())}
               {login ? `, ${login}` : ''}
@@ -204,6 +209,12 @@ export function CaseDashboard({
                 <StatusDot color="text-defect" size={6} />
               </p>
             )}
+            {/* The counterpart to the --mute note in theme-dynamic.css: under .dyn this label sits
+                on the OPAQUE hot core of the ambient canvas (~rgb(60,120,168), L≈0.149), and no
+                value of --mute clears 4.5:1 there — that needs L≥0.845, i.e. near-white, which is
+                not a mute any more. The token lift helps everywhere else; making THIS line legible
+                means moving it off the light or pulling the light's cutoff above it, which is a
+                design decision, not a token one. */}
             <SectionLabel>Cases · {countLabel || '0 total'}</SectionLabel>
           </div>
           <div className="flex shrink-0 items-center gap-2">

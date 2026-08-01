@@ -23,8 +23,17 @@
   --bg-over: rgba(255, 255, 255, 0.03);
 
   --ink: #dfe2e6;
-  --dim: #8b9097;
-  --mute: #61666d;
+  /* Lifted off the mock's values (--dim #8b9097, --mute #61666d). Those were picked against a
+     pure-black page, and even there --mute only reached 3.6:1 — under AA for the 10.5px
+     SectionLabel it mostly carries. Inside .dyn it is worse: the dark branch of the ambient
+     shader paints an OPAQUE core around rgb(60,120,168) (L≈0.149), and the home masthead label
+     sits directly on it at 1.1:1. These values put --mute at 6.2:1 and --dim at 9.5:1 against
+     black while keeping the ink > dim > mute ladder legible.
+     NOTE: no grey fixes the masthead specifically — clearing 4.5:1 over that core needs L≥0.845,
+     i.e. near-white, which is not a "mute" any more. That one is a layout/light-placement call,
+     not a token call. See the note in CaseDashboard's masthead. */
+  --dim: #a9aeb6;
+  --mute: #868c94;
   --faint: rgba(223, 226, 230, 0.18);
   --hair: rgba(255, 255, 255, 0.075);
   --hair-2: rgba(255, 255, 255, 0.12);
