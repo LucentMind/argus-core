@@ -9,6 +9,8 @@ import type {
   ReviewBaseline,
   SyncError
 } from '../../shared/types'
+import { derivePhase, type PhaseSignals } from '../../shared/casePhase'
+import type { CasePhase, CasePhasePin } from '../../shared/types'
 import { deriveActionItems, triageRank } from '../../shared/triage'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
@@ -69,6 +71,8 @@ interface CaseRow {
   last_sync_error: string | null
   status: string
   resolution: string | null
+  phase_pin: string | null
+  phase_pinned_at: string | null
   active_mode: string
   tags: string
   created_at: string
@@ -91,6 +95,10 @@ function rowToCase(r: CaseRow): CaseRecord {
     lastSyncError: r.last_sync_error ? (JSON.parse(r.last_sync_error) as SyncError) : null,
     status: r.status as CaseStatus,
     resolution: (r.resolution ?? null) as CaseResolution | null,
+    // Lifecycle-only fallback so the field is never absent. listCases/getCase overwrite it
+    // with the derived value (see attachPhase); a bare rowToCase caller gets the honest
+    // minimum rather than a guess.
+    phase: (r.status === 'closed' ? 'closed' : 'open') as CasePhase,
     // Defence in depth against a direct DB edit or a downgrade from a version that wrote
     // a mode this build no longer knows — same convention as sessionStore.ts's
     // sessionMode, which this mirrors exactly (see its comment for the failure mode this
@@ -162,6 +170,7 @@ export function createCase(
       lastSyncError: null,
       status: 'open',
       resolution: null,
+      phase: 'open',
       activeMode: DEFAULT_MODE,
       tags: [],
       createdAt: now,
@@ -194,6 +203,115 @@ const PRIORITY_RANK: Record<string, number> = {
 }
 const PRIORITY_ORDER = (p: string | null): number => (p ? (PRIORITY_RANK[p.toLowerCase()] ?? 5) : 6)
 
+/** Per-case timestamps that decide the phase. Everything is a MAX over an indexed case_id. */
+interface CaseSignals {
+  evidenceCount: number
+  lastEvidenceAt: string | null
+  lastInvestigationAt: string | null
+  lastInvestigationFindingAt: string | null
+  lastReviewAt: string | null
+  lastReviewFindingAt: string | null
+  prLinkedAt: string | null
+}
+
+function emptySignals(): CaseSignals {
+  return {
+    evidenceCount: 0,
+    lastEvidenceAt: null,
+    lastInvestigationAt: null,
+    lastInvestigationFindingAt: null,
+    lastReviewAt: null,
+    lastReviewFindingAt: null,
+    prLinkedAt: null
+  }
+}
+
+/**
+ * Four grouped reads covering every phase signal, plus the evidence count the `idle` triage
+ * item needs (folded into the same query rather than adding a fifth).
+ *
+ * `caseId` scopes it to one case for getCase; omitted, it covers the whole table for
+ * listCases. A turn's or finding's mode comes from `sessions.mode`, which is stamped at
+ * session creation and never changes; sessions predating that column COALESCE to
+ * `investigation`, matching how findings.ts already derives finding mode.
+ */
+function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSignals> {
+  const out = new Map<number, CaseSignals>()
+  const at = (id: number): CaseSignals => {
+    let s = out.get(id)
+    if (!s) {
+      s = emptySignals()
+      out.set(id, s)
+    }
+    return s
+  }
+  const scope = (col: string): string => (caseId === undefined ? '' : ` WHERE ${col} = ?`)
+  const args: number[] = caseId === undefined ? [] : [caseId]
+
+  for (const r of db
+    .prepare(
+      `SELECT case_id AS caseId, COUNT(*) AS n, MAX(created_at) AS lastAt
+         FROM evidence${scope('case_id')} GROUP BY case_id`
+    )
+    .all(...args) as unknown as Array<{ caseId: number; n: number; lastAt: string | null }>) {
+    const s = at(r.caseId)
+    s.evidenceCount = r.n
+    s.lastEvidenceAt = r.lastAt
+  }
+
+  for (const r of db
+    .prepare(
+      `SELECT t.case_id AS caseId, COALESCE(s.mode, 'investigation') AS mode,
+              MAX(t.created_at) AS lastAt
+         FROM turns t LEFT JOIN sessions s ON s.id = t.session_id${scope('t.case_id')}
+        GROUP BY t.case_id, COALESCE(s.mode, 'investigation')`
+    )
+    .all(...args) as unknown as Array<{ caseId: number; mode: string; lastAt: string | null }>) {
+    const s = at(r.caseId)
+    if (r.mode === 'review') s.lastReviewAt = r.lastAt
+    else s.lastInvestigationAt = r.lastAt
+  }
+
+  for (const r of db
+    .prepare(
+      `SELECT f.case_id AS caseId, COALESCE(s.mode, 'investigation') AS mode,
+              MAX(f.created_at) AS lastAt
+         FROM findings f LEFT JOIN sessions s ON s.id = f.session_id${scope('f.case_id')}
+        GROUP BY f.case_id, COALESCE(s.mode, 'investigation')`
+    )
+    .all(...args) as unknown as Array<{ caseId: number; mode: string; lastAt: string | null }>) {
+    const s = at(r.caseId)
+    if (r.mode === 'review') s.lastReviewFindingAt = r.lastAt
+    else s.lastInvestigationFindingAt = r.lastAt
+  }
+
+  for (const r of db
+    .prepare(
+      `SELECT case_id AS caseId, detected_at AS linkedAt FROM pr_bindings${scope('case_id')}`
+    )
+    .all(...args) as unknown as Array<{ caseId: number; linkedAt: string }>) {
+    at(r.caseId).prLinkedAt = r.linkedAt
+  }
+
+  return out
+}
+
+/** Marry a record to its signals and its stored pin. */
+function attachPhase(c: CaseRecord, row: CaseRow, sig: CaseSignals): CasePhase {
+  const signals: PhaseSignals = {
+    status: c.status,
+    lastEvidenceAt: sig.lastEvidenceAt,
+    lastInvestigationAt: sig.lastInvestigationAt,
+    lastInvestigationFindingAt: sig.lastInvestigationFindingAt,
+    prLinkedAt: sig.prLinkedAt,
+    lastReviewAt: sig.lastReviewAt,
+    lastReviewFindingAt: sig.lastReviewFindingAt,
+    phasePin: (row.phase_pin ?? null) as CasePhasePin | null,
+    phasePinnedAt: row.phase_pinned_at ?? null
+  }
+  return derivePhase(signals)
+}
+
 /**
  * Triage order: action items first, then info-only, then untouched cases;
  * ties break on updatedAt desc. Replaces the old created_at ordering, which
@@ -201,25 +319,22 @@ const PRIORITY_ORDER = (p: string | null): number => (p ? (PRIORITY_RANK[p.toLow
  */
 export function listCases(db: DatabaseSync): CaseRecord[] {
   const rows = db.prepare(`SELECT * FROM cases`).all() as unknown as CaseRow[]
-  const evidenceCounts = new Map<number, number>()
-  for (const r of db
-    .prepare(`SELECT case_id AS caseId, COUNT(*) AS n FROM evidence GROUP BY case_id`)
-    .all() as unknown as Array<{ caseId: number; n: number }>) {
-    evidenceCounts.set(r.caseId, r.n)
-  }
+  const signals = readCaseSignals(db)
 
   const now = new Date()
-  const cases = rows.map(rowToCase).map((c) => {
+  const cases = rows.map((row) => {
+    const c = rowToCase(row)
+    const sig = signals.get(c.id) ?? emptySignals()
     const items = deriveActionItems(c, now)
     const idle =
       c.status === 'open' &&
-      (evidenceCounts.get(c.id) ?? 0) === 0 &&
+      sig.evidenceCount === 0 &&
       now.getTime() - new Date(c.createdAt).getTime() > IDLE_AFTER_MS
     if (idle) {
       const weeks = Math.floor((now.getTime() - new Date(c.createdAt).getTime()) / (7 * 86_400_000))
       items.push({ kind: 'idle', severity: 'info', label: `open ${weeks}w, no evidence` })
     }
-    return { ...c, actionItems: items }
+    return { ...c, actionItems: items, phase: attachPhase(c, row, sig) }
   })
 
   return cases.sort((a, b) => {
@@ -244,7 +359,12 @@ export function listCases(db: DatabaseSync): CaseRecord[] {
 export function getCase(db: DatabaseSync, slug: string): CaseRecord | null {
   const row = db.prepare(`SELECT * FROM cases WHERE slug = ?`).get(slug) as unknown as
     CaseRow | undefined
-  return row ? rowToCase(row) : null
+  if (!row) return null
+  const c = rowToCase(row)
+  // Derived here too, so `phase` is never a lie on a single-case read. `actionItems` stays
+  // empty — that is pre-existing behaviour and out of scope.
+  const sig = readCaseSignals(db, c.id).get(c.id) ?? emptySignals()
+  return { ...c, phase: attachPhase(c, row, sig) }
 }
 
 export interface CaseJiraLink {
