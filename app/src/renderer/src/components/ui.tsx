@@ -169,7 +169,8 @@ export function MenuButton({
   align = 'right',
   onOpenChange,
   triggerClassName = '',
-  'aria-label': ariaLabel
+  'aria-label': ariaLabel,
+  nocaret = false
 }: {
   label: React.ReactNode
   items: MenuItem[]
@@ -185,6 +186,9 @@ export function MenuButton({
    *  like its heading rather than a generic button. */
   triggerClassName?: string
   'aria-label'?: string
+  /** When true, suppress the trailing caret that indicates a menu. Used by action-menu
+   *  triggers that provide their own visual indicator (e.g. an ellipsis). */
+  nocaret?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [openUp, setOpenUp] = useState(false)
@@ -238,7 +242,7 @@ export function MenuButton({
         aria-expanded={open}
         className={triggerClassName}
       >
-        {label} <span aria-hidden="true">▾</span>
+        {label} {!nocaret && <span aria-hidden="true">▾</span>}
       </Btn>
       {open && (
         <div
