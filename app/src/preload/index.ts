@@ -21,7 +21,8 @@ import type {
   ScanSummary
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
-import type { SettingsPayload } from '../shared/settings'
+import type { SettingsPayload, PermissionMode } from '../shared/settings'
+import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
@@ -368,8 +369,20 @@ const argus = {
     /** Re-pin a chat to a provider instance + model. Resolves true when it actually changed. */
     setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
+    /** Replace this chat's option selections. Resolves true when it actually changed. */
+    setRunOptions: (sessionId: number, sel: RunOptionSelection[]): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.sessionsSetRunOptions, sessionId, sel),
+    /** Pin this chat's permission mode. Resolves true when it actually changed. */
+    setPermissionMode: (sessionId: number, mode: PermissionMode): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.sessionsSetPermissionMode, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
+  },
+  models: {
+    /** The option-bearing model catalog this instance's CLI reports. Empty for
+     *  drivers with no runtime catalog. */
+    catalog: (instanceId: string): Promise<ModelOptionInfo[]> =>
+      ipcRenderer.invoke(IPC.modelsCatalog, instanceId)
   },
   modes: {
     /** The modes available to a case right now, given its current mode context. */

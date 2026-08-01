@@ -5,6 +5,7 @@ import type { ToolTaxonomy } from './risk'
 import type { NativeToolDeps } from './nativeTools'
 import type { PanelCommandDecl } from './panelCommands'
 import type { SubagentDefinition } from './reviewSubagents'
+import type { RunOptionSelection } from '../../../shared/runOptions'
 
 export type { SystemPromptTransport }
 
@@ -53,6 +54,11 @@ export interface DriverSessionContext {
   model?: string
   cliPath?: string
   permissionMode: PermissionMode
+  /** Per-session option selections (shared/runOptions.ts). The Claude driver resolves
+   *  these against the session's model catalog entry and translates them onto the
+   *  SDK's query() fields (drivers/claude/queryOptions.ts + catalog.ts). Other drivers
+   *  have no concept of them and ignore this field. */
+  runOptions?: readonly RunOptionSelection[]
   /** Persona + memory-index text the driver injects as its system-prompt append. */
   systemAppend: string
   /** Prompt-registry resolver; drivers use it for tool descriptions they register themselves. */

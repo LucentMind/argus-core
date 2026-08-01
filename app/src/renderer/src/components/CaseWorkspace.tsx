@@ -36,6 +36,8 @@ import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citatio
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { railTier } from '../lib/priorityRail'
 import type { ModeId } from '../../../shared/modes'
+import type { RunOptionSelection } from '../../../shared/runOptions'
+import type { PermissionMode } from '../../../shared/settings'
 
 export function CaseWorkspace({
   slug,
@@ -220,6 +222,28 @@ export function CaseWorkspace({
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, instanceId, model } : s)))
     void window.argus.sessions.setModel(sessionId, instanceId, model).catch(() => {
       setSessionsError('Could not switch model for this chat.')
+    })
+  }
+
+  /** Same optimistic-then-persist shape as handleModelChange above: update the local
+   *  mirror immediately so the chip reflects the change without a round-trip lag, then
+   *  persist it. The chip's own value is DERIVED from this session row (see Composer),
+   *  so this refresh is what makes a chip change visible at all. */
+  function handleRunOptionsChange(sel: RunOptionSelection[]): void {
+    if (sessionId === null) return
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, runOptions: sel } : s)))
+    void window.argus.sessions.setRunOptions(sessionId, sel).catch(() => {
+      setSessionsError('Could not update run options for this chat.')
+    })
+  }
+
+  function handlePermissionModeChange(mode: PermissionMode): void {
+    if (sessionId === null) return
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, permissionMode: mode } : s))
+    )
+    void window.argus.sessions.setPermissionMode(sessionId, mode).catch(() => {
+      setSessionsError('Could not update permission mode for this chat.')
     })
   }
 
@@ -577,6 +601,8 @@ export function CaseWorkspace({
                   sessionId={sessionId}
                   session={sessions.find((s) => s.id === sessionId) ?? null}
                   onModelChange={handleModelChange}
+                  onRunOptionsChange={handleRunOptionsChange}
+                  onPermissionModeChange={handlePermissionModeChange}
                   onSwitchSession={handleSwitchSession}
                   onCite={(c) => void handleCite(c)}
                   onJumpToTurn={handleJumpToTurn}

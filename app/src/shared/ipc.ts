@@ -38,6 +38,12 @@ export const IPC = {
   sessionsCreate: 'sessions:create',
   sessionsRename: 'sessions:rename',
   sessionsSetModel: 'sessions:set-model',
+  sessionsSetRunOptions: 'sessions:set-run-options',
+  sessionsSetPermissionMode: 'sessions:set-permission-mode',
+  /** The runtime model catalog (option descriptors) for a provider instance — the
+   *  composer needs this before any session/query exists. [] for non-Claude/disabled
+   *  instances; see the handler in main/index.ts. */
+  modelsCatalog: 'models:catalog',
   modesAvailable: 'modes:available',
   workspacesPick: 'workspaces:pick',
   workspacesLink: 'workspaces:link',

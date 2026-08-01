@@ -20,6 +20,7 @@ import { SecretStore, type SecretCrypto } from '../../secrets'
 import type { AgentDriver, DriverKind, DriverSession } from '../driver'
 import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
+import { clearCatalogCache } from '../drivers/claude/catalog'
 
 let tmp: string, argusHome: string, db: DatabaseSync, events: AgentEvent[]
 const detection = createDetection()
@@ -38,9 +39,16 @@ function fakeCreateQuery(): {
   const queues: AsyncQueue<unknown>[] = []
   const optionsLog: Record<string, unknown>[] = []
   const createQuery: CreateQueryFn = (args) => {
-    optionsLog.push(args.options as Record<string, unknown>)
+    const options = args.options as Record<string, unknown>
+    // A pinned model makes the Claude driver spawn a SEPARATE catalog-probe query
+    // (catalog.ts) before the real session query — see index.ts's handleReady. That
+    // probe never sets systemPrompt (it passes maxTurns:0/allowedTools:[] instead), so
+    // it is the one reliable way to tell it apart from a real session's options; the
+    // callers of this helper index into `queues`/`optionsLog` assuming one entry per
+    // real session, so the probe call must not be recorded here.
+    if (options.systemPrompt) optionsLog.push(options)
     const q = new AsyncQueue<unknown>()
-    queues.push(q)
+    if (options.systemPrompt) queues.push(q)
     return Object.assign(
       { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
       { interrupt: async () => q.end() }
@@ -57,6 +65,9 @@ beforeEach(() => {
   for (const slug of ['NAV-1', 'NAV-2', 'NAV-3', 'NAV-4']) {
     createCase(db, argusHome, { slug, title: slug })
   }
+  // The catalog cache is module-scoped (keyed by resolved cliPath), so it would
+  // otherwise leak a resolved probe promise across tests in this file.
+  clearCatalogCache()
 })
 
 afterEach(() => {
@@ -323,9 +334,16 @@ describe('AgentService', () => {
     const captured: Record<string, unknown>[] = []
     const queues: AsyncQueue<unknown>[] = []
     const createQuery: CreateQueryFn = (args) => {
-      captured.push(args.options as Record<string, unknown>)
+      const options = args.options as Record<string, unknown>
       const q = new AsyncQueue<unknown>()
-      queues.push(q)
+      // See fakeCreateQuery's comment above: a pinned model triggers a separate
+      // catalog-probe query with no systemPrompt, which must not land in `captured`/
+      // `queues` — endTurn(i) below indexes into `queues` assuming one entry per
+      // real session.
+      if (options.systemPrompt) {
+        captured.push(options)
+        queues.push(q)
+      }
       return Object.assign(
         { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
         {
@@ -368,6 +386,9 @@ describe('AgentService', () => {
     const c1 = createSession(db, 'C-1', 'claude-agent-sdk')
     const c2 = createSession(db, 'C-2', 'claude-agent-sdk')
     await svc.send('C-1', c1.id, 'hi')
+    // The Claude driver's query() construction is deferred behind an async catalog
+    // lookup (index.ts's handleReady) — give it a tick to settle before checking captured.
+    await new Promise((r) => setTimeout(r, 10))
     expect((captured[0].systemPrompt as { append: string }).append).toContain('brief.')
     expect(captured[0].model).toBe('claude-opus-4-8')
     expect(captured[0].permissionMode).toBe('acceptEdits')
@@ -389,7 +410,9 @@ describe('AgentService', () => {
   it('falls back to the top ordered visible model when config.model is unset', async () => {
     const captured: Record<string, unknown>[] = []
     const createQuery: CreateQueryFn = (args) => {
-      captured.push(args.options as Record<string, unknown>)
+      const options = args.options as Record<string, unknown>
+      // See fakeCreateQuery's comment above — filter out the catalog-probe call.
+      if (options.systemPrompt) captured.push(options)
       const q = new AsyncQueue<unknown>()
       return Object.assign(
         { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
@@ -425,6 +448,7 @@ describe('AgentService', () => {
     createCase(db, argusHome, { slug: 'C-1', title: 'a' })
     const c1 = createSession(db, 'C-1', 'claude-agent-sdk')
     await svc.send('C-1', c1.id, 'hi')
+    await new Promise((r) => setTimeout(r, 10))
     // favorites group first regardless of modelOrder rank → claude-opus-4-8 is the top model
     expect(captured[0].model).toBe('claude-opus-4-8')
     await svc.stopAll()
@@ -743,6 +767,7 @@ describe('AgentService — per-session provider and model', () => {
       model: 'claude-haiku-4-5'
     })
     await svc.send('NAV-1', s.id, 'hi')
+    await new Promise((r) => setTimeout(r, 10))
     expect(optionsLog[0].model).toBe('claude-haiku-4-5')
     await svc.stopAll()
   })
@@ -767,6 +792,7 @@ describe('AgentService — per-session provider and model', () => {
       model: 'claude-opus-4-8'
     })
     await svc.send('NAV-1', s.id, 'first')
+    await new Promise((r) => setTimeout(r, 10))
     queues[0].push({ type: 'result', is_error: false })
     await new Promise((r) => setTimeout(r, 10))
 
@@ -776,6 +802,7 @@ describe('AgentService — per-session provider and model', () => {
       model: 'claude-sonnet-5'
     })
     await svc.send('NAV-1', s.id, 'second')
+    await new Promise((r) => setTimeout(r, 10))
 
     expect(
       events.some((e) => e.type === 'session.exited' && e.payload.reason === 'reconfigured')
@@ -804,9 +831,11 @@ describe('AgentService — per-session provider and model', () => {
       model: 'claude-opus-4-8'
     })
     await svc.send('NAV-1', s.id, 'first')
+    await new Promise((r) => setTimeout(r, 10))
     queues[0].push({ type: 'result', is_error: false })
     await new Promise((r) => setTimeout(r, 10))
     await svc.send('NAV-1', s.id, 'second')
+    await new Promise((r) => setTimeout(r, 10))
     expect(optionsLog).toHaveLength(1)
     await svc.stopAll()
   })
@@ -829,6 +858,10 @@ describe('AgentService — per-session provider and model', () => {
       model: 'claude-opus-4-8'
     })
     await svc.send('NAV-1', s.id, 'first') // turn still in flight
+    // The real session query() is constructed behind the (now more thoroughly bounded —
+    // see catalog.ts Findings 1/2) catalog fetch; give that microtask chain a tick to
+    // land before asserting on optionsLog, same flush idiom used throughout this file.
+    await new Promise((r) => setTimeout(r, 10))
     setSessionModel(db, s.id, {
       driverKind: 'claude-agent-sdk',
       instanceId: 'claude-default',
@@ -854,6 +887,7 @@ describe('AgentService — per-session provider and model', () => {
     })
     const s = createSession(db, 'NAV-1', 'claude-agent-sdk') // nulls
     await svc.send('NAV-1', s.id, 'hi')
+    await new Promise((r) => setTimeout(r, 10))
     expect(optionsLog[0].model).toBe('claude-fable-5') // top of the default instance's catalog
     await svc.stopAll()
   })

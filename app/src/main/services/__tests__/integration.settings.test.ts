@@ -64,7 +64,11 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
     })
     const captured: Record<string, unknown>[] = []
     const createQuery: CreateQueryFn = (args) => {
-      captured.push(args.options as Record<string, unknown>)
+      const options = args.options as Record<string, unknown>
+      // A pinned model makes the Claude driver spawn a separate catalog-probe query
+      // (catalog.ts) before the real session query — see index.ts's handleReady. That
+      // probe never sets systemPrompt, so it is the reliable way to exclude it here.
+      if (options.systemPrompt) captured.push(options)
       const q = new AsyncQueue<unknown>()
       return Object.assign(
         { [Symbol.asyncIterator]: () => q[Symbol.asyncIterator]() },
@@ -84,6 +88,9 @@ describe('settings → consumers (wave-spec §8 integration)', () => {
     createCase(db, argusHome, { slug: 'INT-1', title: 't' })
     const s1 = createSession(db, 'INT-1', 'claude-agent-sdk')
     await agents.send('INT-1', s1.id, 'hello')
+    // The real query() construction is deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it before reading captured.
+    await new Promise((r) => setTimeout(r, 10))
     expect((captured[0].systemPrompt as { append: string }).append).toContain('Focus on ADAS.')
     expect(captured[0].model).toBe('claude-sonnet-5')
     await agents.stopAll()

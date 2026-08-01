@@ -16,6 +16,7 @@ import {
 import { topicEnabled } from '../shared/agentAccess'
 import { openDb } from './services/db'
 import { SettingsService } from './services/settings'
+import { migrateBypassDefault } from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
 import { PromptCaptureStore } from './services/prompts/capture'
 import { PromptStore } from './services/prompts/store'
@@ -117,6 +118,9 @@ import {
   listSessions,
   createSession,
   setSessionModel,
+  setSessionRunOptions,
+  setSessionPermissionMode,
+  assertPermissionMode,
   renameSession,
   deleteSession
 } from './services/agent/sessionStore'
@@ -154,7 +158,14 @@ function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
 import type { PrRef } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
-import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
+import {
+  activeInstanceConfig,
+  defaultModelRef,
+  driverConfig,
+  type AgentDriverConfig
+} from '../shared/drivers'
+import { defaultCreateQuery as createClaudeQuery } from './services/agent/drivers/claude'
+import { fetchCatalog } from './services/agent/drivers/claude/catalog'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
@@ -447,6 +458,10 @@ function registerIpc(): void {
 
   // Usage-stats epoch: stamped once; anchors the memory-hygiene grace period (spec §2).
   ensureTrackingStarted(settingsService)
+
+  // One-time upgrade: a `bypassPermissions` default set back when it was inert must not
+  // silently go live now that it is paired with allowDangerouslySkipPermissions.
+  migrateBypassDefault(settingsService)
 
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.
@@ -1275,6 +1290,19 @@ function registerIpc(): void {
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
   })
+  // The composer needs each model's option descriptors (effort levels, 1M context,
+  // adaptive thinking) before any session/query exists. Only the Claude driver has a
+  // runtime catalog; every other instance returns [] rather than something speculative,
+  // so option controls never appear on a model that cannot honour them.
+  ipcMain.handle(IPC.modelsCatalog, async (_e, instanceId: string) => {
+    const settings = settingsService.get()
+    const inst = settings.agent.providerInstances[instanceId]
+    if (!inst?.enabled) return []
+    const resolved = resolveInstanceDriver(settings.agent, instanceId)
+    if (resolved.driver.kind !== 'claude-agent-sdk') return []
+    const cfg = driverConfig<AgentDriverConfig>(resolved.driver.kind, inst.config)
+    return fetchCatalog(createClaudeQuery, cfg.cliPath ? { cliPath: cfg.cliPath } : {})
+  })
   // A new chat is seeded with the DEFAULT provider instance and its default model, pinned
   // at creation. The user can re-pin it from the composer's model picker afterwards.
   const newSessionProvider = (): {
@@ -1319,6 +1347,30 @@ function registerIpc(): void {
       return changed
     }
   )
+  ipcMain.handle(
+    IPC.sessionsSetRunOptions,
+    (_e, sessionId: number, sel: { id: string; value: string | boolean }[]) => {
+      if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+      if (!Array.isArray(sel))
+        throw new Error(`Run options must be an array, received ${typeof sel}`)
+      // Shape-only guard: the renderer has already pruned selections against the
+      // current model's descriptors, and the model catalog is not reachable from
+      // this layer. Persisting here does NOT retune a live CaseSession — its options
+      // are still frozen at query() construction — but registry.ts now folds
+      // sessionRunOptions/sessionPermissionMode into optionsKey and compares it on the
+      // next send, so the running session is torn down and rebuilt instead of the
+      // change being silently ignored. The rebuild DOES make the new selections take
+      // effect: the Claude driver now reads ctx.runOptions (queryOptions.ts) when the
+      // rebuilt session's query() is constructed, resolving each selection against that
+      // session's model catalog entry (catalog.ts).
+      return setSessionRunOptions(db, sessionId, sel)
+    }
+  )
+  ipcMain.handle(IPC.sessionsSetPermissionMode, (_e, sessionId: number, mode: unknown) => {
+    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+    assertPermissionMode(mode)
+    return setSessionPermissionMode(db, sessionId, mode)
+  })
   ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
     renameSession(db, sessionId, title)
   )

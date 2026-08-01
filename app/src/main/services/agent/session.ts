@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision } from '../../../shared/types'
 import type { PermissionMode } from '../../../shared/settings'
+import type { RunOptionSelection } from '../../../shared/runOptions'
 import { makeEvent, type NormalizeCtx } from './events'
 import { classifyToolCall, type RiskContext } from './risk'
 import type {
@@ -53,6 +54,9 @@ export interface SessionAgentOptions {
   model?: string
   cliPath?: string
   permissionMode?: PermissionMode
+  /** Per-session option selections (shared/runOptions.ts), forwarded to
+   *  DriverSessionContext.runOptions untouched — CaseSession does not interpret them. */
+  runOptions?: readonly RunOptionSelection[]
   personaAppend?: string
 }
 
@@ -103,6 +107,10 @@ export interface SessionDeps {
    *  send exactly like `mcpFingerprint`, because the model is likewise frozen at query()
    *  construction — re-pinning a chat to another provider/model must rebuild it. */
   modelKey?: string
+  /** Cache key for the run options frozen at query() construction (effort, the [1m]
+   *  suffix, settings, permission mode); AgentService compares it per send exactly like
+   *  `modelKey`, because those are likewise frozen at query() construction. */
+  optionsKey?: string
   /** The mode (`ModeId`) this session was constructed for; AgentService compares it per
    *  send exactly like `modelKey`, because the persona fragments and skill allowlist are
    *  likewise frozen at query() construction — re-pinning a chat to another mode must
@@ -200,6 +208,8 @@ export class CaseSession {
   readonly sessionId: number
   readonly mcpFingerprint: string
   readonly modelKey: string
+  /** Cache key for the run options frozen at query() construction. */
+  readonly optionsKey: string
   readonly mode: ModeId
   state: 'running' | 'dead' = 'running'
   activeTurn = false
@@ -220,6 +230,7 @@ export class CaseSession {
     this.sessionId = deps.sessionId
     this.mcpFingerprint = deps.mcpFingerprint ?? ''
     this.modelKey = deps.modelKey ?? ''
+    this.optionsKey = deps.optionsKey ?? ''
     this.mode = deps.mode ?? DEFAULT_MODE
     touchSession(deps.db, deps.sessionId)
     const dir = caseDir(deps.argusHome, deps.caseSlug)
@@ -318,6 +329,7 @@ export class CaseSession {
       model: ao.model,
       cliPath: ao.cliPath,
       permissionMode: ao.permissionMode ?? 'default',
+      runOptions: ao.runOptions,
       systemAppend,
       resolvePrompt: deps.resolvePrompt,
       ...(capturePrompt ? { capturePrompt } : {}),

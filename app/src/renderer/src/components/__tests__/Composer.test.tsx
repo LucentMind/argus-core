@@ -1,16 +1,44 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
+import { clearCatalogStore } from '../../lib/catalogStore'
+import type { ModelOptionInfo } from '../../../../shared/runOptions'
+import type { SessionSummary } from '../../../../shared/types'
+// The REAL captured CLI catalog, not a hand-written approximation of it. Every stub in this
+// file used to invent full `claude-*` slugs as the row `value`, which the branch's own
+// captured evidence flatly contradicts — the CLI keys rows by ALIAS (`fable`, `sonnet`,
+// `haiku`) and reports the wire slug separately as `resolvedModel`. Those stubs are the
+// reason fourteen reviews all missed that a session pinned by wire slug matched no row at
+// all. Importing the fixture makes that class of divergence impossible to reintroduce.
+import CLI_CATALOG from '../../../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
+
+// jsdom never fires a real ResizeObserver — this stub only needs to capture the callback
+// so setRowWidth (below) can drive it by hand; the lifecycle methods are intentionally inert.
+/* eslint-disable @typescript-eslint/no-empty-function */
+class StubResizeObserver {
+  constructor(cb: ResizeObserverCallback) {
+    ;(globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks.push(cb)
+  }
+  observe(): void {}
+  disconnect(): void {}
+  unobserve(): void {}
+}
+/* eslint-enable @typescript-eslint/no-empty-function */
 
 beforeEach(() => {
+  ;(globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks = []
+  globalThis.ResizeObserver = StubResizeObserver as unknown as typeof ResizeObserver
   localStorage.clear()
   uiStore.setShowToolCalls(true)
   settingsStore.reset()
+  clearCatalogStore()
   window.argus = {
     skills: { list: vi.fn(async () => ({ skills: [] })) },
     settings: {
@@ -22,7 +50,11 @@ beforeEach(() => {
       })),
       patch: vi.fn(),
       onChanged: vi.fn(() => () => {})
-    }
+    },
+    // Empty by default: the picker falls back to the static list, which is what
+    // every existing test here asserts against. Tests exercising the runtime
+    // catalog itself override this per-case.
+    models: { catalog: vi.fn(async () => []) }
   } as never
 })
 
@@ -35,16 +67,7 @@ describe('Composer', () => {
   it('renders the option chips, falling back to static labels before settings load', () => {
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
-    expect(screen.getByText('High · 200k')).toBeTruthy()
     expect(screen.getByText('Ask approvals')).toBeTruthy()
-  })
-
-  it('reasoning stays a local, still-unwired picker', () => {
-    render(<Composer disabled={false} onSend={vi.fn()} />)
-    fireEvent.click(screen.getByText('High · 200k'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Low · 16k' }))
-    expect(screen.getByText('Low · 16k')).toBeTruthy()
-    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('tool-results toggle flips uiStore.showToolCalls', () => {
@@ -100,11 +123,256 @@ describe('Composer', () => {
           driverKind: 'claude-agent-sdk',
           instanceId: 'claude-default',
           model: 'claude-haiku-4-5',
-          mode: 'investigation'
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
         }}
       />
     )
     expect(await screen.findByText('Claude Haiku 4.5')).toBeTruthy()
+  })
+
+  it('while the catalog is still loading, the picker shows the static list unchanged — the chip is never blank', async () => {
+    // A promise that never resolves during this test: the catalog store's cache stays
+    // empty, so this pins the "still loading" state rather than the "resolved empty" one.
+    window.argus.models.catalog = vi.fn(() => new Promise<ModelOptionInfo[]>(() => {}))
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'claude-sonnet-5',
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
+        }}
+      />
+    )
+    // settings resolve (async), the catalog fetch never does — the chip must still show
+    // the session's statically-known pinned model, not go blank waiting on the catalog.
+    expect(await screen.findByText('Claude Sonnet 5')).toBeTruthy()
+    fireEvent.click(screen.getByText('Claude Sonnet 5'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // the full static catalog is offered, unchanged — no catalog-only row leaked in
+    expect(items).toEqual([
+      'Claude Fable 5',
+      'Claude Opus 4.8',
+      'Claude Opus 4.7',
+      'Claude Sonnet 5',
+      'Claude Sonnet 4.6',
+      'Claude Haiku 4.5'
+    ])
+  })
+
+  it("the runtime catalog supersedes the static list for the session's instance, surfacing a model the static list lacks", async () => {
+    window.argus.models.catalog = vi.fn(async (instanceId: string) => {
+      expect(instanceId).toBe('claude-default')
+      return [
+        {
+          value: 'opus[1m]',
+          resolvedModel: 'claude-opus-5[1m]',
+          displayName: 'Claude Opus 5 (1M)'
+        }
+      ]
+    })
+    const onModelChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        onModelChange={onModelChange}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'opus[1m]',
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
+        }}
+      />
+    )
+    // catalog-only row, not present in the static CLAUDE_MODELS list at all
+    expect(await screen.findByText('Claude Opus 5 (1M)')).toBeTruthy()
+    fireEvent.click(screen.getByText('Claude Opus 5 (1M)'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // for this single enabled instance, the runtime catalog rows replace the static list
+    expect(items).toEqual(['Claude Opus 5 (1M)'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5 (1M)' }))
+    // and the catalog-only row still carries the SESSION's own instance identity
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'opus[1m]')
+  })
+
+  it('a loaded catalog for the session instance does not hide OTHER enabled providers (regression: catalog used to replace the whole picker)', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: settingsSchema.parse({
+        agent: {
+          activeInstanceId: 'claude-default',
+          providerInstances: {
+            'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+            'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+          }
+        }
+      }),
+      resolvedTools: [],
+      dataRoot: { path: 'C:/x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.models.catalog = vi.fn(async (instanceId: string) => {
+      expect(instanceId).toBe('claude-default')
+      return [
+        {
+          value: 'opus[1m]',
+          resolvedModel: 'claude-opus-5[1m]',
+          displayName: 'Claude Opus 5 (1M)'
+        }
+      ]
+    })
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'opus[1m]',
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
+        }}
+      />
+    )
+    fireEvent.click(await screen.findByText('Claude Opus 5 (1M) · Claude'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // Claude's catalog substitutes its own rows...
+    expect(items).toContain('Claude Opus 5 (1M) · Claude')
+    // ...but Copilot, a completely different enabled instance, must still be offered —
+    // the model picker is how the user switches provider.
+    expect(items).toContain('Auto · Copilot')
+  })
+
+  // ── C1 regression: alias-keyed catalog vs static-slug pin ──────────────────────────────
+  //
+  // The runtime catalog keys rows by CLI ALIAS (`fable`, `sonnet`); sessions are pinned by
+  // WIRE SLUG (`claude-fable-5`), because defaultModelRef seeds from the static CLAUDE_MODELS
+  // list. Matching slug-against-alias never hit, so EVERY chat fell through to models[0] and
+  // its chip read "Default (recommended)" — and the descriptor lookup, keyed off that wrong
+  // row, disagreed with what the main process resolved for the real pinned model.
+  const pinnedToStaticSlug = (model: string): SessionSummary => ({
+    id: 1,
+    title: '',
+    turnCount: 0,
+    updatedAt: '',
+    driverKind: 'claude-agent-sdk',
+    instanceId: 'claude-default',
+    model,
+    mode: 'investigation',
+    runOptions: [],
+    permissionMode: null
+  })
+
+  it('resolves a session pinned to a STATIC slug against the alias-keyed runtime catalog', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
+    )
+    // the row whose resolvedModel is claude-fable-5 — NOT models[0] — named recognisably
+    // (Change 2a), not the CLI's own terse alias displayName ("Fable")
+    expect(await screen.findByText('Claude Fable 5')).toBeInTheDocument()
+    expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
+    // ...and the descriptors resolve for THAT row, which is what reaches the wire — surfaced
+    // as the fused Traits chip (Change 1) rather than individual Reasoning/Context chips
+    expect(screen.getByTitle('Traits')).toBeInTheDocument()
+  })
+
+  it('names a pinned model the catalog no longer offers instead of showing models[0]', async () => {
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-opus-4-8')} />
+    )
+    // The CLI dropped this model, so there is no row for it — and `catalogFor` in the main
+    // process likewise resolves nothing, so no run option would reach the wire. The chip must
+    // say what the chat is actually pinned to rather than borrow another row's name, and the
+    // option chips must be absent, matching what a send would really do.
+    expect(await screen.findByText('Claude Opus 4.8')).toBeInTheDocument()
+    expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
+  })
+
+  // ── I2 regression: substituting catalog rows used to discard model preferences ──────────
+  it('keeps a hidden model hidden once the runtime catalog loads', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        // stored as the WIRE slug, which is all the settings UI ever offered
+        s.agent.modelPreferences['claude-default'] = {
+          hiddenModels: ['claude-sonnet-5'],
+          favoriteModels: [],
+          modelOrder: []
+        }
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
+    )
+    fireEvent.click(await screen.findByText('Claude Fable 5'))
+    const items = within(screen.getByRole('menu', { name: 'Model' }))
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // the alias row whose resolvedModel is the hidden wire slug must be gone...
+    expect(items).not.toContain('Claude Sonnet 5')
+    // ...without taking the rest of the catalog with it
+    expect(items).toContain('Claude Fable 5')
+    expect(items).toContain('Claude Opus 5 (1M)')
+  })
+
+  it('still offers a custom model for the instance once the runtime catalog loads', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: (() => {
+        const s = defaultSettings()
+        s.agent.providerInstances['claude-default'].config = { customModels: ['my-internal-model'] }
+        return s
+      })(),
+      resolvedTools: [],
+      dataRoot: { path: 'C:\\x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.models.catalog = vi.fn(async () => CLI_CATALOG as ModelOptionInfo[])
+    render(
+      <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
+    )
+    fireEvent.click(await screen.findByText('Claude Fable 5'))
+    const items = within(screen.getByRole('menu', { name: 'Model' }))
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    expect(items).toContain('my-internal-model')
   })
 
   it('picking a model re-pins the session rather than only changing local state', async () => {
@@ -312,6 +580,319 @@ describe('Composer', () => {
       await screen.findByText('/rca')
       fireEvent.keyDown(textarea, { key: 'Enter' })
       expect(onSend).toHaveBeenCalledWith('/rca')
+    })
+  })
+})
+
+const SESSION: SessionSummary = {
+  id: 1,
+  title: '',
+  turnCount: 0,
+  updatedAt: '',
+  driverKind: 'claude-agent-sdk',
+  instanceId: 'claude-default',
+  model: 'claude-fable-5',
+  mode: 'investigation',
+  runOptions: [],
+  permissionMode: null
+}
+
+describe('Composer option chips', () => {
+  beforeEach(() => {
+    // The real captured CLI catalog. SESSION below is pinned to `claude-fable-5`, a WIRE
+    // slug, which resolves to the `fable` ALIAS row through the shared matcher — the exact
+    // path C1 broke. The previous stub here invented `value: 'claude-fable-5'`, a shape the
+    // CLI never emits, which is precisely why the mismatch survived fourteen reviews.
+    window.argus = {
+      ...window.argus,
+      models: { catalog: async () => CLI_CATALOG as ModelOptionInfo[] },
+      skills: { list: async () => ({ skills: [] }) }
+    } as never
+  })
+
+  // Change 1: replaces the old "renders Reasoning and Context as separate chips, not one
+  // fused label" test, which asserted exactly the OLD design (separate per-descriptor chips,
+  // no fused label) — the fused chip is now the intended shape, so that assertion is
+  // obsolete rather than merely stale. SESSION's model (`claude-fable-5`/`fable`) reports
+  // effort, contextWindow and thinking (no fastMode — see the fixture), so the joined label
+  // is every one of those three, in descriptor order, at their defaults.
+  it('fuses Reasoning, Context Window and Thinking into one Traits chip', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    const traits = await screen.findByTitle('Traits')
+    expect(traits).toHaveTextContent('High · 200k · Thinking On')
+    // the old per-descriptor chips must be gone, not just relabelled
+    expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Thinking')).not.toBeInTheDocument()
+  })
+
+  // Change 1, replacing "names the boolean toggle on its chip instead of showing a bare
+  // On/Off" (I5): that test asserted Thinking's OWN standalone chip carried its name via
+  // `aria-label` — Thinking has no chip of its own any more, it is a section inside the
+  // fused Traits popup. The underlying I5 concern (two adjacent booleans reading as bare
+  // "Off"/"On" are indistinguishable) still applies to the FUSED label itself, since
+  // `Fast Mode` and `Thinking` would otherwise sit side by side there — `TraitsChip` prefixes
+  // a boolean's value with its own descriptor label for exactly this reason (see its own doc
+  // comment), so this re-expresses the same guarantee against the joined label.
+  it('names each boolean value inside the joined Traits label instead of showing a bare On/Off', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    const traits = await screen.findByTitle('Traits')
+    expect(traits).toHaveTextContent('Thinking On')
+  })
+
+  // I3: alwaysThinkingEnabled is ON unless explicitly false, so an unset toggle rendering
+  // "Off" reported the opposite of what the wire does. Now opens the fused Traits popup
+  // (Change 1) instead of a standalone Thinking chip; the Thinking SECTION inside it is the
+  // same `OptionSection` the old chip rendered, so its own menuitems are unchanged.
+  it('shows Thinking as On by default, matching what the SDK actually does', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Traits'))
+    expect(screen.getByRole('menuitem', { name: 'On' })).toHaveClass('text-ink')
+    expect(screen.getByRole('menuitem', { name: 'Off' })).toHaveClass('text-dim')
+  })
+
+  it('persists only the meaningful half of the Thinking toggle', async () => {
+    const onRunOptionsChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onRunOptionsChange={onRunOptionsChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Traits'))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Off' }))
+    expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'thinking', value: false }])
+  })
+
+  it('offers Ultracode and Ultrathink in the Reasoning section', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Traits'))
+    expect(screen.getByRole('menuitem', { name: 'Ultracode' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Extra High' })).toBeInTheDocument()
+  })
+
+  it('reports a reasoning change to the owner', async () => {
+    const onRunOptionsChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onRunOptionsChange={onRunOptionsChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Traits'))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
+    expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'effort', value: 'max' }])
+  })
+
+  it('shows no Traits chip for a model with no descriptors', async () => {
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+      />
+    )
+    await waitFor(() => expect(screen.queryByTitle('Traits')).not.toBeInTheDocument())
+  })
+
+  it('reports a permission change to the owner', async () => {
+    const onPermissionModeChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onPermissionModeChange={onPermissionModeChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Auto-approve edits' }))
+    expect(onPermissionModeChange).toHaveBeenCalledWith('acceptEdits')
+  })
+
+  /** Drives the ResizeObserver the component registers, since jsdom never fires one. */
+  function setRowWidth(px: number): void {
+    const cb = (globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks
+    const row = document.querySelector('[data-composer-density]') as HTMLElement
+    Object.defineProperty(row, 'clientWidth', { value: px, configurable: true })
+    cb.forEach((c) => c([], {} as ResizeObserver))
+  }
+
+  // Nested here (not a sibling describe) so it inherits this describe's beforeEach,
+  // which mocks a catalog with Reasoning/Context descriptors for SESSION's model —
+  // without descriptors there is nothing for the collapse to fold.
+  describe('Composer responsive collapse', () => {
+    it('is wide by default and shows the fused Traits chip', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const row = await screen.findByTestId('composer-options')
+      expect(row).toHaveAttribute('data-composer-density', 'wide')
+      expect(screen.getByTitle('Traits')).toBeInTheDocument()
+    })
+
+    it('collapses everything but Model and Send below the threshold', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      expect(screen.getByTestId('composer-options')).toHaveAttribute(
+        'data-composer-density',
+        'narrow'
+      )
+      expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
+      expect(screen.getByTitle('Model')).toBeInTheDocument()
+      expect(screen.getByLabelText('Send')).toBeInTheDocument()
+      expect(screen.getByLabelText('More options')).toBeInTheDocument()
+    })
+
+    it('holds every collapsed control in the one menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByText('Reasoning')).toBeInTheDocument()
+      expect(screen.getByText('Context Window')).toBeInTheDocument()
+      expect(screen.getByText('Access')).toBeInTheDocument()
+      expect(screen.getByText('Tool results')).toBeInTheDocument()
+    })
+
+    it('expands again when the pane widens', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      act(() => setRowWidth(900))
+      expect(screen.getByTestId('composer-options')).toHaveAttribute(
+        'data-composer-density',
+        'wide'
+      )
+      // The attribute flip alone doesn't prove the layout actually restored — confirm a
+      // real chip is back in the DOM, not just the density label on the row.
+      expect(screen.getByTitle('Traits')).toBeInTheDocument()
+    })
+
+    it('collapsed menu still shows Access and Tool results — but no descriptor sections — for a model with none', async () => {
+      render(
+        <Composer
+          disabled={false}
+          onSend={() => {}}
+          session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+        />
+      )
+      // Haiku has no descriptors, so there's no Traits chip to await — flush the
+      // catalog-load effect via a negative assertion instead, as the sibling test above does.
+      await waitFor(() => expect(screen.queryByTitle('Traits')).not.toBeInTheDocument())
+      act(() => setRowWidth(360))
+      expect(screen.getByTestId('composer-options')).toHaveAttribute(
+        'data-composer-density',
+        'narrow'
+      )
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByText('Access')).toBeInTheDocument()
+      expect(screen.getByText('Tool results')).toBeInTheDocument()
+      expect(screen.queryByText('Reasoning')).not.toBeInTheDocument()
+      expect(screen.queryByText('Context Window')).not.toBeInTheDocument()
+    })
+  })
+
+  // Nested here (not a sibling describe) for the same reason as 'Composer responsive
+  // collapse' above: it needs this describe's beforeEach, which mocks a catalog with
+  // Reasoning descriptors for SESSION's model — without a Reasoning chip there is
+  // nothing for Ultrathink to toggle.
+  describe('Composer ultrathink', () => {
+    it('writes the prefix into the draft instead of storing a selection', async () => {
+      const onRunOptionsChange = vi.fn()
+      render(
+        <Composer
+          disabled={false}
+          onSend={() => {}}
+          session={SESSION}
+          onRunOptionsChange={onRunOptionsChange}
+        />
+      )
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'fix the crash')
+      await userEvent.click(await screen.findByTitle('Traits'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      expect(box).toHaveValue('Ultrathink:\nfix the crash')
+      expect(onRunOptionsChange).not.toHaveBeenCalled()
+    })
+
+    it('reads its selected state back out of the prompt', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      // the Traits chip's joined label carries it — the effort part specifically, per the
+      // `labelFor` override (see TraitsChip's own doc comment), not the whole label
+      expect(await screen.findByTitle('Traits')).toHaveTextContent('Ultrathink')
+    })
+
+    it('strips the prefix when another level is chosen', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'Ultrathink:\ngo')
+      await userEvent.click(await screen.findByTitle('Traits'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
+      expect(box).toHaveValue('go')
+    })
+
+    it('locks the section when the word is in the body rather than the prefix', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'please ultrathink')
+      await userEvent.click(await screen.findByTitle('Traits'))
+      expect(screen.getByText(/Remove it to change this option/i)).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Max' })).toBeDisabled()
+    })
+
+    // Supplementary to the brief's tests: the wide chip and the collapsed menu render the
+    // same OptionSection, so the lock must hold in the narrow density too, not just the
+    // wide chip exercised above.
+    it('locks the section in the collapsed menu too, not only the wide chip', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'please ultrathink')
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByText(/Remove it to change this option/i)).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Max' })).toBeDisabled()
+    })
+
+    // Finding 1: the trigger label reading "Ultrathink" is not enough — the open menu's
+    // highlighted entry must also move off the last stored real effort level (here the
+    // 'high' default) and onto Ultrathink itself, in the wide chip's own popup.
+    it('highlights Ultrathink as the selected entry in the wide chip menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      await userEvent.click(await screen.findByTitle('Traits'))
+      expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
+      expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
+    })
+
+    // Same requirement, collapsed density: TraitsChip and CollapsedMenu render the
+    // same OptionSection, so this must not diverge from the wide-chip case above.
+    it('highlights Ultrathink as the selected entry in the collapsed menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
+      expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
+    })
+
+    // Finding 2: symmetric to 'strips the prefix when another level is chosen' above,
+    // but through the collapsed `⋯` menu — the two densities are required to behave
+    // identically, and only the wide-chip case was covered before.
+    it('strips the prefix when another level is chosen from the collapsed menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await screen.findByTitle('Traits')
+      act(() => setRowWidth(360))
+      await userEvent.type(box, 'Ultrathink:\ngo')
+      await userEvent.click(screen.getByLabelText('More options'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
+      expect(box).toHaveValue('go')
     })
   })
 })

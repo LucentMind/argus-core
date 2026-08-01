@@ -6,6 +6,8 @@ import { DEFAULT_MODE, MODES, type ModeId } from '../../../shared/modes'
 import { caseDir } from '../paths'
 import { appendDeletionAudit } from '../deletionAudit'
 import { deleteMessagesFtsForSession } from '../ftsIndex'
+import type { RunOptionSelection } from '../../../shared/runOptions'
+import { PERMISSION_MODES, type PermissionMode } from '../../../shared/settings'
 
 const TITLE_MAX = 40
 
@@ -29,9 +31,11 @@ interface SessionRow {
   instance_id: string | null
   model: string | null
   mode: string
+  run_options: string | null
+  permission_mode: string | null
 }
 
-const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode`
+const SESSION_COLS = `id, title, turn_count, updated_at, driver_kind, instance_id, model, mode, run_options, permission_mode`
 
 function rowToSummary(r: SessionRow): SessionSummary {
   return {
@@ -42,7 +46,9 @@ function rowToSummary(r: SessionRow): SessionSummary {
     driverKind: r.driver_kind,
     instanceId: r.instance_id,
     model: r.model,
-    mode: r.mode as ModeId
+    mode: r.mode as ModeId,
+    runOptions: parseRunOptions(r.run_options),
+    permissionMode: parsePermissionMode(r.permission_mode)
   }
 }
 
@@ -89,7 +95,9 @@ export function createSession(
     driverKind: p.driverKind,
     instanceId: p.instanceId ?? null,
     model: p.model ?? null,
-    mode: p.mode ?? DEFAULT_MODE
+    mode: p.mode ?? DEFAULT_MODE,
+    runOptions: [],
+    permissionMode: null
   }
 }
 
@@ -280,4 +288,90 @@ export function deleteSession(
   fs.rmSync(path.join(caseDir(argusHome, caseSlug), 'sessions', `${sessionId}.jsonl`), {
     force: true
   })
+}
+
+/** Tolerant of anything: a hand-edited row or a downgrade must not throw on every render. */
+function parseRunOptions(raw: string | null): RunOptionSelection[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (s): s is RunOptionSelection =>
+        !!s &&
+        typeof s === 'object' &&
+        typeof (s as RunOptionSelection).id === 'string' &&
+        ['string', 'boolean'].includes(typeof (s as RunOptionSelection).value)
+    )
+  } catch {
+    return []
+  }
+}
+
+function parsePermissionMode(raw: string | null): PermissionMode | null {
+  return raw && (PERMISSION_MODES as readonly string[]).includes(raw)
+    ? (raw as PermissionMode)
+    : null
+}
+
+/** This session's stored option selections. Empty means "every default". */
+export function sessionRunOptions(db: DatabaseSync, sessionId: number): RunOptionSelection[] {
+  const row = db.prepare(`SELECT run_options FROM sessions WHERE id = ?`).get(sessionId) as
+    { run_options: string | null } | undefined
+  return parseRunOptions(row?.run_options ?? null)
+}
+
+/** Sorted by `id` so two selections that differ only in array order compare (and store)
+ *  identically — the column is meant to be compared semantically, not as raw text. */
+function normalizeRunOptions(sel: readonly RunOptionSelection[]): RunOptionSelection[] {
+  return [...sel].sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/** Writes NULL for an empty selection rather than `[]`, so absent-key defaults keep working.
+ *  Returns true when the stored value actually changed. Comparison is semantic (sorted by
+ *  `id`, via `parseRunOptions`), not raw-string: a reorder, or a row serialised by a different
+ *  code path, must not be reported as a change. */
+export function setSessionRunOptions(
+  db: DatabaseSync,
+  sessionId: number,
+  sel: readonly RunOptionSelection[]
+): boolean {
+  const row = db.prepare(`SELECT run_options FROM sessions WHERE id = ?`).get(sessionId) as
+    { run_options: string | null } | undefined
+  if (!row) return false
+  const normalized = normalizeRunOptions(sel)
+  const current = normalizeRunOptions(parseRunOptions(row.run_options))
+  if (JSON.stringify(current) === JSON.stringify(normalized)) return false
+  const next = normalized.length > 0 ? JSON.stringify(normalized) : null
+  db.prepare(`UPDATE sessions SET run_options = ? WHERE id = ?`).run(next, sessionId)
+  return true
+}
+
+/** Null means "fall back to settings.agent.defaultPermissionMode". */
+export function sessionPermissionMode(db: DatabaseSync, sessionId: number): PermissionMode | null {
+  const row = db.prepare(`SELECT permission_mode FROM sessions WHERE id = ?`).get(sessionId) as
+    { permission_mode: string | null } | undefined
+  return parsePermissionMode(row?.permission_mode ?? null)
+}
+
+/** Throws on anything that is not a real PermissionMode. Used at the IPC boundary:
+ *  pinning a session to a mode no driver understands would strand the chat. */
+export function assertPermissionMode(value: unknown): asserts value is PermissionMode {
+  if (typeof value !== 'string' || !(PERMISSION_MODES as readonly string[]).includes(value)) {
+    throw new Error(`Invalid permission mode: ${String(value)}`)
+  }
+}
+
+export function setSessionPermissionMode(
+  db: DatabaseSync,
+  sessionId: number,
+  mode: PermissionMode
+): boolean {
+  const row = db.prepare(`SELECT permission_mode FROM sessions WHERE id = ?`).get(sessionId) as
+    { permission_mode: string | null } | undefined
+  if (!row) return false
+  const current = parsePermissionMode(row.permission_mode)
+  if (current === mode) return false
+  db.prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(mode, sessionId)
+  return true
 }

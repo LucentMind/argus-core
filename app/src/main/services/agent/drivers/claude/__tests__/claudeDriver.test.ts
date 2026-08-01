@@ -5,6 +5,7 @@ import path from 'node:path'
 import { openDb } from '../../../../db'
 import { createDetection } from '../../../../packs/detection'
 import { createClaudeDriver, type CreateQueryFn } from '../index'
+import { clearCatalogCache } from '../catalog'
 import type { NativeToolDeps } from '../../../nativeTools'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -14,6 +15,9 @@ beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-driver-'))
   argusHome = path.join(tmp, 'home')
   db = openDb(path.join(argusHome, 'argus.db'))
+  // The catalog cache is module-scoped (keyed by resolved cliPath, '<default>' in these
+  // tests), so it would otherwise leak a resolved promise across tests in this file.
+  clearCatalogCache()
 })
 
 afterEach(() => {
@@ -38,6 +42,30 @@ function minimalNativeDeps(): NativeToolDeps {
 
 /** The options bag from the most recent createQuery call — how the SDK was actually configured. */
 let lastOptions: Record<string, unknown> | null = null
+
+/**
+ * The real session's createQuery call, picked out of a spy's recorded calls by
+ * filtering rather than indexing positionally (same technique as registry.test.ts's
+ * fakeCreateQuery). `baseCtx()` omits `model` today, so `catalogFor` short-circuits and
+ * `calls[0]` happens to be the real call — but that is an accident of the current
+ * fixture, not a contract. If a future `baseCtx()` pins a model, a catalog-probe call
+ * (recognizable because it never sets `systemPrompt` — see catalog.ts's ask()) would
+ * land first, and `calls[0]` would silently become the wrong call.
+ */
+function sessionCallOptions(spy: { mock: { calls: unknown[][] } }): Record<string, unknown> {
+  const call = spy.mock.calls.find(
+    (c) => (c[0] as { options: Record<string, unknown> }).options.systemPrompt
+  )
+  // Fail with a readable assertion message rather than an unguarded property access
+  // throwing a bare "Cannot read properties of undefined" — e.g. if a future ctx stops
+  // setting `systemPrompt`, no call would match and this should say so plainly.
+  if (!call) {
+    throw new Error(
+      'sessionCallOptions: no createQuery call had options.systemPrompt set — check that the ctx used still pins a system prompt'
+    )
+  }
+  return (call[0] as { options: Record<string, unknown> }).options
+}
 
 function fakeQuery(messages: unknown[]): CreateQueryFn {
   return (args) => {
@@ -80,10 +108,13 @@ describe('createClaudeDriver', () => {
     expect(driver.capabilities.permissionModes).toContain('default')
   })
 
-  it('forwards ctx.systemAppend as the preset system-prompt append', () => {
+  it('forwards ctx.systemAppend as the preset system-prompt append', async () => {
     // The fixture supplied systemAppend for a long time without anything asserting it landed —
     // exactly the blind spot that let the ACP driver drop it unnoticed.
-    createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+    const session = createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+    // The SDK query() is now constructed behind a catalog lookup (see index.ts's
+    // handleReady); draining events() awaits that resolution so lastOptions is set.
+    for await (const _ of session.events()) void _
     expect(lastOptions?.systemPrompt).toEqual({
       type: 'preset',
       preset: 'claude_code',
@@ -91,25 +122,27 @@ describe('createClaudeDriver', () => {
     })
   })
 
-  it("disables Claude Code's own auto-memory so memories route to write_memory", () => {
+  it("disables Claude Code's own auto-memory so memories route to write_memory", async () => {
     // The claude_code preset ships its own auto-memory subsystem, which defaults ON and tells
     // the model to store memories as files under ~/.claude/projects/<sanitized-cwd>/memory/ via
     // the Write tool. That competed with Argus's write_memory tool and won — observed writing to
     // ~/.claude/projects/-Users-…-Argus-cases-NN-5187/memory/. The env var is the right lever:
     // it sits ABOVE settings.json in the CLI's precedence chain, and Argus passes
     // settingSources:['project'], so a user-level autoMemoryEnabled:false would not be read.
-    createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+    const session = createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+    for await (const _ of session.events()) void _
     const env = lastOptions?.env as Record<string, string | undefined> | undefined
     expect(env?.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1')
   })
 
-  it('inherits process.env when disabling auto-memory', () => {
+  it('inherits process.env when disabling auto-memory', async () => {
     // SDK contract (sdk.d.ts): `env` REPLACES the subprocess environment entirely rather than
     // merging with process.env. Setting it without spreading would strip PATH/HOME/auth and
     // break every session — a far worse bug than the one being fixed.
     process.env.ARGUS_ENV_INHERIT_PROBE = 'inherited'
     try {
-      createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+      const session = createClaudeDriver(fakeQuery([])).createSession(baseCtx())
+      for await (const _ of session.events()) void _
       const env = lastOptions?.env as Record<string, string | undefined> | undefined
       expect(env?.ARGUS_ENV_INHERIT_PROBE).toBe('inherited')
     } finally {
@@ -154,21 +187,24 @@ describe('createClaudeDriver', () => {
     expect(events).toContain('turn.completed')
   })
 
-  it('rejects a non-UUID resume cursor (Claude cursor validation lives in the driver)', () => {
+  it('rejects a non-UUID resume cursor (Claude cursor validation lives in the driver)', async () => {
     const spy = vi.fn(fakeQuery([]))
-    createClaudeDriver(spy).createSession({ ...baseCtx(), resumeCursor: 'copilot-abc' })
-    expect((spy.mock.calls[0][0].options as Record<string, unknown>).resume).toBeUndefined()
+    const session = createClaudeDriver(spy).createSession({
+      ...baseCtx(),
+      resumeCursor: 'copilot-abc'
+    })
+    for await (const _ of session.events()) void _
+    expect(sessionCallOptions(spy).resume).toBeUndefined()
   })
 
-  it('passes a UUID resume cursor through as the resume option', () => {
+  it('passes a UUID resume cursor through as the resume option', async () => {
     const spy = vi.fn(fakeQuery([]))
-    createClaudeDriver(spy).createSession({
+    const session = createClaudeDriver(spy).createSession({
       ...baseCtx(),
       resumeCursor: '11111111-1111-4111-8111-111111111111'
     })
-    expect((spy.mock.calls[0][0].options as Record<string, unknown>).resume).toBe(
-      '11111111-1111-4111-8111-111111111111'
-    )
+    for await (const _ of session.events()) void _
+    expect(sessionCallOptions(spy).resume).toBe('11111111-1111-4111-8111-111111111111')
   })
 
   // `session.started.resumed` drives observability: the Langfuse exporter opens a new
@@ -214,23 +250,23 @@ describe('createClaudeDriver', () => {
   // Turning this option off would silently strip names and durations from every
   // top-level tool in Langfuse, with nothing pointing back to the cause. This test is
   // that pointer.
-  it('keeps includePartialMessages on — top-level tool starts depend on it', () => {
+  it('keeps includePartialMessages on — top-level tool starts depend on it', async () => {
     const spy = vi.fn(fakeQuery([]))
-    createClaudeDriver(spy).createSession(baseCtx())
-    expect((spy.mock.calls[0][0].options as Record<string, unknown>).includePartialMessages).toBe(
-      true
-    )
+    const session = createClaudeDriver(spy).createSession(baseCtx())
+    for await (const _ of session.events()) void _
+    expect(sessionCallOptions(spy).includePartialMessages).toBe(true)
   })
 
-  it('omits the agents key when no subagents are configured', () => {
+  it('omits the agents key when no subagents are configured', async () => {
     const spy = vi.fn(fakeQuery([]))
-    createClaudeDriver(spy).createSession(baseCtx())
-    const options = spy.mock.calls[0][0].options as Record<string, unknown>
+    const session = createClaudeDriver(spy).createSession(baseCtx())
+    for await (const _ of session.events()) void _
+    const options = sessionCallOptions(spy)
     expect('agents' in options).toBe(false)
     expect(options.agents).toBeUndefined()
   })
 
-  it('includes agents in options when subagents are configured', () => {
+  it('includes agents in options when subagents are configured', async () => {
     const spy = vi.fn(fakeQuery([]))
     const ctx = {
       ...baseCtx(),
@@ -249,8 +285,9 @@ describe('createClaudeDriver', () => {
         }
       ]
     }
-    createClaudeDriver(spy).createSession(ctx)
-    const options = spy.mock.calls[0][0].options as Record<string, unknown>
+    const session = createClaudeDriver(spy).createSession(ctx)
+    for await (const _ of session.events()) void _
+    const options = sessionCallOptions(spy)
     expect(options.agents).toEqual({
       'review-security': {
         description: 'when auth changes',
@@ -329,11 +366,62 @@ describe('createClaudeDriver', () => {
     }
     const session = createClaudeDriver(spy).createSession(baseCtx())
     session.send('analyze the crash')
+    // The prompt queue exists immediately (send() above is unaffected), but `captured`
+    // is only set once the deferred query() call actually happens — wait for that.
+    for await (const _ of session.events()) void _
     const first = (await captured![Symbol.asyncIterator]().next()).value as {
       type: string
       message: { content: [{ text: string }] }
     }
     expect(first.type).toBe('user')
     expect(first.message.content[0].text).toBe('analyze the crash')
+  })
+
+  // Finding 3: end()/stop() used to only close the prompt queue, then interrupt()
+  // awaited handleReady — constructing the real query() FIRST and only then
+  // interrupting it. A session cancelled during the cold-cache window (the catalog
+  // fetch is in flight) therefore still guaranteed a real CLI spawn, MCP servers
+  // included, for a session the user already stopped.
+  it('never constructs the real query when the session is ended before the catalog resolves', async () => {
+    let releaseCatalog: (models: unknown[]) => void = () => {}
+    const catalogGate = new Promise<unknown[]>((resolve) => {
+      releaseCatalog = resolve
+    })
+    const probeCalls: Record<string, unknown>[] = []
+    const spy: CreateQueryFn = vi.fn((args) => {
+      const options = args.options as Record<string, unknown>
+      if (!options.systemPrompt) {
+        // The catalog probe (catalog.ts's ask()) — never sets systemPrompt.
+        probeCalls.push(options)
+        return {
+          supportedModels: () => catalogGate,
+          interrupt: async () => undefined,
+          // eslint-disable-next-line @typescript-eslint/no-empty-function
+          [Symbol.asyncIterator]: async function* () {}
+        } as unknown as ReturnType<CreateQueryFn>
+      }
+      // The real session query — must never be reached in this test.
+      return fakeQuery([])(args)
+    })
+
+    const session = createClaudeDriver(spy).createSession({ ...baseCtx(), model: 'claude-opus-5' })
+
+    // Stop the session while the catalog fetch is still in flight.
+    session.end()
+    await Promise.resolve() // let the probe call actually land before we release it
+
+    expect(probeCalls.length).toBe(1) // the catalog fetch did start...
+
+    releaseCatalog([]) // ...but only resolves after cancellation
+
+    // Draining events() (and interrupt()) must both settle without ever calling
+    // createQuery a second time for the real session.
+    for await (const _ of session.events()) void _
+    await session.interrupt()
+
+    const realSessionCalls = (spy as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => (c[0].options as Record<string, unknown>).systemPrompt
+    )
+    expect(realSessionCalls.length).toBe(0)
   })
 })

@@ -475,6 +475,9 @@ describe('CaseSession', () => {
         personaAppend: 'Focus on ADAS module defects.'
       }
     })
+    // The real query() construction is now deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it to settle before reading captured.options.
+    await flush()
     const o = sdk.captured.options!
     expect(o.model).toBe('claude-sonnet-5')
     expect(o.pathToClaudeCodeExecutable).toBe('C:\\tools\\claude.exe')
@@ -488,6 +491,7 @@ describe('CaseSession', () => {
   it('omits model/permissionMode/cliPath when agentOptions is absent or default', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk) // no agentOptions
+    await flush()
     const o = sdk.captured.options!
     expect(o.model).toBeUndefined()
     expect(o.permissionMode).toBeUndefined()
@@ -510,6 +514,7 @@ describe('CaseSession', () => {
       resumeCursor: null,
       agentOptions: { permissionMode: 'default' }
     })
+    await flush()
     expect(sdk2.captured.options!.permissionMode).toBeUndefined()
     await s2.stop('stopped')
   })
@@ -518,6 +523,7 @@ describe('CaseSession', () => {
     const sdk = fakeSdk()
     const overrides: Record<string, 'low' | 'medium' | 'high'> = {}
     const s = makeSession(sdk, { toolRisk: () => overrides }) // extend makeSession to spread extra deps
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -536,6 +542,7 @@ describe('CaseSession', () => {
       extraMcpServers: { rovo: { type: 'sse', url: 'https://x', headers: {} } },
       mcpSkipped: [{ instanceId: 'dead', reason: 'spawn failed' }]
     })
+    await flush()
     const servers = sdk.captured.options!.mcpServers as Record<string, unknown>
     expect(servers.rovo).toEqual({ type: 'sse', url: 'https://x', headers: {} })
     expect(servers.argus).toBeDefined() // the native server always wins the 'argus' key
@@ -571,6 +578,7 @@ describe('CaseSession', () => {
       append: (e: AgentEvent) => appended.push(e),
       indexText: () => {}
     }
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -608,6 +616,7 @@ describe('CaseSession', () => {
   it('a LOW connector tool auto-approves and logs; a MEDIUM one asks (case-bound request event)', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -642,6 +651,7 @@ describe('CaseSession', () => {
   it('request.opened carries the full input; an edited approval flows back as updatedInput', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -673,6 +683,7 @@ describe('CaseSession', () => {
   it('ignores updatedInput on non-MCP asks — the original input is returned', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -700,6 +711,7 @@ describe('CaseSession', () => {
   it('ignores updatedInput on Argus-native (mcp__argus__*) asks — the original input is returned', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -727,6 +739,7 @@ describe('CaseSession', () => {
   it('allow-session with edits applies them to the current call; the grant then returns originals', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -765,6 +778,7 @@ describe('CaseSession', () => {
   it('write_memory approval carries edited input back (allowlisted native tool)', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -792,6 +806,7 @@ describe('CaseSession', () => {
   it('other native tools remain non-editable', async () => {
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,
@@ -826,6 +841,7 @@ describe('CaseSession', () => {
     const access = agentAccessSchema.parse({ memory: { drop: false } })
     const sdk = fakeSdk()
     const s = makeSession(sdk, { agentAccess: () => access })
+    await flush()
     const sys = sdk.captured.options!.systemPrompt as { append: string }
     expect(sys.append).toContain('## Agent memory')
     expect(sys.append).toContain('(keep.md)')
@@ -841,6 +857,7 @@ describe('CaseSession', () => {
     // empty-index case is exactly when that happens, so it is the case worth pinning.
     const sdk = fakeSdk()
     const s = makeSession(sdk)
+    await flush()
     const sys = sdk.captured.options!.systemPrompt as { append: string }
     expect(sys.append).toContain('## Agent memory')
     expect(sys.append).toContain('write_memory')
@@ -852,6 +869,7 @@ describe('CaseSession', () => {
     const s = makeSession(sdk, {
       skillIndex: 'Skills most relevant to this mode:\n- foo: does foo'
     })
+    await flush()
     const sys = sdk.captured.options!.systemPrompt as { append: string }
     expect(sys.append).toContain('Skills most relevant to this mode:')
     expect(sys.append).toContain('- foo: does foo')
@@ -867,6 +885,7 @@ describe('CaseSession', () => {
     const a = makeSession(withEmpty, { personaFragments: ['IDENTITY'], skillIndex: '' })
     const withNone = fakeSdk()
     const b = makeSession(withNone, { personaFragments: ['IDENTITY'] })
+    await flush()
     const appendOf = (sdk: typeof withEmpty): string =>
       (sdk.captured.options!.systemPrompt as { append: string }).append
     expect(appendOf(withEmpty)).toBe(appendOf(withNone))
@@ -880,6 +899,7 @@ describe('CaseSession', () => {
     applyMemoryWrite(argusHome, 'NAV-1', { topic: 'keep', content: 'k', indexEntry: 'kept' })
     const sdk = fakeSdk()
     const s = makeSession(sdk, { agentAccess: () => agentAccessSchema.parse({}) })
+    await flush()
     const canUseTool = sdk.captured.options!.canUseTool as (
       t: string,
       i: Record<string, unknown>,

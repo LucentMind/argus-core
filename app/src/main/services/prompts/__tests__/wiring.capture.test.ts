@@ -113,7 +113,7 @@ describe('CaseSession assembles the prompt capture', () => {
     })
   }
 
-  it('records the exact bytes the driver received, with per-fragment attribution', () => {
+  it('records the exact bytes the driver received, with per-fragment attribution', async () => {
     const captured: SessionPromptCapture[] = []
     const sdk = spyQuery()
     build(createClaudeDriver(sdk.fn), {
@@ -136,6 +136,9 @@ describe('CaseSession assembles the prompt capture', () => {
         personaAppend: '  Focus on ADAS module defects.  '
       }
     })
+    // The real query() construction is deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it before reading sdk.options().
+    await new Promise((r) => setTimeout(r, 10))
 
     expect(captured).toHaveLength(1)
     const c = captured[0]

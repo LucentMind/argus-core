@@ -352,6 +352,18 @@ export function openDb(file: string): DatabaseSync {
   if (!distillCols.some((c) => c.name === 'prompt_hash')) {
     db.exec(`ALTER TABLE distill_jobs ADD COLUMN prompt_hash TEXT`)
   }
+  const sessionCols = db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]
+  if (!sessionCols.some((c) => c.name === 'run_options')) {
+    // Canonical array shape: [{"id":"effort","value":"xhigh"}]. NULL means "all defaults",
+    // which is what lets a later default change still reach an existing session.
+    db.exec(`ALTER TABLE sessions ADD COLUMN run_options TEXT`)
+  }
+  if (!sessionCols.some((c) => c.name === 'permission_mode')) {
+    // Deliberately its own column, not folded into run_options: permission is
+    // capability-derived, not model-derived, so it must survive a model with no
+    // descriptors. NULL means "use settings.agent.defaultPermissionMode".
+    db.exec(`ALTER TABLE sessions ADD COLUMN permission_mode TEXT`)
+  }
   // Populate the FTS map tables for DBs that already held FTS rows before the
   // side-table fix landed (one-time; gated on the maps being empty).
   backfillFtsMaps(db)

@@ -46,7 +46,7 @@ describe('CONTRIBUTE_BACK_NUDGE', () => {
 })
 
 describe('CaseSession persona wiring', () => {
-  it('injects pack fragments into the system prompt append', () => {
+  it('injects pack fragments into the system prompt append', async () => {
     let captured: Parameters<CreateQueryFn>[0] | undefined
     const fakeQuery: CreateQueryFn = (args) => {
       captured = args
@@ -77,6 +77,9 @@ describe('CaseSession persona wiring', () => {
       // composePersona itself no longer injects it.
       personaFragments: ['NAV TRACE RULES', NEUTRAL_PERSONA]
     })
+    // The real query() construction is deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it before reading captured.
+    await new Promise((r) => setTimeout(r, 5))
     const append = (captured!.options.systemPrompt as { append: string }).append
     expect(append).toContain('NAV TRACE RULES')
     expect(append).toContain('CITATIONS') // base still present
