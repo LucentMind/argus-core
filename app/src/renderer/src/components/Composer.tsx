@@ -299,8 +299,10 @@ export function Composer({
   const rowRef = useRef<HTMLDivElement>(null)
   const density = useDensity(rowRef)
 
-  // Hoisted so the wide and narrow densities render the IDENTICAL Tool-results and Send
-  // elements — they cannot drift apart.
+  // Send is hoisted because it is one element shared verbatim by both densities. Tool
+  // results is hoisted too, but NOT for identical markup: wide renders it as its own chip
+  // (icon + label + state dot, own popup), narrow renders it as a labelled On/Off section
+  // inside CollapsedMenu — both share this same `showToolCalls` state and toggle callback.
   const toolResultsButton = (
     <button
       type="button"

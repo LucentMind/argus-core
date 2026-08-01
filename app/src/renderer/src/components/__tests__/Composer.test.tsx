@@ -607,6 +607,32 @@ describe('Composer option chips', () => {
         'data-composer-density',
         'wide'
       )
+      // The attribute flip alone doesn't prove the layout actually restored — confirm a
+      // real chip is back in the DOM, not just the density label on the row.
+      expect(screen.getByTitle('Reasoning')).toBeInTheDocument()
+    })
+
+    it('collapsed menu still shows Access and Tool results — but no descriptor sections — for a model with none', async () => {
+      render(
+        <Composer
+          disabled={false}
+          onSend={() => {}}
+          session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+        />
+      )
+      // Haiku has no descriptors, so there's no Reasoning chip to await — flush the
+      // catalog-load effect via a negative assertion instead, as the sibling test above does.
+      await waitFor(() => expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument())
+      act(() => setRowWidth(360))
+      expect(screen.getByTestId('composer-options')).toHaveAttribute(
+        'data-composer-density',
+        'narrow'
+      )
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByText('Access')).toBeInTheDocument()
+      expect(screen.getByText('Tool results')).toBeInTheDocument()
+      expect(screen.queryByText('Reasoning')).not.toBeInTheDocument()
+      expect(screen.queryByText('Context Window')).not.toBeInTheDocument()
     })
   })
 })
