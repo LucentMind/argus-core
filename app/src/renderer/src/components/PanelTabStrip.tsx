@@ -57,7 +57,7 @@ export function PanelTabStrip({
   }))
 
   return (
-    <div className="flex items-center gap-1 border-b border-hair bg-deep px-2">
+    <div className="flex items-center gap-1 border-b border-hair bg-void px-2">
       <TabButton active={activeTab === CHAT_TAB} onClick={() => onSelect(CHAT_TAB)} label="Chat" />
       {st.panels.map((p) => {
         const id = panelKeyStr(p)

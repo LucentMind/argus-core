@@ -45,7 +45,7 @@ function HitItem({
   return (
     <li
       onClick={() => onOpen(h)}
-      className="cursor-pointer rounded-r2 border border-hair bg-panel p-2 text-xs transition-colors hover:border-hair2 hover:bg-hi"
+      className="cursor-pointer rounded-r2 surface-card p-2 text-xs transition-colors hover:border-hair2 hover:bg-hi"
     >
       {h.kind === 'chat' ? (
         <div className="flex items-center gap-1.5 font-mono font-medium text-ink">
