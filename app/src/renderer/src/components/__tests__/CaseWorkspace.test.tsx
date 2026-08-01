@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
+import { toastStore } from '../../lib/toastStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
@@ -1016,6 +1018,7 @@ describe('CaseWorkspace case-id menu', () => {
   })
 
   it('exports the case via the Export submenu', async () => {
+    toastStore.reset()
     const exportFn = vi.fn().mockResolvedValue({ ok: true, fileCount: 3 })
     window.argus.bundle = { export: exportFn } as never
     renderWorkspace({ status: 'open', resolution: null })
@@ -1023,7 +1026,37 @@ describe('CaseWorkspace case-id menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
     await waitFor(() => expect(exportFn).toHaveBeenCalledWith('NAV-1', true))
-    expect(await screen.findByText(/exported 3 files/i)).toBeTruthy()
+    await waitFor(() => expect(toastStore.get().toasts).toHaveLength(1))
+    expect(toastStore.get().toasts[0].message).toBe('exported 3 files')
+  })
+
+  it('reports a finished export as a toast, not as header text', async () => {
+    const user = userEvent.setup()
+    toastStore.reset()
+    window.argus.bundle = { export: vi.fn(async () => ({ ok: true, fileCount: 12 })) } as never
+    renderWorkspace()
+    await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    // fireEvent, not user.click: the "Export" row also opens on hover
+    // (MenuButton's submenu is hover-or-click), and userEvent's synthetic
+    // mouseenter-then-click on the same row would open then immediately
+    // re-toggle it closed.
+    fireEvent.click(await screen.findByText('Export'))
+    await user.click(await screen.findByText('Export case…'))
+    await waitFor(() => expect(toastStore.get().toasts).toHaveLength(1))
+    expect(toastStore.get().toasts[0].message).toBe('exported 12 files')
+    expect(screen.queryByText('exported 12 files')).toBeNull()
+  })
+
+  it('stays silent when the export save dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    toastStore.reset()
+    window.argus.bundle = { export: vi.fn(async () => null) } as never
+    renderWorkspace()
+    await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(await screen.findByText('Export'))
+    await user.click(await screen.findByText('Export case…'))
+    await waitFor(() => expect(window.argus.bundle.export).toHaveBeenCalled())
+    expect(toastStore.get().toasts).toHaveLength(0)
   })
 })
 

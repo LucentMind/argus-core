@@ -22,6 +22,7 @@ import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
+import { toast } from '../lib/toastStore'
 import { panelKeyStr } from '../../../shared/panels'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type {
@@ -92,7 +93,6 @@ export function CaseWorkspace({
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
-  const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
   // The summaries were previously fetched and thrown away. They are kept now because the
   // composer needs the current chat's pinned provider+model, and the approval card needs
@@ -389,10 +389,10 @@ export function CaseWorkspace({
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
-    setExportNote(null)
     const r = await window.argus.bundle.export(slug, includeTranscripts)
     if (!r) return // save dialog canceled
-    setExportNote(r.ok ? `exported ${r.fileCount} files` : r.error)
+    if (r.ok) toast(`exported ${r.fileCount} files`)
+    else toast(r.error, 'danger')
   }
 
   async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
@@ -459,7 +459,6 @@ export function CaseWorkspace({
         <div className="relative shrink-0">
           <JiraPill key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         </div>
-        {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
         <ModeSwitcher
           slug={slug}
