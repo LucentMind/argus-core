@@ -9,10 +9,16 @@ import type { CursorInfo, SurfaceHandle } from '../surface'
 import type { SurfaceCommands } from '../extensions/keymap'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
 import type { DraftSaved } from '../../../../../shared/editorIpc'
-import type { AssetPaneHandle, Command } from '../../../lib/commands'
+import { buildCommands } from '../../../lib/commands'
+import type { AssetPaneHandle, Command, PaneCommandState } from '../../../lib/commands'
+import { useAssistProvider } from '../../library/assistProvider'
 
 vi.mock('../../library/assistProvider', () => ({
-  useAssistProvider: () => ({ ok: true, text: 'claude · sonnet' })
+  // A `vi.fn()`, not a plain arrow function: the "toolbar fallback tracks buildCommands" matrix
+  // below overrides this once, for the provider-unavailable scenario, via `mockReturnValueOnce`.
+  // `vi.clearAllMocks()` in `beforeEach` clears call history only, never the implementation set
+  // here, so every other test keeps seeing `ok: true` with no per-test setup of its own.
+  useAssistProvider: vi.fn(() => ({ ok: true, text: 'claude · sonnet' }))
 }))
 
 declare global {
@@ -1169,5 +1175,186 @@ describe('AssetPane · toolbar fallback matches buildCommands', () => {
       expect(screen.getByRole('button', { name: 'Accept', hidden: true })).toBeInTheDocument()
     )
     expect(screen.getByRole('button', { name: /improve/i, hidden: true })).toBeDisabled()
+  })
+})
+
+// Finding 1(a): the status bar's view-mode control (`StatusBar`'s `onCycleViewMode`, rendered
+// OUTSIDE the `inert` overlay wrapper) used to call `setViewMode` directly, bypassing the
+// registry entirely — so during a proposal or a running assist the toolbar's Split button went
+// inert while the status bar's own indicator stayed a live, clickable way to cycle underneath it.
+// Both now read the SAME `cmdFor('cycleViewMode', …)` descriptor (`viewCmd` in AssetPane.tsx).
+describe('AssetPane · status bar view-mode control agrees with the header button', () => {
+  it('disables the status bar control while an assist run is busy, exactly when the header button is', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeDisabled())
+    expect(screen.getByRole('button', { name: /view mode/i })).toBeDisabled()
+  })
+
+  it('does not cycle the mode when the disabled status bar control is clicked', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    const statusControl = await screen.findByRole('button', { name: /view mode/i })
+    await waitFor(() => expect(statusControl).toBeDisabled())
+    await userEvent.click(statusControl)
+    // Still the untouched default mode: a disabled native <button> swallows the click, so
+    // clicking it must not have moved anything.
+    expect(screen.getByRole('button', { name: 'View mode: Editor' })).toBeInTheDocument()
+  })
+
+  it('stays enabled at rest, and does cycle the mode', async () => {
+    mount()
+    const statusControl = screen.getByRole('button', { name: 'View mode: Editor' })
+    expect(statusControl).toBeEnabled()
+    await userEvent.click(statusControl)
+    expect(screen.getByRole('button', { name: 'View mode: Split' })).toBeInTheDocument()
+  })
+})
+
+// Finding 8: the toolbar's fallback path (used only when no `commands` host is supplied) had
+// already drifted from `buildCommands` once during this branch. A comment saying the two must
+// agree is not what keeps them agreeing — this compares the fallback's rendered `disabled` state
+// against `buildCommands`'s ACTUAL output for the pane's own reported state, across a matrix of
+// states, so a future drift fails a test instead of waiting for the next review.
+describe('AssetPane · toolbar fallback tracks buildCommands, not a restated copy of it', () => {
+  /** What a real registry would enable for `id`, given the pane's own reported state. The `ctx`
+   *  fields besides `pane` are irrelevant to `save`/`cycleViewMode`/`draft`/`improve`'s `enabled`
+   *  (only their `run` closures touch them), so dummies are fine here. */
+  function expectedEnabled(id: string, pane: PaneCommandState): boolean {
+    const cmds = buildCommands({
+      pane,
+      activePane: () => null,
+      dirtyPanes: () => [],
+      dirtyCount: 0,
+      tabCount: 1,
+      window: {
+        quickOpen: () => {},
+        commandPalette: () => {},
+        closeTab: () => {},
+        nextTab: () => {},
+        prevTab: () => {}
+      }
+    })
+    return cmds.find((c) => c.id === id)!.enabled
+  }
+
+  /** Mounts with NO `commands` prop (the fallback path), captures the pane's OWN reported state
+   *  through `onCommandState` — the same object `buildCommands` would be fed in the real window —
+   *  and returns it once the pane has reported at least once. */
+  function renderTracked(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}): {
+    getReported: () => PaneCommandState | undefined
+  } {
+    let reported: PaneCommandState | undefined
+    render(
+      <AssetPane
+        kind="skill"
+        initialName="s"
+        mode="edit"
+        draftId=""
+        initialDoc={DISK}
+        initialBaseline={DISK}
+        initialHash="h1"
+        initialBanner={{ kind: 'none' }}
+        initialDraftAt={null}
+        otherDrafts={[]}
+        active
+        readOnly={false}
+        initialViewState={null}
+        onDirtyChange={vi.fn()}
+        onNameChange={vi.fn()}
+        onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
+        onCommandState={(s) => {
+          reported = s
+        }}
+        {...overrides}
+      />
+    )
+    return { getReported: () => reported }
+  }
+
+  /** Renders, waits for the pane's first report, and checks every fallback button whose id is in
+   *  `buildCommands` against the registry's own answer for that reported state. */
+  async function checkFallback(
+    overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}
+  ): Promise<PaneCommandState> {
+    const { getReported } = renderTracked(overrides)
+    await waitFor(() => expect(getReported()).toBeDefined())
+    const reported = getReported()!
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save.hasAttribute('disabled')).toBe(!expectedEnabled('save', reported))
+    const view = screen.getByRole('button', { name: /^(Split|Preview|Edit)$/ })
+    expect(view.hasAttribute('disabled')).toBe(!expectedEnabled('cycleViewMode', reported))
+    const improve = screen.getByRole('button', { name: /improve/i, hidden: true })
+    expect(improve.hasAttribute('disabled')).toBe(!expectedEnabled('improve', reported))
+    if (reported.mode === 'create') {
+      const draft = screen.queryByRole('button', { name: /^draft$/i, hidden: true })
+      if (draft) expect(draft.hasAttribute('disabled')).toBe(!expectedEnabled('draft', reported))
+    }
+    return reported
+  }
+
+  it('matches at rest, editable', async () => {
+    await checkFallback()
+  })
+
+  it('matches on a read-only pane', async () => {
+    await checkFallback({ readOnly: true })
+  })
+
+  it('matches on a pane validation blocks', async () => {
+    await checkFallback({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
+  })
+
+  it('matches in create mode with nothing typed to describe', async () => {
+    await checkFallback({ mode: 'create', draftId: 'd1', initialHash: null })
+  })
+
+  it('matches in create mode with the provider unavailable', async () => {
+    vi.mocked(useAssistProvider).mockReturnValueOnce({ ok: false, reason: 'no provider' })
+    await checkFallback({ mode: 'create', draftId: 'd1', initialHash: null })
+  })
+
+  it('matches while an assist run is busy', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    const { getReported } = renderTracked()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(getReported()?.busy).toBe(true))
+    const reported = getReported()!
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(
+      !expectedEnabled('save', reported)
+    )
+    expect(
+      screen.getByRole('button', { name: /^(Split|Preview|Edit)$/ }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('cycleViewMode', reported))
+    expect(
+      screen.getByRole('button', { name: /improve/i, hidden: true }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('improve', reported))
+  })
+
+  it('matches while a proposal is pending', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
+    const { getReported } = renderTracked()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(getReported()?.proposing).toBe(true))
+    const reported = getReported()!
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(
+      !expectedEnabled('save', reported)
+    )
+    expect(
+      screen.getByRole('button', { name: /^(Split|Preview|Edit)$/ }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('cycleViewMode', reported))
+    expect(
+      screen.getByRole('button', { name: /improve/i, hidden: true }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('improve', reported))
   })
 })

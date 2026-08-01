@@ -3,7 +3,7 @@ import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
 import { CommandPalette } from './CommandPalette'
 import { ConfirmHost } from '../ConfirmHost'
-import { alert, confirm } from '../../lib/confirmStore'
+import { alert, confirm, confirmStore } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { drainEditorMessages } from './editorBootstrap'
@@ -369,7 +369,17 @@ export function EditorApp(): React.JSX.Element {
    * creates, since it marks the editor subtree `inert` and focus falls to `<body>`.
    *
    * A matched-but-DISABLED command still swallows the key. Letting a disabled Ctrl+W fall
-   * through hands it to Electron, which closes the window.
+   * through hands it to Electron, which closes the window — and (finding 2) so does a matched
+   * command the window simply chooses not to run because a modal owns the keyboard: `preventDefault`
+   * has to happen for EVERY match, before either check below decides whether to act on it. This
+   * used to check "is the palette open" before even looking the key up, so a Ctrl+W typed while
+   * the palette was open never called `preventDefault` at all and reached Electron's default
+   * `close` role directly, closing the whole window instead of the tab underneath.
+   *
+   * A modal owns the keyboard while it is up (still swallowed, never acted on): the palette, the
+   * fork-a-copy dialog, and an app-wide `confirm()`/`alert()` (finding 3) — none of those are
+   * commands the registry knows about, so the only way to keep, say, Ctrl+W from closing the tab
+   * behind an open `ForkSkillDialog` is to check for them here too.
    *
    * The listener is registered once and reads the current descriptors through a ref: rebuilding
    * it on every `commands` identity would re-register on every keystroke.
@@ -378,19 +388,26 @@ export function EditorApp(): React.JSX.Element {
   useEffect(() => {
     commandsRef.current = commands
   }, [commands])
-  const paletteOpenRef = useRef(false)
+  const modalOpenRef = useRef(false)
   useEffect(() => {
-    paletteOpenRef.current = palette !== null
-  }, [palette])
+    modalOpenRef.current = palette !== null || forking !== null
+  }, [palette, forking])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.defaultPrevented) return
-      // The palette owns the keyboard while it is up, including its own Escape handling.
-      if (paletteOpenRef.current) return
       const cmd = commandForEvent(commandsRef.current, e)
       if (!cmd) return
+      // Swallowed for every match, unconditionally — see the comment above. Whether it is also
+      // RUN is decided below.
       e.preventDefault()
+      if (modalOpenRef.current) return
+      // Checked live rather than through a ref pair like `modalOpenRef`: `confirm()`/`alert()`
+      // (lib/confirmStore) resolve outside any state this component holds — the claim path in
+      // `editCopy` below is one opener — so `confirmStore.get()` is read directly here rather
+      // than mirrored into a ref on a `useEffect` this component would have to remember to add
+      // for every future opener.
+      if (confirmStore.get().current !== null) return
       if (cmd.enabled) cmd.run()
     }
     window.addEventListener('keydown', onKeyDown)

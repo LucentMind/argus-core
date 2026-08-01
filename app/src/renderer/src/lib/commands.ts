@@ -222,8 +222,12 @@ export function buildCommands(ctx: CommandContext): Command[] {
       // @codemirror/search 6.7.1: Mod-f, F3, Mod-g, Escape, Mod-Shift-l, Mod-Alt-g, Mod-d).
       // Advertising the SAME chord rather than inventing a second one is the point of §6.4 —
       // and Ctrl+G is deliberately not used here, because that is findNext.
+      //
+      // `viewMode !== 'preview'`: in Preview, `EditorPane` puts the surface behind `hidden` +
+      // `inert` (see its comment), so this would focus an inert subtree and open CodeMirror's
+      // panel inside a `display:none` container — enabled with nothing visible to show for it.
       keybinding: 'Ctrl+Alt+G',
-      enabled: p !== null,
+      enabled: p !== null && p.viewMode !== 'preview',
       run: on((h) => h.openGotoLine())
     },
     {

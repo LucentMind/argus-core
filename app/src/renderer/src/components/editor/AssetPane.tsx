@@ -1192,12 +1192,18 @@ export function AssetPane({
         sync={sync}
         draftAt={draftAt}
         viewMode={prefs.viewMode}
+        // Finding 1: routed through the SAME descriptor as the header's Split/Preview button
+        // (`viewCmd`, from `cmdFor` above), not a second, ungated call to `setViewMode` — this
+        // status-bar control renders OUTSIDE the `inert` overlay wrapper below, so while a
+        // proposal is on screen it used to stay the one live way to cycle a surface the user
+        // cannot see.
+        viewModeDisabled={!viewCmd?.enabled}
         tier={tier}
         onProblems={() => {
           setDockTab('problems')
           setProblemsOpen(true)
         }}
-        onCycleViewMode={() => setViewMode(nextViewMode(prefs.viewMode))}
+        onCycleViewMode={() => viewCmd?.run()}
       />
     </div>
   )

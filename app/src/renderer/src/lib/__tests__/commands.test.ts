@@ -119,6 +119,15 @@ describe('buildCommands · enabled', () => {
     expect(byId(ctx({ tabCount: 1 }), 'nextTab').enabled).toBe(false)
     expect(byId(ctx({ tabCount: 2 }), 'nextTab').enabled).toBe(true)
   })
+
+  // Finding 4: Preview hides the surface behind `hidden` + `inert` (EditorPane.tsx), so offering
+  // "Go to line…" there used to focus an inert subtree and open CodeMirror's panel inside a
+  // `display:none` container — enabled, and a complete no-op.
+  it('disables Go to line in Preview, where the surface is hidden and inert', () => {
+    expect(byId(ctx({}, { viewMode: 'editor' }), 'gotoLine').enabled).toBe(true)
+    expect(byId(ctx({}, { viewMode: 'split' }), 'gotoLine').enabled).toBe(true)
+    expect(byId(ctx({}, { viewMode: 'preview' }), 'gotoLine').enabled).toBe(false)
+  })
 })
 
 describe('buildCommands · run', () => {

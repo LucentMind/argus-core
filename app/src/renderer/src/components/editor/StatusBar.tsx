@@ -16,6 +16,15 @@ export interface StatusBarProps {
   draftAt: string | null
   viewMode: ViewMode
   /**
+   * Finding 1: this control is a second, independent way to run `cycleViewMode` (the header's
+   * Split/Preview button is the other), and the two must not drift — spec §6.4's whole claim is
+   * that a shortcut and a button cannot disagree. The caller passes `!cmdFor('cycleViewMode',
+   * …)?.enabled` (AssetPane.tsx), the exact same descriptor the header button reads, so this
+   * renders inert (rather than clickable-but-a-no-op) whenever the registry disables the command
+   * — busy, or a proposal awaiting a decision.
+   */
+  viewModeDisabled?: boolean
+  /**
    * Spec §5.5 lists a tier badge. There is no tier on `SkillReadPayload` or on the reference
    * read, and Increment 4 adds that plumbing because §6.2 needs it to open read-only assets
    * read-only. Optional here so Increment 4 supplies a value rather than changing this signature.
@@ -43,6 +52,7 @@ export function StatusBar({
   sync,
   draftAt,
   viewMode,
+  viewModeDisabled = false,
   tier,
   onProblems,
   onCycleViewMode
@@ -83,9 +93,10 @@ export function StatusBar({
         </span>
         <button
           type="button"
+          disabled={viewModeDisabled}
           onClick={onCycleViewMode}
           aria-label={`View mode: ${MODE_LABEL[viewMode]}`}
-          className="hover:text-ink"
+          className="hover:text-ink disabled:pointer-events-none disabled:opacity-40"
         >
           {MODE_LABEL[viewMode]}
         </button>

@@ -821,6 +821,10 @@ describe('Edit a copy', () => {
 
     expect(await screen.findByText(/could not make "shared\.md" yours/i)).toBeInTheDocument()
     expect(await screen.findByText(/not an installed hivemind reference/i)).toBeInTheDocument()
+    // Dismissed before the test ends: `alert()` (lib/confirmStore) is a module-level singleton,
+    // not component state — leaving it unsettled would suppress window shortcuts (finding 3) in
+    // every test that runs after this one in the file, not just this one.
+    await userEvent.click(screen.getByRole('button', { name: /^ok$/i }))
   })
 
   // The fork flow's error handling is the dialog, NOT a catch in EditorApp: `forkSkill` throws on
@@ -873,6 +877,51 @@ describe('Edit a copy', () => {
 
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled()
+  })
+})
+
+// Whole-branch review finding 3: only the palette used to suppress the window keymap, so a
+// window shortcut typed while `ForkSkillDialog` or an app-wide `confirm()`/`alert()` was open
+// still reached the tab underneath and acted on it. The repro was Ctrl+W closing the tab behind
+// an open fork dialog, then the fork landing on a tab id that no longer existed — a successful
+// action (the skill really was forked on disk) that looked like a silent no-op because
+// `replaceTab` found nothing to replace (`tabs.ts`: `if (i === -1) return s`).
+describe('EditorApp · window shortcuts are suppressed under a modal', () => {
+  it('swallows Ctrl+W behind an open fork dialog, and does not close the tab underneath', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'skill', name: 'theirs', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    await screen.findByLabelText(/name/i)
+
+    // `fireEvent` returns false when some handler called `preventDefault` — asserted, not just
+    // inferred from "the tab is still there", because a window shortcut that never matched any
+    // command would also leave the tab alone without swallowing anything.
+    const notPrevented = fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
+    expect(notPrevented).toBe(false)
+    expect(screen.getByRole('tab', { name: /theirs/ })).toBeInTheDocument()
+    // The dialog is still up too — a swallowed Ctrl+W must not also dismiss it.
+    expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
+    // Settled before the test ends: `confirmStore`/the dialog's own state are module- and
+    // component-level respectively, and `ForkSkillDialog` unmounting via RTL's cleanup does not
+    // touch either — an unsettled prompt here would otherwise suppress every window shortcut in
+    // every test that runs after this one in the file.
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+  })
+
+  it('swallows Ctrl+W behind an app-wide confirm() prompt', async () => {
+    render(<EditorApp />)
+    act(() => openTab!({ kind: 'reference', name: 'shared.md', mode: 'edit' }))
+    await userEvent.click(await screen.findByRole('button', { name: /edit a copy/i }))
+    // The reference claim path's `confirm()` (EditorApp's `editCopy`), not the fork dialog.
+    await screen.findByRole('button', { name: /^claim$/i })
+
+    const notPrevented = fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
+    expect(notPrevented).toBe(false)
+    expect(screen.getByRole('tab', { name: /shared\.md/ })).toBeInTheDocument()
+    // Settled before the test ends — see the comment in the test above. `confirmStore` is a
+    // module-level singleton: an unresolved prompt here would leak into every later test in this
+    // file, not just this one.
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
   })
 })
 
@@ -1033,6 +1082,20 @@ describe('EditorApp · commands', () => {
     await screen.findByRole('combobox')
     fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
     // Still open: the palette owns the keyboard while it is up.
+    expect(screen.getByRole('combobox')).toBeTruthy()
+  })
+
+  // Finding 2. The test above pins that Ctrl+W does not ACT while the palette is open; it does
+  // not pin that the key was actually swallowed. Before the fix, the palette-open check ran
+  // BEFORE the command lookup, so this chord never had `preventDefault` called on it at all and
+  // reached Electron's default `close` role directly — the whole window closed instead of no-op.
+  it('swallows Ctrl+W while the palette is open, instead of letting it escape to Electron', async () => {
+    render(<EditorApp />)
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true })
+    await screen.findByRole('combobox')
+    // `fireEvent` returns false exactly when some handler called `preventDefault` on the event.
+    const notPrevented = fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
+    expect(notPrevented).toBe(false)
     expect(screen.getByRole('combobox')).toBeTruthy()
   })
 
