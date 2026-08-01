@@ -548,7 +548,10 @@ export function LibraryPage({
           placeholder="Search names and reference content…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-sm outline-none placeholder:text-faint"
+          // `bg-overlay`, not `bg-black/20` (Task 14): this search row sits directly on the
+          // Settings page ground (SettingsView's content column, not a SettingsSection card) —
+          // the ground-level on-page token, not the on-card `bg-well`.
+          className="min-w-0 flex-1 rounded-r2 bg-overlay px-2 py-1 text-sm outline-none placeholder:text-faint"
         />
         <div
           role="group"
