@@ -228,7 +228,8 @@ describe('PromptsDevPage — composed preview', () => {
     render(<PromptsDevPage />)
     fireEvent.click(await screen.findByRole('button', { name: /Composed preview/i }))
     await waitFor(() => expect(api.preview).toHaveBeenCalledWith('investigation'))
-    fireEvent.change(screen.getByLabelText(/mode/i), { target: { value: 'review' } })
+    fireEvent.click(screen.getByRole('combobox', { name: /mode/i }))
+    fireEvent.click(screen.getByRole('option', { name: 'review' }))
     await waitFor(() => expect(api.preview).toHaveBeenCalledWith('review'))
   })
 

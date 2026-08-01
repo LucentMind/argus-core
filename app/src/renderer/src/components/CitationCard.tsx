@@ -78,8 +78,15 @@ export function CitationCard({
         aria-expanded={expanded}
         title={`${fullPath(source)}:${rangeLabel}`}
         onClick={() => setExpanded((e) => !e)}
-        className={`inline-flex items-center gap-1 align-baseline rounded-r1 border border-defect/30 px-1 font-mono text-[11px] leading-4 text-defect transition-colors hover:border-defect/60 ${
-          expanded ? 'bg-defect/10' : 'bg-hair/50'
+        /* `review` green, not `defect` amber (user-directed, 2026-08-01). A citation is the
+           agent SHOWING ITS WORK — the most reassuring thing in a transcript — and amber is
+           this palette's attention colour, shared with `analyzing`, priority-2 rails and the
+           "major" finding severity. A transcript dense with citations read as a transcript
+           dense with warnings. Green is the same token `.hljs-string` and the review chips
+           use. Kept in lockstep with `CitedText`/`MessageView`, the other two renderings of
+           the same link. */
+        className={`inline-flex items-center gap-1 align-baseline rounded-r1 border border-review/30 px-1 font-mono text-[11px] leading-4 text-review transition-colors hover:border-review/60 ${
+          expanded ? 'bg-review/10' : 'bg-hair/50'
         }`}
       >
         <Icon size={11} strokeWidth={1.5} className="shrink-0" />

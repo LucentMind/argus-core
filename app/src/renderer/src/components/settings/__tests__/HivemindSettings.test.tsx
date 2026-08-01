@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { HivemindSettings } from '../HivemindSettings'
 import { settingsStore } from '../../../lib/settingsStore'
+import { referenceSyncStore } from '../../../lib/referenceSyncStore'
+import { connectorsStore } from '../../../lib/connectorsStore'
 import { confirm } from '../../../lib/confirmStore'
 import { defaultSettings } from '../../../../../shared/settings'
 import type { HivemindPayload, LocalDivergence } from '../../../../../shared/hivemind'
@@ -97,6 +99,49 @@ function mockArgus(payload: HivemindPayload): Record<string, unknown> {
         detail: ''
       })
     },
+    // The Team page pairs the HiveMind repo with Confluence sync (2026-08-01), so
+    // `ConfluenceSpaces` now mounts here and needs its two stores fed. Empty payloads: this
+    // suite is about the HiveMind half, and SourcesPage.test.tsx / ConfluenceSpaces' own suite
+    // cover the Confluence half.
+    refsync: {
+      get: vi.fn().mockResolvedValue({
+        config: { spaces: [], outdatedWindowMonths: 12, mustKeep: {} },
+        loadError: null,
+        cards: [],
+        references: []
+      }),
+      onChanged: vi.fn(() => () => undefined),
+      onProgress: vi.fn(() => () => undefined)
+    },
+    // An AUTHORIZED rovo connector, not an empty payload: with none configured,
+    // `ConfluenceSpaces` renders its own `role="alert"` warning, and the several tests below
+    // that assert on `getByRole('alert')` would then match two banners instead of the
+    // HiveMind one they are about.
+    connectors: {
+      get: vi.fn().mockResolvedValue({
+        connectors: {
+          rovo: {
+            kind: 'http',
+            displayName: 'Atlassian Rovo',
+            preset: 'rovo',
+            enabled: true,
+            config: {
+              url: 'https://mcp.atlassian.com/v1/mcp/authv2',
+              transport: 'http',
+              oauth: true
+            }
+          }
+        },
+        runtime: {},
+        oauth: { rovo: 'authorized' },
+        rest: {},
+        loadError: null,
+        secretsAvailable: true,
+        secretsLoadError: null,
+        presets: {}
+      }),
+      onChanged: vi.fn(() => () => undefined)
+    },
     openExternal: vi.fn()
   }
 }
@@ -107,6 +152,10 @@ function renderWith(payload: HivemindPayload): ReturnType<typeof render> {
 }
 
 beforeEach(() => {
+  // Both are module-level singletons that latch after their first load; without a reset they
+  // carry another suite's payload (and its stale `window.argus`) into this one.
+  referenceSyncStore.reset()
+  connectorsStore.reset()
   installMock.mockClear()
   localDivergenceMock.mockReset().mockResolvedValue({ diverged: false, diff: '', tierChange: null })
   ;(window as unknown as { argus: unknown }).argus = mockArgus(ready)
@@ -128,12 +177,66 @@ describe('HivemindSettings', () => {
     expect(screen.getByLabelText('HiveMind repo')).toBeInTheDocument()
   })
 
+  /**
+   * The Team page's two upstreams (2026-08-01, user-directed): the HiveMind repo and Confluence,
+   * as a left and a right panel. Asserted on the dormant path too, because Confluence sync does
+   * not depend on a HiveMind repo — hiding it behind one would strand a user who has only
+   * Confluence configured.
+   */
+  it('pairs Repository with Confluence, even before a repo is set', async () => {
+    ;(window as unknown as { argus: unknown }).argus = mockArgus({
+      ...ready,
+      repo: '',
+      state: 'dormant',
+      items: [],
+      headCommit: null
+    })
+    render(<HivemindSettings payload={settingsPayload('')} />)
+    expect(await screen.findByText('Repository')).toBeInTheDocument()
+    expect(await screen.findByText('Confluence')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add Confluence space' })).toBeInTheDocument()
+  })
+
   it('repo row commits hivemind.repo on blur', async () => {
     render(<HivemindSettings payload={settingsPayload('')} />)
     const input = await screen.findByLabelText('HiveMind repo')
     fireEvent.change(input, { target: { value: 'acme/hivemind' } })
     fireEvent.blur(input)
     expect(settingsStore.patch).toHaveBeenCalledWith({ hivemind: { repo: 'acme/hivemind' } })
+  })
+
+  /**
+   * The repo status row has to stay inside its own column.
+   *
+   * It was one non-wrapping flex line, written when this section owned the whole content
+   * column. Paired with Confluence at half width (2026-08-01) it no longer fit — and a flex
+   * line that does not fit spills rather than clips, so the tail of "synced <date>, <time>"
+   * rendered outside the card, on top of the Confluence panel next to it.
+   *
+   * jsdom resolves no layout, so this asserts the STRUCTURE that makes overflow impossible
+   * (the same contract-on-the-source idiom `settingsLayout.test.tsx` uses): the identity and
+   * the status chips are separate stacked rows, and the long repo string truncates instead of
+   * pushing the line wider.
+   */
+  it('keeps the repo status inside its column instead of spilling out of the card', async () => {
+    const long = 'JiaweiHan88/an-extremely-long-hivemind-repository-name-that-will-not-fit'
+    ;(window as unknown as { argus: unknown }).argus = mockArgus({
+      ...ready,
+      repo: long,
+      lastSynced: '2026-07-22T15:02:43.000Z'
+    })
+    render(<HivemindSettings payload={settingsPayload(long)} />)
+
+    const identity = await screen.findByRole('button', { name: `Open ${long} on GitHub` })
+    // The repo name elides; it does not widen the row.
+    expect(identity.querySelector('.truncate')?.textContent).toBe(long)
+    // Sync shares the identity's line...
+    const identityRow = identity.parentElement!
+    expect(identityRow.querySelector('[aria-label="Sync"]')).not.toBeNull()
+    // ...and the status chips sit on a DIFFERENT, wrapping row rather than extending it.
+    const syncedAt = screen.getByText(/^synced /)
+    expect(identityRow.contains(syncedAt)).toBe(false)
+    expect(syncedAt.parentElement!.className).toContain('flex-wrap')
   })
 
   it('not-cloned state offers Sync', async () => {

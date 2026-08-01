@@ -114,9 +114,24 @@ export function JiraPill({
   }
 
   return (
-    <>
+    /**
+     * `relative`, and the popover moved INSIDE it (2026-08-01).
+     *
+     * The popover is `absolute top-full`, and this component used to return a fragment: the pill
+     * carried `overflow-hidden` (it must — the face clips) and no `position`, so the nearest
+     * positioned ancestor was whatever the case header happened to be. In the dynamic theme that
+     * is `.dyn-case-header` (it sets `position: relative` for its priority rail), so `top-full`
+     * resolved to *the header's* full height and the panel landed a header below the pill,
+     * overlapping the evidence rail. In the classic theme the header is not positioned at all,
+     * so it escaped further still. Anchoring it here makes `top-full` mean what it reads as —
+     * directly under the pill — in both themes.
+     *
+     * The wrapper is what owns `relative`; the pill keeps `overflow-hidden` and the popover is
+     * its sibling, so the clip that shapes the face never reaches the panel.
+     */
+    <div className="relative shrink-0">
       <div
-        className={`flex h-[30px] w-52 shrink-0 items-center overflow-hidden rounded-r2 border bg-hair/30 ${TONE[face.tone]}`}
+        className={`flex h-[30px] w-52 items-center overflow-hidden rounded-r2 border bg-hair/30 ${TONE[face.tone]}`}
       >
         <button
           type="button"
@@ -151,7 +166,12 @@ export function JiraPill({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute top-full z-20 mt-1 w-72 rounded-r2 border border-hair2 bg-overlay p-3 shadow-lg">
+          {/* `overlay-menu` (main.css), not `border-hair2 bg-overlay shadow-lg`: `--bg-over` is a
+              3%-alpha wash meant for a *fill inside* a surface, so this panel was very nearly
+              transparent and the transcript read straight through it. `overlay-menu` is the
+              opaque popup material `MenuButton` already uses, in both themes.
+              `left-0`: the pill sits at the left of the header, so the panel opens rightward. */}
+          <div className="absolute left-0 top-full z-30 mt-1 w-72 rounded-r2 overlay-menu p-3">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-signal">{jiraKey}</span>
               {phase.kind === 'result' && phase.summary.statusChange && (
@@ -201,6 +221,6 @@ export function JiraPill({
           onClose={() => setPending(null)}
         />
       )}
-    </>
+    </div>
   )
 }

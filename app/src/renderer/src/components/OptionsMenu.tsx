@@ -131,7 +131,7 @@ export function TraitsChip({
           <div
             role="menu"
             aria-label="Traits"
-            className="absolute bottom-full left-0 z-20 mb-1 min-w-44 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
+            className="absolute bottom-full left-0 z-30 mb-1 min-w-44 rounded-r2 overlay-menu p-1"
           >
             {descriptors.map((d) => (
               <OptionSection
@@ -200,7 +200,7 @@ export function CollapsedMenu({
           <div
             role="menu"
             aria-label="Session options"
-            className="absolute bottom-full left-0 z-20 mb-1 min-w-44 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
+            className="absolute bottom-full left-0 z-30 mb-1 min-w-44 rounded-r2 overlay-menu p-1"
           >
             {descriptors.map((d) => (
               <OptionSection

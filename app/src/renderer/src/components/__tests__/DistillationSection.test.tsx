@@ -31,16 +31,35 @@ function payload(mut?: (p: SettingsPayload) => void): SettingsPayload {
   return p
 }
 
+/**
+ * `SelectField` is a button + `role="listbox"` popup, not a native `<select>` (settingsLayout.tsx
+ * explains why). These three keep the assertions below reading the way they did against the
+ * native control: `select(x).value` is still the shown value, `optionsOf` still lists the
+ * choices, and `choose` still picks one.
+ */
 function optionsOf(label: string): (string | null)[] {
-  return Array.from(screen.getByLabelText(label).querySelectorAll('option')).map(
-    (o) => o.textContent
-  )
+  const trigger = screen.getByLabelText(label)
+  const wasOpen = trigger.getAttribute('aria-expanded') === 'true'
+  if (!wasOpen) fireEvent.click(trigger)
+  const opts = Array.from(
+    screen.getByRole('listbox', { name: label }).querySelectorAll('[role="option"]')
+  ).map((o) => o.textContent)
+  if (!wasOpen) fireEvent.click(trigger)
+  return opts
+}
+
+/** Pick an option: open the popup, click the entry. */
+function choose(label: string, option: string): void {
+  fireEvent.click(screen.getByLabelText(label))
+  fireEvent.click(screen.getByRole('option', { name: option }))
 }
 
 /** jest-dom isn't wired into a setup file in this project, so renderer tests assert on the
- *  DOM directly (see CaseWorkspace.test.tsx / CaseDashboard.delete.test.tsx). */
-function select(label: string): HTMLSelectElement {
-  return screen.getByLabelText(label) as HTMLSelectElement
+ *  DOM directly (see CaseWorkspace.test.tsx / CaseDashboard.delete.test.tsx). The trigger's
+ *  rendered text IS the control's value. */
+function select(label: string): { value: string; disabled: boolean } {
+  const el = screen.getByLabelText(label) as HTMLButtonElement
+  return { value: el.textContent ?? '', disabled: el.disabled }
 }
 
 let patchSpy: ReturnType<typeof vi.fn>
@@ -108,9 +127,7 @@ describe('DistillationSection', () => {
         })}
       />
     )
-    fireEvent.change(screen.getByLabelText('Distillation provider'), {
-      target: { value: 'Copilot' }
-    })
+    choose('Distillation provider', 'Copilot')
     expect(patchSpy).toHaveBeenCalledWith({
       agent: { distillProvider: { instanceId: 'github-copilot-1', model: null } }
     })
@@ -118,9 +135,7 @@ describe('DistillationSection', () => {
 
   it('omits the model key entirely when there is no stored model to clear', () => {
     render(<DistillationSection payload={payload()} />)
-    fireEvent.change(screen.getByLabelText('Distillation provider'), {
-      target: { value: 'Copilot' }
-    })
+    choose('Distillation provider', 'Copilot')
     // A literal `model: null` here would be written verbatim (no base object to recurse
     // into) and then fail `z.string().optional()` in settingsSchema.parse.
     expect(patchSpy).toHaveBeenCalledWith({
@@ -130,9 +145,7 @@ describe('DistillationSection', () => {
 
   it('pins the resolved instance when only a model is chosen', () => {
     render(<DistillationSection payload={payload()} />)
-    fireEvent.change(screen.getByLabelText('Distillation model'), {
-      target: { value: 'claude-haiku-4-5' }
-    })
+    choose('Distillation model', 'claude-haiku-4-5')
     expect(patchSpy).toHaveBeenCalledWith({
       agent: { distillProvider: { instanceId: 'claude-agent-sdk-1', model: 'claude-haiku-4-5' } }
     })
@@ -168,7 +181,7 @@ describe('DistillationSection', () => {
     )
     expect(select('Distillation provider').disabled).toBe(false)
     expect(optionsOf('Distillation provider')).toContain('Copilot')
-    fireEvent.change(select('Distillation provider'), { target: { value: 'Copilot' } })
+    choose('Distillation provider', 'Copilot')
     expect(patchSpy).toHaveBeenCalledWith({
       agent: { distillProvider: { instanceId: 'github-copilot-1' } }
     })
@@ -210,9 +223,7 @@ describe('DistillationSection', () => {
     expect(opts).toContain('Claude (claude-agent-sdk-1)')
     expect(opts).toContain('Claude (claude-agent-sdk-2)')
     // Selecting the second must pin the SECOND — a label collision would map both to one id.
-    fireEvent.change(select('Distillation provider'), {
-      target: { value: 'Claude (claude-agent-sdk-2)' }
-    })
+    choose('Distillation provider', 'Claude (claude-agent-sdk-2)')
     expect(patchSpy).toHaveBeenCalledWith({
       agent: { distillProvider: { instanceId: 'claude-agent-sdk-2' } }
     })

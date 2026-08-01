@@ -125,7 +125,18 @@ export function ReviewRunButton({
         <div
           role="group"
           aria-label="Review layers"
-          className="absolute right-0 top-full z-10 mt-1 flex w-64 flex-col gap-1 rounded-r2 border border-hair bg-panel p-2 shadow-lg"
+          /**
+           * `left-0`, not `right-0` (2026-08-01). This button lives at the LEFT of the panel tab
+           * strip, inside `CaseWorkspace`'s `<main className="… overflow-hidden">`. A
+           * right-anchored 16rem panel therefore extended past main's left edge and was *clipped*
+           * by that overflow — the visible symptom was a card with every line's first words
+           * sheared off at a hard vertical edge. Opening rightward keeps it inside the clip box.
+           * Same reasoning as `MenuButton`'s own `align="left"`, which documents this trap.
+           *
+           * `overlay-menu` (main.css) replaces `border-hair bg-panel shadow-lg`: one popup
+           * material for every popup, rather than each one naming its own surface.
+           */
+          className="absolute left-0 top-full z-30 mt-1 flex w-64 flex-col gap-1 rounded-r2 overlay-menu p-2"
         >
           <p className="text-[10px] text-mute">
             Nothing pinned — the agent picks the layers this PR needs.
@@ -144,7 +155,8 @@ export function ReviewRunButton({
       {needsPr && (
         <div
           role="status"
-          className="absolute right-0 top-full z-10 mt-1 flex w-72 items-start gap-2 rounded-r2 border border-hair bg-panel p-2 shadow-lg"
+          // `left-0` + `overlay-menu` for the same two reasons as the layer picker above.
+          className="absolute left-0 top-full z-30 mt-1 flex w-72 items-start gap-2 rounded-r2 overlay-menu p-2"
         >
           <p className="flex-1 text-[11px] leading-relaxed text-mute">
             No pull request is linked to this case yet — use{' '}

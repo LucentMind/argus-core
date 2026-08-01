@@ -66,7 +66,10 @@ export function ConfluenceSpaces(): React.JSX.Element {
           <span className="flex-1">{tokenWarning}</span>
         </div>
       )}
-      <SettingsSection title="Confluence spaces">
+      <SettingsSection
+        title="Confluence"
+        subtitle="Spaces synced into your references, and kept current."
+      >
         {(payload?.cards ?? []).map((card) => {
           const space = payload?.config.spaces.find((s) => s.key === card.key)
           return (

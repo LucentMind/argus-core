@@ -154,10 +154,21 @@ beforeEach(() => {
 })
 
 describe('SourcesPage', () => {
-  it('renders Packs and Confluence sync side by side', async () => {
+  it('renders the installed packs', async () => {
     render(<SourcesPage settings={payload()} />)
     expect(await screen.findByText('Installed Packs')).toBeInTheDocument()
-    expect(await screen.findByText('Confluence spaces')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add Confluence space' })).toBeInTheDocument()
+  })
+
+  /**
+   * Confluence moved to Team (2026-08-01, user-directed): a synced space is a shared upstream,
+   * the same kind of thing as the HiveMind repo, so the two are paired there instead. This page
+   * is pack machinery now. Asserted as an ABSENCE so a future re-import has to be deliberate —
+   * the two pages would otherwise both grow a Confluence section and neither would be wrong.
+   */
+  it('no longer carries Confluence sync', async () => {
+    render(<SourcesPage settings={payload()} />)
+    await screen.findByText('Installed Packs')
+    expect(screen.queryByText('Confluence')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add Confluence space' })).toBeNull()
   })
 })

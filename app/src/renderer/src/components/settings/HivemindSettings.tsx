@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Download, ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import { SettingsSection, SettingRow, DraftInput, FIELD } from './settingsLayout'
+import { ConfluenceSpaces } from './ConfluenceSpaces'
 import { Btn, Chip, IconBtn } from '../ui'
 import { TierBadge } from './TierBadge'
 import { withByline } from './byline'
@@ -317,8 +318,17 @@ export function HivemindSettings({
   const trimmedRepo = g.repo.trim()
   const isGithubSlug = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmedRepo)
   const repoSection = (
-    <SettingsSection title="Repository">
+    <SettingsSection
+      title="Repository"
+      subtitle="The GitHub repo your team's skills and references are shared through."
+    >
+      {/* `stacked` (2026-08-01): the default SettingRow puts label+description and the control
+          on ONE line, which needs the full content column. In this half-width panel that line
+          squeezed the label to ~200px and left the input a cramped `w-56` beside it. Stacked
+          gives the control its own full-width row underneath, which is what a narrow panel
+          wants — the same reason the path-picker rows use it. */}
       <SettingRow
+        stacked
         label="HiveMind repo"
         description="GitHub org/name of the shared skills & references repo. Blank keeps HiveMind features off."
         isDefault={g.repo === ''}
@@ -326,52 +336,95 @@ export function HivemindSettings({
       >
         <DraftInput
           aria-label="HiveMind repo"
-          className={`${FIELD} w-56 font-mono`}
+          // `w-full` rather than `w-56`: it now owns its row, so it should use it.
+          className={`${FIELD} w-full min-w-0 font-mono`}
           placeholder="org/name"
           value={g.repo}
           onCommit={(v) => void settingsStore.patch({ hivemind: { repo: v.trim() } })}
         />
       </SettingRow>
       {trimmedRepo !== '' && (
-        <div className="flex items-center gap-2 px-4 py-3">
-          {isGithubSlug ? (
-            <button
-              aria-label={`Open ${trimmedRepo} on GitHub`}
-              title={`Open https://github.com/${trimmedRepo}`}
-              className="inline-flex items-center gap-1 font-mono text-sm text-ink transition-colors hover:text-signal"
-              onClick={() => void window.argus.openExternal(`https://github.com/${trimmedRepo}`)}
+        /**
+         * `flex-wrap` + `min-w-0` (2026-08-01). This row was a single non-wrapping flex line
+         * built when the section had the whole content column to itself. In the two-column
+         * layout it does not fit, and a flex line that cannot fit does not clip — it *spills*:
+         * the tail of "synced 22.7.2026, 15:02:43" rendered outside the card, on top of the
+         * Confluence panel beside it. Wrapping is what keeps it inside its own column.
+         *
+         * The repo identity truncates rather than wraps (`min-w-0` + `truncate`): a URL broken
+         * across lines is harder to read than an elided one, and `title` carries the full text.
+         */
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            {isGithubSlug ? (
+              <button
+                aria-label={`Open ${trimmedRepo} on GitHub`}
+                title={`Open https://github.com/${trimmedRepo}`}
+                className="inline-flex min-w-0 items-center gap-1 font-mono text-sm text-ink transition-colors hover:text-signal"
+                onClick={() => void window.argus.openExternal(`https://github.com/${trimmedRepo}`)}
+              >
+                <span className="truncate">{trimmedRepo}</span>
+                <ExternalLink size={12} className="shrink-0" aria-hidden="true" />
+              </button>
+            ) : (
+              <span className="min-w-0 truncate font-mono text-sm text-ink" title={trimmedRepo}>
+                {trimmedRepo}
+              </span>
+            )}
+            <IconBtn
+              aria-label="Sync"
+              title="Sync HiveMind"
+              className="ml-auto"
+              disabled={busy}
+              onClick={() => void run(() => window.argus.hivemind.sync())}
             >
-              {trimmedRepo}
-              <ExternalLink size={12} aria-hidden="true" />
-            </button>
-          ) : (
-            <span className="font-mono text-sm text-ink">{trimmedRepo}</span>
+              <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
+            </IconBtn>
+          </div>
+          {/* Status on its own line, and wrapping within it. Guarded so a repo with no commit,
+              no state chip and no sync yet does not leave an empty row's worth of gap. */}
+          {(payload?.headCommit || statusChip || payload?.lastSynced) && (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {payload?.headCommit && (
+                <Chip tone="neutral">@ {payload.headCommit.slice(0, 7)}</Chip>
+              )}
+              {statusChip}
+              {payload?.lastSynced && (
+                <span className="text-xs text-mute">
+                  synced {new Date(payload.lastSynced).toLocaleString()}
+                </span>
+              )}
+            </div>
           )}
-          {payload?.headCommit && <Chip tone="neutral">@ {payload.headCommit.slice(0, 7)}</Chip>}
-          {statusChip}
-          {payload?.lastSynced && (
-            <span className="text-xs text-mute">
-              synced {new Date(payload.lastSynced).toLocaleString()}
-            </span>
-          )}
-          <IconBtn
-            aria-label="Sync"
-            title="Sync HiveMind"
-            className="ml-auto"
-            disabled={busy}
-            onClick={() => void run(() => window.argus.hivemind.sync())}
-          >
-            <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
-          </IconBtn>
         </div>
       )}
     </SettingsSection>
   )
 
+  /**
+   * The two upstreams this workspace subscribes to, as a left and a right panel (user-directed,
+   * 2026-08-01). Confluence used to live on Sources, beside pack installation — but a Confluence
+   * space and the HiveMind repo are the same *kind* of thing (a shared source someone else owns,
+   * synced in and kept current), while a pack is machinery. Pairing them here is what makes the
+   * Team page answer "where does my shared knowledge come from" in one screen.
+   *
+   * `lg:grid-cols-2`, so the pair stacks rather than crushes on a narrow window — each column
+   * carries a repo path or a space name, neither of which survives a 300px column.
+   *
+   * Rendered by every return path below, including the dormant one: Confluence sync does not
+   * depend on a HiveMind repo being set, so hiding it behind that would strand it.
+   */
+  const upstreams = (
+    <div className="grid items-start gap-6 lg:grid-cols-2">
+      {repoSection}
+      <ConfluenceSpaces />
+    </div>
+  )
+
   if (!payload) {
     return (
       <div className="flex flex-col gap-6">
-        {repoSection}
+        {upstreams}
         <div className="text-dim">loading…</div>
       </div>
     )
@@ -380,7 +433,7 @@ export function HivemindSettings({
   if (payload.state === 'dormant') {
     return (
       <div className="flex flex-col gap-6">
-        {repoSection}
+        {upstreams}
         <div className="px-1 py-2 text-sm text-dim">
           Set a HiveMind repo above to enable skill &amp; reference sharing.
         </div>
@@ -395,7 +448,7 @@ export function HivemindSettings({
 
   return (
     <div className="flex flex-col gap-6">
-      {repoSection}
+      {upstreams}
 
       {error && (
         <div

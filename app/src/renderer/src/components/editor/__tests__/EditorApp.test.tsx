@@ -303,6 +303,52 @@ describe('EditorApp', () => {
     const confirmBtn = closeButtons.find((b) => b.textContent === 'Close')
     await userEvent.click(confirmBtn!)
     await waitFor(() => expect(respondClose).toHaveBeenCalledWith(true))
+    // Keeping is the default branch: nothing on disk is touched.
+    expect(window.argus.editor.discardDraft).not.toHaveBeenCalled()
+  })
+
+  it('cancels the close when the prompt is dismissed', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
+    act(() => closeRequested!({ dirtyCount: 1 }))
+
+    await userEvent.click(await screen.findByRole('button', { name: /^cancel$/i }))
+    await waitFor(() => expect(respondClose).toHaveBeenCalledWith(false))
+    expect(window.argus.editor.discardDraft).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The third choice (user-directed, 2026-08-01). Before it, "I don't want this work" was
+   * unreachable from the close handshake — the only route was close, reopen, then discard from
+   * the resumable-drafts banner.
+   *
+   * The assertion that matters is the ORDER: the discard has to have landed before main is told
+   * it may close, because main flushes queued drafts on quit and would otherwise rewrite the
+   * draft moments after it was deleted.
+   */
+  it('discards the drafts of every dirty tab before allowing the close', async () => {
+    const order: string[] = []
+    vi.mocked(window.argus.editor.discardDraft).mockImplementation(async () => {
+      order.push('discard')
+    })
+    vi.mocked(respondClose).mockImplementation(() => {
+      order.push('respondClose')
+    })
+
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await userEvent.type(await screen.findByLabelText('skill · my-skill'), 'x')
+    act(() => closeRequested!({ dirtyCount: 1 }))
+
+    await userEvent.click(await screen.findByRole('button', { name: /discard & close/i }))
+
+    await waitFor(() => expect(respondClose).toHaveBeenCalledWith(true))
+    expect(window.argus.editor.discardDraft).toHaveBeenCalledWith({
+      kind: 'skill',
+      name: 'my-skill'
+    })
+    expect(order).toEqual(['discard', 'respondClose'])
   })
 
   // A window is not a modal: it stays on the asset after a save. Emptying it would send the user

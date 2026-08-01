@@ -55,7 +55,9 @@ export function CitedText({
           <a
             key={i}
             href={`cite://${seg.relPath}?line=${seg.start}${seg.end > seg.start ? `&end=${seg.end}` : ''}`}
-            className="font-mono text-xs text-defect underline decoration-dotted"
+            // `text-review` — see CitationCard's comment; the three citation renderings share
+            // one colour on purpose.
+            className="font-mono text-xs text-review underline decoration-dotted"
             onClick={(e) => {
               e.preventDefault()
               onCite(cite)

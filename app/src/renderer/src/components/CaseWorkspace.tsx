@@ -429,7 +429,19 @@ export function CaseWorkspace({
       <header
         // eslint-disable-next-line react-hooks/refs
         ref={anchors.setCutoff}
-        className={`flex items-center gap-3 border-b border-hair px-4 py-2 ${
+        /**
+         * `relative z-20` (2026-08-01) — the header's popovers (the Jira panel, the case-id
+         * menu) hang below it, over the evidence rail.
+         *
+         * The rail's cards are `position: relative` (`.glass-panel`, and `.surface-card` on
+         * hover), which puts them in the positioned-element paint step; the header comes first
+         * in DOM order, so at `z-index: auto` everything inside it — including a popover — paints
+         * UNDER them. In the dynamic theme it is worse: `.dyn-case-header`'s `backdrop-filter`
+         * makes the header a stacking context, so a popover's own `z-30` is trapped inside it and
+         * cannot climb out. One positive z on the header itself lifts the whole context above the
+         * rail and fixes both popovers at once, which per-popover z-index cannot do.
+         */
+        className={`relative z-20 flex items-center gap-3 border-b border-hair px-4 py-2 ${
           dynamic ? 'dyn-case-header' : 'bg-void'
         }`}
         data-tier={railTier(jiraPriority) ?? undefined}
@@ -440,7 +452,11 @@ export function CaseWorkspace({
         <span ref={anchors.setLight} className="inline-flex">
           <MenuButton
             label={slug}
-            triggerClassName="font-mono text-sm! text-defect!"
+            /* `text-signal`, not `text-defect` (user-directed, 2026-08-01): a case id is an
+               identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s
+               slug). The header drawing the SAME id in amber made one thing look like two, and
+               spent the attention colour on a label that is never a problem. */
+            triggerClassName="font-mono text-sm! text-signal!"
             align="left"
             items={[
               { label: closeAsLabel, children: statusItems },

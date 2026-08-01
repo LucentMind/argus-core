@@ -27,7 +27,7 @@ export interface TitleBarOverlay {
  */
 const PALETTE: Record<TitleBarTheme, { color: string; symbolColor: string }> = {
   dark: { color: '#0a0a0b', symbolColor: '#efede6' },
-  light: { color: '#faf8f3', symbolColor: '#18181b' }
+  light: { color: '#eef2f9', symbolColor: '#101823' }
 }
 
 /**

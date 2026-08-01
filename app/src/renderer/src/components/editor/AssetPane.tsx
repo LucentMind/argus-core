@@ -830,6 +830,10 @@ export function AssetPane({
       improve: () => void actionsRef.current.assist('improve'),
       draft: () => void actionsRef.current.assist('draft'),
       discardDraft: () => void actionsRef.current.discardDraft(),
+      // `filedAsRef`, not `name`: edit-mode identity is the name the draft was FILED under, which
+      // is what `dropDraft` above uses for the same reason. Create mode ignores it entirely and
+      // keys on `draftId` (see `keyOf` in main/services/drafts.ts).
+      draftRef: () => (mode === 'create' ? { draftId } : { kind, name: filedAsRef.current }),
       cycleViewMode: () => surfaceCommands.cycleViewMode(),
       changeFontSize: (delta) => surfaceCommands.changeFontSize(delta),
       toggleWrap: () => surfaceCommands.toggleWrap(),
@@ -840,8 +844,10 @@ export function AssetPane({
     // `paneRef` is not listed: React's `useImperativeHandle` already re-runs this factory whenever
     // the ref itself changes (it appends `ref` to the effect's own dependencies internally), which
     // is exactly why `react-hooks/exhaustive-deps` flags an explicit `paneRef` entry here as
-    // unnecessary.
-    [surfaceCommands, findReferences]
+    // unnecessary. `kind`/`mode`/`draftId` feed `draftRef` and are all stable for the life of the
+    // pane (two props fixed by the tab, one `useState` minted at mount), so listing them costs no
+    // churn — they are here to satisfy exhaustive-deps honestly rather than by omission.
+    [surfaceCommands, findReferences, kind, mode, draftId]
   )
 
   // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on

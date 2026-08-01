@@ -65,7 +65,7 @@ export function ChatFind({
   }
 
   return (
-    <div className="absolute right-3 top-11 z-20 flex items-center gap-2 rounded-r2 border border-hair bg-overlay px-2 py-1 shadow-lg">
+    <div className="absolute right-3 top-11 z-30 flex items-center gap-2 rounded-r2 overlay-menu px-2 py-1">
       <input
         ref={inputRef}
         aria-label="Find in chat"

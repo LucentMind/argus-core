@@ -53,10 +53,17 @@ beforeEach(() => {
   } as never
 })
 
+/** `SelectField` is a button + `role="listbox"` popup, not a native `<select>`
+ *  (settingsLayout.tsx explains why): open it, then click the entry. */
+function choose(label: string, option: string): void {
+  fireEvent.click(screen.getByLabelText(label))
+  fireEvent.click(screen.getByRole('option', { name: option }))
+}
+
 describe('GeneralSettings', () => {
   it('theme select writes uiStore (renderer-local), not IPC', () => {
     render(<GeneralSettings payload={payload()} />)
-    fireEvent.change(screen.getByLabelText('Theme'), { target: { value: 'light' } })
+    choose('Theme', 'light')
     expect(uiStore.get().theme).toBe('light')
     expect(window.argus.settings.patch).not.toHaveBeenCalled()
   })
@@ -74,7 +81,7 @@ describe('GeneralSettings', () => {
   it('timestamp format patches app-global settings; reset appears when non-default', () => {
     const { rerender } = render(<GeneralSettings payload={payload()} />)
     expect(screen.queryByRole('button', { name: 'Reset Timestamp format' })).toBeNull()
-    fireEvent.change(screen.getByLabelText('Timestamp format'), { target: { value: '24h' } })
+    choose('Timestamp format', '24h')
     expect(window.argus.settings.patch).toHaveBeenCalledWith({
       general: { timestampFormat: '24h' }
     })

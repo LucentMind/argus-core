@@ -83,10 +83,13 @@ export const PAGES = [
   {
     id: 'sources',
     label: 'Sources',
-    group: 'Knowledge',
+    group: 'System',
     enabled: true,
     Icon: Package,
-    blurb: 'Installed knowledge packs and their update state, plus Confluence spaces kept in sync.'
+    // Confluence moved to Team (2026-08-01, user-directed) — it is a shared upstream that a
+    // workspace subscribes to, which is what the Team page is. What is left here is pack
+    // installation and update state: machinery, not knowledge, hence the move to System.
+    blurb: 'Installed knowledge packs, where they came from, and their update state.'
   },
   {
     id: 'health',

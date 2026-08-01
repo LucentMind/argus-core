@@ -1,7 +1,7 @@
-import { useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronDown, Eraser } from 'lucide-react'
 import { Card, IconBtn, SectionLabel } from '../ui'
-import { blurOnEscape } from '../../lib/escapeLayer'
+import { pushEscapeLayer } from '../../lib/escapeLayer'
 import { uiStore } from '../../lib/uiStore'
 
 // `bg-well` (Task 12), not `bg-overlay`: every FIELD/TEXTAREA_FIELD sits inside a SettingsSection
@@ -116,6 +116,42 @@ export function SettingsSection({
   )
 }
 
+/**
+ * A row's hover-revealed action column (user-directed, 2026-08-01).
+ *
+ * **Only opacity changes.** The buttons occupy their space at rest, so crossing a row with the
+ * pointer never reflows it: the description column beside them keeps exactly the width it had,
+ * instead of being squeezed, wrapping to a second line, and growing the row's height under the
+ * cursor. That reflow is what made a long-description row (Subscribed's `hive-log-triage`) jump
+ * as the pointer arrived. The `Reveal` this replaced animated `width` from 0, which is precisely
+ * the thing that cannot be done without moving everything to its left.
+ *
+ * **`group-has-[:focus-visible]`, not `group-focus-within`.** A plain focus-within reveal never
+ * un-reveals after a mouse click: clicking a row's title button (or any action) leaves focus
+ * inside the row, so the buttons stayed lit after the pointer left, on every row the user had
+ * touched. `:focus-visible` is not set by a mouse click in Chromium, so keyboard users still get
+ * the reveal on Tab and mouse users get it only while hovering.
+ */
+export function RowActions({ children }: { children: ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100">
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The fixed slot a row's toggle sits in — rendered even when there is no toggle, so a row that
+ * has one and a row that does not put their actions at the same x. Without it, the Library's
+ * reference rows (no toggle) ran their buttons 36px further right than the skill rows above
+ * them, and the column read as ragged.
+ *
+ * `w-9` is `Switch`'s own width; `h-5` keeps an empty slot from collapsing the row's line box.
+ */
+export function RowToggle({ children }: { children?: ReactNode }): React.JSX.Element {
+  return <div className="flex h-5 w-9 shrink-0 items-center">{children}</div>
+}
+
 export function SettingRow({
   label,
   description,
@@ -197,7 +233,12 @@ export function SettingRow({
         <span className={labelClass} title={hint}>
           {labelContent}
         </span>
-        {description && <span className="text-xs text-mute">{description}</span>}
+        {/* Capped at two lines: a HiveMind skill's description is free prose from its
+            frontmatter and has no length bound, so one long one otherwise made its row twice
+            the height of every neighbour. Two lines is what the longest description in the
+            shipped set already occupies, so nothing in practice is truncated today — the clamp
+            is the bound, not a trim. */}
+        {description && <span className="line-clamp-2 text-xs text-mute">{description}</span>}
       </div>
       {!isDefault && onReset && (
         <IconBtn aria-label={`Reset ${label}`} title="Reset to default" onClick={onReset}>
@@ -334,6 +375,21 @@ export function DraftTextarea({
   )
 }
 
+/**
+ * The settings dropdown (user-directed, 2026-08-01).
+ *
+ * A button + an `.overlay-menu` popup, **not** a native `<select>`. The OS-drawn select popup is
+ * the one surface in the app Argus does not paint: it renders in the platform's own chrome, with
+ * the platform's own highlight colour and frame, and Electron gives it a fixed height that
+ * clipped the longer lists (the model picker) to a partial, scrolling stub. Fourteen settings
+ * controls read as a foreign widget dropped into the page. This is the same popup material and
+ * geometry `MenuButton` already uses, so every dropdown in the app is now one thing.
+ *
+ * `role="combobox"` on the trigger, `role="listbox"`/`role="option"` on the panel: the
+ * select-only combobox pattern (WAI-ARIA 1.2). That keeps the control addressable exactly as the
+ * native one was — `getByRole('combobox', { name })` and `getByLabelText(name)` both still find
+ * the trigger.
+ */
 export function SelectField({
   value,
   options,
@@ -348,20 +404,89 @@ export function SelectField({
   disabled?: boolean
   'aria-label': string
 }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  /** Flip above the trigger when there is no room below — same guard as `MenuButton`'s. */
+  const [openUp, setOpenUp] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  /**
+   * Escape is claimed by a real layer while the popup is open, rather than by `blurOnEscape`.
+   *
+   * The native `<select>` this replaced was a *field*, and `escapeLayer`'s dispatcher skips
+   * fields on purpose — which is why it needed `blurOnEscape` to hand the key back. A button is
+   * not a field, so with no layer here the first Escape would sail past the open popup and close
+   * the whole Settings view behind it. Pushed only while open, so Escape on a closed trigger
+   * still falls through to whatever owns the view — which is what a button should do.
+   */
+  useEffect(() => {
+    if (!open) return
+    return pushEscapeLayer({ onEscape: () => setOpen(false) })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
   return (
-    <select
-      aria-label={ariaLabel}
-      className={FIELD}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={blurOnEscape}
-    >
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        // `max-w-72` bounds the trigger: a model slug is long, and an unbounded button would
+        // push the row's label to min-content the way the badge row does without `flex-wrap`.
+        className={`${FIELD} inline-flex max-w-72 items-center justify-between gap-2`}
+        onClick={() => {
+          const rect = ref.current?.getBoundingClientRect()
+          setOpenUp(Boolean(rect && window.innerHeight - rect.bottom < 220 && rect.top > 220))
+          setOpen((o) => !o)
+        }}
+      >
+        <span className="truncate">{value}</span>
+        <ChevronDown
+          size={12}
+          strokeWidth={1.5}
+          className="shrink-0 text-mute"
+          aria-hidden="true"
+        />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          // `max-h-72` + scroll rather than the OS's own arbitrary cap: a long list stays a
+          // list, and it scrolls inside the popup instead of being cut off by it.
+          className={`absolute right-0 z-30 max-h-72 min-w-full overflow-y-auto rounded-r2 overlay-menu p-1 ${
+            openUp ? 'bottom-full mb-1' : 'mt-1'
+          }`}
+        >
+          {options.map((o) => (
+            <button
+              key={o}
+              type="button"
+              role="option"
+              aria-selected={o === value}
+              className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hair/50 ${
+                o === value ? 'text-ink' : 'text-dim'
+              }`}
+              onClick={() => {
+                setOpen(false)
+                if (o !== value) onChange(o)
+              }}
+            >
+              {o}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

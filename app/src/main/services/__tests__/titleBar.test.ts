@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   applyOverlay,
   overlayFor,
@@ -46,14 +48,40 @@ describe('overlayFor', () => {
       height: TITLEBAR_HEIGHTS.main
     })
     expect(overlayFor('editor', 'light')).toEqual({
-      color: '#faf8f3',
-      symbolColor: '#18181b',
+      color: '#eef2f9',
+      symbolColor: '#101823',
       height: TITLEBAR_HEIGHTS.editor
     })
   })
 
   it('defaults scale to 1', () => {
     expect(overlayFor('main', 'dark').height).toBe(TITLEBAR_HEIGHTS.main)
+  })
+
+  /**
+   * titleBar.ts's PALETTE is a hand-copy of the renderer's `--bg-1` / `--ink` (main cannot read
+   * the renderer's stylesheet), and it silently drifted once: the light redesign moved theme.css
+   * to the cool `#eef2f9` wash while this copy kept the old warm-paper `#faf8f3`, so the OS
+   * min/max/close cluster rendered on a different surface than the strip it sits in. Nothing
+   * caught it — every assertion in this file compared the copy against itself. This reads the
+   * stylesheet the copy claims to mirror and holds the two together.
+   */
+  it('mirrors theme.css — the copy this module admits it is', () => {
+    const css = readFileSync(join(__dirname, '../../../renderer/src/assets/theme.css'), 'utf8')
+    /** The value of `name` inside the first `selector { … }` block. */
+    const tokenIn = (selector: string, name: string): string => {
+      const open = css.indexOf('{', css.indexOf(selector))
+      const body = css.slice(open + 1, css.indexOf('}', open))
+      const hit = new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm').exec(body)
+      if (!hit) throw new Error(`${name} not found in ${selector}`)
+      return hit[1].trim()
+    }
+    expect(overlayFor('main', 'dark').color).toBe(tokenIn(':root {', '--bg-1'))
+    expect(overlayFor('main', 'dark').symbolColor).toBe(tokenIn(':root {', '--ink'))
+    expect(overlayFor('main', 'light').color).toBe(tokenIn(":root[data-theme='light'] {", '--bg-1'))
+    expect(overlayFor('main', 'light').symbolColor).toBe(
+      tokenIn(":root[data-theme='light'] {", '--ink')
+    )
   })
 
   it('scales the height and rounds, for a shrink (0.9) and a grow (1.5)', () => {
@@ -102,7 +130,7 @@ describe('applyOverlay', () => {
     const win = new FakeWindow()
     applyOverlay(win, 'editor', 'light')
     expect(win.overlays).toEqual([
-      { color: '#faf8f3', symbolColor: '#18181b', height: TITLEBAR_HEIGHTS.editor }
+      { color: '#eef2f9', symbolColor: '#101823', height: TITLEBAR_HEIGHTS.editor }
     ])
   })
 
@@ -138,7 +166,7 @@ describe('pushThemeIfChanged', () => {
     const changed = pushThemeIfChanged(win, editor, 'light', 'dark', 1)
     expect(changed).toBe(true)
     expect(win.overlays).toEqual([
-      { color: '#faf8f3', symbolColor: '#18181b', height: TITLEBAR_HEIGHTS.main }
+      { color: '#eef2f9', symbolColor: '#101823', height: TITLEBAR_HEIGHTS.main }
     ])
     expect(editor.themes).toEqual(['light'])
   })
@@ -156,7 +184,7 @@ describe('pushThemeIfChanged', () => {
     const win = new FakeWindow()
     const changed = pushThemeIfChanged(win, null, 'light', 'dark', 1.5)
     expect(changed).toBe(true)
-    expect(win.overlays).toEqual([{ color: '#faf8f3', symbolColor: '#18181b', height: 48 }])
+    expect(win.overlays).toEqual([{ color: '#eef2f9', symbolColor: '#101823', height: 48 }])
   })
 
   it('tolerates a null editor target (editor window not open)', () => {
@@ -188,7 +216,7 @@ describe('pushScaleIfChanged', () => {
     const win = new FakeWindow()
     const changed = pushScaleIfChanged(win, null, 1.5, 1, 'light')
     expect(changed).toBe(true)
-    expect(win.overlays).toEqual([{ color: '#faf8f3', symbolColor: '#18181b', height: 48 }])
+    expect(win.overlays).toEqual([{ color: '#eef2f9', symbolColor: '#101823', height: 48 }])
   })
 
   it('tolerates a null editor target (editor window not open)', () => {

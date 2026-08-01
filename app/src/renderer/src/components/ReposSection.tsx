@@ -118,13 +118,17 @@ export function ReposSection({
       </div>
       {workspaces.map((w) => (
         <div key={w.path} className="flex items-center gap-1">
-          <div className="min-w-0 flex-1 rounded-r2 border border-defect/30 bg-hair/50 px-2 py-1.5">
+          {/* Blue name, amber dot (user-directed, 2026-08-01) — the two were the wrong way
+              round. The repo NAME is an identifier and never a problem, so it takes the same
+              signal blue as every other identifier in the app; the dirty dot IS the thing
+              wanting attention, so it takes the attention colour the name was wearing. */}
+          <div className="min-w-0 flex-1 rounded-r2 border border-signal/30 bg-hair/50 px-2 py-1.5">
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate font-mono text-xs font-medium text-defect">
+              <span className="truncate font-mono text-xs font-medium text-signal">
                 {w.path.split(/[\\/]/).pop()}
               </span>
               {w.dirty && (
-                <span title="Uncommitted changes" className="shrink-0 text-[10px] text-signal">
+                <span title="Uncommitted changes" className="shrink-0 text-[10px] text-defect">
                   ●
                 </span>
               )}
@@ -172,7 +176,7 @@ export function ReposSection({
           <div
             title={p.error}
             className={`min-w-0 flex-1 rounded-r2 border px-2 py-1.5 ${
-              p.error ? 'border-danger/60 bg-danger/10' : 'border-defect/30 bg-hair/50'
+              p.error ? 'border-danger/60 bg-danger/10' : 'border-signal/30 bg-hair/50'
             }`}
           >
             {/* wrapped in a block div (matching the real chip above): `truncate` on a bare
@@ -181,7 +185,7 @@ export function ReposSection({
             <div className="flex min-w-0 items-center gap-1.5">
               <span
                 className={`truncate font-mono text-xs font-medium ${
-                  p.error ? 'text-danger line-through' : 'text-defect'
+                  p.error ? 'text-danger line-through' : 'text-signal'
                 }`}
               >
                 {p.name}

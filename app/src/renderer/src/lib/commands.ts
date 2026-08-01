@@ -1,4 +1,5 @@
 import type { ViewMode } from './editorPrefs'
+import type { DraftRef } from '../../../shared/editorIpc'
 
 /**
  * Spec §6.4. One registry, read by the palette, the toolbar buttons and the window keymap, so a
@@ -47,6 +48,16 @@ export interface AssetPaneHandle {
   improve(): void
   draft(): void
   discardDraft(): void
+  /**
+   * How this pane's draft is addressed on disk.
+   *
+   * Exposed alongside `discardDraft()` rather than folded into it because the two callers want
+   * different things: a command wants the pane to also re-read disk and reset its buffer, and
+   * does not care when the delete lands; the close handshake wants only the delete, and must
+   * *await* it — the window is about to go, and main flushes queued drafts on quit, so a
+   * fire-and-forget discard can lose the race against its own flush.
+   */
+  draftRef(): DraftRef
   cycleViewMode(): void
   /** `+1` / `-1` steps; `0` resets to the default. */
   changeFontSize(delta: number): void

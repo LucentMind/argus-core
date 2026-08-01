@@ -1,7 +1,7 @@
 import { useEffect, useState, Fragment } from 'react'
-import { HandGrab, Pencil, Share2, Trash2 } from 'lucide-react'
-import { SettingsSection, SettingRow, Switch } from './settingsLayout'
-import { Btn, Chip, MenuButton } from '../ui'
+import { HandGrab, Pencil, Share2, Trash2, type LucideIcon } from 'lucide-react'
+import { SettingsSection, SettingRow, Switch, RowActions, RowToggle } from './settingsLayout'
+import { Btn, Chip, IconBtn, MenuButton } from '../ui'
 import { ProposalsBanner } from './ProposalsBanner'
 import { ForkSkillDialog } from './ForkSkillDialog'
 import { SharePushDialog, PushReceiptChip } from './SharePushDialog'
@@ -51,12 +51,46 @@ const GROUP_EMPTY: Partial<Record<GroupId, string>> = {
   subscribed: "Nothing subscribed — browse your team's HiveMind under Settings → Team."
 }
 
-/** Collapses its destructive child to 0 width until the row is hovered or focused (spec §3). */
-function Reveal({ children }: { children: React.ReactNode }): React.JSX.Element {
+/**
+ * A row action, as an icon (user-directed, 2026-08-01).
+ *
+ * Every action on a Library row is now icon-only and lives inside {@link RowActions}, where the
+ * whole set fades in together on hover. Three word-labelled buttons per row put ~200px of
+ * permanent chrome on the right of every entry and made the list read as a toolbar with names
+ * attached; the icons are the same vocabulary the row's own viewer and the Confluence cards
+ * already use.
+ *
+ * `title` carries what the label used to say, and `aria-label` (required) keeps the name in the
+ * accessibility tree — dropping the visible text must not drop the name.
+ */
+function RowAction({
+  icon: Icon,
+  label,
+  title,
+  danger,
+  disabled,
+  onClick
+}: {
+  icon: LucideIcon
+  /** Accessible name — what the visible label used to be, plus the row it acts on. */
+  label: string
+  /** Tooltip. Defaults to the verb alone, since the name already carries the row. */
+  title?: string
+  danger?: boolean
+  disabled?: boolean
+  onClick: () => void
+}): React.JSX.Element {
   return (
-    <span className="-mr-2 flex w-0 items-center overflow-hidden opacity-0 transition-opacity group-hover/row:mr-0 group-hover/row:w-auto group-hover/row:opacity-100 group-focus-within/row:mr-0 group-focus-within/row:w-auto group-focus-within/row:opacity-100">
-      {children}
-    </span>
+    <IconBtn
+      size="sm"
+      aria-label={label}
+      title={title ?? label}
+      disabled={disabled}
+      onClick={onClick}
+      className={danger ? 'hover:bg-danger/10 hover:text-danger' : ''}
+    >
+      <Icon size={14} aria-hidden="true" />
+    </IconBtn>
   )
 }
 
@@ -355,68 +389,67 @@ export function LibraryPage({
             </>
           }
         >
-          {s.tier === 'user' && (
-            <>
-              {adopt ? (
-                <Btn
-                  variant="outline"
-                  aria-label={`Adopt upstream · ${s.name}`}
-                  title="Delete your copy so the team's version is used again"
-                  onClick={() => void removeUserSkill(s, true)}
-                >
-                  Adopt upstream
-                </Btn>
-              ) : (
-                <Reveal>
+          <RowActions>
+            {s.tier === 'user' && (
+              <>
+                {/* "Adopt upstream" stays a worded button: it is not one of the three
+                    recurring row verbs, and no icon carries "delete mine so the team's copy
+                    wins" on its own. It also appears on a handful of rows, not on every one,
+                    so it costs the column nothing at rest. */}
+                {adopt ? (
                   <Btn
-                    variant="dangerSolid"
-                    aria-label={`Delete · ${s.name}`}
-                    onClick={() => void removeUserSkill(s, false)}
+                    variant="outline"
+                    aria-label={`Adopt upstream · ${s.name}`}
+                    title="Delete your copy so the team's version is used again"
+                    onClick={() => void removeUserSkill(s, true)}
                   >
-                    <Trash2 size={13} aria-hidden="true" />
-                    Delete
+                    Adopt upstream
                   </Btn>
-                </Reveal>
-              )}
-              <Btn
-                variant="outline"
-                aria-label={`Edit · ${s.name}`}
-                onClick={() => openEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
-              >
-                <Pencil size={13} aria-hidden="true" />
-                Edit
-              </Btn>
-              <Btn
-                variant="outline"
-                aria-label={`Share ${s.name} to HiveMind`}
-                title={shareTip}
-                // sharePushing: opening another row's dialog would unmount an
-                // in-flight push and its PR URL would never be shown
-                disabled={!shareReady || sharePushing}
-                onClick={() => setSharing(sharing === `skill/${s.name}` ? null : `skill/${s.name}`)}
-              >
-                <Share2 size={13} aria-hidden="true" />
-                Share
-              </Btn>
-            </>
-          )}
-          {s.tier === 'hivemind' && (
-            <Reveal>
-              <Btn
-                variant="dangerSolid"
-                aria-label={`Remove · ${s.name}`}
+                ) : (
+                  <RowAction
+                    icon={Trash2}
+                    danger
+                    label={`Delete · ${s.name}`}
+                    title="Delete"
+                    onClick={() => void removeUserSkill(s, false)}
+                  />
+                )}
+                <RowAction
+                  icon={Pencil}
+                  label={`Edit · ${s.name}`}
+                  title="Edit"
+                  onClick={() => openEditor({ kind: 'skill', name: s.name, mode: 'edit' })}
+                />
+                <RowAction
+                  icon={Share2}
+                  label={`Share ${s.name} to HiveMind`}
+                  title={shareTip}
+                  // sharePushing: opening another row's dialog would unmount an
+                  // in-flight push and its PR URL would never be shown
+                  disabled={!shareReady || sharePushing}
+                  onClick={() =>
+                    setSharing(sharing === `skill/${s.name}` ? null : `skill/${s.name}`)
+                  }
+                />
+              </>
+            )}
+            {s.tier === 'hivemind' && (
+              <RowAction
+                icon={Trash2}
+                danger
+                label={`Remove · ${s.name}`}
+                title="Remove"
                 onClick={() => void removeHiveSkill(s)}
-              >
-                <Trash2 size={13} aria-hidden="true" />
-                Remove
-              </Btn>
-            </Reveal>
-          )}
-          <Switch
-            checked={s.enabled}
-            onChange={(v) => void toggle(s, v)}
-            aria-label={`enabled · ${s.tier}/${s.name}`}
-          />
+              />
+            )}
+          </RowActions>
+          <RowToggle>
+            <Switch
+              checked={s.enabled}
+              onChange={(v) => void toggle(s, v)}
+              aria-label={`enabled · ${s.tier}/${s.name}`}
+            />
+          </RowToggle>
         </SettingRow>
         {sharing === `skill/${s.name}` && (
           <SharePushDialog
@@ -439,6 +472,9 @@ export function LibraryPage({
     const u = refUsage?.get(r.file)
     const hive = hiveItems.get(`reference/${r.file}`)
     const canClaim = r.tier === 'hivemind' && (hive?.installed ?? true)
+    // Hand-owned tiers are deleted for good; hive-managed ones merely uninstall. The verb is
+    // hoisted because it is now the tooltip AND the accessible name (see removeReference).
+    const removeVerb = r.tier !== 'hivemind' && r.tier !== 'confluence' ? 'Delete' : 'Remove'
     // withByline needs a plain string to append "· by <name>" to — build the same text this
     // row has always shown (synced/read-count meta) as one string rather than a JSX fragment.
     const descText =
@@ -466,56 +502,50 @@ export function LibraryPage({
             </>
           }
         >
-          {canClaim && (
-            <Btn
-              variant="outline"
-              aria-label={`Claim · ${r.file}`}
-              title="Make this yours — editable, deletable, shareable"
-              onClick={() => void claimReference(r)}
-            >
-              <HandGrab size={13} aria-hidden="true" />
-              Claim
-            </Btn>
-          )}
-          {groupOf(r.tier) !== 'built-in' && (
-            <Reveal>
-              <Btn
-                variant="dangerSolid"
-                aria-label={`${r.tier !== 'hivemind' && r.tier !== 'confluence' ? 'Delete' : 'Remove'} · ${r.file}`}
-                onClick={() => void removeReference(r)}
-              >
-                <Trash2 size={13} aria-hidden="true" />
-                {r.tier !== 'hivemind' && r.tier !== 'confluence' ? 'Delete' : 'Remove'}
-              </Btn>
-            </Reveal>
-          )}
-          {r.tier !== 'bundled' &&
-            !(HIVE_MANAGED_TIERS as readonly string[]).includes(r.tier ?? '') && (
-              <Btn
-                variant="outline"
-                aria-label={`Edit · ${r.file}`}
-                onClick={() => openEditor({ kind: 'reference', name: r.file, mode: 'edit' })}
-              >
-                <Pencil size={13} aria-hidden="true" />
-                Edit
-              </Btn>
+          <RowActions>
+            {canClaim && (
+              <RowAction
+                icon={HandGrab}
+                label={`Claim · ${r.file}`}
+                title="Make this yours — editable, deletable, shareable"
+                onClick={() => void claimReference(r)}
+              />
             )}
-          {canShare && (
-            <Btn
-              variant="outline"
-              aria-label={`Share ${r.file} to HiveMind`}
-              title={shareTip}
-              // sharePushing: opening another row's dialog would unmount an
-              // in-flight push and its PR URL would never be shown
-              disabled={!shareReady || sharePushing}
-              onClick={() =>
-                setSharing(sharing === `reference/${r.file}` ? null : `reference/${r.file}`)
-              }
-            >
-              <Share2 size={13} aria-hidden="true" />
-              Share
-            </Btn>
-          )}
+            {groupOf(r.tier) !== 'built-in' && (
+              <RowAction
+                icon={Trash2}
+                danger
+                label={`${removeVerb} · ${r.file}`}
+                title={removeVerb}
+                onClick={() => void removeReference(r)}
+              />
+            )}
+            {r.tier !== 'bundled' &&
+              !(HIVE_MANAGED_TIERS as readonly string[]).includes(r.tier ?? '') && (
+                <RowAction
+                  icon={Pencil}
+                  label={`Edit · ${r.file}`}
+                  title="Edit"
+                  onClick={() => openEditor({ kind: 'reference', name: r.file, mode: 'edit' })}
+                />
+              )}
+            {canShare && (
+              <RowAction
+                icon={Share2}
+                label={`Share ${r.file} to HiveMind`}
+                title={shareTip}
+                // sharePushing: opening another row's dialog would unmount an
+                // in-flight push and its PR URL would never be shown
+                disabled={!shareReady || sharePushing}
+                onClick={() =>
+                  setSharing(sharing === `reference/${r.file}` ? null : `reference/${r.file}`)
+                }
+              />
+            )}
+          </RowActions>
+          {/* A reference has no enable switch, but it still reserves the slot — that is what
+              keeps its icons in the same column as the skill rows it is interleaved with. */}
+          <RowToggle />
         </SettingRow>
         {sharing === `reference/${r.file}` && (
           <SharePushDialog

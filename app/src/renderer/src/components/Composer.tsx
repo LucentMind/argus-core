@@ -72,7 +72,7 @@ function OptionChip({
           <div
             role="menu"
             aria-label={menuLabel}
-            className="absolute bottom-full left-0 z-20 mb-1 min-w-40 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
+            className="absolute bottom-full left-0 z-30 mb-1 min-w-40 rounded-r2 overlay-menu p-1"
           >
             {options.map((opt) => (
               <button
@@ -434,7 +434,7 @@ export function Composer({
       data-onboarding-anchor="composer"
     >
       {popupOpen && (
-        <div className="absolute bottom-full left-3 z-20 mb-1 w-96 rounded-r2 border border-hair bg-overlay p-1 shadow-lg">
+        <div className="absolute bottom-full left-3 z-30 mb-1 w-96 rounded-r2 overlay-menu p-1">
           {matches.map((s, i) => (
             <button
               key={s.name}

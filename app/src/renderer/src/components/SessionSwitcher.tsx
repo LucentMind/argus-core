@@ -233,7 +233,7 @@ export function SessionSwitcher({
             <div
               role="group"
               aria-label="Sessions"
-              className="absolute left-0 top-full z-20 mt-1 w-72 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
+              className="absolute left-0 top-full z-30 mt-1 w-72 rounded-r2 overlay-menu p-1"
             >
               {searchActive ? (
                 <>

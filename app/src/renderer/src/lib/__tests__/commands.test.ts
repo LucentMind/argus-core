@@ -13,6 +13,7 @@ function handle(): AssetPaneHandle {
     improve: vi.fn(),
     draft: vi.fn(),
     discardDraft: vi.fn(),
+    draftRef: vi.fn(() => ({ kind: 'skill' as const, name: 'x' })),
     cycleViewMode: vi.fn(),
     changeFontSize: vi.fn(),
     toggleWrap: vi.fn(),

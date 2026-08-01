@@ -307,21 +307,32 @@ describe('SettingsView', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('Escape on a focused SelectField blurs it instead of being swallowed', async () => {
-    // Focus remains on a <select> after choosing an option, and the shared
-    // escape-layer dispatcher deliberately ignores Escape targeting a focused
-    // field (the field is supposed to own that keystroke) — so an unhandled
-    // select would trap Escape forever on whatever page it's on. SelectField
-    // must blur itself on Escape so the *next* Escape reaches the layer.
+  /**
+   * Rewritten with `SelectField` (2026-08-01), which is now a button + popup rather than a
+   * native `<select>`.
+   *
+   * The old test pinned the workaround that shape needed: the escape-layer dispatcher skips
+   * Escape aimed at a focused FIELD, and a `<select>` is one, so an open select swallowed
+   * Escape forever unless it blurred itself. A button is not a field, so the control now takes
+   * Escape the honest way — it pushes a real layer while its popup is open, and pushes nothing
+   * while closed. What has to hold is that ONE Escape closes the popup without also closing
+   * Settings behind it.
+   */
+  it('Escape closes an open SelectField popup without closing Settings', async () => {
     const onClose = vi.fn()
     render(<SettingsView onClose={onClose} />)
     await screen.findByRole('button', { name: /General/ })
-    const themeSelect = screen.getByRole('combobox', { name: 'Theme' })
-    themeSelect.focus()
-    expect(document.activeElement).toBe(themeSelect)
-    fireEvent.keyDown(themeSelect, { key: 'Escape' })
-    expect(document.activeElement).not.toBe(themeSelect)
+    const theme = screen.getByRole('combobox', { name: 'Theme' })
+    fireEvent.click(theme)
+    expect(theme.getAttribute('aria-expanded')).toBe('true')
+
+    await userEvent.keyboard('{Escape}')
+    expect(theme.getAttribute('aria-expanded')).toBe('false')
     expect(onClose).not.toHaveBeenCalled()
+
+    // ...and the NEXT Escape reaches the view, now that the popup has let go of it.
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('shows a load-error banner with an Open file action', async () => {

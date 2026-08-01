@@ -49,8 +49,8 @@ describe('mainWindowOptions', () => {
   it('carries the light-theme overlay colors', () => {
     const opts = mainWindowOptions('light', 1, '/argus-icon.png', '/preload/index.js', 'win32')
     expect(opts.titleBarOverlay).toEqual({
-      color: '#faf8f3',
-      symbolColor: '#18181b',
+      color: '#eef2f9',
+      symbolColor: '#101823',
       height: TITLEBAR_HEIGHTS.main
     })
   })
@@ -83,8 +83,8 @@ describe('editorWindowOptions', () => {
   it('carries the overlay for the given theme and scale, at the editor strip height', () => {
     const opts = editorWindowOptions('light', 0.9, '/preload/index.js', 'win32')
     expect(opts.titleBarOverlay).toEqual({
-      color: '#faf8f3',
-      symbolColor: '#18181b',
+      color: '#eef2f9',
+      symbolColor: '#101823',
       height: Math.round(TITLEBAR_HEIGHTS.editor * 0.9)
     })
   })

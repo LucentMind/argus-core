@@ -3,7 +3,7 @@ import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
 import { CommandPalette } from './CommandPalette'
 import { ConfirmHost } from '../ConfirmHost'
-import { alert, confirm, confirmStore } from '../../lib/confirmStore'
+import { alert, choose, confirm, confirmStore } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { TitleBarStrip } from '../TitleBarStrip'
@@ -606,16 +606,39 @@ export function EditorApp(): React.JSX.Element {
           // Spec §3.5: reports rather than warns, and deliberately does not claim a destruction
           // that no longer happens. Not `danger` for the same reason. `info.dirtyCount` comes
           // back from main, which is the count this window sent it.
+          //
+          // Three-way (user-directed, 2026-08-01): keeping the drafts is still the default and
+          // still the primary button, but "I don't want this work" was previously unreachable
+          // from here — the only way out was to close, reopen, and discard each draft from the
+          // resumable-drafts banner. The alt is `danger`-styled because it is the lossy branch.
           const n = Math.max(1, info.dirtyCount)
-          const allow = await confirm({
+          const choice = await choose({
             title: `${n} ${n === 1 ? 'tab has' : 'tabs have'} unsaved changes.`,
-            message: "They'll be kept as drafts.",
-            confirmLabel: 'Close'
+            message: "They'll be kept as drafts unless you discard them.",
+            confirmLabel: 'Close',
+            altLabel: n === 1 ? 'Discard & close' : 'Discard all & close',
+            altDanger: true
           })
-          window.argus.editor.respondClose(allow)
+          if (choice === 'cancel') {
+            window.argus.editor.respondClose(false)
+            return
+          }
+          if (choice === 'alt') {
+            // Awaited, and awaited BEFORE respondClose: main flushes queued drafts on quit, so a
+            // fire-and-forget discard here races that flush and can lose — the draft would be
+            // rewritten moments after being deleted. A failure must not strand the window open,
+            // so a rejected delete degrades to keeping that draft rather than cancelling the
+            // close; the user asked to leave.
+            await Promise.all(
+              dirtyPanes().map((h) =>
+                window.argus.editor.discardDraft(h.draftRef()).catch(() => undefined)
+              )
+            )
+          }
+          window.argus.editor.respondClose(true)
         })()
       }),
-    []
+    [dirtyPanes]
   )
 
   return (
