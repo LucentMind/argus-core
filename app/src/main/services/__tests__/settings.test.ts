@@ -6,7 +6,7 @@ import { SettingsService } from '../settings'
 import { settingsPath } from '../paths'
 import { defaultSettings, settingsSchema } from '../../../shared/settings'
 import type { ResolvedToolRow } from '../../../shared/settings'
-import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
+import { FS_WATCH_TIMEOUT, armFsWatch } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, svc: SettingsService
 
@@ -86,6 +86,24 @@ describe('SettingsService', () => {
     svc.patch({ agent: { maxSessions: 5 } }) // ensures file + dir exist
     let notified = false
     svc.subscribe(() => (notified = true))
+    // Arm before asserting, for the reason spelled out in fsWatchBudget: the write below
+    // used to be the first one after the watcher was created, and on macOS that write can
+    // be lost rather than delayed. Each poke uses a different maxSessions so JsonFileStore
+    // sees genuinely changed content every time.
+    let n = 0
+    await armFsWatch(
+      // Cycled inside the schema's 1..16 range rather than incremented without bound: a
+      // watcher that took many pokes would otherwise start writing values the schema
+      // rejects, and the assertion below would be reading a defaulted file.
+      () =>
+        fs.writeFileSync(
+          settingsPath(argusHome),
+          `{"agent":{"maxSessions":${8 + (n++ % 8)}}}`,
+          'utf8'
+        ),
+      () => notified
+    )
+    notified = false
     fs.writeFileSync(settingsPath(argusHome), '{"agent":{"maxSessions":7}}', 'utf8')
     // Waiting on the OS to deliver a filesystem event, not on code — see fsWatchBudget.
     await vi.waitFor(() => expect(notified).toBe(true), { timeout: FS_WATCH_TIMEOUT })

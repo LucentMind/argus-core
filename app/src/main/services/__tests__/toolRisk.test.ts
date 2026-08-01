@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { ToolRiskStore } from '../toolRisk'
 import { toolRiskPath } from '../paths'
-import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
+import { FS_WATCH_TIMEOUT, armFsWatch } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, store: ToolRiskStore
 
@@ -47,6 +47,16 @@ describe('ToolRiskStore', () => {
     fs.writeFileSync(toolRiskPath(argusHome), '{}', 'utf8')
     store = new ToolRiskStore(argusHome)
     expect(store.get()).toEqual({})
+    // Same un-armed-watcher race proposalsWatch had: `fs.watch` returns before its FSEvents
+    // stream is live, so a write issued straight after the store is constructed can be lost
+    // outright rather than merely delayed. Measured on macOS CI: 9 of 100 watchers needed a
+    // second poke. Each poke carries a distinct key because JsonFileStore suppresses a
+    // change whose content matches what it last read.
+    let n = 0
+    await armFsWatch(
+      () => fs.writeFileSync(toolRiskPath(argusHome), JSON.stringify({ [`arm/${++n}`]: 'low' })),
+      () => Object.keys(store.get()).length > 0
+    )
     fs.writeFileSync(toolRiskPath(argusHome), JSON.stringify({ 'x/y': 'high' }), 'utf8')
     // Waiting on the OS to deliver a filesystem event, not on code — see fsWatchBudget.
     await vi.waitFor(() => expect(store.get()).toEqual({ 'x/y': 'high' }), {
