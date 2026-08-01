@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER, type ReviewLayerId } from '../../../shared/reviewLayers'
+import { panelsStore } from '../lib/panelsStore'
 
 /**
  * Starts a layered review. Auto by default: an empty pin list means the agent decides which
@@ -22,10 +23,45 @@ export function ReviewRunButton({
   const [pinned, setPinned] = useState<ReviewLayerId[]>([])
   const [open, setOpen] = useState(false)
   const [running, setRunning] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
 
   function toggle(id: ReviewLayerId): void {
     setPinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
+
+  // Mirrors MenuButton's own open-sync effect (ui.tsx:194-200): keep panelsStore's
+  // launcherOpen in lockstep with `open` from an effect, not from inside the setOpen
+  // updater — updaters must stay pure (StrictMode double-invokes them in dev), and
+  // notifying an external store from one risks doing so during the render phase. This
+  // also covers switching out of review mode while the dropdown is open, which unmounts
+  // the whole button (CaseWorkspace stops passing it as `action`) without an
+  // onClick(false) — the cleanup below fires false on unmount too, so launcherOpen can
+  // never get stuck true.
+  useEffect(() => {
+    panelsStore.setLauncherOpen(open)
+    return () => {
+      if (open) panelsStore.setLauncherOpen(false)
+    }
+  }, [open])
+
+  // Mirrors MenuButton's outside-mousedown + Escape listeners (ui.tsx:201-215) so the
+  // dropdown — and so the docked panel it occludes — is self-clearing instead of staying
+  // blank until the user clicks the trigger again.
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   async function run(): Promise<void> {
     if (sessionId === null || running) return
@@ -44,7 +80,7 @@ export function ReviewRunButton({
   }
 
   return (
-    <div className="relative flex items-center">
+    <div className="relative flex items-center" ref={ref}>
       <button
         type="button"
         aria-label="Run review"

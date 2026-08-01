@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { DistillChip } from '../DistillChip'
 import type { DistillJobRow } from '../../../../shared/distill'
+import type { DistillStatusPayload } from '../../../../shared/distill'
 
 const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
   id: 1,
@@ -17,7 +18,7 @@ const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
 })
 
 let retry: ReturnType<typeof vi.fn>
-function setup(j: DistillJobRow | null): void {
+function setup(j: DistillJobRow | null): ReturnType<typeof render> {
   retry = vi.fn().mockResolvedValue(job({ state: 'queued' }))
   ;(window as unknown as { argus: unknown }).argus = {
     distill: {
@@ -26,17 +27,19 @@ function setup(j: DistillJobRow | null): void {
       onChanged: vi.fn().mockReturnValue(() => undefined)
     }
   }
-  render(<DistillChip slug="c1" />)
+  return render(<DistillChip slug="c1" />)
 }
 
 describe('DistillChip', () => {
-  it('shows staged count when done', async () => {
-    setup(job({ state: 'done', itemCount: 3 }))
-    expect(await screen.findByText(/distilled · 3/)).toBeInTheDocument()
+  it('renders nothing once distillation is done — that state lives in the menu now', async () => {
+    setup(job({ state: 'done', itemCount: 12 }))
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
-  it('shows nothing-to-distill as first-class state', async () => {
+  it('renders nothing for a done job with nothing staged either — also lives in the menu now', async () => {
     setup(job({ state: 'done', itemCount: 0 }))
-    expect(await screen.findByText(/nothing to distill/i)).toBeInTheDocument()
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
   it('failed state offers retry', async () => {
     setup(job({ state: 'failed', error: 'boom', itemCount: null }))
@@ -95,5 +98,35 @@ describe('DistillChip', () => {
     await waitFor(() => expect(retry).toHaveBeenCalledWith(1))
     // On failure, status() is called again to re-sync
     await waitFor(() => expect(status).toHaveBeenCalledTimes(initialStatusCallCount + 1))
+  })
+
+  it('a later broadcast supersedes an optimistic retry result (regression: override never cleared)', async () => {
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    retry = vi.fn().mockResolvedValue(job({ state: 'queued' }))
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: vi.fn().mockResolvedValue(job({ state: 'failed', error: 'boom', itemCount: null })),
+        retry,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    render(<DistillChip slug="c1" />)
+    const button = await screen.findByRole('button', { name: /retry/i })
+
+    fireEvent.click(button)
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(1))
+    // Optimistic retry result lands: chip shows distilling…
+    await waitFor(() => expect(screen.getByText(/distilling/)).toBeInTheDocument())
+
+    // Main finishes the job and broadcasts `done` — this must supersede the optimistic
+    // 'queued' result the retry response set, not be permanently shadowed by it.
+    act(() => {
+      onChangedCb?.({ caseSlug: 'c1', job: job({ state: 'done', itemCount: 5 }) })
+    })
+
+    await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
 })

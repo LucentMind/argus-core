@@ -30,6 +30,11 @@ export class PanelsStore {
   // separately and OR them, so releasing one doesn't un-hide the view while the other is up.
   private modalOccluded = false
   private launcherOpen = false
+  // Component-level modals (PrPickerDialog, JiraAttachmentsDialog) register themselves here
+  // instead of lifting state up to App -- a Set (not a single boolean) because two such
+  // dialogs can be open at once, and a shared boolean would let the first one to close
+  // un-occlude the view while the second is still showing.
+  private modalIds = new Set<string>()
 
   get(): PanelsState {
     return this.state
@@ -86,8 +91,21 @@ export class PanelsStore {
     this.recomputeOcclusion()
   }
 
+  /** Register a component-level modal/dialog as an occlusion source, from within the dialog
+   *  itself rather than at its call site, so a future call site can't forget. `id` should be
+   *  unique per mounted instance (e.g. React's `useId()`). Returns a deregister function; the
+   *  view stays occluded until every registered id has deregistered. */
+  registerModal(id: string): () => void {
+    this.modalIds.add(id)
+    this.recomputeOcclusion()
+    return () => {
+      this.modalIds.delete(id)
+      this.recomputeOcclusion()
+    }
+  }
+
   private recomputeOcclusion(): void {
-    const occluded = this.modalOccluded || this.launcherOpen
+    const occluded = this.modalOccluded || this.launcherOpen || this.modalIds.size > 0
     if (occluded !== this.state.occluded) this.set({ occluded })
   }
 

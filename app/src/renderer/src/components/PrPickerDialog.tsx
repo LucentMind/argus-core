@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import type { PrBinding, PrCandidate, PrSearchResult } from '../../../shared/pr'
 import { confirm as confirmDialog } from '../lib/confirmStore'
+import { panelsStore } from '../lib/panelsStore'
 
 const keyOf = (c: PrCandidate): string => `${c.owner}/${c.repo}#${c.number}`
 
@@ -61,6 +62,12 @@ export function PrPickerDialog({
   const [selected, setSelected] = useState<string | null>(() => defaultKey(result.candidates))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // A docked panel is a native WebContentsView that paints above all DOM, so this modal must
+  // register itself as an occlusion source (see panelsStore.registerModal) -- registering here
+  // rather than at the call site means a future call site can't forget to occlude the panel.
+  const modalId = useId()
+  useEffect(() => panelsStore.registerModal(modalId), [modalId])
 
   async function confirm(): Promise<void> {
     if (busy) return // guards against a double-click racing the confirmDialog await below

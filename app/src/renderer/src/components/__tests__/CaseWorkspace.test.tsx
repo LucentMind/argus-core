@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
+import { noticeStore } from '../../lib/noticeStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
@@ -185,6 +187,7 @@ function workspace(
     onStatusChanged?: () => void
     activeMode?: ModeId
     onModeSwitched?: () => void
+    onHome?: () => void
   }
 ): React.JSX.Element {
   return (
@@ -202,6 +205,7 @@ function workspace(
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
       onOpenRepoFile={vi.fn()}
+      onHome={overrides?.onHome ?? vi.fn()}
     />
   )
 }
@@ -213,6 +217,7 @@ function renderWorkspace(overrides?: {
   onStatusChanged?: () => void
   activeMode?: ModeId
   onModeSwitched?: () => void
+  onHome?: () => void
 }): ReturnType<typeof render> {
   return render(workspace('NAV-1', overrides))
 }
@@ -537,11 +542,13 @@ describe('CaseWorkspace mode switching', () => {
     // the indicator lives on the control the user just clicked, not adrift on the page
     const reviewBtn = screen.getByRole('button', { name: /case mode · review/i })
     await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('true'))
-    expect(await screen.findByText(/searching .* pull requests/i)).toBeTruthy()
+    await waitFor(() =>
+      expect(reviewBtn.getAttribute('title')).toMatch(/searching .* pull requests/i)
+    )
 
     resolve({ candidates: [], error: null, searchedRepos: ['x/y'] })
-    await waitFor(() => expect(screen.queryByText(/searching .* pull requests/i)).toBeNull())
-    expect(reviewBtn.getAttribute('aria-busy')).toBe('false')
+    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
+    expect(reviewBtn.getAttribute('title')).toBeNull()
   })
 
   it('offers the PR picker after switching to review with nothing bound yet', async () => {
@@ -1014,6 +1021,7 @@ describe('CaseWorkspace case-id menu', () => {
   })
 
   it('exports the case via the Export submenu', async () => {
+    noticeStore.reset()
     const exportFn = vi.fn().mockResolvedValue({ ok: true, fileCount: 3 })
     window.argus.bundle = { export: exportFn } as never
     renderWorkspace({ status: 'open', resolution: null })
@@ -1021,7 +1029,118 @@ describe('CaseWorkspace case-id menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
     await waitFor(() => expect(exportFn).toHaveBeenCalledWith('NAV-1', true))
-    expect(await screen.findByText(/exported 3 files/i)).toBeTruthy()
+    await waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
+    expect(noticeStore.get().notices[0].message).toBe('exported 3 files')
+  })
+
+  // Task 9 moved this out of inline header text into a bottom-right toast; this branch
+  // moves it again, into the header's own info slot (right of ModeSwitcher) — the toast
+  // went unnoticed because the action that triggers it (the case menu) is top-left.
+  it('shows a finished export inline in the header notice slot, not as a floating toast', async () => {
+    const user = userEvent.setup()
+    noticeStore.reset()
+    window.argus.bundle = { export: vi.fn(async () => ({ ok: true, fileCount: 12 })) } as never
+    renderWorkspace()
+    await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    // fireEvent, not user.click: the "Export" row also opens on hover
+    // (MenuButton's submenu is hover-or-click), and userEvent's synthetic
+    // mouseenter-then-click on the same row would open then immediately
+    // re-toggle it closed.
+    fireEvent.click(await screen.findByText('Export'))
+    await user.click(await screen.findByText('Export case…'))
+    const notice = await screen.findByText('exported 12 files')
+    // Inline in the header now, not a fixed-position overlay.
+    expect(notice.className).not.toContain('fixed')
+  })
+
+  it('stays silent when the export save dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    noticeStore.reset()
+    window.argus.bundle = { export: vi.fn(async () => null) } as never
+    renderWorkspace()
+    await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(await screen.findByText('Export'))
+    await user.click(await screen.findByText('Export case…'))
+    await waitFor(() => expect(window.argus.bundle.export).toHaveBeenCalled())
+    expect(noticeStore.get().notices).toHaveLength(0)
+  })
+
+  // Task 9: `distilled · N` / `nothing to distill` persisted for the life of the case, so as
+  // header chips they were permanent bar furniture. They moved to a trailing label on this
+  // row instead — the chip (DistillChip) keeps only the transient `distilling…`/failed states.
+  it('labels the Re-distill row with the item count once a distillation has completed', async () => {
+    window.argus.distill.status = vi.fn(async () => ({
+      id: 1,
+      caseSlug: 'NAV-1',
+      state: 'done' as const,
+      error: null,
+      itemCount: 12,
+      createdAt: 't',
+      finishedAt: 't'
+    }))
+    renderWorkspace({ status: 'closed' })
+    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    expect(await screen.findByRole('menuitem', { name: 'Re-distill · 12 items' })).toBeTruthy()
+  })
+
+  it('keeps the Re-distill row bare when no distillation has ever run', async () => {
+    renderWorkspace({ status: 'closed' })
+    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    expect(await screen.findByRole('menuitem', { name: 'Re-distill' })).toBeTruthy()
+  })
+
+  // Task 9: `Close case` duplicates the tab's `×` for now — added so the next increment
+  // (case anchor replaces the tab and loses its `×`) is purely structural.
+  it('closes the tab and goes home via Close case', async () => {
+    const closeTab = vi.spyOn(uiStore, 'closeTab')
+    const onHome = vi.fn()
+    renderWorkspace({ onHome })
+    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close case' }))
+    expect(closeTab).toHaveBeenCalledWith('NAV-1')
+    expect(onHome).toHaveBeenCalled()
+    closeTab.mockRestore()
+  })
+
+  // Regression coverage, same family as the other "does not leak case A's ... into case B"
+  // tests in this file: DistillChip now holds its own component-instance state (the retry
+  // `override`), the same category of state JiraPill/ChatPane/ReposSection already guard with
+  // `key={slug}`. Without that key here too, a retry clicked on case A's chip would keep
+  // showing on case B's chip after a switch, because CaseWorkspace itself is never remounted
+  // on a slug change.
+  it('does not leak a case A distill retry into case B’s chip', async () => {
+    window.argus.distill.status = vi.fn(async (slug: string) =>
+      slug === 'NAV-1'
+        ? {
+            id: 1,
+            caseSlug: 'NAV-1',
+            state: 'failed' as const,
+            error: 'boom',
+            itemCount: null,
+            createdAt: 't',
+            finishedAt: 't'
+          }
+        : null
+    )
+    window.argus.distill.retry = vi.fn(async () => ({
+      id: 1,
+      caseSlug: 'NAV-1',
+      state: 'queued' as const,
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null
+    }))
+    const view = render(workspace('NAV-1'))
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
+    await screen.findByText(/distilling/)
+
+    // switch to a case with no distill job at all
+    view.rerender(workspace('NAV-2'))
+
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalledWith('NAV-2'))
+    expect(screen.queryByText(/distilling/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/retry/i)).not.toBeInTheDocument()
   })
 })
 

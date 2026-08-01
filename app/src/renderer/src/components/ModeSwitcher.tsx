@@ -75,10 +75,13 @@ export function ModeSwitcher({
   }
 
   const busy = pending ?? busyMode
-  const status = statusText ?? (pending ? `Switching to ${MODES[pending].label}…` : null)
+  // Rendered as the busy button's tooltip, never as a sibling: an inline status string is
+  // a second telling of what the spinner already says, and it reflowed every control to
+  // its right the moment a switch began.
+  const busyTitle = statusText ?? (busy ? `Switching to ${MODES[busy].label}…` : undefined)
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex shrink-0 items-center">
       <div
         role="group"
         aria-label="Case mode"
@@ -91,6 +94,7 @@ export function ModeSwitcher({
             aria-label={`Case mode · ${MODES[id].label}`}
             aria-pressed={id === activeMode}
             aria-busy={busy === id}
+            title={busy === id ? busyTitle : undefined}
             disabled={pending !== null}
             onClick={() => void pick(id)}
             className={`flex items-center gap-1 px-2.5 py-1 text-xs transition-colors ${
@@ -104,11 +108,6 @@ export function ModeSwitcher({
           </button>
         ))}
       </div>
-      {status && (
-        <span role="status" className="truncate text-xs text-mute">
-          {status}
-        </span>
-      )}
     </div>
   )
 }

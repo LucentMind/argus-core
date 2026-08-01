@@ -12,8 +12,9 @@ import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
+import { HeaderNotice } from './HeaderNotice'
 import { SimilarCasesCard } from './SimilarCasesCard'
-import { JiraRefreshButton } from './JiraRefreshButton'
+import { JiraPill } from './JiraPill'
 import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
@@ -22,6 +23,7 @@ import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
+import { notice } from '../lib/noticeStore'
 import { panelKeyStr } from '../../../shared/panels'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type {
@@ -38,6 +40,7 @@ import { railTier } from '../lib/priorityRail'
 import type { ModeId } from '../../../shared/modes'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
+import { useDistillJob, distillMenuLabel } from '../lib/distillJob'
 
 export function CaseWorkspace({
   slug,
@@ -53,7 +56,8 @@ export function CaseWorkspace({
   onOpenCitation,
   onOpenFile,
   onOpenCase,
-  onOpenRepoFile
+  onOpenRepoFile,
+  onHome
 }: {
   slug: string
   jiraKey: string | null
@@ -77,6 +81,10 @@ export function CaseWorkspace({
   onOpenFile: (node: FileNode) => void
   onOpenCase?: (slug: string) => void
   onOpenRepoFile: (repoName: string, relPath: string, start: number, end: number) => void
+  /** Close case (case-actions menu) duplicates the tab's `×` for now — added here so the
+   *  increment that replaces the tab with a case anchor (and drops its `×`) is purely
+   *  structural, not a new wiring job. Same handler App.tsx already gives TopBar. */
+  onHome: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -88,11 +96,11 @@ export function CaseWorkspace({
     () => panelsStore.get()
   )
   const anchors = useAmbientAnchors()
+  const distillJob = useDistillJob(slug)
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
   const [prefill, setPrefill] = useState('')
-  const [exportNote, setExportNote] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<number | null>(null)
   // The summaries were previously fetched and thrown away. They are kept now because the
   // composer needs the current chat's pinned provider+model, and the approval card needs
@@ -389,10 +397,10 @@ export function CaseWorkspace({
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
-    setExportNote(null)
     const r = await window.argus.bundle.export(slug, includeTranscripts)
     if (!r) return // save dialog canceled
-    setExportNote(r.ok ? `exported ${r.fileCount} files` : r.error)
+    if (r.ok) notice(`exported ${r.fileCount} files`)
+    else notice(r.error, 'danger')
   }
 
   async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
@@ -435,14 +443,6 @@ export function CaseWorkspace({
             triggerClassName="font-mono text-sm! text-defect!"
             align="left"
             items={[
-              ...(jiraKey
-                ? [
-                    {
-                      label: 'Open in Jira',
-                      onSelect: () => void window.argus.jira.openIssue(slug)
-                    }
-                  ]
-                : []),
               { label: closeAsLabel, children: statusItems },
               {
                 label: 'Export',
@@ -455,17 +455,25 @@ export function CaseWorkspace({
                 ]
               },
               {
-                label: 'Re-distill',
+                label: distillMenuLabel(distillJob),
                 disabled: status !== 'closed',
                 onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
+              },
+              {
+                label: 'Close case',
+                onSelect: () => {
+                  uiStore.closeTab(slug)
+                  onHome()
+                }
               }
             ]}
           />
         </span>
-        {/* key: reset refresh state (summary note, last-synced) when switching cases */}
-        <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
-        {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
-        <DistillChip slug={slug} />
+        {/* relative: the pill's popover is absolutely positioned and must anchor to the
+            pill, not to the header — key resets refresh state when switching cases */}
+        <div className="relative shrink-0">
+          <JiraPill key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
+        </div>
         <ModeSwitcher
           slug={slug}
           activeMode={activeMode}
@@ -475,15 +483,20 @@ export function CaseWorkspace({
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />
-        {activeMode === 'review' && (
-          <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
-        )}
+        {/* Transient/informational content only — right of the mode switch, never left of
+            it, so it never shoves the case controls (case menu, Jira pill, mode switch) the
+            user is reaching for. The open-case tab strip absorbs the squeeze instead: it's
+            elastic and scrollable, this bar's other controls are not. */}
+        <div className="flex min-w-0 items-center gap-2">
+          {/* key={slug}: DistillChip holds its own component-instance state (the retry
+              `override`) — same category JiraPill guards with a key above; without it,
+              CaseWorkspace's no-remount-on-slug-change contract would let a retry clicked on
+              case A's chip keep showing after switching to case B. */}
+          <DistillChip key={slug} slug={slug} />
+          <HeaderNotice />
+        </div>
         <div className="ml-auto">
-          <HeaderChips
-            slug={slug}
-            sessionId={sessionId}
-            instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
-          />
+          <HeaderChips slug={slug} />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -589,6 +602,11 @@ export function CaseWorkspace({
             sessionId={sessionId}
             activeTab={panels.activeTab}
             onSelect={(t) => panelsStore.setActiveTab(t)}
+            action={
+              activeMode === 'review' ? (
+                <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
+              ) : undefined
+            }
           />
           <div className="relative min-h-0 flex-1">
             <div
