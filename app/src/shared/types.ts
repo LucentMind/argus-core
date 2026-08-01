@@ -4,7 +4,29 @@ import type { EvidenceScope } from './evidenceScope'
 import type { RunOptionSelection } from './runOptions'
 import type { PermissionMode } from './settings'
 
-export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
+/**
+ * The DECLARED lifecycle — the only case state a human or an agent states outright.
+ * What is actually happening on a case is the derived `CasePhase` (see shared/casePhase.ts);
+ * it is not stored, so it can never go stale or ratchet forward.
+ */
+export type CaseStatus = 'open' | 'closed'
+
+/** What is happening on the case right now. Derived from the newest work event. */
+export type CasePhase =
+  | 'open'
+  | 'analyzing'
+  | 'pr-created'
+  | 'reviewing'
+  | 'rca-drafted'
+  | 'closed'
+
+/**
+ * Phases with no artifact to derive them from, which must therefore be declared and stored.
+ * A pin still competes on its own timestamp like every other signal — it is not sticky.
+ */
+export type CasePhasePin = 'rca-drafted'
+
+export const CASE_PHASE_PINS: readonly CasePhasePin[] = ['rca-drafted']
 
 export type CaseResolution =
   'solved' | 'rejected' | 'forwarded' | 'wont-fix' | 'duplicate' | 'not-reproducible'
@@ -99,6 +121,8 @@ export interface CaseRecord {
   status: CaseStatus
   /** Why the case was closed; non-null iff status === 'closed'. */
   resolution: CaseResolution | null
+  /** Derived triage phase, computed by listCases/getCase. See shared/casePhase.ts. */
+  phase: CasePhase
   /** The mode axis (Task 1's `ModeId`) this case is currently switched to. Chats are bound
    *  to the mode they were created under (sessions.mode); switching this pins which mode's
    *  chat is active without touching the other mode's chats. */
