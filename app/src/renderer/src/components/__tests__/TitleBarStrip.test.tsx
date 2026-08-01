@@ -13,6 +13,14 @@ describe('TitleBarStrip', () => {
     expect(strip.classList.contains('argus-titlebar-inset')).toBe(true)
   })
 
+  it('paints bg-deep so the strip matches the native overlay colour', () => {
+    // titleBar.ts hands the OS overlay `--bg-1` (Tailwind bg-deep). If this class drifts, the
+    // strip silently falls back to the root's bg-void and the overlay reads visibly lighter.
+    const { container } = render(<TitleBarStrip kind="main" />)
+    const strip = container.firstElementChild as HTMLElement
+    expect(strip.classList.contains('bg-deep')).toBe(true)
+  })
+
   it('renders at the shared editor height', () => {
     const { container } = render(<TitleBarStrip kind="editor" />)
     const strip = container.firstElementChild as HTMLElement

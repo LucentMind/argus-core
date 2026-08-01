@@ -19,7 +19,7 @@ export function TitleBarStrip({
 }): React.JSX.Element {
   return (
     <div
-      className="argus-drag argus-titlebar-inset flex shrink-0 items-center text-xs text-dim"
+      className="argus-drag argus-titlebar-inset flex shrink-0 items-center bg-deep text-xs text-dim"
       style={{ height: TITLEBAR_HEIGHTS[kind] }}
     >
       {label}
