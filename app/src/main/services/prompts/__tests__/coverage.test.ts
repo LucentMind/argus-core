@@ -70,6 +70,10 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     why: 'update_case_status echoing the transition it just performed. Covers both arms of the ternary; the resolution arm only appends the value in parentheses.'
   },
   {
+    text: 'phase → ${status}',
+    why: 'update_case_status echoing a pin it just wrote (rca-drafted) — same data-echo class as the status arm above, just for the phase-pin branch instead of the lifecycle branch.'
+  },
+  {
     text: 'memory/${topic}.md updated',
     why: 'Reports what a write did and is dominated by runtime data (topic, byte count, whether an index entry was added) — reword it and there is nothing left to say. Contrast tool-feedback.append_finding.ok, which IS registered: "finding appended" is a fixed sentence with no interpolation, so wording is the whole of it and worth being able to change.'
   },

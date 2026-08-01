@@ -4,7 +4,10 @@ import { z } from 'zod'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { DatabaseSync } from 'node:sqlite'
 import {
+  CASE_PHASE_PINS,
   CASE_RESOLUTIONS,
+  type CasePhase,
+  type CasePhasePin,
   type CaseRecord,
   type CaseResolution,
   type CaseStatus
@@ -16,7 +19,7 @@ import { ensureWorktree } from '../workspaces'
 import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
 import { writeProposal } from '../proposals'
-import { setCaseStatus } from '../caseService'
+import { pinCasePhase, setCaseStatus } from '../caseService'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
@@ -81,7 +84,17 @@ export interface NativeToolDeps {
   emitFindingUpdated?: (findingId: number) => void
 }
 
-const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
+// What the tool ACCEPTS, not what it stores: `closed`/`open` are written to the lifecycle,
+// `rca-drafted` becomes a pin, and the derived phases are rejected with an explanation.
+const TOOL_PHASES: CasePhase[] = [
+  'open',
+  'analyzing',
+  'pr-created',
+  'reviewing',
+  'rca-drafted',
+  'closed'
+]
+const DERIVED_PHASES: CasePhase[] = ['analyzing', 'pr-created', 'reviewing']
 
 /**
  * Model-facing text these tools RETURN or THROW, as opposed to the descriptions they advertise.
@@ -126,6 +139,14 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     title: 'update_case_status — closing without a resolution',
     text: 'Closing requires a resolution; expected {expected}',
     placeholders: ['expected']
+  },
+  'update_case_status.derived-phase': {
+    title: 'update_case_status — derived phase cannot be declared',
+    text:
+      '{status} is derived from what has happened on the case (evidence, chat turns, a linked ' +
+      'PR, a review run) and cannot be declared. Do the work and it will follow. Only open, ' +
+      'closed and rca-drafted can be set.',
+    placeholders: ['status']
   },
   'read_memory.index-not-a-topic': {
     title: 'read_memory — asked for _index',
@@ -528,13 +549,20 @@ export function argusToolHandlers(
 
     async update_case_status(args) {
       const status = String(args.status ?? '')
-      if (!STATUSES.includes(status as CaseStatus)) {
+      if (!TOOL_PHASES.includes(status as CasePhase)) {
         throw new Error(
           fb('update_case_status.invalid-status', {
             status: JSON.stringify(status),
-            expected: STATUSES.join('|')
+            expected: TOOL_PHASES.join('|')
           })
         )
+      }
+      if (DERIVED_PHASES.includes(status as CasePhase)) {
+        throw new Error(fb('update_case_status.derived-phase', { status }))
+      }
+      if (CASE_PHASE_PINS.includes(status as CasePhasePin)) {
+        pinCasePhase(db, argusHome, caseSlug, status as CasePhasePin)
+        return `phase → ${status}`
       }
       let resolution: CaseResolution | null = null
       if (status === 'closed') {
@@ -747,7 +775,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'update_case_status',
     description:
-      'Move the case through its lifecycle (open|analyzing|rca-drafted|closed). When setting closed, you MUST pass resolution = solved|rejected|forwarded|wont-fix|duplicate|not-reproducible.',
+      'Set the case lifecycle (open|closed) or mark an RCA as drafted (rca-drafted). When setting closed, you MUST pass resolution = solved|rejected|forwarded|wont-fix|duplicate|not-reproducible. analyzing, pr-created and reviewing are DERIVED from activity on the case and are rejected if passed.',
     schema: { status: z.string(), resolution: z.string().optional() }
   },
   {

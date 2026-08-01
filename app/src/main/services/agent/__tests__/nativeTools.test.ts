@@ -100,11 +100,15 @@ describe('argus native tools', () => {
   })
 
   it('update_case_status validates and persists', async () => {
-    await handlers.update_case_status({ status: 'analyzing' })
+    // 'analyzing' is now a derived phase (see nativeTools.caseStatus.test.ts) — exercise the
+    // lifecycle round trip instead: close, then reopen, to prove a real write happens through
+    // the tool rather than the case's already-`open` default.
+    await handlers.update_case_status({ status: 'closed', resolution: 'solved' })
+    await handlers.update_case_status({ status: 'open' })
     const row = db.prepare(`SELECT status FROM cases WHERE slug='NAV-1'`).get() as {
       status: string
     }
-    expect(row.status).toBe('analyzing')
+    expect(row.status).toBe('open')
     await expect(handlers.update_case_status({ status: 'bogus' })).rejects.toThrow(/status/i)
   })
 
