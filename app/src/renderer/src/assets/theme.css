@@ -7,6 +7,11 @@
   --bg-2: #111114;
   --bg-hi: #17171c;
   --bg-over: #1d1d23;
+  /* "One step up" fill for something sitting ON a card/panel, as opposed to `--bg-hi`/`--bg-over`
+     (one step up from the WASH). Dark has no version of this defect — a low-alpha white film
+     reads fine on a dark card too — so this just aliases `--bg-hi` here; only light overrides it
+     (Task 12). */
+  --well: var(--bg-hi);
 
   /* Ink */
   --ink: #efede6;
@@ -93,6 +98,10 @@
   --bg-2: #ffffff;
   --bg-hi: rgba(255, 255, 255, 0.62);
   --bg-over: rgba(255, 255, 255, 0.76);
+  /* Task 12: `--bg-hi`/`--bg-over` read fine on the wash but vanish on a near-white card — this
+     is the opaque "one step up from a card" fill for that case (form fields, chips, banners).
+     Distinct from `.surface-card`'s own `#fdfdfe` without reading as a grey patch. */
+  --well: #eef1f7;
 
   --ink: #101823;
   --dim: rgba(28, 42, 64, 0.68);
@@ -124,13 +133,24 @@
     linear-gradient(146deg, #fbfcfe 0%, #eef2f9 42%, #dde6f5 76%, #cfdcf1 100%);
 
   /* ── material tokens, light (spec §6) ─────────────────────────────────────
-     SPEC INVARIANT: no brightness() at rest on light — it un-does the transparency. */
-  --glass-bg: rgba(255, 255, 255, 0.46);
-  --glass-lens-1: rgba(255, 255, 255, 0.78);
-  --glass-lens-2: rgba(255, 255, 255, 0.46);
-  --glass-lens-3: rgba(255, 255, 255, 0.46);
-  --glass-lens-4: rgba(255, 255, 255, 0.52);
-  --glass-lens-5: rgba(255, 255, 255, 0.6);
+     SPEC INVARIANT: no brightness() at rest on light — it un-does the transparency.
+
+     Task 12: the pre-Task-12 values below (glass-bg 0.46, lens 0.78→0.46→0.46→0.52→0.6) were
+     never actually SEEN composited — backdrop-filter didn't render at all until this branch
+     fixed the -webkit- alias defect, so nobody had watched a panel with them. Composited (alpha
+     "over" compositing, `combined = lens + glass-bg × (1 - lens)`, same formula for every stop
+     since lens and glass-bg are both white): top edge ~88%, ~71% in the middle — exactly where
+     body text sits — ~78% at the bottom. Raised here: glass-bg to 0.78 and the lens stops lifted
+     into a narrower band (0.75→0.60→0.60→0.68→0.78) so the same dip-then-recover SHAPE survives
+     but the floor comes up. With glass-bg at 0.78, combined = 0.78 + 0.22 × lens, giving
+     top ≈ 94.5%, middle/floor ≈ 91.2%, ≈93.0% at the third stop, bottom ≈ 95.2% — inside the
+     90–95% target, variation still visible, floor well clear of the old 71%. */
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-lens-1: rgba(255, 255, 255, 0.75);
+  --glass-lens-2: rgba(255, 255, 255, 0.6);
+  --glass-lens-3: rgba(255, 255, 255, 0.6);
+  --glass-lens-4: rgba(255, 255, 255, 0.68);
+  --glass-lens-5: rgba(255, 255, 255, 0.78);
   --glass-cap: rgba(120, 165, 230, 0.1);
   --glass-border: rgba(26, 48, 84, 0.09);
   --glass-border-h: rgba(31, 111, 208, 0.32);
@@ -169,6 +189,7 @@
   --color-panel: var(--bg-2);
   --color-hi: var(--bg-hi);
   --color-overlay: var(--bg-over);
+  --color-well: var(--well);
   --color-ink: var(--ink);
   --color-dim: var(--dim);
   --color-mute: var(--mute);

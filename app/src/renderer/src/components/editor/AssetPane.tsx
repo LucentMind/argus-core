@@ -1015,7 +1015,8 @@ export function AssetPane({
       {banner.kind === 'restored' && (
         <div
           role="status"
-          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-hair bg-hi px-3 py-1.5 text-xs text-dim"
+          // `bg-well`, not `bg-hi` (Task 12): this banner sits on EditorApp's `surface-card`.
+          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-hair bg-well px-3 py-1.5 text-xs text-dim"
         >
           <span>Restored unsaved draft from {clockTime(banner.updatedAt)}.</span>
           <Btn variant="ghost" onClick={() => void discardDraft()}>
@@ -1051,7 +1052,8 @@ export function AssetPane({
       {mode === 'create' && otherDrafts.length > 0 && (
         <div
           role="status"
-          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-hi px-3 py-1.5 text-xs text-dim"
+          // `bg-well`, not `bg-hi` (Task 12): same reasoning as the "restored" banner above.
+          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-well px-3 py-1.5 text-xs text-dim"
         >
           <span>
             {otherDrafts.length} unsaved new{' '}

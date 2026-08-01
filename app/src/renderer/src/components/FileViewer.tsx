@@ -37,6 +37,7 @@ export function FileViewer({
       title={`${slug} / ${relPath}`}
       onClose={onClose}
       ariaLabel={`file · ${slug} / ${relPath}`}
+      variant="reading"
       actions={
         isMd && doc && 'content' in doc ? (
           <Btn variant="ghost" onClick={() => setRaw(!raw)}>

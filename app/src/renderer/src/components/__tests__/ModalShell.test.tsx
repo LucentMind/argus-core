@@ -118,4 +118,31 @@ describe('ModalShell', () => {
     expect(cls).toContain('overlay-card')
     expect(cls).not.toContain('glass-card')
   })
+
+  it('defaults to the chrome variant (overlay-card)', () => {
+    // Same as the default-render assertion above, but explicit that omitting `variant`
+    // is equivalent to passing 'chrome' — this is the contract Task 12's new prop must not
+    // silently flip for every existing consumer that never passes it.
+    const { getByRole } = render(
+      <ModalShell title="t" onClose={() => undefined} variant="chrome">
+        body
+      </ModalShell>
+    )
+    expect(getByRole('dialog').className).toContain('overlay-card')
+  })
+
+  it("the 'reading' variant carries the solid glass-panel material, not overlay-card", () => {
+    // Task 12: TextViewer/FileViewer/the skill+reference MarkdownViewer pass this — dense text
+    // the user is there to read must never sit behind a blur. jsdom proves only the class
+    // contract; the computed-style (no backdrop-filter, dark byte-identical to .glass-panel's
+    // own dark rule) proof is in the task report.
+    const { getByRole } = render(
+      <ModalShell title="t" onClose={() => undefined} variant="reading">
+        body
+      </ModalShell>
+    )
+    const cls = getByRole('dialog').className
+    expect(cls).toContain('glass-panel')
+    expect(cls).not.toContain('overlay-card')
+  })
 })
