@@ -14,6 +14,17 @@ export const PANEL_TOKENS = [
 ] as const
 export type PanelTokenName = (typeof PANEL_TOKENS)[number]
 
+/**
+ * Both maps are hand-copies of the renderer's `theme.css` — the panel preload cannot read the
+ * renderer's stylesheet — under this fixed token mapping:
+ *
+ *     bg → --bg-1    surface → --bg-2   surface-2 → --bg-hi   text → --ink
+ *     dim → --dim    faint → --faint    hair → --hair
+ *     accent → --signal                 danger → --danger
+ *
+ * The mapping is the contract; the VALUES track theme.css and change with it.
+ * `panels.test.ts` reads theme.css from disk and holds both copies to it.
+ */
 const DARK: Record<PanelTokenName, string> = {
   bg: '#0a0a0b',
   surface: '#111114',
@@ -27,15 +38,15 @@ const DARK: Record<PanelTokenName, string> = {
 }
 
 const LIGHT: Record<PanelTokenName, string> = {
-  bg: '#faf8f3',
+  bg: '#eef2f9',
   surface: '#ffffff',
-  'surface-2': '#f0eee7',
-  text: '#18181b',
-  dim: 'rgba(24, 24, 27, 0.7)',
-  faint: 'rgba(24, 24, 27, 0.25)',
-  hair: 'rgba(0, 0, 0, 0.06)',
-  accent: '#1567b3',
-  danger: '#f27a6b'
+  'surface-2': 'rgba(255, 255, 255, 0.62)',
+  text: '#101823',
+  dim: 'rgba(28, 42, 64, 0.68)',
+  faint: 'rgba(28, 42, 64, 0.3)',
+  hair: 'rgba(26, 48, 84, 0.09)',
+  accent: '#1f6fd0',
+  danger: '#c93b3b'
 }
 
 /**
