@@ -9,6 +9,8 @@ import { probeAuth } from './probe'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
 import { qualifySkill, skillPluginRoot } from '../../skillsResolver'
 import { claudeAgentsOption } from './subagentBinding'
+import { catalogFor } from './catalog'
+import { buildRunOptionQueryFields } from './queryOptions'
 import type {
   AgentDriver,
   DriverSession,
@@ -101,85 +103,103 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // Options bag: relocated from session.ts:168-211; the DriverSessionContext
       // fields substitute for the SessionDeps/agentOptions values the harness used to
       // read directly (systemAppend, extraMcpServers, nativeToolDeps, onToolRequest).
-      const handle = createQuery({
-        prompt: promptQueue,
-        options: {
-          cwd: ctx.caseDir,
-          additionalDirectories: [...ctx.additionalDirectories],
-          // `<caseDir>/.claude` is a local plugin root (manifest written by
-          // materializeSessionSkills), which namespaces our skills as `argus:<name>`.
-          plugins: [{ type: 'local', path: skillPluginRoot(ctx.caseDir) }],
-          // Always sent, empty included: omitting `skills` is not "skills off" — the SDK
-          // leaves the CLI's own discover-everything default in place, which pulls in the
-          // .claude/skills of every additionalDirectory (i.e. of linked case workspaces).
-          // Qualified, because a BARE name matches every skill so named — including a
-          // linked workspace's collider (verified: one bare entry loaded two skills).
-          //
-          // KNOWN GAP — this bounds the MAIN SESSION ONLY. A subagent spawned via Task
-          // re-derives its own skill listing and sees everything discovery finds, linked
-          // workspaces included (measured 2026-07-19: main 2 skills, subagent 52 with all
-          // of analyze-logcat/-dlt/-recording/doctor/rca). That matters because a linked
-          // repo is an investigation artifact — often someone else's — so its SKILL.md is
-          // untrusted text a subagent would load as instructions, with no approval card.
-          //
-          // Deliberately left open; do not "fix" it with the obvious moves, all measured:
-          //   - AgentDefinition.skills is PRELOAD, not a filter — no restricting effect.
-          //   - settingSources:['project'] drops user-level plugins (52→34) but the
-          //     workspace's own skills still load.
-          //   - disallowedTools:['Skill'] in an `agents` entry works ONLY for a custom type
-          //     name; overriding a built-in (general-purpose) is ignored, and the model can
-          //     always fall back to a built-in, so it is escapable rather than contained.
-          // The only reliable containment is denying Task outright (disallowedTools:['Task'],
-          // verified: no subagent spawns) — a deliberate product call, not an oversight.
-          skills: ctx.skills.map(qualifySkill),
-          // Task 5's layer-agent definitions, translated to the SDK's vocabulary. Absent
-          // (not {}) when there are none to register — see layerAgents above.
-          ...(layerAgents ? { agents: layerAgents } : {}),
-          // Load PROJECT settings only. The main session is already bounded by `skills`
-          // above, but a subagent re-derives its own listing and measured 52 skills — 36 of
-          // them the operator's personal Claude Code toolkit (superpowers, revealjs,
-          // web-asset-generator, …), which is noise for defect analysis. Dropping
-          // 'user'/'local' removes those (52→34) while KEEPING the linked repo's domain
-          // log-parsers, which are useful to a subagent.
-          //
-          // 'project' is mandatory: without it the per-case CLAUDE.md — citation rules and
-          // the linked-workspace list — stops loading. Do not "tighten" this to []; that
-          // also drops the repo skills (52→18) but silently takes the case briefing with
-          // it, unless CLAUDE.md is first folded into `systemAppend`.
-          //
-          // Side effect, deliberate: Argus no longer inherits the operator's personal
-          // ~/.claude permission allowlists, so tool calls they had pre-approved globally
-          // now reach Argus's own approval pipeline instead of being auto-allowed.
-          settingSources: ['project'],
-          // Claude Code's own auto-memory OFF, so "remember this" reaches Argus's write_memory
-          // instead of ~/.claude/projects/<cwd>/memory/. See claudeSpawnEnv for the full why.
-          env: claudeSpawnEnv(),
-          includePartialMessages: true,
-          systemPrompt: {
-            type: 'preset',
-            preset: 'claude_code',
-            append: ctx.systemAppend
-          },
-          ...(ctx.model ? { model: ctx.model } : {}),
-          ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
-          ...(ctx.permissionMode && ctx.permissionMode !== 'default'
-            ? { permissionMode: ctx.permissionMode }
-            : {}),
-          mcpServers: {
-            ...ctx.extraMcpServers,
-            ...(ctx.dispatchPanelCommand
-              ? buildPanelCommandServers(ctx.panelCommandDecls, ctx.dispatchPanelCommand)
-              : {}),
-            argus: createArgusMcpServer(ctx.nativeToolDeps, ctx.resolvePrompt)
-          },
-          canUseTool: (
-            toolName: string,
-            input: Record<string, unknown>,
-            opts: { signal: AbortSignal }
-          ) => ctx.onToolRequest(toolName, input, opts),
-          ...(isResume ? { resume: ctx.resumeCursor } : {})
-        }
-      })
+      //
+      // The model/effort/settings/permissionMode fields depend on the runtime catalog
+      // (catalog.ts), which is fetched asynchronously — cached after the first call, but
+      // a real CLI spawn (or a fallback-after-timeout) on a cache miss. `createSession`
+      // itself still returns synchronously (the AgentDriver contract requires it): only
+      // the actual `createQuery()` call — and therefore the query's construction — is
+      // deferred behind this promise. `send()` does not need it: the prompt queue exists
+      // immediately, so a message sent before the catalog resolves is simply buffered
+      // until the query starts consuming it.
+      const handleReady: Promise<QueryHandle> = (async () => {
+        const modelInfo = await catalogFor(createQuery, cliPath ?? undefined, ctx.model)
+        return createQuery({
+          prompt: promptQueue,
+          options: {
+            cwd: ctx.caseDir,
+            additionalDirectories: [...ctx.additionalDirectories],
+            // `<caseDir>/.claude` is a local plugin root (manifest written by
+            // materializeSessionSkills), which namespaces our skills as `argus:<name>`.
+            plugins: [{ type: 'local', path: skillPluginRoot(ctx.caseDir) }],
+            // Always sent, empty included: omitting `skills` is not "skills off" — the SDK
+            // leaves the CLI's own discover-everything default in place, which pulls in the
+            // .claude/skills of every additionalDirectory (i.e. of linked case workspaces).
+            // Qualified, because a BARE name matches every skill so named — including a
+            // linked workspace's collider (verified: one bare entry loaded two skills).
+            //
+            // KNOWN GAP — this bounds the MAIN SESSION ONLY. A subagent spawned via Task
+            // re-derives its own skill listing and sees everything discovery finds, linked
+            // workspaces included (measured 2026-07-19: main 2 skills, subagent 52 with all
+            // of analyze-logcat/-dlt/-recording/doctor/rca). That matters because a linked
+            // repo is an investigation artifact — often someone else's — so its SKILL.md is
+            // untrusted text a subagent would load as instructions, with no approval card.
+            //
+            // Deliberately left open; do not "fix" it with the obvious moves, all measured:
+            //   - AgentDefinition.skills is PRELOAD, not a filter — no restricting effect.
+            //   - settingSources:['project'] drops user-level plugins (52→34) but the
+            //     workspace's own skills still load.
+            //   - disallowedTools:['Skill'] in an `agents` entry works ONLY for a custom type
+            //     name; overriding a built-in (general-purpose) is ignored, and the model can
+            //     always fall back to a built-in, so it is escapable rather than contained.
+            // The only reliable containment is denying Task outright (disallowedTools:['Task'],
+            // verified: no subagent spawns) — a deliberate product call, not an oversight.
+            skills: ctx.skills.map(qualifySkill),
+            // Task 5's layer-agent definitions, translated to the SDK's vocabulary. Absent
+            // (not {}) when there are none to register — see layerAgents above.
+            ...(layerAgents ? { agents: layerAgents } : {}),
+            // Load PROJECT settings only. The main session is already bounded by `skills`
+            // above, but a subagent re-derives its own listing and measured 52 skills — 36 of
+            // them the operator's personal Claude Code toolkit (superpowers, revealjs,
+            // web-asset-generator, …), which is noise for defect analysis. Dropping
+            // 'user'/'local' removes those (52→34) while KEEPING the linked repo's domain
+            // log-parsers, which are useful to a subagent.
+            //
+            // 'project' is mandatory: without it the per-case CLAUDE.md — citation rules and
+            // the linked-workspace list — stops loading. Do not "tighten" this to []; that
+            // also drops the repo skills (52→18) but silently takes the case briefing with
+            // it, unless CLAUDE.md is first folded into `systemAppend`.
+            //
+            // Side effect, deliberate: Argus no longer inherits the operator's personal
+            // ~/.claude permission allowlists, so tool calls they had pre-approved globally
+            // now reach Argus's own approval pipeline instead of being auto-allowed.
+            settingSources: ['project'],
+            // Claude Code's own auto-memory OFF, so "remember this" reaches Argus's write_memory
+            // instead of ~/.claude/projects/<cwd>/memory/. See claudeSpawnEnv for the full why.
+            env: claudeSpawnEnv(),
+            includePartialMessages: true,
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: ctx.systemAppend
+            },
+            // Model/effort/1M-suffix/settings/permissionMode, resolved against this
+            // session's model catalog entry (modelInfo, possibly null on a degraded
+            // catalog) — see queryOptions.ts. Replaces the old bare `ctx.model`/
+            // `ctx.permissionMode` passthrough now that run-option selections are wired.
+            ...buildRunOptionQueryFields(
+              modelInfo,
+              ctx.model,
+              ctx.runOptions ?? [],
+              ctx.permissionMode
+            ),
+            ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
+            mcpServers: {
+              ...ctx.extraMcpServers,
+              ...(ctx.dispatchPanelCommand
+                ? buildPanelCommandServers(ctx.panelCommandDecls, ctx.dispatchPanelCommand)
+                : {}),
+              argus: createArgusMcpServer(ctx.nativeToolDeps, ctx.resolvePrompt)
+            },
+            canUseTool: (
+              toolName: string,
+              input: Record<string, unknown>,
+              opts: { signal: AbortSignal }
+            ) => ctx.onToolRequest(toolName, input, opts),
+            ...(isResume ? { resume: ctx.resumeCursor } : {})
+          }
+        })
+      })()
 
       // Stream state (relocated from CaseSession fields).
       let currentModel: string | null = null
@@ -259,6 +279,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // underlying query stream propagate out of events() — the harness (Task 4) handles
       // session.error emission; the driver deliberately does NOT swallow them.
       async function* events(): AsyncIterable<AgentEvent> {
+        const handle = await handleReady
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for await (const msg of handle as AsyncIterable<any>) {
           updateCursor(msg)
@@ -309,6 +330,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           })
         },
         async interrupt(): Promise<void> {
+          const handle = await handleReady
           await handle.interrupt().catch(() => undefined)
         },
         end(): void {

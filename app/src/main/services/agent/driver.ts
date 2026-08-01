@@ -54,8 +54,10 @@ export interface DriverSessionContext {
   model?: string
   cliPath?: string
   permissionMode: PermissionMode
-  /** Per-session option selections (shared/runOptions.ts). A driver that has no
-   *  concept of them ignores this; only the Claude driver reads it today. */
+  /** Per-session option selections (shared/runOptions.ts). The Claude driver resolves
+   *  these against the session's model catalog entry and translates them onto the
+   *  SDK's query() fields (drivers/claude/queryOptions.ts + catalog.ts). Other drivers
+   *  have no concept of them and ignore this field. */
   runOptions?: readonly RunOptionSelection[]
   /** Persona + memory-index text the driver injects as its system-prompt append. */
   systemAppend: string

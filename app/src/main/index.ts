@@ -1334,10 +1334,10 @@ function registerIpc(): void {
       // are still frozen at query() construction — but registry.ts now folds
       // sessionRunOptions/sessionPermissionMode into optionsKey and compares it on the
       // next send, so the running session is torn down and rebuilt instead of the
-      // change being silently ignored. The rebuild does not yet make the new
-      // selections take effect: the Claude driver does not read ctx.runOptions yet
-      // (a later task), so the rebuilt session's query() options are still identical
-      // to the old one's.
+      // change being silently ignored. The rebuild DOES make the new selections take
+      // effect: the Claude driver now reads ctx.runOptions (queryOptions.ts) when the
+      // rebuilt session's query() is constructed, resolving each selection against that
+      // session's model catalog entry (catalog.ts).
       return setSessionRunOptions(db, sessionId, sel)
     }
   )

@@ -79,6 +79,9 @@ describe('CaseSession AskUserQuestion pipeline', () => {
   it('opens a dialog and answers via allow + updatedInput.answers', async () => {
     const sdk = fakeSdk()
     const session = makeSession(sdk)
+    // The real query() construction is deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it before reading the installed canUseTool.
+    await new Promise((r) => setTimeout(r, 5))
     const decisionP = canUseTool(sdk)('AskUserQuestion', input, {
       signal: new AbortController().signal
     })
@@ -121,6 +124,9 @@ describe('CaseSession AskUserQuestion pipeline', () => {
   it('a skip resolves to a clean allow carrying a freeform response (never a deny)', async () => {
     const sdk = fakeSdk()
     const session = makeSession(sdk)
+    // The real query() construction is deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it before reading the installed canUseTool.
+    await new Promise((r) => setTimeout(r, 5))
     const decisionP = canUseTool(sdk)('AskUserQuestion', input, {
       signal: new AbortController().signal
     })
@@ -138,6 +144,9 @@ describe('CaseSession AskUserQuestion pipeline', () => {
   it('drain cancels an in-flight dialog on stop', async () => {
     const sdk = fakeSdk()
     const session = makeSession(sdk)
+    // The real query() construction is deferred behind an async catalog lookup
+    // (index.ts's handleReady) — wait for it before reading the installed canUseTool.
+    await new Promise((r) => setTimeout(r, 5))
     const decisionP = canUseTool(sdk)('AskUserQuestion', input, {
       signal: new AbortController().signal
     })
