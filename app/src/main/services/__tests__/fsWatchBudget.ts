@@ -17,3 +17,71 @@
  * than as an opaque test-level timeout.
  */
 export const FS_WATCH_TIMEOUT = process.env.CI ? 45_000 : 10_000
+
+/**
+ * Gap between pokes in {@link armFsWatch}.
+ *
+ * Must stay ABOVE the widest watcher debounce in the codebase (300ms, in `caseWatch.ts` and
+ * `proposalsWatch.ts`; `fileStore.ts` uses 200ms). Poking faster than the debounce window would
+ * reset the timer on every poke and the callback would never fire at all — the poll would defeat
+ * the very thing it is waiting for.
+ */
+const FS_WATCH_POLL_MS = 600
+
+/** Long enough for a 300ms debounce to land, so a caller's `mockClear()` cannot race a
+ *  callback that was already in flight when the watcher first fired. */
+const DEBOUNCE_SETTLE_MS = 500
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Poke the filesystem until an `fs.watch` watcher demonstrably fires, then let its debounce settle.
+ *
+ * **Why this exists.** On macOS `fs.watch` returns before its FSEvents stream is actually armed —
+ * arming happens on a background thread. A write issued immediately after the call can therefore be
+ * missed *entirely*: no event is ever delivered, and no amount of waiting produces one. That is the
+ * shape of the flake this suite kept hitting, and it explains why three successive budget raises
+ * (3s → 10s → CI-conditional 45s) never fixed it. A bigger timeout can rescue a *late* event; it can
+ * do nothing for a *lost* one. Windows is unaffected because `ReadDirectoryChangesW` is armed
+ * synchronously before `fs.watch` returns, which is why this only ever failed on macOS.
+ *
+ * Call this once after creating a watcher, then `mockClear()` the spy and make the real assertion
+ * with a single write. A lost first event then costs one poll interval instead of the whole test.
+ *
+ * The returned poke count is the diagnostic: a run that needed more than one poke says so in the
+ * log, so CI reports whether the first event was lost rather than leaving it inferred.
+ *
+ * NOTE: `caseWatch.test.ts`, `connectors.test.ts` and `fileStore.test.ts` have the same
+ * write-immediately-after-watch shape and so the same latent race. They have not been observed
+ * failing, so they are deliberately left alone — this helper is here for them when they are.
+ *
+ * @param poke   Touch the watched tree. Called repeatedly, so point it at a throwaway path rather
+ *               than the file the test is actually about.
+ * @param fired  Whether the watcher has been observed firing yet.
+ * @returns      How many pokes it took.
+ */
+export async function armFsWatch(poke: () => void, fired: () => boolean): Promise<number> {
+  const deadline = Date.now() + FS_WATCH_TIMEOUT
+  let pokes = 0
+  while (Date.now() < deadline) {
+    poke()
+    pokes++
+    const until = Date.now() + FS_WATCH_POLL_MS
+    while (Date.now() < until) {
+      if (fired()) {
+        await sleep(DEBOUNCE_SETTLE_MS)
+        if (pokes > 1) {
+          // Deliberately noisy: this line appearing on macOS and not on Windows is the
+          // evidence for the lost-first-event diagnosis above.
+          console.warn(`[fsWatchBudget] watcher armed only after ${pokes} pokes`)
+        }
+        return pokes
+      }
+      await sleep(25)
+    }
+  }
+  throw new Error(
+    `fs.watch never fired after ${pokes} pokes over ${FS_WATCH_TIMEOUT}ms — ` +
+      `the watcher is dead, not merely slow`
+  )
+}
