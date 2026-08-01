@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { jiraPillFace, summaryHasChanges } from '../jiraPillState'
+import {
+  jiraPillFace,
+  summaryHasChanges,
+  resultDecayMs,
+  COUNTS_DECAY_MS,
+  ACK_DECAY_MS
+} from '../jiraPillState'
 import { chipStamp } from '../time'
 import type { JiraRefreshSummary } from '../../../../shared/jira'
 
@@ -76,6 +82,33 @@ describe('jiraPillFace', () => {
       label: 'failed',
       tone: 'error'
     })
+  })
+})
+
+describe('resultDecayMs', () => {
+  it('holds counts longer than a bare acknowledgement', () => {
+    const changed = resultDecayMs({
+      kind: 'result',
+      summary: summary({ statusChange: { from: 'Open', to: 'In Progress' } })
+    })
+    expect(changed).toBe(COUNTS_DECAY_MS)
+    expect(resultDecayMs({ kind: 'result', summary: summary() })).toBe(ACK_DECAY_MS)
+    expect(COUNTS_DECAY_MS).toBeGreaterThan(ACK_DECAY_MS)
+  })
+
+  it('gives the acknowledgement long enough to be read', () => {
+    // Guards the anti-swallow property in the one place it can be asserted without a clock:
+    // a sub-second window would decay before the eye lands on the pill.
+    expect(ACK_DECAY_MS).toBeGreaterThanOrEqual(3000)
+  })
+
+  it('never decays a failure — it is sticky until the next attempt', () => {
+    expect(resultDecayMs({ kind: 'error', message: 'boom' })).toBeNull()
+  })
+
+  it('has nothing to decay at rest or mid-flight', () => {
+    expect(resultDecayMs({ kind: 'idle' })).toBeNull()
+    expect(resultDecayMs({ kind: 'syncing' })).toBeNull()
   })
 })
 

@@ -1,7 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { RefreshCw, Loader2 } from 'lucide-react'
 import { JiraAttachmentsDialog } from './JiraAttachmentsDialog'
-import { jiraPillFace, type JiraPillPhase, type JiraPillTone } from '../lib/jiraPillState'
+import {
+  jiraPillFace,
+  resultDecayMs,
+  type JiraPillPhase,
+  type JiraPillTone
+} from '../lib/jiraPillState'
 import { chipStamp } from '../lib/time'
 import type { JiraRefreshSummary } from '../../../shared/jira'
 
@@ -54,19 +59,49 @@ export function JiraPill({
   const [lastSynced, setLastSynced] = useState(syncedAt)
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<JiraRefreshSummary | null>(null)
+  // The face has finished announcing this result. `phase` is untouched, so the popover keeps
+  // the detail; only the face falls back to the resting stamp.
+  const [decayed, setDecayed] = useState(false)
   // derived-state sync: adopt a changed stored value (e.g. the cases list reloads after mount)
   const [prevSyncedAt, setPrevSyncedAt] = useState(syncedAt)
   if (syncedAt !== prevSyncedAt) {
     setPrevSyncedAt(syncedAt)
     setLastSynced(syncedAt)
   }
+
+  /**
+   * A result is an announcement, and announcements have to end: the resting stamp is what
+   * answers "should I re-sync", so a face stuck on `+3 · ↑` can no longer answer the question
+   * the pill exists to answer.
+   *
+   * The trigger is a clock rather than "the next interaction" because this pill has no
+   * interaction left that could carry it. Refreshing again already replaces the phase; opening
+   * the popover is the one moment the result detail must survive, since that is what the click
+   * is asking for; and the pointer is already sitting on the pill after a refresh, so no fresh
+   * mouse-enter arrives until the user leaves and comes back — which may be never. Every
+   * interaction trigger also leaves the stuck-face bug intact for a user who refreshes and
+   * walks away. A clock is the only one that bounds it.
+   *
+   * Held while the attachments dialog is up: that dialog covers the pill, so the window would
+   * otherwise elapse unseen behind it and the user would return to a pill that never reacted.
+   * `resultDecayMs` returns null for `error`, which is what keeps a failure sticky.
+   */
+  useEffect(() => {
+    if (pending) return
+    const ms = resultDecayMs(phase)
+    if (ms === null) return
+    const t = setTimeout(() => setDecayed(true), ms)
+    return () => clearTimeout(t)
+  }, [phase, pending])
+
   if (!jiraKey) return null
 
   const busy = phase.kind === 'syncing'
-  const face = jiraPillFace(phase, lastSynced)
+  const face = jiraPillFace(decayed ? { kind: 'idle' } : phase, lastSynced)
 
   async function refresh(): Promise<void> {
     if (busy) return
+    setDecayed(false)
     setPhase({ kind: 'syncing' })
     const r = await window.argus.jira.refreshCase(slug)
     if (r.ok) {

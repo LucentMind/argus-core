@@ -26,6 +26,26 @@ export function summaryHasChanges(s: JiraRefreshSummary): boolean {
   )
 }
 
+/** How long a result holds the face before it decays back to the resting stamp.
+ *  Counts get longer than the bare acknowledgement because they carry something to notice;
+ *  `up to date` carries nothing to act on and only has to prove the click was not inert.
+ *  Both are well clear of a glance — a sub-second window would decay before the eye lands. */
+export const COUNTS_DECAY_MS = 10_000
+export const ACK_DECAY_MS = 4_000
+
+/**
+ * How long `phase` should stay on the face, or `null` for "does not decay".
+ *
+ * Only a `result` decays. `error` is deliberately sticky until the next refresh attempt: a
+ * failure that erased itself would hand the face back to a stale timestamp, and a stale
+ * timestamp beside no other signal reads as success — the same reason `jiraPillFace` ignores
+ * `syncedAt` for errors.
+ */
+export function resultDecayMs(phase: JiraPillPhase): number | null {
+  if (phase.kind !== 'result') return null
+  return summaryHasChanges(phase.summary) ? COUNTS_DECAY_MS : ACK_DECAY_MS
+}
+
 /**
  * What the pill's face reads, for every state, in one fixed footprint.
  *

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { JiraPill } from '../JiraPill'
 import { chipStamp } from '../../lib/time'
+import { COUNTS_DECAY_MS, ACK_DECAY_MS } from '../../lib/jiraPillState'
 import type { JiraRefreshSummary } from '../../../../shared/jira'
 
 const SYNCED_AT = '2026-07-31T14:01:00.000Z'
@@ -104,5 +105,124 @@ describe('JiraPill', () => {
     render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
     await user.click(screen.getByRole('button', { name: 'Refresh from Jira' }))
     expect(await screen.findByText('trace.log')).toBeTruthy()
+  })
+})
+
+/**
+ * The result face is an announcement, not a reading. The resting stamp is the thing that
+ * answers "should I re-sync", so a result that never yields it back leaves the pill
+ * permanently unable to answer its own question.
+ */
+describe('JiraPill result decay', () => {
+  // Fake timers and RTL's async helpers (`findBy*`, `waitFor`) do not compose here — the
+  // helpers poll on a faked interval that nothing advances, so they hang to the test timeout.
+  // Every other fake-timer suite in this repo does the same: fireEvent + explicit act.
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const click = async (name: string): Promise<void> => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name }))
+    })
+  }
+
+  const tick = (ms: number): void => {
+    act(() => {
+      vi.advanceTimersByTime(ms)
+    })
+  }
+
+  const stateText = (): string | null => screen.getByTestId('jira-pill-state').textContent
+
+  it('decays the counts back to the resting stamp', async () => {
+    window.argus.jira.refreshCase = vi.fn(async () => ({
+      ok: true as const,
+      value: summary({ statusChange: { from: 'Open', to: 'In Progress' }, newComments: 2 })
+    }))
+    render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
+    await click('Refresh from Jira')
+    expect(stateText()).toBe('↑ · 2c')
+
+    tick(COUNTS_DECAY_MS - 1)
+    expect(stateText()).toBe('↑ · 2c')
+
+    tick(1)
+    expect(stateText()).toBe(chipStamp(SYNCED_AT))
+  })
+
+  it('decays the no-changes acknowledgement', async () => {
+    render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
+    await click('Refresh from Jira')
+    expect(stateText()).toBe('up to date')
+
+    tick(ACK_DECAY_MS - 1)
+    expect(stateText()).toBe('up to date')
+
+    tick(1)
+    expect(stateText()).toBe(chipStamp(SYNCED_AT))
+  })
+
+  it('keeps a failure on the face indefinitely', async () => {
+    window.argus.jira.refreshCase = vi.fn(async () => ({
+      ok: false as const,
+      code: 'auth' as const,
+      message: 'Jira returned 403'
+    }))
+    render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
+    await click('Refresh from Jira')
+    expect(stateText()).toBe('failed')
+
+    tick(COUNTS_DECAY_MS * 10)
+    expect(stateText()).toBe('failed')
+  })
+
+  it('keeps the popover detail after the face has decayed', async () => {
+    window.argus.jira.refreshCase = vi.fn(async () => ({
+      ok: true as const,
+      value: summary({ statusChange: { from: 'Open', to: 'In Progress' }, newComments: 2 })
+    }))
+    render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
+    await click('Refresh from Jira')
+    tick(COUNTS_DECAY_MS)
+    expect(stateText()).toBe(chipStamp(SYNCED_AT))
+
+    // Only the face decays. The popover is where the detail was sent to live, so a user who
+    // opens the pill after the announcement has gone can still see what the refresh found.
+    await click('Jira details')
+    expect(screen.getByText('status Open → In Progress · 2 new comments')).toBeTruthy()
+  })
+
+  it('does not burn the acknowledgement behind the attachments dialog', async () => {
+    window.argus.jira.refreshCase = vi.fn(async () => ({
+      ok: true as const,
+      value: summary({
+        newAttachments: [
+          { attachmentId: '1', filename: 'trace.log', mimeType: 'text/plain', size: 10 }
+        ] as unknown as JiraRefreshSummary['newAttachments']
+      })
+    }))
+    render(<JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />)
+    await click('Refresh from Jira')
+    expect(screen.getByText('trace.log')).toBeTruthy()
+
+    // The dialog covers the pill — the decay window must not run out unseen behind it.
+    tick(COUNTS_DECAY_MS * 3)
+    expect(stateText()).toBe('+1')
+
+    await click('Cancel')
+    expect(stateText()).toBe('+1')
+    tick(COUNTS_DECAY_MS)
+    expect(stateText()).toBe(chipStamp(SYNCED_AT))
+  })
+
+  it('clears a pending decay timer on unmount', async () => {
+    const { unmount } = render(
+      <JiraPill slug="nn-5187" jiraKey="NAVPOR-10068" syncedAt={SYNCED_AT} />
+    )
+    await click('Refresh from Jira')
+    expect(vi.getTimerCount()).toBe(1)
+
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
