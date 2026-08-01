@@ -12,6 +12,7 @@ import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
+import { HeaderNotice } from './HeaderNotice'
 import { SimilarCasesCard } from './SimilarCasesCard'
 import { JiraPill } from './JiraPill'
 import { MenuButton } from './ui'
@@ -22,7 +23,7 @@ import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
-import { toast } from '../lib/toastStore'
+import { notice } from '../lib/noticeStore'
 import { panelKeyStr } from '../../../shared/panels'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type {
@@ -398,8 +399,8 @@ export function CaseWorkspace({
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
     const r = await window.argus.bundle.export(slug, includeTranscripts)
     if (!r) return // save dialog canceled
-    if (r.ok) toast(`exported ${r.fileCount} files`)
-    else toast(r.error, 'danger')
+    if (r.ok) notice(`exported ${r.fileCount} files`)
+    else notice(r.error, 'danger')
   }
 
   async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
@@ -473,11 +474,6 @@ export function CaseWorkspace({
         <div className="relative shrink-0">
           <JiraPill key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         </div>
-        {/* key={slug}: DistillChip holds its own component-instance state (the retry
-            `override`) — same category JiraPill guards with a key on the line above; without
-            it, CaseWorkspace's no-remount-on-slug-change contract would let a retry clicked on
-            case A's chip keep showing after switching to case B. */}
-        <DistillChip key={slug} slug={slug} />
         <ModeSwitcher
           slug={slug}
           activeMode={activeMode}
@@ -487,6 +483,18 @@ export function CaseWorkspace({
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />
+        {/* Transient/informational content only — right of the mode switch, never left of
+            it, so it never shoves the case controls (case menu, Jira pill, mode switch) the
+            user is reaching for. The open-case tab strip absorbs the squeeze instead: it's
+            elastic and scrollable, this bar's other controls are not. */}
+        <div className="flex min-w-0 items-center gap-2">
+          {/* key={slug}: DistillChip holds its own component-instance state (the retry
+              `override`) — same category JiraPill guards with a key above; without it,
+              CaseWorkspace's no-remount-on-slug-change contract would let a retry clicked on
+              case A's chip keep showing after switching to case B. */}
+          <DistillChip key={slug} slug={slug} />
+          <HeaderNotice />
+        </div>
         <div className="ml-auto">
           <HeaderChips slug={slug} />
         </div>

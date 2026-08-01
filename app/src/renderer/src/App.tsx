@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { ConfirmHost } from './components/ConfirmHost'
-import { ToastHost } from './components/ToastHost'
 import { DynamicScope } from './components/DynamicScope'
 import { ImportCaseDialog, type ImportDialogState } from './components/ImportCaseDialog'
 import { FileViewer } from './components/FileViewer'
@@ -274,7 +273,6 @@ function App(): React.JSX.Element {
         }}
       />
       <ConfirmHost />
-      <ToastHost />
     </div>
   )
 }

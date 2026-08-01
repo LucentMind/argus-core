@@ -7,7 +7,7 @@ import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
-import { toastStore } from '../../lib/toastStore'
+import { noticeStore } from '../../lib/noticeStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
@@ -1021,7 +1021,7 @@ describe('CaseWorkspace case-id menu', () => {
   })
 
   it('exports the case via the Export submenu', async () => {
-    toastStore.reset()
+    noticeStore.reset()
     const exportFn = vi.fn().mockResolvedValue({ ok: true, fileCount: 3 })
     window.argus.bundle = { export: exportFn } as never
     renderWorkspace({ status: 'open', resolution: null })
@@ -1029,13 +1029,16 @@ describe('CaseWorkspace case-id menu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
     await waitFor(() => expect(exportFn).toHaveBeenCalledWith('NAV-1', true))
-    await waitFor(() => expect(toastStore.get().toasts).toHaveLength(1))
-    expect(toastStore.get().toasts[0].message).toBe('exported 3 files')
+    await waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
+    expect(noticeStore.get().notices[0].message).toBe('exported 3 files')
   })
 
-  it('reports a finished export as a toast, not as header text', async () => {
+  // Task 9 moved this out of inline header text into a bottom-right toast; this branch
+  // moves it again, into the header's own info slot (right of ModeSwitcher) — the toast
+  // went unnoticed because the action that triggers it (the case menu) is top-left.
+  it('shows a finished export inline in the header notice slot, not as a floating toast', async () => {
     const user = userEvent.setup()
-    toastStore.reset()
+    noticeStore.reset()
     window.argus.bundle = { export: vi.fn(async () => ({ ok: true, fileCount: 12 })) } as never
     renderWorkspace()
     await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
@@ -1045,21 +1048,21 @@ describe('CaseWorkspace case-id menu', () => {
     // re-toggle it closed.
     fireEvent.click(await screen.findByText('Export'))
     await user.click(await screen.findByText('Export case…'))
-    await waitFor(() => expect(toastStore.get().toasts).toHaveLength(1))
-    expect(toastStore.get().toasts[0].message).toBe('exported 12 files')
-    expect(screen.queryByText('exported 12 files')).toBeNull()
+    const notice = await screen.findByText('exported 12 files')
+    // Inline in the header now, not a fixed-position overlay.
+    expect(notice.className).not.toContain('fixed')
   })
 
   it('stays silent when the export save dialog is cancelled', async () => {
     const user = userEvent.setup()
-    toastStore.reset()
+    noticeStore.reset()
     window.argus.bundle = { export: vi.fn(async () => null) } as never
     renderWorkspace()
     await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
     fireEvent.click(await screen.findByText('Export'))
     await user.click(await screen.findByText('Export case…'))
     await waitFor(() => expect(window.argus.bundle.export).toHaveBeenCalled())
-    expect(toastStore.get().toasts).toHaveLength(0)
+    expect(noticeStore.get().notices).toHaveLength(0)
   })
 
   // Task 9: `distilled · N` / `nothing to distill` persisted for the life of the case, so as
