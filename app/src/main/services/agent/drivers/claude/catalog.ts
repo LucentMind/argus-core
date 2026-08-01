@@ -29,6 +29,20 @@ const STATIC_FALLBACK: ModelOptionInfo[] = [
 
 const cache = new Map<string, Promise<ModelOptionInfo[]>>()
 
+// A failed/fallback fetch is cached only briefly: long enough that a cold-start burst
+// (several sessions constructed at once) shares a single spawn, short enough that the
+// app recovers on its own — no restart, no manual clearCatalogCache() — once the CLI or
+// network comes back. A SUCCESSFUL fetch has no such expiry; it stays cached for the
+// process lifetime as before.
+const FAILURE_TTL_MS = 60000
+
+// Cleanup (the finally block's interrupt()) gets its own short, fixed deadline,
+// independent of the caller's (possibly much longer) probe timeoutMs. Without this, a
+// real CLI whose control channel never answers makes `ask()` — and therefore anything
+// awaiting it, up to CaseSession.stop() — hang indefinitely rather than merely up to
+// timeoutMs. A leaked child process is strictly better than an unresolvable stop().
+const CLEANUP_TIMEOUT_MS = 2000
+
 export function clearCatalogCache(): void {
   cache.clear()
 }
@@ -72,11 +86,20 @@ async function ask(
     // Offline, CLI missing, not logged in — a degraded menu, never a blocked send.
     return STATIC_FALLBACK
   } finally {
-    await q?.interrupt?.().catch(() => undefined)
+    // Bounded the same way the probe race above is: a real interrupt() that never
+    // settles (hung control channel) must not extend ask()'s total runtime past a short,
+    // fixed deadline. Losing this race leaks the child process — acceptable — rather
+    // than leaving every awaiter (including CaseSession.stop()) blocked forever.
+    await Promise.race([
+      q?.interrupt?.().catch(() => undefined),
+      new Promise<void>((r) => setTimeout(r, CLEANUP_TIMEOUT_MS))
+    ])
   }
 }
 
-/** The model catalog this CLI reports, cached per resolved binary path. */
+/** The model catalog this CLI reports, cached per resolved binary path. A successful
+ *  fetch is cached for the process lifetime; a failed/fallback one only for
+ *  FAILURE_TTL_MS (see its comment) so the app self-heals without a restart. */
 export function fetchCatalog(
   createQuery: CreateQueryFn,
   opts: { cliPath?: string; timeoutMs?: number } = {}
@@ -88,7 +111,25 @@ export function fetchCatalog(
   const key = cliPath ?? '<default>'
   const hit = cache.get(key)
   if (hit) return hit
-  const p = ask(createQuery, cliPath ?? undefined, opts.timeoutMs ?? 10000)
+  const raw = ask(createQuery, cliPath ?? undefined, opts.timeoutMs ?? 10000)
+  const p: Promise<ModelOptionInfo[]> = raw.then((result) => {
+    if (result === STATIC_FALLBACK) {
+      // Observable degradation (Finding 2): without this, a user pinned to a model the
+      // static fallback doesn't list (e.g. claude-opus-5) silently loses effort/1M/
+      // ultracode off the wire — no log, no UI signal. Logged once per actual fetch,
+      // never per cache hit, since this callback only runs when `raw` itself settles.
+      console.warn(
+        `[catalog] model catalog fetch failed for cliPath=${key}; falling back to the static list — model options (effort, 1M context, settings) will be limited until the CLI is reachable again.`
+      )
+      setTimeout(() => {
+        // Only evict if this promise is still the live cache entry — a manual
+        // clearCatalogCache() (or, in principle, a re-entrant fetch) may have already
+        // replaced or removed it.
+        if (cache.get(key) === p) cache.delete(key)
+      }, FAILURE_TTL_MS)
+    }
+    return result
+  })
   cache.set(key, p)
   return p
 }

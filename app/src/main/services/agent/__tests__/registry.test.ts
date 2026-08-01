@@ -858,6 +858,10 @@ describe('AgentService — per-session provider and model', () => {
       model: 'claude-opus-4-8'
     })
     await svc.send('NAV-1', s.id, 'first') // turn still in flight
+    // The real session query() is constructed behind the (now more thoroughly bounded —
+    // see catalog.ts Findings 1/2) catalog fetch; give that microtask chain a tick to
+    // land before asserting on optionsLog, same flush idiom used throughout this file.
+    await new Promise((r) => setTimeout(r, 10))
     setSessionModel(db, s.id, {
       driverKind: 'claude-agent-sdk',
       instanceId: 'claude-default',

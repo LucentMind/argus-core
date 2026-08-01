@@ -100,6 +100,14 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // sending an empty object — see subagentBinding.ts for why that distinction matters.
       const layerAgents = claudeAgentsOption(ctx.subagents)
 
+      // Set by end() if it runs before handleReady's IIFE reaches the cancellation
+      // check below. Without this, a session stopped during the cold-cache window (the
+      // catalog fetch can take up to its own timeout) still guarantees a real query()
+      // spawn — CLI process, MCP servers and all — for a session the user already
+      // cancelled, because end() only closed the prompt queue and interrupt() had to
+      // await handleReady (i.e. construct the query first) before it could touch it.
+      let cancelled = false
+
       // Options bag: relocated from session.ts:168-211; the DriverSessionContext
       // fields substitute for the SessionDeps/agentOptions values the harness used to
       // read directly (systemAppend, extraMcpServers, nativeToolDeps, onToolRequest).
@@ -114,6 +122,18 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
       // until the query starts consuming it.
       const handleReady: Promise<QueryHandle> = (async () => {
         const modelInfo = await catalogFor(createQuery, cliPath ?? undefined, ctx.model)
+        if (cancelled) {
+          // end()/stop() ran while the catalog fetch was in flight. Settle handleReady
+          // without ever calling createQuery — no CLI process, no MCP servers built —
+          // with a handle that is well-defined for both callers: events() sees an
+          // already-finished stream (the for-await below simply completes), and
+          // interrupt() sees a no-op that resolves immediately rather than hanging.
+          return {
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
+            [Symbol.asyncIterator]: async function* () {},
+            interrupt: async () => undefined
+          }
+        }
         return createQuery({
           prompt: promptQueue,
           options: {
@@ -334,6 +354,7 @@ export function createClaudeDriver(createQuery: CreateQueryFn = defaultCreateQue
           await handle.interrupt().catch(() => undefined)
         },
         end(): void {
+          cancelled = true
           promptQueue.end()
         }
       }
