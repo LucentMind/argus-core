@@ -33,6 +33,13 @@ export interface FeedDocument {
  */
 const BUNDLE_TAIL = /^(.+)-([a-z0-9]+-[a-z0-9]+)\.zip$/
 
+// Official SemVer 2.0.0 regex (see https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string).
+const SEMVER = new RegExp(
+  '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)' +
+    '(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?' +
+    '(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$'
+)
+
 export function buildFeed(opts: FeedOptions): FeedDocument {
   if (!/^https:\/\//.test(opts.baseUrl)) {
     throw new Error(`baseUrl must be https (Argus refuses to fetch anything else): ${opts.baseUrl}`)
@@ -55,6 +62,15 @@ export function buildFeed(opts: FeedOptions): FeedDocument {
     const version = head.slice(manifest.id.length + 1)
     if (version === '') {
       throw new Error(`filename must be <id>-<version>-<os>-<arch>.zip, got '${name}'`)
+    }
+    // A bundle whose pack id is a hyphen-extension of `manifest.id` (e.g. 'sample-extra' vs
+    // 'sample') passes the startsWith check above but leaves a garbage tail — like
+    // 'extra-1.0.0' — sliced off as the "version". Reject anything that isn't valid semver so
+    // that collision can't silently reach the published feed.
+    if (!SEMVER.test(version)) {
+      throw new Error(
+        `bundle '${name}' does not belong to pack '${manifest.id}' (parsed version '${version}' is not valid semver — check for another pack whose id is a hyphen-extension of '${manifest.id}')`
+      )
     }
     return {
       version,

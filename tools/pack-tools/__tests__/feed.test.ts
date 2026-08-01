@@ -102,6 +102,19 @@ describe('buildFeed', () => {
     )
   })
 
+  it('refuses a bundle whose pack id is a hyphen-extension of the manifest id', () => {
+    // 'sample-extra' is a DIFFERENT pack from 'sample', but its bundle name starts with
+    // 'sample-', so the naive startsWith(`${manifest.id}-`) guard would accept it and slice
+    // out 'extra-1.0.0' as the "version" — a nonsense string that is not valid semver.
+    expect(() =>
+      buildFeed({
+        packDir,
+        bundles: [bundle('sample-extra-1.0.0-win-x64.zip', 'a')],
+        baseUrl: 'https://v.example'
+      })
+    ).toThrow(/does not belong to pack 'sample'/)
+  })
+
   it('parses a hyphenated pack id and a prerelease version correctly', () => {
     // A generic <id>-<version>-<os>-<arch> regex mis-splits both of these and silently
     // publishes the wrong version string, which the feed then advertises as installable.
