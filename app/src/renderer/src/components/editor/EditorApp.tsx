@@ -9,7 +9,7 @@ import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { drainEditorMessages } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
 import { useEditorAssets } from '../../lib/editorAssets'
-import { isAssetEditable } from '../../../../shared/assetEditable'
+import { isAssetEditable, isGeneratedAsset } from '../../../../shared/assetEditable'
 import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
 import {
   buildCommands,
@@ -64,6 +64,8 @@ interface TabPaneProps {
    *  (unresolved) and `null` (untagged) both mean "no badge, and never read-only" — see
    *  assetTiers.ts. */
   tier: TierLookup
+  /** Whether this asset is generated and should open read-only. Computed per tab like `readOnly`. */
+  generated: boolean
   onDirtyChange: (id: string, dirty: boolean) => void
   onNameChange: (id: string, name: string) => void
   /** A save landed. Flips a create-mode tab to edit mode — see `markTabSaved` in tabs.ts. */
@@ -127,6 +129,7 @@ const TabPane = memo(function TabPane({
   active,
   readOnly,
   tier,
+  generated,
   onDirtyChange,
   onNameChange,
   onSaved,
@@ -199,6 +202,7 @@ const TabPane = memo(function TabPane({
           // `tab.name`, matching the tier this notice is explaining — see `handleEditCopy`.
           name={tab.name}
           tier={tier ?? null}
+          generated={generated}
           onEditCopy={handleEditCopy}
         />
       )}
@@ -589,8 +593,9 @@ export function EditorApp(): React.JSX.Element {
             // OPENED with. Creating a skill in a tab minted as "theirs" and saving it as "mine"
             // would otherwise resolve the hivemind tier of "theirs" and lock the user out of the
             // file they just wrote. For every edit-mode tab the two are identical.
+            const generated = isGeneratedAsset(t.kind, t.name)
             const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
-            const readOnly = t.mode !== 'create' && !isAssetEditable(t.kind, tier)
+            const readOnly = t.mode !== 'create' && (generated || !isAssetEditable(t.kind, tier))
             const active = t.id === state.activeId
             return (
               <TabPane
@@ -599,6 +604,7 @@ export function EditorApp(): React.JSX.Element {
                 active={active}
                 readOnly={readOnly}
                 tier={tier}
+                generated={generated}
                 onDirtyChange={onDirtyChange}
                 onNameChange={onNameChange}
                 onSaved={onSaved}
