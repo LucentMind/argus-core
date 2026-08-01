@@ -334,6 +334,12 @@ export function CaseWorkspace({
       busyMode: prSearching ? 'review' : null,
       statusText: prSearching ? 'Searching for pull requests…' : null
     })
+    // Navigating home (or away to another case) unmounts this workspace; without clearing the
+    // store here, the last-published busy state survives — e.g. `Searching…` from a review PR
+    // search that outlives the unmount — and reopening the case renders that stale state.
+    return () => {
+      caseBarStore.publish({ slug: null, busyMode: null, statusText: null })
+    }
   }, [slug, prSearching])
 
   /** Mirrors ReviewRunButton: compose in main (it owns the binding and worktree path), then

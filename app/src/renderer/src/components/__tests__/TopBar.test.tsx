@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TopBar } from '../TopBar'
 import { uiStore } from '../../lib/uiStore'
 import { caseBarStore } from '../../lib/caseBarStore'
 import type { CaseRecord } from '../../../../shared/types'
+import type { DistillJobRow } from '../../../../shared/distill'
 
 const CASE = {
   id: 1,
@@ -185,8 +186,11 @@ describe('TopBar', () => {
     expect(nav.querySelectorAll('[data-tab-separator]')).toHaveLength(1)
   })
 
-  it('is a drag region, with every interactive element opted out', () => {
+  it('is a drag region, with every interactive element opted out', async () => {
     uiStore.openTab('NAV-1')
+    // A second, non-active tab so the strip actually renders tab buttons — the active case is
+    // filtered out of the strip (it lives in the anchor instead).
+    uiStore.openTab('NAV-2')
     render(
       <TopBar
         activeSlug="NAV-1"
@@ -204,9 +208,13 @@ describe('TopBar', () => {
     // buttons, so it no longer needs to reserve room for them.
     expect(header.classList.contains('argus-titlebar-inset')).toBe(false)
 
+    // ModeSwitcher renders a plain <span> until window.argus.modes.available resolves; wait
+    // for the real buttons so they are part of what this test checks, not silently absent.
+    await screen.findByRole('button', { name: 'Case mode · Review' })
+
     // A drag region swallows clicks AND scroll, so everything the user operates has to opt out.
     const interactive = header.querySelectorAll('button, a, input, select, textarea, [tabindex]')
-    expect(interactive.length).toBeGreaterThan(4)
+    expect(interactive.length).toBeGreaterThan(8)
     // Chromium computes draggable regions as a stack of rects: a `no-drag` rect subtracts
     // from the enclosing `drag` rect, and everything inside it is out of the drag region.
     // `closest`, not a per-element class check, so the case group can opt out with one
@@ -322,6 +330,71 @@ describe('TopBar', () => {
         'Searching for pull requests…'
       )
     )
+  })
+
+  // DistillChip is keyed on `activeSlug` (TopBar.tsx) specifically so a retry clicked on one
+  // case cannot survive a switch to another — TopBar itself is not remounted on a case switch,
+  // only re-rendered with a new `activeSlug`. The hazard is a retry that resolves *after* the
+  // switch: without the key, the same DistillChip instance is still alive under the new slug
+  // and adopts case A's stale retry result. Delete the key and this is the test that must fail.
+  it('does not let a case retry survive a switch to another case (DistillChip key guard)', async () => {
+    const user = userEvent.setup()
+    const CASE2 = { ...CASE, slug: 'NAV-2', title: 'NAV-2' } as unknown as CaseRecord
+    const failedJob: DistillJobRow = {
+      id: 1,
+      caseSlug: 'NAV-1',
+      state: 'failed',
+      error: 'boom',
+      itemCount: null,
+      createdAt: '',
+      finishedAt: null
+    }
+    const runningJob: DistillJobRow = { ...failedJob, state: 'running' }
+    window.argus.distill.status = vi.fn(async (slug: string) =>
+      slug === 'NAV-1' ? failedJob : null
+    )
+    let resolveRetry!: (job: DistillJobRow) => void
+    window.argus.distill.retry = vi.fn(
+      () =>
+        new Promise<DistillJobRow>((resolve) => {
+          resolveRetry = resolve
+        })
+    )
+
+    const view = render(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={CASE}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'distill failed — retry' }))
+
+    // Switch cases while case A's retry is still in flight — the request outlives the switch,
+    // the same class of hazard finding 4 addresses for the review PR search.
+    view.rerender(
+      <TopBar
+        activeSlug="NAV-2"
+        activeCase={CASE2}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    await vi.waitFor(() => expect(screen.queryByText('distill failed — retry')).toBeNull())
+
+    // Case A's retry resolves only now, after the switch. With the key, the DistillChip that
+    // requested it was already unmounted, so this result lands nowhere. Without the key, the
+    // still-alive instance would adopt it and show case A's outcome under case B.
+    await act(async () => {
+      resolveRetry(runningJob)
+    })
+    expect(screen.queryByText('distilling…')).toBeNull()
   })
 
   it('ignores busy state published for a different case', async () => {

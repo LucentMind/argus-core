@@ -73,6 +73,31 @@ describe('CaseAnchor', () => {
     expect(screen.getByText('Closed · solved')).toBeTruthy()
   })
 
+  it('shows a bare Closed label for a legacy closed case with no resolution', async () => {
+    const user = userEvent.setup()
+    renderAnchor({ status: 'closed', resolution: null })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    expect(screen.getByText('Closed')).toBeTruthy()
+    expect(screen.queryByText('Close as…')).toBeNull()
+  })
+
+  it('reopens a closed case from the Reopen row nested under the status readout', async () => {
+    const user = userEvent.setup()
+    const onStatusChanged = vi.fn()
+    renderAnchor({ status: 'closed', resolution: 'solved', onStatusChanged })
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    // "Closed · solved" is the parent row that opens the resolution submenu; drive it with
+    // userEvent per the hover-submenu convention.
+    await user.click(screen.getByText('Closed · solved'))
+    await vi.waitFor(() => expect(screen.getByText('Reopen')).toBeTruthy())
+    // "Reopen" is a leaf item inside the now-open submenu; drive it with fireEvent.
+    fireEvent.click(screen.getByText('Reopen'))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith('NN-5187', 'open', null)
+    )
+    await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalled())
+  })
+
   it('closes the tab and navigates home from Close case', async () => {
     const user = userEvent.setup()
     const onHome = vi.fn()

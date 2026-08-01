@@ -12,7 +12,7 @@ import { DEFAULT_MODE } from '../../../shared/modes'
 import type { CaseRecord } from '../../../shared/types'
 
 const ACTION_BTN =
-  'argus-nodrag inline-flex h-10 w-10 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink'
+  'argus-nodrag inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink'
 
 /**
  * The app's only chrome bar, and — inside a case — the case's chrome too.

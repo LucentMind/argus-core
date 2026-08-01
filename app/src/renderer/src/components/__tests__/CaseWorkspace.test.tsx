@@ -283,6 +283,16 @@ describe('CaseWorkspace bar merge', () => {
     expect(caseBarStore.get().slug).toBe('NAV-1')
     expect(caseBarStore.get().busyMode).toBeNull()
   })
+
+  // Navigating home while a review PR search is running must not leave the bar store showing
+  // this case's busy state forever — reopening the case would render a spinner for a commit.
+  it('clears the bar store on unmount', async () => {
+    const view = renderWorkspace()
+    await screen.findByRole('main')
+    expect(caseBarStore.get().slug).toBe('NAV-1')
+    view.unmount()
+    expect(caseBarStore.get().slug).toBeNull()
+  })
 })
 
 describe('CaseWorkspace composer prefill', () => {
