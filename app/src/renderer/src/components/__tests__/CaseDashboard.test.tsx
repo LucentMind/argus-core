@@ -22,8 +22,9 @@ const cases: CaseRecord[] = [
     jiraAttachmentIds: [],
     reviewBaseline: null,
     lastSyncError: null,
-    status: 'analyzing',
+    status: 'open',
     resolution: null,
+    phase: 'analyzing',
     activeMode: DEFAULT_MODE,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
@@ -112,7 +113,9 @@ describe('CaseDashboard', () => {
   })
 
   it('shows the resolution alongside a closed status', () => {
-    const closedCases: CaseRecord[] = [{ ...cases[0], status: 'closed', resolution: 'wont-fix' }]
+    const closedCases: CaseRecord[] = [
+      { ...cases[0], status: 'closed', resolution: 'wont-fix', phase: 'closed' }
+    ]
     render(
       <CaseDashboard
         cases={closedCases}
@@ -189,7 +192,8 @@ describe('CaseDashboard', () => {
       ...cases[0],
       slug: 'NAV-1',
       title: 'Bearing jumps',
-      status: 'analyzing',
+      status: 'open',
+      phase: 'analyzing',
       jiraPriority: 'High'
     },
     {
@@ -198,6 +202,7 @@ describe('CaseDashboard', () => {
       slug: 'NAV-2',
       title: 'Route missing',
       status: 'open',
+      phase: 'open',
       jiraPriority: 'Low'
     }
   ]
@@ -244,6 +249,7 @@ describe('CaseDashboard', () => {
         slug: 'NAV-3',
         title: 'Signal drop',
         status: 'open',
+        phase: 'open',
         jiraPriority: 'High'
       }
     ]
@@ -270,7 +276,14 @@ describe('CaseDashboard', () => {
   it('an explicit Closed filter overrides the hide-closed default', () => {
     const withClosed = [
       ...twoCases,
-      { ...cases[0], id: 3, slug: 'NAV-3', title: 'Old bug', status: 'closed' as const }
+      {
+        ...cases[0],
+        id: 3,
+        slug: 'NAV-3',
+        title: 'Old bug',
+        status: 'closed' as const,
+        phase: 'closed' as const
+      }
     ]
     render(
       <CaseDashboard

@@ -32,8 +32,9 @@ function mkCase(overrides: Partial<CaseRecord> = {}): CaseRecord {
     jiraAttachmentIds: [],
     reviewBaseline: null,
     lastSyncError: null,
-    status: 'analyzing',
+    status: 'open',
     resolution: null,
+    phase: 'open',
     activeMode: DEFAULT_MODE,
     tags: [],
     createdAt: '2026-07-01T00:00:00Z',
@@ -234,7 +235,7 @@ describe('CaseDashboard triage', () => {
       <CaseDashboard
         cases={[
           mkCase({ slug: 'live' }),
-          mkCase({ slug: 'done', status: 'closed', resolution: 'solved' })
+          mkCase({ slug: 'done', status: 'closed', resolution: 'solved', phase: 'closed' })
         ]}
         {...noopHandlers}
       />
@@ -242,6 +243,48 @@ describe('CaseDashboard triage', () => {
     expect(screen.queryByText('done')).not.toBeInTheDocument()
     await userEvent.click(screen.getByLabelText('Show closed cases'))
     expect(screen.getByText('done')).toBeInTheDocument()
+  })
+
+  it('counts cases by phase in the eyebrow', () => {
+    render(
+      <CaseDashboard
+        cases={[
+          mkCase({ slug: 'A', phase: 'analyzing' }),
+          mkCase({ slug: 'B', phase: 'pr-created' }),
+          mkCase({ slug: 'C', phase: 'pr-created' })
+        ]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.getByText(/1 Analyzing · 2 PR created/)).toBeInTheDocument()
+  })
+
+  it('filters by phase', async () => {
+    render(
+      <CaseDashboard
+        cases={[
+          mkCase({ slug: 'A', phase: 'analyzing' }),
+          mkCase({ slug: 'B', phase: 'reviewing' })
+        ]}
+        {...noopHandlers}
+      />
+    )
+    await userEvent.click(screen.getByRole('button', { name: /Status/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Reviewing' }))
+    expect(screen.queryByText('A')).not.toBeInTheDocument()
+    expect(screen.getByText('B')).toBeInTheDocument()
+  })
+
+  it('hides closed cases by default and shows them on request', async () => {
+    render(
+      <CaseDashboard
+        cases={[mkCase({ slug: 'OPEN', phase: 'open' }), mkCase({ slug: 'DONE', phase: 'closed' })]}
+        {...noopHandlers}
+      />
+    )
+    expect(screen.queryByText('DONE')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Show closed cases'))
+    expect(screen.getByText('DONE')).toBeInTheDocument()
   })
 
   it('filters cards by slug, title and jira key', async () => {
@@ -259,10 +302,10 @@ describe('CaseDashboard triage', () => {
     expect(screen.getByText('beta')).toBeInTheDocument()
   })
 
-  it('shows counts by status', () => {
+  it('shows counts by phase', () => {
     render(
       <CaseDashboard
-        cases={[mkCase({ slug: 'a', status: 'open' }), mkCase({ slug: 'b', status: 'analyzing' })]}
+        cases={[mkCase({ slug: 'a', phase: 'open' }), mkCase({ slug: 'b', phase: 'analyzing' })]}
         {...noopHandlers}
       />
     )
@@ -340,13 +383,13 @@ describe('CaseDashboard triage', () => {
   })
 
   it('pairs the status word with a glowing dot', () => {
-    render(<CaseDashboard cases={[mkCase({ status: 'analyzing' })]} {...noopHandlers} />)
+    render(<CaseDashboard cases={[mkCase({ phase: 'analyzing' })]} {...noopHandlers} />)
     expect(screen.getByText('Analyzing')).toBeTruthy()
     expect(screen.getAllByTestId('status-dot').length).toBeGreaterThan(0)
   })
 
   it('gives the status dot and its word the same text-* colour class — they can never disagree', () => {
-    render(<CaseDashboard cases={[mkCase({ status: 'analyzing' })]} {...noopHandlers} />)
+    render(<CaseDashboard cases={[mkCase({ phase: 'analyzing' })]} {...noopHandlers} />)
     const dot = screen.getByTestId('status-dot')
     const dotColorClass = dot.className.split(' ').find((cls) => cls.startsWith('text-'))
     expect(dotColorClass).toBeTruthy()
@@ -354,8 +397,8 @@ describe('CaseDashboard triage', () => {
     expect(word.classList.contains(dotColorClass as string)).toBe(true)
   })
 
-  it('spells out the rca-drafted status', () => {
-    render(<CaseDashboard cases={[mkCase({ status: 'rca-drafted' })]} {...noopHandlers} />)
+  it('spells out the rca-drafted phase', () => {
+    render(<CaseDashboard cases={[mkCase({ phase: 'rca-drafted' })]} {...noopHandlers} />)
     expect(screen.getByText('RCA drafted')).toBeTruthy()
   })
 

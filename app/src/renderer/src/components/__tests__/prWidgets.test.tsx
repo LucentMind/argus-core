@@ -10,6 +10,7 @@ const kase = (): CaseRecord =>
     slug: 'c1',
     title: 'Case 1',
     status: 'open',
+    phase: 'open',
     actionItems: [],
     jiraKey: null,
     jiraSyncedAt: null

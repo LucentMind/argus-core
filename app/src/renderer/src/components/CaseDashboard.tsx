@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { CaseRecord, CaseStatus } from '../../../shared/types'
+import type { CaseRecord, CasePhase } from '../../../shared/types'
 import { Btn, Checkbox, MenuButton, SectionLabel, type MenuItem } from './ui'
 import { FolderInput, Plus, RefreshCw, Search } from 'lucide-react'
 import { CaseCard } from './CaseCard'
@@ -34,7 +34,7 @@ export function CaseDashboard({
   const [login, setLogin] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [showClosed, setShowClosed] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<CaseStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<CasePhase | 'all'>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [syncing, setSyncing] = useState<{ done: number; total: number } | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
@@ -148,8 +148,8 @@ export function CaseDashboard({
   const visible = cases.filter((c) => {
     // An explicit Closed filter is a stronger statement of intent than the standing
     // hide-closed default, so it wins.
-    if (!showClosed && statusFilter !== 'closed' && c.status === 'closed') return false
-    if (statusFilter !== 'all' && c.status !== statusFilter) return false
+    if (!showClosed && statusFilter !== 'closed' && c.phase === 'closed') return false
+    if (statusFilter !== 'all' && c.phase !== statusFilter) return false
     if (priorityFilter !== 'all' && c.jiraPriority !== priorityFilter) return false
     if (!q) return true
     return (
@@ -159,19 +159,14 @@ export function CaseDashboard({
     )
   })
   const counts = cases.reduce<Record<string, number>>((acc, c) => {
-    acc[c.status] = (acc[c.status] ?? 0) + 1
+    acc[c.phase] = (acc[c.phase] ?? 0) + 1
     return acc
   }, {})
   const countLabel = PHASE_ORDER.filter((s) => counts[s])
     .map((s) => `${counts[s]} ${PHASE_WORD[s]}`)
     .join(' · ')
 
-  // PHASE_ORDER has six phases but c.status is only ever 'open' | 'closed' (see
-  // shared/types.ts); narrow before building the menu so its entries stay valid CaseStatus
-  // values. Task 8 replaces this filter menu with one keyed on phase.
-  const STATUS_MENU: { id: CaseStatus; label: string }[] = PHASE_ORDER.filter(
-    (id): id is CaseStatus => id === 'open' || id === 'closed'
-  ).map((id) => ({
+  const STATUS_MENU: { id: CasePhase; label: string }[] = PHASE_ORDER.map((id) => ({
     id,
     label: PHASE_WORD[id]
   }))

@@ -24,6 +24,7 @@ const cases: CaseRecord[] = [
     lastSyncError: null,
     status: 'open',
     resolution: null,
+    phase: 'open',
     activeMode: DEFAULT_MODE,
     tags: [],
     createdAt: '2026-07-10T00:00:00.000Z',
