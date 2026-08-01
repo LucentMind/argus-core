@@ -93,7 +93,7 @@ function PackCard({
         <div className="pl-4 text-sm text-dim">
           {describeUpdate(pack.update)}
           {pack.update.phase === 'error' && pack.update.code === 'origin-pin' && (
-            <> — download it manually from your vendor and install it with Install pack.</>
+            <> — download it manually from your vendor and install it with Install from file….</>
           )}
         </div>
       )}
@@ -211,7 +211,10 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     setError(null)
     setBusy(true)
     try {
-      await window.argus.packs.applyUpdate(id)
+      const status = await window.argus.packs.applyUpdate(id)
+      if (status.phase === 'ready') {
+        setNeedsRelaunch(true)
+      }
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

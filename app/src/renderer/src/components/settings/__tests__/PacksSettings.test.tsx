@@ -343,6 +343,37 @@ describe('PacksSettings', () => {
     expect(await screen.findByText(/download it manually/i)).toBeInTheDocument()
   })
 
+  it('prompts for relaunch after a successful applyUpdate', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [row({ id: 'sample', update: { phase: 'available', version: '1.1.0' } })]
+    })
+    packs.applyUpdate = vi.fn().mockResolvedValue({ phase: 'ready', version: '1.1.0' })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    fireEvent.click(await screen.findByRole('button', { name: /update · sample/i }))
+    await waitFor(() => expect(packs.applyUpdate).toHaveBeenCalledWith('sample'))
+    expect(await screen.findByRole('button', { name: 'Relaunch now' })).toBeInTheDocument()
+  })
+
+  it('does not prompt for relaunch when applyUpdate resolves to an error status', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [row({ id: 'sample', update: { phase: 'available', version: '1.1.0' } })]
+    })
+    packs.applyUpdate = vi.fn().mockResolvedValue({
+      phase: 'error',
+      message: 'origin mismatch',
+      at: 1,
+      code: 'origin-pin'
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    fireEvent.click(await screen.findByRole('button', { name: /update · sample/i }))
+    await waitFor(() => expect(packs.applyUpdate).toHaveBeenCalledWith('sample'))
+    // refresh() re-lists after applyUpdate settles; wait for it before asserting absence.
+    await waitFor(() => expect(packs.list).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('button', { name: 'Relaunch now' })).not.toBeInTheDocument()
+  })
+
   it('surfaces an Update failure through the alert, not a silent re-enable', async () => {
     packs.list = vi.fn().mockResolvedValue({
       error: null,
