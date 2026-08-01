@@ -198,7 +198,7 @@ describe('DynamicScope — case variant', () => {
     expect(screen.getByText('inner')).toBeTruthy()
   })
 
-  it('on: scope class and band mount', () => {
+  it('on: the scope class mounts, but the light does NOT — that lives in the chrome', () => {
     uiStore.setDynamicTheme(true)
     render(
       <DynamicScope variant="case">
@@ -208,7 +208,10 @@ describe('DynamicScope — case variant', () => {
     const root = screen.getByTestId('dynamic-case')
     expect(root.className).toContain('dyn ')
     expect(root.className).toContain('dyn-case')
-    expect(screen.getByTestId('ambient-fallback')).toBeTruthy()
+    // Scoped tokens yes, aurora no. Since the case header merged into TopBar the case's light
+    // is mounted by App.tsx behind the chrome; a canvas here too would be a second, lower one.
+    expect(screen.queryByTestId('ambient-fallback')).toBeNull()
+    expect(screen.queryByTestId('ambient-canvas-host')).toBeNull()
   })
 
   it('carries the flex chain so the panes keep their height basis', () => {
@@ -256,25 +259,12 @@ describe('DynamicScope — case variant', () => {
     expect(document.querySelector('.dyn-grain')).toBeNull()
   })
 
-  it('anchors the ambient band to its own element, not to a component box', async () => {
-    renderWorkspace()
-    await screen.findByRole('main')
-    const band = document.querySelector('[data-testid="ambient-band"]')
-    expect(band).not.toBeNull()
-    // Inside the scope, because AmbientCanvas measures both rects relative to the
-    // DynamicScope wrapper — a bar-anchored cutoff would compute negative and collapse the
-    // canvas to nothing.
-    expect(band?.closest('[data-testid="dynamic-case"]')).not.toBeNull()
-    expect(band?.getAttribute('aria-hidden')).toBe('true')
-  })
-
-  it('wires the anchor refs to the ambient band, not just to some element', async () => {
-    // The test above only checks that a `data-testid="ambient-band"` div exists somewhere in
-    // the scope — it would stay green even if `ref={anchors.setCutoff}`/`setLight` were
-    // deleted from CaseWorkspace and the aurora silently fell back to its hardcoded default.
-    // This renders CaseWorkspace under a real AmbientAnchorContext.Provider (the same shape
-    // DynamicScope's own `anchors` value has — see DynamicScope.tsx) and captures exactly
-    // which elements the ref callbacks receive.
+  it('paints no ambient band of its own — nothing in the view claims the chrome anchors', async () => {
+    // The workspace used to carry a `data-testid="ambient-band"` div as the light's stand-in
+    // for the pre-merge case header. It is gone: the light is above the view now, and a band
+    // here would put a second glow one bar's height below the real one — the exact defect this
+    // change fixes. Asserted through a real anchor provider so the test also fails if the
+    // workspace merely stops rendering the div while still grabbing the refs.
     let cutoffEl: HTMLElement | null = null
     let lightEl: HTMLElement | null = null
     const anchors: AmbientAnchors = {
@@ -299,9 +289,16 @@ describe('DynamicScope — case variant', () => {
       </AmbientAnchorContext.Provider>
     )
     await screen.findByRole('main')
-    const band = screen.getByTestId('ambient-band')
-    expect(cutoffEl).toBe(band)
-    expect(lightEl).not.toBeNull()
-    expect(band.contains(lightEl)).toBe(true)
+    expect(document.querySelector('[data-testid="ambient-band"]')).toBeNull()
+    expect(cutoffEl).toBeNull()
+    expect(lightEl).toBeNull()
+  })
+
+  it('renders no canvas under a lit scope either — one aurora, and it is the chrome’s', async () => {
+    uiStore.setDynamicTheme(true)
+    renderWorkspace()
+    await screen.findByRole('main')
+    expect(screen.queryByTestId('ambient-fallback')).toBeNull()
+    expect(screen.queryByTestId('ambient-canvas-host')).toBeNull()
   })
 })

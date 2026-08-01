@@ -20,7 +20,6 @@ import { reposStore } from '../lib/reposStore'
 import { panelKeyStr } from '../../../shared/panels'
 import type { ChatJumpTarget, FileNode, SessionSummary, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
-import { useAmbientAnchors } from '../lib/ambientAnchors'
 import type { ModeId } from '../../../shared/modes'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
@@ -62,7 +61,6 @@ export function CaseWorkspace({
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
   )
-  const anchors = useAmbientAnchors()
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
@@ -410,24 +408,10 @@ export function CaseWorkspace({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {/* The dynamic theme's light band. It used to borrow the case header's box; with the
-          header gone this is what it was always describing — the top 44px of the case view,
-          lit from the left, under where the case anchor now sits in the bar. Anchoring to a
-          real component instead would couple the band to that component's box and break the
-          next time one is restyled. AmbientCanvas measures both rects relative to the
-          DynamicScope wrapper, so both must live inside it — TopBar does not.
-          setCutoff/setLight are useState setters used directly as ref callbacks (the
-          React-documented way to observe a DOM node), not stale `.current` reads. */}
-      <div
-        aria-hidden="true"
-        data-testid="ambient-band"
-        className="pointer-events-none absolute inset-x-0 top-0 h-11"
-        // eslint-disable-next-line react-hooks/refs
-        ref={anchors.setCutoff}
-      >
-        {/* eslint-disable-next-line react-hooks/refs */}
-        <div ref={anchors.setLight} className="h-full w-64" />
-      </div>
+      {/* No ambient band here any more. It was a stand-in for the pre-merge case header's box —
+          the top 44px of the case VIEW, i.e. the strip just below the chrome — and it read as a
+          glow floating under the bar rather than as the bar being lit. The case's light now
+          lives with the case: behind the merged header, mounted by App.tsx. */}
       <div className="flex min-h-0 flex-1">
         {ui.evidenceCollapsed ? (
           <button

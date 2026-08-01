@@ -251,6 +251,19 @@ describe('material scoping', () => {
     }
   })
 
+  it('the chrome ambient layer stays plain CSS, behind the chrome and above the ground', () => {
+    // These two rules are the layering of the case aurora, which now sits behind TopBar. They
+    // are hand-written CSS precisely so they cannot be lost to the new-Tailwind-class-under-HMR
+    // trap, and the pair only works together: negative z-index without the isolated ancestor
+    // puts the canvas under the app's own bg-void, and it disappears entirely.
+    expect(decl(block(dyn, '.chrome-ground {'), 'isolation')).toBe('isolate')
+    const layer = block(dyn, '.chrome-ambient {')
+    expect(decl(layer, 'z-index')).toBe('-1')
+    expect(decl(layer, 'top')).toBe('0')
+    expect(decl(layer, 'position')).toBe('absolute')
+    expect(decl(layer, 'pointer-events')).toBe('none')
+  })
+
   it('the material recipes are un-scoped', () => {
     // The recipe must not be prefixed — dialogs, chrome and the editor window all live outside
     // any .dyn scope and still need it.

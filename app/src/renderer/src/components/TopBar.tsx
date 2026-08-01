@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { Sun, Moon, Settings, Gauge, Home } from 'lucide-react'
+import type { AmbientAnchors } from '../lib/ambientAnchors'
 import { uiStore } from '../lib/uiStore'
 import { caseBarStore, useCaseBar } from '../lib/caseBarStore'
 import { CaseAnchor } from './CaseAnchor'
@@ -28,6 +29,7 @@ const ACTION_BTN =
  * the bar is identical.
  */
 export function TopBar({
+  ambient,
   activeSlug,
   activeCase,
   onHome,
@@ -36,6 +38,13 @@ export function TopBar({
   onStatusChanged,
   onObservability
 }: {
+  /**
+   * Non-null while the window's ambient light is mounted behind the chrome (App.tsx). The bar
+   * then hands it its two anchors — the case group is the light source, the bar's own bottom
+   * edge is where the light dies — and drops its own opaque ground so the light is visible
+   * through it. Null in classic mode: the bar is flat `bg-void` and nothing measures it.
+   */
+  ambient?: AmbientAnchors | null
   activeSlug: string | null
   /** The active case's record, or null while `cases` is still loading. `activeSlug` comes
    *  from the view and is the thing that decides whether the group renders at all, so the
@@ -61,7 +70,12 @@ export function TopBar({
     // The OS window buttons live in their own strip above (TitleBarStrip), not beside this
     // header, so no inset is needed here — argus-drag stays because dragging by the header is
     // still good UX.
-    <header className="argus-drag flex h-12 items-center gap-1.5 border-b border-hair bg-void px-3">
+    <header
+      className={`argus-drag flex h-12 items-center gap-1.5 border-b border-hair px-3 ${
+        ambient ? '' : 'bg-void'
+      }`}
+      ref={ambient?.setCutoff}
+    >
       {/* Wordmark and home control are one button, not two adjacent things: the brand belongs
           top-left on every view, and the top bar is the only chrome that renders on all of them —
           which is what lets home and Settings drop their local copies of the wordmark. */}
@@ -93,6 +107,9 @@ export function TopBar({
                 The outer div above stands in for that instead, spanning the full header height. */}
             <div
               data-testid="case-group"
+              // The aurora's light source: it brightens around this box, so the light reads as
+              // coming off the case id itself rather than off an arbitrary point in the bar.
+              ref={ambient?.setLight}
               data-tier={
                 ui.dynamicTheme
                   ? (railTier(activeCase?.jiraPriority ?? null) ?? undefined)

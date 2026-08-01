@@ -19,9 +19,17 @@ import { TITLEBAR_HEIGHTS, type TitleBarKind } from '../../../shared/titleBarHei
 export function TitleBarStrip({
   kind,
   flush,
+  ambient,
   children
 }: {
   kind: TitleBarKind
+  /**
+   * Drops the strip's own ground so the window's ambient light (App.tsx's chrome aurora) reads
+   * through it. Only the main window's bare strip ever sets this, and only while that light is
+   * actually mounted — an unlit transparent strip would just show the page ground and lose the
+   * chrome's top edge.
+   */
+  ambient?: boolean
   /**
    * Opts the strip's left edge out of the 12px design gutter (`argus-titlebar-inset--flush` in
    * main.css) so its leading child lines up with content below that starts at the window edge —
@@ -36,9 +44,9 @@ export function TitleBarStrip({
 }): React.JSX.Element {
   return (
     <div
-      className={`argus-drag argus-titlebar-inset flex shrink-0 items-center bg-deep text-xs text-dim${
-        flush ? ' argus-titlebar-inset--flush' : ''
-      }`}
+      className={`argus-drag argus-titlebar-inset flex shrink-0 items-center text-xs text-dim${
+        ambient ? '' : ' bg-deep'
+      }${flush ? ' argus-titlebar-inset--flush' : ''}`}
       style={{ height: TITLEBAR_HEIGHTS[kind] }}
     >
       {children}

@@ -51,7 +51,14 @@ export function DynamicScope({
       className={`${on ? `dyn dyn-${variant} bg-void ` : ''}${layout}`}
       data-testid={`dynamic-${variant}`}
     >
-      {on && <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />}
+      {/* The case variant deliberately paints no canvas of its own: since the header merge the
+          case's light belongs to the chrome, and App.tsx mounts it there (above this scope, at
+          the window's top edge). A second canvas here would be a second, lower aurora — which is
+          exactly the misplaced band this scope used to own. Home and Settings still light
+          themselves, because their light source is inside their own page. */}
+      {on && variant !== 'case' && (
+        <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />
+      )}
       {on && variant === 'home' && <div className="dyn-grain" aria-hidden="true" />}
       <AmbientAnchorContext.Provider value={anchors}>
         {variant === 'home' ? (

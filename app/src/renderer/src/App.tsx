@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { AmbientCanvas } from './components/AmbientCanvas'
 import { CaseDashboard } from './components/CaseDashboard'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { ConfirmHost } from './components/ConfirmHost'
@@ -14,6 +15,8 @@ import { TextViewer } from './components/TextViewer'
 import { TitleBarStrip } from './components/TitleBarStrip'
 import { TopBar } from './components/TopBar'
 import { UpdateBanner } from './components/UpdateBanner'
+import { BANDS } from './lib/ambientBands'
+import type { AmbientAnchors } from './lib/ambientAnchors'
 import { citationsTray } from './lib/citationsTray'
 import { viewerForFileNode } from './lib/fileRouting'
 import { composerDraft } from './lib/composerDraft'
@@ -43,6 +46,22 @@ function App(): React.JSX.Element {
   const [viewer, setViewer] = useState<Viewer>(null)
   const [newCaseOpen, setNewCaseOpen] = useState(false)
   const [importDialog, setImportDialog] = useState<ImportDialogState | null>(null)
+  const ui = useSyncExternalStore(
+    (cb) => uiStore.subscribe(cb),
+    () => uiStore.get()
+  )
+  // Anchors for the chrome's ambient light. They live here, not in DynamicScope's context,
+  // because both the light source (the case group) and the cutoff (the bar's bottom edge) are
+  // now in TopBar — which renders ABOVE the view, outside every scope.
+  const [barLight, setBarLight] = useState<HTMLElement | null>(null)
+  const [barBottom, setBarBottom] = useState<HTMLElement | null>(null)
+  const chromeAnchors = useMemo<AmbientAnchors>(
+    () => ({ setLight: setBarLight, setCutoff: setBarBottom }),
+    []
+  )
+  // The aurora belongs to the case, and since the header merge the case belongs to the chrome.
+  // On Home and Settings the chrome is just chrome and keeps its flat ground.
+  const chromeAmbient = ui.dynamicTheme && view.kind === 'case'
 
   // setState happens in the promise callback (external-system subscription
   // shape), not synchronously in effects — keeps react-hooks/set-state-in-effect happy
@@ -158,9 +177,30 @@ function App(): React.JSX.Element {
   }, [occluded])
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">
-      <TitleBarStrip kind="main" />
+    // `chrome-ground` (theme-dynamic.css) makes this the stacking context the ambient layer
+    // below hangs its negative z-index off. Unconditional: isolation costs nothing when there is
+    // no layer, and making it conditional would mean the app root's stacking behaviour changes
+    // as you navigate.
+    <div className="chrome-ground relative flex h-screen flex-col overflow-hidden bg-void text-ink">
+      {/* The dynamic theme's ambient light, spanning the window's top edge down to the bottom of
+          the bar. It used to be a band inside the case view, i.e. the strip immediately BELOW the
+          chrome, which is where the pre-merge case header used to be; with the case header merged
+          into TopBar the light was left describing an object that no longer exists. It lights the
+          chrome the case now lives in, from the very top of the window.
+          The wrapper is the canvas's measurement origin (AmbientCanvas measures its anchors
+          relative to its host's parent), so it must sit at top: 0 and span the full width. */}
+      {chromeAmbient && (
+        <div
+          aria-hidden="true"
+          data-testid="chrome-ambient"
+          className="chrome-ambient dyn dyn-case"
+        >
+          <AmbientCanvas light={barLight} cutoff={barBottom} theme={ui.theme} band={BANDS.case} />
+        </div>
+      )}
+      <TitleBarStrip kind="main" ambient={chromeAmbient} />
       <TopBar
+        ambient={chromeAmbient ? chromeAnchors : null}
         activeSlug={view.kind === 'case' ? view.slug : null}
         activeCase={view.kind === 'case' ? (cases.find((c) => c.slug === view.slug) ?? null) : null}
         onHome={goHome}

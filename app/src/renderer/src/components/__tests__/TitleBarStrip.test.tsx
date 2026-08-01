@@ -21,6 +21,15 @@ describe('TitleBarStrip', () => {
     expect(strip.classList.contains('bg-deep')).toBe(true)
   })
 
+  it('gives that ground up while the window carries an ambient light', () => {
+    // The chrome aurora (App.tsx) is painted BEHIND the strip; bg-deep would hide it, and the
+    // strip is the window's top edge — which is exactly where the light is meant to start.
+    const { container } = render(<TitleBarStrip kind="main" ambient />)
+    const strip = container.firstElementChild as HTMLElement
+    expect(strip.classList.contains('bg-deep')).toBe(false)
+    expect(strip.classList.contains('argus-drag')).toBe(true)
+  })
+
   it('renders at the shared editor height', () => {
     const { container } = render(<TitleBarStrip kind="editor" />)
     const strip = container.firstElementChild as HTMLElement

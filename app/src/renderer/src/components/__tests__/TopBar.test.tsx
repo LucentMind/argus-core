@@ -453,6 +453,63 @@ describe('TopBar', () => {
     expect(screen.getByRole('banner').hasAttribute('data-tier')).toBe(false)
   })
 
+  it('hands the ambient light its two anchors: the case group and its own bottom edge', () => {
+    uiStore.setDynamicTheme(true)
+    let lightEl: HTMLElement | null = null
+    let cutoffEl: HTMLElement | null = null
+    render(
+      <TopBar
+        ambient={{
+          setLight: (el) => {
+            lightEl = el
+          },
+          setCutoff: (el) => {
+            cutoffEl = el
+          }
+        }}
+        activeSlug="NAV-1"
+        activeCase={CASE}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    // The light source is the case group, not the bar: the ribbon brightens around it, which is
+    // what makes the aurora read as coming off the case id. The cutoff is the bar itself — the
+    // light dies at its bottom edge, where the page begins.
+    expect(lightEl).toBe(screen.getByTestId('case-group'))
+    expect(cutoffEl).toBe(screen.getByRole('banner'))
+  })
+
+  it('drops its own ground only while lit, so the aurora is not painted over', () => {
+    const { rerender } = render(
+      <TopBar
+        activeSlug="NAV-1"
+        activeCase={CASE}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    // Classic mode: flat ground, as before. An always-transparent bar would show the page
+    // scrolling under it on every view.
+    expect(screen.getByRole('banner').className).toContain('bg-void')
+    rerender(
+      <TopBar
+        ambient={{ setLight: vi.fn(), setCutoff: vi.fn() }}
+        activeSlug="NAV-1"
+        activeCase={CASE}
+        onHome={vi.fn()}
+        onSelect={vi.fn()}
+        onSettings={vi.fn()}
+        onStatusChanged={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('banner').className).not.toContain('bg-void')
+  })
+
   it('ignores busy state published for a different case', async () => {
     render(
       <TopBar

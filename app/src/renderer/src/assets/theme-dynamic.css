@@ -342,6 +342,34 @@
 
 /* ── case view ─────────────────────────────────────────────────────────── */
 
+/* ── the chrome's ambient light ────────────────────────────────────────────
+   The case's aurora lives BEHIND the app chrome (mounted by App.tsx) now that the case header
+   has merged into TopBar. These two rules are the layering, and they are plain CSS rather than
+   the Tailwind `isolate` / `z-[-1]` they started as: both classes are new to this codebase, and
+   a brand-new Tailwind class gets no CSS until the dev server restarts — which for these two
+   does not degrade, it inverts, painting the canvas OVER the bar it is meant to sit under.
+   Plain CSS is emitted unconditionally (see this file's header).
+
+   `isolation` is not decoration: a negative z-index child only paints above its parent's own
+   background if the parent establishes a stacking context. Without it the layer falls through to
+   the root stacking context and hides under the app's own bg-void. A positive z-index on the
+   chrome instead would work too — and would trap every popover in the bar in a new layer. */
+.chrome-ground {
+  isolation: isolate;
+}
+.chrome-ambient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* `.dyn-case` here is that chrome layer, not the case view — the case view stopped painting a
+   canvas when the case header merged into the bar (the band it owned was a glow floating BELOW
+   the chrome). Same geometry either way: a full-width strip pinned to the top of whatever box is
+   measuring it. */
 .dyn-case .dyn-ambient,
 .dyn-settings .dyn-ambient {
   position: absolute;
