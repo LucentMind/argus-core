@@ -133,3 +133,30 @@ export function rollupOf(checks: PrCheck[]): PrRollup {
   if (checks.some((c) => c.bucket === 'pending')) return 'running'
   return 'passing'
 }
+
+/**
+ * What the dashboard card's PR glyph shows. A superset of `PrRollup`: the rollup answers "is
+ * CI green", which cannot express a merge, a conflict, or a draft — those live on `state`,
+ * `mergeable` and `isDraft`, and were invisible on the card while it received only the rollup.
+ */
+export type PrFace =
+  | 'merged'
+  | 'closed'
+  | 'conflict'
+  | 'draft'
+  | PrRollup
+
+/**
+ * Precedence: merged → closed → conflict → draft → CI verdict.
+ *
+ * A merged pull request's checks are history. A conflicting one must be rebased whatever CI
+ * says. A draft is not ready regardless of its build. Each face's tooltip carries the full
+ * state, so a draft's CI verdict is still one hover away.
+ */
+export function prFaceOf(s: PrStatus): PrFace {
+  if (s.state === 'MERGED') return 'merged'
+  if (s.state === 'CLOSED') return 'closed'
+  if (s.mergeable === 'CONFLICTING') return 'conflict'
+  if (s.isDraft) return 'draft'
+  return s.rollup
+}
