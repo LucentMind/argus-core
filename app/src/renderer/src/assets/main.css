@@ -20,26 +20,6 @@
   background-size: cover;
 }
 
-/* The shared card material, behind ui.tsx's <Card> default variant.
-   Unlayered plain CSS so it OWNS fill/border/shadow outright — the primitive's class string no
-   longer carries bg-panel/border-hair, so there is exactly one source of truth and no
-   stylesheet-order race.
-
-   In dark, --surface-* reproduce today's flat card exactly (bg-2 fill, --hair border, no
-   shadow). In light they match .glass-panel by construction. */
-.surface-card {
-  background: var(--bg-2);
-  border: 1px solid var(--hair);
-}
-
-:root[data-theme='light'] .surface-card {
-  background: #fdfdfe;
-  border-color: rgba(26, 48, 84, 0.09);
-  box-shadow:
-    0 1px 2px rgba(24, 44, 80, 0.04),
-    0 14px 30px -14px rgba(24, 44, 80, 0.16);
-}
-
 body {
   @apply bg-void text-ink font-sans antialiased;
   font-size: 14px;
@@ -74,6 +54,31 @@ body {
    than p margins. Box styles for pre/table target direct children only to
    stay out of nested components like CitationCard. */
 @layer components {
+  /* The shared card material, behind ui.tsx's <Card> default variant.
+     Lives in @layer components — NOT unlayered — so Tailwind's utility layer still outranks
+     it. The primitive's class string no longer carries bg-panel/border-hair, so nothing but
+     the hover utilities (hover:border-hair2, hover:bg-hi) competes with this for fill/border,
+     and those are exactly the ones that should win on hover. Unlayered plain CSS would beat
+     them unconditionally regardless of specificity or :hover — that was Task 4's regression.
+
+     `var(--bg-2)` / `var(--hair)` are read here, on .surface-card itself, rather than baked
+     into a token further away, so substitution happens on the card element: a card nested
+     inside `.dyn` resolves that scope's own darker --bg-2/--hair, not the page-level values.
+     In dark that reproduces today's flat card exactly (bg-2 fill, --hair border, no shadow).
+     In light it matches .glass-panel by construction. */
+  .surface-card {
+    background: var(--bg-2);
+    border: 1px solid var(--hair);
+  }
+
+  :root[data-theme='light'] .surface-card {
+    background: #fdfdfe;
+    border-color: rgba(26, 48, 84, 0.09);
+    box-shadow:
+      0 1px 2px rgba(24, 44, 80, 0.04),
+      0 14px 30px -14px rgba(24, 44, 80, 0.16);
+  }
+
   .markdown-body > * + * {
     margin-top: 0.7em;
   }
