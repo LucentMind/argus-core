@@ -279,15 +279,20 @@ session starts:
 
 ### Reference implementations
 
-Core ships two neutral sample packs you can copy from:
+This repo carries neutral sample packs you can copy from:
 
 - **`packs/sample-text-viewer/`** — a minimal read-only webPanel (`getCaseContext`/`requestEvidence`/
   `readEvidence`) that renders text evidence with line numbers + find. The smallest complete panel.
+  Ships seeded in every packaged build.
 - **`packs/sample-bridge-playground/`** — exercises the **full** bridge: every read + write verb
   (`cite`/`emitFinding`/`sendToAgent`) with editable inputs, plus `commands[]` (`highlight`/`echo`)
   and an `onCommand` dispatch log. The reference for write verbs and agent-driven commands.
 
 Both `ui/` bundles are plain self-contained HTML/JS/CSS (no build step) and pass the strict CSP.
+`sample-bridge-playground` and `sample-external-app` (Part 3c's externalApp reference) are **not**
+seeded into packaged builds — they ship instead as ordinary installable/updatable packs from
+[LucentMind/demo_pack](https://github.com/LucentMind/demo_pack), which is also the live example of
+an `updateUrl`-bearing manifest and a published update feed.
 
 ---
 
