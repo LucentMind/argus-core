@@ -1,4 +1,4 @@
-import type { CaseRecord, CaseStatus } from '../../../shared/types'
+import type { CaseRecord } from '../../../shared/types'
 import type { ActionItem } from '../../../shared/triage'
 import type { PrRollup } from '../../../shared/prStatus'
 import { Card, Chip, IconBtn } from './ui'
@@ -7,21 +7,12 @@ import { StatusDot } from './StatusDot'
 import { SyncBadge } from './SyncBadge'
 import { railTier } from '../lib/priorityRail'
 import { priorityIconFor } from '../lib/priorityIcon'
-import { STATUS_WORD } from '../lib/caseStatus'
+import { PHASE_COLOR, PHASE_WORD } from '../lib/casePhase'
 import { Download, Trash2, MessageSquare, Paperclip } from 'lucide-react'
 
-/** Status colour as a text-* class: StatusDot fills from currentColor, and the word beside it
- *  takes the same class, so dot and label can never disagree. */
-const STATUS_COLOR: Record<CaseStatus, string> = {
-  open: 'text-signal',
-  analyzing: 'text-defect',
-  'rca-drafted': 'text-review',
-  closed: 'text-mute'
-}
-
-function statusLabel(c: CaseRecord): string {
+function phaseLabel(c: CaseRecord): string {
   // The resolution stays in its stored lowercase form — it is a slug (`wont-fix`), not a sentence.
-  return c.status === 'closed' && c.resolution ? `Closed · ${c.resolution}` : STATUS_WORD[c.status]
+  return c.phase === 'closed' && c.resolution ? `Closed · ${c.resolution}` : PHASE_WORD[c.phase]
 }
 
 /** Kinds that carry a magnitude — these leave the chip row for the footer's metric strip. */
@@ -114,9 +105,9 @@ export function CaseCard({
             c.jiraPriority && <Chip tone="neutral">{c.jiraPriority}</Chip>
           )}
         </span>
-        <span className={`flex shrink-0 items-center gap-1.5 text-xs ${STATUS_COLOR[c.status]}`}>
-          <StatusDot color={STATUS_COLOR[c.status]} />
-          {statusLabel(c)}
+        <span className={`flex shrink-0 items-center gap-1.5 text-xs ${PHASE_COLOR[c.phase]}`}>
+          <StatusDot color={PHASE_COLOR[c.phase]} />
+          {phaseLabel(c)}
         </span>
       </div>
       <h2

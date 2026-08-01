@@ -11,7 +11,7 @@ import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { useGlassPointer } from '../lib/useGlassPointer'
 import { greetingFor } from '../lib/greeting'
 import { githubLogin } from '../lib/githubIdentity'
-import { STATUS_ORDER, STATUS_WORD } from '../lib/caseStatus'
+import { PHASE_ORDER, PHASE_WORD } from '../lib/casePhase'
 import { StatusDot } from './StatusDot'
 
 export function CaseDashboard({
@@ -162,13 +162,18 @@ export function CaseDashboard({
     acc[c.status] = (acc[c.status] ?? 0) + 1
     return acc
   }, {})
-  const countLabel = STATUS_ORDER.filter((s) => counts[s])
-    .map((s) => `${counts[s]} ${STATUS_WORD[s]}`)
+  const countLabel = PHASE_ORDER.filter((s) => counts[s])
+    .map((s) => `${counts[s]} ${PHASE_WORD[s]}`)
     .join(' · ')
 
-  const STATUS_MENU: { id: CaseStatus; label: string }[] = STATUS_ORDER.map((id) => ({
+  // PHASE_ORDER has six phases but c.status is only ever 'open' | 'closed' (see
+  // shared/types.ts); narrow before building the menu so its entries stay valid CaseStatus
+  // values. Task 8 replaces this filter menu with one keyed on phase.
+  const STATUS_MENU: { id: CaseStatus; label: string }[] = PHASE_ORDER.filter(
+    (id): id is CaseStatus => id === 'open' || id === 'closed'
+  ).map((id) => ({
     id,
-    label: STATUS_WORD[id]
+    label: PHASE_WORD[id]
   }))
   const statusItems: MenuItem[] = [
     { label: 'All statuses', onSelect: () => setStatusFilter('all') },
