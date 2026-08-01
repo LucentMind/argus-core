@@ -13,7 +13,7 @@ import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
 import { DistillChip } from './DistillChip'
 import { SimilarCasesCard } from './SimilarCasesCard'
-import { JiraRefreshButton } from './JiraRefreshButton'
+import { JiraPill } from './JiraPill'
 import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
@@ -435,14 +435,6 @@ export function CaseWorkspace({
             triggerClassName="font-mono text-sm! text-defect!"
             align="left"
             items={[
-              ...(jiraKey
-                ? [
-                    {
-                      label: 'Open in Jira',
-                      onSelect: () => void window.argus.jira.openIssue(slug)
-                    }
-                  ]
-                : []),
               { label: closeAsLabel, children: statusItems },
               {
                 label: 'Export',
@@ -462,8 +454,11 @@ export function CaseWorkspace({
             ]}
           />
         </span>
-        {/* key: reset refresh state (summary note, last-synced) when switching cases */}
-        <JiraRefreshButton key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
+        {/* relative: the pill's popover is absolutely positioned and must anchor to the
+            pill, not to the header — key resets refresh state when switching cases */}
+        <div className="relative shrink-0">
+          <JiraPill key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
+        </div>
         {exportNote && <span className="max-w-56 truncate text-xs text-mute">{exportNote}</span>}
         <DistillChip slug={slug} />
         <ModeSwitcher
