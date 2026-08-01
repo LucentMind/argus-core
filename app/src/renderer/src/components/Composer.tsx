@@ -20,6 +20,9 @@ import {
 import {
   descriptorsFor,
   pruneSelections,
+  hasUltrathink,
+  applyUltrathink,
+  stripUltrathink,
   type RunOptionDescriptor,
   type RunOptionSelection
 } from '../../../shared/runOptions'
@@ -111,6 +114,12 @@ function Divider(): React.JSX.Element {
  * the condition and oscillate.
  */
 const COLLAPSE_AT_PX = 560
+
+/** Shown on the Reasoning section when the word appears in the body rather than the leading
+ *  marker we wrote — stripping it there would mangle the user's own message, so the section
+ *  locks instead. */
+const ULTRATHINK_LOCK_NOTE =
+  'Your prompt contains "ultrathink" in the text. Remove it to change this option.'
 
 function useDensity(ref: RefObject<HTMLDivElement | null>): 'wide' | 'narrow' {
   const [density, setDensity] = useState<'wide' | 'narrow'>('wide')
@@ -228,7 +237,18 @@ export function Composer({
   const descriptors: RunOptionDescriptor[] = info ? descriptorsFor(info) : []
   const selections = session?.runOptions ?? []
 
+  // Ultrathink is prompt text, not a stored selection, so its state is read back out
+  // of the draft. That is what makes it impossible to desync from what is sent.
+  const ultrathinkOn = hasUltrathink(text)
+  const ultrathinkInBody = ultrathinkOn && hasUltrathink(stripUltrathink(text))
+
   function changeOption(d: RunOptionDescriptor, value: string | boolean): void {
+    if (d.type === 'select' && d.promptInjected?.includes(String(value))) {
+      setText(applyUltrathink(text))
+      return
+    }
+    if (ultrathinkInBody && d.id === 'effort') return
+    if (ultrathinkOn && d.id === 'effort') setText(stripUltrathink(text))
     const next = pruneSelections(descriptors, [
       ...selections.filter((s) => s.id !== d.id),
       { id: d.id, value }
@@ -453,6 +473,11 @@ export function Composer({
                     descriptor={d}
                     selections={selections}
                     onChange={(v) => changeOption(d, v)}
+                    label={d.id === 'effort' && ultrathinkOn ? 'Ultrathink' : undefined}
+                    locked={d.id === 'effort' && ultrathinkInBody}
+                    lockNote={
+                      d.id === 'effort' && ultrathinkInBody ? ULTRATHINK_LOCK_NOTE : undefined
+                    }
                   />
                 </Fragment>
               ))}
@@ -472,6 +497,8 @@ export function Composer({
               descriptors={descriptors}
               selections={selections}
               onChangeOption={changeOption}
+              isLocked={(d) => d.id === 'effort' && ultrathinkInBody}
+              lockNote={ULTRATHINK_LOCK_NOTE}
               permissionOptions={permissionOptions}
               permission={permission}
               onPermissionChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}

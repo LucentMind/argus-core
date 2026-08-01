@@ -119,6 +119,8 @@ export function CollapsedMenu({
   descriptors,
   selections,
   onChangeOption,
+  isLocked,
+  lockNote,
   permissionOptions,
   permission,
   onPermissionChange,
@@ -128,6 +130,10 @@ export function CollapsedMenu({
   descriptors: readonly RunOptionDescriptor[]
   selections: readonly RunOptionSelection[]
   onChangeOption: (d: RunOptionDescriptor, value: string | boolean) => void
+  /** Per-descriptor lock — used for Ultrathink's body lock. Shares `OptionSection` with
+   *  the wide chip's `DescriptorChip`, so the two densities cannot diverge. */
+  isLocked?: (d: RunOptionDescriptor) => boolean
+  lockNote?: string
   permissionOptions: string[]
   permission: string
   onPermissionChange: (label: string) => void
@@ -159,6 +165,8 @@ export function CollapsedMenu({
                 key={d.id}
                 descriptor={d}
                 selections={selections}
+                locked={isLocked?.(d)}
+                lockNote={lockNote}
                 onChange={(v) => onChangeOption(d, v)}
               />
             ))}

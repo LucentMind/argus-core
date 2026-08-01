@@ -635,4 +635,64 @@ describe('Composer option chips', () => {
       expect(screen.queryByText('Context Window')).not.toBeInTheDocument()
     })
   })
+
+  // Nested here (not a sibling describe) for the same reason as 'Composer responsive
+  // collapse' above: it needs this describe's beforeEach, which mocks a catalog with
+  // Reasoning descriptors for SESSION's model — without a Reasoning chip there is
+  // nothing for Ultrathink to toggle.
+  describe('Composer ultrathink', () => {
+    it('writes the prefix into the draft instead of storing a selection', async () => {
+      const onRunOptionsChange = vi.fn()
+      render(
+        <Composer
+          disabled={false}
+          onSend={() => {}}
+          session={SESSION}
+          onRunOptionsChange={onRunOptionsChange}
+        />
+      )
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'fix the crash')
+      await userEvent.click(await screen.findByTitle('Reasoning'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
+      expect(box).toHaveValue('Ultrathink:\nfix the crash')
+      expect(onRunOptionsChange).not.toHaveBeenCalled()
+    })
+
+    it('reads its selected state back out of the prompt', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      expect(await screen.findByTitle('Reasoning')).toHaveTextContent('Ultrathink')
+    })
+
+    it('strips the prefix when another level is chosen', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await userEvent.type(box, 'Ultrathink:\ngo')
+      await userEvent.click(await screen.findByTitle('Reasoning'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
+      expect(box).toHaveValue('go')
+    })
+
+    it('locks the section when the word is in the body rather than the prefix', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'please ultrathink')
+      await userEvent.click(await screen.findByTitle('Reasoning'))
+      expect(screen.getByText(/Remove it to change this option/i)).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Max' })).toBeDisabled()
+    })
+
+    // Supplementary to the brief's tests: the wide chip and the collapsed menu render the
+    // same OptionSection, so the lock must hold in the narrow density too, not just the
+    // wide chip exercised above.
+    it('locks the section in the collapsed menu too, not only the wide chip', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Reasoning')
+      act(() => setRowWidth(360))
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'please ultrathink')
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByText(/Remove it to change this option/i)).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Max' })).toBeDisabled()
+    })
+  })
 })
