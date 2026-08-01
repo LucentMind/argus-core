@@ -1068,3 +1068,81 @@ describe('EditorApp · commands', () => {
     )
   })
 })
+
+// The `commands` describe block above only ever fires `p` (palette) or `w` (close tab) — both
+// WINDOW-scoped commands that go straight to `ctx.window.*` and never touch `registerPane`, the
+// handle map, or `activePane()` in EditorApp.tsx. Nothing there would catch a broken wire-up
+// between the window keydown listener and a real, mounted `AssetPane`'s actual action. These two
+// tests are the replacement for what `AssetPane.test.tsx` used to pin directly before Task 10
+// deleted its per-pane `window` listener (commit d3193f48): a real `window` keydown, through the
+// registry, reaching a real pane's real `save()`/`cycleViewMode()`.
+describe('EditorApp · window shortcuts reach the real active pane', () => {
+  // The important one: routing a window shortcut to the first-OPENED pane instead of the ACTIVE
+  // one is exactly the defect the one-registry redesign exists to prevent — see `activePane()`,
+  // which resolves the handle map by `stateRef.current.activeId`, not by insertion order.
+  it('routes a window-level Ctrl+S to the active pane, not the first-opened one', async () => {
+    // The shared fixture's `skills.read` always answers with `my-skill`'s frontmatter, which
+    // would leave `other-skill` failing `validateSkill`'s name-match check — and its Save
+    // disabled — the moment it is opened. Each name needs frontmatter that matches itself.
+    vi.mocked(window.argus.skills.read).mockImplementation(
+      async (name: string): Promise<{ name: string; content: string; hash: string }> => ({
+        name,
+        content: `---\nname: ${name}\ndescription: Use when testing.\n---\n\n# hi\n`,
+        hash: 'h1'
+      })
+    )
+
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    // Opened SECOND, so `openTab` (tabs.ts) makes it the active tab — the first tab stays
+    // mounted (spec §6.1), so both real panes are alive and registered when the key fires.
+    act(() => openTab!(OTHER))
+    const area = await screen.findByLabelText('skill · other-skill')
+    await userEvent.type(area, 'x')
+    await waitFor(() => expect(setDirty).toHaveBeenLastCalledWith(1))
+
+    // Nothing here ever puts focus on either surface (`userEvent.type` above focuses the ACTIVE
+    // one only), and the mock `CodeSurface` has no keymap to consume the key either way — this
+    // can only reach a real `save()` through `activePane()` resolving the tab the window
+    // believes is active.
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalledTimes(1))
+    // The assertion that actually pins the regression: WHICH name reached `skills.write`, not
+    // merely that a write happened at all.
+    expect(window.argus.skills.write).toHaveBeenCalledWith('other-skill', expect.any(String), 'h1')
+    expect(window.argus.skills.write).not.toHaveBeenCalledWith(
+      'my-skill',
+      expect.anything(),
+      expect.anything()
+    )
+  })
+
+  // With CodeMirror never focused (the mock surface here is never clicked or typed into), a
+  // keydown listener that bails out early — or one that was never wired up at all — has nothing
+  // else to fall back on. This is the no-focus half of the coverage the deleted AssetPane.test.tsx
+  // "cycles the view mode from a window-level key, not only from the focused editor" test used to
+  // carry, driven here through EditorApp's single registry-backed listener instead.
+  it('cycles the view mode from a window-level key with no editor focus', async () => {
+    // View mode persists to localStorage (lib/editorPrefs.ts), not React state alone — a mode
+    // left behind by an earlier test would make the starting label here order-dependent.
+    localStorage.clear()
+
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    // The pane's first `PaneCommandState` report reaches `EditorApp` (and thus the `commands`
+    // registry `cycleViewMode`'s `enabled` reads) an effect-tick after the surface mounts. The
+    // Save button's disabled/enabled state is driven by that same report, so waiting for it to
+    // settle is what makes firing the key below deterministic instead of racing the report.
+    await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled())
+
+    const viewModeButton = (): HTMLElement => screen.getByRole('button', { name: /^View mode:/ })
+    expect(viewModeButton()).toHaveAttribute('aria-label', 'View mode: Editor')
+
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true, shiftKey: true })
+
+    await waitFor(() => expect(viewModeButton()).toHaveAttribute('aria-label', 'View mode: Split'))
+  })
+})
