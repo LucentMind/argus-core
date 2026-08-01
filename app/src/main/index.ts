@@ -1333,8 +1333,11 @@ function registerIpc(): void {
       // this layer. Persisting here does NOT retune a live CaseSession — its options
       // are still frozen at query() construction — but registry.ts now folds
       // sessionRunOptions/sessionPermissionMode into optionsKey and compares it on the
-      // next send, so the running session is torn down and rebuilt with the new
-      // selections instead of ignoring them.
+      // next send, so the running session is torn down and rebuilt instead of the
+      // change being silently ignored. The rebuild does not yet make the new
+      // selections take effect: the Claude driver does not read ctx.runOptions yet
+      // (a later task), so the rebuilt session's query() options are still identical
+      // to the old one's.
       return setSessionRunOptions(db, sessionId, sel)
     }
   )

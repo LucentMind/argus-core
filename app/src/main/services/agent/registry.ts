@@ -3,6 +3,7 @@ import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision, CaseRecord, DialogAnswer } from '../../../shared/types'
 import type { ModeId } from '../../../shared/modes'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
+import type { RunOptionSelection } from '../../../shared/runOptions'
 import {
   activeInstanceConfig,
   driverConfig,
@@ -38,7 +39,7 @@ import type { Runner } from '../github'
  * reordered array is not mistaken for a change.
  */
 export function optionsKeyOf(
-  sel: readonly { id: string; value: string | boolean }[],
+  sel: readonly RunOptionSelection[],
   permissionMode: string | null
 ): string {
   const sorted = [...sel].sort((a, b) => a.id.localeCompare(b.id))

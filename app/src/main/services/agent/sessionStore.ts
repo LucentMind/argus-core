@@ -324,7 +324,7 @@ export function sessionRunOptions(db: DatabaseSync, sessionId: number): RunOptio
 /** Sorted by `id` so two selections that differ only in array order compare (and store)
  *  identically — the column is meant to be compared semantically, not as raw text. */
 function normalizeRunOptions(sel: readonly RunOptionSelection[]): RunOptionSelection[] {
-  return [...sel].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  return [...sel].sort((a, b) => a.id.localeCompare(b.id))
 }
 
 /** Writes NULL for an empty selection rather than `[]`, so absent-key defaults keep working.
