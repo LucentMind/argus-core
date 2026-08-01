@@ -1,6 +1,19 @@
-import { CircleCheck, CircleX, CircleAlert, LoaderCircle, Circle, CircleHelp } from 'lucide-react'
+import {
+  CircleCheck,
+  CircleX,
+  CircleAlert,
+  LoaderCircle,
+  Circle,
+  CircleHelp,
+  GitPullRequest,
+  GitPullRequestArrow,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
+  GitMergeConflict
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { PrRollup } from '../../../shared/prStatus'
+import { prFaceOf, type PrFace, type PrStatus } from '../../../shared/prStatus'
 
 /**
  * The one CI indicator. This dot form is shared by the companion header (HeaderChips.tsx) and
@@ -80,6 +93,55 @@ export function PrRollupIcon({
   const { Glyph, className, label } = ICON[rollup]
   return (
     <span role="img" aria-label={label} title={label} className={`inline-flex ${className}`}>
+      <Glyph size={size} aria-hidden="true" />
+    </span>
+  )
+}
+
+/**
+ * The dashboard card's PR glyph. Unlike `PrRollupIcon` (CI only) this covers the whole
+ * pull-request state, because on a card there is no accompanying text to say "merged".
+ *
+ * `GitPullRequestClosed` deliberately serves two faces — grey for a PR closed without
+ * merging, red for a failed build. Colour and tooltip carry the distinction; the glyph is
+ * the one the vocabulary assigns to failure.
+ *
+ * Every colour is an existing theme token with a light-theme override (theme.css), so this
+ * needs no palette work: review #8bdca5/#1e8f5c, danger #f27a6b/#c93b3b,
+ * defect #f3c352/#b3760a, analytics #c2a6fa/#7351c9.
+ */
+const FACE: Record<PrFace, { Glyph: LucideIcon; className: string; label: string }> = {
+  merged: { Glyph: GitPullRequest, className: 'text-analytics', label: 'merged' },
+  closed: { Glyph: GitPullRequestClosed, className: 'text-mute', label: 'closed without merging' },
+  conflict: { Glyph: GitMergeConflict, className: 'text-defect', label: 'merge conflict' },
+  draft: { Glyph: GitPullRequestDraft, className: 'text-mute', label: 'draft' },
+  passing: { Glyph: GitPullRequestArrow, className: 'text-review', label: 'checks passing' },
+  failing: { Glyph: GitPullRequestClosed, className: 'text-danger', label: 'checks failing' },
+  unstable: {
+    Glyph: GitPullRequestClosed,
+    className: 'text-defect',
+    label: 'some checks did not pass'
+  },
+  running: {
+    Glyph: GitPullRequestArrow,
+    className: 'text-defect animate-pulse',
+    label: 'checks running'
+  },
+  none: { Glyph: GitPullRequestArrow, className: 'text-mute', label: 'no checks' },
+  unavailable: { Glyph: GitPullRequestArrow, className: 'text-mute', label: 'status unavailable' }
+}
+
+export function PrFaceIcon({
+  status,
+  size = 13
+}: {
+  status: PrStatus
+  size?: number
+}): React.JSX.Element {
+  const { Glyph, className, label } = FACE[prFaceOf(status)]
+  const title = `PR #${status.number} — ${label}`
+  return (
+    <span role="img" aria-label={title} title={title} className={`inline-flex ${className}`}>
       <Glyph size={size} aria-hidden="true" />
     </span>
   )
