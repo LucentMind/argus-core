@@ -42,7 +42,7 @@ export function ModalShell({
       tabIndex={-1}
     >
       {/* `overlay-card` (main.css) owns the whole look: flat in dark (reproducing the former
-          `border-hair2 bg-panel shadow-2xl` exactly), frosted in light. */}
+          hairline-border, panel-fill, deep-shadow trio exactly), frosted in light. */}
       <div
         role="dialog"
         aria-label={ariaLabel}

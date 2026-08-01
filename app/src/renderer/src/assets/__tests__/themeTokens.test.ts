@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { overlayMaterialRules } from './cssRuleScan'
 
 const ASSETS = join(__dirname, '..')
 
@@ -59,7 +60,8 @@ describe('theme tokens', () => {
       '--review': '#8bdca5',
       '--analytics': '#c2a6fa',
       '--danger': '#f27a6b',
-      '--brand': '#e2f4ff'
+      '--brand': '#e2f4ff',
+      '--scrim': 'rgba(0, 0, 0, 0.6)'
     }
     for (const [name, value] of Object.entries(expected)) {
       expect(decl(dark, name), `dark ${name}`).toBe(value)
@@ -210,6 +212,28 @@ describe('the wash ground', () => {
   })
 })
 
+describe('backdrop-filter has no -webkit- alias (Task 8 review finding 1)', () => {
+  // Lightning CSS (the Tailwind 4 build pipeline) collapses a hand-written
+  // `backdrop-filter` / `-webkit-backdrop-filter` alias pair and keeps only the LAST-declared
+  // one. Every hand-written rule in this codebase declared the unprefixed property first, so the
+  // compiled stylesheet kept only `-webkit-backdrop-filter` — and Blink (Electron's renderer)
+  // does not support that prefixed form (`CSS.supports('-webkit-backdrop-filter', ...)` is
+  // false in Chromium). Net effect: the blur/saturate never rendered, for `.glass-card`, its
+  // `:hover`, `.dyn-case-header`, or the overlay rules — verified by reordering the two lines,
+  // rebuilding, and observing the compiled output kept only whichever came last. Re-adding the
+  // `-webkit-` line anywhere silently disables the effect again without any test noticing unless
+  // this guard exists — jsdom resolves no cascade and would happily keep both lines forever.
+  it('main.css never declares -webkit-backdrop-filter', () => {
+    const main = readCss('main.css')
+    expect(main).not.toMatch(/-webkit-backdrop-filter/)
+  })
+
+  it('theme-dynamic.css never declares -webkit-backdrop-filter', () => {
+    const dyn = readCss('theme-dynamic.css')
+    expect(dyn).not.toMatch(/-webkit-backdrop-filter/)
+  })
+})
+
 describe('material scoping', () => {
   const dyn = readCss('theme-dynamic.css')
   const theme = readCss('theme.css')
@@ -303,13 +327,8 @@ describe('material scoping', () => {
   })
 })
 
-// ModalShell's dialog and MenuButton's dropdown/submenu no longer touch `.glass-card` at all
-// (Task 8 rework). They carry their own `.overlay-card` / `.overlay-menu` classes, declared in
-// main.css's `@layer components` block alongside `.surface-card` — see that file and the
-// class-contract + layout-regression tests in ModalShell.test.tsx / MenuButton.test.tsx. This
-// describe block previously pinned a `revert-layer` mechanism keyed off `role`; that mechanism
-// is gone (it was unlayered and its `position: relative; overflow: hidden` from `.glass-card`
-// broke the dropdown's `absolute` anchoring — the Task 8 defect this rework fixes).
+// Why .overlay-card/.overlay-menu exist instead of `.glass-card` + a `revert-layer` mechanism:
+// see the comment above `.overlay-card` in main.css (the nearest-to-the-CSS explanation).
 describe('overlay material (dialogs and menus own their own look, not glass-card)', () => {
   const dyn = readCss('theme-dynamic.css')
   const main = readCss('main.css')
@@ -327,19 +346,43 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     // unlayered, which out-cascades the dropdown's own `absolute` Tailwind utility and would
     // clip its `left-full` submenu. Neither replacement class may ever acquire either property —
     // that is the whole point of splitting them out of `.glass-card`.
-    for (const selector of ['.overlay-card', '.overlay-menu']) {
-      // Plain indexOf, not an anchored regex: both rules sit indented inside `@layer
-      // components { }`, so `^selector {` would never match at column 0. The first occurrence
-      // of `${selector} {` is the base (dark) rule; the light override spells it
-      // `:is(.overlay-card, .overlay-menu) {`, which never matches this exact substring.
-      const start = main.indexOf(`${selector} {`)
-      expect(start, `${selector} rule must be found`).toBeGreaterThanOrEqual(0)
-      const open = main.indexOf('{', start)
-      const close = main.indexOf('}', open)
-      expect(close, `${selector} rule must close`).toBeGreaterThan(open)
-      const body = main.slice(open + 1, close)
+    //
+    // Scans EVERY rule whose selector mentions either class (via cssRuleScan's leafRules), not
+    // just the first exact-substring hit: the light override is spelled
+    // `:is(.overlay-card, .overlay-menu) { … }` and was silently unscanned by an earlier version
+    // of this test that used `main.indexOf('.overlay-card {')`.
+    const rules = overlayMaterialRules(main)
+    expect(
+      rules.length,
+      'expected the dark base rules plus the light override'
+    ).toBeGreaterThanOrEqual(3)
+    for (const { selector, body } of rules) {
       expect(body, `${selector} must not declare position`).not.toMatch(/(?<![\w-])position\s*:/)
       expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
     }
+  })
+
+  it('dark overlay shadow literals are unchanged', () => {
+    // These used to come from Tailwind's shadow-2xl / shadow-lg utilities; they are now
+    // hand-written literals, so nothing but this pin protects them from drifting under a later
+    // tuning pass.
+    const rules = overlayMaterialRules(main)
+    const card = rules.find((r) => r.selector === '.overlay-card')
+    const menu = rules.find((r) => r.selector === '.overlay-menu')
+    expect(card, '.overlay-card dark rule must be found').toBeDefined()
+    expect(menu, '.overlay-menu dark rule must be found').toBeDefined()
+
+    const shadowValue = (body: string): string | undefined => {
+      const m = body.match(/box-shadow\s*:([\s\S]*?);/)
+      return m?.[1]
+        .replace(/\/\*.*?\*\//g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    expect(shadowValue(card!.body)).toBe('0 25px 50px -12px rgb(0 0 0 / 0.25)')
+    expect(shadowValue(menu!.body)).toBe(
+      '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)'
+    )
   })
 })

@@ -106,11 +106,8 @@ describe('ModalShell', () => {
   })
 
   it('the dialog card carries the overlay material, not glass-card', () => {
-    // Task 8 rework: `.overlay-card` (main.css) owns the whole look itself — flat in dark,
-    // frosted in light — replacing a `glass-card` + flat-utilities + `revert-layer` combination
-    // that broke MenuButton's dropdown layout (see the layout-regression test below and
-    // theme-dynamic.css). jsdom resolves no cascade, so this only proves the class *contract*:
-    // it cannot tell you which theme wins or what the computed styles are. The real-browser,
+    // Why .overlay-card exists rather than `.glass-card`: see main.css's comment above it.
+    // jsdom resolves no cascade, so this only proves the class *contract*; the real-browser,
     // computed-style proof (dark-vs-light, dialog-vs-menu) lives in the Task 8 follow-up report.
     const { getByRole } = render(
       <ModalShell title="t" onClose={() => undefined}>

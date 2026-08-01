@@ -130,7 +130,6 @@ body {
       inset 0 -22px 40px -26px var(--glass-edge),
       var(--card-shadow);
     backdrop-filter: var(--glass-filter);
-    -webkit-backdrop-filter: var(--glass-filter);
   }
 
   /* The modal backdrop. A token rather than a utility so both themes read from one place —

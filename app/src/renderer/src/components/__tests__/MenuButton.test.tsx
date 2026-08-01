@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MenuButton, type MenuItem } from '../ui'
+import { overlayMaterialRules } from '../../assets/__tests__/cssRuleScan'
 
 const items = (onA = vi.fn(), onB = vi.fn()): MenuItem[] => [
   { label: 'Action A', onSelect: onA },
@@ -62,11 +63,9 @@ describe('MenuButton', () => {
   })
 
   it('the dropdown carries the overlay material, not glass-card', () => {
-    // Task 8 rework: `.overlay-menu` (main.css) owns the whole look itself — flat in dark,
-    // frosted in light — replacing a `glass-card` + flat-utilities + `revert-layer` combination.
-    // jsdom resolves no cascade, so this only proves the class *contract*, not which theme wins
-    // or what the computed styles are; the real-browser, computed-style proof lives in the
-    // Task 8 follow-up report.
+    // Why .overlay-menu exists rather than `.glass-card`: see main.css's comment above
+    // `.overlay-card`. jsdom resolves no cascade, so this only proves the class *contract*; the
+    // real-browser, computed-style proof lives in the Task 8 follow-up report.
     render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
     fireEvent.click(screen.getByRole('button', { name: 'actions' }))
     const cls = screen.getByRole('menu').className
@@ -75,28 +74,24 @@ describe('MenuButton', () => {
   })
 
   it('the dropdown still anchors with `absolute` (Task 8 layout regression pin)', () => {
-    // The bug this rework fixes: `.glass-card` sets `position: relative; overflow: hidden`,
-    // unlayered, so it beat the dropdown's own `absolute` (a Tailwind utility, `@layer
-    // utilities`) — the dropdown rendered in normal flow instead of anchored to its trigger, and
-    // `overflow: hidden` would have clipped the `left-full` submenu. jsdom cannot evaluate the
-    // cascade or tell us which `position`/`overflow` wins, so this only pins the source-level
-    // precondition for staying fixed: the dropdown must keep requesting `absolute` in its class
-    // list, and `.overlay-menu` (and `.overlay-card`, the same class of surface) must never
-    // reintroduce a `position` or `overflow` declaration that could out-cascade it. The
-    // real-browser proof that `absolute` actually wins the cascade is in the Task 8 report.
+    // jsdom cannot evaluate the cascade, so this only pins the source-level precondition for
+    // staying fixed: the dropdown must keep requesting `absolute` in its class list, and neither
+    // overlay rule (base or light override) may reintroduce a `position`/`overflow` declaration
+    // that could out-cascade it — see main.css's comment above `.overlay-card` for the defect
+    // this replaced. The real-browser proof that `absolute` actually wins the cascade is in the
+    // Task 8 report.
     render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
     fireEvent.click(screen.getByRole('button', { name: 'actions' }))
     const cls = screen.getByRole('menu').className
     expect(cls.split(/\s+/)).toContain('absolute')
 
     const mainCss = readFileSync(join(__dirname, '../../assets/main.css'), 'utf8')
-    for (const selector of ['.overlay-card', '.overlay-menu']) {
-      const start = mainCss.indexOf(`${selector} {`)
-      expect(start, `${selector} rule must be found`).toBeGreaterThanOrEqual(0)
-      const open = mainCss.indexOf('{', start)
-      const close = mainCss.indexOf('}', open)
-      expect(close, `${selector} rule must close`).toBeGreaterThan(open)
-      const body = mainCss.slice(open + 1, close)
+    const rules = overlayMaterialRules(mainCss)
+    expect(
+      rules.length,
+      'expected the dark base rules plus the light override'
+    ).toBeGreaterThanOrEqual(3)
+    for (const { selector, body } of rules) {
       expect(body, `${selector} must not declare position`).not.toMatch(/(?<![\w-])position\s*:/)
       expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
     }

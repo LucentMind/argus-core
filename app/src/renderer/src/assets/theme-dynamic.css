@@ -132,7 +132,6 @@
     ),
     radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%), var(--glass-bg);
   backdrop-filter: var(--glass-filter);
-  -webkit-backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1.5px 0 var(--glass-hi),
     inset 1px 0 0 var(--glass-edge),
@@ -171,7 +170,6 @@
   transform: translateY(-5px);
   border-color: var(--glass-border-h);
   backdrop-filter: var(--glass-filter-h);
-  -webkit-backdrop-filter: var(--glass-filter-h);
   box-shadow:
     inset 0 1.5px 0 var(--glass-hi-h),
     inset 1px 0 0 var(--glass-edge-h),
@@ -338,7 +336,6 @@
   position: relative;
   background: var(--glass-bg);
   backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
   border-bottom-color: var(--glass-border);
   box-shadow: inset 0 1px 0 var(--glass-hi);
 }
