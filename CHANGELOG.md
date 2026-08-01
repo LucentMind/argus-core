@@ -1,8 +1,10 @@
 # Changelog
 
-## v1.0.9 — 2026-08-01
+## v1.0.10 — 2026-08-01
 
-91 commits since v1.0.8, 153 files changed (+13,178 / −888).
+142 commits since v1.0.8, 197 files changed (+20,459 / −1,108). v1.0.9 was tagged
+but never published as a release; its changes are folded in here, and the version
+number jumps straight from v1.0.8 to v1.0.10.
 
 ### Added
 
@@ -33,7 +35,7 @@
   icon, counts below the wordmark.
 - New shared primitives: `StatusDot`, `PrRollupIcon`, `SyncBadge` (health + age).
 
-**Editor window, increment 3**
+**Editor: tabs, read-only tiers, and restore**
 
 - Tab strip with overflow dropdown, roving-tabindex keyboard nav, and announced
   dirty state, backed by a pure tab reducer with rename-aware dedupe.
@@ -41,6 +43,25 @@
   resolved from the lists already broadcast to every window.
 - The open tab set, cursors included, persists beside window bounds and restores
   after a restart through one ordered message queue.
+
+**Editor: command palette, quick open, and find references**
+
+- A pure command registry backs the toolbar, the window keymap, and a single
+  command palette (opened with a `>` prefix) shared with asset quick-open;
+  palette rows and sections are pure functions of the query.
+- Quick open runs a dependency-free fuzzy scorer over an asset corpus assembled
+  in main, where the files live; the openable-asset list includes drafts.
+- Markdown links resolve against the reference set and open on Ctrl+click; a
+  "Find references" pane beside Problems shows what mentions the current file
+  (`INDEX.md`, being generated, opens read-only and says why).
+
+**Frameless window chrome**
+
+- The main and editor windows now construct frameless, sharing a title-bar
+  overlay module that re-tints on every theme change and scales for zoom.
+- The main window's TopBar is the drag region; the editor window gets its own
+  title strip and now collapses to one row of chrome, with the tab strip flush
+  to the window edge.
 
 **Dynamic theme, case view and Settings**
 
@@ -57,9 +78,21 @@
   feed-publish time.
 - Editor: save-order, read-only coverage, and render-cost fixes from a
   whole-branch review pass; `skills:changed` now broadcasts on fork so a forked
-  copy isn't stuck read-only.
+  copy isn't stuck read-only. A second whole-branch review pass closed command-
+  registry gaps, fixed a negative SECONDARY multiplier that inverted quick-open
+  ranking, and replaced a backtracking markdown-link scanner (and its O(n²)
+  destination scan) with a linear one.
+- Frameless chrome: the runtime gate now reaches the Library instead of passing
+  vacuously, the titlebar inset floor is platform-aware, and the drag strip's
+  background matches the native overlay.
 - Update service: re-entrancy guard on `check()`, non-`Error` rejection handling,
   lint cleanup.
+
+### Internal
+
+- The build workflow's release job now sources its notes from this file's
+  per-version section instead of `gh`'s auto-generated PR-title list, and fails
+  the release if a tag has no matching section.
 
 ## v1.0.8 — 2026-07-31
 
