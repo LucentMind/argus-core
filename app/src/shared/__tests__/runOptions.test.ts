@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { descriptorsFor, type ModelOptionInfo } from '../runOptions'
+import { descriptorsFor, selectionValue, pruneSelections, selectionLabel, type ModelOptionInfo } from '../runOptions'
 
 const FABLE: ModelOptionInfo = {
   value: 'fable',
@@ -78,5 +78,70 @@ describe('descriptorsFor', () => {
       const defaultOption = effort.options.find((o) => o.isDefault)
       expect(defaultOption?.value).toBe('low')
     }
+  })
+})
+
+describe('selectionValue', () => {
+  const [effort, ctx] = descriptorsFor(FABLE)
+
+  it('returns the stored value when it is valid for this model', () => {
+    expect(selectionValue(effort, [{ id: 'effort', value: 'max' }])).toBe('max')
+  })
+
+  it('falls back to the default when nothing is stored', () => {
+    expect(selectionValue(effort, null)).toBe('high')
+    expect(selectionValue(ctx, [])).toBe('200k')
+  })
+
+  // The stale-drop rule: a value the current model does not offer must not stick.
+  it('drops a stored value the current model does not offer', () => {
+    expect(selectionValue(effort, [{ id: 'effort', value: 'nonsense' }])).toBe('high')
+  })
+
+  it('treats a boolean descriptor as off unless explicitly stored true', () => {
+    const fast = descriptorsFor({ ...FABLE, supportsFastMode: true }).find(
+      (d) => d.id === 'fastMode'
+    )!
+    expect(selectionValue(fast, null)).toBe(false)
+    expect(selectionValue(fast, [{ id: 'fastMode', value: true }])).toBe(true)
+    // a string stored against a boolean descriptor is garbage, not truthy
+    expect(selectionValue(fast, [{ id: 'fastMode', value: 'yes' }])).toBe(false)
+  })
+})
+
+describe('pruneSelections', () => {
+  it('keeps only ids and values valid for the current descriptors', () => {
+    const ds = descriptorsFor(FABLE)
+    const stored = [
+      { id: 'effort', value: 'max' },
+      { id: 'fastMode', value: true }, // not a descriptor on Fable
+      { id: 'contextWindow', value: 'nonsense' }
+    ]
+    expect(pruneSelections(ds, stored)).toEqual([{ id: 'effort', value: 'max' }])
+  })
+
+  it('returns an empty array for a model with no descriptors', () => {
+    expect(pruneSelections(descriptorsFor(HAIKU), [{ id: 'effort', value: 'max' }])).toEqual([])
+  })
+
+  it('omits values that merely equal the default, so defaults can move later', () => {
+    const ds = descriptorsFor(FABLE)
+    expect(pruneSelections(ds, [{ id: 'effort', value: 'high' }])).toEqual([])
+  })
+})
+
+describe('selectionLabel', () => {
+  it('gives the chip its text', () => {
+    const [effort] = descriptorsFor(FABLE)
+    expect(selectionLabel(effort, [{ id: 'effort', value: 'xhigh' }])).toBe('Extra High')
+    expect(selectionLabel(effort, null)).toBe('High')
+  })
+
+  it('renders booleans as On and Off', () => {
+    const fast = descriptorsFor({ ...FABLE, supportsFastMode: true }).find(
+      (d) => d.id === 'fastMode'
+    )!
+    expect(selectionLabel(fast, [{ id: 'fastMode', value: true }])).toBe('On')
+    expect(selectionLabel(fast, null)).toBe('Off')
   })
 })

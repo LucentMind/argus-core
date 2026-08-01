@@ -87,3 +87,61 @@ export function descriptorsFor(info: ModelOptionInfo): RunOptionDescriptor[] {
   }
   return out
 }
+
+function rawStored(
+  stored: readonly RunOptionSelection[] | null | undefined,
+  id: string
+): string | boolean | undefined {
+  return stored?.find((s) => s.id === id)?.value
+}
+
+/**
+ * The effective value of one descriptor given what the session stored.
+ *
+ * Selects fall back to `isDefault` when the stored value is absent OR is not a
+ * choice this model offers — that second half is what stops a value from
+ * sticking across a model switch. Booleans are off unless explicitly true.
+ */
+export function selectionValue(
+  d: RunOptionDescriptor,
+  stored: readonly RunOptionSelection[] | null | undefined
+): string | boolean | undefined {
+  const raw = rawStored(stored, d.id)
+  if (d.type === 'boolean') return raw === true
+  if (typeof raw === 'string' && d.options.some((o) => o.value === raw)) return raw
+  return d.options.find((o) => o.isDefault)?.value
+}
+
+/**
+ * What to persist: only selections that are valid for the current descriptors AND
+ * differ from the default. Storing a value equal to the default would freeze it, so
+ * a later default change could never reach the session.
+ */
+export function pruneSelections(
+  ds: readonly RunOptionDescriptor[],
+  stored: readonly RunOptionSelection[] | null | undefined
+): RunOptionSelection[] {
+  const out: RunOptionSelection[] = []
+  for (const d of ds) {
+    const raw = rawStored(stored, d.id)
+    if (d.type === 'boolean') {
+      if (raw === true) out.push({ id: d.id, value: true })
+      continue
+    }
+    if (typeof raw !== 'string') continue
+    if (!d.options.some((o) => o.value === raw)) continue
+    if (d.options.find((o) => o.isDefault)?.value === raw) continue
+    out.push({ id: d.id, value: raw })
+  }
+  return out
+}
+
+/** Human-readable current value, used for chip text and the collapsed trigger. */
+export function selectionLabel(
+  d: RunOptionDescriptor,
+  stored: readonly RunOptionSelection[] | null | undefined
+): string {
+  const v = selectionValue(d, stored)
+  if (d.type === 'boolean') return v === true ? 'On' : 'Off'
+  return d.options.find((o) => o.value === v)?.label ?? ''
+}
