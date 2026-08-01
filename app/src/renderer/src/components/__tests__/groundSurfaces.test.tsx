@@ -133,3 +133,24 @@ describe('task 8b: the remaining bg-deep call sites are swept', () => {
     expect(src, 'ToolCallCard.tsx must never acquire glass-panel').not.toContain('glass-panel')
   })
 })
+
+describe('viewers stay token-driven', () => {
+  const VIEWERS = [
+    'FileViewer.tsx',
+    'TextViewer.tsx',
+    'UnifiedDiffView.tsx',
+    'HighlightedLines.tsx',
+    'VirtualLines.tsx'
+  ]
+
+  it('no viewer hardcodes a colour or a black/white alpha fill', () => {
+    const files = walk(COMPONENTS).filter((f) => VIEWERS.some((v) => f.endsWith(v)))
+    // A scan that silently covers zero files after a rename would pass forever.
+    expect(files.length).toBe(VIEWERS.length)
+    for (const file of files) {
+      const src = readFileSync(file, 'utf8')
+      expect(src, `${file} hardcodes a hex colour`).not.toMatch(/#[0-9a-fA-F]{6}\b/)
+      expect(src, `${file} uses a black/white alpha fill`).not.toMatch(/bg-(black|white)\//)
+    }
+  })
+})
