@@ -741,12 +741,23 @@ export function AssetPane({
     })
   }
 
+  /**
+   * Same defect class `runId` guards for `assist`, but a *separate* counter: an in-flight Improve
+   * must not be cancelled by a find-references call, or vice versa. Without a generation token
+   * here, two overlapping searches — two quick presses of the shortcut, or a press while a slow
+   * scan is still running — resolve in whatever order the corpus scan happens to finish, and a
+   * slower first call landing after a faster second one silently overwrites the newer result with
+   * the stale one.
+   */
+  const searchRunId = useRef(0)
+
   /** Spec §6.3: a corpus scan for what mentions this asset, surfaced beside the problems list. */
   const findReferences = useCallback((): void => {
     // Create mode has no file to be cited; the command is disabled there, and this is the
     // keyboard/handle path that does not go through the button.
     if (mode === 'create') return
     const query = filedAsRef.current
+    const myRun = ++searchRunId.current
     // Selected HERE, in the handler that starts the search, and not derived inside the dock from
     // `references` changing — that derivation would be a `setState` in a `useEffect` body, which
     // this repo forbids. Running Find references and then having to click a tab to see the
@@ -757,13 +768,17 @@ export function AssetPane({
     void (async () => {
       try {
         const hits = await window.argus.editor.findReferences({ kind, name: query })
-        if (!liveRef.current) return
+        // Superseded by a newer invocation, or unmounted: drop the result rather than overwrite
+        // whatever the newer (possibly already-resolved) search put on screen.
+        if (searchRunId.current !== myRun || !liveRef.current) return
         setReferences({ query, hits })
       } catch (e) {
-        if (!liveRef.current) return
+        if (searchRunId.current !== myRun || !liveRef.current) return
         setError((e as Error).message)
       } finally {
-        if (liveRef.current) setSearching(false)
+        // Only the newest invocation may clear `searching` — an older one settling later must not
+        // stomp on a still-running newer one's spinner.
+        if (searchRunId.current === myRun && liveRef.current) setSearching(false)
       }
     })()
   }, [kind, mode])

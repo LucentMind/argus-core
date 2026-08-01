@@ -1032,6 +1032,56 @@ describe('AssetPane · find references', () => {
     await userEvent.click(screen.getByRole('button', { name: /error/i }))
     expect(screen.getByRole('tab', { name: /problem/i })).toHaveAttribute('aria-selected', 'true')
   })
+
+  // Important finding: `findReferences` guarded unmount via `liveRef`, but had no per-invocation
+  // generation token, so two overlapping searches (two quick presses, or a press while a slow scan
+  // is still running) resolved in whatever order the corpus scan finished — a slower FIRST call
+  // could land after a faster SECOND one and silently overwrite the newer result with the stale
+  // one. Pinned directly: the second call's promise resolves first, then the first call's, and the
+  // dock must still show the second call's hits.
+  it('shows the second search result, not the first, when the first call resolves last', async () => {
+    interface Deferred<T> {
+      promise: Promise<T>
+      resolve: (value: T) => void
+    }
+    function makeDeferred<T>(): Deferred<T> {
+      let resolve!: (value: T) => void
+      const promise = new Promise<T>((r) => {
+        resolve = r
+      })
+      return { promise, resolve }
+    }
+    const first = makeDeferred<{ kind: 'skill'; name: string; line: number; text: string }[]>()
+    const second = makeDeferred<{ kind: 'skill'; name: string; line: number; text: string }[]>()
+    const findReferencesMock = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+    globalThis.window.argus.editor.findReferences = findReferencesMock
+
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+
+    act(() => paneRef.current!.findReferences())
+    act(() => paneRef.current!.findReferences())
+    expect(findReferencesMock).toHaveBeenCalledTimes(2)
+
+    // Resolve the SECOND invocation first, with its own result set.
+    await act(async () => {
+      second.resolve([{ kind: 'skill', name: 'second-caller', line: 2, text: 'second result' }])
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    // Then the FIRST invocation, later, with a different result set — this is the stale one that
+    // must not win.
+    await act(async () => {
+      first.resolve([{ kind: 'skill', name: 'first-caller', line: 1, text: 'first result' }])
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    expect(screen.getByText(/second result/)).toBeInTheDocument()
+    expect(screen.queryByText(/first result/)).not.toBeInTheDocument()
+  })
 })
 
 describe('AssetPane · toolbar from descriptors', () => {
