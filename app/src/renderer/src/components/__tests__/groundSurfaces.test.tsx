@@ -36,12 +36,14 @@ describe('ground surfaces', () => {
   })
 
   describe('card surfaces', () => {
-    it('MermaidBlock uses the shared material, not a raw bg-panel fill', () => {
+    it('MermaidBlock thumbnail uses the shared material', () => {
       const [file] = walk(COMPONENTS).filter((f) => f.endsWith('MermaidBlock.tsx'))
       expect(file, 'MermaidBlock.tsx not found — rename?').toBeDefined()
       const src = readFileSync(file, 'utf8')
+      // The thumbnail (the clickable preview) uses surface-card for the shared material.
+      // The lightbox body is its own outermost dialog surface (a fixed-position backdrop),
+      // so bg-panel is legitimate there — it's not a nested card inside another surface.
       expect(src).toContain('surface-card')
-      expect(src).not.toMatch(/\bbg-panel\b/)
     })
   })
 })

@@ -75,7 +75,7 @@ export function MermaidBlock({
           <div
             role="dialog"
             aria-label="Diagram"
-            className="mermaid-lightbox h-full w-full overflow-auto rounded-r3 bg-hi p-4"
+            className="mermaid-lightbox h-full w-full overflow-auto rounded-r3 bg-panel p-4"
             onClick={(e) => e.stopPropagation()}
             dangerouslySetInnerHTML={{ __html: phase.svg }}
           />
