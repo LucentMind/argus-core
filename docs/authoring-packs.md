@@ -200,7 +200,7 @@ contribute to the conversation, and be driven by the agent.
 ```jsonc
 {
   "id": "log-viewer",              // kebab; unique within the pack
-  "kind": "webPanel",              // only webPanel today
+  "kind": "webPanel",               // this doc only covers webPanel; externalApp exists too
   "title": "Log Viewer",           // tab label / window title / launcher entry
   "entry": "log-viewer/index.html",// path UNDER ui/ (forward slashes; no .., no absolute)
   "handles": ["widget-trace"],     // artifact type(s) this panel renders → adds an evidence
@@ -289,9 +289,9 @@ This repo carries neutral sample packs you can copy from:
   and an `onCommand` dispatch log. The reference for write verbs and agent-driven commands.
 
 Both `ui/` bundles are plain self-contained HTML/JS/CSS (no build step) and pass the strict CSP.
-`sample-bridge-playground` and `sample-external-app` (a headless pack that spawns a native process
-and talks to it over stdio, distinct from the webPanel `kind` documented in §7) are **not** seeded
-into packaged builds — they ship instead as ordinary installable/updatable packs from
+`sample-bridge-playground` and `sample-external-app` (a headless pack that spawns an OS process and
+drives it over stdio, distinct from the webPanel `kind` documented above) are **not** seeded into
+packaged builds — they ship instead as ordinary installable/updatable packs from
 [LucentMind/demo_pack](https://github.com/LucentMind/demo_pack), which is also the live example of
 an `updateUrl`-bearing manifest and a published update feed.
 
