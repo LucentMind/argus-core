@@ -5,7 +5,7 @@ import { ConfirmHost } from '../ConfirmHost'
 import { alert, confirm } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
-import { WindowTitleBar } from './WindowTitleBar'
+import { TitleBarStrip } from '../TitleBarStrip'
 import { drainEditorMessages } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
 import { isAssetEditable } from '../../../../shared/assetEditable'
@@ -349,8 +349,8 @@ export function EditorApp(): React.JSX.Element {
 
   return (
     <div className="flex h-screen flex-col bg-deep text-ink">
-      <WindowTitleBar />
-      <div className="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 border border-hair bg-panel">
+      <TitleBarStrip kind="editor" label="Argus — Editor" />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel">
         <TabBar
           tabs={state.tabs}
           activeId={state.activeId}

@@ -29,8 +29,10 @@ export function TopBar({
   }
 
   return (
-    // Height (64px) must match HEIGHTS.main in titleBar.ts — the native overlay is drawn at this height
-    <header className="argus-drag argus-titlebar-inset flex h-16 items-center gap-1.5 border-b border-hair bg-deep">
+    // The OS window buttons live in their own strip above (TitleBarStrip), not beside this
+    // header, so no inset is needed here — argus-drag stays because dragging by the header is
+    // still good UX.
+    <header className="argus-drag flex h-16 items-center gap-1.5 border-b border-hair bg-deep px-3">
       {/* Wordmark and home control are one button, not two adjacent things: the brand belongs
           top-left on every view, and the top bar is the only chrome that renders on all of them —
           which is what lets home and Settings drop their local copies of the wordmark. */}

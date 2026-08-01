@@ -87,7 +87,7 @@ describe('TopBar', () => {
     expect(nav.querySelectorAll('[data-tab-separator]')).toHaveLength(1)
   })
 
-  it('is a drag region, inset past the system buttons, with every control opted out', () => {
+  it('is a drag region, with every interactive element opted out', () => {
     uiStore.openTab('NAV-1')
     render(
       <TopBar
@@ -99,19 +99,18 @@ describe('TopBar', () => {
       />
     )
     const header = screen.getByRole('banner')
-    expect(header.className).toContain('argus-drag')
-    // Without the inset the theme toggle sits underneath the close button.
-    expect(header.className).toContain('argus-titlebar-inset')
+    expect(header.classList.contains('argus-drag')).toBe(true)
+    // The window-buttons inset moved to TitleBarStrip — TopBar no longer sits beside the OS
+    // buttons, so it no longer needs to reserve room for them.
+    expect(header.classList.contains('argus-titlebar-inset')).toBe(false)
 
-    // A drag region swallows clicks AND scroll, so everything the user operates has to opt out —
-    // including the tab nav, which scrolls horizontally once the tabs overflow.
-    const interactive: HTMLElement[] = [
-      ...screen.getAllByRole('button'),
-      screen.getByRole('navigation', { name: 'Recent cases' })
-    ]
+    // A drag region swallows clicks AND scroll, so everything the user operates has to opt out.
+    // classList.contains, not a className substring check, so a class named `argus-nodrag-x`
+    // would not be mistaken for the real opt-out.
+    const interactive = header.querySelectorAll('button, a, input, select, textarea, [tabindex]')
     expect(interactive.length).toBeGreaterThan(4)
     for (const el of interactive) {
-      expect(el.className).toContain('argus-nodrag')
+      expect(el.classList.contains('argus-nodrag')).toBe(true)
     }
   })
 })
