@@ -50,4 +50,18 @@ describe('MermaidBlock', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Diagram' })).toBeNull()
   })
+
+  it('the lightbox opts out of the window drag region', async () => {
+    // Worst case of the ModalShell drag-region bug: this card is `h-full` inside a `p-8`
+    // backdrop, so its top edge is at 32px — flush under TitleBarStrip and squarely inside
+    // TopBar's drag rect (32–80) at every window size. Chromium subtracts a no-drag rect from
+    // the drag rect beneath it; painting on top does nothing. Without this the top 48px of a
+    // scrollable full-size diagram dragged the window instead of panning. jsdom implements no
+    // app-region, so this is the class contract only.
+    render(<MermaidBlock source={SRC} />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Expand diagram' }, { timeout: 2000 })
+    )
+    expect(screen.getByRole('dialog', { name: 'Diagram' }).className).toContain('argus-nodrag')
+  })
 })

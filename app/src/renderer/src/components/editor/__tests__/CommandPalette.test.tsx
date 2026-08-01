@@ -80,6 +80,15 @@ describe('CommandPalette · assets mode', () => {
     expect(document.activeElement).toBe(input())
   })
 
+  it('the palette card opts out of the window drag region', () => {
+    // The editor window's TitleBarStrip is 40px of drag region; the palette opens at `pt-[12vh]`,
+    // so its field lands inside that band whenever the window is under ~333px tall. Rarer than
+    // ModalShell's version of this bug, but the same one — and here the swallowed control is the
+    // only control there is. Chromium subtracts a no-drag rect; z-order does not.
+    render(<Harness />)
+    expect(screen.getByRole('dialog').className).toContain('argus-nodrag')
+  })
+
   it('shows a tier badge, because opening a protected asset must not be a surprise', () => {
     render(<Harness />)
     expect(within(options()[1]!).getByText('HiveMind')).toBeTruthy()

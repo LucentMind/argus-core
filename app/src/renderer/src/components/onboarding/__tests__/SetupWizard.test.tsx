@@ -27,6 +27,15 @@ describe('SetupWizard shell', () => {
     expect(screen.getByTestId('wizard-step-provider')).toBeTruthy()
   })
 
+  it('the card opts out of the window drag region', () => {
+    // Same defect as ModalShell's: the window's top 80px (TitleBarStrip 32 + TopBar h-12) is
+    // draggable, and a centred 560px card overlaps it on any window under 720px tall — which
+    // is where first-run users are, since this is the first thing they ever see. The card must
+    // subtract its own no-drag rect; being painted above the bar does not clear it.
+    render(<SetupWizard onComplete={vi.fn()} onDismiss={vi.fn()} />)
+    expect(screen.getByRole('dialog', { name: 'Argus setup' }).className).toContain('argus-nodrag')
+  })
+
   it('Back returns to the previous step', () => {
     render(<SetupWizard onComplete={vi.fn()} onDismiss={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))

@@ -74,11 +74,16 @@ export function MermaidBlock({
         >
           {/* `glass-panel`, not `bg-panel` (matches ModalShell's `variant="reading"`): this is a
               reading surface — a diagram at full size — so it gets the solid material with a
-              border/shadow instead of a borderless white rectangle floating on the scrim. */}
+              border/shadow instead of a borderless white rectangle floating on the scrim.
+
+              `argus-nodrag` for the reason spelled out in ModalShell: `h-full` inside a `p-8`
+              backdrop puts this card's top edge at 32px, i.e. permanently inside TopBar's drag
+              rect (32–80), so without its own no-drag rect the top 48px of the diagram drags
+              the window instead of scrolling it. */}
           <div
             role="dialog"
             aria-label="Diagram"
-            className="mermaid-lightbox glass-panel h-full w-full overflow-auto rounded-r3 p-4"
+            className="mermaid-lightbox argus-nodrag glass-panel h-full w-full overflow-auto rounded-r3 p-4"
             onClick={(e) => e.stopPropagation()}
             dangerouslySetInnerHTML={{ __html: phase.svg }}
           />

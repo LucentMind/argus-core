@@ -120,7 +120,9 @@ export function CommandPalette({
       <div
         role="dialog"
         aria-label={mode === 'commands' ? 'Commands' : 'Open asset'}
-        className="flex max-h-[60vh] w-[min(38rem,90vw)] flex-col overflow-hidden rounded-r3 border border-hair bg-panel shadow-2xl"
+        // argus-nodrag: see ModalShell. `pt-[12vh]` clears the editor window's 40px drag strip
+        // only above ~333px of window height; below that the OS swallows clicks on the field.
+        className="argus-nodrag flex max-h-[60vh] w-[min(38rem,90vw)] flex-col overflow-hidden rounded-r3 border border-hair bg-panel shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <input

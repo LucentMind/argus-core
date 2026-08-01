@@ -131,6 +131,25 @@ describe('ModalShell', () => {
     expect(getByRole('dialog').className).toContain('overlay-card')
   })
 
+  it('the card opts out of the window drag region', () => {
+    // The frameless chrome makes the top 80px of the window draggable (TitleBarStrip 32 +
+    // TopBar h-12). A centred `h-[80vh]` card starts at 10vh, so on any window shorter than
+    // 720 CSS px its header row lands inside that band — and since Chromium builds drag
+    // regions from each element's own border-box, painting the card on top does NOT clear
+    // the rect beneath it. The OS drag handler then swallows clicks on the header's Raw and
+    // Close buttons: at 558px of window height the top 16 of their 28px is dead, which reads
+    // as "the button only works if I click its bottom half". Full-screen hid it (10vh > 80).
+    // One no-drag rect on the card covers everything inside it. jsdom implements no
+    // app-region, so this proves the class contract only — the live proof is clicking the
+    // top edge of Close in a non-maximised window.
+    const { getByRole } = render(
+      <ModalShell title="t" onClose={() => undefined}>
+        body
+      </ModalShell>
+    )
+    expect(getByRole('dialog').className).toContain('argus-nodrag')
+  })
+
   it("the 'reading' variant carries the solid glass-panel material, not overlay-card", () => {
     // Task 12: TextViewer/FileViewer/the skill+reference MarkdownViewer pass this — dense text
     // the user is there to read must never sit behind a blur. jsdom proves only the class

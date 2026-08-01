@@ -53,10 +53,19 @@ export function ModalShell({
           (reproducing the former hairline-border, panel-fill, deep-shadow trio exactly), frosted
           in light. 'reading' variant: `glass-panel` (theme.css material tokens) — solid in both
           themes, never blurred, for a body the user is there to read. */}
+      {/* `argus-nodrag`: the top 80px of the window is a drag region (TitleBarStrip 32 +
+          TopBar h-12), and a centred `h-[80vh]` card starts at 10vh — so below a 720px window
+          height the card's own header row sits inside that band. Painting on top does not
+          clear it: Chromium builds the region from each styled element's border-box, so an
+          overlay only escapes a drag rect by subtracting its own no-drag rect. Without this,
+          the Raw/Close buttons were dead down to wherever the bar ended (at 558px of window
+          height, the top 16 of their 28px), and the bug vanished full-screen. One rect on the
+          card covers every control inside it. The backdrop deliberately stays draggable: the
+          bar it covers is the window's grab handle, and a modal must not pin the window. */}
       <div
         role="dialog"
         aria-label={ariaLabel}
-        className={`flex flex-col rounded-r4 ${material} ${className}`}
+        className={`argus-nodrag flex flex-col rounded-r4 ${material} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">

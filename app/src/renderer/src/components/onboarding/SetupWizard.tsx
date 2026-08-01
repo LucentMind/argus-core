@@ -52,7 +52,10 @@ export function SetupWizard({
         role="dialog"
         aria-modal="true"
         aria-label="Argus setup"
-        className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 surface-card"
+        // argus-nodrag: see ModalShell. A centred 560px card overlaps the window's draggable
+        // top 80px on anything under 720px tall, and first run is exactly when the window is
+        // still its default size.
+        className="argus-nodrag flex h-[560px] w-[840px] overflow-hidden rounded-r3 surface-card"
       >
         <nav
           aria-label="Setup steps"
