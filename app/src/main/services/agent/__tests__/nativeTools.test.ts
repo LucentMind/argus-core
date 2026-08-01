@@ -104,6 +104,11 @@ describe('argus native tools', () => {
     // lifecycle round trip instead: close, then reopen, to prove a real write happens through
     // the tool rather than the case's already-`open` default.
     await handlers.update_case_status({ status: 'closed', resolution: 'solved' })
+    // Verify the close actually persisted before reopening
+    const closedRow = db.prepare(`SELECT status FROM cases WHERE slug='NAV-1'`).get() as {
+      status: string
+    }
+    expect(closedRow.status).toBe('closed')
     await handlers.update_case_status({ status: 'open' })
     const row = db.prepare(`SELECT status FROM cases WHERE slug='NAV-1'`).get() as {
       status: string
