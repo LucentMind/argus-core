@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { once } from 'node:events'
+import { finished } from 'node:stream/promises'
 import { ZodError } from 'zod'
 import { packFeedSchema, selectUpdate, type FeedEntry } from './feed'
 import type { PacksStateStore } from './packsState'
@@ -123,9 +125,28 @@ export const nodeHttpClient: HttpClient = {
       const out = fs.createWriteStream(destPath)
       let total = 0
 
+      // A write failure (ENOSPC mid-download, EPERM/EBUSY from an AV scanner on Windows, …) is
+      // emitted asynchronously from an fs callback, not thrown from anything we `await` — so a
+      // stream with NO listener attached at the moment it fires becomes an uncaught exception
+      // (a crash in the Electron main process), not a rejected promise. This listener is attached
+      // synchronously, right after creation, before any `await` gives the stream a chance to
+      // error with nothing listening. It only latches the failure into `writeError`; the loop
+      // below is what turns that into a rejection, at the next point it checks.
+      let writeError: Error | null = null
+      out.on('error', (err: Error) => {
+        writeError = err
+      })
+
       const cleanupAndThrow = async (err: unknown): Promise<never> => {
         out.destroy()
-        fs.rmSync(destPath, { force: true })
+        try {
+          fs.rmSync(destPath, { force: true })
+        } catch {
+          // `force` only suppresses ENOENT — a Windows EPERM/EBUSY here (an AV scanner still
+          // holding the partial file) must not replace `err` and downgrade e.g. a reported
+          // 'too-large' into a generic 'download'. Best-effort only: the whole temp DIRECTORY
+          // this file lives under is removed by apply()'s own `finally` regardless.
+        }
         throw err
       }
 
@@ -139,19 +160,32 @@ export const nodeHttpClient: HttpClient = {
               await reader.cancel()
               await cleanupAndThrow(new HttpTooLargeError(maxBytes))
             }
+            // Checked right here — immediately before the write, after the one `await` (the
+            // `reader.read()` above) that could have given a PRIOR write's async failure time to
+            // land while nothing was waiting on `out` at all. Left unchecked, `out.write()` below
+            // would return `false` against an already-destroyed stream, and `events.once(out,
+            // 'drain')` would wait forever: a destroyed stream never emits 'drain', and Node
+            // emits a stream's 'error' event AT MOST ONCE, so there is no second chance for a
+            // listener started only now to observe the failure that already happened.
+            if (writeError) await cleanupAndThrow(writeError)
             hash.update(value)
+            // `events.once` — rather than a hand-rolled `new Promise((resolve,reject)) =>
+            // out.once('drain', ...); out.once('error', ...)` — both rejects this particular
+            // wait the instant `out` errors AND removes its own listeners once it settles either
+            // way. The hand-rolled version left its `'error'` listener behind forever on every
+            // drain that resolved via `'drain'` instead, one more each time, eventually tripping
+            // Node's MaxListenersExceededWarning on a large download.
             if (!out.write(value)) {
-              await new Promise<void>((resolve, reject) => {
-                out.once('drain', resolve)
-                out.once('error', reject)
-              })
+              await once(out, 'drain')
             }
           }
         }
-        await new Promise<void>((resolve, reject) => {
-          out.once('error', reject)
-          out.end(() => resolve())
-        })
+        if (writeError) await cleanupAndThrow(writeError)
+        out.end()
+        // `finished()` is the promises-API replacement for manually juggling 'finish'/'error'
+        // listeners on `end()` — it resolves when the stream finishes and rejects if it errors
+        // at any point up to and including the final flush, without leaking a listener either.
+        await finished(out)
       } catch (err) {
         return await cleanupAndThrow(err)
       }
@@ -265,7 +299,17 @@ export class PackUpdatesService {
       // pack entirely under a feed entry that passes every check above, silently taking over
       // that other pack and re-pinning its origin. Must run before `install()`: by the time
       // `install()` returns, the swap and the re-pin have already happened.
-      const inspected = await this.inspectBundleSource(zipPath)
+      let inspected: Awaited<ReturnType<typeof inspectBundleSource>>
+      try {
+        inspected = await this.inspectBundleSource(zipPath)
+      } catch (err) {
+        // A bundle that fails inspection (not a zip, no argus-pack.json, an invalid manifest)
+        // throws install.ts's own InstallError, which is not an UpdateError — left uncaught,
+        // errorOf()'s fallback would report `code: 'feed'`, the same code-collapsing Fix 6b
+        // already corrected for a failed download. It is caused by the BUNDLE, not the feed
+        // document, so it gets 'install' here too.
+        throw new UpdateError('install', (err as Error).message)
+      }
       if (inspected.id !== id) {
         throw new UpdateError(
           'install',
@@ -344,7 +388,22 @@ export class PackUpdatesService {
 
     const installedVersion = this.deps.state.get(id)
     if (!installedVersion) throw new UpdateError('feed', `pack '${id}' is not installed`)
-    return selectUpdate(feed, { installedVersion, host: this.deps.host, origin: pin.origin })
+    const selected = selectUpdate(feed, {
+      installedVersion,
+      host: this.deps.host,
+      origin: pin.origin
+    })
+    // selectUpdate stays pure and never throws (see its doc comment) — this is the one seam
+    // that turns "every candidate was off-origin" into the same actionable `origin-pin` error
+    // apply()'s own origin check produces, instead of collapsing it into a plain "idle" that
+    // reads, to the user, exactly like a vendor who published nothing at all.
+    if (selected.excludedByOriginOnly) {
+      throw new UpdateError(
+        'origin-pin',
+        `an update to pack '${id}' exists but only from an origin other than the one this pack was installed from ('${pin.origin}')`
+      )
+    }
+    return selected.entry
   }
 
   private assertHttps(url: string): void {

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
+import { Writable } from 'node:stream'
 import { createServer, type Server, type RequestListener } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
@@ -241,15 +242,65 @@ describe('apply', () => {
     // The core of the trust model: a rewritten feed must not be able to move where bytes come
     // from. Since `selectUpdate` now filters candidates by origin (see feed.test.ts), an
     // off-origin entry is never even selected as "the update" — the bundle URL is never touched.
+    // (Important 2: this case is no longer 'idle' — see the `describe('origin-pin diagnostic')`
+    // block below. `apply()` never fetches the off-origin bundle either way.)
     const c = http({
       'https://vendor.example/feed.json': ok(
         feedBody({ url: 'https://evil.example/sample-1.1.0-win-x64.zip' })
       )
     })
     const s = await svc(c).apply('sample')
-    expect(s).toEqual({ phase: 'idle' })
+    expect(s).toMatchObject({ phase: 'error', code: 'origin-pin' })
     expect(install).not.toHaveBeenCalled()
     expect(c.urls).not.toContain('https://evil.example/sample-1.1.0-win-x64.zip')
+  })
+
+  describe('origin-pin diagnostic (Important 2)', () => {
+    // Before this fix, when EVERY candidate was off-origin, `selectUpdate` returned `null` just
+    // like "genuinely nothing newer" — `checkAll` reported idle and the Packs page told the user
+    // "No update available" while a refused update actually existed at another origin.
+
+    it("reports code 'origin-pin', not idle, when every newer entry is off-origin", async () => {
+      const c = http({
+        'https://vendor.example/feed.json': ok(
+          feedBody({ url: 'https://cdn.example/sample-1.1.0-win-x64.zip' })
+        )
+      })
+      const s = (await svc(c).checkAll()).sample
+      expect(s).toMatchObject({ phase: 'error', code: 'origin-pin' })
+    })
+
+    it('still selects an on-origin OLDER entry when a newer one is off-origin', async () => {
+      const body = Buffer.from(
+        JSON.stringify({
+          id: 'sample',
+          versions: [
+            {
+              version: '2.0.0',
+              argusApi: '^1',
+              platform: 'win-x64',
+              url: 'https://cdn.example/sample-2.0.0-win-x64.zip',
+              sha256: 'a'.repeat(64)
+            },
+            {
+              version: '1.1.0',
+              argusApi: '^1',
+              platform: 'win-x64',
+              url: 'https://vendor.example/sample-1.1.0-win-x64.zip',
+              sha256: ZIP_SHA
+            }
+          ]
+        })
+      )
+      const c = http({ 'https://vendor.example/feed.json': ok(body) })
+      const s = (await svc(c).checkAll()).sample
+      expect(s).toEqual({ phase: 'available', version: '1.1.0' })
+    })
+
+    it('still reports idle when there is genuinely nothing newer at all (not origin-pin)', async () => {
+      const c = http({ 'https://vendor.example/feed.json': ok(feedBody({ version: '1.0.0' })) })
+      expect((await svc(c).checkAll()).sample).toEqual({ phase: 'idle' })
+    })
   })
 
   it("apply's own origin check still refuses a bundle if the pin changes between selection and the check", async () => {
@@ -407,12 +458,31 @@ describe('apply', () => {
     const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation(() => {
       throw new Error('EBUSY: resource busy or locked')
     })
+    // Minor e: the swallowed failure must not vanish silently — it goes to console.error so it's
+    // at least visible in logs, and that path was previously untested.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const c = http({ 'https://vendor.example/feed.json': ok(feedBody()), ...bundleRoute })
       await expect(svc(c).apply('sample')).resolves.toEqual({ phase: 'ready', version: '1.1.0' })
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed to remove temp dir'),
+        expect.any(Error)
+      )
     } finally {
       rmSpy.mockRestore()
+      errSpy.mockRestore()
     }
+  })
+
+  it("rejects a feed body that parses as JSON but fails the feed schema, as 'invalid feed' (Minor e)", async () => {
+    // Distinct from the existing 'rejects a feed whose id does not match' case (which parses
+    // fine and fails a later, separate check) — this is the ZodError branch of findUpdate's own
+    // `packFeedSchema.parse`, which had no covering assertion anywhere in this file.
+    const body = Buffer.from(JSON.stringify({ id: 'sample', versions: [{ version: 42 }] }))
+    const c = http({ 'https://vendor.example/feed.json': ok(body) })
+    const s = await svc(c).apply('sample')
+    expect(s).toMatchObject({ phase: 'error', code: 'feed' })
+    expect((s as { message: string }).message).toMatch(/^invalid feed:/)
   })
 })
 
@@ -439,13 +509,15 @@ describe('nodeHttpClient', () => {
     })
   }
 
-  afterEach(async () => {
+  async function closeServer(): Promise<void> {
     if (!server) return
     const s = server
     server = null
     await new Promise<void>((resolve) => s.close(() => resolve()))
     s.closeAllConnections()
-  })
+  }
+
+  afterEach(closeServer)
 
   it('surfaces a 302 status and its Location header without following it', async () => {
     await listen((_req, res) => {
@@ -573,6 +645,147 @@ describe('nodeHttpClient', () => {
         nodeHttpClient.getToFile(baseUrl, dest, { maxBytes: 1024, timeoutMs: 50 })
       ).rejects.toThrow()
       expect(fs.existsSync(dest)).toBe(false)
+    })
+
+    /**
+     * Important 1 (verification review of the streaming rewrite): `getToFile` writes to
+     * `fs.createWriteStream(destPath)` across several `await`s with no persistent `'error'`
+     * listener attached — a write failure is emitted from an fs callback, not thrown from
+     * anything awaited, so with nothing listening it becomes an UNCAUGHT EXCEPTION (a crash of
+     * the Electron main process), and if it happens to be absorbed by a stale per-drain listener
+     * instead, the loop's next `write()` re-enters a `new Promise(drain|error)` that — because a
+     * destroyed stream never emits 'drain' or a second 'error' — never settles, hanging `apply()`
+     * forever. Both are reproduced below against the real exported `nodeHttpClient`, not a fake.
+     */
+    describe('write-stream failure handling (Important 1)', () => {
+      afterEach(() => {
+        vi.restoreAllMocks()
+      })
+
+      it('Probe A: rejects (never resolves as success, never crashes) when the destination cannot be opened', async () => {
+        await listen((_req, res) => {
+          res.writeHead(200)
+          res.end(Buffer.from('hello world'))
+        })
+        // A destPath under a directory that does not exist makes the underlying `open()` fail
+        // with ENOENT — asynchronously, after `getToFile` has already read/hashed the body and
+        // called `out.end()`. Before the fix, this raced the stream's real (but never-emitted-
+        // to-anything) 'error' against `out.end(callback)`'s 'finish' callback and could resolve
+        // as if the download had SUCCEEDED — worse than a crash, a silently wrong result — while
+        // nothing was ever written to `badDest`. Rejecting here is the fix; the exact failure
+        // mode without it depends on timing (crash in some environments, false success in this
+        // one — both are exactly the "not a rejected promise" defect Important 1 describes).
+        const badDest = path.join(dir, 'does-not-exist', 'bundle.zip')
+        await expect(
+          nodeHttpClient.getToFile(baseUrl, badDest, { maxBytes: 1024, timeoutMs: 2000 })
+        ).rejects.toThrow()
+        expect(fs.existsSync(badDest)).toBe(false)
+      }, 5000)
+
+      it(
+        'Probe B: rejects (does not hang) when a write error is silently absorbed because no ' +
+          "wait was active at the moment it fired, and the loop's NEXT write() re-enters a wait " +
+          'a stream that will never emit drain or a second error again',
+        async () => {
+          // A REAL Writable — Node's actual "a destroyed stream's write() short-circuits to
+          // `false` forever, and 'error' is emitted at most ONCE" behavior (verified directly
+          // against Node before writing this test) is exactly the mechanism the bug depends on;
+          // a hand-rolled fake wouldn't prove anything about the real fs.WriteStream contract.
+          //
+          // Chunk 1's write() call returns `true` (no backpressure — nothing is `await`ing
+          // 'drain' or 'error' at that moment) while its underlying write FAILS asynchronously
+          // a tick later, destroying the stream with nothing listening for it to reject. Chunk
+          // 2 arrives after a real gap (long enough for that destroy to complete), so its
+          // write() call — now against an already-destroyed stream — returns `false`, and the
+          // OLD code's per-call `new Promise((resolve,reject)) => { once('drain'); once('error') }`
+          // waits on events that will never come again: an unconditional hang.
+          let calls = 0
+          const flaky = new Writable({
+            highWaterMark: 1024 * 1024, // large: chunk 1 alone must NOT need to wait for drain
+            write(_chunk, _enc, callback) {
+              calls++
+              if (calls === 1) {
+                queueMicrotask(() => callback(new Error('simulated ENOSPC')))
+                return
+              }
+              queueMicrotask(() => callback())
+            }
+          })
+          vi.spyOn(fs, 'createWriteStream').mockReturnValue(flaky as unknown as fs.WriteStream)
+
+          await listen((_req, res) => {
+            res.writeHead(200)
+            ;(async () => {
+              res.write(Buffer.alloc(256, 'x')) // chunk 1 — its write() fails after returning true
+              await new Promise((r) => setTimeout(r, 30)) // let the async failure destroy `out`
+              res.write(Buffer.alloc(256, 'y')) // chunk 2 — write() against an already-dead stream
+              res.end()
+            })()
+          })
+
+          await expect(
+            nodeHttpClient.getToFile(baseUrl, dest, { maxBytes: 1024 * 1024, timeoutMs: 2000 })
+          ).rejects.toThrow(/simulated ENOSPC/)
+        },
+        5000
+      )
+
+      it('does not accumulate error listeners across many drain waits, and warns of none', async () => {
+        // A tiny highWaterMark forces `write()` to return `false` (and thus a drain wait) on
+        // nearly every chunk, deterministically reproducing the "many drains" shape the review
+        // measured (8 MiB / 65 drains) without depending on real disk speed.
+        //
+        // Rather than asserting one specific listener COUNT (Node's own `stream/promises`
+        // `finished()` leaves a fixed residual of its own, an implementation detail that isn't
+        // this fix's to pin down), this compares a few-drain run against a many-drain run: if
+        // the old per-drain-leaked `.once('error', reject)` bug were still present, the second
+        // count would be roughly 12x the first (60 vs 5 leaked listeners) instead of identical.
+        const countAfter = async (chunks: number): Promise<number> => {
+          let captured: Writable | null = null
+          const realCreateWriteStream = fs.createWriteStream.bind(fs)
+          const spy = vi.spyOn(fs, 'createWriteStream').mockImplementation((p, opts) => {
+            const s = realCreateWriteStream(p as string, {
+              ...(typeof opts === 'object' ? opts : {}),
+              highWaterMark: 16
+            })
+            captured = s
+            return s
+          })
+          await listen((_req, res) => {
+            res.writeHead(200)
+            ;(async () => {
+              for (let i = 0; i < chunks; i++) {
+                res.write(Buffer.alloc(512, 'y'))
+                await new Promise((r) => setTimeout(r, 1))
+              }
+              res.end()
+            })()
+          })
+          const res = await nodeHttpClient.getToFile(baseUrl, dest, {
+            maxBytes: 10 * 1024 * 1024,
+            timeoutMs: 5000
+          })
+          expect(res.status).toBe(200)
+          spy.mockRestore()
+          const count = captured!.listenerCount('error')
+          await closeServer() // each call to `listen()` opens a new server; don't leak the old one
+          return count
+        }
+
+        const warnings: string[] = []
+        const onWarning = (w: Error): void => {
+          warnings.push(`${w.name}: ${w.message}`)
+        }
+        process.on('warning', onWarning)
+        try {
+          const few = await countAfter(5)
+          const many = await countAfter(60)
+          expect(many).toBe(few)
+          expect(warnings.filter((w) => w.includes('MaxListenersExceededWarning'))).toEqual([])
+        } finally {
+          process.off('warning', onWarning)
+        }
+      })
     })
   })
 })
