@@ -491,10 +491,11 @@ export function instanceModels(s: AppSettings, instanceId?: string): CatalogMode
 /**
  * The model rows to offer for a Claude instance.
  *
- * The runtime catalog wins outright when present: it is the only source that knows
- * which models THIS CLI build actually offers, and the same alias resolves to
- * different models across versions. The static list is a pre-load / offline floor,
- * never a merge partner — merging would resurrect models the CLI dropped.
+ * Converts one instance's reported runtime catalog into model rows. The decision of
+ * whether and when this catalog substitutes rows is made in {@link allVisibleModels}
+ * via its per-instance `rowOverrides` parameter, not here. Substitution is per-instance
+ * by design: with multiple providers enabled at once, the model picker is how the user
+ * switches between them, so one instance's catalog must never suppress other providers.
  */
 export function mergeCatalogModels(
   staticModels: readonly CatalogModel[],

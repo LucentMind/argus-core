@@ -189,7 +189,7 @@ describe('Composer', () => {
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
-    // the static-only Claude Fable 5 / Opus 4.7 rows are gone: the catalog wins outright
+    // for this single enabled instance, the runtime catalog rows replace the static list
     expect(items).toEqual(['Opus (1M context)'])
     fireEvent.click(screen.getByRole('menuitem', { name: 'Opus (1M context)' }))
     // and the catalog-only row still carries the SESSION's own instance identity
