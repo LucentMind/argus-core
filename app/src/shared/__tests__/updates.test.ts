@@ -25,4 +25,29 @@ describe('describeUpdate', () => {
     expect(describeUpdate(fromDownload)).not.toMatch(/check failed/i)
     expect(describeUpdate(fromDownload)).toBe('Update failed: disk full')
   })
+
+  describe('subject (Fix 4)', () => {
+    it("words the pack-subject idle phase differently from Core's, which claims the whole app", () => {
+      expect(describeUpdate({ phase: 'idle' }, 'pack')).toBe('No update available')
+      expect(describeUpdate({ phase: 'idle' }, 'pack')).not.toBe('Argus is up to date')
+    })
+
+    it('defaults to the core subject — every existing call site is unaffected', () => {
+      expect(describeUpdate({ phase: 'idle' })).toBe('Argus is up to date')
+      expect(describeUpdate({ phase: 'idle' }, 'core')).toBe('Argus is up to date')
+    })
+
+    it('words every non-idle phase identically regardless of subject', () => {
+      const cases: UpdateStatus[] = [
+        { phase: 'checking' },
+        { phase: 'available', version: '1.1.0' },
+        { phase: 'downloading', percent: 10 },
+        { phase: 'ready', version: '1.1.0' },
+        { phase: 'error', message: 'offline', at: 1 }
+      ]
+      for (const status of cases) {
+        expect(describeUpdate(status, 'pack')).toBe(describeUpdate(status, 'core'))
+      }
+    })
+  })
 })

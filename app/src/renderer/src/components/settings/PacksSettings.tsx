@@ -89,9 +89,9 @@ function PackCard({
           />
         )}
       </SettingRow>
-      {pack.update != null && pack.update.phase !== 'idle' && (
+      {pack.update != null && (
         <div className="pl-4 text-sm text-dim">
-          {describeUpdate(pack.update)}
+          {describeUpdate(pack.update, 'pack')}
           {pack.update.phase === 'error' && pack.update.code === 'origin-pin' && (
             <> — download it manually from your vendor and install it with Install from file.</>
           )}

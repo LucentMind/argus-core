@@ -309,6 +309,20 @@ describe('PacksSettings', () => {
     expect(screen.queryByRole('button', { name: /update · sample/i })).not.toBeInTheDocument()
   })
 
+  it('shows a pack-appropriate sentence for an idle pack instead of no feedback at all (Fix 4)', async () => {
+    // Before the fix, an idle pack's status line was suppressed entirely — a successful "Check
+    // for pack updates" that finds nothing looked identical to a broken button. The suppression
+    // itself existed for a real reason: `describeUpdate`'s idle sentence is the Core-app "Argus
+    // is up to date", which must never appear on a pack row.
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [row({ id: 'sample', update: { phase: 'idle' } })]
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    expect(await screen.findByText(/no update available/i)).toBeInTheDocument()
+    expect(screen.queryByText(/argus is up to date/i)).not.toBeInTheDocument()
+  })
+
   it('Check for pack updates calls through', async () => {
     render(<PacksSettings settings={settingsPayload([])} />)
     fireEvent.click(await screen.findByRole('button', { name: /check for pack updates/i }))
