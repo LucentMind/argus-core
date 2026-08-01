@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { descriptorsFor, selectionValue, pruneSelections, selectionLabel, type ModelOptionInfo } from '../runOptions'
+import {
+  descriptorsFor,
+  selectionValue,
+  pruneSelections,
+  selectionLabel,
+  effectiveEffort,
+  apiModelId,
+  claudeSettingsFor,
+  type ModelOptionInfo
+} from '../runOptions'
 
 const FABLE: ModelOptionInfo = {
   value: 'fable',
@@ -143,5 +152,73 @@ describe('selectionLabel', () => {
     )!
     expect(selectionLabel(fast, [{ id: 'fastMode', value: true }])).toBe('On')
     expect(selectionLabel(fast, null)).toBe('Off')
+  })
+})
+
+describe('effectiveEffort', () => {
+  const [effort] = descriptorsFor(FABLE)
+
+  it('passes a real level straight through', () => {
+    expect(effectiveEffort(effort, 'max')).toBe('max')
+  })
+
+  // ultracode is a Settings key, not an effort level; it pairs with xhigh.
+  it('maps ultracode to xhigh', () => {
+    expect(effectiveEffort(effort, 'ultracode')).toBe('xhigh')
+  })
+
+  // ultrathink is prompt text and must never reach the wire as an effort.
+  it('drops ultrathink entirely', () => {
+    expect(effectiveEffort(effort, 'ultrathink')).toBeUndefined()
+  })
+
+  it('degrades a level this model does not support down to the nearest supported one', () => {
+    const [noXhigh] = descriptorsFor({
+      ...FABLE,
+      supportedEffortLevels: ['low', 'medium', 'high']
+    })
+    expect(effectiveEffort(noXhigh, 'max')).toBe('high')
+  })
+
+  it('is undefined when there is no effort descriptor at all', () => {
+    expect(effectiveEffort(undefined, 'high')).toBeUndefined()
+  })
+})
+
+describe('apiModelId', () => {
+  it('appends the 1m suffix', () => {
+    expect(apiModelId('claude-opus-5', '1m')).toBe('claude-opus-5[1m]')
+  })
+
+  it('leaves 200k and absent alone', () => {
+    expect(apiModelId('claude-opus-5', '200k')).toBe('claude-opus-5')
+    expect(apiModelId('claude-opus-5', undefined)).toBe('claude-opus-5')
+  })
+
+  it('never double-suffixes an already-suffixed slug', () => {
+    expect(apiModelId('claude-opus-5[1m]', '1m')).toBe('claude-opus-5[1m]')
+  })
+})
+
+describe('claudeSettingsFor', () => {
+  it('is empty when nothing is selected', () => {
+    expect(claudeSettingsFor(descriptorsFor(FABLE), null)).toEqual({})
+  })
+
+  it('sets ultracode when the effort selection is ultracode', () => {
+    const ds = descriptorsFor(FABLE)
+    expect(claudeSettingsFor(ds, [{ id: 'effort', value: 'ultracode' }])).toEqual({
+      ultracode: true
+    })
+  })
+
+  it('carries fastMode and thinking', () => {
+    const ds = descriptorsFor({ ...FABLE, supportsFastMode: true })
+    expect(
+      claudeSettingsFor(ds, [
+        { id: 'fastMode', value: true },
+        { id: 'thinking', value: true }
+      ])
+    ).toEqual({ fastMode: true, alwaysThinkingEnabled: true })
   })
 })

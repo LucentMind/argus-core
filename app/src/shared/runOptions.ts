@@ -145,3 +145,63 @@ export function selectionLabel(
   if (d.type === 'boolean') return v === true ? 'On' : 'Off'
   return d.options.find((o) => o.value === v)?.label ?? ''
 }
+
+/** Wire ordering of the real effort levels, weakest first. Used to degrade. */
+const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
+/**
+ * The value for the SDK's `effort` option.
+ *
+ * `ultracode` is not an effort level — it is a Settings key that pairs with
+ * xhigh, so it maps to xhigh here and is set separately in `claudeSettingsFor`.
+ * `ultrathink` is prompt text and yields nothing.
+ *
+ * A level the model does not report supporting degrades to the strongest
+ * supported level below it, so this cannot go stale when the catalog changes.
+ */
+export function effectiveEffort(
+  d: RunOptionDescriptor | undefined,
+  value: string | boolean | undefined
+): string | undefined {
+  if (!d || d.type !== 'select' || typeof value !== 'string') return undefined
+  if (value === 'ultrathink') return undefined
+  const wanted = value === 'ultracode' ? 'xhigh' : value
+  const supported = d.options
+    .map((o) => o.value)
+    .filter((v): v is (typeof EFFORT_ORDER)[number] =>
+      (EFFORT_ORDER as readonly string[]).includes(v)
+    )
+  if (supported.length === 0) return undefined
+  if (supported.includes(wanted as (typeof EFFORT_ORDER)[number])) return wanted
+  const wantedIdx = EFFORT_ORDER.indexOf(wanted as (typeof EFFORT_ORDER)[number])
+  if (wantedIdx < 0) return undefined
+  for (let i = wantedIdx - 1; i >= 0; i--) {
+    if (supported.includes(EFFORT_ORDER[i])) return EFFORT_ORDER[i]
+  }
+  return supported[0]
+}
+
+/**
+ * 1M context is a model-slug suffix, not a beta header. Measured live: the CLI's own
+ * catalog reports `resolvedModel: "claude-opus-5[1m]"`, and the suffix succeeds on
+ * every effort-capable model.
+ */
+export function apiModelId(slug: string, contextWindow: string | boolean | undefined): string {
+  if (contextWindow !== '1m') return slug
+  return slug.endsWith('[1m]') ? slug : `${slug}[1m]`
+}
+
+/** The SDK `settings` object for this selection. Empty means "pass nothing". */
+export function claudeSettingsFor(
+  ds: readonly RunOptionDescriptor[],
+  stored: readonly RunOptionSelection[] | null | undefined
+): { ultracode?: true; fastMode?: true; alwaysThinkingEnabled?: boolean } {
+  const out: { ultracode?: true; fastMode?: true; alwaysThinkingEnabled?: boolean } = {}
+  const effort = ds.find((d) => d.id === 'effort')
+  if (effort && selectionValue(effort, stored) === 'ultracode') out.ultracode = true
+  const fast = ds.find((d) => d.id === 'fastMode')
+  if (fast && selectionValue(fast, stored) === true) out.fastMode = true
+  const thinking = ds.find((d) => d.id === 'thinking')
+  if (thinking && selectionValue(thinking, stored) === true) out.alwaysThinkingEnabled = true
+  return out
+}
