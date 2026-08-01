@@ -40,6 +40,19 @@ import type { TierLookup } from '../../../../shared/assetEditable'
 import type { AssetRow } from '../../lib/palette'
 import type { PersistedTabs, TabViewState } from '../../../../shared/editorIpc'
 
+/**
+ * The stable "this tab offers nothing" value for every tab that is not the active one (see
+ * `commands` below and the `.map` call site in `EditorApp`). Frozen and module-level, not
+ * `undefined`: `AssetPane`'s `cmdFor` treats an absent `commands` prop (`undefined`) as "no host
+ * at all, fall back to local expressions" — the shape its own standalone tests mount with — and
+ * conflating "the window supplied an empty list" with that would silently resurrect the local
+ * fallback (see finding 2's drift) for every inactive tab. An empty array keeps the two
+ * distinguishable: every inactive pane's buttons render as omitted (no descriptor found), not
+ * locally recomputed, exactly as if the (invisible, hidden) tab had a working registry that simply
+ * routes nothing to it.
+ */
+const NO_COMMANDS: readonly Command[] = Object.freeze([])
+
 interface TabPaneProps {
   tab: Tab
   active: boolean
@@ -65,9 +78,15 @@ interface TabPaneProps {
   /** The window's way into this pane's imperative handle. A callback ref, so React calls it with
    *  `null` on unmount — see the comment on `handlePaneRef` below. */
   registerPane: (id: string, h: AssetPaneHandle | null) => void
-  /** The window's registry (spec §6.4), rebuilt whenever the active pane reports. Forwarded to
-   *  `AssetTab` only when `active` — see the comment below on why every OTHER tab gets a stable
-   *  `undefined` instead of this same, constantly-rebuilt array. */
+  /** The window's registry (spec §6.4), rebuilt whenever the active pane reports. Already
+   *  resolved to the right value BEFORE this component sees it: the `.map` call site in
+   *  `EditorApp` passes the live, constantly-rebuilt array only for the tab whose id matches
+   *  `state.activeId`, and the frozen `NO_COMMANDS` to every other tab. That split has to happen
+   *  there, not in here — `TabPane` is `memo`-wrapped, and by the time a ternary inside its body
+   *  ran, the memo's shallow prop comparison would already have seen a fresh array identity on
+   *  `commands` for every mounted tab and bailed out of skipping the re-render for all of them, not
+   *  just the active one. See the file-level comment on `TabPane` for the OOM-class bug this
+   *  guards against. */
   commands: readonly Command[]
 }
 
@@ -199,11 +218,9 @@ const TabPane = memo(function TabPane({
         onViewStateChange={handleViewStateChange}
         onCommandState={handleCommandState}
         paneRef={handlePaneRef}
-        // Only the active tab gets the real, constantly-rebuilt array — every other tab gets a
-        // stable `undefined` instead of racing to re-render on every keystroke the active pane
-        // makes (spec §6.4; see the OOM class of bug this file's other comments already document
-        // for `onDirtyChange`/`registerPane`).
-        commands={active ? commands : undefined}
+        // Already the right value for this tab by the time it gets here — see the doc comment on
+        // the `commands` prop above. No ternary needed (or safe) at this point in the tree.
+        commands={commands}
       />
     </div>
   )
@@ -574,11 +591,12 @@ export function EditorApp(): React.JSX.Element {
             // file they just wrote. For every edit-mode tab the two are identical.
             const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
             const readOnly = t.mode !== 'create' && !isAssetEditable(t.kind, tier)
+            const active = t.id === state.activeId
             return (
               <TabPane
                 key={t.id}
                 tab={t}
-                active={t.id === state.activeId}
+                active={active}
                 readOnly={readOnly}
                 tier={tier}
                 onDirtyChange={onDirtyChange}
@@ -588,7 +606,16 @@ export function EditorApp(): React.JSX.Element {
                 onEditCopy={editCopy}
                 onCommandState={onCommandState}
                 registerPane={registerPane}
-                commands={commands}
+                // The split has to happen HERE, at the call site, not inside `TabPane`. `TabPane`
+                // is `memo`-wrapped, and every tab's `.map` iteration used to pass this same
+                // `commands` — rebuilt on every keystroke via the `useMemo` above — to EVERY
+                // `TabPane`, active or not. `memo`'s shallow comparison saw a changed `commands`
+                // identity on every one of them and re-rendered all N tabs on every keystroke
+                // anywhere in the window, defeating the whole point of wrapping `TabPane` in
+                // `memo` (see the file-level comment on it). Computing the split here means every
+                // INACTIVE tab receives the same frozen `NO_COMMANDS` reference release over
+                // release, so `memo` actually sees no change for it and skips the re-render.
+                commands={active ? commands : NO_COMMANDS}
               />
             )
           })

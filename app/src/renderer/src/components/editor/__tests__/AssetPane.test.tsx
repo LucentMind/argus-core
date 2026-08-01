@@ -415,7 +415,15 @@ describe('AssetPane', () => {
 
   it('blocks Save while validation has an error', async () => {
     mount({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // Not a click any more: Finding 2 fixed the toolbar fallback to agree with `buildCommands`
+    // (`writable && !blocked`), so a blocked pane now correctly renders Save disabled — a real
+    // click on a disabled button does nothing, which is exactly the coverage the
+    // `toolbar fallback matches buildCommands` describe block below adds. What THIS test actually
+    // pins is `onSave`'s own internal guard, which exists for the paths that ignore the button's
+    // disabled attribute entirely — Ctrl+S through CodeMirror's keymap and the window-level
+    // fallback (see the comment on `onSave` in AssetPane.tsx) — so it has to be driven through
+    // that same handle, the way the read-only-panes block below already does for the same reason.
+    act(() => surfaceProps.commands.save())
     expect(skillsWrite).not.toHaveBeenCalled()
     expect(screen.getByRole('alert')).toHaveTextContent(/frontmatter/i)
   })
@@ -991,5 +999,54 @@ describe('AssetPane · toolbar from descriptors', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalled())
+  })
+})
+
+// Finding 2: the local fallback `enabled` expressions (used only when no `commands` host is
+// supplied — this component's own tests, exercised throughout this file) had each dropped one
+// term `buildCommands` (lib/commands.ts) includes for the same id, so a button behaved
+// differently under test than it would in the real window. One test per button that is
+// independently observable through the rendered DOM; `draft`'s missing term (`proposed === null`)
+// is NOT included here — it is masked by this component's own JSX render gate, which already
+// hides the Draft button whenever a proposal is pending, so there is no rendered state that could
+// tell the fixed expression apart from the old one. See the comments beside each fallback in
+// AssetPane.tsx for the full `buildCommands` correspondence.
+describe('AssetPane · toolbar fallback matches buildCommands', () => {
+  it('disables Save via the fallback when validation is blocked', () => {
+    // buildCommands: `writable && !p.blocked` — the fallback used to omit `!blocked` entirely, so
+    // a build with unresolved validation errors offered a Save button the real window would have
+    // refused.
+    mount({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('disables the view-mode toggle via the fallback while an assist run is busy', async () => {
+    // buildCommands: `idle` = `!busy && proposed === null` — the fallback used to check only
+    // `proposed === null`, so the toolbar's view-mode button (labelled by the *next* mode; the
+    // default 'editor' mode shows 'Split') stayed enabled for the whole span of a running assist.
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeDisabled())
+  })
+
+  it('disables Improve via the fallback while a proposal is pending', async () => {
+    // buildCommands: `writable && p.canImprove`, where `writable` already folds in
+    // `proposed === null` — the fallback used to omit that term, so Improve stayed clickable while
+    // its own previous proposal was still on screen awaiting Accept/Discard.
+    //
+    // Queried with `hidden: true`: once a proposal lands, this component's own overlay wrapper
+    // marks the whole footer (Improve included) `aria-hidden` — correct per its own comment, since
+    // Tailwind's `hidden` utility has no effect under jsdom's CSS-less DOM — so the default
+    // accessible-name query would otherwise report the button as gone rather than disabled.
+    globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Accept', hidden: true })).toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: /improve/i, hidden: true })).toBeDisabled()
   })
 })

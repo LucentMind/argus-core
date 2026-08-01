@@ -833,22 +833,46 @@ export function AssetPane({
     return hit ? { enabled: hit.enabled, run: hit.run } : null
   }
 
+  // Every fallback below is a LOCAL restatement of the matching id's rule in `buildCommands`
+  // (lib/commands.ts) — this component's own tests (and only those) mount with no `commands`
+  // prop at all and exercise this path. A fallback that disagrees with the real rule means the
+  // button behaves differently under test than it does in the window, so each one mirrors its
+  // `buildCommands` counterpart term for term rather than approximating it:
+  //   idle     = !busy && proposed === null            (no assist in flight, no pending proposal)
+  //   writable = idle && !readOnly
   const saveCmd = cmdFor('save', {
-    enabled: !busy && proposed === null && !readOnly,
+    // buildCommands: `writable && !p.blocked`.
+    enabled: !busy && proposed === null && !readOnly && !blocked,
     run: () => void onSave()
   })
   // The button's LABEL stays local — it names the *next* mode, which is a rendering concern, not
   // a command concern. Only `enabled` and `run` come from the descriptor.
   const viewCmd = cmdFor('cycleViewMode', {
-    enabled: proposed === null,
+    // buildCommands: `idle` — not gated on `readOnly` (viewing a protected asset in Preview is
+    // fine), but still gated on `busy`, which this fallback used to omit.
+    enabled: !busy && proposed === null,
     run: () => setViewMode(nextViewMode(prefs.viewMode))
   })
   const draftCmd = cmdFor('draft', {
-    enabled: !busy && describe.trim() !== '' && provider?.ok !== false && !readOnly,
+    // buildCommands: `writable && p.mode === 'create' && p.canDraft`, where `p.canDraft` is
+    // `mode === 'create' && describe.trim() !== '' && providerOk !== false` (see the
+    // `commandState` memo above). The `mode === 'create'` term is also enforced by this button's
+    // surrounding JSX gate, but it stays here too so this expression is a complete, standalone
+    // match for the real rule rather than one that only happens to agree because of where it is
+    // rendered.
+    enabled:
+      !busy &&
+      proposed === null &&
+      !readOnly &&
+      mode === 'create' &&
+      describe.trim() !== '' &&
+      provider?.ok !== false,
     run: () => void assist('draft')
   })
   const improveCmd = cmdFor('improve', {
-    enabled: !busy && doc.trim() !== '' && provider?.ok !== false && !readOnly,
+    // buildCommands: `writable && p.canImprove`, where `p.canImprove` is
+    // `doc.trim() !== '' && providerOk !== false`.
+    enabled: !busy && proposed === null && !readOnly && doc.trim() !== '' && provider?.ok !== false,
     run: () => void assist('improve')
   })
 
