@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { isReviewLayerId } from '../../../shared/reviewLayers'
 import type { PrBinding } from '../../../shared/pr'
+import type { ReviewRunComposition } from '../../../shared/reviewCompose'
 import { assertSlug } from '../caseFiles'
 import type { PrMaterializer } from '../prBindings'
 import { buildReviewRunPrompt } from './reviewRun'
@@ -33,7 +34,7 @@ export async function composeReviewRunPrompt(
   caseSlug: string,
   sessionId: number,
   layerIds: string[]
-): Promise<string> {
+): Promise<ReviewRunComposition> {
   assertSlug(caseSlug)
   if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
   const layers = layerIds.filter(isReviewLayerId)
@@ -43,20 +44,30 @@ export async function composeReviewRunPrompt(
 
   const framing = resolveReviewFraming(deps, caseSlug, sessionId)
 
+  // Reported, not thrown: a case with nothing bound yet is the ordinary state of a review the
+  // user has not pointed at a PR, so the renderer offers "link one" instead of painting an
+  // error over the transcript. It must stay AHEAD of materialize() — like the throw it
+  // replaces, a doomed request must not create a worktree on disk first.
   const binding = deps.getBinding(deps.db, caseSlug)
-  if (!binding) throw new Error('No pull request is bound to this case.')
+  if (!binding) return { ok: false, reason: 'no-pr-bound' }
+
+  // Still a throw: a binding pointing at a repo that isn't linked locally is a broken setup,
+  // not a step the user is simply yet to take.
   const worktree = await deps.materialize(binding)
   if (!worktree) {
     throw new Error(`PR #${binding.number} has no linked local repo to check out.`)
   }
 
-  return buildReviewRunPrompt({
-    support: framing.support,
-    pinnedLayers: layers,
-    prLabel: `${binding.owner}/${binding.repo}#${binding.number}`,
-    prUrl: binding.url,
-    worktreePath: worktree,
-    repoName: binding.repo,
-    resolve: deps.resolvePrompt
-  })
+  return {
+    ok: true,
+    prompt: buildReviewRunPrompt({
+      support: framing.support,
+      pinnedLayers: layers,
+      prLabel: `${binding.owner}/${binding.repo}#${binding.number}`,
+      prUrl: binding.url,
+      worktreePath: worktree,
+      repoName: binding.repo,
+      resolve: deps.resolvePrompt
+    })
+  }
 }

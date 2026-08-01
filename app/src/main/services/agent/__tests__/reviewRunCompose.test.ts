@@ -12,6 +12,7 @@ import { CLAUDE_TOOL_TAXONOMY } from '../risk'
 import { PERMISSION_MODES } from '../../../../shared/settings'
 import type { SubagentSupport } from '../../../../shared/drivers'
 import type { PrBinding } from '../../../../shared/pr'
+import type { ReviewRunComposition } from '../../../../shared/reviewCompose'
 
 function stubDriver(subagents: SubagentSupport): AgentDriver {
   return {
@@ -69,6 +70,12 @@ function baseDeps(overrides: Partial<ComposeReviewRunPromptDeps> = {}): ComposeR
   }
 }
 
+/** The composed text, failing loudly if the composer reported a blocker instead. */
+function promptOf(result: ReviewRunComposition): string {
+  if (!result.ok) throw new Error(`expected a composed prompt, got blocker: ${result.reason}`)
+  return result.prompt
+}
+
 describe('composeReviewRunPrompt', () => {
   it('rejects an unknown review layer before touching bindings', async () => {
     const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
@@ -77,11 +84,51 @@ describe('composeReviewRunPrompt', () => {
     ).rejects.toThrow(/Unknown review layer/)
   })
 
-  it('errors when the case has no PR bound', async () => {
+  // A case with nothing bound yet is an ordinary, recoverable state — the user simply has not
+  // linked a PR — not a fault. It must NOT be a throw: Electron's invoke re-wrap destroys the
+  // error's class and any custom code (see shared/ipcError.ts), so a thrown blocker is only
+  // recognisable in the renderer by matching its English sentence. A typed result crosses the
+  // IPC boundary intact, which is what lets ReviewRunButton offer "link a PR" instead of
+  // painting a red error over the transcript. Same shape the findings write actions already
+  // use (`postFindingComment` -> {ok:false, reason}).
+  it('reports no-pr-bound as a typed result rather than throwing', async () => {
+    const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
+    const result = await composeReviewRunPrompt(
+      baseDeps({ getBinding: () => null }),
+      'COMPOSE-1',
+      s.id,
+      []
+    )
+    expect(result).toEqual({ ok: false, reason: 'no-pr-bound' })
+  })
+
+  // The blocker is a report, not an escape hatch: it must be decided before any side-effecting
+  // work, exactly like the throw it replaces (materialize creates a worktree on disk).
+  it('does not materialize a worktree when nothing is bound', async () => {
+    const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
+    let materialized = 0
+    await composeReviewRunPrompt(
+      baseDeps({
+        getBinding: () => null,
+        materialize: async () => {
+          materialized += 1
+          return '/wt/o-r-pr7'
+        }
+      }),
+      'COMPOSE-1',
+      s.id,
+      []
+    )
+    expect(materialized).toBe(0)
+  })
+
+  // Ownership/validation failures stay throws — they are faults, not states a user can resolve
+  // by linking something, and the blocker union must not quietly swallow them.
+  it('still throws for a bound PR with no linked local repo', async () => {
     const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
     await expect(
-      composeReviewRunPrompt(baseDeps({ getBinding: () => null }), 'COMPOSE-1', s.id, [])
-    ).rejects.toThrow(/No pull request is bound to this case/)
+      composeReviewRunPrompt(baseDeps({ materialize: async () => null }), 'COMPOSE-1', s.id, [])
+    ).rejects.toThrow(/no linked local repo/)
   })
 
   // Finding 2 of the layered-review review: a session with a null instance_id (the documented
@@ -90,11 +137,13 @@ describe('composeReviewRunPrompt', () => {
   // downgraded to 'promptable' just because instance_id is null.
   it('frames an unpinned (null instance_id) review-mode session off the live default driver', async () => {
     const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
-    const p = await composeReviewRunPrompt(
-      baseDeps({ resolveDriver: () => stubDriver('configurable') }),
-      'COMPOSE-1',
-      s.id,
-      []
+    const p = promptOf(
+      await composeReviewRunPrompt(
+        baseDeps({ resolveDriver: () => stubDriver('configurable') }),
+        'COMPOSE-1',
+        s.id,
+        []
+      )
     )
     expect(p).toContain('review-correctness')
     // Discriminates configurable framing from promptable framing (the layer menu names every
@@ -114,19 +163,21 @@ describe('composeReviewRunPrompt', () => {
       mode: 'review'
     })
     const seenInstances: string[] = []
-    const p = await composeReviewRunPrompt(
-      baseDeps({
-        // The live default is promptable; the pinned instance is configurable. If the composer
-        // fell back to the default (finding 2's bug) this would come back inlined.
-        resolveDriver: () => stubDriver('promptable'),
-        driverForInstance: (id) => {
-          seenInstances.push(id)
-          return stubDriver('configurable')
-        }
-      }),
-      'COMPOSE-1',
-      s.id,
-      []
+    const p = promptOf(
+      await composeReviewRunPrompt(
+        baseDeps({
+          // The live default is promptable; the pinned instance is configurable. If the composer
+          // fell back to the default (finding 2's bug) this would come back inlined.
+          resolveDriver: () => stubDriver('promptable'),
+          driverForInstance: (id) => {
+            seenInstances.push(id)
+            return stubDriver('configurable')
+          }
+        }),
+        'COMPOSE-1',
+        s.id,
+        []
+      )
     )
     expect(seenInstances).toEqual(['copilot-1'])
     expect(p).toContain('review-correctness')
@@ -134,11 +185,13 @@ describe('composeReviewRunPrompt', () => {
 
   it('inlines the layer bodies (without the delegate contract) for a promptable driver', async () => {
     const s = createSession(db, 'COMPOSE-1', { driverKind: 'claude-agent-sdk', mode: 'review' })
-    const p = await composeReviewRunPrompt(
-      baseDeps({ resolveDriver: () => stubDriver('promptable') }),
-      'COMPOSE-1',
-      s.id,
-      []
+    const p = promptOf(
+      await composeReviewRunPrompt(
+        baseDeps({ resolveDriver: () => stubDriver('promptable') }),
+        'COMPOSE-1',
+        s.id,
+        []
+      )
     )
     expect(p).not.toMatch(/subagent you can delegate to by name/i)
     expect(p).toContain('chase every suspicion')

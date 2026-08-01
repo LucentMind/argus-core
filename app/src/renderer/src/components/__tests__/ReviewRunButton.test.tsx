@@ -10,7 +10,7 @@ const composeRunPrompt = vi.fn()
 const send = vi.fn()
 
 beforeEach(() => {
-  composeRunPrompt.mockReset().mockResolvedValue('COMPOSED')
+  composeRunPrompt.mockReset().mockResolvedValue({ ok: true, prompt: 'COMPOSED' })
   send.mockReset().mockResolvedValue(undefined)
   // @ts-expect-error test double for the preload bridge
   window.argus = { review: { composeRunPrompt }, agent: { send } }
@@ -37,12 +37,12 @@ describe('ReviewRunButton', () => {
     expect(screen.getByRole('button', { name: /^run review$/i })).toBeDisabled()
   })
 
-  it('reports a compose failure and sends nothing', async () => {
-    composeRunPrompt.mockRejectedValue(new Error('No PR bound to this case.'))
+  it('reports a genuine compose failure and sends nothing', async () => {
+    composeRunPrompt.mockRejectedValue(new Error('The review prompt pack is missing.'))
     const onError = vi.fn()
     render(<ReviewRunButton slug="c1" sessionId={3} onError={onError} />)
     await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('No PR bound to this case.'))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('The review prompt pack is missing.'))
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -110,6 +110,119 @@ describe('ReviewRunButton', () => {
       await userEvent.keyboard('{Escape}')
 
       expect(screen.queryByRole('group', { name: /review layers/i })).not.toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+  })
+
+  describe('when the case has no pull request bound', () => {
+    beforeEach(() => {
+      composeRunPrompt.mockResolvedValue({ ok: false, reason: 'no-pr-bound' })
+    })
+
+    // The defect this replaces: main threw, Electron re-wrapped, and the raw string
+    // "Error invoking remote method 'review:compose-run-prompt': Error: No pull request is
+    // bound to this case." was painted in red over the chat. Not having linked a PR yet is an
+    // ordinary state, so it reads as a prompt with a next step and never reaches onError —
+    // which in CaseWorkspace sets sessionsError and BLANKS the whole transcript.
+    it('offers a next step instead of an error, and never blanks the chat', async () => {
+      const onError = vi.fn()
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={onError} />)
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+
+      const notice = await screen.findByRole('status')
+      expect(notice).toHaveTextContent(/no pull request/i)
+      expect(notice).toHaveTextContent(/link pr/i)
+      expect(onError).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('never shows the user IPC plumbing', async () => {
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+      await screen.findByRole('status')
+      expect(document.body.textContent).not.toMatch(/invoking remote method/i)
+      expect(document.body.textContent).not.toMatch(/compose-run-prompt/i)
+    })
+
+    it('leaves the button usable so linking a PR then re-running just works', async () => {
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      const button = screen.getByRole('button', { name: /^run review$/i })
+      await userEvent.click(button)
+      await screen.findByRole('status')
+      expect(button).toBeEnabled()
+
+      // The user links a PR in the rail and clicks again: the notice must clear.
+      composeRunPrompt.mockResolvedValue({ ok: true, prompt: 'COMPOSED' })
+      await userEvent.click(button)
+      await waitFor(() => expect(send).toHaveBeenCalledWith('c1', 3, 'COMPOSED', true))
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    // Rebase integration with the header consolidation (PR #48): this notice is DOM in the
+    // panel tab strip's row, and a docked panel's native WebContentsView paints over DOM —
+    // the exact reason the layer dropdown above occludes. Without this the notice is not
+    // "quietly styled", it is invisible behind the panel.
+    it('occludes a docked panel while it is showing', async () => {
+      panelsStore.setLauncherOpen(false)
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      expect(panelsStore.get().occluded).toBe(false)
+
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+      await screen.findByRole('status')
+      expect(panelsStore.get().occluded).toBe(true)
+    })
+
+    // And because it occludes, it MUST be self-clearing: a notice that only goes away via its
+    // own dismiss button would keep the docked panel blanked until the user found that button.
+    it('closes on an outside click and stops occluding', async () => {
+      panelsStore.setLauncherOpen(false)
+      render(
+        <div>
+          <ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />
+          <button type="button">outside</button>
+        </div>
+      )
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+      await screen.findByRole('status')
+
+      await userEvent.click(screen.getByRole('button', { name: 'outside' }))
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+
+    it('closes on Escape and stops occluding', async () => {
+      panelsStore.setLauncherOpen(false)
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+      await screen.findByRole('status')
+
+      await userEvent.keyboard('{Escape}')
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+
+    it('clears occlusion on unmount rather than leaving it stuck true', async () => {
+      panelsStore.setLauncherOpen(false)
+      const { unmount } = render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+      await screen.findByRole('status')
+      expect(panelsStore.get().occluded).toBe(true)
+
+      unmount()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+
+    it('dismisses via its own button too', async () => {
+      panelsStore.setLauncherOpen(false)
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      await userEvent.click(screen.getByRole('button', { name: /^run review$/i }))
+      await screen.findByRole('status')
+
+      await userEvent.click(screen.getByRole('button', { name: /dismiss/i }))
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
       expect(panelsStore.get().occluded).toBe(false)
     })
   })

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2, X } from 'lucide-react'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER, type ReviewLayerId } from '../../../shared/reviewLayers'
 import { panelsStore } from '../lib/panelsStore'
 
@@ -23,37 +23,48 @@ export function ReviewRunButton({
   const [pinned, setPinned] = useState<ReviewLayerId[]>([])
   const [open, setOpen] = useState(false)
   const [running, setRunning] = useState(false)
+  const [needsPr, setNeedsPr] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   function toggle(id: ReviewLayerId): void {
     setPinned((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
+  /** Either popover is DOM sitting in the panel tab strip's row, so both need the treatment
+   *  below — a docked panel's native WebContentsView would otherwise paint straight over them. */
+  const popoverOpen = open || needsPr
+
+  function closePopovers(): void {
+    setOpen(false)
+    setNeedsPr(false)
+  }
+
   // Mirrors MenuButton's own open-sync effect (ui.tsx:194-200): keep panelsStore's
-  // launcherOpen in lockstep with `open` from an effect, not from inside the setOpen
+  // launcherOpen in lockstep with the popovers from an effect, not from inside the setOpen
   // updater — updaters must stay pure (StrictMode double-invokes them in dev), and
   // notifying an external store from one risks doing so during the render phase. This
-  // also covers switching out of review mode while the dropdown is open, which unmounts
+  // also covers switching out of review mode while one is open, which unmounts
   // the whole button (CaseWorkspace stops passing it as `action`) without an
   // onClick(false) — the cleanup below fires false on unmount too, so launcherOpen can
   // never get stuck true.
   useEffect(() => {
-    panelsStore.setLauncherOpen(open)
+    panelsStore.setLauncherOpen(popoverOpen)
     return () => {
-      if (open) panelsStore.setLauncherOpen(false)
+      if (popoverOpen) panelsStore.setLauncherOpen(false)
     }
-  }, [open])
+  }, [popoverOpen])
 
-  // Mirrors MenuButton's outside-mousedown + Escape listeners (ui.tsx:201-215) so the
-  // dropdown — and so the docked panel it occludes — is self-clearing instead of staying
-  // blank until the user clicks the trigger again.
+  // Mirrors MenuButton's outside-mousedown + Escape listeners (ui.tsx:201-215) so a popover —
+  // and so the docked panel it occludes — is self-clearing instead of staying blank until the
+  // user clicks the trigger again. This is what makes it safe for the no-PR notice to occlude
+  // at all: dismissing it must not depend on the user finding its little × first.
   useEffect(() => {
-    if (!open) return
+    if (!popoverOpen) return
     const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) closePopovers()
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') closePopovers()
     }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
@@ -61,17 +72,25 @@ export function ReviewRunButton({
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [popoverOpen])
 
   async function run(): Promise<void> {
     if (sessionId === null || running) return
     setRunning(true)
     setOpen(false)
+    setNeedsPr(false)
     try {
       // Ordered by the registry, not by click order, so the prompt reads consistently.
       const layers = REVIEW_LAYER_ORDER.filter((id) => pinned.includes(id))
-      const prompt = await window.argus.review.composeRunPrompt(slug, sessionId, layers)
-      await window.argus.agent.send(slug, sessionId, prompt, true)
+      const composed = await window.argus.review.composeRunPrompt(slug, sessionId, layers)
+      // Not an error path: nothing bound yet is a step the user has not taken, so it is
+      // answered here with the next step and deliberately kept away from `onError` — that
+      // sets CaseWorkspace's sessionsError, which replaces the whole transcript.
+      if (!composed.ok) {
+        setNeedsPr(true)
+        return
+      }
+      await window.argus.agent.send(slug, sessionId, composed.prompt, true)
     } catch (err) {
       onError((err as Error).message)
     } finally {
@@ -117,6 +136,28 @@ export function ReviewRunButton({
               {REVIEW_LAYERS[id].label}
             </label>
           ))}
+        </div>
+      )}
+      {/* Deliberately not `text-danger`, and deliberately rendered here rather than handed to
+          onError: a review with no PR linked yet is a prompt, not a failure. It sits under the
+          button it belongs to, so the transcript behind it stays on screen. */}
+      {needsPr && (
+        <div
+          role="status"
+          className="absolute right-0 top-full z-10 mt-1 flex w-72 items-start gap-2 rounded-r2 border border-hair bg-panel p-2 shadow-lg"
+        >
+          <p className="flex-1 text-[11px] leading-relaxed text-mute">
+            No pull request is linked to this case yet — use{' '}
+            <span className="text-ink">Link PR</span> in the Pull request rail, then run the review.
+          </p>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setNeedsPr(false)}
+            className="text-mute transition-colors hover:text-ink"
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
     </div>

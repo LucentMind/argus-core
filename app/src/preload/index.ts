@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
 import { IPC } from '../shared/ipc'
+import { cleanIpcErrorMessage } from '../shared/ipcError'
 import type {
   NewCaseInput,
   SearchFilters,
@@ -88,6 +89,7 @@ import type { PacksListPayload, InspectResult, InstallResult } from '../shared/p
 import type { CoreUpdatePayload, UpdateStatus } from '../shared/updates'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
+import type { ReviewRunComposition } from '../shared/reviewCompose'
 import type { PrStatus } from '../shared/prStatus'
 import type {
   OpenPanelRequest,
@@ -121,47 +123,71 @@ import type {
   TextDocSearchEvent
 } from '../shared/textdoc'
 
+/**
+ * Every channel on this bridge goes through here instead of `ipcRenderer.invoke` directly.
+ *
+ * Electron does not reject with the error main threw: it rejects with a new plain Error whose
+ * message is `Error invoking remote method '<channel>': <the main error, stringified>`. That
+ * prefix is IPC plumbing no user should ever read, and it reached the UI verbatim — 38 renderer
+ * sites render a caught `.message` straight into the DOM, so a leak on any one of the ~190
+ * channels here becomes a red string on screen (the `review:compose-run-prompt` "no PR bound"
+ * report is the one that surfaced it). Electron adds the wrapper in exactly one place, so it is
+ * stripped in exactly one place rather than at call sites that must then be audited forever.
+ *
+ * The error object is mutated and rethrown rather than replaced, so the stack survives for
+ * devtools. Signature deliberately mirrors `ipcRenderer.invoke`'s own so this stayed a
+ * mechanical substitution across every channel with no change to any inferred bridge type.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function invoke(channel: string, ...args: any[]): Promise<any> {
+  try {
+    return await ipcRenderer.invoke(channel, ...args)
+  } catch (err) {
+    if (err instanceof Error) err.message = cleanIpcErrorMessage(err.message)
+    throw err
+  }
+}
+
 // Custom API for renderer
 const argus = {
   cases: {
-    create: (input: NewCaseInput) => ipcRenderer.invoke(IPC.casesCreate, input),
-    list: () => ipcRenderer.invoke(IPC.casesList),
-    cost: (caseSlug: string) => ipcRenderer.invoke(IPC.caseCost, caseSlug),
-    readFindings: (caseSlug: string) => ipcRenderer.invoke(IPC.caseReadFindings, caseSlug),
-    delete: (slug: string): Promise<void> => ipcRenderer.invoke(IPC.casesDelete, slug),
+    create: (input: NewCaseInput) => invoke(IPC.casesCreate, input),
+    list: () => invoke(IPC.casesList),
+    cost: (caseSlug: string) => invoke(IPC.caseCost, caseSlug),
+    readFindings: (caseSlug: string) => invoke(IPC.caseReadFindings, caseSlug),
+    delete: (slug: string): Promise<void> => invoke(IPC.casesDelete, slug),
     setStatus: (slug: string, status: CaseStatus, resolution: CaseResolution | null) =>
-      ipcRenderer.invoke(IPC.casesSetStatus, slug, status, resolution),
+      invoke(IPC.casesSetStatus, slug, status, resolution),
     /** Switch the case's active mode, creating (or resuming) that mode's chat. */
     setMode: (caseSlug: string, mode: ModeId): Promise<{ sessionId: number }> =>
-      ipcRenderer.invoke(IPC.casesSetMode, caseSlug, mode)
+      invoke(IPC.casesSetMode, caseSlug, mode)
   },
   evidence: {
     ingest: (caseSlug: string, absPaths: string[]) =>
-      ipcRenderer.invoke(IPC.evidenceIngest, caseSlug, absPaths),
+      invoke(IPC.evidenceIngest, caseSlug, absPaths),
     ingestContent: (
       caseSlug: string,
       fileName: string,
       bytes: Uint8Array
     ): Promise<{ record: EvidenceRecord; deduped: boolean }> =>
-      ipcRenderer.invoke(IPC.evidenceIngestContent, caseSlug, fileName, bytes),
+      invoke(IPC.evidenceIngestContent, caseSlug, fileName, bytes),
     list: (caseSlug: string, scope?: EvidenceScope): Promise<EvidenceRecord[]> =>
-      ipcRenderer.invoke(IPC.evidenceList, caseSlug, scope),
+      invoke(IPC.evidenceList, caseSlug, scope),
     read: (evidenceId: number, focusLine?: number) =>
-      ipcRenderer.invoke(IPC.evidenceRead, evidenceId, focusLine),
+      invoke(IPC.evidenceRead, evidenceId, focusLine),
     readSnippet: (
       caseSlug: string,
       relPath: string,
       line: number,
       end?: number
-    ): Promise<SnippetResult> =>
-      ipcRenderer.invoke(IPC.evidenceReadSnippet, caseSlug, relPath, line, end),
+    ): Promise<SnippetResult> => invoke(IPC.evidenceReadSnippet, caseSlug, relPath, line, end),
     delete: (
       caseSlug: string,
       evidenceId: number
     ): Promise<{ deleted: Array<{ id: number; relPath: string; sha256: string }> }> =>
-      ipcRenderer.invoke(IPC.evidenceDelete, caseSlug, evidenceId),
+      invoke(IPC.evidenceDelete, caseSlug, evidenceId),
     scan: (caseSlug: string, mode?: ModeId): Promise<ScanSummary> =>
-      ipcRenderer.invoke(IPC.evidenceScan, caseSlug, mode),
+      invoke(IPC.evidenceScan, caseSlug, mode),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.evidenceChanged, listener)
@@ -179,10 +205,9 @@ const argus = {
     }
   },
   textdoc: {
-    open: (source: TextDocSource): Promise<TextDocOpenResult> =>
-      ipcRenderer.invoke(IPC.textdocOpen, source),
+    open: (source: TextDocSource): Promise<TextDocOpenResult> => invoke(IPC.textdocOpen, source),
     lines: (source: TextDocSource, from: number, to: number): Promise<TextDocLines> =>
-      ipcRenderer.invoke(IPC.textdocLines, source, from, to),
+      invoke(IPC.textdocLines, source, from, to),
     search: (
       searchId: string,
       source: TextDocSource,
@@ -194,9 +219,8 @@ const argus = {
         toLine?: number
         filter?: { query: string; regex?: boolean; caseSensitive?: boolean }
       }
-    ): Promise<void> => ipcRenderer.invoke(IPC.textdocSearch, searchId, source, query, opts),
-    cancelSearch: (searchId: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.textdocCancelSearch, searchId),
+    ): Promise<void> => invoke(IPC.textdocSearch, searchId, source, query, opts),
+    cancelSearch: (searchId: string): Promise<void> => invoke(IPC.textdocCancelSearch, searchId),
     onSearchHits: (cb: (e: TextDocSearchEvent) => void): (() => void) => {
       const listener = (_e: unknown, ev: TextDocSearchEvent): void => cb(ev)
       ipcRenderer.on(IPC.textdocSearchHits, listener)
@@ -209,13 +233,12 @@ const argus = {
     }
   },
   files: {
-    list: (slug: string): Promise<FileNode[]> => ipcRenderer.invoke(IPC.filesList, slug),
+    list: (slug: string): Promise<FileNode[]> => invoke(IPC.filesList, slug),
     read: (slug: string, relPath: string): Promise<FileReadResult> =>
-      ipcRenderer.invoke(IPC.filesRead, slug, relPath),
-    open: (slug: string, relPath: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.filesOpen, slug, relPath),
+      invoke(IPC.filesRead, slug, relPath),
+    open: (slug: string, relPath: string): Promise<void> => invoke(IPC.filesOpen, slug, relPath),
     reveal: (slug: string, relPath?: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.filesReveal, slug, relPath),
+      invoke(IPC.filesReveal, slug, relPath),
     onChanged: (cb: (slug: string) => void): (() => void) => {
       const listener = (_e: unknown, slug: string): void => cb(slug)
       ipcRenderer.on(IPC.filesChanged, listener)
@@ -223,21 +246,17 @@ const argus = {
     }
   },
   packs: {
-    artifactMeta: (): Promise<ArtifactTypeMeta[]> => ipcRenderer.invoke(IPC.packsArtifactMeta),
-    referenceRouting: (): Promise<RoutingRule[]> => ipcRenderer.invoke(IPC.packsReferenceRouting),
-    list: (): Promise<PacksListPayload> => ipcRenderer.invoke(IPC.packsList),
-    pickBundle: (): Promise<string | null> => ipcRenderer.invoke(IPC.packsPickBundle),
-    inspect: (source: string): Promise<InspectResult> =>
-      ipcRenderer.invoke(IPC.packsInspect, source),
-    install: (source: string): Promise<InstallResult> =>
-      ipcRenderer.invoke(IPC.packsInstall, source),
+    artifactMeta: (): Promise<ArtifactTypeMeta[]> => invoke(IPC.packsArtifactMeta),
+    referenceRouting: (): Promise<RoutingRule[]> => invoke(IPC.packsReferenceRouting),
+    list: (): Promise<PacksListPayload> => invoke(IPC.packsList),
+    pickBundle: (): Promise<string | null> => invoke(IPC.packsPickBundle),
+    inspect: (source: string): Promise<InspectResult> => invoke(IPC.packsInspect, source),
+    install: (source: string): Promise<InstallResult> => invoke(IPC.packsInstall, source),
     uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
-      ipcRenderer.invoke(IPC.packsUninstall, id),
-    relaunch: (): Promise<void> => ipcRenderer.invoke(IPC.packsRelaunch),
-    checkUpdates: (): Promise<Record<string, UpdateStatus>> =>
-      ipcRenderer.invoke(IPC.packsCheckUpdates),
-    applyUpdate: (id: string): Promise<UpdateStatus> =>
-      ipcRenderer.invoke(IPC.packsApplyUpdate, id),
+      invoke(IPC.packsUninstall, id),
+    relaunch: (): Promise<void> => invoke(IPC.packsRelaunch),
+    checkUpdates: (): Promise<Record<string, UpdateStatus>> => invoke(IPC.packsCheckUpdates),
+    applyUpdate: (id: string): Promise<UpdateStatus> => invoke(IPC.packsApplyUpdate, id),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.packsChanged, listener)
@@ -245,10 +264,10 @@ const argus = {
     }
   },
   update: {
-    status: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateStatus),
-    check: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateCheck),
-    download: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateDownload),
-    restart: (): Promise<CoreUpdatePayload> => ipcRenderer.invoke(IPC.updateRestart),
+    status: (): Promise<CoreUpdatePayload> => invoke(IPC.updateStatus),
+    check: (): Promise<CoreUpdatePayload> => invoke(IPC.updateCheck),
+    download: (): Promise<CoreUpdatePayload> => invoke(IPC.updateDownload),
+    restart: (): Promise<CoreUpdatePayload> => invoke(IPC.updateRestart),
     onChanged: (cb: (p: CoreUpdatePayload) => void): (() => void) => {
       const listener = (_e: unknown, p: CoreUpdatePayload): void => cb(p)
       ipcRenderer.on(IPC.updateChanged, listener)
@@ -256,21 +275,19 @@ const argus = {
     }
   },
   panels: {
-    list: (caseSlug?: string): Promise<PanelInfo[]> => ipcRenderer.invoke(IPC.panelsList, caseSlug),
-    open: (req: OpenPanelRequest): Promise<PanelInfo> => ipcRenderer.invoke(IPC.panelsOpen, req),
-    close: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsClose, key),
-    focus: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsFocus, key),
-    popOut: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsPopOut, key),
-    dockBack: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.panelsDockBack, key),
-    setTheme: (theme: 'dark' | 'light'): Promise<void> =>
-      ipcRenderer.invoke(IPC.panelsSetTheme, theme),
-    decls: (): Promise<PanelDecl[]> => ipcRenderer.invoke(IPC.panelsDecls),
+    list: (caseSlug?: string): Promise<PanelInfo[]> => invoke(IPC.panelsList, caseSlug),
+    open: (req: OpenPanelRequest): Promise<PanelInfo> => invoke(IPC.panelsOpen, req),
+    close: (key: PanelKey): Promise<void> => invoke(IPC.panelsClose, key),
+    focus: (key: PanelKey): Promise<void> => invoke(IPC.panelsFocus, key),
+    popOut: (key: PanelKey): Promise<void> => invoke(IPC.panelsPopOut, key),
+    dockBack: (key: PanelKey): Promise<void> => invoke(IPC.panelsDockBack, key),
+    setTheme: (theme: 'dark' | 'light'): Promise<void> => invoke(IPC.panelsSetTheme, theme),
+    decls: (): Promise<PanelDecl[]> => invoke(IPC.panelsDecls),
     setBounds: (key: PanelKey, rect: PanelRect): Promise<void> =>
-      ipcRenderer.invoke(IPC.panelsSetBounds, key, rect),
+      invoke(IPC.panelsSetBounds, key, rect),
     setVisible: (key: PanelKey, visible: boolean): Promise<void> =>
-      ipcRenderer.invoke(IPC.panelsSetVisible, key, visible),
-    closeCase: (caseSlug: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.panelsCloseCase, caseSlug),
+      invoke(IPC.panelsSetVisible, key, visible),
+    closeCase: (caseSlug: string): Promise<void> => invoke(IPC.panelsCloseCase, caseSlug),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.panelsChanged, listener)
@@ -303,24 +320,20 @@ const argus = {
     }
   },
   externalApps: {
-    list: (caseSlug?: string): Promise<ExternalAppInfo[]> =>
-      ipcRenderer.invoke(IPC.externalAppsList, caseSlug),
+    list: (caseSlug?: string): Promise<ExternalAppInfo[]> => invoke(IPC.externalAppsList, caseSlug),
     open: (req: {
       caseSlug: string
       sessionId: number | null
       packId: string
       windowId: string
-    }): Promise<unknown> => ipcRenderer.invoke(IPC.externalAppsOpen, req),
-    stop: (key: PanelKey): Promise<void> => ipcRenderer.invoke(IPC.externalAppsStop, key)
+    }): Promise<unknown> => invoke(IPC.externalAppsOpen, req),
+    stop: (key: PanelKey): Promise<void> => invoke(IPC.externalAppsStop, key)
   },
   distill: {
-    status: (slug: string): Promise<DistillJobRow | null> =>
-      ipcRenderer.invoke(IPC.distillStatus, slug),
-    retry: (jobId: number): Promise<DistillJobRow> => ipcRenderer.invoke(IPC.distillRetry, jobId),
-    redistill: (slug: string): Promise<DistillJobRow> =>
-      ipcRenderer.invoke(IPC.distillRedistill, slug),
-    similar: (slug: string): Promise<SummarySearchHit[]> =>
-      ipcRenderer.invoke(IPC.distillSimilar, slug),
+    status: (slug: string): Promise<DistillJobRow | null> => invoke(IPC.distillStatus, slug),
+    retry: (jobId: number): Promise<DistillJobRow> => invoke(IPC.distillRetry, jobId),
+    redistill: (slug: string): Promise<DistillJobRow> => invoke(IPC.distillRedistill, slug),
+    similar: (slug: string): Promise<SummarySearchHit[]> => invoke(IPC.distillSimilar, slug),
     onChanged: (cb: (p: DistillStatusPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: DistillStatusPayload): void => cb(p)
       ipcRenderer.on(IPC.distillChanged, listener)
@@ -329,30 +342,30 @@ const argus = {
   },
   search: {
     query: (q: string, filters?: SearchFilters): Promise<UnifiedHit[]> =>
-      ipcRenderer.invoke(IPC.searchQuery, q, filters)
+      invoke(IPC.searchQuery, q, filters)
   },
   chat: {
     search: (caseSlug: string, q: string): Promise<ChatSearchResult> =>
-      ipcRenderer.invoke(IPC.chatSearch, caseSlug, q)
+      invoke(IPC.chatSearch, caseSlug, q)
   },
   agent: {
     send: (caseSlug: string, sessionId: number, text: string, composed?: boolean) =>
-      ipcRenderer.invoke(IPC.agentSend, caseSlug, sessionId, text, composed),
+      invoke(IPC.agentSend, caseSlug, sessionId, text, composed),
     interrupt: (caseSlug: string, sessionId: number) =>
-      ipcRenderer.invoke(IPC.agentInterrupt, caseSlug, sessionId),
+      invoke(IPC.agentInterrupt, caseSlug, sessionId),
     respond: (caseSlug: string, sessionId: number, d: ApprovalDecision) =>
-      ipcRenderer.invoke(IPC.agentRespond, caseSlug, sessionId, d),
+      invoke(IPC.agentRespond, caseSlug, sessionId, d),
     answerDialog: (caseSlug: string, sessionId: number, a: DialogAnswer) =>
-      ipcRenderer.invoke(IPC.agentAnswerDialog, caseSlug, sessionId, a),
-    authStatus: (force?: boolean) => ipcRenderer.invoke(IPC.agentAuthStatus, force),
+      invoke(IPC.agentAnswerDialog, caseSlug, sessionId, a),
+    authStatus: (force?: boolean) => invoke(IPC.agentAuthStatus, force),
     onAuthChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.agentAuthChanged, listener)
       return () => ipcRenderer.removeListener(IPC.agentAuthChanged, listener)
     },
     history: (caseSlug: string, sessionId: number): Promise<AgentEvent[]> =>
-      ipcRenderer.invoke(IPC.agentHistory, caseSlug, sessionId),
-    preflight: () => ipcRenderer.invoke(IPC.agentPreflight),
+      invoke(IPC.agentHistory, caseSlug, sessionId),
+    preflight: () => invoke(IPC.agentPreflight),
     onEvent: (cb: (e: AgentEvent) => void): (() => void) => {
       const listener = (_e: unknown, ev: AgentEvent): void => cb(ev)
       ipcRenderer.on(IPC.agentEventChannel, listener)
@@ -360,40 +373,37 @@ const argus = {
     }
   },
   sessions: {
-    list: (caseSlug: string): Promise<SessionSummary[]> =>
-      ipcRenderer.invoke(IPC.sessionsList, caseSlug),
-    create: (caseSlug: string): Promise<SessionSummary> =>
-      ipcRenderer.invoke(IPC.sessionsCreate, caseSlug),
+    list: (caseSlug: string): Promise<SessionSummary[]> => invoke(IPC.sessionsList, caseSlug),
+    create: (caseSlug: string): Promise<SessionSummary> => invoke(IPC.sessionsCreate, caseSlug),
     rename: (sessionId: number, title: string): Promise<void> =>
-      ipcRenderer.invoke(IPC.sessionsRename, sessionId, title),
+      invoke(IPC.sessionsRename, sessionId, title),
     /** Re-pin a chat to a provider instance + model. Resolves true when it actually changed. */
     setModel: (sessionId: number, instanceId: string, model: string): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
+      invoke(IPC.sessionsSetModel, sessionId, instanceId, model),
     /** Replace this chat's option selections. Resolves true when it actually changed. */
     setRunOptions: (sessionId: number, sel: RunOptionSelection[]): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.sessionsSetRunOptions, sessionId, sel),
+      invoke(IPC.sessionsSetRunOptions, sessionId, sel),
     /** Pin this chat's permission mode. Resolves true when it actually changed. */
     setPermissionMode: (sessionId: number, mode: PermissionMode): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.sessionsSetPermissionMode, sessionId, mode),
+      invoke(IPC.sessionsSetPermissionMode, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
-      ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
+      invoke(IPC.sessionsDelete, caseSlug, sessionId)
   },
   models: {
     /** The option-bearing model catalog this instance's CLI reports. Empty for
      *  drivers with no runtime catalog. */
     catalog: (instanceId: string): Promise<ModelOptionInfo[]> =>
-      ipcRenderer.invoke(IPC.modelsCatalog, instanceId)
+      invoke(IPC.modelsCatalog, instanceId)
   },
   modes: {
     /** The modes available to a case right now, given its current mode context. */
-    available: (caseSlug: string): Promise<ModeId[]> =>
-      ipcRenderer.invoke(IPC.modesAvailable, caseSlug)
+    available: (caseSlug: string): Promise<ModeId[]> => invoke(IPC.modesAvailable, caseSlug)
   },
   providers: {
     /** Per-instance provider status for the settings page. */
-    statuses: (): Promise<ProviderStatus[]> => ipcRenderer.invoke(IPC.providerStatuses),
+    statuses: (): Promise<ProviderStatus[]> => invoke(IPC.providerStatuses),
     /** Re-probe every enabled provider; resolves with the fresh list. */
-    refresh: (): Promise<ProviderStatus[]> => ipcRenderer.invoke(IPC.providerRefresh),
+    refresh: (): Promise<ProviderStatus[]> => invoke(IPC.providerRefresh),
     onChanged: (cb: () => void): (() => void) => {
       const h = (): void => cb()
       ipcRenderer.on(IPC.providersChanged, h)
@@ -401,14 +411,12 @@ const argus = {
     }
   },
   workspaces: {
-    pick: () => ipcRenderer.invoke(IPC.workspacesPick),
-    link: (caseSlug: string, repoPath: string) =>
-      ipcRenderer.invoke(IPC.workspacesLink, caseSlug, repoPath),
+    pick: () => invoke(IPC.workspacesPick),
+    link: (caseSlug: string, repoPath: string) => invoke(IPC.workspacesLink, caseSlug, repoPath),
     unlink: (caseSlug: string, repoPath: string) =>
-      ipcRenderer.invoke(IPC.workspacesUnlink, caseSlug, repoPath),
-    list: (caseSlug: string) => ipcRenderer.invoke(IPC.workspacesList, caseSlug),
-    refs: (caseSlug: string): Promise<BundleWorkspaceRef[]> =>
-      ipcRenderer.invoke(IPC.workspacesRefs, caseSlug),
+      invoke(IPC.workspacesUnlink, caseSlug, repoPath),
+    list: (caseSlug: string) => invoke(IPC.workspacesList, caseSlug),
+    refs: (caseSlug: string): Promise<BundleWorkspaceRef[]> => invoke(IPC.workspacesRefs, caseSlug),
     readSnippet: (
       caseSlug: string,
       repoName: string,
@@ -417,14 +425,14 @@ const argus = {
       end?: number,
       atSha?: string
     ): Promise<RepoSnippetResult> =>
-      ipcRenderer.invoke(IPC.workspacesReadSnippet, caseSlug, repoName, relPath, start, end, atSha),
+      invoke(IPC.workspacesReadSnippet, caseSlug, repoName, relPath, start, end, atSha),
     readText: (
       caseSlug: string,
       repoName: string,
       relPath: string,
       focusStart: number
     ): Promise<RepoTextResult> =>
-      ipcRenderer.invoke(IPC.workspacesReadText, caseSlug, repoName, relPath, focusStart),
+      invoke(IPC.workspacesReadText, caseSlug, repoName, relPath, focusStart),
     onChanged: (cb: (caseSlug: string) => void): (() => void) => {
       const listener = (_e: unknown, caseSlug: string): void => cb(caseSlug)
       ipcRenderer.on(IPC.workspacesChanged, listener)
@@ -435,16 +443,15 @@ const argus = {
     // `input` is either free text (typed into the Repos rail, parsed in main) or an
     // already-resolved ref (a PR picker selection) — the handler tells them apart by shape.
     link: (caseSlug: string, input: string | PrRef): Promise<PrBinding> =>
-      ipcRenderer.invoke(IPC.prLink, caseSlug, input),
-    list: (caseSlug: string): Promise<PrBinding[]> => ipcRenderer.invoke(IPC.prList, caseSlug),
+      invoke(IPC.prLink, caseSlug, input),
+    list: (caseSlug: string): Promise<PrBinding[]> => invoke(IPC.prList, caseSlug),
     unlink: (caseSlug: string, bindingId: number): Promise<void> =>
-      ipcRenderer.invoke(IPC.prUnlink, caseSlug, bindingId),
-    search: (caseSlug: string): Promise<PrSearchResult> =>
-      ipcRenderer.invoke(IPC.prSearch, caseSlug),
+      invoke(IPC.prUnlink, caseSlug, bindingId),
+    search: (caseSlug: string): Promise<PrSearchResult> => invoke(IPC.prSearch, caseSlug),
     statusList: (caseSlugs: string[]): Promise<Record<string, PrStatus>> =>
-      ipcRenderer.invoke(IPC.prStatusList, caseSlugs),
+      invoke(IPC.prStatusList, caseSlugs),
     statusRefresh: (caseSlugs: string[]): Promise<Record<string, PrStatus>> =>
-      ipcRenderer.invoke(IPC.prStatusRefresh, caseSlugs),
+      invoke(IPC.prStatusRefresh, caseSlugs),
     onStatusChanged: (cb: (slugs: string[]) => void): (() => void) => {
       const h = (_e: unknown, slugs: string[]): void => cb(slugs)
       ipcRenderer.on(IPC.prStatusChanged, h)
@@ -455,11 +462,9 @@ const argus = {
     build: (
       repoPath: string,
       scope: string | null
-    ): Promise<{ started: boolean; missing?: true }> =>
-      ipcRenderer.invoke(IPC.graphBuild, repoPath, scope),
-    status: (repoPath: string): Promise<GraphStatusRow[]> =>
-      ipcRenderer.invoke(IPC.graphStatus, repoPath),
-    install: (): Promise<{ ok: boolean; log: string }> => ipcRenderer.invoke(IPC.graphInstall),
+    ): Promise<{ started: boolean; missing?: true }> => invoke(IPC.graphBuild, repoPath, scope),
+    status: (repoPath: string): Promise<GraphStatusRow[]> => invoke(IPC.graphStatus, repoPath),
+    install: (): Promise<{ ok: boolean; log: string }> => invoke(IPC.graphInstall),
     onBuilding: (
       cb: (p: { repoPath: string; scope: string | null; active: boolean }) => void
     ): (() => void) => {
@@ -482,14 +487,13 @@ const argus = {
     }
   },
   skills: {
-    list: (): Promise<SkillsPayload> => ipcRenderer.invoke(IPC.skillsList),
-    deleteUser: (name: string): Promise<SkillsPayload> =>
-      ipcRenderer.invoke(IPC.skillsDeleteUser, name),
-    read: (name: string): Promise<SkillReadPayload> => ipcRenderer.invoke(IPC.skillsRead, name),
+    list: (): Promise<SkillsPayload> => invoke(IPC.skillsList),
+    deleteUser: (name: string): Promise<SkillsPayload> => invoke(IPC.skillsDeleteUser, name),
+    read: (name: string): Promise<SkillReadPayload> => invoke(IPC.skillsRead, name),
     write: (name: string, content: string, baseHash: string | null): Promise<SkillsWriteResult> =>
-      ipcRenderer.invoke(IPC.skillsWrite, name, content, baseHash),
+      invoke(IPC.skillsWrite, name, content, baseHash),
     fork: (name: string, newName?: string): Promise<{ name: string; skills: SkillListItem[] }> =>
-      ipcRenderer.invoke(IPC.skillsFork, name, newName),
+      invoke(IPC.skillsFork, name, newName),
     /** Fires in every window when any of them writes a skill — the editor window included. */
     onChanged: (cb: (p: SkillsPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: SkillsPayload): void => cb(p)
@@ -498,14 +502,12 @@ const argus = {
     }
   },
   authoring: {
-    draft: (req: AuthoringRequest): Promise<AuthoringResult> =>
-      ipcRenderer.invoke(IPC.authoringDraft, req),
-    improve: (req: AuthoringRequest): Promise<AuthoringResult> =>
-      ipcRenderer.invoke(IPC.authoringImprove, req)
+    draft: (req: AuthoringRequest): Promise<AuthoringResult> => invoke(IPC.authoringDraft, req),
+    improve: (req: AuthoringRequest): Promise<AuthoringResult> => invoke(IPC.authoringImprove, req)
   },
   editor: {
     /** Open (or focus) the editor window on an asset. Callable from any window. */
-    open: (req: EditorOpenRequest): Promise<void> => ipcRenderer.invoke(EDITOR_IPC.open, req),
+    open: (req: EditorOpenRequest): Promise<void> => invoke(EDITOR_IPC.open, req),
     onOpenTab: (cb: (req: EditorOpenRequest) => void): (() => void) => {
       const h = (_e: unknown, req: EditorOpenRequest): void => cb(req)
       ipcRenderer.on(EDITOR_IPC.openTab, h)
@@ -537,16 +539,13 @@ const argus = {
         ipcRenderer.off(EDITOR_IPC.draftSaved, h)
       }
     },
-    readDraft: (ref: DraftRef): Promise<DraftRecord | null> =>
-      ipcRenderer.invoke(EDITOR_IPC.draftRead, ref),
-    discardDraft: (ref: DraftRef): Promise<void> =>
-      ipcRenderer.invoke(EDITOR_IPC.draftDiscard, ref),
-    listDrafts: (): Promise<DraftRecord[]> => ipcRenderer.invoke(EDITOR_IPC.draftList),
+    readDraft: (ref: DraftRef): Promise<DraftRecord | null> => invoke(EDITOR_IPC.draftRead, ref),
+    discardDraft: (ref: DraftRef): Promise<void> => invoke(EDITOR_IPC.draftDiscard, ref),
+    listDrafts: (): Promise<DraftRecord[]> => invoke(EDITOR_IPC.draftList),
     /** Atomic legacy-draft adoption, done in main (see `DraftStore.adopt`): the new key is
      *  written before the old one is discarded, so a crash mid-adoption leaves both rather than
      *  neither. Resolves `true` once the write actually landed. */
-    adoptDraft: (req: DraftAdoptRequest): Promise<boolean> =>
-      ipcRenderer.invoke(EDITOR_IPC.draftAdopt, req),
+    adoptDraft: (req: DraftAdoptRequest): Promise<boolean> => invoke(EDITOR_IPC.draftAdopt, req),
     /** Fire-and-forget: main owns the debounce, so the renderer never waits on a write. */
     tabsChanged: (tabs: PersistedTabs): void => {
       ipcRenderer.send(EDITOR_IPC.tabsChanged, tabs)
@@ -559,50 +558,50 @@ const argus = {
       }
     },
     /** Every asset quick open can offer (spec §6.2). Read on demand — main does not cache it. */
-    corpus: (): Promise<CorpusItem[]> => ipcRenderer.invoke(EDITOR_IPC.corpus),
+    corpus: (): Promise<CorpusItem[]> => invoke(EDITOR_IPC.corpus),
     findReferences: (req: FindReferencesRequest): Promise<ReferenceHit[]> =>
-      ipcRenderer.invoke(EDITOR_IPC.findReferences, req)
+      invoke(EDITOR_IPC.findReferences, req)
   },
   bundle: {
     export: (caseSlug: string, includeTranscripts: boolean): Promise<BundleExportResult | null> =>
-      ipcRenderer.invoke(IPC.bundleExport, caseSlug, includeTranscripts),
-    inspect: (): Promise<BundleInspectResult | null> => ipcRenderer.invoke(IPC.bundleInspect),
+      invoke(IPC.bundleExport, caseSlug, includeTranscripts),
+    inspect: (): Promise<BundleInspectResult | null> => invoke(IPC.bundleInspect),
     import: (zipPath: string, slug: string): Promise<BundleImportResult> =>
-      ipcRenderer.invoke(IPC.bundleImport, zipPath, slug)
+      invoke(IPC.bundleImport, zipPath, slug)
   },
   hivemind: {
-    get: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindGet),
-    check: (): Promise<HivemindCheckResult> => ipcRenderer.invoke(IPC.hivemindCheck),
-    sync: (): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindSync),
+    get: (): Promise<HivemindPayload> => invoke(IPC.hivemindGet),
+    check: (): Promise<HivemindCheckResult> => invoke(IPC.hivemindCheck),
+    sync: (): Promise<HivemindPayload> => invoke(IPC.hivemindSync),
     install: (
       kind: 'skill' | 'reference',
       name: string,
       opts?: { overwriteLocalEdits?: boolean }
-    ): Promise<HivemindPayload> => ipcRenderer.invoke(IPC.hivemindInstall, kind, name, opts),
+    ): Promise<HivemindPayload> => invoke(IPC.hivemindInstall, kind, name, opts),
     uninstallSkill: (name: string): Promise<HivemindPayload> =>
-      ipcRenderer.invoke(IPC.hivemindUninstallSkill, name),
+      invoke(IPC.hivemindUninstallSkill, name),
     uninstallReference: (name: string): Promise<HivemindPayload> =>
-      ipcRenderer.invoke(IPC.hivemindUninstallReference, name),
+      invoke(IPC.hivemindUninstallReference, name),
     claimReference: (name: string): Promise<HivemindPayload> =>
-      ipcRenderer.invoke(IPC.hivemindClaimReference, name),
+      invoke(IPC.hivemindClaimReference, name),
     diff: (kind: 'skill' | 'reference', name: string): Promise<string> =>
-      ipcRenderer.invoke(IPC.hivemindDiff, kind, name),
+      invoke(IPC.hivemindDiff, kind, name),
     localDivergence: (name: string): Promise<LocalDivergence> =>
-      ipcRenderer.invoke(IPC.hivemindLocalDivergence, name),
+      invoke(IPC.hivemindLocalDivergence, name),
     pushPreview: (kind: 'skill' | 'reference', name: string): Promise<string> =>
-      ipcRenderer.invoke(IPC.hivemindPushPreview, kind, name),
+      invoke(IPC.hivemindPushPreview, kind, name),
     push: (kind: 'skill' | 'reference', name: string, title: string): Promise<HivemindPushResult> =>
-      ipcRenderer.invoke(IPC.hivemindPush, kind, name, title)
+      invoke(IPC.hivemindPush, kind, name, title)
   },
   proposals: {
-    list: (): Promise<ProposalsPayload> => ipcRenderer.invoke(IPC.proposalsList),
+    list: (): Promise<ProposalsPayload> => invoke(IPC.proposalsList),
     accept: (
       file: string,
       editedContent?: string
     ): Promise<ProposalsPayload & { accepted: AcceptedTarget }> =>
-      ipcRenderer.invoke(IPC.proposalsAccept, file, editedContent),
+      invoke(IPC.proposalsAccept, file, editedContent),
     reject: (file: string, reason?: RejectReason): Promise<ProposalsPayload> =>
-      ipcRenderer.invoke(IPC.proposalsReject, file, reason),
+      invoke(IPC.proposalsReject, file, reason),
     onChanged: (cb: (c: ProposalCounts) => void): (() => void) => {
       const listener = (_e: unknown, c: ProposalCounts): void => cb(c)
       ipcRenderer.on(IPC.proposalsChanged, listener)
@@ -610,8 +609,8 @@ const argus = {
     }
   },
   access: {
-    get: (): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessGet),
-    patch: (p: unknown): Promise<AgentAccessPayload> => ipcRenderer.invoke(IPC.accessPatch, p),
+    get: (): Promise<AgentAccessPayload> => invoke(IPC.accessGet),
+    patch: (p: unknown): Promise<AgentAccessPayload> => invoke(IPC.accessPatch, p),
     onChanged: (cb: (p: AgentAccessPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: AgentAccessPayload): void => cb(p)
       ipcRenderer.on(IPC.accessChanged, listener)
@@ -619,24 +618,21 @@ const argus = {
     }
   },
   refsync: {
-    get: (): Promise<RefSyncPayload> => ipcRenderer.invoke(IPC.refsyncGet),
+    get: (): Promise<RefSyncPayload> => invoke(IPC.refsyncGet),
     validateSpace: (
       key: string
     ): Promise<JiraResult<{ space: ConfluenceSpace; root: TreeNodeVM }>> =>
-      ipcRenderer.invoke(IPC.refsyncValidateSpace, key),
+      invoke(IPC.refsyncValidateSpace, key),
     children: (spaceKey: string, pageId: string): Promise<JiraResult<TreeNodeVM[]>> =>
-      ipcRenderer.invoke(IPC.refsyncChildren, spaceKey, pageId),
-    saveSpace: (space: unknown): Promise<RefSyncPayload> =>
-      ipcRenderer.invoke(IPC.refsyncSaveSpace, space),
-    removeSpace: (key: string): Promise<RefSyncPayload> =>
-      ipcRenderer.invoke(IPC.refsyncRemoveSpace, key),
-    sync: (key: string): Promise<JiraResult<SyncReport>> =>
-      ipcRenderer.invoke(IPC.refsyncSync, key),
+      invoke(IPC.refsyncChildren, spaceKey, pageId),
+    saveSpace: (space: unknown): Promise<RefSyncPayload> => invoke(IPC.refsyncSaveSpace, space),
+    removeSpace: (key: string): Promise<RefSyncPayload> => invoke(IPC.refsyncRemoveSpace, key),
+    sync: (key: string): Promise<JiraResult<SyncReport>> => invoke(IPC.refsyncSync, key),
     applyDrafts: (
       syncId: string,
       targets: string[]
     ): Promise<{ written: string[]; skipped: Array<{ target: string; reason: string }> }> =>
-      ipcRenderer.invoke(IPC.refsyncApplyDrafts, syncId, targets),
+      invoke(IPC.refsyncApplyDrafts, syncId, targets),
     /** Remove references to pages that vanished upstream, for the approved targets. */
     prune: (
       syncId: string,
@@ -645,14 +641,13 @@ const argus = {
       removed: string[]
       trimmed: string[]
       skipped: Array<{ target: string; reason: string }>
-    }> => ipcRenderer.invoke(IPC.refsyncPrune, syncId, targets),
+    }> => invoke(IPC.refsyncPrune, syncId, targets),
     readRef: (file: string): Promise<{ file: string; content: string; hash: string }> =>
-      ipcRenderer.invoke(IPC.refsyncReadRef, file),
+      invoke(IPC.refsyncReadRef, file),
     writeRef: (file: string, content: string, baseHash: string | null): Promise<string> =>
-      ipcRenderer.invoke(IPC.refsyncWriteRef, file, content, baseHash),
-    searchRefs: (query: string): Promise<string[]> =>
-      ipcRenderer.invoke(IPC.refsyncSearchRefs, query),
-    deleteRef: (file: string): Promise<void> => ipcRenderer.invoke(IPC.refsyncDeleteRef, file),
+      invoke(IPC.refsyncWriteRef, file, content, baseHash),
+    searchRefs: (query: string): Promise<string[]> => invoke(IPC.refsyncSearchRefs, query),
+    deleteRef: (file: string): Promise<void> => invoke(IPC.refsyncDeleteRef, file),
     onChanged: (cb: (p: RefSyncPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: RefSyncPayload): void => cb(p)
       ipcRenderer.on(IPC.refsyncChanged, listener)
@@ -665,36 +660,32 @@ const argus = {
     }
   },
   memory: {
-    topics: (): Promise<MemoryTopicsPayload> => ipcRenderer.invoke(IPC.memoryTopics),
-    read: (name: string): Promise<string> => ipcRenderer.invoke(IPC.memoryRead, name),
+    topics: (): Promise<MemoryTopicsPayload> => invoke(IPC.memoryTopics),
+    read: (name: string): Promise<string> => invoke(IPC.memoryRead, name),
     write: (name: string, content: string): Promise<MemoryTopicsPayload> =>
-      ipcRenderer.invoke(IPC.memoryWrite, name, content),
-    remove: (name: string): Promise<MemoryTopicsPayload> =>
-      ipcRenderer.invoke(IPC.memoryDelete, name),
-    audit: (): Promise<MemoryAuditEntry[]> => ipcRenderer.invoke(IPC.memoryAudit),
-    archive: (name: string): Promise<MemoryTopicsPayload> =>
-      ipcRenderer.invoke(IPC.memoryArchive, name),
-    restore: (name: string): Promise<MemoryTopicsPayload> =>
-      ipcRenderer.invoke(IPC.memoryRestore, name)
+      invoke(IPC.memoryWrite, name, content),
+    remove: (name: string): Promise<MemoryTopicsPayload> => invoke(IPC.memoryDelete, name),
+    audit: (): Promise<MemoryAuditEntry[]> => invoke(IPC.memoryAudit),
+    archive: (name: string): Promise<MemoryTopicsPayload> => invoke(IPC.memoryArchive, name),
+    restore: (name: string): Promise<MemoryTopicsPayload> => invoke(IPC.memoryRestore, name)
   },
   /** Dev-only prompt surface. Exposed unconditionally — main enforces the gate, so a build
    *  without it rejects these calls rather than hiding the bridge. */
   devPrompts: {
-    catalog: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsCatalog),
-    preview: (mode: string): Promise<PromptPreview> =>
-      ipcRenderer.invoke(IPC.devPromptsPreview, mode),
+    catalog: (): Promise<PromptCatalogPayload> => invoke(IPC.devPromptsCatalog),
+    preview: (mode: string): Promise<PromptPreview> => invoke(IPC.devPromptsPreview, mode),
     setOverride: (id: string, text: string): Promise<PromptCatalogPayload> =>
-      ipcRenderer.invoke(IPC.devPromptsSetOverride, id, text),
+      invoke(IPC.devPromptsSetOverride, id, text),
     clearOverride: (id: string): Promise<PromptCatalogPayload> =>
-      ipcRenderer.invoke(IPC.devPromptsClearOverride, id),
-    clearAll: (): Promise<PromptCatalogPayload> => ipcRenderer.invoke(IPC.devPromptsClearAll),
-    overrides: (): Promise<string[]> => ipcRenderer.invoke(IPC.devPromptsOverrides),
-    resolve: (id: string): Promise<string> => ipcRenderer.invoke(IPC.devPromptsResolve, id),
-    captures: (): Promise<PromptCaptureListPayload> => ipcRenderer.invoke(IPC.devPromptsCaptures),
+      invoke(IPC.devPromptsClearOverride, id),
+    clearAll: (): Promise<PromptCatalogPayload> => invoke(IPC.devPromptsClearAll),
+    overrides: (): Promise<string[]> => invoke(IPC.devPromptsOverrides),
+    resolve: (id: string): Promise<string> => invoke(IPC.devPromptsResolve, id),
+    captures: (): Promise<PromptCaptureListPayload> => invoke(IPC.devPromptsCaptures),
     capture: (caseSlug: string, sessionId: number): Promise<PromptCaptureDetail | null> =>
-      ipcRenderer.invoke(IPC.devPromptsCapture, caseSlug, sessionId),
+      invoke(IPC.devPromptsCapture, caseSlug, sessionId),
     exportDistillEval: (): Promise<DistillEvalExportResult | null> =>
-      ipcRenderer.invoke(IPC.devPromptsExportDistillEval),
+      invoke(IPC.devPromptsExportDistillEval),
     onChanged: (cb: (ids: string[]) => void): (() => void) => {
       const listener = (_e: unknown, ids: string[]): void => cb(ids)
       ipcRenderer.on(IPC.devPromptsChanged, listener)
@@ -702,12 +693,12 @@ const argus = {
     }
   },
   settings: {
-    get: () => ipcRenderer.invoke(IPC.settingsGet),
-    patch: (p: unknown) => ipcRenderer.invoke(IPC.settingsPatch, p),
-    probeTools: () => ipcRenderer.invoke(IPC.settingsProbeTools),
-    pickPath: (mode: 'file' | 'directory') => ipcRenderer.invoke(IPC.settingsPickPath, mode),
-    reveal: (what: 'dataRoot' | 'settingsFile') => ipcRenderer.invoke(IPC.settingsReveal, what),
-    setDataRoot: (): Promise<{ changed: boolean }> => ipcRenderer.invoke(IPC.settingsSetDataRoot),
+    get: () => invoke(IPC.settingsGet),
+    patch: (p: unknown) => invoke(IPC.settingsPatch, p),
+    probeTools: () => invoke(IPC.settingsProbeTools),
+    pickPath: (mode: 'file' | 'directory') => invoke(IPC.settingsPickPath, mode),
+    reveal: (what: 'dataRoot' | 'settingsFile') => invoke(IPC.settingsReveal, what),
+    setDataRoot: (): Promise<{ changed: boolean }> => invoke(IPC.settingsSetDataRoot),
     onChanged: (cb: (p: SettingsPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: SettingsPayload): void => cb(p)
       ipcRenderer.on(IPC.settingsChanged, listener)
@@ -715,13 +706,13 @@ const argus = {
     }
   },
   onboarding: {
-    seedSample: (): Promise<SeedSampleResult> => ipcRenderer.invoke(IPC.onboardingSeedSample)
+    seedSample: (): Promise<SeedSampleResult> => invoke(IPC.onboardingSeedSample)
   },
   connectors: {
-    get: () => ipcRenderer.invoke(IPC.connectorsGet),
-    patch: (p: unknown) => ipcRenderer.invoke(IPC.connectorsPatch, p),
-    test: (id: string) => ipcRenderer.invoke(IPC.connectorsTest, id),
-    oauth: (id: string) => ipcRenderer.invoke(IPC.connectorsOauth, id),
+    get: () => invoke(IPC.connectorsGet),
+    patch: (p: unknown) => invoke(IPC.connectorsPatch, p),
+    test: (id: string) => invoke(IPC.connectorsTest, id),
+    oauth: (id: string) => invoke(IPC.connectorsOauth, id),
     onChanged: (cb: (p: ConnectorsPayload) => void): (() => void) => {
       const listener = (_e: unknown, p: ConnectorsPayload): void => cb(p)
       ipcRenderer.on(IPC.connectorsChanged, listener)
@@ -729,39 +720,38 @@ const argus = {
     }
   },
   secrets: {
-    set: (name: string, value: string) => ipcRenderer.invoke(IPC.secretsSet, name, value),
-    has: (name: string) => ipcRenderer.invoke(IPC.secretsHas, name),
-    delete: (name: string) => ipcRenderer.invoke(IPC.secretsDelete, name)
+    set: (name: string, value: string) => invoke(IPC.secretsSet, name, value),
+    has: (name: string) => invoke(IPC.secretsHas, name),
+    delete: (name: string) => invoke(IPC.secretsDelete, name)
   },
   jira: {
-    preview: (key: string): Promise<JiraResult<JiraIssuePreview>> =>
-      ipcRenderer.invoke(IPC.jiraPreview, key),
+    preview: (key: string): Promise<JiraResult<JiraIssuePreview>> => invoke(IPC.jiraPreview, key),
     createCase: (input: {
       slug: string
       title: string
       key: string
-    }): Promise<JiraResult<CaseRecord>> => ipcRenderer.invoke(IPC.jiraCreateCase, input),
+    }): Promise<JiraResult<CaseRecord>> => invoke(IPC.jiraCreateCase, input),
     ingestAttachments: (
       caseSlug: string,
       attachments: JiraAttachmentInfo[]
     ): Promise<JiraResult<JiraAttachmentProgress[]>> =>
-      ipcRenderer.invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
+      invoke(IPC.jiraIngestAttachments, caseSlug, attachments),
     refreshCase: (caseSlug: string): Promise<JiraResult<JiraRefreshSummary>> =>
-      ipcRenderer.invoke(IPC.jiraRefreshCase, caseSlug),
+      invoke(IPC.jiraRefreshCase, caseSlug),
     markReviewed: (caseSlug: string): Promise<JiraResult<CaseRecord>> =>
-      ipcRenderer.invoke(IPC.jiraMarkReviewed, caseSlug),
+      invoke(IPC.jiraMarkReviewed, caseSlug),
     setAttachmentSelection: (
       caseSlug: string,
       deselectedIds: string[]
     ): Promise<JiraResult<CaseRecord>> =>
-      ipcRenderer.invoke(IPC.jiraSetAttachmentSelection, caseSlug, deselectedIds),
-    openIssue: (caseSlug: string): Promise<void> => ipcRenderer.invoke(IPC.jiraOpenIssue, caseSlug),
+      invoke(IPC.jiraSetAttachmentSelection, caseSlug, deselectedIds),
+    openIssue: (caseSlug: string): Promise<void> => invoke(IPC.jiraOpenIssue, caseSlug),
     onAttachmentProgress: (cb: (p: JiraAttachmentProgress) => void): (() => void) => {
       const listener = (_e: unknown, p: JiraAttachmentProgress): void => cb(p)
       ipcRenderer.on(IPC.jiraAttachmentProgress, listener)
       return () => ipcRenderer.removeListener(IPC.jiraAttachmentProgress, listener)
     },
-    syncAll: (): Promise<JiraResult<JiraSyncAllSummary>> => ipcRenderer.invoke(IPC.jiraSyncAll),
+    syncAll: (): Promise<JiraResult<JiraSyncAllSummary>> => invoke(IPC.jiraSyncAll),
     onSyncProgress: (cb: (p: { done: number; total: number }) => void): (() => void) => {
       const listener = (_e: unknown, p: { done: number; total: number }): void => cb(p)
       ipcRenderer.on(IPC.jiraSyncProgress, listener)
@@ -769,8 +759,8 @@ const argus = {
     }
   },
   health: {
-    list: () => ipcRenderer.invoke(IPC.healthList),
-    run: (ids?: string[]) => ipcRenderer.invoke(IPC.healthRun, ids),
+    list: () => invoke(IPC.healthList),
+    run: (ids?: string[]) => invoke(IPC.healthRun, ids),
     onResult: (cb: (r: HealthCheckResult) => void): (() => void) => {
       const listener = (_e: unknown, r: HealthCheckResult): void => cb(r)
       ipcRenderer.on(IPC.healthResult, listener)
@@ -778,51 +768,55 @@ const argus = {
     }
   },
   sourceControl: {
-    status: (): Promise<SourceControlStatus> => ipcRenderer.invoke(IPC.sourceControlStatus)
+    status: (): Promise<SourceControlStatus> => invoke(IPC.sourceControlStatus)
   },
   metrics: {
-    global: (q?: MetricsQuery): Promise<GlobalMetrics> => ipcRenderer.invoke(IPC.metricsGlobal, q),
+    global: (q?: MetricsQuery): Promise<GlobalMetrics> => invoke(IPC.metricsGlobal, q),
     case: (slug: string, q?: MetricsQuery): Promise<MetricsSummary> =>
-      ipcRenderer.invoke(IPC.metricsCase, slug, q)
+      invoke(IPC.metricsCase, slug, q)
   },
   usage: {
-    stats: (): Promise<UsageStatsPayload> => ipcRenderer.invoke(IPC.usageStats)
+    stats: (): Promise<UsageStatsPayload> => invoke(IPC.usageStats)
   },
   findings: {
-    list: (slug: string): Promise<FindingRow[]> => ipcRenderer.invoke(IPC.findingsList, slug),
+    list: (slug: string): Promise<FindingRow[]> => invoke(IPC.findingsList, slug),
     review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
-      ipcRenderer.invoke(IPC.findingsReview, id, state),
+      invoke(IPC.findingsReview, id, state),
     clear: (caseSlug: string, mode?: ModeId): Promise<{ cleared: number }> =>
-      ipcRenderer.invoke(IPC.findingsClear, caseSlug, mode)
+      invoke(IPC.findingsClear, caseSlug, mode)
   },
   review: {
-    composeRunPrompt: (slug: string, sessionId: number, layerIds: string[]): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeRunPrompt, slug, sessionId, layerIds),
+    /** Resolves to a blocker report (not a rejection) for states the user can fix themselves. */
+    composeRunPrompt: (
+      slug: string,
+      sessionId: number,
+      layerIds: string[]
+    ): Promise<ReviewRunComposition> =>
+      invoke(IPC.reviewComposeRunPrompt, slug, sessionId, layerIds),
     composeActionPrompt: (
       slug: string,
       sessionId: number,
       findingIds: number[],
       action: 'comment' | 'apply'
     ): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingIds, action),
+      invoke(IPC.reviewComposeActionPrompt, slug, sessionId, findingIds, action),
     composeCiPrompt: (slug: string, sessionId: number, checkName: string): Promise<string> =>
-      ipcRenderer.invoke(IPC.reviewComposeCiPrompt, slug, sessionId, checkName),
+      invoke(IPC.reviewComposeCiPrompt, slug, sessionId, checkName),
     postFindingComment: (
       slug: string,
       sessionId: number,
       findingId: number
     ): Promise<{ ok: boolean; reason?: string }> =>
-      ipcRenderer.invoke(IPC.reviewPostFindingComment, slug, sessionId, findingId),
+      invoke(IPC.reviewPostFindingComment, slug, sessionId, findingId),
     /** The PR worktree's current head, for the findings pane's stale-finding chip. */
-    worktreeHead: (slug: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.reviewWorktreeHead, slug)
+    worktreeHead: (slug: string): Promise<string | null> => invoke(IPC.reviewWorktreeHead, slug)
   },
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */
     setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor),
     /** Report the same scale to main, so it can keep the native `titleBarOverlay` button
      *  hit-box sized to match — `setZoomFactor` above only scales the DOM. */
-    setScale: (factor: number): Promise<void> => ipcRenderer.invoke(IPC.uiSetScale, factor),
+    setScale: (factor: number): Promise<void> => invoke(IPC.uiSetScale, factor),
     /** main → renderer: another window changed the theme; adopt it without re-persisting. */
     onThemeChanged: (cb: (theme: 'dark' | 'light') => void): (() => void) => {
       const listener = (_e: unknown, theme: 'dark' | 'light'): void => cb(theme)
@@ -833,7 +827,7 @@ const argus = {
     }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
-  openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url),
+  openExternal: (url: string) => invoke(IPC.appOpenExternal, url),
   /** For CSS platform floors (`data-platform` in main.css) — main.css:264's
    *  `.argus-titlebar-inset` cannot otherwise tell a Windows build from a macOS one. */
   platform: process.platform
