@@ -350,8 +350,8 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     //
     // Scans EVERY rule whose selector mentions any of the three classes (via cssRuleScan's
     // leafRules), not just the first exact-substring hit: the light override is spelled
-    // `:is(.overlay-card, .overlay-menu, .glass-chrome) { … }` and was silently unscanned by an
-    // earlier version of this test that used `main.indexOf('.overlay-card {')`.
+    // `:is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card) { … }` and was silently
+    // unscanned by an earlier version of this test that used `main.indexOf('.overlay-card {')`.
     const rules = overlayMaterialRules(main)
     expect(
       rules.length,
@@ -416,7 +416,7 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     expect(darkIdx).toBeGreaterThan(braceOpen)
     expect(darkIdx).toBeLessThan(layerEnd)
 
-    const lightSelector = ':is(.overlay-card, .overlay-menu, .glass-chrome) {'
+    const lightSelector = ':is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card) {'
     const lightIdx = main.indexOf(lightSelector)
     expect(lightIdx, 'the merged light override selector must be found').toBeGreaterThanOrEqual(0)
     expect(lightIdx).toBeGreaterThan(braceOpen)

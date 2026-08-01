@@ -71,12 +71,22 @@ body {
     border: 1px solid var(--hair);
   }
 
+  /* Reads the SAME tokens as `.glass-panel` (theme.css), not literals: the two materials are
+     supposed to be indistinguishable in light (theme.css's comment above `--panel-bg`), and a
+     hand-copied value pair drifts the moment either gets tuned. This is what "matching by
+     construction" actually requires — the prior literals here matched `.glass-panel` by
+     coincidence, not by construction, until this rule read the same variables. Gains
+     `.glass-panel`'s bevel (`--panel-hi` inset) and waist (`--panel-waist` inset) as a result —
+     `.surface-card` had neither before; that is the intended, if slight, visual change. */
   :root[data-theme='light'] .surface-card {
-    background: #fdfdfe;
-    border-color: rgba(26, 48, 84, 0.09);
+    border-color: var(--panel-border);
+    background:
+      linear-gradient(152deg, var(--panel-lens-1) 0%, var(--panel-lens-2) 38%, transparent 74%),
+      var(--panel-bg);
     box-shadow:
-      0 1px 2px rgba(24, 44, 80, 0.04),
-      0 14px 30px -14px rgba(24, 44, 80, 0.16);
+      inset 0 1px 0 var(--panel-hi),
+      inset 0 -14px 26px -24px var(--panel-waist),
+      var(--panel-shadow);
   }
 
   /* ModalShell's dialog card and MenuButton's dropdown/submenu. Replaces a Task 8 mechanism
@@ -92,8 +102,8 @@ body {
      hosts, and are exactly what broke the dropdown's anchoring. Dark reproduces each surface's
      pre-existing flat utilities verbatim (two genuinely different looks — the dialog is
      `--bg-2`/`--hair-2`/shadow-2xl, the menu is `--bg-1`/`--hair`/shadow-lg); light shares one
-     frosted declaration, identical to what `.glass-card` gives in light, through the `--glass-*`
-     / `--card-shadow` tokens rather than duplicated literals. */
+     frosted declaration below with `.glass-card` itself (Task 12) — the same rule now paints
+     all four, through the `--glass-*` / `--card-shadow` tokens, rather than four copies. */
   .overlay-card {
     border: 1px solid var(--hair-2);
     background: var(--bg-2);
@@ -109,14 +119,18 @@ body {
       0 4px 6px -4px rgb(0 0 0 / 0.1);
   }
 
-  /* `.glass-chrome` (below) shares this exact recipe (Task 10 review finding 2): the three of
-     these are the only consumers of the frosted light recipe outside `.glass-card` itself, and
-     writing it out a third time invited the tuning pass to change the waist inset here and on
-     `.glass-chrome` separately — leaving the editor chrome with a stale bevel. One shared
-     selector list is what makes that structurally impossible; `cssRuleScan.ts`'s
-     `overlayMaterialRules` scans this rule (and `.glass-chrome`'s own dark base rule below) for
-     the position/overflow invariant the same way it already does `.overlay-card`/`.overlay-menu`. */
-  :root[data-theme='light'] :is(.overlay-card, .overlay-menu, .glass-chrome) {
+  /* `.glass-chrome` (below) shares this exact recipe (Task 10 review finding 2), and so now does
+     `.glass-card` itself (Task 12 review finding 1): `theme-dynamic.css`'s `.glass-card` used to
+     carry this same recipe a second time, unconditionally, so its dark-only declarations sat
+     right next to a light rendering it never used — the shared selector below is now the ONE
+     place light's frosted recipe is written, for all four consumers, and `.glass-card`'s own
+     rule keeps only its dark path (see the `:where(...)` comment there for why that split needed
+     a specificity-neutral guard). One shared selector list is what makes a repeat of the old
+     drift (a tuning pass changing the waist inset here but not on a duplicate) structurally
+     impossible; `cssRuleScan.ts`'s `overlayMaterialRules` scans this rule (and `.glass-chrome`'s
+     own dark base rule below) for the position/overflow invariant the same way it already does
+     `.overlay-card`/`.overlay-menu`. */
+  :root[data-theme='light'] :is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card) {
     border-color: var(--glass-border);
     background:
       linear-gradient(
@@ -159,10 +173,11 @@ body {
      `.surface-card` above.
 
      The light recipe is NOT repeated here (Task 10 review finding 2) — it is the same
-     `--glass-*` / `--card-shadow` composition as `.overlay-card` / `.overlay-menu`, so it lives
-     once, in the shared `:is(.overlay-card, .overlay-menu, .glass-chrome)` rule above this
-     comment's own `.overlay-*` block. Writing it a third time here let a Task 11 tuning pass
-     change the waist inset on that shared rule while this class silently kept the old bevel. */
+     `--glass-*` / `--card-shadow` composition as `.overlay-card` / `.overlay-menu` / `.glass-card`
+     (Task 12), so it lives once, in the shared `:is(.overlay-card, .overlay-menu, .glass-chrome,
+     .glass-card)` rule above this comment's own `.overlay-*` block. Writing it a third time here
+     let a Task 11 tuning pass change the waist inset on that shared rule while this class
+     silently kept the old bevel. */
   .glass-chrome {
     border: 1px solid var(--hair);
     background: var(--bg-hi);

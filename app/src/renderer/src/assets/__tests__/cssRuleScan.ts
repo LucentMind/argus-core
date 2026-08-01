@@ -61,18 +61,23 @@ export function leafRules(css: string): CssRule[] {
   return rules
 }
 
-/** Every leaf rule whose selector text mentions `.overlay-card`, `.overlay-menu` or
- *  `.glass-chrome` — the dark base rules AND the
- *  `:is(.overlay-card, .overlay-menu, .glass-chrome)` light override alike. `.glass-chrome`
- *  joined this scan at Task 10 review (finding 2/3): it exists for exactly the same
- *  layout-carrying-properties reason `.overlay-card` / `.overlay-menu` do (see main.css's
- *  comment above `.overlay-card`), so it needs the same position/overflow guard, and merging
- *  its light recipe into the shared `:is(...)` selector is what this scan now picks up for free. */
+/** Every leaf rule whose selector text mentions `.overlay-card`, `.overlay-menu`, `.glass-chrome`
+ *  or `.glass-card` — the dark base rules AND the
+ *  `:is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card)` light override alike.
+ *  `.glass-chrome` joined this scan at Task 10 review (finding 2/3); `.glass-card` joined the
+ *  shared selector itself at Task 12 (review finding 1) once its own light-side declarations were
+ *  no longer duplicated in theme-dynamic.css. Each of the four exists for exactly the same
+ *  layout-carrying-properties reason (see main.css's comment above `.overlay-card`), so each
+ *  needs the same position/overflow guard, and merging its light recipe into the shared
+ *  `:is(...)` selector is what this scan now picks up for free — listing all four conditions
+ *  explicitly (rather than relying on one match covering the merged rule) keeps the scan correct
+ *  even if a future task ever pulls one of them back out into its own selector. */
 export function overlayMaterialRules(css: string): CssRule[] {
   return leafRules(css).filter(
     (r) =>
       r.selector.includes('.overlay-card') ||
       r.selector.includes('.overlay-menu') ||
-      r.selector.includes('.glass-chrome')
+      r.selector.includes('.glass-chrome') ||
+      r.selector.includes('.glass-card')
   )
 }

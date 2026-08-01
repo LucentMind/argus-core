@@ -120,6 +120,31 @@
   position: relative;
   --mx: 50%;
   --my: 50%;
+  isolation: isolate;
+  overflow: hidden;
+  /* Theme-invariant shape, not colour — lives here rather than in either paint rule below so it
+     never depends on which one is active. Without it, light relied solely on the shared selector
+     in main.css, which (matching `.overlay-card`/`.overlay-menu`/`.glass-chrome`'s own pattern)
+     sets only `border-color` — those three already get `border-width` from their own always-on
+     dark base rule's `border: 1px solid ...` shorthand, but `.glass-card` has no such rule left
+     in light, so its border silently went to Tailwind preflight's 0px (caught by the Task 12
+     computed-style probe, not by any unit test — jsdom resolves no cascade). */
+  border-width: 1px;
+  transition:
+    transform 0.42s cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 0.42s ease,
+    box-shadow 0.42s ease,
+    backdrop-filter 0.42s ease;
+}
+
+/* .glass-card's own dark recipe (Task 12: one frosted rule per theme, not a duplicate under
+   light). Light's version of this exact recipe now lives once, in main.css's shared frosted
+   selector — `.glass-card` joined `.overlay-card` / `.overlay-menu` / `.glass-chrome` there —
+   so writing it out again here, unconditionally, would leave the shape written twice with the
+   copy in this file dead-but-present under light. `:where(...)` keeps this at the SAME
+   specificity `.glass-card` alone used to be (0,1,0): a plain `:root:not(...)` prefix would push
+   it to 0,3,0 and silently beat `.glass-card:hover`'s 0,2,0 in dark, killing the hover recipe. */
+:where(:root:not([data-theme='light'])) .glass-card {
   border: 1px solid var(--glass-border);
   background:
     linear-gradient(
@@ -139,13 +164,6 @@
     inset 0 -1.5px 0 var(--glass-edge),
     inset 0 -22px 40px -26px var(--glass-edge),
     var(--card-shadow);
-  isolation: isolate;
-  overflow: hidden;
-  transition:
-    transform 0.42s cubic-bezier(0.2, 0.7, 0.3, 1),
-    border-color 0.42s ease,
-    box-shadow 0.42s ease,
-    backdrop-filter 0.42s ease;
 }
 
 /* Home's own behaviour on top of the material: the entrance animation. Dialogs and the editor
