@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { ZodError } from 'zod'
 import { packFeedSchema, selectUpdate, type FeedEntry } from './feed'
 import type { PacksStateStore } from './packsState'
-import { installPack } from './install'
+import { installPack, inspectBundleSource } from './install'
 import type { UpdateStatus, UpdateErrorCode } from '../../../shared/updates'
 
 /** A feed is a small JSON document; anything larger is a misconfiguration or hostile. */
@@ -22,15 +23,49 @@ export interface HttpResponse {
   body: Buffer
 }
 
-/** Minimal HTTP seam so policy lives in the service and the service is testable offline. */
+/** Status/location alone — enough to check for a redirect, shared by `get` and `getToFile`. */
+interface HttpStatus {
+  status: number
+  location: string | null
+}
+
+export interface HttpToFileResult extends HttpStatus {
+  /** Digest of the bytes actually written. Meaningless (empty) when `status !== 200` — nothing
+   *  is written to `destPath` in that case. */
+  sha256: string
+  bytesWritten: number
+}
+
+/**
+ * Minimal HTTP seam so policy lives in the service and the service is testable offline.
+ *
+ * Both methods must throw `HttpTooLargeError` — not a plain `Error` — the instant the response
+ * body exceeds the `maxBytes` passed in, so the service can report `code: 'too-large'` instead of
+ * collapsing it into a generic transport-failure bucket. A second implementation that raced past
+ * this contract would silently degrade every over-cap response to an ordinary failure.
+ */
 export interface HttpClient {
   get(url: string, opts: { maxBytes: number; timeoutMs: number }): Promise<HttpResponse>
+  /**
+   * Streams a response body straight to `destPath` while hashing it incrementally, rather than
+   * buffering it in memory — this is the path the (potentially 512 MiB) pack bundle download
+   * takes. `maxBytes` is enforced DURING the stream: the moment the running total exceeds it, the
+   * partial file is removed and `HttpTooLargeError` is thrown. On a non-200 status (including any
+   * redirect) nothing is ever written to `destPath` — the caller inspects `status`/`location`
+   * before any body would be consumed. `sha256`/`bytesWritten` describe exactly what landed on
+   * disk, so the caller can verify a checksum without a second read of the whole file.
+   */
+  getToFile(
+    url: string,
+    destPath: string,
+    opts: { maxBytes: number; timeoutMs: number }
+  ): Promise<HttpToFileResult>
 }
 
 /** Thrown by `nodeHttpClient` (and by fakes standing in for it) when a response exceeds the
- *  byte cap passed to `get()`. A distinct class — rather than a plain `Error` — so the service
- *  can tell "too large" apart from every other transport failure and report `code: 'too-large'`
- *  instead of collapsing it into the generic `'feed'` bucket. */
+ *  byte cap passed to `get()`/`getToFile()`. A distinct class — rather than a plain `Error` — so
+ *  the service can tell "too large" apart from every other transport failure and report
+ *  `code: 'too-large'` instead of collapsing it into the generic `'feed'`/`'download'` bucket. */
 export class HttpTooLargeError extends Error {
   constructor(maxBytes: number) {
     super(`response exceeded ${maxBytes} bytes`)
@@ -68,6 +103,63 @@ export const nodeHttpClient: HttpClient = {
     } finally {
       clearTimeout(timer)
     }
+  },
+
+  async getToFile(url, destPath, { maxBytes, timeoutMs }) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(url, { redirect: 'manual', signal: controller.signal })
+      const location = res.headers.get('location')
+      if (res.status !== 200) {
+        // Refuse a redirect (or any other non-200) before a single body byte is consumed —
+        // don't even drain it, just let it be GC'd with the response.
+        await res.body?.cancel().catch(() => {})
+        return { status: res.status, location, sha256: '', bytesWritten: 0 }
+      }
+
+      const reader = res.body?.getReader()
+      const hash = crypto.createHash('sha256')
+      const out = fs.createWriteStream(destPath)
+      let total = 0
+
+      const cleanupAndThrow = async (err: unknown): Promise<never> => {
+        out.destroy()
+        fs.rmSync(destPath, { force: true })
+        throw err
+      }
+
+      try {
+        if (reader) {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            total += value.byteLength
+            if (total > maxBytes) {
+              await reader.cancel()
+              await cleanupAndThrow(new HttpTooLargeError(maxBytes))
+            }
+            hash.update(value)
+            if (!out.write(value)) {
+              await new Promise<void>((resolve, reject) => {
+                out.once('drain', resolve)
+                out.once('error', reject)
+              })
+            }
+          }
+        }
+        await new Promise<void>((resolve, reject) => {
+          out.once('error', reject)
+          out.end(() => resolve())
+        })
+      } catch (err) {
+        return await cleanupAndThrow(err)
+      }
+
+      return { status: 200, location, sha256: hash.digest('hex'), bytesWritten: total }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }
 
@@ -86,6 +178,9 @@ export interface PackUpdatesDeps {
   http: HttpClient
   /** Injected so tests can observe delegation. Production passes `installPack` itself. */
   install?: typeof installPack
+  /** Injected so tests can fake the post-checksum identity check. Production passes the real
+   *  `inspectBundleSource`. */
+  inspectBundleSource?: typeof inspectBundleSource
   host?: { platform: string; arch: string }
   now?: () => number
 }
@@ -93,10 +188,12 @@ export interface PackUpdatesDeps {
 export class PackUpdatesService {
   private readonly now: () => number
   private readonly install: typeof installPack
+  private readonly inspectBundleSource: typeof inspectBundleSource
 
   constructor(private readonly deps: PackUpdatesDeps) {
     this.now = deps.now ?? Date.now
     this.install = deps.install ?? installPack
+    this.inspectBundleSource = deps.inspectBundleSource ?? inspectBundleSource
   }
 
   /** One status per pack that has a recorded pin. Packs without one are absent entirely. */
@@ -135,27 +232,57 @@ export class PackUpdatesService {
         )
       }
 
-      const res = await this.deps.http.get(entry.url, {
-        maxBytes: MAX_PACK_BUNDLE_BYTES,
-        timeoutMs: DOWNLOAD_TIMEOUT_MS
-      })
-      this.assertNoRedirect(res)
-      if (res.status !== 200) throw new UpdateError('feed', `download failed: HTTP ${res.status}`)
-
-      const actual = crypto.createHash('sha256').update(res.body).digest('hex')
-      if (actual !== entry.sha256) {
-        throw new UpdateError('checksum', 'downloaded bundle does not match the feed checksum')
-      }
-
-      // Written onto the packs volume so installPack's later rename is same-filesystem.
+      // Created under argusHome (not os.tmpdir()) because it's known-writable and has room for a
+      // large bundle — NOT because installPack's later rename needs to be same-filesystem: it
+      // extracts into its own `.pack-install-` staging dir (see install.ts's `stage()`) and
+      // renames THAT, so this directory's filesystem is irrelevant to that swap.
       const dir = fs.mkdtempSync(path.join(this.deps.argusHome, '.pack-update-'))
       tmp = dir
       const zipPath = path.join(dir, `${id}.zip`)
-      fs.writeFileSync(zipPath, res.body)
+
+      let dl: HttpToFileResult
+      try {
+        dl = await this.deps.http.getToFile(entry.url, zipPath, {
+          maxBytes: MAX_PACK_BUNDLE_BYTES,
+          timeoutMs: DOWNLOAD_TIMEOUT_MS
+        })
+      } catch (err) {
+        if (err instanceof HttpTooLargeError) throw new UpdateError('too-large', err.message)
+        throw new UpdateError('download', (err as Error).message)
+      }
+      this.assertNoRedirect(dl)
+      if (dl.status !== 200) {
+        throw new UpdateError('download', `download failed: HTTP ${dl.status}`)
+      }
+
+      if (dl.sha256 !== entry.sha256) {
+        throw new UpdateError('checksum', 'downloaded bundle does not match the feed checksum')
+      }
+
+      // The feed and origin only ever vouch for *a* bundle at this URL — `installPack` reads the
+      // pack id it installs to, and the version it records, from INSIDE the zip. Without this
+      // check, a compromised (or merely misconfigured) vendor could serve a zip for a different
+      // pack entirely under a feed entry that passes every check above, silently taking over
+      // that other pack and re-pinning its origin. Must run before `install()`: by the time
+      // `install()` returns, the swap and the re-pin have already happened.
+      const inspected = await this.inspectBundleSource(zipPath)
+      if (inspected.id !== id) {
+        throw new UpdateError(
+          'install',
+          `update bundle declares pack '${inspected.id}', expected '${id}' — refusing to install it under another pack's identity`
+        )
+      }
+      if (inspected.version !== entry.version) {
+        throw new UpdateError(
+          'install',
+          `update bundle declares version '${inspected.version}', expected '${entry.version}' from the feed entry`
+        )
+      }
 
       const result = await this.install(zipPath, {
         argusHome: this.deps.argusHome,
-        state: this.deps.state
+        state: this.deps.state,
+        host: this.deps.host
       })
       if (!result.ok) throw new UpdateError('install', result.error)
       return { phase: 'ready', version: result.version }
@@ -168,8 +295,8 @@ export class PackUpdatesService {
       if (tmp) {
         try {
           fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
-        } catch {
-          // Stranding the temp dir is unfortunate but not fatal; swallow and move on.
+        } catch (err) {
+          console.error(`pack update: failed to remove temp dir '${tmp}'`, err)
         }
       }
     }
@@ -203,7 +330,13 @@ export class PackUpdatesService {
     try {
       feed = packFeedSchema.parse(JSON.parse(res.body.toString('utf8')))
     } catch (err) {
-      throw new UpdateError('feed', `invalid feed: ${(err as Error).message}`)
+      // ZodError#message is a multi-line JSON blob — fine for a log, not for a settings row.
+      // The first issue's message is the useful, human-sized part of it.
+      const detail =
+        err instanceof ZodError
+          ? (err.issues[0]?.message ?? 'feed did not match the expected shape')
+          : (err as Error).message
+      throw new UpdateError('feed', `invalid feed: ${detail}`)
     }
     if (feed.id !== id) {
       throw new UpdateError('feed', `feed declares pack '${feed.id}', expected '${id}'`)
@@ -211,7 +344,7 @@ export class PackUpdatesService {
 
     const installedVersion = this.deps.state.get(id)
     if (!installedVersion) throw new UpdateError('feed', `pack '${id}' is not installed`)
-    return selectUpdate(feed, { installedVersion, host: this.deps.host })
+    return selectUpdate(feed, { installedVersion, host: this.deps.host, origin: pin.origin })
   }
 
   private assertHttps(url: string): void {
@@ -224,7 +357,7 @@ export class PackUpdatesService {
     if (parsed.protocol !== 'https:') throw new UpdateError('insecure', `refusing non-https ${url}`)
   }
 
-  private assertNoRedirect(res: HttpResponse): void {
+  private assertNoRedirect(res: HttpStatus): void {
     if (res.status >= 300 && res.status < 400) {
       throw new UpdateError(
         'redirect',
