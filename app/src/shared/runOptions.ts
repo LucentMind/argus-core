@@ -156,8 +156,15 @@ const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const
  * xhigh, so it maps to xhigh here and is set separately in `claudeSettingsFor`.
  * `ultrathink` is prompt text and yields nothing.
  *
- * A level the model does not report supporting degrades to the strongest
- * supported level below it, so this cannot go stale when the catalog changes.
+ * A level the model does not report supporting resolves to the NEAREST supported
+ * level, preferring lower: it walks down first, and only when nothing supported
+ * lies below the request does it take the model's lowest level. That floor case
+ * deliberately lands ABOVE the request — returning undefined instead would omit
+ * `effort` entirely and let the SDK apply its own default, which is `high`, and
+ * therefore further from a `low` request than the floor value is.
+ *
+ * Keying off the model's reported set rather than a hardcoded table is what
+ * stops this going stale when the catalog changes.
  */
 export function effectiveEffort(
   d: RunOptionDescriptor | undefined,

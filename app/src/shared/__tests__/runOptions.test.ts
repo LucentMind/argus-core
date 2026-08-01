@@ -7,7 +7,8 @@ import {
   effectiveEffort,
   apiModelId,
   claudeSettingsFor,
-  type ModelOptionInfo
+  type ModelOptionInfo,
+  type RunOptionDescriptor
 } from '../runOptions'
 
 const FABLE: ModelOptionInfo = {
@@ -182,6 +183,24 @@ describe('effectiveEffort', () => {
 
   it('is undefined when there is no effort descriptor at all', () => {
     expect(effectiveEffort(undefined, 'high')).toBeUndefined()
+  })
+
+  it('rounds up to the model\'s lowest level when nothing supported lies below the request', () => {
+    const [noLow] = descriptorsFor({
+      ...FABLE,
+      supportedEffortLevels: ['medium', 'high', 'xhigh', 'max']
+    })
+    expect(effectiveEffort(noLow, 'low')).toBe('medium')
+  })
+
+  it('returns undefined when the descriptor contains no real effort levels', () => {
+    const noEffort: RunOptionDescriptor = {
+      type: 'select',
+      id: 'effort',
+      label: 'Reasoning',
+      options: [{ value: 'weird', label: 'Weird' }]
+    }
+    expect(effectiveEffort(noEffort, 'weird')).toBeUndefined()
   })
 })
 
