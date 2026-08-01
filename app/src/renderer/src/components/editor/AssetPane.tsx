@@ -994,14 +994,14 @@ export function AssetPane({
             value={name}
             disabled={proposed !== null}
             onChange={(e) => renameCreate(e.target.value)}
-            className="w-56 rounded-r2 bg-black/20 px-2 py-1 font-mono text-xs outline-none"
+            className="w-56 rounded-r2 bg-overlay px-2 py-1 font-mono text-xs outline-none"
           />
           <input
             aria-label="describe it"
             placeholder="Describe what it should do…"
             value={describe}
             onChange={(e) => setDescribe(e.target.value)}
-            className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
+            className="min-w-0 flex-1 rounded-r2 bg-overlay px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
           {proposed === null && prefs.viewMode !== 'preview' && draftCmd && (
             <Btn variant="outline" disabled={!draftCmd.enabled} onClick={draftCmd.run}>
@@ -1015,7 +1015,7 @@ export function AssetPane({
       {banner.kind === 'restored' && (
         <div
           role="status"
-          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
+          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-hair bg-hi px-3 py-1.5 text-xs text-dim"
         >
           <span>Restored unsaved draft from {clockTime(banner.updatedAt)}.</span>
           <Btn variant="ghost" onClick={() => void discardDraft()}>
@@ -1051,7 +1051,7 @@ export function AssetPane({
       {mode === 'create' && otherDrafts.length > 0 && (
         <div
           role="status"
-          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
+          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-hi px-3 py-1.5 text-xs text-dim"
         >
           <span>
             {otherDrafts.length} unsaved new{' '}

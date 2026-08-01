@@ -120,6 +120,7 @@ const STRUCTURAL_UTILITIES = new Set([
   'border-t-0',
   'border-t-2',
   'border-x',
+  'border-x-0',
   'border-dashed',
   'border-t-transparent', // side + built-in "transparent" fused into one utility name
 
