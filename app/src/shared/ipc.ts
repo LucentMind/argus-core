@@ -155,6 +155,8 @@ export const IPC = {
   packsInstall: 'packs:install',
   packsUninstall: 'packs:uninstall',
   packsRelaunch: 'packs:relaunch',
+  packsCheckUpdates: 'packs:check-updates',
+  packsApplyUpdate: 'packs:apply-update',
   packsChanged: 'packs:changed',
   updateStatus: 'update:status',
   updateCheck: 'update:check',

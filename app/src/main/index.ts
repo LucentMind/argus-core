@@ -177,10 +177,12 @@ import { createExtractors } from './services/packs/extractors'
 import { PacksStateStore } from './services/packs/packsState'
 import { installPack, uninstallPack, inspectBundleSource } from './services/packs/install'
 import { listInstalledPacks } from './services/packs/packsService'
+import { PackUpdatesService, nodeHttpClient } from './services/packs/packUpdates'
 import { autoUpdater } from 'electron-updater'
 import { CoreUpdaterService, noopBackend } from './services/update/coreUpdater'
 import { createElectronUpdaterBackend } from './services/update/electronUpdaterBackend'
 import { registerUpdateIpc } from './services/update/updateIpc'
+import type { UpdateStatus } from '../shared/updates'
 import { PanelHost } from './services/panels/panelHost'
 import { createElectronPanelFactory } from './services/panels/electronPlatform'
 import { resolvePanelAsset, buildPanelCsp, type PanelWindowLoc } from './services/panels/protocol'
@@ -861,8 +863,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC.packsReferenceRouting, () => packRegistry.referenceRouting())
 
   // — packs (install/uninstall/list; 2c) —
+  // Checked only when the Packs page asks, never on boot: a fan-out to every vendor origin at
+  // startup is exactly the traffic a locked-down environment notices.
+  const packUpdates = new PackUpdatesService({ argusHome, state: packsState, http: nodeHttpClient })
+  let packUpdateStatuses: Record<string, UpdateStatus> = {}
   ipcMain.handle(IPC.packsList, () =>
-    listInstalledPacks({ state: packsState, registry: packRegistry, binaries: binariesService })
+    listInstalledPacks({
+      state: packsState,
+      registry: packRegistry,
+      binaries: binariesService,
+      updates: packUpdateStatuses
+    })
   )
   ipcMain.handle(IPC.packsPickBundle, async () => {
     const r = await dialog.showOpenDialog({
@@ -885,6 +896,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC.packsRelaunch, () => {
     app.relaunch()
     app.quit()
+  })
+  ipcMain.handle(IPC.packsCheckUpdates, async () => {
+    packUpdateStatuses = await packUpdates.checkAll()
+    broadcast(IPC.packsChanged, undefined)
+    return packUpdateStatuses
+  })
+  ipcMain.handle(IPC.packsApplyUpdate, async (_e, id: string) => {
+    const status = await packUpdates.apply(id)
+    packUpdateStatuses = { ...packUpdateStatuses, [id]: status }
+    broadcast(IPC.packsChanged, undefined)
+    return status
   })
 
   // — app auto-update (notify first; spec §3) —

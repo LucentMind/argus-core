@@ -85,3 +85,29 @@ describe('listInstalledPacks', () => {
     })
   })
 })
+
+describe('update status on rows', () => {
+  it('attaches a status to the matching pack and null to the rest', async () => {
+    const registry = new PackRegistry([lp('alpha', '1.0.0', '/a'), lp('beta', '1.0.0', '/b')])
+    state.set('alpha', '1.0.0')
+    state.set('beta', '1.0.0')
+    const binaries = new BinariesService({ registry, settingsTools: () => ({}), capturedEnv: {} })
+    const payload = await listInstalledPacks({
+      state,
+      registry,
+      binaries,
+      updates: { alpha: { phase: 'available', version: '1.1.0' } }
+    })
+    const byId = Object.fromEntries(payload.packs.map((p) => [p.id, p]))
+    expect(byId.alpha.update).toEqual({ phase: 'available', version: '1.1.0' })
+    expect(byId.beta.update).toBeNull()
+  })
+
+  it('defaults every row to null when no statuses are supplied', async () => {
+    const registry = new PackRegistry([lp('alpha', '1.0.0', '/a')])
+    state.set('alpha', '1.0.0')
+    const binaries = new BinariesService({ registry, settingsTools: () => ({}), capturedEnv: {} })
+    const payload = await listInstalledPacks({ state, registry, binaries })
+    expect(payload.packs[0].update).toBeNull()
+  })
+})

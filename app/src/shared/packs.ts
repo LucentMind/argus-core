@@ -1,3 +1,5 @@
+import type { UpdateStatus } from './updates'
+
 /** Result of peeking at a bundle's manifest without installing (mirrors install.ts). */
 export interface InspectResult {
   id: string
@@ -37,6 +39,9 @@ export interface InstalledPackRow {
   /** installedVersion != loadedVersion — a relaunch is needed to apply. */
   pendingRelaunch: boolean
   binaries: PackBinaryHealth[]
+  /** Upstream update state for this pack, or null when it has no update source (a seed pack,
+   *  or a manifest with no `updateUrl`) or nothing has been checked yet this session. */
+  update: UpdateStatus | null
 }
 
 export interface PacksListPayload {

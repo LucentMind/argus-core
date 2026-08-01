@@ -28,7 +28,8 @@ const listed: PacksListPayload = {
       pendingRelaunch: false,
       binaries: [
         { id: 'argus-demo', displayName: 'Demo', ok: true, detail: 'C:/…/argus-demo · v22' }
-      ]
+      ],
+      update: null
     },
     {
       id: 'code-graph',
@@ -37,7 +38,8 @@ const listed: PacksListPayload = {
       loadedVersion: '0.1.0',
       platform: null,
       pendingRelaunch: false,
-      binaries: []
+      binaries: [],
+      update: null
     }
   ]
 }
@@ -190,7 +192,8 @@ describe('PacksSettings', () => {
           loadedVersion: '2024.1',
           platform: 'win-x64',
           pendingRelaunch: false,
-          binaries: []
+          binaries: [],
+          update: null
         }
       ]
     })

@@ -2,13 +2,16 @@ import type { PackRegistry } from './registry'
 import type { PacksStateStore } from './packsState'
 import type { BinariesService } from './binaries'
 import type { PacksListPayload, InstalledPackRow } from '../../../shared/packs'
+import type { UpdateStatus } from '../../../shared/updates'
 
 export async function listInstalledPacks(deps: {
   state: PacksStateStore
   registry: PackRegistry
   binaries: BinariesService
+  /** Last known per-pack update statuses. Absent ⇒ every row reports null. */
+  updates?: Record<string, UpdateStatus>
 }): Promise<PacksListPayload> {
-  const { state, registry, binaries } = deps
+  const { state, registry, binaries, updates } = deps
   const installed = state.list() // id -> version
   const loaded = new Map(registry.packs().map((p) => [p.id, p]))
   const probes = new Map((await binaries.probe()).map((r) => [r.id, r]))
@@ -26,6 +29,7 @@ export async function listInstalledPacks(deps: {
       loadedVersion,
       platform: lp?.manifest.platform ?? null,
       pendingRelaunch: installedVersion != null && installedVersion !== loadedVersion,
+      update: updates?.[id] ?? null,
       binaries: binDecls.map(({ decl }) => {
         const pr = probes.get(decl.id)
         return {

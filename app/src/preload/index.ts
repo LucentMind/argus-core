@@ -84,7 +84,7 @@ import type {
   UsageStatsPayload
 } from '../shared/observability'
 import type { PacksListPayload, InspectResult, InstallResult } from '../shared/packs'
-import type { CoreUpdatePayload } from '../shared/updates'
+import type { CoreUpdatePayload, UpdateStatus } from '../shared/updates'
 import type { SeedSampleResult } from '../shared/onboarding'
 import type { PrBinding, PrRef, PrSearchResult } from '../shared/pr'
 import type { PrStatus } from '../shared/prStatus'
@@ -231,6 +231,10 @@ const argus = {
     uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.packsUninstall, id),
     relaunch: (): Promise<void> => ipcRenderer.invoke(IPC.packsRelaunch),
+    checkUpdates: (): Promise<Record<string, UpdateStatus>> =>
+      ipcRenderer.invoke(IPC.packsCheckUpdates),
+    applyUpdate: (id: string): Promise<UpdateStatus> =>
+      ipcRenderer.invoke(IPC.packsApplyUpdate, id),
     onChanged: (cb: () => void): (() => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.packsChanged, listener)

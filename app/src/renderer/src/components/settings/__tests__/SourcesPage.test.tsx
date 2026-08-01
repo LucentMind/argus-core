@@ -49,7 +49,8 @@ const packsListed: PacksListPayload = {
       loadedVersion: '1.0.0',
       platform: 'win-x64',
       pendingRelaunch: false,
-      binaries: []
+      binaries: [],
+      update: null
     }
   ]
 }
