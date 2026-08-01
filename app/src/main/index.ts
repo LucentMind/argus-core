@@ -1331,8 +1331,10 @@ function registerIpc(): void {
       // Shape-only guard: the renderer has already pruned selections against the
       // current model's descriptors, and the model catalog is not reachable from
       // this layer. Persisting here does NOT retune a live CaseSession — its options
-      // are frozen at query() construction, and the rebuild-on-change path is not
-      // wired yet.
+      // are still frozen at query() construction — but registry.ts now folds
+      // sessionRunOptions/sessionPermissionMode into optionsKey and compares it on the
+      // next send, so the running session is torn down and rebuilt with the new
+      // selections instead of ignoring them.
       return setSessionRunOptions(db, sessionId, sel)
     }
   )

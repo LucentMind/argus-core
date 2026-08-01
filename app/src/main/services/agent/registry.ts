@@ -16,7 +16,13 @@ import { CaseSession, type SessionMirrorLike } from './session'
 import type { AgentDriver } from './driver'
 import { createClaudeDriver, type CreateQueryFn } from './drivers/claude'
 import type { PanelCommandDecl } from './panelCommands'
-import { sessionCursor, sessionProvider, sessionMode } from './sessionStore'
+import {
+  sessionCursor,
+  sessionProvider,
+  sessionMode,
+  sessionRunOptions,
+  sessionPermissionMode
+} from './sessionStore'
 import { getCase } from '../caseService'
 import { workspaceSandboxRoots } from '../workspaces'
 import { materializeSessionSkills } from './skillsResolver'
@@ -25,6 +31,19 @@ import type { Detection } from '../packs/detection'
 import type { SessionPromptCapture } from '../../../shared/promptsIpc'
 import { driverForSession } from './reviewFraming'
 import type { Runner } from '../github'
+
+/**
+ * Cache key for everything that is frozen at `query()` construction besides the model:
+ * effort, the [1m] suffix, the settings object and the permission mode. Sorted so a
+ * reordered array is not mistaken for a change.
+ */
+export function optionsKeyOf(
+  sel: readonly { id: string; value: string | boolean }[],
+  permissionMode: string | null
+): string {
+  const sorted = [...sel].sort((a, b) => a.id.localeCompare(b.id))
+  return `${JSON.stringify(sorted)}::${permissionMode ?? ''}`
+}
 
 export interface AgentServiceDeps {
   db: DatabaseSync
@@ -168,23 +187,32 @@ export class AgentService {
     // Read BEFORE the early-return guard below — mode must participate in the rebuild
     // decision exactly like modelKey and mcpFingerprint do.
     const mode = sessionMode(this.deps.db, sessionId)
+    // effort, the [1m] suffix, settings and permissionMode are ALSO frozen at query()
+    // construction (Claude driver), exactly like modelKey — so they must participate in
+    // the same rebuild decision or a Reasoning/permission-mode change on a warm session
+    // is silently ignored.
+    const runOptions = sessionRunOptions(this.deps.db, sessionId)
+    const sessionPerm = sessionPermissionMode(this.deps.db, sessionId)
+    const optionsKey = optionsKeyOf(runOptions, sessionPerm)
 
     const existing = this.sessions.get(key)
     if (existing && existing.state === 'running') {
       // Never tear down a turn in flight; the rebuild happens on the next idle send.
       if (existing.activeTurn) return existing
-      // A live session's mcpServers map, its model, AND its mode (persona + skill
-      // allowlist) are frozen at query() construction. Mode has no in-app path that
-      // changes it under a live session — a session's mode is written only at INSERT
-      // (setSessionMode was removed; Plan 1b made mode a case-level axis, sessions just
-      // bind to it at creation) — but the guard is kept anyway as free defence-in-depth:
-      // registry.mode.test.ts exercises it via a direct DB UPDATE, standing in for a
-      // future code path or a hand-edited row. The resume cursor below preserves history
-      // (and is invalidated by sessionCursor's guard if the driver kind changed).
+      // A live session's mcpServers map, its model, mode (persona + skill allowlist),
+      // AND its run options / permission mode are frozen at query() construction. Mode
+      // has no in-app path that changes it under a live session — a session's mode is
+      // written only at INSERT (setSessionMode was removed; Plan 1b made mode a
+      // case-level axis, sessions just bind to it at creation) — but the guard is kept
+      // anyway as free defence-in-depth: registry.mode.test.ts exercises it via a direct
+      // DB UPDATE, standing in for a future code path or a hand-edited row. The resume
+      // cursor below preserves history (and is invalidated by sessionCursor's guard if
+      // the driver kind changed).
       if (
         existing.mcpFingerprint === fingerprint &&
         existing.modelKey === modelKey &&
-        existing.mode === mode
+        existing.mode === mode &&
+        existing.optionsKey === optionsKey
       )
         return existing
       await existing.stop('reconfigured')
@@ -280,6 +308,7 @@ export class AgentService {
             this.deps.dispatchPanelCommand!(caseSlug, packId, windowId, cmd, args)
         : undefined,
       modelKey,
+      optionsKey,
       mode,
       agentOptions: as
         ? (() => {
@@ -302,7 +331,10 @@ export class AgentService {
                   ? orderedVisibleModels(parsed, pinned.instanceId)[0]?.slug
                   : effectiveDefaultModel(parsed)),
               cliPath: cfg.cliPath,
-              permissionMode: as.defaultPermissionMode,
+              // The session's own mode wins; the settings default is the fallback for
+              // sessions that never set one.
+              permissionMode: sessionPerm ?? as.defaultPermissionMode,
+              runOptions,
               personaAppend: as.personaAppend || undefined
             }
           })()
