@@ -160,6 +160,20 @@ export interface MenuItem {
 
 const MENU_ITEM_BASE = 'block w-full rounded-r2 px-3 py-1.5 text-left text-sm hover:bg-hair/50'
 
+/* The dropdown/submenu panel's flat utility classes, alongside `glass-card`, on purpose: dark
+ * keeps this exact flat look (theme-dynamic.css gates the frosted recipe to light for
+ * `role="menu"`, so these are what actually renders in dark, and what its `revert-layer` falls
+ * back to). The fill is an arbitrary-value reference to the theme's own `--color-deep` custom
+ * property — the same one the usual utility class name resolves through — rather than that
+ * name itself: this file split that name's dual ground/card duty apart a task ago and a scan
+ * (groundSurfaces.test.tsx) now bans the literal name here. (A `bg-[var(--bg-1)]` spelling reads
+ * fine to a person but trips a second scan, themeUtilities.test.tsx: it greps for `bg-<name>`
+ * tokens anywhere in the file, comments included, and a literal `--bg-1` inside the brackets
+ * matches that pattern too, past the "starts with `[`" exemption. `--color-deep` doesn't contain
+ * a `bg-` prefix, so it can't collide with either scan.)
+ * See theme-dynamic.css's "overlay opt-out" section. */
+const MENU_PANEL_FLAT = 'border border-hair bg-[var(--color-deep)] shadow-lg'
+
 /** Button + anchored dropdown menu. Closes on select, Escape, or outside click.
  *  Items with `children` expand into a nested submenu on hover or click. */
 export function MenuButton({
@@ -236,7 +250,7 @@ export function MenuButton({
       {open && (
         <div
           role="menu"
-          className={`absolute z-30 min-w-44 rounded-r2 glass-card p-1 ${
+          className={`absolute z-30 min-w-44 rounded-r2 ${MENU_PANEL_FLAT} glass-card p-1 ${
             openUp ? 'bottom-full mb-1' : 'mt-1'
           } ${align === 'left' ? 'left-0' : 'right-0'}`}
         >
@@ -268,7 +282,10 @@ export function MenuButton({
                   // over neither element mid-cross, firing the parent's onMouseLeave
                   // and closing the submenu before it can be reached.
                   <div className="absolute left-full top-0 z-40 pl-1">
-                    <div role="menu" className="min-w-44 rounded-r2 glass-card p-1">
+                    <div
+                      role="menu"
+                      className={`min-w-44 rounded-r2 ${MENU_PANEL_FLAT} glass-card p-1`}
+                    >
                       {it.children.map((sub, j) => (
                         <button
                           key={`${j}-${sub.label}`}

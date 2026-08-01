@@ -302,3 +302,65 @@ describe('material scoping', () => {
     expect(dyn.slice(panelOpen + 1, panelClose)).not.toMatch(blackLiteral)
   })
 })
+
+// ModalShell's dialog and MenuButton's dropdown/submenu carry `.glass-card` (frosted, for
+// light) but review on that decision came back dark-flat: those three surfaces must render
+// exactly what they did before the material existed, in dark, and only go frosted in light.
+// jsdom resolves no cascade and cannot see backdrop-filter or which of two competing unlayered
+// rules wins, so this — like the rest of this file — can only pin the CSS *source* contract.
+// The real-browser proof (computed styles, before/after, both themes) lives in the Task 8
+// follow-up report, not in a test any CI runner can execute headlessly-in-jsdom.
+describe('overlay opt-out (dialogs and menus stay flat in dark)', () => {
+  const dyn = readCss('theme-dynamic.css')
+
+  it('the opt-out exists, keyed off role, and is guarded to dark only', () => {
+    // Pins the exact guard: drop `:not([data-theme='light'])` and this rule starts firing in
+    // light too, which would kill the frost there — the one thing this whole change protects.
+    // Keyed off the existing `role="dialog"` / `role="menu"` attribute rather than a new marker
+    // class: no other `.glass-card` consumer (dyn-home cards, the case view, the editor window)
+    // is a dialog or a menu, so nothing else can ever match this selector.
+    expect(dyn).toContain(`:root:not([data-theme='light']) [role='dialog'].glass-card`)
+    expect(dyn).toContain(`:root:not([data-theme='light']) [role='menu'].glass-card`)
+  })
+
+  it('the opt-out resets exactly the material properties, with nothing hand-copied', () => {
+    const start = dyn.indexOf(`[role='dialog'].glass-card,`)
+    expect(start, 'the opt-out rule must be found').toBeGreaterThanOrEqual(0)
+    const open = dyn.indexOf('{', start)
+    const close = dyn.indexOf('}', open)
+    expect(close, 'the opt-out rule must close').toBeGreaterThan(open)
+    const body = dyn.slice(open + 1, close)
+    expect(body).toContain('background: revert-layer')
+    expect(body).toContain('border: revert-layer')
+    expect(body).toContain('box-shadow: revert-layer')
+    expect(body).toContain('backdrop-filter: none')
+    // Every value here is either `revert-layer` (fall back to whatever the plain utility
+    // classes still on the element resolve to) or an explicit "off" — never a color or shadow
+    // hand-copied from the flat classes, which would drift the moment either recipe changed.
+    expect(body).not.toMatch(/rgba?\(|#[0-9a-f]{3,8}\b/i)
+  })
+
+  it('the hover counterpart neutralizes the lift too', () => {
+    // Neither surface had a hover state before the material existed; without this, hovering a
+    // dialog or menu in dark would still lift/relight per .glass-card:hover.
+    const start = dyn.indexOf(`[role='dialog'].glass-card:hover,`)
+    expect(start, 'the hover opt-out rule must be found').toBeGreaterThanOrEqual(0)
+    const open = dyn.indexOf('{', start)
+    const close = dyn.indexOf('}', open)
+    expect(close, 'the hover opt-out rule must close').toBeGreaterThan(open)
+    const body = dyn.slice(open + 1, close)
+    expect(body).toContain('transform: none')
+    expect(body).toContain('border: revert-layer')
+    expect(body).toContain('box-shadow: revert-layer')
+    expect(body).toContain('backdrop-filter: none')
+  })
+
+  it('the opt-out stays unlayered, like .glass-card itself', () => {
+    // theme-dynamic.css carries no `@layer` wrapper anywhere. An actual `@layer components { }`
+    // block here would lose to .glass-card's own unlayered declarations unconditionally,
+    // regardless of source order or specificity — the exact regression a components-layer card
+    // rule caused once already (Task 4). Matches the at-rule form specifically (name + brace) so
+    // this doesn't trip over prose that merely mentions "@layer" in a comment.
+    expect(dyn).not.toMatch(/@layer\s+[\w-]+\s*\{/)
+  })
+})

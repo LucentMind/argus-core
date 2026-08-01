@@ -187,6 +187,43 @@
   z-index: 1;
 }
 
+/* ── overlay opt-out: dialogs and menus stay flat in dark ─────────────────
+   ModalShell's dialog and MenuButton's dropdown/submenu carry `.glass-card` (for the frosted
+   look in light) but user review on that change came back: keep dark exactly as flat as it was
+   before the material existed — `rounded-r4 border border-hair2 bg-panel shadow-2xl` for the
+   dialog, `border border-hair bg-deep p-1 shadow-lg` for the dropdown/submenu.
+
+   This does NOT re-scope `.glass-card` itself — every other consumer (dyn-home cards, the case
+   view, the editor window) keeps getting the material unconditionally in both themes, exactly
+   as before. It gates the APPLICATION for only these three elements, keyed off the `role`
+   attribute already on each (`role="dialog"` / `role="menu"`) rather than a new marker class —
+   no other `.glass-card` consumer is a dialog or a menu, so nothing else can match.
+
+   `revert-layer` rolls each property back to whatever the plain Tailwind utility classes still
+   present on the same element (bg-panel / bg-deep / shadow-2xl / shadow-lg / border-hair2 /
+   border-hair) resolve to, rather than a value hand-copied here — nothing to keep in sync if a
+   Tailwind default ever changes. This must stay unlayered, like `.glass-card` itself: a
+   `@layer components` rule here would lose to `.glass-card`'s unlayered declarations
+   unconditionally, regardless of source order or specificity (Task 4's regression). */
+:root:not([data-theme='light']) [role='dialog'].glass-card,
+:root:not([data-theme='light']) [role='menu'].glass-card {
+  background: revert-layer;
+  border: revert-layer;
+  box-shadow: revert-layer;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Neither surface had a hover state before the material existed either. */
+:root:not([data-theme='light']) [role='dialog'].glass-card:hover,
+:root:not([data-theme='light']) [role='menu'].glass-card:hover {
+  transform: none;
+  border: revert-layer;
+  box-shadow: revert-layer;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /* border light — a 1px ring lit around the cursor, via mask-composite */
 .dyn-home .glass-card .gc-ring {
   position: absolute;

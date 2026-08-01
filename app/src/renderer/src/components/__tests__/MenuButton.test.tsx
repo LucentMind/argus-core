@@ -58,4 +58,19 @@ describe('MenuButton', () => {
     fireEvent.click(c)
     expect(screen.getByRole('menu')).toBeTruthy() // still open, nothing fired
   })
+
+  it('the dropdown carries both the flat classes and the frosted material', () => {
+    // Same split as ModalShell's dialog: `glass-card` supplies the frosted look, but
+    // theme-dynamic.css gates it to light for `role="menu"` (see the "overlay opt-out" tests in
+    // themeTokens.test.ts), so the flat utility classes must stay too — they're what actually
+    // renders in dark, and what its `revert-layer` falls back to. jsdom resolves no cascade, so
+    // this only proves the class *contract*, not which theme wins; the real-browser,
+    // computed-style proof lives in the Task 8 follow-up report.
+    render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'actions' }))
+    const cls = screen.getByRole('menu').className
+    expect(cls).toContain('glass-card')
+    expect(cls).toContain('border-hair')
+    expect(cls).toContain('shadow-lg')
+  })
 })
