@@ -207,6 +207,7 @@ function App(): React.JSX.Element {
               }
               onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
               onOpenCase={openCase}
+              onHome={goHome}
               onOpenRepoFile={(repoName, relPath, start, end) =>
                 setViewer({
                   kind: 'repoFile',

@@ -187,6 +187,7 @@ function workspace(
     onStatusChanged?: () => void
     activeMode?: ModeId
     onModeSwitched?: () => void
+    onHome?: () => void
   }
 ): React.JSX.Element {
   return (
@@ -204,6 +205,7 @@ function workspace(
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
       onOpenRepoFile={vi.fn()}
+      onHome={overrides?.onHome ?? vi.fn()}
     />
   )
 }
@@ -215,6 +217,7 @@ function renderWorkspace(overrides?: {
   onStatusChanged?: () => void
   activeMode?: ModeId
   onModeSwitched?: () => void
+  onHome?: () => void
 }): ReturnType<typeof render> {
   return render(workspace('NAV-1', overrides))
 }
@@ -1057,6 +1060,84 @@ describe('CaseWorkspace case-id menu', () => {
     await user.click(await screen.findByText('Export case…'))
     await waitFor(() => expect(window.argus.bundle.export).toHaveBeenCalled())
     expect(toastStore.get().toasts).toHaveLength(0)
+  })
+
+  // Task 9: `distilled · N` / `nothing to distill` persisted for the life of the case, so as
+  // header chips they were permanent bar furniture. They moved to a trailing label on this
+  // row instead — the chip (DistillChip) keeps only the transient `distilling…`/failed states.
+  it('labels the Re-distill row with the item count once a distillation has completed', async () => {
+    window.argus.distill.status = vi.fn(async () => ({
+      id: 1,
+      caseSlug: 'NAV-1',
+      state: 'done' as const,
+      error: null,
+      itemCount: 12,
+      createdAt: 't',
+      finishedAt: 't'
+    }))
+    renderWorkspace({ status: 'closed' })
+    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    expect(await screen.findByRole('menuitem', { name: 'Re-distill · 12 items' })).toBeTruthy()
+  })
+
+  it('keeps the Re-distill row bare when no distillation has ever run', async () => {
+    renderWorkspace({ status: 'closed' })
+    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    expect(await screen.findByRole('menuitem', { name: 'Re-distill' })).toBeTruthy()
+  })
+
+  // Task 9: `Close case` duplicates the tab's `×` for now — added so the next increment
+  // (case anchor replaces the tab and loses its `×`) is purely structural.
+  it('closes the tab and goes home via Close case', async () => {
+    const closeTab = vi.spyOn(uiStore, 'closeTab')
+    const onHome = vi.fn()
+    renderWorkspace({ onHome })
+    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close case' }))
+    expect(closeTab).toHaveBeenCalledWith('NAV-1')
+    expect(onHome).toHaveBeenCalled()
+    closeTab.mockRestore()
+  })
+
+  // Regression coverage, same family as the other "does not leak case A's ... into case B"
+  // tests in this file: DistillChip now holds its own component-instance state (the retry
+  // `override`), the same category of state JiraPill/ChatPane/ReposSection already guard with
+  // `key={slug}`. Without that key here too, a retry clicked on case A's chip would keep
+  // showing on case B's chip after a switch, because CaseWorkspace itself is never remounted
+  // on a slug change.
+  it('does not leak a case A distill retry into case B’s chip', async () => {
+    window.argus.distill.status = vi.fn(async (slug: string) =>
+      slug === 'NAV-1'
+        ? {
+            id: 1,
+            caseSlug: 'NAV-1',
+            state: 'failed' as const,
+            error: 'boom',
+            itemCount: null,
+            createdAt: 't',
+            finishedAt: 't'
+          }
+        : null
+    )
+    window.argus.distill.retry = vi.fn(async () => ({
+      id: 1,
+      caseSlug: 'NAV-1',
+      state: 'queued' as const,
+      error: null,
+      itemCount: null,
+      createdAt: 't',
+      finishedAt: null
+    }))
+    const view = render(workspace('NAV-1'))
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
+    await screen.findByText(/distilling/)
+
+    // switch to a case with no distill job at all
+    view.rerender(workspace('NAV-2'))
+
+    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalledWith('NAV-2'))
+    expect(screen.queryByText(/distilling/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/retry/i)).not.toBeInTheDocument()
   })
 })
 

@@ -1,26 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { DistillJobRow } from '../../../shared/distill'
 import { Chip } from './ui'
+import { useDistillJob } from '../lib/distillJob'
 
+/**
+ * Distillation, but only while it needs the bar's attention. The resting `done` states
+ * moved to the Re-distill menu row (`distillMenuLabel`) — they persist for the life of the
+ * case, so as chips they were permanent furniture in a bar with no room for it.
+ */
 export function DistillChip({ slug }: { slug: string }): React.JSX.Element | null {
-  const [job, setJob] = useState<DistillJobRow | null>(null)
+  const tracked = useDistillJob(slug)
+  const [override, setOverride] = useState<DistillJobRow | null>(null)
   const [retrying, setRetrying] = useState(false)
-
-  useEffect(() => {
-    let mounted = true
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setJob(null)
-    void window.argus.distill.status(slug).then((j) => {
-      if (mounted) setJob(j)
-    })
-    const off = window.argus.distill.onChanged((p) => {
-      if (p.caseSlug === slug) setJob(p.job)
-    })
-    return () => {
-      mounted = false
-      off()
-    }
-  }, [slug])
+  const job = override ?? tracked
 
   if (!job) return null
 
@@ -37,11 +29,11 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
           setRetrying(true)
           void window.argus.distill
             .retry(job.id)
-            .then(setJob)
+            .then(setOverride)
             .catch(() =>
               window.argus.distill
                 .status(slug)
-                .then((j) => j && setJob(j))
+                .then((j) => j && setOverride(j))
                 .catch(() => undefined)
             )
             .finally(() => setRetrying(false))
@@ -52,9 +44,5 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
     )
   }
 
-  // done
-  if (job.itemCount && job.itemCount > 0) {
-    return <Chip tone="signal">distilled · {job.itemCount}</Chip>
-  }
-  return <Chip>nothing to distill</Chip>
+  return null
 }

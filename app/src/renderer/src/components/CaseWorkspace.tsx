@@ -39,6 +39,7 @@ import { railTier } from '../lib/priorityRail'
 import type { ModeId } from '../../../shared/modes'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
+import { useDistillJob, distillMenuLabel } from '../lib/distillJob'
 
 export function CaseWorkspace({
   slug,
@@ -54,7 +55,8 @@ export function CaseWorkspace({
   onOpenCitation,
   onOpenFile,
   onOpenCase,
-  onOpenRepoFile
+  onOpenRepoFile,
+  onHome
 }: {
   slug: string
   jiraKey: string | null
@@ -78,6 +80,10 @@ export function CaseWorkspace({
   onOpenFile: (node: FileNode) => void
   onOpenCase?: (slug: string) => void
   onOpenRepoFile: (repoName: string, relPath: string, start: number, end: number) => void
+  /** Close case (case-actions menu) duplicates the tab's `×` for now — added here so the
+   *  increment that replaces the tab with a case anchor (and drops its `×`) is purely
+   *  structural, not a new wiring job. Same handler App.tsx already gives TopBar. */
+  onHome: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -89,6 +95,7 @@ export function CaseWorkspace({
     () => panelsStore.get()
   )
   const anchors = useAmbientAnchors()
+  const distillJob = useDistillJob(slug)
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
@@ -447,9 +454,16 @@ export function CaseWorkspace({
                 ]
               },
               {
-                label: 'Re-distill',
+                label: distillMenuLabel(distillJob),
                 disabled: status !== 'closed',
                 onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
+              },
+              {
+                label: 'Close case',
+                onSelect: () => {
+                  uiStore.closeTab(slug)
+                  onHome()
+                }
               }
             ]}
           />
@@ -459,7 +473,11 @@ export function CaseWorkspace({
         <div className="relative shrink-0">
           <JiraPill key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
         </div>
-        <DistillChip slug={slug} />
+        {/* key={slug}: DistillChip holds its own component-instance state (the retry
+            `override`) — same category JiraPill guards with a key on the line above; without
+            it, CaseWorkspace's no-remount-on-slug-change contract would let a retry clicked on
+            case A's chip keep showing after switching to case B. */}
+        <DistillChip key={slug} slug={slug} />
         <ModeSwitcher
           slug={slug}
           activeMode={activeMode}
