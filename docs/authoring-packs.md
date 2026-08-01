@@ -341,6 +341,40 @@ Core's Packs settings page installs from a bundle: it verifies `CHECKSUMS` (bidi
 `ARGUS_HOME/packs/<id>/`. **Installing/uninstalling always requires an app relaunch** to take effect.
 A source manifest with no `platform` cannot be installed (only loaded in place for dev).
 
+### Update feeds
+
+Add `"updateUrl": "https://vendor.example/packs/my-pack/feed.json"` to the manifest to let Core
+check for updates on its own. It must be **https** — Core validates the scheme and refuses
+anything else before ever making a request.
+
+The first time a bundle carrying `updateUrl` is installed, Core records that URL's **origin** as
+a trust-on-first-use pin for the pack. From then on, checking for updates means fetching the
+*pinned* `updateUrl`, and every entry that feed offers must download from that same origin — Core
+refuses one that doesn't before it ever requests it. Practically, this means a feed can never move
+its own pin: publishing a `feed.json` (or a version entry in it) that points off-origin just makes
+that update unavailable, not a way to redirect trust elsewhere. The pin can only move when a
+*bundle* is installed through some other route — a file the user picks by hand, or any fresh
+install — because that always re-derives the pin from the bundle's own manifest. That's how you
+migrate a pack to a new hosting origin: ship one bundle whose manifest already names the new
+`updateUrl`, get a user (or your own release process) to install it once, and the pin moves with
+it. A manifest that drops `updateUrl` entirely clears the pin, and the pack stops being checked.
+
+Feed and bundles must be **co-hosted**: publish `feed.json` at the exact URL named in
+`updateUrl`, and serve every bundle it references from that same origin. Core's HTTP client
+(`redirect: 'manual'`) treats a redirect on either request as a hard failure rather than following
+it — a CDN or load balancer that 301s across origins will break updates for your users, not route
+around the pin.
+
+Use `argus-pack feed` (§9's build tool, `tools/pack-tools`) to generate `feed.json` from your
+built bundles — see its README for the exact invocation.
+
+As with `CHECKSUMS` (§9), the feed's `sha256` per version is **integrity, not authenticity**: it
+lets Core detect a corrupted or truncated download, not verify who produced it. The origin pin
+narrows *where* an update can come from, but if a vendor's hosting origin itself is compromised,
+an attacker serving from that origin can still publish a feed with a matching, self-consistent
+checksum. Protecting the origin itself — access control on the host, a locked-down deploy
+pipeline — is outside what this scheme defends.
+
 ---
 
 ## 10. Checklist & common mistakes

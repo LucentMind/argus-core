@@ -13,6 +13,18 @@ Produces `dist/<packId>-<version>-<platform>.zip` containing `argus-pack.json`
 (with `platform` stamped), `persona.md`, `skills/`, `references/`, `ui/`, `bin/`,
 and `CHECKSUMS`.
 
+## Publishing an update feed
+
+    node dist/cli.js feed --pack ./ --bundles ./dist --base-url https://vendor.example/packs --out ./dist/feed.json
+
+`--pack` is the source directory: `id` and `argusApi` come from its `argus-pack.json`, while
+each bundle's version and platform come from its filename.
+
+Host the resulting `feed.json` at the **exact** HTTPS URL your pack's `argus-pack.json`
+names in `updateUrl`, and host the bundles on the **same origin**. Argus pins that origin at
+install time and refuses a feed or download that moves off it, or that redirects — see the
+"Update feeds" section of `docs/authoring-packs.md`.
+
 ## GitHub Action
 
     - uses: <core-repo>/tools/pack-tools@<ref>
