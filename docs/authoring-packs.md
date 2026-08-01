@@ -366,7 +366,11 @@ it — a CDN or load balancer that 301s across origins will break updates for yo
 around the pin.
 
 Use `argus-pack feed` (§9's build tool, `tools/pack-tools`) to generate `feed.json` from your
-built bundles — see its README for the exact invocation.
+built bundles — see its README for the exact invocation. `argus-pack feed` globs **every** `.zip`
+in `--bundles`, so keep that directory scoped to bundles you actually intend to publish. Nothing
+gates a prerelease version out of the feed either: `semver.gt('1.2.0-rc.1', '1.1.0')` is true, so
+a prerelease entry you publish is offered as an update to **every** user on an older version, not
+just opted-in testers — don't drop one into `--bundles` unless you mean to ship it broadly.
 
 As with `CHECKSUMS` (§9), the feed's `sha256` per version is **integrity, not authenticity**: it
 lets Core detect a corrupted or truncated download, not verify who produced it. The origin pin

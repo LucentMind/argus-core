@@ -1,10 +1,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import os from 'node:os'
+import { extract } from 'zip-lib'
 import { readManifest } from './build'
+import {
+  PACK_MANIFEST_FILE,
+  packManifestSchema
+} from '../../../app/src/main/services/packs/manifest'
 
 export interface FeedOptions {
-  /** The pack source dir — the authority for `id` and `argusApi`. */
+  /** The pack source dir — the authority for `id` (and, transitively, the hyphen-extension
+   *  guard below). `argusApi` is NOT read from here — see `readBundleArgusApi`. */
   packDir: string
   /** Paths to built bundles, named as `build()` emits them. */
   bundles: string[]
@@ -40,8 +47,89 @@ const SEMVER = new RegExp(
     '(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$'
 )
 
-export function buildFeed(opts: FeedOptions): FeedDocument {
-  if (!/^https:\/\//.test(opts.baseUrl)) {
+/** Parsed (major, minor, patch, prerelease) — enough for a total order without a dependency. */
+function parseSemver(v: string): {
+  major: number
+  minor: number
+  patch: number
+  prerelease: string | null
+} {
+  const m = SEMVER.exec(v)
+  if (!m) throw new Error(`not valid semver: ${v}`) // unreachable: callers only pass SEMVER-tested strings
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), prerelease: m[4] ?? null }
+}
+
+/**
+ * Descending comparator for `Array.prototype.sort`. Not full SemVer 2.0.0 precedence (prerelease
+ * identifiers are compared as plain strings, not numeric-vs-alpha per dot-separated field) — this
+ * is a review/reproducibility aid for a published feed, not a compatibility gate (that's
+ * `isApiCompatible`/`semver.gt` in Core), so an approximate order is an acceptable tradeoff for
+ * not adding a dependency to a tool that otherwise has none for version math.
+ */
+function compareSemverDesc(a: string, b: string): number {
+  const pa = parseSemver(a)
+  const pb = parseSemver(b)
+  if (pa.major !== pb.major) return pb.major - pa.major
+  if (pa.minor !== pb.minor) return pb.minor - pa.minor
+  if (pa.patch !== pb.patch) return pb.patch - pa.patch
+  // A release (no prerelease) outranks any prerelease of the same major.minor.patch.
+  if (pa.prerelease == null && pb.prerelease != null) return -1
+  if (pa.prerelease != null && pb.prerelease == null) return 1
+  if (pa.prerelease == null && pb.prerelease == null) return 0
+  return pa.prerelease! < pb.prerelease! ? 1 : pa.prerelease! > pb.prerelease! ? -1 : 0
+}
+
+/**
+ * Reads `argusApi` from the BUNDLE's own manifest, not the source manifest passed via `packDir`.
+ *
+ * The plan originally stamped every entry with the source manifest's current `argusApi`
+ * ("unzipping each bundle would be wasteful"). That forces a single-version feed: after a vendor
+ * bumps their source manifest to `argusApi: "^2"`, regenerating the feed would silently relabel
+ * an older, still-published `1.1.0` bundle as requiring `^2` too — stranding every user on a `^1`
+ * Core with an update that was actually built for them. That defeats the entire reason
+ * `packFeedSchema.versions` is a LIST rather than a `latest` pointer (see feed.ts's doc comment
+ * in `app/src/main/services/packs/feed.ts`). Reading each bundle's own manifest is not
+ * meaningfully more expensive at publish time, so the human overruled the original tradeoff.
+ */
+async function readBundleArgusApi(bundlePath: string): Promise<string> {
+  const name = path.basename(bundlePath)
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-feed-'))
+  try {
+    try {
+      await extract(bundlePath, tmp, { safeSymlinksOnly: true })
+    } catch (err) {
+      throw new Error(`bundle '${name}' could not be read as a zip: ${(err as Error).message}`)
+    }
+    const manifestPath = path.join(tmp, PACK_MANIFEST_FILE)
+    if (!fs.existsSync(manifestPath)) {
+      throw new Error(`bundle '${name}' has no ${PACK_MANIFEST_FILE} inside it`)
+    }
+    let raw: unknown
+    try {
+      raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    } catch (err) {
+      throw new Error(`bundle '${name}' has an unreadable ${PACK_MANIFEST_FILE}: ${(err as Error).message}`)
+    }
+    const parsed = packManifestSchema.safeParse(raw)
+    if (!parsed.success) {
+      throw new Error(
+        `bundle '${name}' has an invalid ${PACK_MANIFEST_FILE}: ${parsed.error.issues[0]?.message ?? parsed.error.message}`
+      )
+    }
+    return parsed.data.argusApi
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
+export async function buildFeed(opts: FeedOptions): Promise<FeedDocument> {
+  let parsedBase: URL
+  try {
+    parsedBase = new URL(opts.baseUrl)
+  } catch {
+    throw new Error(`baseUrl is not a valid URL: ${opts.baseUrl}`)
+  }
+  if (parsedBase.protocol !== 'https:') {
     throw new Error(`baseUrl must be https (Argus refuses to fetch anything else): ${opts.baseUrl}`)
   }
   if (opts.bundles.length === 0) throw new Error('no bundles given — nothing to publish')
@@ -49,7 +137,8 @@ export function buildFeed(opts: FeedOptions): FeedDocument {
   const manifest = readManifest(opts.packDir)
   const prefix = opts.baseUrl.replace(/\/+$/, '')
 
-  const versions = opts.bundles.map((bundlePath): FeedVersion => {
+  const versions: FeedVersion[] = []
+  for (const bundlePath of opts.bundles) {
     const name = path.basename(bundlePath)
     const m = BUNDLE_TAIL.exec(name)
     if (!m) {
@@ -72,14 +161,22 @@ export function buildFeed(opts: FeedOptions): FeedDocument {
         `bundle '${name}' does not belong to pack '${manifest.id}' (parsed version '${version}' is not valid semver — check for another pack whose id is a hyphen-extension of '${manifest.id}')`
       )
     }
-    return {
+    // Filename checks above are cheap and synchronous, so a bundle that's obviously wrong (bad
+    // name, wrong pack) fails fast without ever needing to be a valid zip. Only a bundle that's
+    // passed all of that is actually opened to read its own argusApi.
+    const argusApi = await readBundleArgusApi(bundlePath)
+    versions.push({
       version,
-      argusApi: manifest.argusApi,
+      argusApi,
       platform,
       url: `${prefix}/${name}`,
       sha256: crypto.createHash('sha256').update(fs.readFileSync(bundlePath)).digest('hex')
-    }
-  })
+    })
+  }
+
+  // Descending by version so a published feed is reviewable across runs (newest first) rather
+  // than in whatever order the OS happened to list the bundle files.
+  versions.sort((a, b) => compareSemverDesc(a.version, b.version))
 
   return { id: manifest.id, versions }
 }

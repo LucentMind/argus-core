@@ -46,7 +46,7 @@ async function runBuild(argv: string[]): Promise<number> {
   }
 }
 
-function runFeed(argv: string[]): number {
+async function runFeed(argv: string[]): Promise<number> {
   let values: Record<string, string | undefined>
   try {
     ;({ values } = parseArgs({
@@ -73,7 +73,7 @@ function runFeed(argv: string[]): number {
       .readdirSync(dir)
       .filter((n) => n.endsWith('.zip'))
       .map((n) => path.join(dir, n))
-    const feed = buildFeed({ packDir: values.pack!, bundles, baseUrl: values['base-url']! })
+    const feed = await buildFeed({ packDir: values.pack!, bundles, baseUrl: values['base-url']! })
     fs.mkdirSync(path.dirname(values.out!), { recursive: true })
     fs.writeFileSync(values.out!, JSON.stringify(feed, null, 2) + '\n', 'utf8')
     console.log(`wrote feed for ${feed.id} (${feed.versions.length} versions) → ${values.out}`)

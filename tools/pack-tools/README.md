@@ -17,8 +17,12 @@ and `CHECKSUMS`.
 
     node dist/cli.js feed --pack ./ --bundles ./dist --base-url https://vendor.example/packs --out ./dist/feed.json
 
-`--pack` is the source directory: `id` and `argusApi` come from its `argus-pack.json`, while
-each bundle's version and platform come from its filename.
+`--pack` is the source directory: only `id` comes from its `argus-pack.json` (and, transitively,
+guards against publishing a bundle belonging to a different pack). Each bundle's version and
+platform come from its filename, and its `argusApi` is read from that bundle's OWN
+`argus-pack.json` (inside the zip) — not from the source manifest — so republishing the feed
+after bumping the source manifest's `argusApi` does not silently relabel an older, already-shipped
+bundle's compatibility.
 
 Host the resulting `feed.json` at the **exact** HTTPS URL your pack's `argus-pack.json`
 names in `updateUrl`, and host the bundles on the **same origin**. Argus pins that origin at
