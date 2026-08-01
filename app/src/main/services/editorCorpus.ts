@@ -36,9 +36,15 @@ const realFs: CorpusFs = {
  * The editor window's view of every asset it could open (spec §6.2) and of what cites what
  * (§6.3).
  *
- * Read on demand, not cached. Both callers are user-initiated — opening a palette and running a
- * command — and a cache here would be a third copy of a truth that already has two (`skills:list`
- * and `refsync:get`) and would need invalidating on every fork, claim and sync.
+ * Read on demand, not cached. `list()` is NOT only user-initiated any more: `useEditorAssets`
+ * (renderer `lib/editorAssets.ts`) calls `window.argus.editor.corpus()` on mount, on demand when
+ * the palette opens, and on every `skills:changed` / `refsync:changed` broadcast — so it re-reads
+ * the full body of every reference (to parse frontmatter) on every skill save or reference sync
+ * while an editor window is open, blocking main for that read each time. A cache here would be a
+ * third copy of a truth that already has two (`skills:list` and `refsync:get`) and would need
+ * invalidating on every fork, claim and sync — a real design change with its own cost/benefit,
+ * not something to bolt on incidentally. Left uncached deliberately; the next reader should not
+ * have to re-derive that this is now a hot path rather than a rare one.
  *
  * Bodies never cross the IPC boundary: `findReferences` takes the query and returns only matched
  * lines. Shipping the corpus to the renderer would put an unbounded payload on the channel and
