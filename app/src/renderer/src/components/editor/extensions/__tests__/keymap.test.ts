@@ -8,7 +8,8 @@ const stub = (): { current: SurfaceCommands } => ({
     save: vi.fn(),
     changeFontSize: vi.fn(),
     toggleWrap: vi.fn(),
-    cycleViewMode: vi.fn()
+    cycleViewMode: vi.fn(),
+    openLink: vi.fn()
   }
 })
 

@@ -9,7 +9,8 @@ import {
   replaceTab,
   setTabDirty,
   setTabView,
-  dirtyCount
+  dirtyCount,
+  cycleTab
 } from '../tabs'
 
 const SKILL = { kind: 'skill', name: 'my-skill', mode: 'edit' } as const
@@ -274,5 +275,37 @@ describe('activateTab', () => {
   it('ignores an id that is not open', () => {
     const s = openTab(emptyTabs, SKILL)
     expect(activateTab(s, 'nope')).toEqual(s)
+  })
+})
+
+describe('cycleTab', () => {
+  const three = ['a', 'b', 'c'].reduce(
+    (s, n) => openTab(s, { kind: 'skill', name: n, mode: 'edit' }),
+    emptyTabs
+  )
+
+  // Positional (`s.tabs[n].id`), not the minted `'t1'`/`'t3'` literals: the contract is "wraps
+  // from the last tab to the first (and back)", not "the ids happen to be these strings" — `id`
+  // is documented as synthetic (see `Tab.id`), so pinning its literal value here would make this
+  // test an accident of `mint`'s naming scheme rather than a check of `cycleTab`'s behaviour.
+  it('moves right and wraps', () => {
+    const last = three.tabs[three.tabs.length - 1]!.id
+    const first = three.tabs[0]!.id
+    expect(cycleTab({ ...three, activeId: last }, 1).activeId).toBe(first)
+  })
+
+  it('moves left and wraps', () => {
+    const first = three.tabs[0]!.id
+    const last = three.tabs[three.tabs.length - 1]!.id
+    expect(cycleTab({ ...three, activeId: first }, -1).activeId).toBe(last)
+  })
+
+  it('is a no-op with no tabs', () => {
+    expect(cycleTab(emptyTabs, 1)).toBe(emptyTabs)
+  })
+
+  it('is a no-op when nothing is active', () => {
+    const s = { ...three, activeId: null }
+    expect(cycleTab(s, 1)).toBe(s)
   })
 })

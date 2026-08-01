@@ -9,6 +9,15 @@ vi.mock('../../library/assistProvider', () => ({
   useAssistProvider: vi.fn(() => ({ ok: true, text: 'via claude' }))
 }))
 
+/**
+ * Task 14's `BottomDock` also renders `role="tab"` elements (its Problems/References strip, one
+ * per mounted `AssetPane` — every tab stays mounted, so a hidden pane's dock is still in the DOM).
+ * Its buttons carry `aria-label="Problems"` / `"References"`, never this suffix, so a query
+ * scoped to it is scoped to the document-tab strip alone, the way this test already assumed
+ * before that dock existed.
+ */
+const DOC_TAB = /\(tab\)$/
+
 // Same reason as EditorApp.test.tsx: CodeMirror measures real DOM and cannot run under jsdom.
 interface MockSurfaceProps {
   initialDoc: string
@@ -30,7 +39,8 @@ vi.mock('../CodeSurface', () => ({
         goToLine: vi.fn(),
         focus: vi.fn(),
         requestMeasure: vi.fn(),
-        scrollTo: vi.fn()
+        scrollTo: vi.fn(),
+        openGotoLine: vi.fn()
       }
     }
     return (
@@ -189,8 +199,8 @@ describe('EditorApp early (buffered) path', () => {
 
     render(<EditorApp />)
 
-    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(3))
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+    await waitFor(() => expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(3))
+    expect(screen.getAllByRole('tab', { name: DOC_TAB }).map((t) => t.textContent)).toEqual([
       'other-skill',
       'theirs',
       'my-skill'

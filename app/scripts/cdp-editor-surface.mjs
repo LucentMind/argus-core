@@ -76,7 +76,19 @@ const gotoLibrary = async (main) => {
 // already-open editor window doesn't get the editor connection here instead.
 const main = await connect(mainWindow(await listTargets()))
 await gotoLibrary(main)
-await main.evalJs(`document.querySelector('[aria-label^="Edit \\u00b7 "]').click()`)
+// Ask the app which skill is USER-tier rather than clicking the first `Edit ·` button in DOM
+// order. That button renders for every tier since Increment 4 (`LibraryPage.tsx`'s skill row
+// `Btn` is ungated), and a bundled/hivemind asset now opens READ-ONLY — where every assertion
+// below (typing, Improve, Save) would fail in a way that reads as a regression in the surface
+// itself rather than a fixture pick. Same fix as `cdp-editor-drafts.mjs` — see its comment on
+// `openEditor` for the full story.
+await main.evalJs(`(async () => {
+  const { skills } = await window.argus.skills.list()
+  const mine = skills.find((s) => s.tier === 'user')
+  if (!mine) throw new Error('the scratch ARGUS_HOME holds no user-tier skill — see this gate\\'s header')
+  document.querySelector('[aria-label="Edit \\u00b7 ' + mine.name + '"]').click()
+  return mine.name
+})()`)
 let target = null
 await waitFor('the editor window', async () => {
   target = (await listTargets()).find((t) => t.url.includes('editor.html'))

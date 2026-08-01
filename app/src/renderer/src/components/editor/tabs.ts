@@ -206,3 +206,15 @@ export function replaceTab(s: TabsState, id: string, req: EditorOpenRequest): Ta
 export function dirtyCount(s: TabsState): number {
   return s.tabs.filter((t) => t.dirty).length
 }
+
+/**
+ * Ctrl+Tab / Ctrl+Shift+Tab. Wraps at both ends, and moves in **strip order** rather than a
+ * most-recently-used order: MRU cycling needs a visit history this reducer deliberately does not
+ * keep, and strip order is what the tab bar shows.
+ */
+export function cycleTab(s: TabsState, delta: 1 | -1): TabsState {
+  const i = s.tabs.findIndex((t) => t.id === s.activeId)
+  if (i === -1) return s
+  const next = s.tabs[(i + delta + s.tabs.length) % s.tabs.length]!
+  return { ...s, activeId: next.id }
+}

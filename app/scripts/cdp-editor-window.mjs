@@ -72,12 +72,21 @@ if (before.length === 0) {
 
 const main = await connect(before[0])
 await gotoLibrary(main)
-// aria-label is `Edit · <name>` (LibraryPage.tsx) — the middle dot is part of the label, so
-// strip it too or the .cm-content lookup below never matches.
-const assetLabel = await main.evalJs(
-  `document.querySelector('[aria-label^="Edit \\u00b7 "]').getAttribute('aria-label').replace(/^Edit\\s*\\u00b7\\s*/, '')`
-)
-await main.evalJs(`document.querySelector('[aria-label^="Edit \\u00b7 "]').click()`)
+// Ask the app which skill is USER-tier rather than clicking the first `Edit ·` button in DOM
+// order. That button renders for every tier since Increment 4 (`LibraryPage.tsx`'s skill row
+// `Btn` is ungated), and a bundled/hivemind asset now opens READ-ONLY — this gate's assertion 3
+// ("editor window renders the asset") would still pass, but assertion 4's second Edit and the
+// window-closing assertion below are unaffected either way; the real hazard is assertion 3
+// itself landing on a read-only tab and any future assertion added here that assumes a writable
+// pane failing in a way that reads as a regression in THIS increment rather than a fixture pick.
+// Same fix as `cdp-editor-drafts.mjs` — see its comment on `openEditor` for the full story.
+const assetLabel = await main.evalJs(`(async () => {
+  const { skills } = await window.argus.skills.list()
+  const mine = skills.find((s) => s.tier === 'user')
+  if (!mine) throw new Error('the scratch ARGUS_HOME holds no user-tier skill — seed one first')
+  return mine.name
+})()`)
+await main.evalJs(`document.querySelector('[aria-label="Edit \\u00b7 ${assetLabel}"]').click()`)
 
 // --- 2. a second target appears, and it is editor.html ---
 const editorTarget = await waitFor('a second window', async () => {
@@ -103,7 +112,11 @@ if (editorTarget) {
 check('editor window renders the asset', rendered, assetLabel)
 
 // --- 4. a second Edit focuses rather than opening a third window ---
-await main.evalJs(`document.querySelector('[aria-label^="Edit \\u00b7 "]').click()`)
+// Same specific asset as step 1, not "the first Edit button" again — with several user-tier
+// skills seeded, DOM order is not guaranteed to hand back the same one twice, and clicking a
+// DIFFERENT asset here would legitimately open a second, distinct editor tab and fail this
+// assertion for a reason that has nothing to do with the focus-vs-open behaviour under test.
+await main.evalJs(`document.querySelector('[aria-label="Edit \\u00b7 ${assetLabel}"]').click()`)
 await sleep(1500)
 const afterSecond = await listTargets()
 check(

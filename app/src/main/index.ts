@@ -227,8 +227,10 @@ import {
   type DraftChange,
   type DraftRef,
   type DraftAdoptRequest,
-  type PersistedTabs
+  type PersistedTabs,
+  type FindReferencesRequest
 } from '../shared/editorIpc'
+import { EditorCorpusService } from './services/editorCorpus'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
@@ -614,6 +616,16 @@ function registerIpc(): void {
         }
         return { name: s.name, description: s.description, content }
       })
+  const editorCorpus = new EditorCorpusService({
+    argusHome,
+    listSkills: () =>
+      resolveSkills(argusHome, agentAccessStore.get()).map((s) => ({
+        name: s.name,
+        dir: s.dir,
+        description: s.description,
+        tier: s.tier
+      }))
+  })
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug) => assembleDistillInput(db, argusHome, slug, skillsIndexForDistill()),
@@ -1743,6 +1755,11 @@ function registerIpc(): void {
     if (tabsTimer) clearTimeout(tabsTimer)
     tabsTimer = setTimeout(() => flushTabs?.(), 1000)
   })
+
+  ipcMain.handle(EDITOR_IPC.corpus, () => editorCorpus.list())
+  ipcMain.handle(EDITOR_IPC.findReferences, (_e, req: FindReferencesRequest) =>
+    editorCorpus.findReferences(req)
+  )
 
   // — hivemind (spec §2.3) —
   const hivemind = new HivemindService({

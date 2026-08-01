@@ -1,4 +1,5 @@
 import type { AuthoringKind } from './authoringIpc'
+import { REFERENCES_INDEX } from './referenceSync'
 
 /**
  * May the editor let the user type into this asset?
@@ -58,4 +59,19 @@ export function canEditCopy(kind: AuthoringKind, tier: TierLookup): boolean {
   if (isAssetEditable(kind, tier)) return false
   if (kind === 'skill') return true
   return tier === 'hivemind'
+}
+
+/**
+ * Is this asset generated, and therefore pointless to edit?
+ *
+ * A **separate** predicate from {@link isAssetEditable}, which answers a question about a TIER.
+ * `INDEX.md` is untagged, so the tier rule calls it hand-authored and editable — which is right
+ * about its provenance and wrong about what to do with it: `generateReferencesIndex`
+ * (refSync/engine.ts) rewrites it on every sync, and `validateReference` (assetValidation.ts)
+ * already refuses the save with a blocking error. Spec §6.2 words this as a warning banner; it
+ * ships read-only, because §6.2's own rule is that quick open must never drop the user into a
+ * buffer that cannot be saved — and typing into one would file a draft no save could retire.
+ */
+export function isGeneratedAsset(kind: AuthoringKind, name: string): boolean {
+  return kind === 'reference' && name.toLowerCase() === REFERENCES_INDEX.toLowerCase()
 }

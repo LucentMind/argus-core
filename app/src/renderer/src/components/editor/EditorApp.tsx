@@ -1,19 +1,29 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssetTab } from './AssetTab'
 import { TabBar } from './TabBar'
+import { CommandPalette } from './CommandPalette'
 import { ConfirmHost } from '../ConfirmHost'
-import { alert, confirm } from '../../lib/confirmStore'
+import { alert, confirm, confirmStore } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
 import { TitleBarStrip } from '../TitleBarStrip'
 import { PaneActionSlotContext } from './paneActionSlot'
 import { drainEditorMessages } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
-import { isAssetEditable } from '../../../../shared/assetEditable'
+import { useEditorAssets } from '../../lib/editorAssets'
+import { isAssetEditable, isGeneratedAsset } from '../../../../shared/assetEditable'
 import { TIER_LABELS, type TrustTier } from '../../../../shared/trustTiers'
+import {
+  buildCommands,
+  commandForEvent,
+  type AssetPaneHandle,
+  type Command,
+  type PaneCommandState
+} from '../../lib/commands'
 import {
   activateTab,
   closeTab,
+  cycleTab,
   dirtyCount,
   emptyTabs,
   markTabSaved,
@@ -29,7 +39,21 @@ import {
 } from './tabs'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
 import type { TierLookup } from '../../../../shared/assetEditable'
+import type { AssetRow } from '../../lib/palette'
 import type { PersistedTabs, TabViewState } from '../../../../shared/editorIpc'
+
+/**
+ * The stable "this tab offers nothing" value for every tab that is not the active one (see
+ * `commands` below and the `.map` call site in `EditorApp`). Frozen and module-level, not
+ * `undefined`: `AssetPane`'s `cmdFor` treats an absent `commands` prop (`undefined`) as "no host
+ * at all, fall back to local expressions" — the shape its own standalone tests mount with — and
+ * conflating "the window supplied an empty list" with that would silently resurrect the local
+ * fallback (see finding 2's drift) for every inactive tab. An empty array keeps the two
+ * distinguishable: every inactive pane's buttons render as omitted (no descriptor found), not
+ * locally recomputed, exactly as if the (invisible, hidden) tab had a working registry that simply
+ * routes nothing to it.
+ */
+const NO_COMMANDS: readonly Command[] = Object.freeze([])
 
 interface TabPaneProps {
   tab: Tab
@@ -42,6 +66,8 @@ interface TabPaneProps {
    *  (unresolved) and `null` (untagged) both mean "no badge, and never read-only" — see
    *  assetTiers.ts. */
   tier: TierLookup
+  /** Whether this asset is generated and should open read-only. Computed per tab like `readOnly`. */
+  generated: boolean
   onDirtyChange: (id: string, dirty: boolean) => void
   onNameChange: (id: string, name: string) => void
   /** A save landed. Flips a create-mode tab to edit mode — see `markTabSaved` in tabs.ts. */
@@ -50,6 +76,30 @@ interface TabPaneProps {
   /** *Edit a copy* (spec §6.2). Takes the same primitives as the other callbacks above, not the
    *  whole `Tab` — see the comment on `handleEditCopy`. */
   onEditCopy: (id: string, kind: AuthoringKind, name: string) => void
+  /** What the ACTIVE pane reports upward, tagged with the tab it came from — see the comment on
+   *  `reported` in `EditorApp`. */
+  onCommandState: (id: string, s: PaneCommandState) => void
+  /** The window's way into this pane's imperative handle. A callback ref, so React calls it with
+   *  `null` on unmount — see the comment on `handlePaneRef` below. */
+  registerPane: (id: string, h: AssetPaneHandle | null) => void
+  /** The window's registry (spec §6.4), rebuilt whenever the active pane reports. Already
+   *  resolved to the right value BEFORE this component sees it: the `.map` call site in
+   *  `EditorApp` passes the live, constantly-rebuilt array only for the tab whose id matches
+   *  `state.activeId`, and the frozen `NO_COMMANDS` to every other tab. That split has to happen
+   *  there, not in here — `TabPane` is `memo`-wrapped, and by the time a ternary inside its body
+   *  ran, the memo's shallow prop comparison would already have seen a fresh array identity on
+   *  `commands` for every mounted tab and bailed out of skipping the re-render for all of them, not
+   *  just the active one. See the file-level comment on `TabPane` for the OOM-class bug this
+   *  guards against. */
+  commands: readonly Command[]
+  /** Every reference filename a Ctrl+click on a markdown link could resolve to. Identity-stable
+   *  (see the `useMemo` in `EditorApp`) — like `commands` above, an unstable identity here would
+   *  defeat `TabPane`'s `memo`, but unlike `commands` this one is the SAME array for every tab,
+   *  active or not, so there is no per-tab split needed at the `.map` call site. */
+  linkTargets: readonly string[]
+  /** A resolved link was Ctrl+clicked; open `file` (a reference) in a tab. Identity-stable, same
+   *  reasoning as `linkTargets`. */
+  onOpenLink: (file: string) => void
 }
 
 /**
@@ -76,20 +126,30 @@ interface TabPaneProps {
  * is a `PreviewPane` mounted in all N tabs and react-markdown re-parses every hidden tab's
  * document on every keystroke. A bare `memo` is correct and complete here because both of its
  * preconditions hold: `patch` (tabs.ts) preserves the object identity of every tab it did not
- * touch, and all five callbacks below arrive from `useCallback`s in `EditorApp` that never
+ * touch, and all seven callbacks below arrive from `useCallback`s in `EditorApp` that never
  * re-create (`onEditCopy` moves only when a tier list is re-broadcast). Do not "simplify" either
- * of those into an inline arrow.
+ * of those into an inline arrow. The two newest — `onCommandState` and `registerPane` — get the
+ * exact same treatment for the exact same reason: an inline `.map` arrow for either would be a
+ * fresh identity every render, and `registerPane` in particular is a callback REF, so a fresh
+ * identity every render would call it with `null` then a new handle on every single keystroke
+ * anywhere in the window.
  */
 const TabPane = memo(function TabPane({
   tab,
   active,
   readOnly,
   tier,
+  generated,
   onDirtyChange,
   onNameChange,
   onSaved,
   onViewStateChange,
-  onEditCopy
+  onEditCopy,
+  onCommandState,
+  registerPane,
+  commands,
+  linkTargets,
+  onOpenLink
 }: TabPaneProps): React.JSX.Element {
   const handleDirtyChange = useCallback(
     (d: boolean) => onDirtyChange(tab.id, d),
@@ -120,6 +180,17 @@ const TabPane = memo(function TabPane({
     () => onEditCopy(tab.id, tab.kind, tab.name),
     [tab.id, tab.kind, tab.name, onEditCopy]
   )
+  const handleCommandState = useCallback(
+    (s: PaneCommandState) => onCommandState(tab.id, s),
+    [tab.id, onCommandState]
+  )
+  // A CALLBACK ref, so React hands us `null` on unmount and the map cannot leak a handle for a
+  // tab that is gone. Bound on `tab.id` for the same identity-stability reason as every other
+  // callback here: an inline arrow would re-register on every EditorApp render.
+  const handlePaneRef = useCallback(
+    (h: AssetPaneHandle | null) => registerPane(tab.id, h),
+    [tab.id, registerPane]
+  )
   // `Chip`-style provenance badge (spec §5.5): the Library's one-word labels, not the raw tier
   // string. An unresolved or untagged tier gets no badge — a raw slug in the status bar would
   // read as a bug, and neither case is ever read-only anyway (see assetEditable.ts).
@@ -143,6 +214,7 @@ const TabPane = memo(function TabPane({
           // `tab.name`, matching the tier this notice is explaining — see `handleEditCopy`.
           name={tab.name}
           tier={tier ?? null}
+          generated={generated}
           onEditCopy={handleEditCopy}
         />
       )}
@@ -160,6 +232,13 @@ const TabPane = memo(function TabPane({
         onNameChange={handleNameChange}
         onSaved={handleSaved}
         onViewStateChange={handleViewStateChange}
+        onCommandState={handleCommandState}
+        paneRef={handlePaneRef}
+        // Already the right value for this tab by the time it gets here — see the doc comment on
+        // the `commands` prop above. No ternary needed (or safe) at this point in the tree.
+        commands={commands}
+        linkTargets={linkTargets}
+        onOpenLink={onOpenLink}
       />
     </div>
   )
@@ -202,6 +281,189 @@ export function EditorApp(): React.JSX.Element {
     dirtyRef.current = dirty
     window.argus.editor.setDirty(dirty)
   }, [dirty])
+
+  const { rows: assetRows, refresh: refreshAssets } = useEditorAssets()
+  // Reference filenames only: a skill is a directory, and a link can only ever resolve to a
+  // reference (see the note in lib/mdLinks.ts). Identity-stable so it does not defeat `TabPane`'s
+  // `memo` — see the doc comment on `TabPaneProps.linkTargets`.
+  const linkTargets = useMemo(
+    () => assetRows.filter((r) => r.kind === 'reference').map((r) => r.name),
+    [assetRows]
+  )
+  const openLink = useCallback((file: string): void => {
+    setState((s) => openTab(s, { kind: 'reference', name: file, mode: 'edit' }))
+  }, [])
+  /** `''` when closed is not a valid closed-state — an empty query is a legitimate OPEN palette.
+   *  `null` is closed; a string is open, and its content picks the mode. */
+  const [palette, setPalette] = useState<string | null>(null)
+
+  /**
+   * Every mounted pane's handle, keyed by tab id. A ref and not state: this is read at press
+   * time from inside a command's `run()`, never during render — which is the whole reason the
+   * registry takes state and actions through separate channels (see lib/commands.ts).
+   */
+  const handles = useRef(new Map<string, AssetPaneHandle>())
+  const registerPane = useCallback((id: string, h: AssetPaneHandle | null): void => {
+    if (h) handles.current.set(id, h)
+    else handles.current.delete(id)
+  }, [])
+
+  /**
+   * What the ACTIVE pane last reported. One slot, tagged with the tab it came from, rather than
+   * a map: a tab switch would otherwise leave the toolbar reading the previous tab's state until
+   * the new pane's first report lands, and the tag makes that window resolve to `null` (every
+   * pane-scoped command disabled) instead of to a lie.
+   */
+  const [reported, setReported] = useState<{ id: string; state: PaneCommandState } | null>(null)
+  const onCommandState = useCallback((id: string, s: PaneCommandState): void => {
+    setReported({ id, state: s })
+  }, [])
+  const paneState = reported && reported.id === state.activeId ? reported.state : null
+
+  // Read across event handlers, so it must reflect the tab set NOW rather than at subscribe
+  // time — the same discipline `dirtyRef` above already uses, for the same reason.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const activePane = useCallback((): AssetPaneHandle | null => {
+    const id = stateRef.current.activeId
+    return id ? (handles.current.get(id) ?? null) : null
+  }, [])
+  const dirtyPanes = useCallback(
+    (): AssetPaneHandle[] =>
+      stateRef.current.tabs
+        .filter((t) => t.dirty)
+        .map((t) => handles.current.get(t.id))
+        .filter((h): h is AssetPaneHandle => h !== undefined),
+    []
+  )
+
+  const openPalette = useCallback(
+    (prefix: string): void => {
+      // Re-read as it opens: the Drafts section is the part that goes stale fastest, and a draft
+      // write is debounced in main rather than broadcast.
+      refreshAssets()
+      setPalette(prefix)
+    },
+    [refreshAssets]
+  )
+
+  const commands = useMemo(
+    () =>
+      buildCommands({
+        pane: paneState,
+        activePane,
+        dirtyPanes,
+        dirtyCount: dirty,
+        tabCount: state.tabs.length,
+        window: {
+          quickOpen: () => openPalette(''),
+          commandPalette: () => openPalette('>'),
+          closeTab: () => setState((s) => (s.activeId ? closeTab(s, s.activeId) : s)),
+          nextTab: () => setState((s) => cycleTab(s, 1)),
+          prevTab: () => setState((s) => cycleTab(s, -1))
+        }
+      }),
+    [paneState, activePane, dirtyPanes, dirty, state.tabs.length, openPalette]
+  )
+
+  /**
+   * The window's ONE keymap, and the replacement for the per-pane `window` listener that used to
+   * live in `AssetPane`.
+   *
+   * `defaultPrevented` is the handshake with CodeMirror's own keymap: that keymap sets it
+   * whenever it handled the key, so a chord both of them know (Ctrl+S, Ctrl+±, Alt+Z) fires once
+   * while the editor has focus and still works when it does not — which is the case Preview mode
+   * creates, since it marks the editor subtree `inert` and focus falls to `<body>`.
+   *
+   * A matched-but-DISABLED command still swallows the key. Letting a disabled Ctrl+W fall
+   * through hands it to Electron, which closes the window — and (finding 2) so does a matched
+   * command the window simply chooses not to run because a modal owns the keyboard: `preventDefault`
+   * has to happen for EVERY match, before either check below decides whether to act on it. This
+   * used to check "is the palette open" before even looking the key up, so a Ctrl+W typed while
+   * the palette was open never called `preventDefault` at all and reached Electron's default
+   * `close` role directly, closing the whole window instead of the tab underneath.
+   *
+   * A modal owns the keyboard while it is up (still swallowed, never acted on): the palette, the
+   * fork-a-copy dialog, and an app-wide `confirm()`/`alert()` (finding 3) — none of those are
+   * commands the registry knows about, so the only way to keep, say, Ctrl+W from closing the tab
+   * behind an open `ForkSkillDialog` is to check for them here too.
+   *
+   * The listener is registered once and reads the current descriptors through a ref: rebuilding
+   * it on every `commands` identity would re-register on every keystroke.
+   */
+  const commandsRef = useRef(commands)
+  useEffect(() => {
+    commandsRef.current = commands
+  }, [commands])
+  const modalOpenRef = useRef(false)
+  useEffect(() => {
+    modalOpenRef.current = palette !== null || forking !== null
+  }, [palette, forking])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented) return
+      const cmd = commandForEvent(commandsRef.current, e)
+      if (!cmd) return
+      // Swallowed for every match, unconditionally — see the comment above. Whether it is also
+      // RUN is decided below.
+      e.preventDefault()
+      if (modalOpenRef.current) return
+      // Checked live rather than through a ref pair like `modalOpenRef`: `confirm()`/`alert()`
+      // (lib/confirmStore) resolve outside any state this component holds — the claim path in
+      // `editCopy` below is one opener — so `confirmStore.get()` is read directly here rather
+      // than mirrored into a ref on a `useEffect` this component would have to remember to add
+      // for every future opener.
+      if (confirmStore.get().current !== null) return
+      if (cmd.enabled) cmd.run()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const pickAsset = useCallback((row: AssetRow): void => {
+    if (row.draft) {
+      // A create draft resumes under its own id (drafts are id-keyed — `keyOf` in
+      // main/services/drafts.ts); an ORPHANED edit draft has no file left, so it opens in edit
+      // mode and `AssetTab`'s resolve finds the draft with no disk behind it.
+      setState((s) =>
+        openTab(s, {
+          kind: row.draft!.kind,
+          name: row.name,
+          mode: row.draft!.mode,
+          ...(row.draft!.draftId ? { draftId: row.draft!.draftId } : {})
+        })
+      )
+      return
+    }
+    setState((s) => openTab(s, { kind: row.kind as AuthoringKind, name: row.name, mode: 'edit' }))
+  }, [])
+
+  const discardDraftRow = useCallback(
+    (row: AssetRow): void => {
+      if (!row.draft) return
+      void (async () => {
+        try {
+          await window.argus.editor.discardDraft(
+            row.draft!.draftId
+              ? { draftId: row.draft!.draftId }
+              : { kind: row.draft!.kind, name: row.name }
+          )
+        } catch (e) {
+          await alert({
+            title: `Could not discard the draft for "${row.name}".`,
+            message: e instanceof Error ? e.message : String(e)
+          })
+          return
+        }
+        refreshAssets()
+      })()
+    },
+    [refreshAssets]
+  )
 
   /**
    * The window's ONE inbound message consumer. Drains the module-scope queue (see
@@ -402,20 +664,37 @@ export function EditorApp(): React.JSX.Element {
               // OPENED with. Creating a skill in a tab minted as "theirs" and saving it as "mine"
               // would otherwise resolve the hivemind tier of "theirs" and lock the user out of the
               // file they just wrote. For every edit-mode tab the two are identical.
+              const generated = isGeneratedAsset(t.kind, t.name)
               const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
-              const readOnly = t.mode !== 'create' && !isAssetEditable(t.kind, tier)
+              const readOnly = t.mode !== 'create' && (generated || !isAssetEditable(t.kind, tier))
+              const active = t.id === state.activeId
               return (
                 <TabPane
                   key={t.id}
                   tab={t}
-                  active={t.id === state.activeId}
+                  active={active}
                   readOnly={readOnly}
                   tier={tier}
+                  generated={generated}
                   onDirtyChange={onDirtyChange}
                   onNameChange={onNameChange}
                   onSaved={onSaved}
                   onViewStateChange={onViewStateChange}
                   onEditCopy={editCopy}
+                  onCommandState={onCommandState}
+                  registerPane={registerPane}
+                  // The split has to happen HERE, at the call site, not inside `TabPane`.
+                  // `TabPane` is `memo`-wrapped, and every tab's `.map` iteration used to pass
+                  // this same `commands` — rebuilt on every keystroke via the `useMemo` above —
+                  // to EVERY `TabPane`, active or not. `memo`'s shallow comparison saw a changed
+                  // `commands` identity on every one of them and re-rendered all N tabs on every
+                  // keystroke anywhere in the window, defeating the whole point of wrapping
+                  // `TabPane` in `memo` (see the file-level comment on it). Computing the split
+                  // here means every INACTIVE tab receives the same frozen `NO_COMMANDS`
+                  // reference release over release, so `memo` sees no change and skips it.
+                  commands={active ? commands : NO_COMMANDS}
+                  linkTargets={linkTargets}
+                  onOpenLink={openLink}
                 />
               )
             })
@@ -436,6 +715,17 @@ export function EditorApp(): React.JSX.Element {
               setState((s) => replaceTab(s, forking.id, { kind: 'skill', name, mode: 'edit' }))
               setForking(null)
             }}
+          />
+        )}
+        {palette !== null && (
+          <CommandPalette
+            raw={palette}
+            onRawChange={setPalette}
+            commands={commands}
+            assets={assetRows}
+            onPickAsset={pickAsset}
+            onDiscardDraft={discardDraftRow}
+            onClose={() => setPalette(null)}
           />
         )}
         <ConfirmHost />

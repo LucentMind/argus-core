@@ -77,6 +77,8 @@ const mount = (
       readOnly={opts.readOnly ?? false}
       onNameChange={vi.fn()}
       onViewStateChange={vi.fn()}
+      linkTargets={[]}
+      onOpenLink={vi.fn()}
     />
   )
 
@@ -156,6 +158,8 @@ describe('AssetTab create-mode identity (draft-id-rekey)', () => {
         readOnly={false}
         onNameChange={vi.fn()}
         onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
       />
     )
 
@@ -178,6 +182,8 @@ describe('AssetTab create-mode identity (draft-id-rekey)', () => {
         readOnly={false}
         onNameChange={vi.fn()}
         onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
       />
     )
     await screen.findByLabelText('skill · brand-new')
@@ -211,6 +217,8 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
         readOnly={false}
         onNameChange={vi.fn()}
         onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
       />
     )
 
@@ -258,6 +266,8 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
         readOnly={false}
         onNameChange={vi.fn()}
         onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
       />
     )
 
@@ -289,6 +299,8 @@ describe('AssetTab legacy draft back-compat (draft-id-rekey)', () => {
         readOnly={false}
         onNameChange={vi.fn()}
         onViewStateChange={vi.fn()}
+        linkTargets={[]}
+        onOpenLink={vi.fn()}
       />
     )
     // Tear the effect down (cleanup sets `live = false`) before the legacy lookup ever resolves.

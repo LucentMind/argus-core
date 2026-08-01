@@ -34,7 +34,12 @@ export const EDITOR_IPC = {
   tabsChanged: 'editor:tabs-changed',
   /** main → renderer: the tab set this window had when the app last exited. Sent on window
    *  creation, before the `openTab` that caused the creation. */
-  restoreTabs: 'editor:restore-tabs'
+  restoreTabs: 'editor:restore-tabs',
+  /** renderer → main: every skill and reference the editor could open (spec §6.2). */
+  corpus: 'editor:corpus',
+  /** renderer → main: which assets mention this one (spec §6.3). The scan runs where the
+   *  files are; bodies never cross this channel. */
+  findReferences: 'editor:find-references'
 } as const
 
 export interface EditorOpenRequest {
@@ -44,6 +49,11 @@ export interface EditorOpenRequest {
   /** Set only when resuming an existing create-mode draft: carries its stable id forward so the
    *  resumed tab finds the same draft by id instead of minting a fresh one. */
   draftId?: string
+}
+
+export interface FindReferencesRequest {
+  kind: AuthoringKind
+  name: string
 }
 
 export interface WindowBounds {

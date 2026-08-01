@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Sparkles } from 'lucide-react'
 import { Btn } from '../ui'
 import { AssistProgress } from '../library/AssistProgress'
 import { useAssistProvider } from '../library/assistProvider'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
+import { BottomDock, type DockTab } from './BottomDock'
 import { CodeSurface } from './CodeSurface'
 import { DiffView } from './DiffView'
 import { EditorPane } from './EditorPane'
 import { PreviewPane } from './PreviewPane'
-import { ProblemsPanel } from './ProblemsPanel'
 import { StatusBar, type SyncState } from './StatusBar'
 import { usePaneActionSlot } from './paneActionSlot'
 import { readAsset, writeAsset } from './assetIo'
@@ -38,7 +38,9 @@ import {
 } from '../../../../shared/assetValidation'
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
+import type { ReferenceHit } from '../../../../shared/corpusSearch'
 import type { DraftRecord, TabViewState } from '../../../../shared/editorIpc'
+import type { AssetPaneHandle, Command, PaneCommandState } from '../../lib/commands'
 
 export interface AssetPaneProps {
   kind: AuthoringKind
@@ -91,6 +93,35 @@ export interface AssetPaneProps {
   onViewStateChange: (view: TabViewState) => void
   /** Where this tab was looking when the app last exited. Applied on first activation. */
   initialViewState?: TabViewState | null
+  /**
+   * The window's way IN. Held by `EditorApp` in a ref map and called only from event handlers —
+   * never read during render, which is the constraint the whole registry design is built around
+   * (see lib/commands.ts).
+   */
+  paneRef?: React.Ref<AssetPaneHandle>
+  /**
+   * The window's way OUT: everything `enabled` needs, as plain data.
+   *
+   * Only the ACTIVE pane reports. Every tab stays mounted (spec §6.1), so an unconditional
+   * report would have N panes racing to overwrite one slot in `EditorApp` and the toolbar would
+   * enable and disable itself according to whichever hidden tab re-rendered last.
+   */
+  onCommandState?: (state: PaneCommandState) => void
+  /**
+   * The window's command descriptors for THIS pane (spec §6.4). Every toolbar button below reads
+   * its `enabled` and its `run` from here, so a button and its shortcut cannot disagree.
+   *
+   * Optional for the same reason `onSaved` is: this component's own tests mount without a host.
+   * The window always supplies it — see `TabPane` in EditorApp.tsx — and `EditorApp.test.tsx`
+   * pins the wiring end to end. When it is absent the buttons fall back to the local handlers
+   * below, which is a TEST path and not a second source of truth.
+   */
+  commands?: readonly Command[]
+  /** Every reference filename a Ctrl+click on a markdown link could resolve to. Forwarded
+   *  straight to `CodeSurface` — see its `linkTargets` prop. */
+  linkTargets: readonly string[]
+  /** A resolved link was Ctrl+clicked; open `file` (a reference) in a tab. */
+  onOpenLink: (file: string) => void
 }
 
 /**
@@ -120,7 +151,12 @@ export function AssetPane({
   onNameChange,
   onSaved,
   onViewStateChange,
-  initialViewState = null
+  initialViewState = null,
+  paneRef,
+  onCommandState,
+  commands,
+  linkTargets,
+  onOpenLink
 }: AssetPaneProps): React.JSX.Element {
   const template = kind === 'skill' ? skillTemplate : referenceTemplate
   const surfaceRef = useRef<SurfaceHandle | null>(null)
@@ -143,6 +179,9 @@ export function AssetPane({
   const [prefs, setPrefs] = useState(readPrefs)
   const [editorFraction, setEditorFraction] = useState(0)
   const [problemsOpen, setProblemsOpen] = useState(false)
+  const [references, setReferences] = useState<{ query: string; hits: ReferenceHit[] } | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [dockTab, setDockTab] = useState<DockTab>('problems')
 
   const setViewMode = useCallback((viewMode: ViewMode) => {
     writePrefs({ viewMode })
@@ -206,13 +245,25 @@ export function AssetPane({
   )
 
   // `onSave` is a plain function declared in the component body, so it is a new identity every
-  // render and cannot be captured in the `commands` memo below with an empty dependency list.
+  // render and cannot be captured in the `surfaceCommands` memo below with an empty dependency
+  // list.
   const onSaveRef = useRef(onSave)
   useEffect(() => {
     onSaveRef.current = onSave
   })
 
-  const commands = useMemo<SurfaceCommands>(
+  // Same reasoning as `onSaveRef`: `onOpenLink` is a prop, and a new identity whenever the parent
+  // re-renders, which cannot be closed over by the empty-dependency-list `surfaceCommands` memo
+  // below.
+  const onOpenLinkRef = useRef(onOpenLink)
+  useEffect(() => {
+    onOpenLinkRef.current = onOpenLink
+  }, [onOpenLink])
+
+  // Named `surfaceCommands`, not `commands`: that name is the window's descriptor list prop
+  // (spec §6.4, `cmdFor` below), and this is CodeMirror's own keymap surface — a different
+  // contract (see `SurfaceCommands` in extensions/keymap.ts).
+  const surfaceCommands = useMemo<SurfaceCommands>(
     () => ({
       save: () => void onSaveRef.current(),
       changeFontSize: (delta) =>
@@ -231,50 +282,11 @@ export function AssetPane({
           const viewMode = nextViewMode(p.viewMode)
           writePrefs({ viewMode })
           return { ...p, viewMode }
-        })
+        }),
+      openLink: (f) => onOpenLinkRef.current(f)
     }),
     []
   )
-
-  /**
-   * Window-level fallback for the commands that are not editor-scoped.
-   *
-   * Preview mode marks the editor subtree `inert`, which blurs it and drops focus to <body>, and
-   * CodeMirror's keymap only fires while CodeMirror has focus. Without this, every §5.7 shortcut
-   * dies in one of the three view modes this increment ships: Ctrl+Shift+V becomes a one-way trip
-   * into Preview, and Ctrl+S stops saving the file on screen. Found by driving a real window — no
-   * jsdom test shows it, because jsdom applies no CSS and does not honour `inert`.
-   *
-   * `defaultPrevented` is the handshake with CodeMirror's keymap: that keymap sets it whenever it
-   * handled the key, so this never double-fires while the editor has focus.
-   *
-   * Gated on `active`, like the external-change effect below: every tab stays mounted (spec
-   * §6.1), so every `AssetPane` on screen or not registers a `window` listener. Without this
-   * guard, the FIRST-registered listener — the first-*opened* tab, never the visible one — wins
-   * every race: it runs `commands.save()` (or the font-size/wrap/preview command) and calls
-   * `preventDefault()` before any later pane's listener sees the key, so every other tab silently
-   * loses the shortcut to whichever tab happened to open first. Proven by driving a real window:
-   * two tabs, the second active and dirty, Ctrl+S at the window level saved the hidden first tab
-   * and left the visible dirty one untouched. `active` is in the dependency array so switching
-   * tabs re-registers each pane's listener against its current activation state.
-   */
-  useEffect(() => {
-    if (!active) return
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.defaultPrevented) return
-      const mod = e.ctrlKey || e.metaKey
-      if (mod && e.shiftKey && (e.key === 'v' || e.key === 'V')) commands.cycleViewMode()
-      else if (mod && !e.shiftKey && (e.key === 's' || e.key === 'S')) commands.save()
-      else if (mod && (e.key === '=' || e.key === '+')) commands.changeFontSize(1)
-      else if (mod && e.key === '-') commands.changeFontSize(-1)
-      else if (mod && e.key === '0') commands.changeFontSize(0)
-      else if (e.altKey && (e.key === 'z' || e.key === 'Z')) commands.toggleWrap()
-      else return
-      e.preventDefault()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [commands, active])
 
   const runId = useRef(0)
   // Guards every async resolution against landing after unmount. The setup function must assign
@@ -734,6 +746,52 @@ export function AssetPane({
     })
   }
 
+  /**
+   * Same defect class `runId` guards for `assist`, but a *separate* counter: an in-flight Improve
+   * must not be cancelled by a find-references call, or vice versa. Without a generation token
+   * here, two overlapping searches — two quick presses of the shortcut, or a press while a slow
+   * scan is still running — resolve in whatever order the corpus scan happens to finish, and a
+   * slower first call landing after a faster second one silently overwrites the newer result with
+   * the stale one.
+   */
+  const searchRunId = useRef(0)
+
+  /** Spec §6.3: a corpus scan for what mentions this asset, surfaced beside the problems list. */
+  const findReferences = useCallback((): void => {
+    // Create mode has no file to be cited; the command is disabled there, and this is the
+    // keyboard/handle path that does not go through the button.
+    if (mode === 'create') return
+    const query = filedAsRef.current
+    const myRun = ++searchRunId.current
+    // Selected HERE, in the handler that starts the search, and not derived inside the dock from
+    // `references` changing — that derivation would be a `setState` in a `useEffect` body, which
+    // this repo forbids. Running Find references and then having to click a tab to see the
+    // answer is the feature failing at its last step, so this is not optional polish.
+    setDockTab('references')
+    setProblemsOpen(true)
+    setSearching(true)
+    void (async () => {
+      try {
+        const hits = await window.argus.editor.findReferences({ kind, name: query })
+        // Superseded by a newer invocation, or unmounted: drop the result rather than overwrite
+        // whatever the newer (possibly already-resolved) search put on screen.
+        if (searchRunId.current !== myRun || !liveRef.current) return
+        setReferences({ query, hits })
+      } catch (e) {
+        if (searchRunId.current !== myRun || !liveRef.current) return
+        setError((e as Error).message)
+      } finally {
+        // Only the newest invocation may clear `searching` — an older one settling later must not
+        // stomp on a still-running newer one's spinner.
+        if (searchRunId.current === myRun && liveRef.current) setSearching(false)
+      }
+    })()
+  }, [kind, mode])
+
+  const openHit = useCallback((hit: ReferenceHit): void => {
+    void window.argus.editor.open({ kind: hit.kind, name: hit.name, mode: 'edit' })
+  }, [])
+
   const compare =
     compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')
       ? { disk: banner.disk, snapshot: compareSnapshot }
@@ -756,40 +814,175 @@ export function AssetPane({
         ? 'draft'
         : 'saved'
 
+  // `onSave` and `assist` are plain function declarations in the component body, so they are new
+  // identities every render. The handle reads them through this ref for the same reason
+  // `surfaceCommands` does (see `onSaveRef` above): a `useImperativeHandle` that depended on them
+  // would hand `EditorApp` a new object on every keystroke, and the ref map would churn.
+  const actionsRef = useRef({ onSave, assist, discardDraft })
+  useEffect(() => {
+    actionsRef.current = { onSave, assist, discardDraft }
+  })
+
+  useImperativeHandle(
+    paneRef,
+    (): AssetPaneHandle => ({
+      save: () => void actionsRef.current.onSave(),
+      improve: () => void actionsRef.current.assist('improve'),
+      draft: () => void actionsRef.current.assist('draft'),
+      discardDraft: () => void actionsRef.current.discardDraft(),
+      cycleViewMode: () => surfaceCommands.cycleViewMode(),
+      changeFontSize: (delta) => surfaceCommands.changeFontSize(delta),
+      toggleWrap: () => surfaceCommands.toggleWrap(),
+      openGotoLine: () => surfaceRef.current?.openGotoLine(),
+      findReferences: () => findReferences(),
+      focus: () => surfaceRef.current?.focus()
+    }),
+    // `paneRef` is not listed: React's `useImperativeHandle` already re-runs this factory whenever
+    // the ref itself changes (it appends `ref` to the effect's own dependencies internally), which
+    // is exactly why `react-hooks/exhaustive-deps` flags an explicit `paneRef` entry here as
+    // unnecessary.
+    [surfaceCommands, findReferences]
+  )
+
+  // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on
+  // every render and hands back a brand-new object literal each time, even though the underlying
+  // settings payload is stable — so `provider` fails `Object.is` every render regardless of
+  // whether anything about it actually changed. The memo below reads only `provider?.ok` from it
+  // (for `canDraft`/`canImprove`), so hoisting that one boolean out and depending on it — instead
+  // of the whole object — is what actually makes the memo stable.
+  const providerOk = provider?.ok
+
+  // Every field is a primitive, on purpose: this object is rebuilt on every keystroke, and one
+  // array or nested object in it would make the memo change identity every render and fire the
+  // report effect below every time.
+  const commandState = useMemo<PaneCommandState>(
+    () => ({
+      mode,
+      readOnly,
+      busy,
+      proposing: proposed !== null,
+      blocked,
+      // `draftAt` and not `draftFiled.current`: a ref may not be read during render, and this is
+      // the persist-before-adopt fact anyway — only `onDraftSaved` ever sets it, so Discard draft
+      // is offered exactly when there is a confirmed file to discard.
+      hasDraft: draftAt !== null,
+      canDraft: mode === 'create' && describe.trim() !== '' && providerOk !== false,
+      canImprove: doc.trim() !== '' && providerOk !== false,
+      viewMode: prefs.viewMode,
+      wrap: prefs.wrap
+    }),
+    [
+      mode,
+      readOnly,
+      busy,
+      proposed,
+      blocked,
+      draftAt,
+      describe,
+      doc,
+      providerOk,
+      prefs.viewMode,
+      prefs.wrap
+    ]
+  )
+
+  useEffect(() => {
+    if (!active) return
+    onCommandState?.(commandState)
+  }, [active, commandState, onCommandState])
+
+  /**
+   * The descriptor for `id`, or a local fallback. Returns `null` when the window supplied a list
+   * that does not carry this command, so the button is omitted rather than guessed at — an id
+   * missing from the registry means the window does not offer that action here (spec §6.4).
+   */
+  const cmdFor = (
+    id: string,
+    fallback: { enabled: boolean; run: () => void }
+  ): { enabled: boolean; run: () => void } | null => {
+    if (!commands) return fallback
+    const hit = commands.find((c) => c.id === id)
+    return hit ? { enabled: hit.enabled, run: hit.run } : null
+  }
+
+  // Every fallback below is a LOCAL restatement of the matching id's rule in `buildCommands`
+  // (lib/commands.ts) — this component's own tests (and only those) mount with no `commands`
+  // prop at all and exercise this path. A fallback that disagrees with the real rule means the
+  // button behaves differently under test than it does in the window, so each one mirrors its
+  // `buildCommands` counterpart term for term rather than approximating it:
+  //   idle     = !busy && proposed === null            (no assist in flight, no pending proposal)
+  //   writable = idle && !readOnly
+  const saveCmd = cmdFor('save', {
+    // buildCommands: `writable && !p.blocked`.
+    enabled: !busy && proposed === null && !readOnly && !blocked,
+    run: () => void onSave()
+  })
+  // The button's LABEL stays local — it names the *next* mode, which is a rendering concern, not
+  // a command concern. Only `enabled` and `run` come from the descriptor.
+  const viewCmd = cmdFor('cycleViewMode', {
+    // buildCommands: `idle` — not gated on `readOnly` (viewing a protected asset in Preview is
+    // fine), but still gated on `busy`, which this fallback used to omit.
+    enabled: !busy && proposed === null,
+    run: () => setViewMode(nextViewMode(prefs.viewMode))
+  })
+  const draftCmd = cmdFor('draft', {
+    // buildCommands: `writable && p.mode === 'create' && p.canDraft`, where `p.canDraft` is
+    // `mode === 'create' && describe.trim() !== '' && providerOk !== false` (see the
+    // `commandState` memo above). The `mode === 'create'` term is also enforced by this button's
+    // surrounding JSX gate, but it stays here too so this expression is a complete, standalone
+    // match for the real rule rather than one that only happens to agree because of where it is
+    // rendered.
+    enabled:
+      !busy &&
+      proposed === null &&
+      !readOnly &&
+      mode === 'create' &&
+      describe.trim() !== '' &&
+      provider?.ok !== false,
+    run: () => void assist('draft')
+  })
+  const improveCmd = cmdFor('improve', {
+    // buildCommands: `writable && p.canImprove`, where `p.canImprove` is
+    // `doc.trim() !== '' && providerOk !== false`.
+    enabled: !busy && proposed === null && !readOnly && doc.trim() !== '' && provider?.ok !== false,
+    run: () => void assist('improve')
+  })
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* The pane's header row is gone (user-directed, 2026-08-01): its `skills / <name>`
           breadcrumb repeated the tab's own label, and these two buttons now render up in the
-          window's title-bar strip. A PORTAL, not lifted state — everything they read (`busy`,
-          `proposed`, `readOnly`, the view-mode pref, `onSave`) stays owned here; only the DOM
-          position moves. See paneActionSlot.ts.
+          window's title-bar strip. A PORTAL, not lifted state — everything they read stays owned
+          here; only the DOM position moves. See paneActionSlot.ts.
 
           Gated on `active` because every tab stays mounted (spec §6.1) and all N panes share one
           slot: without it the strip would grow a Save button per open asset, in tab order. A null
           slot (no provider — this component's own tests, any future host) renders no actions at
-          all rather than dropping them somewhere nobody designed. */}
+          all rather than dropping them somewhere nobody designed.
+
+          Enablement and action come from the command DESCRIPTORS, not from local expressions
+          (spec §6.4). That is what keeps a button and its keyboard shortcut from disagreeing, and
+          it is the whole point of the registry — moving these two into the title strip changed
+          where they render, not where they get their truth from. `cmdFor` falls back to local
+          expressions only when no host supplied a list, which is a test path; see its comment. */}
       {active &&
         actionSlot !== null &&
         createPortal(
           <span className="flex items-center gap-2">
-            <Btn
-              variant="ghost"
-              disabled={proposed !== null}
-              onClick={() => setViewMode(nextViewMode(prefs.viewMode))}
-            >
-              {prefs.viewMode === 'editor'
-                ? 'Split'
-                : prefs.viewMode === 'split'
-                  ? 'Preview'
-                  : 'Edit'}
-            </Btn>
-            <Btn
-              variant="primary"
-              disabled={busy || proposed !== null || readOnly}
-              onClick={() => void onSave()}
-            >
-              Save
-            </Btn>
+            {viewCmd && (
+              <Btn variant="ghost" disabled={!viewCmd.enabled} onClick={viewCmd.run}>
+                {prefs.viewMode === 'editor'
+                  ? 'Split'
+                  : prefs.viewMode === 'split'
+                    ? 'Preview'
+                    : 'Edit'}
+              </Btn>
+            )}
+            {saveCmd && (
+              <Btn variant="primary" disabled={!saveCmd.enabled} onClick={saveCmd.run}>
+                Save
+              </Btn>
+            )}
           </span>,
           actionSlot
         )}
@@ -810,12 +1003,8 @@ export function AssetPane({
             onChange={(e) => setDescribe(e.target.value)}
             className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
-          {proposed === null && prefs.viewMode !== 'preview' && (
-            <Btn
-              variant="outline"
-              disabled={busy || !describe.trim() || provider?.ok === false || readOnly}
-              onClick={() => void assist('draft')}
-            >
+          {proposed === null && prefs.viewMode !== 'preview' && draftCmd && (
+            <Btn variant="outline" disabled={!draftCmd.enabled} onClick={draftCmd.run}>
               <Sparkles size={13} aria-hidden="true" />
               Draft
             </Btn>
@@ -970,8 +1159,9 @@ export function AssetPane({
               issues={issues}
               fontSize={prefs.fontSize}
               wrap={prefs.wrap}
-              commands={commands}
+              commands={surfaceCommands}
               readOnly={readOnly}
+              linkTargets={linkTargets}
               onDocChange={handleDocChange}
               onCursor={handleCursor}
               onScrollFraction={handleScrollFraction}
@@ -979,11 +1169,17 @@ export function AssetPane({
           }
           preview={<PreviewPane doc={doc} scrollFraction={editorFraction} />}
         />
-        <ProblemsPanel
+        <BottomDock
           issues={issues}
+          references={references}
+          searching={searching}
           open={problemsOpen}
-          onToggle={() => setProblemsOpen((o) => !o)}
+          tab={dockTab}
+          onOpenChange={setProblemsOpen}
+          onTabChange={setDockTab}
           onGoToLine={(line) => surfaceRef.current?.goToLine(line)}
+          onOpenHit={openHit}
+          onDismissReferences={() => setReferences(null)}
         />
         <div className="flex items-center justify-end gap-2 border-t border-hair bg-hi px-4 py-2">
           <span className="flex shrink-0 items-center gap-2">
@@ -992,14 +1188,12 @@ export function AssetPane({
                 {provider.ok ? provider.text : provider.reason}
               </span>
             )}
-            <Btn
-              variant="outline"
-              disabled={busy || !doc.trim() || provider?.ok === false || readOnly}
-              onClick={() => void assist('improve')}
-            >
-              <Sparkles size={13} aria-hidden="true" />
-              Improve
-            </Btn>
+            {improveCmd && (
+              <Btn variant="outline" disabled={!improveCmd.enabled} onClick={improveCmd.run}>
+                <Sparkles size={13} aria-hidden="true" />
+                Improve
+              </Btn>
+            )}
           </span>
         </div>
       </div>
@@ -1018,9 +1212,18 @@ export function AssetPane({
         sync={sync}
         draftAt={draftAt}
         viewMode={prefs.viewMode}
+        // Finding 1: routed through the SAME descriptor as the header's Split/Preview button
+        // (`viewCmd`, from `cmdFor` above), not a second, ungated call to `setViewMode` — this
+        // status-bar control renders OUTSIDE the `inert` overlay wrapper below, so while a
+        // proposal is on screen it used to stay the one live way to cycle a surface the user
+        // cannot see.
+        viewModeDisabled={!viewCmd?.enabled}
         tier={tier}
-        onProblems={() => setProblemsOpen((o) => !o)}
-        onCycleViewMode={() => setViewMode(nextViewMode(prefs.viewMode))}
+        onProblems={() => {
+          setDockTab('problems')
+          setProblemsOpen(true)
+        }}
+        onCycleViewMode={() => viewCmd?.run()}
       />
     </div>
   )

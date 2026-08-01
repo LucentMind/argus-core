@@ -112,7 +112,12 @@ export function validateReference(input: { file: string; content: string }): Val
       message: `"${file}" is not a legal reference file name (expected e.g. jira-fields.md).`
     })
   }
-  if (file === REFERENCES_INDEX) {
+  // Case-insensitive, matching `isGeneratedAsset` (assetEditable.ts): the two answer halves of
+  // the same question — may this asset be opened editable, and will a save be refused — and on
+  // the case-insensitive filesystems this app ships on, `index.md` IS `INDEX.md`. Comparing
+  // exact-case here would let a differently-cased index open as an editable buffer while this
+  // still blocked the save: the stranded-buffer state `isGeneratedAsset` exists to prevent.
+  if (file.toLowerCase() === REFERENCES_INDEX.toLowerCase()) {
     issues.push({
       severity: 'error',
       message: `${REFERENCES_INDEX} is generated and cannot be edited.`

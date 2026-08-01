@@ -12,6 +12,9 @@ export interface SurfaceCommands {
   changeFontSize: (delta: number) => void
   toggleWrap: () => void
   cycleViewMode: () => void
+  /** Ctrl+click on a resolvable markdown link. The file is a reference filename, already
+   *  resolved against the known set (see extensions/links.ts). */
+  openLink: (file: string) => void
 }
 
 /**
@@ -28,6 +31,22 @@ export interface SurfaceCommands {
  * "Esc is inert" in §5.7 means it does not close the window, and nothing here makes it.
  *
  * `defaultKeymap` is last so anything above it wins: `Mod-s` would otherwise never be seen.
+ *
+ * **A known, deliberate exception to the registry's `enabled` gate (spec §6.4).** Every chord
+ * bound here — `Mod-s`, `Mod-±`/`Mod-0`, `Alt-z`, `Mod-Shift-v` — reaches the surface directly,
+ * with no reference to `PaneCommandState` or `buildCommands`'s `enabled` at all. CodeMirror's
+ * `run` returning `true` sets `defaultPrevented` on the native event before `EditorApp`'s window
+ * listener ever sees it (`commandForEvent` bails out on `e.defaultPrevented`), so while the
+ * surface has focus these chords bypass the registry entirely and fire even when the matching
+ * command is disabled — an assist run in flight, a pending proposal, a read-only pane. This is
+ * why `onSave` (AssetPane.tsx) re-guards itself on `readOnly` / `busy` / `proposed !== null`
+ * rather than trusting the button's `disabled` to be the only way in: Ctrl+S arrives here first,
+ * not through the window keymap. `cycleViewMode` has the same exposure (finding 1 in the
+ * whole-branch review) — it is NOT re-plumbed through the registry here, deliberately: this
+ * keymap reads a pane-local ref precisely so the surface works with no host at all, and adding a
+ * dependency on `PaneCommandState` would break that. If a future `enabled` term is ever added to
+ * a command whose chord also lives here, re-check whether this file's own handler needs the same
+ * term — the registry will not enforce it for you.
  */
 export function editorKeymap(cmds: { current: SurfaceCommands }): Extension {
   return keymap.of([

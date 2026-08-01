@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canEditCopy, isAssetEditable } from '../assetEditable'
+import { canEditCopy, isAssetEditable, isGeneratedAsset } from '../assetEditable'
 import { TRUST_TIERS } from '../trustTiers'
 
 /**
@@ -133,5 +133,23 @@ describe('canEditCopy', () => {
         if (isAssetEditable(kind, tier)) expect(canEditCopy(kind, tier)).toBe(false)
       }
     }
+  })
+})
+
+describe('isGeneratedAsset', () => {
+  it('names INDEX.md', () => {
+    expect(isGeneratedAsset('reference', 'INDEX.md')).toBe(true)
+  })
+
+  it('is case-insensitive — the filesystem is', () => {
+    expect(isGeneratedAsset('reference', 'index.md')).toBe(true)
+  })
+
+  it('leaves every other reference alone', () => {
+    expect(isGeneratedAsset('reference', 'jira-fields.md')).toBe(false)
+  })
+
+  it('never applies to a skill', () => {
+    expect(isGeneratedAsset('skill', 'INDEX.md')).toBe(false)
   })
 })

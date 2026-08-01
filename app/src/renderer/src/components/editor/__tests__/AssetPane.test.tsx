@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { StrictMode, useState } from 'react'
+import { StrictMode, createRef, useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -10,9 +10,16 @@ import type { CursorInfo, SurfaceHandle } from '../surface'
 import type { SurfaceCommands } from '../extensions/keymap'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
 import type { DraftSaved } from '../../../../../shared/editorIpc'
+import { buildCommands } from '../../../lib/commands'
+import type { AssetPaneHandle, Command, PaneCommandState } from '../../../lib/commands'
+import { useAssistProvider } from '../../library/assistProvider'
 
 vi.mock('../../library/assistProvider', () => ({
-  useAssistProvider: () => ({ ok: true, text: 'claude · sonnet' })
+  // A `vi.fn()`, not a plain arrow function: the "toolbar fallback tracks buildCommands" matrix
+  // below overrides this once, for the provider-unavailable scenario, via `mockReturnValueOnce`.
+  // `vi.clearAllMocks()` in `beforeEach` clears call history only, never the implementation set
+  // here, so every other test keeps seeing `ok: true` with no per-test setup of its own.
+  useAssistProvider: vi.fn(() => ({ ok: true, text: 'claude · sonnet' }))
 }))
 
 declare global {
@@ -52,7 +59,8 @@ const surfaceHandle = {
   goToLine: vi.fn(),
   requestMeasure: vi.fn(),
   scrollTo: vi.fn(),
-  focus: vi.fn()
+  focus: vi.fn(),
+  openGotoLine: vi.fn()
 }
 vi.mock('../CodeSurface', () => ({
   CodeSurface: (props: MockSurfaceProps): React.JSX.Element => {
@@ -100,6 +108,7 @@ beforeEach(() => {
   surfaceHandle.requestMeasure.mockClear()
   surfaceHandle.scrollTo.mockClear()
   surfaceHandle.focus.mockClear()
+  surfaceHandle.openGotoLine.mockClear()
   // Implementations, not just call history: `vi.clearAllMocks()` leaves a previous test's
   // `mockRejectedValue`/`mockResolvedValue` in place, and every *active* pane now re-reads disk
   // the moment it mounts (spec §4.4's focus check, gated on `active`). A leaked implementation
@@ -117,6 +126,8 @@ beforeEach(() => {
     editor: {
       draftChanged,
       discardDraft,
+      findReferences: vi.fn().mockResolvedValue([]),
+      open: vi.fn(),
       onDraftSaved: (cb: (s: DraftSaved) => void) => {
         draftSavedListener = cb
         return () => {}
@@ -185,6 +196,8 @@ function mount(
     onDirtyChange,
     onNameChange,
     onViewStateChange,
+    linkTargets: [],
+    onOpenLink: vi.fn(),
     ...overrides
   }
   const wrap = (pane: React.JSX.Element): React.JSX.Element => {
@@ -204,6 +217,46 @@ function mount(
     surface: screen.getByLabelText(`${props.kind} · ${props.initialName}`),
     rerender
   }
+}
+
+/**
+ * Task 7's command contract, spread over `AssetPaneProps` in the same shape `mount` above builds
+ * by hand. Kept separate from `mount` rather than reused: those tests assert on `mount`'s return
+ * shape (`surface`, `rerender`, the three callback mocks), while these only need `screen` and
+ * whatever `paneRef`/`onCommandState` the caller passed in.
+ */
+function renderPane(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}): void {
+  const props: React.ComponentProps<typeof AssetPane> = {
+    kind: 'skill',
+    initialName: 's',
+    mode: 'edit',
+    draftId: '',
+    initialDoc: DISK,
+    initialBaseline: DISK,
+    initialHash: 'h1',
+    initialBanner: { kind: 'none' },
+    initialDraftAt: null,
+    otherDrafts: [],
+    active: true,
+    readOnly: false,
+    tier: undefined,
+    initialViewState: null,
+    onDirtyChange: vi.fn(),
+    onNameChange: vi.fn(),
+    onViewStateChange: vi.fn(),
+    linkTargets: [],
+    onOpenLink: vi.fn(),
+    ...overrides
+  }
+  // Wrapped in `SlotHost` for the same reason `mount` above is: `AssetPane` has no header row of
+  // its own any more — the view-mode toggle and Save portal into the slot the window publishes
+  // (paneActionSlot.ts), and a pane rendered with no provider deliberately renders no actions at
+  // all. Every assertion below that reaches for those two buttons needs somewhere to portal into.
+  render(
+    <SlotHost>
+      <AssetPane {...props} />
+    </SlotHost>
+  )
 }
 
 /**
@@ -320,22 +373,6 @@ describe('AssetPane', () => {
     expect(surface.parentElement).toHaveAttribute('inert')
   })
 
-  it('cycles the view mode from a window-level key, not only from the focused editor', async () => {
-    // Preview mode makes the surface `inert`, so CodeMirror's keymap never sees the key. jsdom
-    // does not honour `inert`, so this test cannot reproduce that state — what it pins is that
-    // the fallback listener exists and is wired to the command at all, which is the part that
-    // regressed to nothing.
-    mount()
-    await waitFor(() => expect(screen.getByLabelText('skill · s')).toBeInTheDocument())
-    const before = screen.getByRole('button', { name: /^View mode:/ }).getAttribute('aria-label')
-    fireEvent.keyDown(window, { key: 'V', ctrlKey: true, shiftKey: true })
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /^View mode:/ }).getAttribute('aria-label')
-      ).not.toBe(before)
-    )
-  })
-
   it('raises the conflict banner when a save is rejected because disk moved', async () => {
     diskMovesDuringSave()
     const { surface } = mount()
@@ -423,7 +460,15 @@ describe('AssetPane', () => {
 
   it('blocks Save while validation has an error', async () => {
     mount({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // Not a click any more: Finding 2 fixed the toolbar fallback to agree with `buildCommands`
+    // (`writable && !blocked`), so a blocked pane now correctly renders Save disabled — a real
+    // click on a disabled button does nothing, which is exactly the coverage the
+    // `toolbar fallback matches buildCommands` describe block below adds. What THIS test actually
+    // pins is `onSave`'s own internal guard, which exists for the paths that ignore the button's
+    // disabled attribute entirely — Ctrl+S through CodeMirror's keymap and the window-level
+    // fallback (see the comment on `onSave` in AssetPane.tsx) — so it has to be driven through
+    // that same handle, the way the read-only-panes block below already does for the same reason.
+    act(() => surfaceProps.commands.save())
     expect(skillsWrite).not.toHaveBeenCalled()
     expect(screen.getByRole('alert')).toHaveTextContent(/frontmatter/i)
   })
@@ -838,58 +883,13 @@ describe('background panes', () => {
   })
 })
 
-describe('window-level shortcuts across mounted panes', () => {
-  // Every tab stays mounted (spec §6.1), so every `AssetPane` — visible or not — registers its
-  // own `window` keydown listener for the fallback shortcuts. Reproduces the probe that found
-  // this empirically: two panes mounted, only the second active, Ctrl+S fired at the window
-  // level (as it is whenever focus has been blurred out of CodeMirror — preview mode, the
-  // create-mode name/describe inputs, any banner button). Before the fix, the FIRST-registered
-  // listener — the first-*opened* tab, never the one on screen — wins the race and calls
-  // `preventDefault()` before the active pane's own listener ever runs.
-  // Each pane needs its own frontmatter `name:` — `validateSkill` rejects a mismatch between it
-  // and the folder name, which would block the save this test is trying to observe.
-  const diskFor = (name: string): string => `---\nname: ${name}\ndescription: d\n---\n\nbody\n`
-
-  const panelProps = (name: string, active: boolean): React.ComponentProps<typeof AssetPane> => ({
-    kind: 'skill',
-    initialName: name,
-    mode: 'edit',
-    initialDoc: diskFor(name),
-    initialBaseline: diskFor(name),
-    initialHash: 'h1',
-    initialBanner: { kind: 'none' },
-    initialDraftAt: null,
-    otherDrafts: [],
-    // Required since drafts moved to id-keying; unused in edit mode (`fileDraft` only carries it
-    // for `mode === 'create'`), but each pane still gets its own so nothing can key-collide.
-    draftId: `draft-${name}`,
-    active,
-    readOnly: false,
-    tier: undefined,
-    initialViewState: null,
-    onDirtyChange: vi.fn(),
-    onNameChange: vi.fn(),
-    onViewStateChange: vi.fn()
-  })
-
-  it('routes a window-level Ctrl+S to the active pane, not the first-opened one', async () => {
-    render(
-      <>
-        <AssetPane {...panelProps('first-opened', false)} />
-        <AssetPane {...panelProps('second-opened', true)} />
-      </>
-    )
-    await waitFor(() => expect(screen.getByLabelText('skill · second-opened')).toBeInTheDocument())
-
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
-
-    await waitFor(() => expect(skillsWrite).toHaveBeenCalledTimes(1))
-    // The assertion that actually pins the regression: which pane's name reached `skills.write`.
-    // Pre-fix this is `'first-opened'` — the hidden tab — while the visible dirty tab is never
-    // saved at all.
-    expect(skillsWrite).toHaveBeenCalledWith('second-opened', diskFor('second-opened'), 'h1')
-  })
-})
+// Task 10 deleted `AssetPane`'s window-level fallback keydown listener outright — the mechanism
+// this block used to pin (every mounted pane racing its own `window` listener, first-opened
+// winning) cannot happen any more, because there is now exactly one listener, held by `EditorApp`
+// and reading the *active* tab through its command registry (lib/commands.ts). See
+// `EditorApp.test.tsx`'s `EditorApp · commands` describe block for the replacement coverage,
+// including the equivalent of what this block pinned (a shortcut reaching the pane that is
+// actually on screen).
 
 describe('name reporting', () => {
   // The strip shows the name, and in create mode the name field owns it. Without this the strip
@@ -948,5 +948,489 @@ describe('view state reporting', () => {
     await waitFor(() =>
       expect(onViewStateChange).toHaveBeenLastCalledWith({ line: 4, col: 9, scrollFraction: 0.6 })
     )
+  })
+})
+
+describe('AssetPane · command contract', () => {
+  it('reports its state on mount', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: true, onCommandState })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    expect(onCommandState.mock.lastCall![0]).toMatchObject({
+      mode: 'edit',
+      readOnly: false,
+      busy: false,
+      proposing: false,
+      blocked: false,
+      hasDraft: false
+    })
+  })
+
+  it('reports again when the document stops validating', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: true, onCommandState })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    // An empty document is a blocking validation error for both kinds.
+    fireEvent.change(screen.getByRole('textbox', { name: /skill · /i }), { target: { value: '' } })
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].blocked).toBe(true))
+  })
+
+  it('reports canImprove off for an empty document', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: true, initialDoc: '', initialBaseline: '', onCommandState })
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].canImprove).toBe(false))
+  })
+
+  it('does not report from an INACTIVE pane', async () => {
+    const onCommandState = vi.fn()
+    renderPane({ active: false, onCommandState })
+    // Give any effect a chance to run before asserting the negative.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /skill · /i })).toBeTruthy())
+    expect(onCommandState).not.toHaveBeenCalled()
+  })
+
+  it('exposes a handle whose save writes the asset', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ active: true, paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    paneRef.current!.save()
+    await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalled())
+  })
+
+  it('exposes a handle whose save is refused on a read-only pane', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ active: true, readOnly: true, paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    paneRef.current!.save()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.argus.skills.write).not.toHaveBeenCalled()
+  })
+
+  it('exposes a handle whose cycleViewMode moves the view mode it then reports', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    const onCommandState = vi.fn()
+    renderPane({ active: true, paneRef, onCommandState })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    expect(onCommandState.mock.lastCall![0].viewMode).toBe('editor')
+    act(() => paneRef.current!.cycleViewMode())
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].viewMode).toBe('split'))
+  })
+
+  // Pins the `commandState` memo's stability directly. `useAssistProvider` (mocked above) returns
+  // a brand-new object literal on every call, exactly like the real hook — so a re-render that
+  // changes nothing the memo reads must not re-fire the report effect. Before the fix, the memo's
+  // dependency array carried the whole `provider` object, which fails `Object.is` every render and
+  // defeats the memo unconditionally; the first assertion below fails against that code (verified:
+  // it reported a second time after a no-op re-render). The final assertion guards against the
+  // opposite mistake — a callback so dead the test would pass by never firing at all.
+  it('does not re-report on a no-op re-render, but does when a reported field actually changes', async () => {
+    const onCommandState = vi.fn()
+    const { rerender, surface } = mount({ active: true, onCommandState })
+    await waitFor(() => expect(onCommandState).toHaveBeenCalled())
+    // Let any pending async effects from mount (e.g. the active-pane disk freshness check) settle
+    // before taking the baseline count, so they can't be mistaken for the re-render under test.
+    await act(async () => {})
+    const callsAfterMount = onCommandState.mock.calls.length
+
+    // `tier` is display-only (passed straight to `StatusBar`) and appears nowhere in the
+    // `commandState` memo or its dependency list — a clean lever for "re-render, nothing
+    // reportable moved".
+    rerender({ tier: 'HiveMind' })
+    await act(async () => {})
+    expect(onCommandState.mock.calls.length).toBe(callsAfterMount)
+
+    // Now change something that genuinely belongs in `commandState`: an empty document is a
+    // blocking validation error, which flips `blocked`.
+    fireEvent.change(surface, { target: { value: '' } })
+    await waitFor(() => expect(onCommandState.mock.lastCall![0].blocked).toBe(true))
+    expect(onCommandState.mock.calls.length).toBeGreaterThan(callsAfterMount)
+  })
+})
+
+// Task 14: find references to this file, surfaced beside the problems list in the shared dock.
+describe('AssetPane · find references', () => {
+  it('runs the corpus search through the handle and lands on the References tab', async () => {
+    const HIT = { kind: 'skill' as const, name: 'triage', line: 7, text: 'read jira-fields.md' }
+    globalThis.window.argus.editor.findReferences = vi.fn().mockResolvedValue([HIT])
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    expect(window.argus.editor.findReferences).toHaveBeenCalledWith({ kind: 'skill', name: 's' })
+    // Selected before the async result lands — the whole point of choosing the tab in the
+    // handler rather than deriving it from `references` arriving.
+    expect(screen.getByRole('tab', { name: /reference/i })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(screen.getByText(/read jira-fields\.md/)).toBeInTheDocument())
+  })
+
+  it('opens the hit through the same round trip resumeDraft uses', async () => {
+    const HIT = { kind: 'skill' as const, name: 'triage', line: 7, text: 'read jira-fields.md' }
+    globalThis.window.argus.editor.findReferences = vi.fn().mockResolvedValue([HIT])
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    await waitFor(() => expect(screen.getByText(/read jira-fields\.md/)).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /triage/ }))
+    expect(window.argus.editor.open).toHaveBeenCalledWith({
+      kind: 'skill',
+      name: 'triage',
+      mode: 'edit'
+    })
+  })
+
+  it('does nothing on a create-mode tab — there is no file yet for anything to cite', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef, mode: 'create', draftId: 'd1', initialName: 'untitled' })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    expect(window.argus.editor.findReferences).not.toHaveBeenCalled()
+  })
+
+  // Spec §5.5: the status bar's problem count is a JUMP to the Problems tab, not a toggle —
+  // clicking it while looking at find-references results must land on the problems, and a toggle
+  // would collapse the dock instead of switching tabs.
+  it("jumps the status bar's problem count to the Problems tab rather than toggling", async () => {
+    const HIT = { kind: 'skill' as const, name: 'triage', line: 7, text: 'x' }
+    globalThis.window.argus.editor.findReferences = vi.fn().mockResolvedValue([HIT])
+    const paneRef = createRef<AssetPaneHandle>()
+    const { surface } = mount({ paneRef })
+    // An empty document is a blocking validation error, giving the status bar a problem count.
+    fireEvent.change(surface, { target: { value: '' } })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /reference/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    )
+    // The status bar's own count button has an implicit `role="button"`, distinct from the
+    // dock's `role="tab"` strip, which shows the same count text.
+    await userEvent.click(screen.getByRole('button', { name: /error/i }))
+    expect(screen.getByRole('tab', { name: /problem/i })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  // Important finding: `findReferences` guarded unmount via `liveRef`, but had no per-invocation
+  // generation token, so two overlapping searches (two quick presses, or a press while a slow scan
+  // is still running) resolved in whatever order the corpus scan finished — a slower FIRST call
+  // could land after a faster SECOND one and silently overwrite the newer result with the stale
+  // one. Pinned directly: the second call's promise resolves first, then the first call's, and the
+  // dock must still show the second call's hits.
+  it('shows the second search result, not the first, when the first call resolves last', async () => {
+    interface Deferred<T> {
+      promise: Promise<T>
+      resolve: (value: T) => void
+    }
+    function makeDeferred<T>(): Deferred<T> {
+      let resolve!: (value: T) => void
+      const promise = new Promise<T>((r) => {
+        resolve = r
+      })
+      return { promise, resolve }
+    }
+    const first = makeDeferred<{ kind: 'skill'; name: string; line: number; text: string }[]>()
+    const second = makeDeferred<{ kind: 'skill'; name: string; line: number; text: string }[]>()
+    const findReferencesMock = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+    globalThis.window.argus.editor.findReferences = findReferencesMock
+
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+
+    act(() => paneRef.current!.findReferences())
+    act(() => paneRef.current!.findReferences())
+    expect(findReferencesMock).toHaveBeenCalledTimes(2)
+
+    // Resolve the SECOND invocation first, with its own result set.
+    await act(async () => {
+      second.resolve([{ kind: 'skill', name: 'second-caller', line: 2, text: 'second result' }])
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    // Then the FIRST invocation, later, with a different result set — this is the stale one that
+    // must not win.
+    await act(async () => {
+      first.resolve([{ kind: 'skill', name: 'first-caller', line: 1, text: 'first result' }])
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    expect(screen.getByText(/second result/)).toBeInTheDocument()
+    expect(screen.queryByText(/first result/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AssetPane · toolbar from descriptors', () => {
+  const cmd = (id: string, over: Partial<Command> = {}): Command => ({
+    id,
+    title: id,
+    section: 'File',
+    enabled: true,
+    run: vi.fn(),
+    ...over
+  })
+
+  it('disables Save when the descriptor says so, whatever the pane thinks', async () => {
+    renderPane({ active: true, commands: [cmd('save', { enabled: false })] })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+  })
+
+  it('runs the descriptor, not a local handler', async () => {
+    const save = cmd('save')
+    renderPane({ active: true, commands: [save] })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(save.run).toHaveBeenCalledOnce()
+    expect(window.argus.skills.write).not.toHaveBeenCalled()
+  })
+
+  it('hides Improve when no descriptor for it is supplied', async () => {
+    renderPane({ active: true, commands: [cmd('save')] })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /improve/i })).toBeNull()
+  })
+
+  it('still works standalone, with no descriptors at all', async () => {
+    renderPane({ active: true })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(window.argus.skills.write).toHaveBeenCalled())
+  })
+})
+
+// Finding 2: the local fallback `enabled` expressions (used only when no `commands` host is
+// supplied — this component's own tests, exercised throughout this file) had each dropped one
+// term `buildCommands` (lib/commands.ts) includes for the same id, so a button behaved
+// differently under test than it would in the real window. One test per button that is
+// independently observable through the rendered DOM; `draft`'s missing term (`proposed === null`)
+// is NOT included here — it is masked by this component's own JSX render gate, which already
+// hides the Draft button whenever a proposal is pending, so there is no rendered state that could
+// tell the fixed expression apart from the old one. See the comments beside each fallback in
+// AssetPane.tsx for the full `buildCommands` correspondence.
+describe('AssetPane · toolbar fallback matches buildCommands', () => {
+  it('disables Save via the fallback when validation is blocked', () => {
+    // buildCommands: `writable && !p.blocked` — the fallback used to omit `!blocked` entirely, so
+    // a build with unresolved validation errors offered a Save button the real window would have
+    // refused.
+    mount({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('disables the view-mode toggle via the fallback while an assist run is busy', async () => {
+    // buildCommands: `idle` = `!busy && proposed === null` — the fallback used to check only
+    // `proposed === null`, so the toolbar's view-mode button (labelled by the *next* mode; the
+    // default 'editor' mode shows 'Split') stayed enabled for the whole span of a running assist.
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeDisabled())
+  })
+
+  it('disables Improve via the fallback while a proposal is pending', async () => {
+    // buildCommands: `writable && p.canImprove`, where `writable` already folds in
+    // `proposed === null` — the fallback used to omit that term, so Improve stayed clickable while
+    // its own previous proposal was still on screen awaiting Accept/Discard.
+    //
+    // Queried with `hidden: true`: once a proposal lands, this component's own overlay wrapper
+    // marks the whole footer (Improve included) `aria-hidden` — correct per its own comment, since
+    // Tailwind's `hidden` utility has no effect under jsdom's CSS-less DOM — so the default
+    // accessible-name query would otherwise report the button as gone rather than disabled.
+    globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Accept', hidden: true })).toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: /improve/i, hidden: true })).toBeDisabled()
+  })
+})
+
+// Finding 1(a): the status bar's view-mode control (`StatusBar`'s `onCycleViewMode`, rendered
+// OUTSIDE the `inert` overlay wrapper) used to call `setViewMode` directly, bypassing the
+// registry entirely — so during a proposal or a running assist the toolbar's Split button went
+// inert while the status bar's own indicator stayed a live, clickable way to cycle underneath it.
+// Both now read the SAME `cmdFor('cycleViewMode', …)` descriptor (`viewCmd` in AssetPane.tsx).
+describe('AssetPane · status bar view-mode control agrees with the header button', () => {
+  it('disables the status bar control while an assist run is busy, exactly when the header button is', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeDisabled())
+    expect(screen.getByRole('button', { name: /view mode/i })).toBeDisabled()
+  })
+
+  it('does not cycle the mode when the disabled status bar control is clicked', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    mount()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    const statusControl = await screen.findByRole('button', { name: /view mode/i })
+    await waitFor(() => expect(statusControl).toBeDisabled())
+    await userEvent.click(statusControl)
+    // Still the untouched default mode: a disabled native <button> swallows the click, so
+    // clicking it must not have moved anything.
+    expect(screen.getByRole('button', { name: 'View mode: Editor' })).toBeInTheDocument()
+  })
+
+  it('stays enabled at rest, and does cycle the mode', async () => {
+    mount()
+    const statusControl = screen.getByRole('button', { name: 'View mode: Editor' })
+    expect(statusControl).toBeEnabled()
+    await userEvent.click(statusControl)
+    expect(screen.getByRole('button', { name: 'View mode: Split' })).toBeInTheDocument()
+  })
+})
+
+// Finding 8: the toolbar's fallback path (used only when no `commands` host is supplied) had
+// already drifted from `buildCommands` once during this branch. A comment saying the two must
+// agree is not what keeps them agreeing — this compares the fallback's rendered `disabled` state
+// against `buildCommands`'s ACTUAL output for the pane's own reported state, across a matrix of
+// states, so a future drift fails a test instead of waiting for the next review.
+describe('AssetPane · toolbar fallback tracks buildCommands, not a restated copy of it', () => {
+  /** What a real registry would enable for `id`, given the pane's own reported state. The `ctx`
+   *  fields besides `pane` are irrelevant to `save`/`cycleViewMode`/`draft`/`improve`'s `enabled`
+   *  (only their `run` closures touch them), so dummies are fine here. */
+  function expectedEnabled(id: string, pane: PaneCommandState): boolean {
+    const cmds = buildCommands({
+      pane,
+      activePane: () => null,
+      dirtyPanes: () => [],
+      dirtyCount: 0,
+      tabCount: 1,
+      window: {
+        quickOpen: () => {},
+        commandPalette: () => {},
+        closeTab: () => {},
+        nextTab: () => {},
+        prevTab: () => {}
+      }
+    })
+    return cmds.find((c) => c.id === id)!.enabled
+  }
+
+  /** Mounts with NO `commands` prop (the fallback path), captures the pane's OWN reported state
+   *  through `onCommandState` — the same object `buildCommands` would be fed in the real window —
+   *  and returns it once the pane has reported at least once. */
+  function renderTracked(overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}): {
+    getReported: () => PaneCommandState | undefined
+  } {
+    let reported: PaneCommandState | undefined
+    // `SlotHost` for the same reason `renderPane` needs it: Save and the view-mode toggle are
+    // portalled into the window's title-bar slot, and a pane with no provider renders neither.
+    render(
+      <SlotHost>
+        <AssetPane
+          kind="skill"
+          initialName="s"
+          mode="edit"
+          draftId=""
+          initialDoc={DISK}
+          initialBaseline={DISK}
+          initialHash="h1"
+          initialBanner={{ kind: 'none' }}
+          initialDraftAt={null}
+          otherDrafts={[]}
+          active
+          readOnly={false}
+          initialViewState={null}
+          onDirtyChange={vi.fn()}
+          onNameChange={vi.fn()}
+          onViewStateChange={vi.fn()}
+          linkTargets={[]}
+          onOpenLink={vi.fn()}
+          onCommandState={(s) => {
+            reported = s
+          }}
+          {...overrides}
+        />
+      </SlotHost>
+    )
+    return { getReported: () => reported }
+  }
+
+  /** Renders, waits for the pane's first report, and checks every fallback button whose id is in
+   *  `buildCommands` against the registry's own answer for that reported state. */
+  async function checkFallback(
+    overrides: Partial<React.ComponentProps<typeof AssetPane>> = {}
+  ): Promise<PaneCommandState> {
+    const { getReported } = renderTracked(overrides)
+    await waitFor(() => expect(getReported()).toBeDefined())
+    const reported = getReported()!
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save.hasAttribute('disabled')).toBe(!expectedEnabled('save', reported))
+    const view = screen.getByRole('button', { name: /^(Split|Preview|Edit)$/ })
+    expect(view.hasAttribute('disabled')).toBe(!expectedEnabled('cycleViewMode', reported))
+    const improve = screen.getByRole('button', { name: /improve/i, hidden: true })
+    expect(improve.hasAttribute('disabled')).toBe(!expectedEnabled('improve', reported))
+    if (reported.mode === 'create') {
+      const draft = screen.queryByRole('button', { name: /^draft$/i, hidden: true })
+      if (draft) expect(draft.hasAttribute('disabled')).toBe(!expectedEnabled('draft', reported))
+    }
+    return reported
+  }
+
+  it('matches at rest, editable', async () => {
+    await checkFallback()
+  })
+
+  it('matches on a read-only pane', async () => {
+    await checkFallback({ readOnly: true })
+  })
+
+  it('matches on a pane validation blocks', async () => {
+    await checkFallback({ initialDoc: 'no frontmatter', initialBaseline: 'no frontmatter' })
+  })
+
+  it('matches in create mode with nothing typed to describe', async () => {
+    await checkFallback({ mode: 'create', draftId: 'd1', initialHash: null })
+  })
+
+  it('matches in create mode with the provider unavailable', async () => {
+    vi.mocked(useAssistProvider).mockReturnValueOnce({ ok: false, reason: 'no provider' })
+    await checkFallback({ mode: 'create', draftId: 'd1', initialHash: null })
+  })
+
+  it('matches while an assist run is busy', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn(
+      () => new Promise<{ content: string }>(() => {})
+    )
+    const { getReported } = renderTracked()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(getReported()?.busy).toBe(true))
+    const reported = getReported()!
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(
+      !expectedEnabled('save', reported)
+    )
+    expect(
+      screen.getByRole('button', { name: /^(Split|Preview|Edit)$/ }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('cycleViewMode', reported))
+    expect(
+      screen.getByRole('button', { name: /improve/i, hidden: true }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('improve', reported))
+  })
+
+  it('matches while a proposal is pending', async () => {
+    globalThis.window.argus.authoring.improve = vi.fn().mockResolvedValue({ content: 'PROPOSED' })
+    const { getReported } = renderTracked()
+    await userEvent.click(screen.getByRole('button', { name: /improve/i }))
+    await waitFor(() => expect(getReported()?.proposing).toBe(true))
+    const reported = getReported()!
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(
+      !expectedEnabled('save', reported)
+    )
+    expect(
+      screen.getByRole('button', { name: /^(Split|Preview|Edit)$/ }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('cycleViewMode', reported))
+    expect(
+      screen.getByRole('button', { name: /improve/i, hidden: true }).hasAttribute('disabled')
+    ).toBe(!expectedEnabled('improve', reported))
   })
 })
