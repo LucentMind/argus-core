@@ -9,11 +9,14 @@ import {
   capabilitiesFor,
   defaultInstanceId,
   defaultModelRef,
+  getDriver,
+  mergeCatalogModels,
   type AggregatedModel
 } from '../../../shared/drivers'
 import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
 import type { SkillListItem } from '../../../shared/memoryIpc'
 import type { SessionSummary } from '../../../shared/types'
+import { useModelCatalog } from '../lib/catalogStore'
 
 /**
  * Session-option picker. Reasoning is still cosmetic; model and permission mode are real —
@@ -151,9 +154,35 @@ export function Composer({
 
   // Every enabled provider's models in one list. Provider names are appended only when more
   // than one is enabled, so the single-provider case stays uncluttered.
-  const models: AggregatedModel[] = settingsPayload
+  const staticModels: AggregatedModel[] = settingsPayload
     ? allVisibleModels(settingsPayload.settings)
     : []
+
+  // The catalog describes ONE instance's CLI — the session's. Rows derived from it
+  // therefore carry that instance's identity, read straight off the provider instance
+  // (already in scope via settingsPayload) rather than borrowed from an arbitrary
+  // staticModels element — with two providers enabled that would mislabel every
+  // catalog-only model (e.g. Opus 5, which has no static row at all).
+  const catalogInstanceId = session?.instanceId ?? null
+  const catalogInstance = catalogInstanceId
+    ? settingsPayload?.settings.agent.providerInstances[catalogInstanceId]
+    : undefined
+  const catalog = useModelCatalog(catalogInstanceId)
+  const catalogDriver = catalogInstance ? getDriver(catalogInstance.driver) : undefined
+  const catalogProviderLabel = catalogInstance
+    ? catalogInstance.displayName?.trim() ||
+      (catalogDriver?.shortLabel ?? catalogDriver?.label ?? '')
+    : ''
+  const models: AggregatedModel[] =
+    catalog.length > 0 && catalogInstanceId && catalogInstance
+      ? mergeCatalogModels([], catalog).map((c) => ({
+          slug: c.slug,
+          name: c.name,
+          instanceId: catalogInstanceId,
+          driverKind: catalogInstance.driver,
+          providerLabel: catalogProviderLabel
+        }))
+      : staticModels
   const showProvider = new Set(models.map((m) => m.instanceId)).size > 1
   const modelOptions = models.length
     ? models.map((m) => modelOptionLabel(m, showProvider))

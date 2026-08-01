@@ -6,11 +6,13 @@ import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
+import { clearCatalogStore } from '../../lib/catalogStore'
 
 beforeEach(() => {
   localStorage.clear()
   uiStore.setShowToolCalls(true)
   settingsStore.reset()
+  clearCatalogStore()
   window.argus = {
     skills: { list: vi.fn(async () => ({ skills: [] })) },
     settings: {
@@ -22,7 +24,11 @@ beforeEach(() => {
       })),
       patch: vi.fn(),
       onChanged: vi.fn(() => () => {})
-    }
+    },
+    // Empty by default: the picker falls back to the static list, which is what
+    // every existing test here asserts against. Tests exercising the runtime
+    // catalog itself override this per-case.
+    models: { catalog: vi.fn(async () => []) }
   } as never
 })
 
@@ -107,6 +113,45 @@ describe('Composer', () => {
       />
     )
     expect(await screen.findByText('Claude Haiku 4.5')).toBeTruthy()
+  })
+
+  it("the runtime catalog supersedes the static list for the session's instance, surfacing a model the static list lacks", async () => {
+    window.argus.models.catalog = vi.fn(async (instanceId: string) => {
+      expect(instanceId).toBe('claude-default')
+      return [{ value: 'opus[1m]', displayName: 'Opus (1M context)' }]
+    })
+    const onModelChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        onModelChange={onModelChange}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'opus[1m]',
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
+        }}
+      />
+    )
+    // catalog-only row, not present in the static CLAUDE_MODELS list at all
+    expect(await screen.findByText('Opus (1M context)')).toBeTruthy()
+    fireEvent.click(screen.getByText('Opus (1M context)'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // the static-only Claude Fable 5 / Opus 4.7 rows are gone: the catalog wins outright
+    expect(items).toEqual(['Opus (1M context)'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opus (1M context)' }))
+    // and the catalog-only row still carries the SESSION's own instance identity
+    expect(onModelChange).toHaveBeenCalledWith('claude-default', 'opus[1m]')
   })
 
   it('picking a model re-pins the session rather than only changing local state', async () => {

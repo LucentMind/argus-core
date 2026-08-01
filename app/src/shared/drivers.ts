@@ -6,6 +6,7 @@ import {
   type PermissionMode,
   type ProviderInstance
 } from './settings'
+import type { ModelOptionInfo } from './runOptions'
 
 export interface FieldAnnotation {
   control: 'text' | 'password' | 'textarea' | 'select' | 'switch' | 'number'
@@ -471,6 +472,22 @@ export function instanceModels(s: AppSettings, instanceId?: string): CatalogMode
     customs.push({ slug, name: slug, isCustom: true })
   }
   return [...catalog, ...customs]
+}
+
+/**
+ * The model rows to offer for a Claude instance.
+ *
+ * The runtime catalog wins outright when present: it is the only source that knows
+ * which models THIS CLI build actually offers, and the same alias resolves to
+ * different models across versions. The static list is a pre-load / offline floor,
+ * never a merge partner — merging would resurrect models the CLI dropped.
+ */
+export function mergeCatalogModels(
+  staticModels: readonly CatalogModel[],
+  catalog: readonly ModelOptionInfo[]
+): CatalogModel[] {
+  if (catalog.length === 0) return [...staticModels]
+  return catalog.map((m) => ({ slug: m.value, name: m.displayName }))
 }
 
 /**
