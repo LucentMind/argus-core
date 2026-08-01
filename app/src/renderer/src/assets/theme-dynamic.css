@@ -350,13 +350,14 @@
 
 /* The case group's material. Named `-bar`, not `-header`, and scoped to the group rather
    than to a full-bleed header: the group lives inside TopBar now, which renders on Home and
-   Settings too. `.dyn-case` here comes from the group's own nested scope class, not from a
-   DynamicScope ancestor — TopBar is outside every scope.
+   Settings too. Both `.dyn-case` and `.dyn-case-bar` sit on the same element — the group's
+   scope class and class name in one — which is why the selector is compound rather than
+   descendant. This lets the group scope itself without needing a DynamicScope ancestor.
 
    No backdrop-filter any more. Its whole purpose was "the band reads THROUGH the header";
    the bar is above the canvas now and there is nothing behind it to blur, so the filter
    would cost a compositor layer for no visible effect. */
-.dyn-case .dyn-case-bar {
+.dyn-case.dyn-case-bar {
   position: relative;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
@@ -395,19 +396,19 @@
    get a rule, matching the dashboard card's .gc-rail: a p3 (Low/Lowest) case still shows a
    rail there, so the case group would otherwise be the one surface where a low-priority case
    reads as accent-free. */
-.dyn-case .dyn-case-bar::before {
+.dyn-case.dyn-case-bar::before {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
 }
-.dyn-case .dyn-case-bar[data-tier='p1']::before {
+.dyn-case.dyn-case-bar[data-tier='p1']::before {
   background: linear-gradient(90deg, var(--p1), transparent 62%);
 }
-.dyn-case .dyn-case-bar[data-tier='p2']::before {
+.dyn-case.dyn-case-bar[data-tier='p2']::before {
   background: linear-gradient(90deg, var(--p2), transparent 62%);
 }
-.dyn-case .dyn-case-bar[data-tier='p3']::before {
+.dyn-case.dyn-case-bar[data-tier='p3']::before {
   background: linear-gradient(90deg, var(--p3), transparent 62%);
 }
 .dyn .glass-panel[data-tier='p1']::after,
