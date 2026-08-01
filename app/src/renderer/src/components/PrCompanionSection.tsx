@@ -444,7 +444,7 @@ export function PrCompanionSection({
             value={prDraft}
             onChange={(e) => setPrDraft(e.target.value)}
             placeholder="PR url, owner/repo#N, or number"
-            className="w-full rounded border border-line bg-transparent px-1.5 py-0.5 text-xs"
+            className="w-full rounded border border-hair bg-transparent px-1.5 py-0.5 text-xs"
           />
           {prError && <div className="mt-0.5 text-[11px] text-danger">{prError}</div>}
         </form>

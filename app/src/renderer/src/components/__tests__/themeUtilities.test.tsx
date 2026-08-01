@@ -141,12 +141,14 @@ const STRUCTURAL_UTILITIES = new Set([
   'ring-offset-void'
 ])
 
-// Pre-existing bug, NOT introduced by and out of scope for Task 7's fix (which touches only
-// ObservabilityView.tsx). `border-line` is not a real utility — there is no `--color-line`
-// token, so the border falls back to the browser default instead of the intended `border-hair`.
-// Flagged in the Task 7 Finding-2 report; kept here (not silently fixed) so this new guard has
-// a green baseline. Remove this entry once that bug is fixed on its own.
-const KNOWN_PRE_EXISTING_ISSUES = new Set(['border-line'])
+// Empty by design. This previously held `border-line` (PrCompanionSection's PR-draft input),
+// the pre-existing bug that motivated this guard: no `--color-line` token exists, so the
+// utility emitted no CSS and `border` was left at its initial `currentColor` — measured against
+// the built stylesheet as a full-strength ink hairline (#efede6 dark / #101823 light), not the
+// faint `--hair` it was meant to be. Fixed to `border-hair`, so the guard now covers it. Add an
+// entry here only for a deliberately deferred bug, with the reason and the condition for
+// removing it.
+const KNOWN_PRE_EXISTING_ISSUES = new Set<string>([])
 
 describe('theme colour utility guard', () => {
   it('every bg-/text-/border-/ring-/fill-/stroke-/from-/via-/to- colour token is real', () => {
