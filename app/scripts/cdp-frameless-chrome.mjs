@@ -181,6 +181,7 @@ const editorTarget = await waitFor('the editor window', async () => {
 
 let editorOk = false
 let editorPadding = null
+let editorChrome = null
 if (editorTarget) {
   const editor = await connect(editorTarget)
   editorOk = await waitFor('the editor title strip', async () =>
@@ -190,6 +191,35 @@ if (editorTarget) {
     const bar = document.querySelector(${JSON.stringify(STRIP)})
     return bar ? parseFloat(getComputedStyle(bar).paddingRight) : null
   })()`)
+  // The editor window collapsed to ONE row of chrome (user-directed, 2026-08-01): the tab strip
+  // and the active pane's Save / view-mode buttons all live in this strip now. Unlike the main
+  // window's (assertion 4), it is NOT empty, so the overlap check below can actually fail for the
+  // right reason — and the drag-region opt-out matters here in a way jsdom can never see.
+  //
+  // Waited for, not read once: the pane's buttons arrive by portal only after `AssetTab`'s async
+  // resolve lands, which is well after the strip itself exists.
+  editorChrome = await waitFor(
+    "the editor strip's tabs and pane actions",
+    async () => {
+      const r = await editor.evalJs(`(() => {
+        const el = document.querySelector(${JSON.stringify(STRIP)})
+        if (!el) return null
+        const limit = el.getBoundingClientRect().width - parseFloat(getComputedStyle(el).paddingRight)
+        const interactive = [...el.querySelectorAll('button, [role="tab"], [role="tablist"]')]
+        return {
+          drag: el.className.includes('argus-drag'),
+          tabs: el.querySelectorAll('[role="tab"]').length,
+          save: interactive.filter(b => (b.textContent || '').trim() === 'Save').length,
+          dragging: interactive.filter(b => !b.closest('.argus-nodrag')).map(b => b.outerHTML),
+          underButtons: [...el.children]
+            .filter(k => k.getBoundingClientRect().right > limit + 1)
+            .map(k => k.outerHTML)
+        }
+      })()`)
+      return r && r.tabs > 0 && r.save > 0 ? r : null
+    },
+    15000
+  ).catch(() => null)
   editor.close()
 }
 check('the editor window renders a drag strip', editorOk, editorTarget?.url)
@@ -197,6 +227,21 @@ check(
   'the editor strip reserves room for its system buttons',
   typeof editorPadding === 'number' && editorPadding > FALLBACK_PX,
   { editorPadding, fallback: FALLBACK_PX }
+)
+check(
+  'the editor strip carries the tabs and exactly one pane action set',
+  !!editorChrome && editorChrome.drag && editorChrome.tabs > 0 && editorChrome.save === 1,
+  editorChrome
+)
+check(
+  "the editor strip's tabs and buttons opt out of the drag region",
+  !!editorChrome && editorChrome.dragging.length === 0,
+  editorChrome && { dragging: editorChrome.dragging }
+)
+check(
+  'nothing in the editor strip extends under the system buttons',
+  !!editorChrome && editorChrome.underButtons.length === 0,
+  editorChrome && { underButtons: editorChrome.underButtons }
 )
 
 main.close()

@@ -451,6 +451,69 @@ describe('EditorApp resuming a same-named draft', () => {
 
 const OTHER: EditorOpenRequest = { kind: 'skill', name: 'other-skill', mode: 'edit' }
 
+/** The drag strip, by the same selector `scripts/cdp-frameless-chrome.mjs` uses. */
+const stripEl = (): HTMLElement => {
+  const el = document.querySelector('.argus-drag.argus-titlebar-inset')
+  if (!el) throw new Error('no title bar strip rendered')
+  return el as HTMLElement
+}
+
+// One row of chrome. The editor window used to stack three — a drag strip carrying an
+// "Argus — Editor" label, the tab strip, and each pane's own breadcrumb+actions header — which
+// named the open asset twice and spent ~110px saying very little. The tabs now live in the drag
+// strip and the active pane portals its actions in beside them (see paneActionSlot.ts).
+describe('one-row chrome', () => {
+  it('renders the tab strip inside the drag strip and drops the window label', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    const tab = await screen.findByRole('tab', { name: /my-skill/ })
+    expect(stripEl().contains(tab)).toBe(true)
+    // The tabs identify the window now; a static label beside them is the duplication the row
+    // collapse was for.
+    expect(screen.queryByText('Argus — Editor')).not.toBeInTheDocument()
+  })
+
+  it("hosts the active pane's view-mode and Save controls in the drag strip", async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    const strip = within(stripEl())
+    expect(strip.getByRole('button', { name: /^save$/i })).toBeInTheDocument()
+    expect(strip.getByRole('button', { name: 'Split' })).toBeInTheDocument()
+  })
+
+  // Every tab stays mounted (spec §6.1), so without the `active` gate all N panes would portal
+  // into the one slot and the strip would grow a Save button per open asset.
+  it('shows one set of actions no matter how many tabs are open', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    act(() => openTab!(OTHER))
+    await screen.findByLabelText('skill · other-skill')
+    expect(screen.getAllByRole('button', { name: /^save$/i })).toHaveLength(1)
+  })
+
+  // The strip is a `-webkit-app-region: drag` surface: anything interactive inside it that does
+  // not opt out is swallowed by the OS drag handler — clicks never land, and the tab strip's
+  // horizontal scroll is eaten too. Mirrors TopBar.test.tsx's equivalent check.
+  it('opts every interactive child of the strip out of the drag region', async () => {
+    render(<EditorApp />)
+    act(() => openTab!(SKILL))
+    await screen.findByLabelText('skill · my-skill')
+    const strip = stripEl()
+    // The strip itself must STAY draggable, so the gap between the tabs and the actions is
+    // still a grab handle.
+    expect(strip.classList.contains('argus-drag')).toBe(true)
+    const interactive = [...strip.querySelectorAll('button, [role="tab"], [role="tablist"]')]
+    expect(interactive.length).toBeGreaterThan(0)
+    for (const el of interactive) {
+      // `closest`, not the element's own class: opting out a container covers everything inside
+      // its rect, which is how TopBar does it too.
+      expect(el.closest('.argus-nodrag')).not.toBeNull()
+    }
+  })
+})
+
 describe('multiple tabs', () => {
   it('opens a second asset in a second tab', async () => {
     render(<EditorApp />)

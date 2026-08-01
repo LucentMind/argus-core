@@ -27,13 +27,21 @@ describe('TitleBarStrip', () => {
     expect(strip.style.height).toBe(`${TITLEBAR_HEIGHTS.editor}px`)
   })
 
-  it('renders the label when given', () => {
-    render(<TitleBarStrip kind="editor" label="Argus — Editor" />)
-    expect(screen.getByText('Argus — Editor')).toBeTruthy()
+  // Replaces the old `label` prop's test. The editor window now hangs its whole chrome — the tab
+  // strip and the active pane's action buttons — inside the strip, so the strip has to be a
+  // container rather than a text slot.
+  it('renders its children', () => {
+    render(
+      <TitleBarStrip kind="editor">
+        <button type="button">Save</button>
+      </TitleBarStrip>
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
   })
 
-  it('renders no label text when omitted', () => {
+  it('renders nothing when given no children', () => {
     const { container } = render(<TitleBarStrip kind="main" />)
     expect(container.textContent).toBe('')
+    expect((container.firstElementChild as HTMLElement).childElementCount).toBe(0)
   })
 })
