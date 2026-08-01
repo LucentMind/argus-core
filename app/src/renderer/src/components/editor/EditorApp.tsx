@@ -90,6 +90,14 @@ interface TabPaneProps {
    *  just the active one. See the file-level comment on `TabPane` for the OOM-class bug this
    *  guards against. */
   commands: readonly Command[]
+  /** Every reference filename a Ctrl+click on a markdown link could resolve to. Identity-stable
+   *  (see the `useMemo` in `EditorApp`) — like `commands` above, an unstable identity here would
+   *  defeat `TabPane`'s `memo`, but unlike `commands` this one is the SAME array for every tab,
+   *  active or not, so there is no per-tab split needed at the `.map` call site. */
+  linkTargets: readonly string[]
+  /** A resolved link was Ctrl+clicked; open `file` (a reference) in a tab. Identity-stable, same
+   *  reasoning as `linkTargets`. */
+  onOpenLink: (file: string) => void
 }
 
 /**
@@ -137,7 +145,9 @@ const TabPane = memo(function TabPane({
   onEditCopy,
   onCommandState,
   registerPane,
-  commands
+  commands,
+  linkTargets,
+  onOpenLink
 }: TabPaneProps): React.JSX.Element {
   const handleDirtyChange = useCallback(
     (d: boolean) => onDirtyChange(tab.id, d),
@@ -225,6 +235,8 @@ const TabPane = memo(function TabPane({
         // Already the right value for this tab by the time it gets here — see the doc comment on
         // the `commands` prop above. No ternary needed (or safe) at this point in the tree.
         commands={commands}
+        linkTargets={linkTargets}
+        onOpenLink={onOpenLink}
       />
     </div>
   )
@@ -261,6 +273,16 @@ export function EditorApp(): React.JSX.Element {
   }, [dirty])
 
   const { rows: assetRows, refresh: refreshAssets } = useEditorAssets()
+  // Reference filenames only: a skill is a directory, and a link can only ever resolve to a
+  // reference (see the note in lib/mdLinks.ts). Identity-stable so it does not defeat `TabPane`'s
+  // `memo` — see the doc comment on `TabPaneProps.linkTargets`.
+  const linkTargets = useMemo(
+    () => assetRows.filter((r) => r.kind === 'reference').map((r) => r.name),
+    [assetRows]
+  )
+  const openLink = useCallback((file: string): void => {
+    setState((s) => openTab(s, { kind: 'reference', name: file, mode: 'edit' }))
+  }, [])
   /** `''` when closed is not a valid closed-state — an empty query is a legitimate OPEN palette.
    *  `null` is closed; a string is open, and its content picks the mode. */
   const [palette, setPalette] = useState<string | null>(null)
@@ -622,6 +644,8 @@ export function EditorApp(): React.JSX.Element {
                 // INACTIVE tab receives the same frozen `NO_COMMANDS` reference release over
                 // release, so `memo` actually sees no change for it and skips the re-render.
                 commands={active ? commands : NO_COMMANDS}
+                linkTargets={linkTargets}
+                onOpenLink={openLink}
               />
             )
           })

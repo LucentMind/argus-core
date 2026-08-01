@@ -165,6 +165,8 @@ function mount(
     onDirtyChange,
     onNameChange,
     onViewStateChange,
+    linkTargets: [],
+    onOpenLink: vi.fn(),
     ...overrides
   }
   const tree = <AssetPane {...props} />
@@ -209,6 +211,8 @@ function renderPane(overrides: Partial<React.ComponentProps<typeof AssetPane>> =
     onDirtyChange: vi.fn(),
     onNameChange: vi.fn(),
     onViewStateChange: vi.fn(),
+    linkTargets: [],
+    onOpenLink: vi.fn(),
     ...overrides
   }
   render(<AssetPane {...props} />)

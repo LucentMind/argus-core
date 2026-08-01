@@ -10,11 +10,24 @@ import {
   readOnlyExtension,
   wrapCompartment
 } from '../setup'
+import type { LinkOptions } from '../links'
 
 /** No DOM anywhere in this file. Assembling the extension list is state-level work, so it is
- *  provable headlessly — unlike anything that needs the view to measure (spec §8.2). */
-const create = (opts = { fontSize: 13, wrap: true, readOnly: false }): EditorState =>
-  EditorState.create({ doc: 'hello\nworld', extensions: baseExtensions(opts) })
+ *  provable headlessly — unlike anything that needs the view to measure (spec §8.2). Links have
+ *  their own dedicated test file (`links.test.ts`); this stub just satisfies `baseExtensions`'s
+ *  required option. */
+const linksStub = (): { current: LinkOptions } => ({ current: { targets: [], onOpen: () => {} } })
+const create = (
+  opts: { fontSize: number; wrap: boolean; readOnly: boolean } = {
+    fontSize: 13,
+    wrap: true,
+    readOnly: false
+  }
+): EditorState =>
+  EditorState.create({
+    doc: 'hello\nworld',
+    extensions: baseExtensions({ ...opts, links: linksStub() })
+  })
 
 describe('baseExtensions', () => {
   it('assembles into a valid state', () => {

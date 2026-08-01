@@ -114,6 +114,11 @@ export interface AssetPaneProps {
    * below, which is a TEST path and not a second source of truth.
    */
   commands?: readonly Command[]
+  /** Every reference filename a Ctrl+click on a markdown link could resolve to. Forwarded
+   *  straight to `CodeSurface` — see its `linkTargets` prop. */
+  linkTargets: readonly string[]
+  /** A resolved link was Ctrl+clicked; open `file` (a reference) in a tab. */
+  onOpenLink: (file: string) => void
 }
 
 /**
@@ -146,7 +151,9 @@ export function AssetPane({
   initialViewState = null,
   paneRef,
   onCommandState,
-  commands
+  commands,
+  linkTargets,
+  onOpenLink
 }: AssetPaneProps): React.JSX.Element {
   const template = kind === 'skill' ? skillTemplate : referenceTemplate
   const surfaceRef = useRef<SurfaceHandle | null>(null)
@@ -236,6 +243,14 @@ export function AssetPane({
     onSaveRef.current = onSave
   })
 
+  // Same reasoning as `onSaveRef`: `onOpenLink` is a prop, and a new identity whenever the parent
+  // re-renders, which cannot be closed over by the empty-dependency-list `surfaceCommands` memo
+  // below.
+  const onOpenLinkRef = useRef(onOpenLink)
+  useEffect(() => {
+    onOpenLinkRef.current = onOpenLink
+  }, [onOpenLink])
+
   // Named `surfaceCommands`, not `commands`: that name is the window's descriptor list prop
   // (spec §6.4, `cmdFor` below), and this is CodeMirror's own keymap surface — a different
   // contract (see `SurfaceCommands` in extensions/keymap.ts).
@@ -258,7 +273,8 @@ export function AssetPane({
           const viewMode = nextViewMode(p.viewMode)
           writePrefs({ viewMode })
           return { ...p, viewMode }
-        })
+        }),
+      openLink: (f) => onOpenLinkRef.current(f)
     }),
     []
   )
@@ -1074,6 +1090,7 @@ export function AssetPane({
               wrap={prefs.wrap}
               commands={surfaceCommands}
               readOnly={readOnly}
+              linkTargets={linkTargets}
               onDocChange={handleDocChange}
               onCursor={handleCursor}
               onScrollFraction={handleScrollFraction}

@@ -32,6 +32,10 @@ export interface AssetTabProps {
   /** Forwarded straight to `AssetPane` untouched — see its doc comment on this same prop. `TabPane`
    *  in EditorApp.tsx passes this only when this tab is active. */
   commands?: readonly Command[]
+  /** Forwarded straight to `AssetPane` untouched — see its doc comment on this same prop. */
+  linkTargets: readonly string[]
+  /** Forwarded straight to `AssetPane` untouched — see its doc comment on this same prop. */
+  onOpenLink: (file: string) => void
 }
 
 interface Resolved {
@@ -65,7 +69,9 @@ export function AssetTab({
   initialViewState = null,
   paneRef,
   onCommandState,
-  commands
+  commands,
+  linkTargets,
+  onOpenLink
 }: AssetTabProps): React.JSX.Element {
   const { kind, name, mode } = req
   const [resolved, setResolved] = useState<Resolved | null>(null)
@@ -207,6 +213,8 @@ export function AssetTab({
       paneRef={paneRef}
       onCommandState={onCommandState}
       commands={commands}
+      linkTargets={linkTargets}
+      onOpenLink={onOpenLink}
     />
   )
 }

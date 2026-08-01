@@ -11,6 +11,7 @@ import {
   readOnlyExtension,
   wrapCompartment
 } from './extensions/setup'
+import { linkCompartment, linkExtension, type LinkOptions } from './extensions/links'
 import { editorKeymap, type SurfaceCommands } from './extensions/keymap'
 import { partitionIssues } from '../../lib/diagnostics'
 import { scrollFractionOf } from '../../lib/scrollSync'
@@ -51,6 +52,14 @@ export interface CodeSurfaceProps {
    * typed. Do **not** replace it with a remount under a new React `key`.
    */
   readOnly?: boolean
+  /**
+   * Every reference filename a Ctrl+click could resolve to. **Live**, not mount-only — reconfigured
+   * through `linkCompartment` whenever it changes, for the same reason `readOnly` is: the known set
+   * arrives from `refsync:get` / `refsync:changed`, both async, so a buffer opened before it lands
+   * would decorate every link as broken and refuse every Ctrl+click in that window. See
+   * extensions/links.ts.
+   */
+  linkTargets: readonly string[]
   ref?: React.Ref<SurfaceHandle>
 }
 
@@ -77,6 +86,7 @@ export function CodeSurface({
   onCursor,
   onScrollFraction,
   readOnly = false,
+  linkTargets,
   ref
 }: CodeSurfaceProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -100,6 +110,19 @@ export function CodeSurface({
     commandsRef.current = commands
   }, [commands])
 
+  const linkRef = useRef<LinkOptions>({
+    targets: linkTargets,
+    onOpen: (f) => commandsRef.current.openLink(f)
+  })
+  useEffect(() => {
+    linkRef.current = { targets: linkTargets, onOpen: (f) => commandsRef.current.openLink(f) }
+    // A fresh extension instance, so the plugin re-runs `build` against the new set. The ref
+    // alone would update the click handler but leave stale decorations on screen.
+    viewRef.current?.dispatch({
+      effects: linkCompartment.reconfigure(linkExtension(linkRef))
+    })
+  }, [linkTargets])
+
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
@@ -108,7 +131,7 @@ export function CodeSurface({
       state: EditorState.create({
         doc: initialDoc,
         extensions: [
-          ...baseExtensions({ fontSize, wrap, readOnly }),
+          ...baseExtensions({ fontSize, wrap, readOnly, links: linkRef }),
           editorKeymap(commandsRef),
           EditorView.contentAttributes.of({ 'aria-label': ariaLabel }),
           EditorView.updateListener.of((update) => {

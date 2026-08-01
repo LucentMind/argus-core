@@ -15,6 +15,7 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { lintGutter } from '@codemirror/lint'
 import { assetLanguage } from './language'
 import { argusHighlight, argusTheme } from './theme'
+import { linkCompartment, linkExtension, type LinkOptions } from './links'
 
 /** Reconfigured on Ctrl+± (spec §5.7) rather than rebuilt: rebuilding the view would throw away
  *  the undo history this increment exists to protect. */
@@ -59,6 +60,7 @@ export function baseExtensions(opts: {
   fontSize: number
   wrap: boolean
   readOnly: boolean
+  links: { current: LinkOptions }
 }): Extension[] {
   return [
     lineNumbers(),
@@ -78,6 +80,7 @@ export function baseExtensions(opts: {
     argusTheme(),
     fontSizeCompartment.of(fontSizeTheme(opts.fontSize)),
     wrapCompartment.of(opts.wrap ? EditorView.lineWrapping : []),
-    readOnlyCompartment.of(readOnlyExtension(opts.readOnly))
+    readOnlyCompartment.of(readOnlyExtension(opts.readOnly)),
+    linkCompartment.of(linkExtension(opts.links))
   ]
 }

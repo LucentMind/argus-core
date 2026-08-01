@@ -12,6 +12,9 @@ export interface SurfaceCommands {
   changeFontSize: (delta: number) => void
   toggleWrap: () => void
   cycleViewMode: () => void
+  /** Ctrl+click on a resolvable markdown link. The file is a reference filename, already
+   *  resolved against the known set (see extensions/links.ts). */
+  openLink: (file: string) => void
 }
 
 /**
