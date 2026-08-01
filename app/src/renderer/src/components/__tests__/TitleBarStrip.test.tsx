@@ -44,4 +44,20 @@ describe('TitleBarStrip', () => {
     expect(container.textContent).toBe('')
     expect((container.firstElementChild as HTMLElement).childElementCount).toBe(0)
   })
+
+  // jsdom cannot evaluate `env(titlebar-area-x)` or compute the resulting pixel padding, so this
+  // only proves the class wiring — that the editor strip opts into the flush variant and the main
+  // strip does not — not the actual geometry. The 12px-vs-flush arithmetic and the darwin floor
+  // that must keep winning over it are exercised by `.argus-titlebar-inset--flush`'s CSS comment
+  // and, ultimately, by eyeballing the real app.
+  it('opts into the flush left inset only when asked, leaving the base strip untouched', () => {
+    const { container: flush } = render(<TitleBarStrip kind="editor" flush />)
+    const flushStrip = flush.firstElementChild as HTMLElement
+    expect(flushStrip.classList.contains('argus-titlebar-inset')).toBe(true)
+    expect(flushStrip.classList.contains('argus-titlebar-inset--flush')).toBe(true)
+
+    const { container: main } = render(<TitleBarStrip kind="main" />)
+    const mainStrip = main.firstElementChild as HTMLElement
+    expect(mainStrip.classList.contains('argus-titlebar-inset--flush')).toBe(false)
+  })
 })

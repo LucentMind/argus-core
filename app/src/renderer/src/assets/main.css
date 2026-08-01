@@ -268,6 +268,26 @@ body {
   );
 }
 
+/* `--flush` drops the 12px design gutter from the LEFT edge only (spec
+   2026-08-01-frameless-chrome-increment-2, increment 2). It's for a strip whose leading child is
+   itself a visual edge — the editor window's tab strip, whose first tab should start exactly
+   where the editing surface below it does (the window edge) — as opposed to a strip holding a
+   text label or nothing, which wants the breathing room `.argus-titlebar-inset` gives it.
+
+   This is NOT `padding-left: 0`. It is still `env(titlebar-area-x, 0px)`: on win32 that env value
+   already resolves to 0, so flush looks like zero there, but on darwin the traffic lights sit on
+   the left and the `:root[data-platform='darwin']` floor two rules down has to keep winning.
+   That floor rule's selector (`:root[data-platform] .argus-titlebar-inset`, three class-level
+   selectors) is already more specific than this modifier's two, so it overrides this rule's
+   padding-left wherever it applies — no darwin-specific flush variant needed. Hard-coding 0 here
+   instead of `env(...)` would still be beaten by the floor's `max()`, but would defeat the point
+   of `max()` letting a real measured `env(titlebar-area-x)` win once someone captures one; reusing
+   the same expression as the base rule (minus the 0.75rem) keeps that door open. Right-side
+   padding is untouched by design — Save must stay clear of the OS button cluster regardless. */
+.argus-titlebar-inset.argus-titlebar-inset--flush {
+  padding-left: env(titlebar-area-x, 0px);
+}
+
 /* Platform-scoped floors (review issue 1, Critical; `data-platform` stamped by uiStore's
    applyPlatform() from `window.argus.platform`, i.e. `process.platform` surfaced in preload).
 
