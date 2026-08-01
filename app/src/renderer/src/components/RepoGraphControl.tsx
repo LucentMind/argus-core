@@ -79,7 +79,7 @@ export function RepoGraphControl({ repoPath }: { repoPath: string }): React.JSX.
         <Waypoints size={12} />
       </IconBtn>
       {open && (
-        <div className="absolute left-0 top-6 z-30 max-h-96 w-80 overflow-y-auto rounded-r2 border border-hair bg-deep p-2 text-xs shadow-lg">
+        <div className="absolute left-0 top-6 z-30 max-h-96 w-80 overflow-y-auto rounded-r2 surface-card p-2 text-xs shadow-lg">
           {rows.map((r) => (
             <div key={r.scopeKey} className="mb-1">
               {r.status === 'building' && (

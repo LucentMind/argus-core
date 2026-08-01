@@ -107,7 +107,7 @@ export function TourCompanion({
   }
 
   const panel = (
-    <div className="pointer-events-auto w-80 rounded-r3 border border-hair bg-deep p-4 shadow-lg">
+    <div className="pointer-events-auto w-80 rounded-r3 surface-card p-4 shadow-lg">
       <div className="mb-1 text-[11px] uppercase tracking-wide text-faint">
         Feature tour · {index + 1}/{steps.length}
       </div>

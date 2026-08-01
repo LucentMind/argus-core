@@ -91,7 +91,7 @@ export function CitationCard({
         />
       </button>
       {expanded && (
-        <div className="my-1.5 block w-full overflow-hidden rounded-r2 border border-hair bg-deep">
+        <div className="my-1.5 block w-full overflow-hidden rounded-r2 surface-card">
           <div className="flex items-center gap-1.5 border-b border-hair px-2 py-1">
             <Icon size={12} strokeWidth={1.5} className="shrink-0 text-mute" />
             <span className="truncate font-mono text-[11px] text-dim">

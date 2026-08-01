@@ -942,7 +942,7 @@ describe('CaseWorkspace priority accent', () => {
 })
 
 describe('CaseWorkspace rail material', () => {
-  it('goes to ground (dyn-rail, not bg-deep) when the dynamic theme is on', async () => {
+  it('goes to ground (dyn-rail, not bg-void) when the dynamic theme is on', async () => {
     uiStore.setDynamicTheme(true)
     const { container } = renderWorkspace()
     await screen.findByText('Chat')
@@ -950,18 +950,21 @@ describe('CaseWorkspace rail material', () => {
     expect(asides.length).toBeGreaterThan(0)
     asides.forEach((a) => {
       expect(a.className).toContain('dyn-rail')
-      expect(a.className).not.toContain('bg-deep')
+      expect(a.className).not.toContain('bg-void')
     })
   })
 
-  it('stays bg-deep when the dynamic theme is off', async () => {
+  // Task 8b: the false branch repaints ground with bg-void (not bg-deep), so the
+  // viewport-anchored --wash gradient (which matches only :is(body, .bg-void)) reaches these
+  // rails too when the dynamic theme is off.
+  it('stays bg-void when the dynamic theme is off', async () => {
     uiStore.setDynamicTheme(false)
     const { container } = renderWorkspace()
     await screen.findByText('Chat')
     const asides = container.querySelectorAll('aside')
     expect(asides.length).toBeGreaterThan(0)
     asides.forEach((a) => {
-      expect(a.className).toContain('bg-deep')
+      expect(a.className).toContain('bg-void')
       expect(a.className).not.toContain('dyn-rail')
     })
   })

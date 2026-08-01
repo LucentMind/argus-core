@@ -9,7 +9,7 @@ export function ToolCallCard({
   const [open, setOpen] = useState(false)
   const dot = !item.done ? 'bg-signal animate-pulse' : item.isError ? 'bg-danger' : 'bg-review'
   return (
-    <div className="rounded-r2 border border-hair bg-deep transition-colors hover:border-hair2">
+    <div className="rounded-r2 border border-hair bg-panel transition-colors hover:border-hair2">
       <button
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
         onClick={() => setOpen(!open)}

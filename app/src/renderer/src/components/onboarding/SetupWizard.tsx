@@ -52,7 +52,7 @@ export function SetupWizard({
         role="dialog"
         aria-modal="true"
         aria-label="Argus setup"
-        className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 border border-hair bg-deep"
+        className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 surface-card"
       >
         <nav
           aria-label="Setup steps"

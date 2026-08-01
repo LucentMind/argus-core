@@ -43,7 +43,7 @@ export function DeleteCaseDialog({
         <input
           autoFocus
           aria-label="Confirm slug"
-          className="rounded-r1 border border-hair bg-deep px-2 py-1 font-mono text-xs text-ink outline-none"
+          className="rounded-r1 border border-hair bg-overlay px-2 py-1 font-mono text-xs text-ink outline-none"
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => {

@@ -155,7 +155,7 @@ export function SettingsView({
       <div className="flex min-h-0 flex-1">
         <nav
           aria-label="Settings sections"
-          className={`flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
+          className={`flex w-48 shrink-0 flex-col gap-0.5 border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
         >
           {/* `pages`, not PAGES — the group-header lookup must read the same filtered array, or
               hiding the last page in a group leaves its heading behind with nothing under it. */}

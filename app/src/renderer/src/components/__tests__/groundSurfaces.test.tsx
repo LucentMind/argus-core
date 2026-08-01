@@ -93,3 +93,43 @@ describe('the bg-deep split is complete', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('task 8b: the remaining bg-deep call sites are swept', () => {
+  // The plan's Task 5/7/8 inventory claimed six bg-deep call sites; a repo-wide scan found
+  // ~14. This task converts the rest: ground rails (CaseWorkspace, Composer, SettingsView),
+  // cards (CitationCard, RepoGraphControl, KnowledgeFlowStrip, SetupWizard, TourCompanion), the
+  // DeleteCaseDialog input (a control fill), and ToolCallCard's plain-fill token (bg-panel, no
+  // material — it stays on the legibility line). EditorApp.tsx is explicitly excluded: Task 10
+  // owns it.
+  const CONVERTED_8B = [
+    'CaseWorkspace.tsx',
+    'Composer.tsx',
+    'SettingsView.tsx',
+    'CitationCard.tsx',
+    'RepoGraphControl.tsx',
+    'KnowledgeFlowStrip.tsx',
+    'SetupWizard.tsx',
+    'TourCompanion.tsx',
+    'DeleteCaseDialog.tsx',
+    'ToolCallCard.tsx'
+  ]
+
+  it('none of these still paint with bg-deep', () => {
+    const files = walk(COMPONENTS).filter((f) => CONVERTED_8B.some((c) => f.endsWith(c)))
+    // A scan that silently covers zero files after a rename would pass forever.
+    expect(files.length).toBe(CONVERTED_8B.length)
+    for (const file of files) {
+      const src = readFileSync(file, 'utf8')
+      expect(src, `${file} still paints with bg-deep`).not.toContain('bg-deep')
+    }
+  })
+
+  it('ToolCallCard stays palette-only — its bg-panel fill acquires no material class', () => {
+    const [file] = walk(COMPONENTS).filter((f) => f.endsWith('ToolCallCard.tsx'))
+    expect(file, 'ToolCallCard.tsx not found — rename?').toBeDefined()
+    const src = readFileSync(file, 'utf8')
+    expect(src, 'ToolCallCard.tsx must never acquire surface-card').not.toContain('surface-card')
+    expect(src, 'ToolCallCard.tsx must never acquire glass-card').not.toContain('glass-card')
+    expect(src, 'ToolCallCard.tsx must never acquire glass-panel').not.toContain('glass-panel')
+  })
+})
