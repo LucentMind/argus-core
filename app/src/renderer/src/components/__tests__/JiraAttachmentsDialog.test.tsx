@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { JiraAttachmentsDialog } from '../JiraAttachmentsDialog'
 import { __resetEscapeLayersForTest } from '../../lib/escapeLayer'
+import { panelsStore } from '../../lib/panelsStore'
 import type { JiraAttachmentInfo } from '../../../../shared/jira'
 
 const att = (id: string, filename: string): JiraAttachmentInfo => ({
@@ -27,6 +28,24 @@ beforeEach(() => {
 afterEach(() => __resetEscapeLayersForTest())
 
 describe('JiraAttachmentsDialog', () => {
+  // Same occlusion hazard as PrPickerDialog: a docked panel paints above all DOM, so this
+  // dialog must register itself with panelsStore to hide the panel while it's open.
+  it('registers as a panelsStore occlusion source on mount and deregisters on unmount', () => {
+    expect(panelsStore.get().occluded).toBe(false)
+    const { unmount } = render(
+      <JiraAttachmentsDialog
+        slug="NAV-7"
+        newAttachments={[]}
+        deselectedAttachments={[]}
+        ingestedAttachments={[]}
+        onClose={() => {}}
+      />
+    )
+    expect(panelsStore.get().occluded).toBe(true)
+    unmount()
+    expect(panelsStore.get().occluded).toBe(false)
+  })
+
   it('pre-checks new attachments and leaves previously deselected unchecked', () => {
     render(
       <JiraAttachmentsDialog

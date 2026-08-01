@@ -75,6 +75,36 @@ describe('PanelsStore', () => {
     expect(store.get().occluded).toBe(false)
   })
 
+  it('registerModal occludes while registered, un-occludes once deregistered', () => {
+    expect(store.get().occluded).toBe(false)
+    const dispose = store.registerModal('pr-picker')
+    expect(store.get().occluded).toBe(true)
+    dispose()
+    expect(store.get().occluded).toBe(false)
+  })
+
+  it('two registered modals: closing one leaves occlusion until both close', () => {
+    // A single shared boolean would let the first modal's close un-occlude while a second
+    // modal (e.g. a Jira attachments dialog opening while the PR picker is still up) is
+    // still showing -- this is the case that would get wrong.
+    const disposeA = store.registerModal('pr-picker')
+    const disposeB = store.registerModal('jira-attachments')
+    expect(store.get().occluded).toBe(true)
+    disposeA()
+    expect(store.get().occluded).toBe(true)
+    disposeB()
+    expect(store.get().occluded).toBe(false)
+  })
+
+  it('registerModal ORs with the modal/launcher occlusion sources', () => {
+    const dispose = store.registerModal('pr-picker')
+    store.setOccluded(true)
+    dispose()
+    expect(store.get().occluded).toBe(true) // setOccluded source still active
+    store.setOccluded(false)
+    expect(store.get().occluded).toBe(false)
+  })
+
   it('activate() selects a panel whose case matches the current case', () => {
     // The agent's open_panel opens a panel in the main process; main broadcasts
     // panels:activate so the renderer selects it (as user-initiated opens already do).

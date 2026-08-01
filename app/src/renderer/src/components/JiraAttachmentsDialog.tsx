@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Btn, Chip } from './ui'
 import { ModalShell } from './ModalShell'
 import type { JiraAttachmentInfo } from '../../../shared/jira'
+import { panelsStore } from '../lib/panelsStore'
 
 const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`)
 
@@ -30,6 +31,12 @@ export function JiraAttachmentsDialog({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // A docked panel is a native WebContentsView that paints above all DOM, so this modal must
+  // register itself as an occlusion source (see panelsStore.registerModal) -- registering here
+  // rather than at the call site means a future call site can't forget to occlude the panel.
+  const modalId = useId()
+  useEffect(() => panelsStore.registerModal(modalId), [modalId])
 
   async function confirm(): Promise<void> {
     setBusy(true)

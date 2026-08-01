@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 import userEvent from '@testing-library/user-event'
 import { PrPickerDialog } from '../PrPickerDialog'
 import { confirm } from '../../lib/confirmStore'
+import { panelsStore } from '../../lib/panelsStore'
 import type { PrBinding, PrCandidate } from '../../../../shared/pr'
 
 vi.mock('../../lib/confirmStore', () => ({
@@ -48,6 +49,23 @@ beforeEach(() => {
 })
 
 describe('PrPickerDialog', () => {
+  // A docked panel (native WebContentsView) paints above all DOM, so a component-level
+  // dialog must register itself with panelsStore to hide the panel while it's open --
+  // otherwise the dialog renders invisibly underneath the panel.
+  it('registers as a panelsStore occlusion source on mount and deregisters on unmount', () => {
+    expect(panelsStore.get().occluded).toBe(false)
+    const { unmount } = render(
+      <PrPickerDialog
+        slug="c1"
+        result={{ candidates: [], error: null, searchedRepos: [] }}
+        onClose={vi.fn()}
+      />
+    )
+    expect(panelsStore.get().occluded).toBe(true)
+    unmount()
+    expect(panelsStore.get().occluded).toBe(false)
+  })
+
   it('preselects the first non-backport candidate and leaves the backport unselected', () => {
     render(
       <PrPickerDialog
