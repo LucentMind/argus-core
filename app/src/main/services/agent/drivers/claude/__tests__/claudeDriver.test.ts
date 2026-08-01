@@ -56,7 +56,15 @@ function sessionCallOptions(spy: { mock: { calls: unknown[][] } }): Record<strin
   const call = spy.mock.calls.find(
     (c) => (c[0] as { options: Record<string, unknown> }).options.systemPrompt
   )
-  return (call?.[0] as { options: Record<string, unknown> }).options
+  // Fail with a readable assertion message rather than an unguarded property access
+  // throwing a bare "Cannot read properties of undefined" — e.g. if a future ctx stops
+  // setting `systemPrompt`, no call would match and this should say so plainly.
+  if (!call) {
+    throw new Error(
+      'sessionCallOptions: no createQuery call had options.systemPrompt set — check that the ctx used still pins a system prompt'
+    )
+  }
+  return (call[0] as { options: Record<string, unknown> }).options
 }
 
 function fakeQuery(messages: unknown[]): CreateQueryFn {

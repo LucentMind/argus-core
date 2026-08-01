@@ -5,7 +5,12 @@ import fixture from '../__fixtures__/models-2-1-220.json'
 
 function fakeQuery(
   models: unknown,
-  opts: { throws?: boolean; hang?: boolean; hangInterrupt?: boolean } = {}
+  opts: {
+    throws?: boolean
+    hang?: boolean
+    hangInterrupt?: boolean
+    throwsInterruptSync?: boolean
+  } = {}
 ): CreateQueryFn {
   return vi.fn(() => ({
     supportedModels: async () => {
@@ -19,7 +24,16 @@ function fakeQuery(
     // it, up to CaseSession.stop() — never settled).
     interrupt: opts.hangInterrupt
       ? () => new Promise<void>(() => undefined)
-      : async () => undefined,
+      : opts.throwsInterruptSync
+        ? // Reproduces the other half of Finding 1: a synchronous throw out of the
+          // `finally` block's cleanup (not a rejected promise — a real throw before any
+          // promise is even formed) is not caught by ask()'s try/catch, since that catch
+          // only guards the try block. Left unguarded, this replaces whatever the try
+          // block was about to return with a rejection.
+          () => {
+            throw new Error('interrupt() threw synchronously')
+          }
+        : async () => undefined,
     // Never iterated — ask() returns before consuming this once supportedModels is found.
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     [Symbol.asyncIterator]: async function* () {}
@@ -96,6 +110,89 @@ describe('fetchCatalog', () => {
       expect(q).toHaveBeenCalledTimes(2)
     } finally {
       vi.useRealTimers()
+    }
+  })
+
+  // Finding 1: ask()'s try/catch does not cover its own finally block. A cleanup
+  // (interrupt()) that throws synchronously — rather than returning a rejected promise —
+  // replaces whatever the try block was about to return with a rejection, and
+  // fetchCatalog had no `.catch` of its own, so that rejection propagated all the way up
+  // through catalogFor -> the driver's handleReady -> events(), i.e. a blocked send. A
+  // degraded menu is acceptable; a blocked send is not.
+  it('resolves to the static fallback, never rejects, when cleanup throws synchronously', async () => {
+    const models = await fetchCatalog(fakeQuery(fixture, { throwsInterruptSync: true }))
+    // Must be the STATIC_FALLBACK list, not the fixture's models — the successful
+    // supportedModels() result is unrecoverable once cleanup throws, so this can only
+    // ever be the fallback, never the fixture's 'fable' alias.
+    expect(models.some((m) => m.value === 'claude-sonnet-5')).toBe(true)
+    expect(models.some((m) => m.value === 'fable')).toBe(false)
+  })
+
+  // Finding 1 (continued): a result reached via that new catch must be subject to the
+  // same 60s failure TTL as every other fallback arm — not cached for the process
+  // lifetime the way a genuine success is. Without this, cleanup throwing once would
+  // brick the catalog for that cliPath forever.
+  it('retries after the failure TTL even when the fallback was reached via a synchronous cleanup throw', async () => {
+    vi.useFakeTimers()
+    try {
+      const q = fakeQuery(fixture, { throwsInterruptSync: true })
+      await fetchCatalog(q)
+      expect(q).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await fetchCatalog(q)
+      expect(q).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Finding 2: the success-vs-failure split rests entirely on the `result ===
+  // STATIC_FALLBACK` identity check inside fetchCatalog's `.then`. Nothing previously
+  // pinned "a successful fetch survives past the failure TTL" — the existing cache test
+  // (above) never advances timers, so a future refactor that started expiring successful
+  // catalogs too (e.g. hoisting the eviction out of the `if`, or returning a copy of the
+  // fallback so the identity check stops matching) would pass every existing test.
+  it('does not expire a successful fetch after the failure TTL elapses', async () => {
+    vi.useFakeTimers()
+    try {
+      const q = fakeQuery(fixture)
+      const models = await fetchCatalog(q)
+      expect(models.some((m) => m.value === 'fable')).toBe(true)
+      expect(q).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await fetchCatalog(q)
+      expect(q).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Finding 3: the once-per-fetch warning was previously guaranteed only by reading the
+  // code (it happens inside the `.then` attached to `raw`, which only runs once no
+  // matter how many callers are awaiting the shared cached promise). Nothing asserted on
+  // console.warn.
+  it('warns exactly once for a degraded fetch shared by concurrent callers, and not again on a cache hit', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const q = fakeQuery(null, { throws: true })
+      const [a, b] = await Promise.all([
+        fetchCatalog(q, { timeoutMs: 20 }),
+        fetchCatalog(q, { timeoutMs: 20 })
+      ])
+      expect(a.length).toBeGreaterThan(0)
+      expect(b.length).toBeGreaterThan(0)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+
+      // A cache hit (still within the failure TTL) must not warn again — only an actual
+      // fetch settling should log.
+      await fetchCatalog(q, { timeoutMs: 20 })
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      warnSpy.mockRestore()
     }
   })
 })

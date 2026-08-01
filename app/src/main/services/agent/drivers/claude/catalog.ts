@@ -97,9 +97,11 @@ async function ask(
   }
 }
 
-/** The model catalog this CLI reports, cached per resolved binary path. A successful
- *  fetch is cached for the process lifetime; a failed/fallback one only for
- *  FAILURE_TTL_MS (see its comment) so the app self-heals without a restart. */
+/** The model catalog this CLI reports, cached per resolved binary path. Never rejects —
+ *  every failure path, including a cleanup throw escaping ask()'s finally block, resolves
+ *  to STATIC_FALLBACK. A successful fetch is cached for the process lifetime; a
+ *  failed/fallback one only for FAILURE_TTL_MS (see its comment) so the app self-heals
+ *  without a restart. */
 export function fetchCatalog(
   createQuery: CreateQueryFn,
   opts: { cliPath?: string; timeoutMs?: number } = {}
@@ -111,7 +113,18 @@ export function fetchCatalog(
   const key = cliPath ?? '<default>'
   const hit = cache.get(key)
   if (hit) return hit
-  const raw = ask(createQuery, cliPath ?? undefined, opts.timeoutMs ?? 10000)
+  // ask()'s own try/catch guarantees STATIC_FALLBACK on any failure inside the try — but
+  // that catch does not cover ask()'s finally block. A cleanup (interrupt()) that throws
+  // synchronously, or returns a non-thenable whose .catch(...) itself throws, replaces
+  // whatever the try block was about to return with a rejection. This .catch is the
+  // backstop for that: no matter what happens inside ask(), fetchCatalog must resolve to
+  // STATIC_FALLBACK, never reject — a degraded menu is acceptable, a blocked send is not.
+  // Reaching the fallback this way is still a failure for caching purposes, so it flows
+  // into the same `.then` below and gets the same TTL + one-time warning as every other
+  // fallback arm, rather than being cached for the process lifetime.
+  const raw = ask(createQuery, cliPath ?? undefined, opts.timeoutMs ?? 10000).catch(
+    () => STATIC_FALLBACK
+  )
   const p: Promise<ModelOptionInfo[]> = raw.then((result) => {
     if (result === STATIC_FALLBACK) {
       // Observable degradation (Finding 2): without this, a user pinned to a model the
