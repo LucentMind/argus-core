@@ -91,10 +91,15 @@ export function QuestionCard({
                     key={oi}
                     type="button"
                     onClick={() => toggle(qi, oi, q.multiSelect)}
+                    // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this card's own fill
+                    // is `var(--bg-2)` (the `bg-panel` utility below, plus a radial tint) — an
+                    // opaque near-white in light, same defect class as AssetPane's create-mode
+                    // inputs. Matches SetupWizard's step-chip precedent: a selected/unselected
+                    // static state on a card uses `bg-well`, never `bg-hi`/`bg-overlay`.
                     className={`flex flex-col items-start rounded-r2 border px-2 py-1.5 text-left transition-colors ${
                       sel.has(oi)
-                        ? 'border-defect/70 bg-overlay'
-                        : 'border-hair bg-overlay/40 hover:border-hair2'
+                        ? 'border-defect/70 bg-well'
+                        : 'border-hair bg-well/40 hover:border-hair2'
                     }`}
                   >
                     <span className="text-xs text-ink">
@@ -109,8 +114,10 @@ export function QuestionCard({
                   </button>
                 ))}
               </div>
+              {/* `bg-well`, not `bg-overlay` (Task 12 review finding 1): same on-card reasoning
+                  as the options above. */}
               <input
-                className="h-7 min-w-0 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute focus:border-hair2"
+                className="h-7 min-w-0 rounded-r2 border border-hair bg-well px-2 text-xs text-ink placeholder:text-mute focus:border-hair2"
                 placeholder="Other (free text)…"
                 value={other[qi] ?? ''}
                 onChange={(e) => setOther((prev) => ({ ...prev, [qi]: e.target.value }))}

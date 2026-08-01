@@ -994,14 +994,18 @@ export function AssetPane({
             value={name}
             disabled={proposed !== null}
             onChange={(e) => renameCreate(e.target.value)}
-            className="w-56 rounded-r2 bg-overlay px-2 py-1 font-mono text-xs outline-none"
+            // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this row sits on
+            // EditorApp's `surface-card`, same as the two banners below.
+            className="w-56 rounded-r2 bg-well px-2 py-1 font-mono text-xs outline-none"
           />
           <input
             aria-label="describe it"
             placeholder="Describe what it should do…"
             value={describe}
             onChange={(e) => setDescribe(e.target.value)}
-            className="min-w-0 flex-1 rounded-r2 bg-overlay px-2 py-1 text-xs outline-none placeholder:text-faint"
+            // `bg-well`, not `bg-overlay` (Task 12 review finding 1): same reasoning as the name
+            // field above.
+            className="min-w-0 flex-1 rounded-r2 bg-well px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
           {proposed === null && prefs.viewMode !== 'preview' && draftCmd && (
             <Btn variant="outline" disabled={!draftCmd.enabled} onClick={draftCmd.run}>

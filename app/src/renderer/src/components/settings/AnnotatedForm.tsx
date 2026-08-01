@@ -121,7 +121,10 @@ export function AnnotatedForm({
             ) : a.control === 'textarea' ? (
               <DraftTextarea
                 aria-label={a.label}
-                className="w-72 rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
+                // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this row sits inside a
+                // SettingsSection card, same as `FIELD`/`TEXTAREA_FIELD` (settingsLayout.tsx) —
+                // this one just never switched over when it grew a custom width class.
+                className="w-72 rounded-r2 border border-hair bg-well p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
                 placeholder={a.placeholder}
                 value={String(value[key] ?? '')}
                 onCommit={(v) => onChange(key, v === '' ? null : v)}

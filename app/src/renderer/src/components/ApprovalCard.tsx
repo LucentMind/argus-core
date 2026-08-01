@@ -79,7 +79,11 @@ export function ApprovalCard({
                 </span>
                 <textarea
                   aria-label={k}
-                  className="min-h-16 rounded-r1 border border-hair bg-overlay p-2 font-mono text-xs leading-relaxed text-ink focus:border-hair2"
+                  // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this card's own fill
+                  // is `var(--bg-2)` (the `bg-panel` utility below, plus a radial tint) — an
+                  // opaque near-white in light, same defect class as AssetPane's create-mode
+                  // inputs.
+                  className="min-h-16 rounded-r1 border border-hair bg-well p-2 font-mono text-xs leading-relaxed text-ink focus:border-hair2"
                   value={draft[k] ?? v}
                   onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
                 />
@@ -93,8 +97,10 @@ export function ApprovalCard({
           )}
         </div>
       ) : (
-        /* wraps long commands; vertical scroll only — never horizontal */
-        <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-r1 border border-hair bg-overlay p-2 font-mono text-xs leading-relaxed text-ink">
+        /* wraps long commands; vertical scroll only — never horizontal.
+           `bg-well`, not `bg-overlay` (Task 12 review finding 1): same on-card reasoning as the
+           editable textarea above. */
+        <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-r1 border border-hair bg-well p-2 font-mono text-xs leading-relaxed text-ink">
           {request.argsPreview}
         </pre>
       )}
@@ -110,8 +116,10 @@ export function ApprovalCard({
         <Btn variant="danger" onClick={() => respond('deny')}>
           Deny
         </Btn>
+        {/* `bg-well`, not `bg-overlay` (Task 12 review finding 1): same on-card reasoning as the
+            preview/textarea above. */}
         <input
-          className="ml-1 h-7 min-w-0 flex-1 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute focus:border-hair2"
+          className="ml-1 h-7 min-w-0 flex-1 rounded-r2 border border-hair bg-well px-2 text-xs text-ink placeholder:text-mute focus:border-hair2"
           placeholder="reason (sent to the agent on deny)"
           value={comment}
           onChange={(e) => setComment(e.target.value)}

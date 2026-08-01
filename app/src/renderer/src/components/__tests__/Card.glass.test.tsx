@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Card } from '../ui'
+import { leafRules } from '../../assets/__tests__/cssRuleScan'
 
 describe('Card glass variant', () => {
   it('default variant carries the shared material, not a raw bg utility', () => {
@@ -96,5 +97,83 @@ describe('Card glass variant', () => {
       searchFrom = idx + 1
     }
     expect(matchCount).toBe(2)
+  })
+
+  // Task 12 review finding 4: the frosted merge (`.glass-card` joining `.overlay-card`/
+  // `.overlay-menu`/`.glass-chrome` in main.css's shared `:is(...)` selector) got a regression
+  // test — the selector-match scan above. The SOLID merge (`.surface-card` reading the same
+  // `--panel-*` tokens as `.glass-panel`, so the two read identically in light) got none: nothing
+  // asserted the light `.surface-card` block avoided a hardcoded colour literal, and nothing
+  // asserted `.surface-card` and `.glass-panel` stayed pixel-identical in light. That is the exact
+  // invariant Part 1 exists to establish — main.css's own comment above the rule says the two were
+  // matching "by construction" (shared tokens) rather than by two hand-copied literal values that
+  // could drift apart the moment either was tuned. Without a pin, a future tuning pass to
+  // `.glass-panel` could silently re-diverge `.surface-card` with the suite green — the exact bug
+  // Part 1 fixed.
+  it('light .surface-card matches .glass-panel by construction, not by copied literals', () => {
+    const main = readFileSync(join(__dirname, '../../assets/main.css'), 'utf8')
+    const dyn = readFileSync(join(__dirname, '../../assets/theme-dynamic.css'), 'utf8')
+
+    const surfaceCardRules = leafRules(main).filter(
+      (r) => r.selector === ":root[data-theme='light'] .surface-card"
+    )
+    expect(surfaceCardRules.length, 'the light .surface-card override must be found').toBe(1)
+    const surfaceCardBody = surfaceCardRules[0].body
+
+    // No hardcoded colour literal — every fill/border/shadow value must come from a --panel-*
+    // token, not a hand-copied hex/rgb/rgba value that could drift from .glass-panel's own.
+    expect(surfaceCardBody).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(surfaceCardBody).not.toMatch(/\brgba?\(\s*\d/)
+    for (const token of [
+      '--panel-border',
+      '--panel-bg',
+      '--panel-lens-1',
+      '--panel-lens-2',
+      '--panel-hi',
+      '--panel-waist',
+      '--panel-shadow'
+    ]) {
+      expect(surfaceCardBody, `light .surface-card must reference ${token}`).toContain(
+        `var(${token})`
+      )
+    }
+
+    // .glass-panel (theme-dynamic.css) is the un-scoped material both dark and light read — its
+    // background/box-shadow are entirely var()-driven already (no light-only override block
+    // exists, or needs to), so comparing against its literal declaration text is the cheapest way
+    // to assert the two materials paint identically in light, not just similarly.
+    const glassPanelRules = leafRules(dyn).filter((r) => r.selector === '.glass-panel')
+    expect(glassPanelRules.length, 'the un-scoped .glass-panel recipe must be found').toBe(1)
+    const glassPanelBody = glassPanelRules[0].body
+
+    const declValue = (body: string, prop: string): string | undefined =>
+      body
+        .match(new RegExp(`(?<![\\w-])${prop}\\s*:([\\s\\S]*?);`))?.[1]
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    for (const prop of ['background', 'box-shadow']) {
+      const surfaceValue = declValue(surfaceCardBody, prop)
+      const panelValue = declValue(glassPanelBody, prop)
+      expect(surfaceValue, `light .surface-card must declare ${prop}`).toBeDefined()
+      expect(panelValue, `.glass-panel must declare ${prop}`).toBeDefined()
+      expect(surfaceValue, `light .surface-card's ${prop} must match .glass-panel's`).toBe(
+        panelValue
+      )
+    }
+
+    // The border COLOUR must also match (surface-card's light override only changes
+    // border-color — width/style stay whatever the dark base rule already set — while
+    // glass-panel's is a full `border: 1px solid ...` shorthand, so the two properties aren't
+    // byte-identical text, but the colour token inside them must be).
+    const borderColor = surfaceCardBody.match(/border-color\s*:\s*([^;]+);/)?.[1].trim()
+    const panelBorder = glassPanelBody.match(/\bborder\s*:\s*([^;]+);/)?.[1].trim()
+    expect(borderColor, 'light .surface-card must declare border-color').toBeDefined()
+    expect(panelBorder, '.glass-panel must declare border').toBeDefined()
+    expect(
+      panelBorder,
+      ".glass-panel's border must carry surface-card's border-color token"
+    ).toContain(borderColor)
   })
 })

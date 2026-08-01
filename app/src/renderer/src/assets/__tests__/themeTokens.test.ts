@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { overlayMaterialRules } from './cssRuleScan'
+import { overlayMaterialRules, leafRules, type CssRule } from './cssRuleScan'
 
 const ASSETS = join(__dirname, '..')
 
@@ -307,23 +307,72 @@ describe('material scoping', () => {
     // need them and none of those live inside .dyn — so a dark-baked black literal in either
     // reaches light surfaces too: 85%-black read as dirt on a #fdfdfe fill (Task 3 review
     // finding 2, caught when .glass-panel's waist line was still the hardcoded
-    // `rgba(0, 0, 0, 0.85)` instead of `var(--panel-waist)`). Extract each rule's own body — not
-    // a whole-file scan, which legitimately contains black literals in .dyn-home-scoped rules.
+    // `rgba(0, 0, 0, 0.85)` instead of `var(--panel-waist)`).
+    //
+    // Task 12 split `.glass-card` into a theme-invariant SHAPE rule (position/isolation/
+    // overflow/border-width/transition — no paint at all) and a
+    // `:where(:root:not([data-theme='light'])) .glass-card` dark-PAINT rule (background/
+    // box-shadow, where a reintroduced black literal would actually land). A scan anchored on
+    // `^\.glass-card \{` alone finds only the shape rule and never reaches the paint rule — the
+    // exact rule this guard exists to protect — so it would pass green even with a fresh
+    // `rgba(0, 0, 0, 0.5)` baked into the dark recipe (Task 12 review finding 2). `.glass-panel`
+    // has no such split (its one rule is entirely var()-driven, dark and light alike), so this
+    // widened scan is a superset of the old one there, not a behaviour change.
+    //
+    // Reuses cssRuleScan's `leafRules` — the same "find every rule whose selector mentions X"
+    // walk `overlayMaterialRules` already relies on for `.overlay-card`/`.overlay-menu`/
+    // `.glass-chrome`/`.glass-card` — rather than a second hand-rolled brace walk. Matched by
+    // selector identity (stripped of the `:where(...)` dark guard) rather than a substring, so
+    // unrelated compound selectors that merely MENTION the class (`.glass-card:hover`,
+    // `.dyn-home .glass-card`, `.glass-card > *:not(...)`) are correctly excluded.
     const blackLiteral = /rgba\(0,\s*0,\s*0|#000\b/
+    const DARK_GUARD = /^:where\(:root:not\(\[data-theme='light'\]\)\)\s*/
 
-    const cardStart = dyn.search(/^\.glass-card \{/m)
-    expect(cardStart, 'the un-scoped .glass-card recipe must be found').toBeGreaterThanOrEqual(0)
-    const cardOpen = dyn.indexOf('{', cardStart)
-    const cardClose = dyn.indexOf('}', cardOpen)
-    expect(cardClose, 'the .glass-card recipe must close').toBeGreaterThan(cardOpen)
-    expect(dyn.slice(cardOpen + 1, cardClose)).not.toMatch(blackLiteral)
+    function paintRules(selector: string): CssRule[] {
+      return leafRules(dyn).filter((r) => r.selector.replace(DARK_GUARD, '') === selector)
+    }
 
-    const panelStart = dyn.search(/^\.glass-panel \{/m)
-    expect(panelStart, 'the un-scoped .glass-panel recipe must be found').toBeGreaterThanOrEqual(0)
-    const panelOpen = dyn.indexOf('{', panelStart)
-    const panelClose = dyn.indexOf('}', panelOpen)
-    expect(panelClose, 'the .glass-panel recipe must close').toBeGreaterThan(panelOpen)
-    expect(dyn.slice(panelOpen + 1, panelClose)).not.toMatch(blackLiteral)
+    const cardRules = paintRules('.glass-card')
+    // The shape rule (`.glass-card {`) plus the dark paint rule (`:where(...) .glass-card {`) —
+    // a count of exactly 1 would mean the paint rule silently stopped matching (e.g. the
+    // `:where(...)` guard text drifted) and this guard fell back to checking only the shape rule.
+    expect(
+      cardRules.length,
+      'expected both the .glass-card shape rule and its dark paint rule'
+    ).toBeGreaterThanOrEqual(2)
+    for (const r of cardRules) {
+      expect(r.body, `.glass-card rule (${r.selector}) must not carry a black literal`).not.toMatch(
+        blackLiteral
+      )
+    }
+
+    const panelRules = paintRules('.glass-panel')
+    expect(
+      panelRules.length,
+      'the un-scoped .glass-panel recipe must be found'
+    ).toBeGreaterThanOrEqual(1)
+    for (const r of panelRules) {
+      expect(
+        r.body,
+        `.glass-panel rule (${r.selector}) must not carry a black literal`
+      ).not.toMatch(blackLiteral)
+    }
+  })
+
+  it('the .glass-card shape rule pins its own border-width (Task 12 review finding 3)', () => {
+    // Light's `.glass-card` gets only `border-color` from main.css's shared frosted selector —
+    // the same pattern `.overlay-card`/`.overlay-menu`/`.glass-chrome` use, each leaning on their
+    // OWN always-on dark base rule's `border: 1px solid ...` shorthand for width. `.glass-card`'s
+    // dark recipe lives in the `:where(:root:not([data-theme='light']))`-scoped paint rule above,
+    // which contributes nothing in light, so `border-width` has to come from this un-scoped
+    // shape rule instead — drop it and light's border silently falls back to Tailwind preflight's
+    // 0px. This exact regression shipped once and was caught only by a manual CDP computed-style
+    // probe, never a unit test (jsdom resolves no cascade) — see the comment on this declaration
+    // itself. Pinned here so a future "cleanup" reasoning that the dark shorthand makes this
+    // redundant fails loudly instead of quietly reintroducing a borderless light card.
+    const rules = leafRules(dyn).filter((r) => r.selector === '.glass-card')
+    expect(rules.length, 'the un-scoped .glass-card shape rule must be found').toBe(1)
+    expect(rules[0].body).toMatch(/(?<![\w-])border-width\s*:/)
   })
 })
 
