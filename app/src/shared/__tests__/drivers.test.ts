@@ -13,11 +13,17 @@ import {
   enabledInstances,
   defaultInstanceId,
   allVisibleModels,
+  catalogModelRows,
   defaultModelRef,
   capabilitiesFor,
   type ClaudeDriverConfig
 } from '../drivers'
 import { settingsSchema, type AppSettings } from '../settings'
+import type { ModelOptionInfo } from '../runOptions'
+// The real captured CLI catalog — same fixture modelIdentity.test.ts pins the resolver
+// against, so this test proves the fix end-to-end against real data, not a hand-written
+// approximation that could accidentally agree with a broken resolver.
+import CLI_CATALOG from '../../main/services/agent/drivers/claude/__fixtures__/models-2-1-220.json'
 
 const CATALOG_ORDER = [
   'claude-fable-5',
@@ -231,6 +237,21 @@ describe('model ordering helpers', () => {
     expect(models.map((m) => m.slug)).toEqual([...CATALOG_ORDER, 'my-finetune'])
     expect(models.find((m) => m.slug === 'my-finetune')?.isCustom).toBe(true)
     expect(models.find((m) => m.slug === 'claude-sonnet-5')?.isCustom).toBeFalsy()
+  })
+
+  // Finding 2 (regression this branch introduced): widening the custom-vs-catalog dedupe from
+  // exact-string comparison to modelMatches meant its [1m] stripping applied here too, so an
+  // explicit `claude-sonnet-5[1m]` custom model — the documented way to request 1M context —
+  // collapsed into the catalog's plain `claude-sonnet-5` row and vanished from the picker. It
+  // must stay a distinct, offered model. Custom-vs-custom dedupe (the `seen` set) is unaffected
+  // — this is specifically the custom-vs-catalog path.
+  it('keeps an explicit [1m] custom model distinct from its base catalog slug', () => {
+    const s = withPrefs(undefined, { customModels: ['claude-sonnet-5[1m]'] })
+    const models = instanceModels(s)
+    expect(models.map((m) => m.slug)).toEqual([...CATALOG_ORDER, 'claude-sonnet-5[1m]'])
+    expect(models.find((m) => m.slug === 'claude-sonnet-5[1m]')?.isCustom).toBe(true)
+    // the base row is untouched and still present
+    expect(models.filter((m) => m.slug === 'claude-sonnet-5')).toHaveLength(1)
   })
 
   it('orderedVisibleModels with no prefs preserves original catalog order', () => {
@@ -494,6 +515,32 @@ describe('allVisibleModels rowOverrides', () => {
 
   it('is optional and additive — omitting the second argument behaves identically to before', () => {
     expect(allVisibleModels(multi())).toEqual(allVisibleModels(multi(), undefined))
+  })
+
+  // Finding 1, end-to-end: a stored preference of `claude-haiku-4-5` (what Settings offers,
+  // and what a user hiding "Claude Haiku 4.5" writes) must actually remove the live catalog's
+  // `haiku` row once the real runtime catalog substitutes in — not just be silently dropped by
+  // translatePreferences because the row's resolvedModel carries a date suffix it lacks.
+  it('hiding the static Haiku slug hides the live catalog row once the real fixture loads', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} }
+        },
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: ['claude-haiku-4-5'],
+            favoriteModels: [],
+            modelOrder: []
+          }
+        }
+      }
+    })
+    const liveRows = catalogModelRows(CLI_CATALOG as ModelOptionInfo[])
+    expect(liveRows.some((m) => m.slug === 'haiku')).toBe(true) // sanity: the row is really there
+    const models = allVisibleModels(s, { 'claude-default': liveRows })
+    expect(models.some((m) => m.slug === 'haiku')).toBe(false)
   })
 })
 

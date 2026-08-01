@@ -67,6 +67,9 @@ const PINNED_MODEL = 'claude-sonnet-5'
  */
 const MODEL_CHIP_OK = ['Sonnet', 'Claude Sonnet 5']
 
+/** The instance the fixture pins its session to (`composer-run-options-fixture.mjs`). */
+const INSTANCE_ID = 'claude-default'
+
 const conn = await connect(mainWindow(await list(PORT)))
 
 /** Force the page's CSS viewport to an exact size, independent of the actual OS window — same
@@ -175,6 +178,11 @@ const modelLabel = () =>
     return btn ? btn.textContent.trim() : null
   })()`)
 
+/** The raw runtime catalog for the fixture's instance, straight from the same IPC call
+ *  Composer.tsx's `useModelCatalog` makes — not inferred from a chip label. */
+const fetchCatalog = () =>
+  conn.evalJs(`window.argus.models.catalog(${JSON.stringify(INSTANCE_ID)})`)
+
 // ── boot: wide viewport, fresh load, confirm this is the right app ────────────────────────
 
 await setViewport(1600, 900)
@@ -191,7 +199,7 @@ await openCase()
 // EVERY chat displayed "Default (recommended)" while the main process independently resolved
 // a different row (or none) and silently dropped every run option off the wire.
 //
-// Note that check 1 below now depends on this too: the Reasoning/Context chips are built from
+// Note that check 2 below now depends on this too: the Reasoning/Context chips are built from
 // the descriptors of the model the session is pinned to, so their mere presence only means
 // something once the chip is proven to name the right model.
 
@@ -204,18 +212,47 @@ await openCase()
   )
 }
 
-// ── 1. wide composer: density=wide, Reasoning + Context Window chips both present ─────────
+// ── 1. the catalog just exercised is the LIVE runtime catalog, not the offline fallback ────
+//
+// Check 0's MODEL_CHIP_OK accepts BOTH "Sonnet" (the live alias row's display name) and
+// "Claude Sonnet 5" (catalog.ts's STATIC_FALLBACK's) — deliberately, since the fixture is
+// built to render its chips identically either way (see composer-run-options-fixture.mjs's own
+// doc comment). That means check 0 alone cannot tell a real CLI run from an offline one: run
+// this gate with no CLI reachable and check 0 (and check 1's chip presence — STATIC_FALLBACK's
+// claude-sonnet-5 row also reports `supportsEffort`) would go green having exercised NOTHING
+// about alias↔slug resolution, which is the exact defect this whole gate exists to catch (see
+// check 0's comment above).
+//
+// So ask the same IPC the composer calls (`window.argus.models.catalog`) directly and check
+// the SHAPE of what came back: the live catalog is alias-keyed and carries a separate
+// `resolvedModel` on every row (catalog.ts's real fetchCatalog path); STATIC_FALLBACK's rows
+// are keyed by wire slug directly and carry no `resolvedModel` at all (see catalog.ts's own
+// doc comment on the shape difference). A row with `resolvedModel` set is therefore proof the
+// live path ran. If this fails, the machine driving this gate could not reach the Claude CLI —
+// fix that and re-run; do not loosen this check to make an offline run pass.
+
+{
+  const rows = await fetchCatalog()
+  const live = Array.isArray(rows) && rows.some((r) => typeof r?.resolvedModel === 'string')
+  check(
+    '1. the runtime catalog is LIVE (has resolvedModel rows), not catalog.ts STATIC_FALLBACK',
+    live,
+    { rowCount: Array.isArray(rows) ? rows.length : null, rows }
+  )
+}
+
+// ── 2. wide composer: density=wide, Reasoning + Context Window chips both present ─────────
 
 {
   const wide = await readRow()
   check(
-    '1. wide composer: data-composer-density=wide, Reasoning + Context Window chips present',
+    '2. wide composer: data-composer-density=wide, Reasoning + Context Window chips present',
     wide.density === 'wide' && wide.reasoningChip && wide.contextChip,
     wide
   )
 }
 
-// ── 2. narrow the chat pane (<700px row) and confirm the flip ─────────────────────────────
+// ── 3. narrow the chat pane (<700px row) and confirm the flip ─────────────────────────────
 //
 // The row's own width, not the window's, is what the component measures (`useDensity`
 // observes `rowRef`, COLLAPSE_AT_PX = 700). Rather than compute the exact aside/findings-pane
@@ -238,7 +275,7 @@ await waitFor('composer row to narrow', () => readRow().then((r) => r.density ==
 {
   const narrow = await readRow()
   check(
-    '2. narrow composer (<700px row): density=narrow, Reasoning/Context chips gone, "More options" exists',
+    '3. narrow composer (<700px row): density=narrow, Reasoning/Context chips gone, "More options" exists',
     narrow.density === 'narrow' &&
       narrow.rowWidth !== null &&
       narrow.rowWidth < 700 &&
@@ -249,7 +286,7 @@ await waitFor('composer row to narrow', () => readRow().then((r) => r.density ==
   )
 }
 
-// ── 3. opening the collapsed menu shows all four section headings ─────────────────────────
+// ── 4. opening the collapsed menu shows all four section headings ─────────────────────────
 
 await conn.evalJs(`(() => {
   document.querySelector('[aria-label="More options"]').click()
@@ -269,12 +306,12 @@ const headings = await conn.evalJs(`(() => {
 })()`)
 
 check(
-  '3. the collapsed menu shows Reasoning, Context Window, Access and Tool results headings',
+  '4. the collapsed menu shows Reasoning, Context Window, Access and Tool results headings',
   ['Reasoning', 'Context Window', 'Access', 'Tool results'].every((h) => headings.includes(h)),
   headings
 )
 
-// ── 4. selecting Ultracode makes the (wide) Reasoning chip read "Ultracode" ────────────────
+// ── 5. selecting Ultracode makes the (wide) Reasoning chip read "Ultracode" ────────────────
 //
 // The collapsed menu does NOT auto-close on selecting a descriptor option (only the Access
 // and Tool results rows call setOpen(false) — see CollapsedMenu in OptionsMenu.tsx), so the
@@ -305,12 +342,12 @@ await sleep(400)
 
 const labelAfterSelect = await reasoningLabel()
 check(
-  '4. selecting Ultracode makes the Reasoning chip read "Ultracode"',
+  '5. selecting Ultracode makes the Reasoning chip read "Ultracode"',
   clickedUltracode && labelAfterSelect === 'Ultracode',
   { clickedUltracode, labelAfterSelect }
 )
 
-// ── 5. reload — the selection must have persisted to the session row, not just component state ──
+// ── 6. reload — the selection must have persisted to the session row, not just component state ──
 
 await reload()
 await identityGate()
@@ -318,12 +355,12 @@ await openCase()
 
 const labelAfterReload = await reasoningLabel()
 check(
-  '5. after a reload the Ultracode selection survived (proves it persisted to the session row)',
+  '6. after a reload the Ultracode selection survived (proves it persisted to the session row)',
   labelAfterReload === 'Ultracode',
   labelAfterReload
 )
 
-// ── 6. and the model chip still names the pinned model after a full remount ───────────────
+// ── 7. and the model chip still names the pinned model after a full remount ───────────────
 //
 // Same claim as check 0, but from cold: the resolution happens against a catalog that is
 // already cached in the main process by now, which is the state most real sessions open in.
@@ -331,7 +368,7 @@ check(
 {
   const label = await modelLabel()
   check(
-    `6. after a reload the model chip still names ${PINNED_MODEL}`,
+    `7. after a reload the model chip still names ${PINNED_MODEL}`,
     MODEL_CHIP_OK.includes(label),
     { label, accepted: MODEL_CHIP_OK }
   )

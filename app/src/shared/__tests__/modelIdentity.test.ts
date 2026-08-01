@@ -46,10 +46,23 @@ describe('findModelEntry against the real CLI catalog', () => {
     expect(findModelEntry(rows, '', self)).toBeNull()
   })
 
-  // A prefix rule would make claude-opus-4 match claude-opus-4-8, so the dated haiku slug is
-  // deliberately NOT matched by the undated one. Documented here so it reads as a decision.
-  it('does not treat a dated resolvedModel as a prefix match', () => {
-    expect(findModelEntry(rows, 'claude-haiku-4-5', self)).toBeNull()
+  // UPDATED for Finding 1: this used to assert `claude-haiku-4-5` did NOT match the haiku row,
+  // which was the bug — the stored Settings preference for Haiku is the undated static slug
+  // `claude-haiku-4-5`, but this fixture's haiku row only reports a DATED `resolvedModel`
+  // (`claude-haiku-4-5-20251001`), so hiding/favouriting/reordering Haiku in Settings silently
+  // failed to affect the composer picker once the live catalog loaded. The fix is a narrow
+  // date-suffix rule (`resolvesToId`): a stored id matches a `resolvedModel` that is exactly
+  // that id plus `-YYYYMMDD`. It is still NOT a general prefix rule — see the next test.
+  it('resolves a session pinned to the undated static slug via a dated resolvedModel', () => {
+    expect(findModelEntry(rows, 'claude-haiku-4-5', self)?.value).toBe('haiku')
+  })
+
+  // A general prefix rule would make claude-opus-4 match claude-opus-4-8. The date-suffix rule
+  // does not: claude-opus-4-8 is not a valid `-YYYYMMDD` suffix, and no row resolves to it
+  // anyway. Documented here so it reads as a decision, not an oversight.
+  it('still does not treat an arbitrary suffix as a prefix match', () => {
+    expect(findModelEntry(rows, 'claude-opus-4', self)).toBeNull()
+    expect(findModelEntry(rows, 'claude-opus-4-8', self)).toBeNull()
   })
 })
 
@@ -67,5 +80,23 @@ describe('modelMatches', () => {
     expect(modelMatches(staticRow, 'claude-sonnet-5')).toBe(true)
     expect(modelMatches(staticRow, 'claude-sonnet-5[1m]')).toBe(true)
     expect(modelMatches(staticRow, 'sonnet')).toBe(false)
+  })
+
+  // Finding 1, pinned directly (not just via the fixture): a stored preference for the
+  // undated static slug must match a row whose resolvedModel carries the CLI's date suffix —
+  // that gap is exactly why hiding Haiku in Settings did not hide it in the composer.
+  it('matches a stored undated slug against a resolvedModel with a date suffix', () => {
+    const haiku: ModelIdentity = { value: 'haiku', resolvedModel: 'claude-haiku-4-5-20251001' }
+    expect(modelMatches(haiku, 'claude-haiku-4-5')).toBe(true)
+  })
+
+  // The collision a naive prefix rule would cause, and the reason this is a dedicated
+  // date-suffix check rather than a `startsWith`: claude-opus-4 must NOT match a row for the
+  // unrelated model claude-opus-4-8, whether that id appears as `value` or `resolvedModel`.
+  it('does not match claude-opus-4 against claude-opus-4-8 (not a date suffix)', () => {
+    expect(modelMatches({ value: 'claude-opus-4-8' }, 'claude-opus-4')).toBe(false)
+    expect(
+      modelMatches({ value: 'opus-4-8', resolvedModel: 'claude-opus-4-8' }, 'claude-opus-4')
+    ).toBe(false)
   })
 })

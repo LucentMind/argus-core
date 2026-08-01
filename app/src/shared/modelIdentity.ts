@@ -32,19 +32,41 @@ function bare(slug: string): string {
 }
 
 /**
- * True when `model` names this row — by `value`, by `resolvedModel`, or by either with a
- * trailing `[1m]` stripped from BOTH sides. That union is exactly what the renderer and the
- * main process used to attempt separately.
+ * True when `resolved` IS `id`, or `id` with a trailing `-YYYYMMDD` date segment appended —
+ * the shape the Claude CLI catalog uses for dated model ids (`claude-haiku-4-5-20251001`)
+ * against Argus's static, undated slug (`claude-haiku-4-5`).
  *
- * Deliberately exact after the suffix strip: `claude-haiku-4-5` does NOT match a
- * `resolvedModel` of `claude-haiku-4-5-20251001`. A prefix rule would also make
- * `claude-opus-4` match `claude-opus-4-8`, which is a different model.
+ * Deliberately narrow: only an exact 8-digit date suffix counts, so `claude-opus-4` still does
+ * NOT match `claude-opus-4-8` — that was the collision a naive prefix rule would cause, and is
+ * why this stays a dedicated date-suffix check rather than `resolved.startsWith(id)`.
+ *
+ * Exported (not just inlined into `modelMatches`) so custom-model dedupe (`shared/drivers.ts`)
+ * can reuse the date-suffix rule WITHOUT also pulling in `bare()`'s `[1m]` stripping — that
+ * stripping is right for matching a pinned session against its row, but wrong for dedupe, where
+ * an explicit `claude-sonnet-5[1m]` custom model must stay distinct from `claude-sonnet-5`.
+ */
+export function resolvesToId(resolved: string, id: string): boolean {
+  if (resolved === id) return true
+  if (!resolved.startsWith(id)) return false
+  return /^-\d{8}$/.test(resolved.slice(id.length))
+}
+
+/**
+ * True when `model` names this row — by `value`, by `resolvedModel`, or by either with a
+ * trailing `[1m]` stripped from BOTH sides, or by `resolvedModel` carrying a `-YYYYMMDD` date
+ * segment the stored id lacks (see {@link resolvesToId}). That union is exactly what the
+ * renderer and the main process used to attempt separately.
+ *
+ * `claude-haiku-4-5` DOES match a `resolvedModel` of `claude-haiku-4-5-20251001` (date-suffix
+ * rule); `claude-opus-4` still does NOT match `claude-opus-4-8` (no row resolves to that via an
+ * exact date suffix, and a bare prefix rule is deliberately not what this is).
  */
 export function modelMatches(row: ModelIdentity, model: string): boolean {
   const wanted = bare(model)
   if (row.value === model || bare(row.value) === wanted) return true
   const rm = row.resolvedModel
-  return rm !== undefined && (rm === model || bare(rm) === wanted)
+  if (rm === undefined) return false
+  return resolvesToId(rm, model) || resolvesToId(bare(rm), wanted)
 }
 
 /**
@@ -70,7 +92,7 @@ export function findModelEntry<T>(
   if (byValue !== undefined) return byValue
   const byResolved = rows.find((r) => {
     const rm = identityOf(r).resolvedModel
-    return rm !== undefined && (rm === model || bare(rm) === wanted)
+    return rm !== undefined && (resolvesToId(rm, model) || resolvesToId(bare(rm), wanted))
   })
   return byResolved ?? null
 }

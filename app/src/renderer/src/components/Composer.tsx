@@ -58,7 +58,7 @@ function OptionChip({
       <button
         type="button"
         title={menuLabel}
-        className="flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
         onClick={() => setOpen(!open)}
       >
         {icon}
@@ -126,6 +126,12 @@ function Divider(): React.JSX.Element {
  * Deliberately a fixed threshold rather than an overflow measurement
  * (`scrollWidth > clientWidth`): collapsing changes the width, which can un-trigger
  * the condition and oscillate.
+ *
+ * `OptionChip` and `DescriptorChip` triggers carry `shrink-0 whitespace-nowrap`, so between
+ * this threshold and the true worst-case width the chips run tight rather than wrapping their
+ * label text and growing the row taller — which makes the exact number above far less
+ * load-bearing than it looks: a few px of error just narrows or widens the tight band instead
+ * of visibly breaking the row.
  */
 const COLLAPSE_AT_PX = 700
 

@@ -96,7 +96,7 @@ export function DescriptorChip({
         // The visible text is the toggle's NAME for a boolean, so its state has to reach the
         // accessibility tree some other way than the label.
         {...(isBoolean ? { 'aria-label': `${descriptor.label}: ${text}` } : {})}
-        className="flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
         onClick={() => setOpen(!open)}
       >
         <span>{isBoolean ? descriptor.label : text}</span>

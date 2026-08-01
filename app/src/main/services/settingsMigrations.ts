@@ -11,14 +11,21 @@ export interface MigratableSettings {
 /**
  * One-time upgrade: retire a stored `bypassPermissions` DEFAULT.
  *
- * Until this branch, `permissionMode: 'bypassPermissions'` reached the SDK unpaired with
- * `allowDangerouslySkipPermissions`, which made it inert — the setting existed, users could
- * select it, and nothing happened. Now the pair is sent and it genuinely bypasses every
- * permission check (plausibly including `canUseTool`, and therefore Argus's own `tool_calls`
- * audit rows). Anyone who once set "Bypass approvals" as their global default, observed no
- * effect and left it there would get unprompted tool execution the moment they upgraded,
- * without ever making that choice against the behaviour it now has. So it is reset, and they
- * re-select it deliberately if they want it.
+ * Until this branch, on the Claude driver specifically, `permissionMode: 'bypassPermissions'`
+ * reached the SDK unpaired with `allowDangerouslySkipPermissions`, which made it inert there —
+ * the setting existed, users could select it, and nothing happened. Now the pair is sent and it
+ * genuinely bypasses every permission check (plausibly including `canUseTool`, and therefore
+ * Argus's own `tool_calls` audit rows).
+ *
+ * This is a deliberate fail-safe, not a universal bug fix: the Copilot, ACP, and Codex drivers
+ * already honoured `bypassPermissions` correctly before this branch (see their own
+ * `ctx.permissionMode === 'bypassPermissions'` short-circuits), so a user on one of those who
+ * deliberately set Bypass and watched it work will still have it reset here on upgrade. That
+ * reset is intentional — this migration cannot tell "set once, forgotten, now surprising" apart
+ * from "set on purpose, working as intended" across drivers, and getting the Claude case wrong
+ * (unprompted tool execution nobody chose against today's behaviour) is worse than the Copilot
+ * case wrong (a working setting needs one re-select). So it resets everyone's stored default
+ * uniformly, and they re-select it deliberately if they want it.
  *
  * Idempotent via the `migrations.bypassDefaultReset` stamp — the same "sentinel key, written
  * once" shape as `ensureTrackingStarted`'s tracking epoch. The stamp is written even when

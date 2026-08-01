@@ -7,7 +7,7 @@ import {
   type ProviderInstance
 } from './settings'
 import type { ModelOptionInfo } from './runOptions'
-import { findModelEntry, modelMatches, type ModelIdentity } from './modelIdentity'
+import { findModelEntry, modelMatches, resolvesToId, type ModelIdentity } from './modelIdentity'
 
 export interface FieldAnnotation {
   control: 'text' | 'password' | 'textarea' | 'select' | 'switch' | 'number'
@@ -500,9 +500,25 @@ const EMPTY_PREFS: ModelPreferences = {
 }
 
 /**
- * One instance's hand-added custom models, as rows — deduped against `existing` through the
- * shared resolver (so a custom `claude-opus-5` is not offered twice next to the runtime
- * catalog's `opus[1m]` row, which is the same model) and against each other.
+ * True when custom slug `slug` duplicates catalog row `m`'s identity — deliberately NOT
+ * `modelMatches`. `modelMatches` strips a trailing `[1m]` on both sides so a session pinned at
+ * the suffix still finds its base row's capabilities, but that same stripping would swallow an
+ * explicitly hand-added `claude-sonnet-5[1m]` custom model into its base `claude-sonnet-5` row
+ * and silently drop it from the picker — a real regression, since `[1m]` is the documented way
+ * to request 1M context and the user added it on purpose. This keeps exact-slug matching (so a
+ * genuine duplicate like re-adding `claude-sonnet-5` is still deduped) plus the `resolvedModel`
+ * date-suffix rule (`shared/modelIdentity.ts`'s `resolvesToId`), without `bare()`'s `[1m]` strip.
+ */
+function duplicatesCatalogRow(m: CatalogModel, slug: string): boolean {
+  const id = rowIdentity(m)
+  if (id.value === slug) return true
+  return id.resolvedModel !== undefined && resolvesToId(id.resolvedModel, slug)
+}
+
+/**
+ * One instance's hand-added custom models, as rows — deduped against `existing` (so a custom
+ * `claude-opus-5` is not offered twice next to a runtime catalog row resolving to the same
+ * model) and against each other.
  */
 function customModelRows(
   s: AppSettings,
@@ -517,7 +533,7 @@ function customModelRows(
   const customs: CatalogModel[] = []
   for (const slug of rawCustom) {
     if (typeof slug !== 'string' || seen.has(slug)) continue
-    if (existing.some((m) => modelMatches(rowIdentity(m), slug))) continue
+    if (existing.some((m) => duplicatesCatalogRow(m, slug))) continue
     seen.add(slug)
     customs.push({ slug, name: slug, isCustom: true })
   }
