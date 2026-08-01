@@ -31,10 +31,12 @@
  *
  *   ARGUS_HOME=/tmp/argus-cmd-gate node scripts/cdp-editor-commands.mjs seed
  *
- * It creates TWO user skills (`cmd-alpha`, `cmd-beta`), TWO user references (`cmd-target.md`,
- * with a `title:` frontmatter field, and `cmd-citer.md`, whose body mentions `cmd-target.md` in
- * plain prose AND links to it as `[cmd-target.md](cmd-target.md)`, plus a link to a file that
- * does not exist), and ONE generated reference (`INDEX.md`). `config/settings.json` gets
+ * It creates TWO user skills (`cmd-alpha`, `cmd-beta`), ONE hivemind skill (`cmd-hive`, never
+ * opened in a tab — it exists only so quick open has a non-`user`-tier row, for assertion 1's
+ * exact-badge-label check), TWO user references (`cmd-target.md`, with a `title:` frontmatter
+ * field, and `cmd-citer.md`, whose body mentions `cmd-target.md` in plain prose AND links to it
+ * as `[cmd-target.md](cmd-target.md)`, plus a link to a file that does not exist), and ONE
+ * generated reference (`INDEX.md`). `config/settings.json` gets
  * `onboarding.completedAt` so the first-run wizard never covers anything this gate touches.
  *
  * DEVIATION from the brief worth flagging explicitly: the brief describes `cmd-citer.md` as
@@ -106,6 +108,12 @@ const TARGET = 'cmd-target.md'
 const CITER = 'cmd-citer.md'
 const INDEX = 'INDEX.md'
 const DRAFT_NAME = 'cmd-draft-thing'
+// A different tier from every other fixture row, purely so assertion 1 can check a SPECIFIC
+// badge label rather than mere presence — every other row is `trust_tier: user`, so a regression
+// that painted the same wrong label on all five would have passed unnoticed. Placed in
+// `skills-hivemind` (never opened in a tab), the same way `cdp-editor-tabs.mjs` seeds its
+// `gate-locked` fixture — the tier comes from which directory it lives in, not its frontmatter.
+const HIVE = 'cmd-hive'
 
 const MARKER_BETA = 'CDP-CMD-MARKER-BETA'
 const MARKER_ALPHA = 'CDP-CMD-MARKER-ALPHA'
@@ -123,6 +131,7 @@ if (PHASE !== 'seed' && PHASE !== 'main') {
 
 const listTargets = () => list(PORT)
 const userSkill = (name) => path.join(HOME, 'skills-user', name)
+const hiveSkill = (name) => path.join(HOME, 'skills-hivemind', name)
 const skillFile = (name) => path.join(userSkill(name), 'SKILL.md')
 const refFile = (name) => path.join(HOME, 'references', name)
 const draftsDir = path.join(HOME, 'drafts')
@@ -149,6 +158,12 @@ if (PHASE === 'seed') {
   fs.writeFileSync(skillFile(ALPHA), skill(ALPHA, ['Alpha fixture body, line one.']))
   fs.mkdirSync(userSkill(BETA), { recursive: true })
   fs.writeFileSync(skillFile(BETA), skill(BETA, ['Beta fixture body, line one.']))
+  // Never opened in a tab — exists purely so quick open has a non-`user` tier row to badge.
+  fs.mkdirSync(hiveSkill(HIVE), { recursive: true })
+  fs.writeFileSync(
+    path.join(hiveSkill(HIVE), 'SKILL.md'),
+    skill(HIVE, ['Hivemind fixture body, line one.'])
+  )
 
   fs.mkdirSync(path.join(HOME, 'references'), { recursive: true })
   fs.writeFileSync(
@@ -394,8 +409,8 @@ if (PHASE === 'main') {
 
   // ── 1 & 2. Ctrl+P quick open: lists the fixture, badges, narrows, Enter opens ───────────────
   await openPalette(editor, 'assets')
-  const expectedNames = [ALPHA, BETA, TARGET, CITER, INDEX]
-  const initialRows = await waitFor('all five fixture rows in quick open', async () => {
+  const expectedNames = [ALPHA, BETA, TARGET, CITER, INDEX, HIVE]
+  const initialRows = await waitFor('all six fixture rows in quick open', async () => {
     const rows = await paletteAssetRows(editor)
     const names = rows.map((r) => r.name)
     return expectedNames.every((n) => names.includes(n)) ? rows : false
@@ -404,6 +419,21 @@ if (PHASE === 'main') {
     const row = initialRows.find((r) => r.name === name)
     check(`assertion 1: quick-open row "${name}" carries a tier badge`, !!row?.badge, row)
   }
+  // Presence alone (above) would pass even if every row rendered the SAME wrong label — every
+  // OTHER fixture row is `trust_tier: user`, so this is the only pair that can catch it. Exact
+  // strings, from `TIER_LABELS` in shared/trustTiers.ts, not merely "the two differ".
+  const alphaRow = initialRows.find((r) => r.name === ALPHA)
+  const hiveRow = initialRows.find((r) => r.name === HIVE)
+  check(
+    `assertion 1: user-tier row "${ALPHA}" badge reads exactly "you"`,
+    alphaRow?.badge === 'you',
+    alphaRow
+  )
+  check(
+    `assertion 1: hivemind-tier row "${HIVE}" badge reads exactly "HiveMind"`,
+    hiveRow?.badge === 'HiveMind',
+    hiveRow
+  )
 
   // The full name, not a short fragment: this scratch home's corpus also carries the app's own
   // bundled core skills (`code-graph`, `code-review`, `contribute-back`, `systematic-triage` —
@@ -429,6 +459,47 @@ if (PHASE === 'main') {
     async () => (await activeTabName(editor)) === TARGET
   )
   check('assertion 2: Enter opens cmd-target.md in a tab', true)
+
+  // ── 2b. a short query that actually exercises subsequence ranking, not just narrowing ────────
+  // The full-name query above pins the open path, but a nearly-verbatim filename would narrow to
+  // one row even under degenerate matching (plain substring, or `fuzzyMatch` with its
+  // BOUNDARY_BONUS/RUN_BONUS zeroed out) — it does not prove the scorer's bonuses do anything.
+  // This checks RELATIVE ORDER between two of the fixture's own rows instead, which unrelated
+  // bundled-corpus rows appearing in between cannot affect.
+  //
+  // Query "ct" is a subsequence of both `cmd-target.md` and `cmd-citer.md` (so both rows survive
+  // to be ordered) but NOT a literal substring of either (so it does not trivially degrade to a
+  // `.includes()` check). Worked out from fuzzy.ts's weights and confirmed with a standalone
+  // reimplementation before wiring it into this script:
+  //   - cmd-target.md: "c" hits index 0 (BOUNDARY_BONUS, start of string) and "t" hits index 4,
+  //     the char right after the "cmd-" hyphen (ALSO a boundary) — score 18.
+  //   - cmd-citer.md: "c" hits the same index-0 boundary, but its "t" is buried at index 6,
+  //     mid-word, no boundary — score 10.
+  // So the real scorer ranks cmd-target.md above cmd-citer.md. This is deliberately the OPPOSITE
+  // of alphabetical order ("cmd-citer.md" < "cmd-target.md"): a scorer with both bonuses zeroed
+  // scores every hit as bare BASE, ties 2-2, and `rankAssets`'s final tiebreak is
+  // `a.row.name.localeCompare(b.row.name)` — which would then rank cmd-citer.md FIRST, flipping
+  // this assertion. A tie-to-alphabetical bug could not hide behind a coincidentally-matching
+  // alphabetical order here, unlike (say) comparing cmd-alpha vs cmd-beta.
+  await openPalette(editor, 'assets')
+  await editor.insertText('ct')
+  const ctRanked = await waitFor(
+    'quick open to list both cmd-target.md and cmd-citer.md for "ct"',
+    async () => {
+      const rows = await paletteAssetRows(editor)
+      const names = rows.map((r) => r.name)
+      return names.includes(TARGET) && names.includes(CITER) ? names : false
+    }
+  ).catch(() => null)
+  check(
+    'assertion 2: "ct" ranks cmd-target.md above cmd-citer.md (boundary-bonus subsequence ranking)',
+    Array.isArray(ctRanked) && ctRanked.indexOf(TARGET) < ctRanked.indexOf(CITER),
+    ctRanked
+  )
+  await closePalette(editor)
+  await waitFor('the palette to close', () =>
+    editor.evalJs(`!document.querySelector('[role="dialog"]')`)
+  )
 
   // ── 3. Ctrl+Shift+P holding `>`; "wrap" finds Toggle soft wrap; Enter flips wrapping ─────────
   await openPalette(editor, 'commands')
