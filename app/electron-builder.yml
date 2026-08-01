@@ -32,12 +32,19 @@ asarUnpack:
 extraResources:
   # Core-shipped internal packs (declarative only — no domain binaries baked in).
   # Loaded read-only from <resources>/packs.seed, distinct from the writable ARGUS_HOME/packs.
+  # sample-bridge-playground and sample-external-app are excluded on purpose: they ship instead
+  # as ordinary installable/updatable packs from https://github.com/LucentMind/demo_pack, so the
+  # pack-update feature has something real to exercise. Their source stays in this repo's packs/
+  # dir unchanged — dev mode and the test suite still load them from disk directly, only the
+  # packaged app's seed set shrinks.
   - from: ../packs
     to: packs.seed
     filter:
       - '**/*'
       - '!**/bin-src/**'
       - '!**/node_modules/**'
+      - '!sample-bridge-playground/**'
+      - '!sample-external-app/**'
   - from: resources/onboarding-sample
     to: onboarding-sample
     filter:
