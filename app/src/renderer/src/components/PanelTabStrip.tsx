@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
 import { X, ExternalLink, PinOff, PanelTop } from 'lucide-react'
 import { MenuButton } from './ui'
 import { panelsStore } from '../lib/panelsStore'
@@ -16,12 +17,18 @@ export function PanelTabStrip({
   slug,
   sessionId,
   activeTab,
-  onSelect
+  onSelect,
+  action
 }: {
   slug: string
   sessionId: number | null
   activeTab: string
   onSelect: (tab: string) => void
+  /** Rendered in the launcher's place. Supplying this hides `New panel` — review mode
+   *  passes `Run review` here because review does not offer panels. Panels already open
+   *  are deliberately untouched: review cannot *create* one, but entering it must not
+   *  discard state the user built. */
+  action?: ReactNode
 }): React.JSX.Element {
   const st = useSyncExternalStore(
     (cb) => panelsStore.subscribe(cb),
@@ -132,23 +139,28 @@ export function PanelTabStrip({
           </div>
         )
       })}
-      {launcherItems.length > 0 && (
-        <div className="ml-1">
-          <MenuButton
-            label={
-              <span className="flex items-center gap-1">
-                <PanelTop size={14} aria-hidden="true" />
-                <span>New panel</span>
-              </span>
-            }
-            aria-label="New panel"
-            align="left"
-            items={launcherItems}
-            // Hide the docked panel's native view (which paints over DOM) while this dropdown is
-            // open, else its items are unclickable and no second panel can ever be opened.
-            onOpenChange={(o) => panelsStore.setLauncherOpen(o)}
-          />
-        </div>
+      {action ? (
+        <div className="ml-1">{action}</div>
+      ) : (
+        launcherItems.length > 0 && (
+          <div className="ml-1">
+            <MenuButton
+              label={
+                <span className="flex items-center gap-1">
+                  <PanelTop size={14} aria-hidden="true" />
+                  <span>New panel</span>
+                </span>
+              }
+              aria-label="New panel"
+              align="left"
+              items={launcherItems}
+              // Hide the docked panel's native view (which paints over DOM) while this
+              // dropdown is open, else its items are unclickable and no second panel can
+              // ever be opened.
+              onOpenChange={(o) => panelsStore.setLauncherOpen(o)}
+            />
+          </div>
+        )
       )}
     </div>
   )

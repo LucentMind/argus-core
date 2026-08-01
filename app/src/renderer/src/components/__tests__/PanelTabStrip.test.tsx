@@ -83,6 +83,25 @@ describe('PanelTabStrip', () => {
       expect(open).toHaveBeenCalledWith(expect.objectContaining({ sessionId: null }))
     )
   })
+
+  it('renders the New panel launcher when no action is supplied', async () => {
+    render(<PanelTabStrip slug="case-a" sessionId={1} activeTab="chat" onSelect={() => {}} />)
+    expect(await screen.findByLabelText('New panel')).toBeTruthy()
+  })
+
+  it('replaces the launcher with the supplied action', async () => {
+    render(
+      <PanelTabStrip
+        slug="case-a"
+        sessionId={1}
+        activeTab="chat"
+        onSelect={() => {}}
+        action={<button type="button">Run review</button>}
+      />
+    )
+    expect(await screen.findByText('Run review')).toBeTruthy()
+    expect(screen.queryByLabelText('New panel')).toBeNull()
+  })
 })
 
 describe('PanelTabStrip — externalApp (3c)', () => {

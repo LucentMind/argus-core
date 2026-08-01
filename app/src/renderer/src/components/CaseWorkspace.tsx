@@ -470,9 +470,6 @@ export function CaseWorkspace({
           onModeChanged={handleModeChanged}
           onError={handleModeError}
         />
-        {activeMode === 'review' && (
-          <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
-        )}
         <div className="ml-auto">
           <HeaderChips slug={slug} />
         </div>
@@ -580,6 +577,11 @@ export function CaseWorkspace({
             sessionId={sessionId}
             activeTab={panels.activeTab}
             onSelect={(t) => panelsStore.setActiveTab(t)}
+            action={
+              activeMode === 'review' ? (
+                <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
+              ) : undefined
+            }
           />
           <div className="relative min-h-0 flex-1">
             <div
