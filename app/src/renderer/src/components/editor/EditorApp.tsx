@@ -6,6 +6,8 @@ import { ConfirmHost } from '../ConfirmHost'
 import { alert, confirm, confirmStore } from '../../lib/confirmStore'
 import { ForkSkillDialog } from '../settings/ForkSkillDialog'
 import { ReadOnlyNotice } from './ReadOnlyNotice'
+import { TitleBarStrip } from '../TitleBarStrip'
+import { PaneActionSlotContext } from './paneActionSlot'
 import { drainEditorMessages } from './editorBootstrap'
 import { useAssetTiers } from '../../lib/assetTiers'
 import { useEditorAssets } from '../../lib/editorAssets'
@@ -255,6 +257,14 @@ const TabPane = memo(function TabPane({
 export function EditorApp(): React.JSX.Element {
   const [state, setState] = useState<TabsState>(emptyTabs)
   const dirty = dirtyCount(state)
+  /**
+   * The element in the title-bar strip that the active pane portals its buttons into
+   * (paneActionSlot.ts). Held in **state**, set by a ref callback: `useState`'s setter is
+   * identity-stable so React only invokes it on attach/detach, and the resulting re-render is
+   * what makes the node available to descendants. A `useRef` would still read `null` on the
+   * render that mounts the panes, nothing would re-render, and the portal would never appear.
+   */
+  const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null)
   const tierOf = useAssetTiers()
   // Only a skill fork needs a name-entry dialog (a claim keeps its name) — `tier` here is the
   // skill triple `ForkSkillDialog` expects, and a read-only skill is never `user` (assetEditable.ts).
@@ -609,94 +619,117 @@ export function EditorApp(): React.JSX.Element {
   )
 
   return (
-    <div className="flex h-screen flex-col bg-deep p-3 text-ink">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-r3 border border-hair bg-panel">
-        <TabBar
-          tabs={state.tabs}
-          activeId={state.activeId}
-          onActivate={onActivate}
-          onClose={onClose}
-        />
-        {state.tabs.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-dim">
-            Nothing open. Pick a skill or reference in the Library.
-          </div>
-        ) : (
-          state.tabs.map((t) => {
-            // Create mode has no tier to look up and must never be gated on one — a create-mode
-            // tab is always editable, and this skips the lookup rather than trusting `undefined`
-            // (unresolved) to happen to fail open the same way.
-            //
-            // `t.name`, not `t.req.name`: once `markTabSaved` flips a saved create-mode tab to
-            // edit mode this lookup starts running, and `req.name` is the frozen name the tab was
-            // OPENED with. Creating a skill in a tab minted as "theirs" and saving it as "mine"
-            // would otherwise resolve the hivemind tier of "theirs" and lock the user out of the
-            // file they just wrote. For every edit-mode tab the two are identical.
-            const generated = isGeneratedAsset(t.kind, t.name)
-            const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
-            const readOnly = t.mode !== 'create' && (generated || !isAssetEditable(t.kind, tier))
-            const active = t.id === state.activeId
-            return (
-              <TabPane
-                key={t.id}
-                tab={t}
-                active={active}
-                readOnly={readOnly}
-                tier={tier}
-                generated={generated}
-                onDirtyChange={onDirtyChange}
-                onNameChange={onNameChange}
-                onSaved={onSaved}
-                onViewStateChange={onViewStateChange}
-                onEditCopy={editCopy}
-                onCommandState={onCommandState}
-                registerPane={registerPane}
-                // The split has to happen HERE, at the call site, not inside `TabPane`. `TabPane`
-                // is `memo`-wrapped, and every tab's `.map` iteration used to pass this same
-                // `commands` — rebuilt on every keystroke via the `useMemo` above — to EVERY
-                // `TabPane`, active or not. `memo`'s shallow comparison saw a changed `commands`
-                // identity on every one of them and re-rendered all N tabs on every keystroke
-                // anywhere in the window, defeating the whole point of wrapping `TabPane` in
-                // `memo` (see the file-level comment on it). Computing the split here means every
-                // INACTIVE tab receives the same frozen `NO_COMMANDS` reference release over
-                // release, so `memo` actually sees no change for it and skips the re-render.
-                commands={active ? commands : NO_COMMANDS}
-                linkTargets={linkTargets}
-                onOpenLink={openLink}
-              />
-            )
-          })
+    /**
+     * ONE row of chrome (user-directed, 2026-08-01). It used to be three: this strip carrying an
+     * "Argus — Editor" label, the tab strip under it, and each pane's own header with a
+     * `skills / <name>` breadcrumb beside its buttons. The breadcrumb repeated what the tab
+     * already said, so the tabs moved up into the drag strip (VS Code style), the pane's actions
+     * portal in beside them, and the label went — the tabs name the window now.
+     *
+     * The strip itself keeps `argus-drag`: the gap between the tabs and the actions is the grab
+     * handle. Both children opt out with `argus-nodrag`, which covers everything inside their
+     * rects — a drag region would otherwise eat the tab strip's horizontal scroll as well as
+     * every click.
+     */
+    <PaneActionSlotContext.Provider value={actionSlot}>
+      <div className="flex h-screen flex-col bg-deep text-ink">
+        <TitleBarStrip kind="editor" flush>
+          <TabBar
+            tabs={state.tabs}
+            activeId={state.activeId}
+            onActivate={onActivate}
+            onClose={onClose}
+          />
+          {/* `ml-auto` rather than a `flex-1` spacer on the tabs: the free space then belongs to
+              the strip, which is draggable, instead of to a `no-drag` element. `argus-titlebar-inset`
+              on the strip is what keeps this clear of the OS button cluster. */}
+          <span
+            ref={setActionSlot}
+            className="argus-nodrag ml-auto flex shrink-0 items-center gap-2 pl-3"
+          />
+        </TitleBarStrip>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-panel">
+          {state.tabs.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-dim">
+              Nothing open. Pick a skill or reference in the Library.
+            </div>
+          ) : (
+            state.tabs.map((t) => {
+              // Create mode has no tier to look up and must never be gated on one — a create-mode
+              // tab is always editable, and this skips the lookup rather than trusting `undefined`
+              // (unresolved) to happen to fail open the same way.
+              //
+              // `t.name`, not `t.req.name`: once `markTabSaved` flips a saved create-mode tab to
+              // edit mode this lookup starts running, and `req.name` is the frozen name the tab was
+              // OPENED with. Creating a skill in a tab minted as "theirs" and saving it as "mine"
+              // would otherwise resolve the hivemind tier of "theirs" and lock the user out of the
+              // file they just wrote. For every edit-mode tab the two are identical.
+              const generated = isGeneratedAsset(t.kind, t.name)
+              const tier = t.mode === 'create' ? undefined : tierOf(t.kind, t.name)
+              const readOnly = t.mode !== 'create' && (generated || !isAssetEditable(t.kind, tier))
+              const active = t.id === state.activeId
+              return (
+                <TabPane
+                  key={t.id}
+                  tab={t}
+                  active={active}
+                  readOnly={readOnly}
+                  tier={tier}
+                  generated={generated}
+                  onDirtyChange={onDirtyChange}
+                  onNameChange={onNameChange}
+                  onSaved={onSaved}
+                  onViewStateChange={onViewStateChange}
+                  onEditCopy={editCopy}
+                  onCommandState={onCommandState}
+                  registerPane={registerPane}
+                  // The split has to happen HERE, at the call site, not inside `TabPane`.
+                  // `TabPane` is `memo`-wrapped, and every tab's `.map` iteration used to pass
+                  // this same `commands` — rebuilt on every keystroke via the `useMemo` above —
+                  // to EVERY `TabPane`, active or not. `memo`'s shallow comparison saw a changed
+                  // `commands` identity on every one of them and re-rendered all N tabs on every
+                  // keystroke anywhere in the window, defeating the whole point of wrapping
+                  // `TabPane` in `memo` (see the file-level comment on it). Computing the split
+                  // here means every INACTIVE tab receives the same frozen `NO_COMMANDS`
+                  // reference release over release, so `memo` sees no change and skips it.
+                  commands={active ? commands : NO_COMMANDS}
+                  linkTargets={linkTargets}
+                  onOpenLink={openLink}
+                />
+              )
+            })
+          )}
+        </div>
+        {forking && (
+          <ForkSkillDialog
+            sourceName={forking.name}
+            tier={forking.tier}
+            onCancel={() => setForking(null)}
+            onConfirm={async (newName) => {
+              // This is the fork flow's error handling — deliberately a rejection rather than a
+              // catch. `ForkSkillDialog.submit` awaits this and renders what it throws in its own
+              // `role="alert"`, staying open for another name, which is what makes a collision
+              // recoverable instead of dumping the user back on a dead tab. Catching here (or
+              // routing to `alert()` like the claim above) would take that retry away.
+              const { name } = await window.argus.skills.fork(forking.name, newName)
+              setState((s) => replaceTab(s, forking.id, { kind: 'skill', name, mode: 'edit' }))
+              setForking(null)
+            }}
+          />
         )}
+        {palette !== null && (
+          <CommandPalette
+            raw={palette}
+            onRawChange={setPalette}
+            commands={commands}
+            assets={assetRows}
+            onPickAsset={pickAsset}
+            onDiscardDraft={discardDraftRow}
+            onClose={() => setPalette(null)}
+          />
+        )}
+        <ConfirmHost />
       </div>
-      {palette !== null && (
-        <CommandPalette
-          raw={palette}
-          onRawChange={setPalette}
-          commands={commands}
-          assets={assetRows}
-          onPickAsset={pickAsset}
-          onDiscardDraft={discardDraftRow}
-          onClose={() => setPalette(null)}
-        />
-      )}
-      {forking && (
-        <ForkSkillDialog
-          sourceName={forking.name}
-          tier={forking.tier}
-          onCancel={() => setForking(null)}
-          onConfirm={async (newName) => {
-            // This is the fork flow's error handling — deliberately a rejection rather than a
-            // catch. `ForkSkillDialog.submit` awaits this and renders what it throws in its own
-            // `role="alert"`, staying open for another name, which is what makes a collision
-            // recoverable instead of dumping the user back on a dead tab. Catching here (or
-            // routing to `alert()` like the claim above) would take that retry away.
-            const { name } = await window.argus.skills.fork(forking.name, newName)
-            setState((s) => replaceTab(s, forking.id, { kind: 'skill', name, mode: 'edit' }))
-            setForking(null)
-          }}
-        />
-      )}
-      <ConfirmHost />
-    </div>
+    </PaneActionSlotContext.Provider>
   )
 }

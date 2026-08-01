@@ -1,5 +1,66 @@
 # Changelog
 
+## v1.0.9 — 2026-08-01
+
+91 commits since v1.0.8, 153 files changed (+13,178 / −888).
+
+### Added
+
+**Core auto-update**
+
+- electron-updater backend wired to a GitHub publish provider; a
+  `CoreUpdaterService` state machine (`UpdateStatus` vocabulary) drives the IPC
+  surface, preload API, and a boot-time check.
+- Settings → General update block and an app banner reporting phase and progress,
+  with dismissal re-keyed on phase+version and a permanent error sink surfacing
+  restart failures.
+- `docs/releasing.md`: the release runbook — draft-release publish step,
+  `latest.yml` gate, and the Windows-unsigned posture.
+
+**Pack updates**
+
+- Manifest `updateUrl` with trust-on-first-use origin pinning; an update-feed
+  schema and compatible-version selection; origin-pinned update check and apply.
+- Packs page: per-pack update status over IPC, update affordances, a relaunch
+  prompt after apply, and feedback when a check finds nothing.
+- `pack-tools`: an `argus-pack feed` command and update-feed authoring docs.
+
+**Dashboard and card polish**
+
+- Redesigned case cards: neutral priority pill, glowing status dot, icon+number
+  metrics, CI glyph, sync badge, clamped two-line title.
+- Dashboard: status/priority filters, search affordance, drawn checkbox, sync
+  icon, counts below the wordmark.
+- New shared primitives: `StatusDot`, `PrRollupIcon`, `SyncBadge` (health + age).
+
+**Editor window, increment 3**
+
+- Tab strip with overflow dropdown, roving-tabindex keyboard nav, and announced
+  dirty state, backed by a pure tab reducer with rename-aware dedupe.
+- Protected assets open read-only with a working "Edit a copy"; asset tier
+  resolved from the lists already broadcast to every window.
+- The open tab set, cursors included, persists beside window bounds and restores
+  after a restart through one ordered message queue.
+
+**Dynamic theme, case view and Settings**
+
+- Case-view materials: lit band, glass header, per-variant band geometry.
+- Settings: panel material on cards, nav rail to ground, and a page masthead with
+  title and blurb.
+
+### Fixed
+
+- PR companion: cancelled checks no longer read as failures.
+- Pack update pipeline hardened end to end: bundle identity verified, off-origin-
+  only updates distinguished from no update at all, downloads streamed, writes
+  reject rather than hang on failure, bundle id/version validated at
+  feed-publish time.
+- Editor: save-order, read-only coverage, and render-cost fixes from a
+  whole-branch review pass; `skills:changed` now broadcasts on fork so a forked
+  copy isn't stuck read-only.
+- Update service: re-entrancy guard on `check()`, non-`Error` rejection handling,
+  lint cleanup.
+
 ## v1.0.8 — 2026-07-31
 
 391 commits since v1.0.7, 397 files changed (+39,150 / −1,546).

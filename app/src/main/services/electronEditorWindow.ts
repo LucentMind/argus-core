@@ -2,6 +2,8 @@ import { BrowserWindow, screen } from 'electron'
 import { clampToDisplays } from '../../shared/editorWindowBounds'
 import { EDITOR_DEFAULT_SIZE, EDITOR_MIN_SIZE, type WindowBounds } from '../../shared/editorIpc'
 import type { EditorWindowFactory, EditorWindowHandle } from './editorWindow'
+import { applyOverlay, type TitleBarTheme } from './titleBar'
+import { editorWindowOptions } from './windowOptions'
 
 /**
  * The real window. Deliberately thin: create-or-focus, the close veto, and bounds clamping are
@@ -10,7 +12,9 @@ import type { EditorWindowFactory, EditorWindowHandle } from './editorWindow'
  */
 export function makeElectronEditorWindowFactory(
   preloadPath: string,
-  loadEditor: (win: BrowserWindow) => void
+  loadEditor: (win: BrowserWindow) => void,
+  getTheme: () => TitleBarTheme,
+  getScale: () => number
 ): EditorWindowFactory {
   return (saved: WindowBounds | null): EditorWindowHandle => {
     // clampToDisplays treats workAreas[0] as the primary display, but
@@ -34,8 +38,9 @@ export function makeElectronEditorWindowFactory(
       minHeight: EDITOR_MIN_SIZE.height,
       show: false,
       autoHideMenuBar: true,
+      // The caption bar no longer renders this, but the taskbar entry and Alt-Tab still do.
       title: 'Argus — Editor',
-      webPreferences: { preload: preloadPath, sandbox: false }
+      ...editorWindowOptions(getTheme(), getScale(), preloadPath)
     })
 
     win.on('ready-to-show', () => win.show())
@@ -115,7 +120,12 @@ export function makeElectronEditorWindowFactory(
             cb()
           }
         })
-      }
+      },
+      // `getTheme`/`getScale` are read at call time (not captured at construction), so a theme
+      // push carries whatever scale main currently knows and vice versa — each is the other's
+      // counterpart's source of truth, mirroring `titleBarWindowOptions` above.
+      applyTheme: (theme) => applyOverlay(win, 'editor', theme, getScale()),
+      applyScale: (scale) => applyOverlay(win, 'editor', getTheme(), scale)
     }
   }
 }

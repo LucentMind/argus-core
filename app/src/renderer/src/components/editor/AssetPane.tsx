@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Sparkles } from 'lucide-react'
 import { Btn } from '../ui'
 import { AssistProgress } from '../library/AssistProgress'
@@ -10,6 +11,7 @@ import { DiffView } from './DiffView'
 import { EditorPane } from './EditorPane'
 import { PreviewPane } from './PreviewPane'
 import { StatusBar, type SyncState } from './StatusBar'
+import { usePaneActionSlot } from './paneActionSlot'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
 import { clockTime } from '../../lib/time'
@@ -158,6 +160,9 @@ export function AssetPane({
 }: AssetPaneProps): React.JSX.Element {
   const template = kind === 'skill' ? skillTemplate : referenceTemplate
   const surfaceRef = useRef<SurfaceHandle | null>(null)
+  /** Where this pane's action buttons render, when it is the tab on screen — see the portal at
+   *  the bottom of this component and paneActionSlot.ts. */
+  const actionSlot = usePaneActionSlot()
 
   const [name, setName] = useState(initialName)
   const [savedName, setSavedName] = useState(initialName)
@@ -945,27 +950,42 @@ export function AssetPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hair bg-hi px-4 py-2.5">
-        <span className="truncate font-mono text-xs text-dim">
-          {kind === 'skill' ? 'skills' : 'references'} / {name}
-        </span>
-        <span className="flex items-center gap-2">
-          {viewCmd && (
-            <Btn variant="ghost" disabled={!viewCmd.enabled} onClick={viewCmd.run}>
-              {prefs.viewMode === 'editor'
-                ? 'Split'
-                : prefs.viewMode === 'split'
-                  ? 'Preview'
-                  : 'Edit'}
-            </Btn>
-          )}
-          {saveCmd && (
-            <Btn variant="primary" disabled={!saveCmd.enabled} onClick={saveCmd.run}>
-              Save
-            </Btn>
-          )}
-        </span>
-      </div>
+      {/* The pane's header row is gone (user-directed, 2026-08-01): its `skills / <name>`
+          breadcrumb repeated the tab's own label, and these two buttons now render up in the
+          window's title-bar strip. A PORTAL, not lifted state — everything they read stays owned
+          here; only the DOM position moves. See paneActionSlot.ts.
+
+          Gated on `active` because every tab stays mounted (spec §6.1) and all N panes share one
+          slot: without it the strip would grow a Save button per open asset, in tab order. A null
+          slot (no provider — this component's own tests, any future host) renders no actions at
+          all rather than dropping them somewhere nobody designed.
+
+          Enablement and action come from the command DESCRIPTORS, not from local expressions
+          (spec §6.4). That is what keeps a button and its keyboard shortcut from disagreeing, and
+          it is the whole point of the registry — moving these two into the title strip changed
+          where they render, not where they get their truth from. `cmdFor` falls back to local
+          expressions only when no host supplied a list, which is a test path; see its comment. */}
+      {active &&
+        actionSlot !== null &&
+        createPortal(
+          <span className="flex items-center gap-2">
+            {viewCmd && (
+              <Btn variant="ghost" disabled={!viewCmd.enabled} onClick={viewCmd.run}>
+                {prefs.viewMode === 'editor'
+                  ? 'Split'
+                  : prefs.viewMode === 'split'
+                    ? 'Preview'
+                    : 'Edit'}
+              </Btn>
+            )}
+            {saveCmd && (
+              <Btn variant="primary" disabled={!saveCmd.enabled} onClick={saveCmd.run}>
+                Save
+              </Btn>
+            )}
+          </span>,
+          actionSlot
+        )}
 
       {mode === 'create' && (
         <div className="flex items-center gap-2 border-b border-hair bg-hi px-4 py-2">

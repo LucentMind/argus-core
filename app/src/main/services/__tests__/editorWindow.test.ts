@@ -10,6 +10,7 @@ import {
   type EditorWindowHandle,
   type EditorWindowFactory
 } from '../editorWindow'
+import type { TitleBarTheme } from '../titleBar'
 
 /** A fake window recording every lifecycle call. Mirrors the FakeView pattern in
  *  services/panels/__tests__/panelHost.test.ts. */
@@ -18,6 +19,8 @@ export class FakeEditorWindow implements EditorWindowHandle {
   destroyed = false
   sent: Array<{ channel: string; payload: unknown }> = []
   bounds: WindowBounds = { x: 10, y: 20, width: 1100, height: 780 }
+  themes: TitleBarTheme[] = []
+  scales: number[] = []
   private closeAttempt: (() => boolean) | null = null
   private closed: (() => void) | null = null
   private moved: (() => void) | null = null
@@ -46,6 +49,12 @@ export class FakeEditorWindow implements EditorWindowHandle {
   }
   onBoundsChanged(cb: () => void): void {
     this.moved = cb
+  }
+  applyTheme(theme: TitleBarTheme): void {
+    this.themes.push(theme)
+  }
+  applyScale(scale: number): void {
+    this.scales.push(scale)
   }
 
   // --- test drivers ---
@@ -351,5 +360,36 @@ describe('tab-set restore', () => {
     // restore, so the assertion held even with a latch making restore fire only ever once.
     expect(created).toHaveLength(2)
     expect(created[1].sent.some((s) => s.channel === EDITOR_IPC.restoreTabs)).toBe(true)
+  })
+})
+
+describe('EditorWindowService.applyTheme', () => {
+  it('reaches the open window, and no-ops when there is none', () => {
+    const { service, created } = makeService()
+    // No window yet — this must not throw. Main fires a theme change on every renderer load,
+    // including loads that happen while the editor is closed.
+    service.applyTheme('light')
+    expect(created).toHaveLength(0)
+
+    service.open(SKILL)
+    service.applyTheme('light')
+    service.applyTheme('dark')
+    expect(created[0].themes).toEqual(['light', 'dark'])
+  })
+})
+
+describe('EditorWindowService.applyScale', () => {
+  it('reaches the open window, and no-ops when there is none', () => {
+    const { service, created } = makeService()
+    // No window yet — this must not throw, for the same reason as applyTheme above: main
+    // learns the renderer's zoom factor on every report, including ones made while the
+    // editor is closed.
+    service.applyScale(1.25)
+    expect(created).toHaveLength(0)
+
+    service.open(SKILL)
+    service.applyScale(1.25)
+    service.applyScale(0.9)
+    expect(created[0].scales).toEqual([1.25, 0.9])
   })
 })

@@ -69,6 +69,34 @@ describe('UiStore', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
   })
 
+  // Task 4 (review issue 1, Critical): main.css's platform-scoped floors for
+  // .argus-titlebar-inset key off data-platform, so it has to land before anything else reads it.
+  it('stamps data-platform on the document at construction, mirroring data-theme', () => {
+    document.documentElement.removeAttribute('data-platform')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = {
+      platform: 'win32',
+      ui: { setZoomFactor: vi.fn() },
+      panels: { setTheme: vi.fn() }
+    }
+    new UiStore()
+    expect(document.documentElement.getAttribute('data-platform')).toBe('win32')
+  })
+
+  it('applyToDocument re-stamps data-platform too, for the editor window', () => {
+    document.documentElement.removeAttribute('data-platform')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = {
+      platform: 'darwin',
+      ui: { setZoomFactor: vi.fn() },
+      panels: { setTheme: vi.fn() }
+    }
+    const store = new UiStore()
+    document.documentElement.removeAttribute('data-platform')
+    store.applyToDocument()
+    expect(document.documentElement.getAttribute('data-platform')).toBe('darwin')
+  })
+
   it('toggleTheme flips the attribute and persists across instances', () => {
     const store = new UiStore()
     store.toggleTheme()
@@ -146,6 +174,29 @@ describe('UiStore', () => {
     ;(window as any).argus = { ui: { setZoomFactor: vi.fn() }, panels: { setTheme } }
     uiStore.setTheme('light')
     expect(setTheme).toHaveBeenCalledWith('light')
+  })
+
+  // Main cannot otherwise see the zoom factor (setZoomFactor is renderer-side only) and needs it
+  // to size the native titleBarOverlay button hit-box to match.
+  it('setUiScale reports the scale to main', () => {
+    const setScale = vi.fn(async () => undefined)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = {
+      ui: { setZoomFactor: vi.fn(), setScale },
+      panels: { setTheme: vi.fn() }
+    }
+    const store = new UiStore()
+    setScale.mockClear()
+    store.setUiScale(1.25)
+    expect(setScale).toHaveBeenCalledWith(1.25)
+  })
+
+  // A window whose preload predates this channel (or a stale mock in another test) must not
+  // throw — setScale is optional-chained everywhere it is called.
+  it('tolerates a missing ui.setScale', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = { ui: { setZoomFactor: vi.fn() }, panels: { setTheme: vi.fn() } }
+    expect(() => new UiStore().setUiScale(1.1)).not.toThrow()
   })
 })
 

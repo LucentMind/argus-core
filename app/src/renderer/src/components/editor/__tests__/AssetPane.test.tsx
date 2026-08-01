@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { StrictMode, createRef } from 'react'
+import { StrictMode, createRef, useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { AssetPane } from '../AssetPane'
+import { PaneActionSlotContext } from '../paneActionSlot'
 import type { CursorInfo, SurfaceHandle } from '../surface'
 import type { SurfaceCommands } from '../extensions/keymap'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
@@ -138,6 +139,28 @@ beforeEach(() => {
   } as never
 })
 
+/** Test id of the stand-in title-bar slot `SlotHost` renders. */
+const SLOT = 'titlebar-actions'
+
+/**
+ * Stands in for the editor window's title-bar strip.
+ *
+ * `AssetPane` has no header row of its own any more: the view-mode toggle and Save are portalled
+ * into the slot the window publishes (paneActionSlot.ts), so every assertion below that reaches
+ * for those buttons needs a slot to portal into. A ref CALLBACK feeding state, not a `useRef` —
+ * a plain ref is still `null` on the render that would mount the portal, and nothing would
+ * re-render to fix it.
+ */
+function SlotHost({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  return (
+    <>
+      <div data-testid={SLOT} ref={setSlot} />
+      <PaneActionSlotContext.Provider value={slot}>{children}</PaneActionSlotContext.Provider>
+    </>
+  )
+}
+
 function mount(
   overrides: Partial<React.ComponentProps<typeof AssetPane>> = {},
   /** `strict` wraps the tree in `<StrictMode>`, which double-invokes mount effects — the only
@@ -177,11 +200,13 @@ function mount(
     onOpenLink: vi.fn(),
     ...overrides
   }
-  const tree = <AssetPane {...props} />
-  const { rerender: rtlRerender } = render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree)
+  const wrap = (pane: React.JSX.Element): React.JSX.Element => {
+    const hosted = <SlotHost>{pane}</SlotHost>
+    return opts.strict ? <StrictMode>{hosted}</StrictMode> : hosted
+  }
+  const { rerender: rtlRerender } = render(wrap(<AssetPane {...props} />))
   const rerender = (next: Partial<React.ComponentProps<typeof AssetPane>>): void => {
-    const merged = <AssetPane {...props} {...next} />
-    rtlRerender(opts.strict ? <StrictMode>{merged}</StrictMode> : merged)
+    rtlRerender(wrap(<AssetPane {...props} {...next} />))
   }
   // Derived, not the literal 'skill · s': the create-mode cases below mount under a different
   // name and the surface's aria-label follows it.
@@ -223,7 +248,15 @@ function renderPane(overrides: Partial<React.ComponentProps<typeof AssetPane>> =
     onOpenLink: vi.fn(),
     ...overrides
   }
-  render(<AssetPane {...props} />)
+  // Wrapped in `SlotHost` for the same reason `mount` above is: `AssetPane` has no header row of
+  // its own any more — the view-mode toggle and Save portal into the slot the window publishes
+  // (paneActionSlot.ts), and a pane rendered with no provider deliberately renders no actions at
+  // all. Every assertion below that reaches for those two buttons needs somewhere to portal into.
+  render(
+    <SlotHost>
+      <AssetPane {...props} />
+    </SlotHost>
+  )
 }
 
 /**
@@ -664,6 +697,45 @@ describe('AssetPane', () => {
     await userEvent.type(surface, 'x')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByText('Conflict')).toBeInTheDocument())
+  })
+})
+
+// The pane's own chrome row is gone: the breadcrumb duplicated the tab's label, and its two
+// buttons now live in the window's title-bar strip (paneActionSlot.ts). State ownership did not
+// move — `busy`, `proposed`, `readOnly` and the view-mode pref are still this component's.
+describe('title-bar actions', () => {
+  it('renders no breadcrumb header', () => {
+    mount()
+    expect(screen.queryByText('skills / s')).not.toBeInTheDocument()
+  })
+
+  it('portals its view-mode and Save controls into the slot while active', () => {
+    mount()
+    const slot = within(screen.getByTestId(SLOT))
+    expect(slot.getByRole('button', { name: /^save$/i })).toBeInTheDocument()
+    expect(slot.getByRole('button', { name: 'Split' })).toBeInTheDocument()
+  })
+
+  // Every tab stays mounted, and they all share one slot.
+  it('renders no actions at all while its tab is inactive', () => {
+    mount({ active: false })
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Split' })).not.toBeInTheDocument()
+  })
+
+  it('claims the slot when it becomes active and releases it when it stops', () => {
+    const { rerender } = mount({ active: false })
+    rerender({ active: true })
+    expect(screen.getByTestId(SLOT)).not.toBeEmptyDOMElement()
+    rerender({ active: false })
+    expect(screen.getByTestId(SLOT)).toBeEmptyDOMElement()
+  })
+
+  // Keeping the create-mode name/describe row is the point of this one: only the breadcrumb row
+  // above it was deleted, and the two sat next to each other.
+  it('keeps the create-mode name row', () => {
+    mount({ mode: 'create', initialName: 'untitled', draftId: 'd1' })
+    expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
   })
 })
 
@@ -1251,31 +1323,35 @@ describe('AssetPane · toolbar fallback tracks buildCommands, not a restated cop
     getReported: () => PaneCommandState | undefined
   } {
     let reported: PaneCommandState | undefined
+    // `SlotHost` for the same reason `renderPane` needs it: Save and the view-mode toggle are
+    // portalled into the window's title-bar slot, and a pane with no provider renders neither.
     render(
-      <AssetPane
-        kind="skill"
-        initialName="s"
-        mode="edit"
-        draftId=""
-        initialDoc={DISK}
-        initialBaseline={DISK}
-        initialHash="h1"
-        initialBanner={{ kind: 'none' }}
-        initialDraftAt={null}
-        otherDrafts={[]}
-        active
-        readOnly={false}
-        initialViewState={null}
-        onDirtyChange={vi.fn()}
-        onNameChange={vi.fn()}
-        onViewStateChange={vi.fn()}
-        linkTargets={[]}
-        onOpenLink={vi.fn()}
-        onCommandState={(s) => {
-          reported = s
-        }}
-        {...overrides}
-      />
+      <SlotHost>
+        <AssetPane
+          kind="skill"
+          initialName="s"
+          mode="edit"
+          draftId=""
+          initialDoc={DISK}
+          initialBaseline={DISK}
+          initialHash="h1"
+          initialBanner={{ kind: 'none' }}
+          initialDraftAt={null}
+          otherDrafts={[]}
+          active
+          readOnly={false}
+          initialViewState={null}
+          onDirtyChange={vi.fn()}
+          onNameChange={vi.fn()}
+          onViewStateChange={vi.fn()}
+          linkTargets={[]}
+          onOpenLink={vi.fn()}
+          onCommandState={(s) => {
+            reported = s
+          }}
+          {...overrides}
+        />
+      </SlotHost>
     )
     return { getReported: () => reported }
   }

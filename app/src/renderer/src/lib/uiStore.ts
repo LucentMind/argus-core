@@ -62,6 +62,7 @@ export class UiStore {
   constructor() {
     this.state = { ...readPersisted(), recentTabs: [], activeSessions: {} }
     this.applyTheme()
+    this.applyPlatform()
     this.applyScale()
     void window.argus?.panels?.setTheme(this.state.theme)
 
@@ -104,8 +105,25 @@ export class UiStore {
     document.documentElement.setAttribute('data-theme', this.state.theme)
   }
 
+  /**
+   * Stamp `data-platform` so main.css can key platform-scoped floors off it (review issue 1,
+   * Critical: `.argus-titlebar-inset` otherwise trusts `env(titlebar-area-*)` unconditionally,
+   * and a real boot has been observed where those vars never arrive). Guarded on the value
+   * existing so a preload that predates `window.argus.platform` (or a stale test fake) leaves
+   * the attribute unset rather than stamping the literal string "undefined".
+   */
+  private applyPlatform(): void {
+    const platform = window.argus?.platform
+    if (platform) document.documentElement.setAttribute('data-platform', platform)
+  }
+
   private applyScale(): void {
     window.argus?.ui?.setZoomFactor(this.state.uiScale)
+    // Main cannot see the zoom factor otherwise (setZoomFactor above is renderer-side only) and
+    // needs it to size the native titleBarOverlay's button hit-box to match. Fired from here so
+    // both the constructor's initial apply and every setUiScale() report it, mirroring how
+    // setTheme() reports the theme.
+    void window.argus?.ui?.setScale?.(this.state.uiScale)
   }
 
   /**
@@ -117,6 +135,7 @@ export class UiStore {
    */
   applyToDocument(): void {
     this.applyTheme()
+    this.applyPlatform()
     this.applyScale()
   }
 

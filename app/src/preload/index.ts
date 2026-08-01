@@ -807,6 +807,9 @@ const argus = {
   ui: {
     /** Scale the whole renderer UI uniformly (fonts, spacing, layout). */
     setZoomFactor: (factor: number): void => webFrame.setZoomFactor(factor),
+    /** Report the same scale to main, so it can keep the native `titleBarOverlay` button
+     *  hit-box sized to match — `setZoomFactor` above only scales the DOM. */
+    setScale: (factor: number): Promise<void> => ipcRenderer.invoke(IPC.uiSetScale, factor),
     /** main → renderer: another window changed the theme; adopt it without re-persisting. */
     onThemeChanged: (cb: (theme: 'dark' | 'light') => void): (() => void) => {
       const listener = (_e: unknown, theme: 'dark' | 'light'): void => cb(theme)
@@ -817,7 +820,10 @@ const argus = {
     }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
-  openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)
+  openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url),
+  /** For CSS platform floors (`data-platform` in main.css) — main.css:264's
+   *  `.argus-titlebar-inset` cannot otherwise tell a Windows build from a macOS one. */
+  platform: process.platform
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

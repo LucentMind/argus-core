@@ -3,7 +3,7 @@ import { Sun, Moon, Settings, Gauge, Home } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 
 const ACTION_BTN =
-  'inline-flex h-10 w-10 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink'
+  'argus-nodrag inline-flex h-10 w-10 items-center justify-center rounded-r2 text-dim transition-colors hover:bg-hair hover:text-ink'
 
 export function TopBar({
   activeSlug,
@@ -29,12 +29,15 @@ export function TopBar({
   }
 
   return (
-    <header className="flex h-16 items-center gap-1.5 border-b border-hair bg-deep px-3">
+    // The OS window buttons live in their own strip above (TitleBarStrip), not beside this
+    // header, so no inset is needed here — argus-drag stays because dragging by the header is
+    // still good UX.
+    <header className="argus-drag flex h-16 items-center gap-1.5 border-b border-hair bg-deep px-3">
       {/* Wordmark and home control are one button, not two adjacent things: the brand belongs
           top-left on every view, and the top bar is the only chrome that renders on all of them —
           which is what lets home and Settings drop their local copies of the wordmark. */}
       <button
-        className="flex h-10 shrink-0 items-center gap-1.5 rounded-r2 border border-hair px-3 text-dim transition-colors hover:border-hair2 hover:bg-hair hover:text-ink"
+        className="argus-nodrag flex h-10 shrink-0 items-center gap-1.5 rounded-r2 border border-hair px-3 text-dim transition-colors hover:border-hair2 hover:bg-hair hover:text-ink"
         onClick={onHome}
         aria-label="All cases"
         title="All cases"
@@ -47,7 +50,7 @@ export function TopBar({
       <div className="mx-1 h-6 w-px bg-hair" />
       <nav
         aria-label="Recent cases"
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        className="argus-nodrag flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
       >
         {ui.recentTabs.map((slug, i) => {
           const active = slug === activeSlug
@@ -67,12 +70,12 @@ export function TopBar({
                   className="pointer-events-none absolute -left-0.5 h-4 w-px bg-hair"
                 />
               )}
-              <button className="py-1.5 pl-3 font-mono" onClick={() => onSelect(slug)}>
+              <button className="argus-nodrag py-1.5 pl-3 font-mono" onClick={() => onSelect(slug)}>
                 {slug}
               </button>
               <button
                 aria-label={`Close ${slug}`}
-                className="px-2 py-1.5 text-base leading-none text-mute opacity-0 transition-[color,opacity] hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                className="argus-nodrag px-2 py-1.5 text-base leading-none text-mute opacity-0 transition-[color,opacity] hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
                 onClick={() => close(slug)}
               >
                 ×

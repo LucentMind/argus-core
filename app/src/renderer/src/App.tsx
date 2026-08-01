@@ -11,6 +11,7 @@ import { ObservabilityView } from './components/observability/ObservabilityView'
 import { SearchBar } from './components/SearchBar'
 import { SettingsView, type SettingsDeepLink } from './components/settings/SettingsView'
 import { TextViewer } from './components/TextViewer'
+import { TitleBarStrip } from './components/TitleBarStrip'
 import { TopBar } from './components/TopBar'
 import { UpdateBanner } from './components/UpdateBanner'
 import { citationsTray } from './lib/citationsTray'
@@ -158,6 +159,7 @@ function App(): React.JSX.Element {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-void text-ink">
+      <TitleBarStrip kind="main" />
       <TopBar
         activeSlug={view.kind === 'case' ? view.slug : null}
         onHome={goHome}

@@ -78,7 +78,13 @@ export function TabBar({
   }
 
   return (
-    <div className="flex shrink-0 items-stretch border-b border-hair bg-hi">
+    // Lives INSIDE the title-bar drag strip now (EditorApp), which is what the three classes at
+    // the front are for. `argus-nodrag` covers this whole rect: a `-webkit-app-region: drag`
+    // ancestor otherwise swallows every click here AND the horizontal scroll the overflow
+    // depends on. `self-stretch` fills the strip's height (it centres its children); `min-w-0`
+    // replaces the old `shrink-0` so the strip's action buttons keep their space when the tabs
+    // overrun — the inner tablist's `overflow-x-auto` then does the scrolling, as designed.
+    <div className="argus-nodrag flex min-w-0 items-stretch self-stretch border-b border-hair bg-hi">
       <div
         role="tablist"
         className="flex min-w-0 flex-1 overflow-x-auto"
