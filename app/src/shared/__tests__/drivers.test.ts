@@ -421,6 +421,82 @@ describe('allVisibleModels', () => {
   })
 })
 
+// ── rowOverrides: per-instance catalog substitution ─────────────────────────────
+//
+// The Composer's live runtime catalog (Task 11b) describes ONE instance's CLI. It must
+// substitute that single instance's rows without suppressing every OTHER enabled instance —
+// the model picker is how the user switches provider, so one instance's catalog silently
+// hiding the rest was the regression this override shape fixes.
+describe('allVisibleModels rowOverrides', () => {
+  it('substitutes rows for the overridden instance only — other enabled instances are untouched', () => {
+    const models = allVisibleModels(multi(), {
+      'claude-default': [{ slug: 'claude-opus-5', name: 'Claude Opus 5' }]
+    })
+    const claude = models.filter((m) => m.instanceId === 'claude-default')
+    expect(claude.map((m) => m.slug)).toEqual(['claude-opus-5'])
+    // requirement 2: identity fields come from the per-instance map entry, not borrowed
+    expect(claude[0]).toMatchObject({
+      instanceId: 'claude-default',
+      driverKind: 'claude-agent-sdk',
+      providerLabel: 'Claude'
+    })
+    // the regression: copilot-1's own rows must still appear, unaffected
+    const copilot = models.filter((m) => m.instanceId === 'copilot-1')
+    expect(copilot.map((m) => m.slug)).toEqual(['auto'])
+  })
+
+  it('a catalog-only slug absent from the static list still gets correct per-instance identity', () => {
+    const models = allVisibleModels(multi(), {
+      'claude-default': [{ slug: 'claude-opus-5', name: 'Claude Opus 5' }]
+    })
+    expect(CATALOG_ORDER).not.toContain('claude-opus-5')
+    const opus5 = models.find((m) => m.slug === 'claude-opus-5')
+    expect(opus5).toMatchObject({
+      instanceId: 'claude-default',
+      driverKind: 'claude-agent-sdk',
+      providerLabel: 'Claude'
+    })
+  })
+
+  it('an empty row list for an instance is treated as "no override" — falls through to its normal rows', () => {
+    const withEmpty = allVisibleModels(multi(), { 'claude-default': [] })
+    const withoutOverride = allVisibleModels(multi())
+    expect(withEmpty).toEqual(withoutOverride)
+  })
+
+  it('an instance absent from the map keeps its existing visibility + ordering behaviour exactly', () => {
+    const s = settingsSchema.parse({
+      agent: {
+        activeInstanceId: 'claude-default',
+        providerInstances: {
+          'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+          'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+        },
+        modelPreferences: {
+          'claude-default': {
+            hiddenModels: ['claude-opus-4-7'],
+            favoriteModels: ['claude-haiku-4-5'],
+            modelOrder: []
+          }
+        }
+      }
+    })
+    // Override only copilot-1; claude-default has no map entry at all.
+    const withOverride = allVisibleModels(s, { 'copilot-1': [{ slug: 'auto', name: 'Auto' }] })
+    const withoutOverride = allVisibleModels(s)
+    const claudeWith = withOverride.filter((m) => m.instanceId === 'claude-default')
+    const claudeWithout = withoutOverride.filter((m) => m.instanceId === 'claude-default')
+    expect(claudeWith).toEqual(claudeWithout)
+    // sanity: prefs actually took effect (favorite first, hidden excluded)
+    expect(claudeWith.map((m) => m.slug)).not.toContain('claude-opus-4-7')
+    expect(claudeWith[0].slug).toBe('claude-haiku-4-5')
+  })
+
+  it('is optional and additive — omitting the second argument behaves identically to before', () => {
+    expect(allVisibleModels(multi())).toEqual(allVisibleModels(multi(), undefined))
+  })
+})
+
 describe('defaultModelRef', () => {
   it('is the default instance’s top model, instance-qualified', () => {
     expect(defaultModelRef(multi())).toEqual({

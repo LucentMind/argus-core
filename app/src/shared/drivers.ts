@@ -376,16 +376,30 @@ export interface AggregatedModel extends CatalogModel {
  * the instances themselves in settings order. Deliberately NOT deduped by slug: the same
  * slug on two instances is two distinct choices (different account, different config), and
  * collapsing them would silently drop one provider's entry.
+ *
+ * `rowOverrides` substitutes the ROWS for one or more specific instances — e.g. a session's
+ * live runtime catalog — while every other instance keeps its normal
+ * {@link orderedVisibleModels} behaviour (visibility + ordering preferences included). This
+ * is deliberately per-instance, not global: with multiple providers enabled at once the
+ * model picker is how the user switches provider, so one instance's catalog must never
+ * suppress every other instance's rows. An instance present in the map with an empty row
+ * list is treated as "no override" (falls through to its normal rows) so callers can pass a
+ * catalog that hasn't loaded yet without special-casing it.
  */
-export function allVisibleModels(s: AppSettings): AggregatedModel[] {
-  return enabledInstances(s).flatMap(({ id, instance, driver }) =>
-    orderedVisibleModels(s, id).map((m) => ({
+export function allVisibleModels(
+  s: AppSettings,
+  rowOverrides?: Record<string, readonly CatalogModel[]>
+): AggregatedModel[] {
+  return enabledInstances(s).flatMap(({ id, instance, driver }) => {
+    const override = rowOverrides?.[id]
+    const rows = override && override.length > 0 ? override : orderedVisibleModels(s, id)
+    return rows.map((m) => ({
       ...m,
       instanceId: id,
       driverKind: driver.kind,
       providerLabel: instance.displayName?.trim() || (driver.shortLabel ?? driver.label)
     }))
-  )
+  })
 }
 
 /** Seed selection for a new chat: the default instance's default model, else the first

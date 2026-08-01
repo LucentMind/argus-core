@@ -7,6 +7,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
 import { clearCatalogStore } from '../../lib/catalogStore'
+import type { ModelOptionInfo } from '../../../../shared/runOptions'
 
 beforeEach(() => {
   localStorage.clear()
@@ -115,6 +116,47 @@ describe('Composer', () => {
     expect(await screen.findByText('Claude Haiku 4.5')).toBeTruthy()
   })
 
+  it('while the catalog is still loading, the picker shows the static list unchanged — the chip is never blank', async () => {
+    // A promise that never resolves during this test: the catalog store's cache stays
+    // empty, so this pins the "still loading" state rather than the "resolved empty" one.
+    window.argus.models.catalog = vi.fn(() => new Promise<ModelOptionInfo[]>(() => {}))
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'claude-sonnet-5',
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
+        }}
+      />
+    )
+    // settings resolve (async), the catalog fetch never does — the chip must still show
+    // the session's statically-known pinned model, not go blank waiting on the catalog.
+    expect(await screen.findByText('Claude Sonnet 5')).toBeTruthy()
+    fireEvent.click(screen.getByText('Claude Sonnet 5'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // the full static catalog is offered, unchanged — no catalog-only row leaked in
+    expect(items).toEqual([
+      'Claude Fable 5',
+      'Claude Opus 4.8',
+      'Claude Opus 4.7',
+      'Claude Sonnet 5',
+      'Claude Sonnet 4.6',
+      'Claude Haiku 4.5'
+    ])
+  })
+
   it("the runtime catalog supersedes the static list for the session's instance, surfacing a model the static list lacks", async () => {
     window.argus.models.catalog = vi.fn(async (instanceId: string) => {
       expect(instanceId).toBe('claude-default')
@@ -152,6 +194,55 @@ describe('Composer', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Opus (1M context)' }))
     // and the catalog-only row still carries the SESSION's own instance identity
     expect(onModelChange).toHaveBeenCalledWith('claude-default', 'opus[1m]')
+  })
+
+  it('a loaded catalog for the session instance does not hide OTHER enabled providers (regression: catalog used to replace the whole picker)', async () => {
+    window.argus.settings.get = vi.fn(async () => ({
+      settings: settingsSchema.parse({
+        agent: {
+          activeInstanceId: 'claude-default',
+          providerInstances: {
+            'claude-default': { driver: 'claude-agent-sdk', enabled: true, config: {} },
+            'copilot-1': { driver: 'github-copilot', enabled: true, config: {} }
+          }
+        }
+      }),
+      resolvedTools: [],
+      dataRoot: { path: 'C:/x', fromEnv: false },
+      loadError: null
+    }))
+    window.argus.models.catalog = vi.fn(async (instanceId: string) => {
+      expect(instanceId).toBe('claude-default')
+      return [{ value: 'opus[1m]', displayName: 'Opus (1M context)' }]
+    })
+    render(
+      <Composer
+        disabled={false}
+        onSend={vi.fn()}
+        session={{
+          id: 1,
+          title: '',
+          turnCount: 0,
+          updatedAt: '',
+          driverKind: 'claude-agent-sdk',
+          instanceId: 'claude-default',
+          model: 'opus[1m]',
+          mode: 'investigation',
+          runOptions: [],
+          permissionMode: null
+        }}
+      />
+    )
+    fireEvent.click(await screen.findByText('Opus (1M context) · Claude'))
+    const menu = screen.getByRole('menu', { name: 'Model' })
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent)
+    // Claude's catalog substitutes its own rows...
+    expect(items).toContain('Opus (1M context) · Claude')
+    // ...but Copilot, a completely different enabled instance, must still be offered —
+    // the model picker is how the user switches provider.
+    expect(items).toContain('Auto · Copilot')
   })
 
   it('picking a model re-pins the session rather than only changing local state', async () => {

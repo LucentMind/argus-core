@@ -9,7 +9,6 @@ import {
   capabilitiesFor,
   defaultInstanceId,
   defaultModelRef,
-  getDriver,
   mergeCatalogModels,
   type AggregatedModel
 } from '../../../shared/drivers'
@@ -152,37 +151,21 @@ export function Composer({
     setPermission(PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode])
   }
 
+  // The catalog describes ONE instance's CLI — the session's. It substitutes that single
+  // instance's rows (see allVisibleModels' rowOverrides); every OTHER enabled instance keeps
+  // its normal visibility/ordering-preference rows untouched. This is the fix for the
+  // regression where a loaded catalog used to replace the ENTIRE picker, silently removing
+  // Claude ↔ Codex ↔ Copilot ↔ Cursor switching from the composer chip.
+  const catalogInstanceId = session?.instanceId ?? null
+  const catalog = useModelCatalog(catalogInstanceId)
+  const catalogRows = mergeCatalogModels([], catalog)
+  const rowOverrides =
+    catalogInstanceId && catalogRows.length > 0 ? { [catalogInstanceId]: catalogRows } : undefined
   // Every enabled provider's models in one list. Provider names are appended only when more
   // than one is enabled, so the single-provider case stays uncluttered.
-  const staticModels: AggregatedModel[] = settingsPayload
-    ? allVisibleModels(settingsPayload.settings)
+  const models: AggregatedModel[] = settingsPayload
+    ? allVisibleModels(settingsPayload.settings, rowOverrides)
     : []
-
-  // The catalog describes ONE instance's CLI — the session's. Rows derived from it
-  // therefore carry that instance's identity, read straight off the provider instance
-  // (already in scope via settingsPayload) rather than borrowed from an arbitrary
-  // staticModels element — with two providers enabled that would mislabel every
-  // catalog-only model (e.g. Opus 5, which has no static row at all).
-  const catalogInstanceId = session?.instanceId ?? null
-  const catalogInstance = catalogInstanceId
-    ? settingsPayload?.settings.agent.providerInstances[catalogInstanceId]
-    : undefined
-  const catalog = useModelCatalog(catalogInstanceId)
-  const catalogDriver = catalogInstance ? getDriver(catalogInstance.driver) : undefined
-  const catalogProviderLabel = catalogInstance
-    ? catalogInstance.displayName?.trim() ||
-      (catalogDriver?.shortLabel ?? catalogDriver?.label ?? '')
-    : ''
-  const models: AggregatedModel[] =
-    catalog.length > 0 && catalogInstanceId && catalogInstance
-      ? mergeCatalogModels([], catalog).map((c) => ({
-          slug: c.slug,
-          name: c.name,
-          instanceId: catalogInstanceId,
-          driverKind: catalogInstance.driver,
-          providerLabel: catalogProviderLabel
-        }))
-      : staticModels
   const showProvider = new Set(models.map((m) => m.instanceId)).size > 1
   const modelOptions = models.length
     ? models.map((m) => modelOptionLabel(m, showProvider))
