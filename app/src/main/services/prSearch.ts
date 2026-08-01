@@ -7,7 +7,7 @@ import {
 } from '../../shared/pr'
 import { getCase } from './caseService'
 import { listStoredWorkspaces } from './workspaces'
-import { defaultGhRunner, type Runner } from './github'
+import { defaultGhRunner, ghErrorText, type Runner } from './github'
 
 /** Re-exported so existing importers of `prSearch`'s Runner keep working. */
 export type { Runner }
@@ -70,12 +70,12 @@ export async function searchPrsForCase(
   try {
     stdout = await (deps.gh ?? defaultGhRunner)('gh', args, { timeoutMs: SEARCH_TIMEOUT_MS })
   } catch (err) {
-    const e = err as NodeJS.ErrnoException
-    return {
-      candidates: [],
-      error: e.code === 'ENOENT' ? 'GitHub CLI (gh) is not installed' : e.message,
-      searchedRepos: repos
-    }
+    // `ghErrorText`, not `.message`: execFile's rejection message is the ENTIRE argv followed
+    // by stderr, so the hand-rolled version this replaced put `Command failed: gh search prs
+    // KAN-2 --match title --limit 30 --json number,state,isDraft,…` on screen and buried the
+    // one line that explained anything. It keeps the ENOENT special case this used to spell
+    // out itself, verbatim.
+    return { candidates: [], error: ghErrorText(err), searchedRepos: repos }
   }
   try {
     return {

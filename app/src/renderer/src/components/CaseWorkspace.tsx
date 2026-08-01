@@ -299,7 +299,21 @@ export function CaseWorkspace({
       // openPrPicker re-checks the binding (rather than trusting the `bound.length` check
       // above, which by now is a whole `gh` search old) and re-checks the slug — see its
       // doc comment for why both re-checks matter here, not just for handlePrsFound.
-      .then((r) => (r ? openPrPicker(forSlug, r) : undefined))
+      //
+      // `candidates.length` gates it because THIS caller's search is unrequested — the user
+      // switched modes, they did not ask about pull requests. A result with nothing to pick
+      // has no question to put to them, so raising the modal over the chat that just opened
+      // (with only Cancel to click) is pure interruption: a case whose linked repo `gh`
+      // cannot see greeted every review switch with a wall of red. The error is not lost —
+      // "Find PRs" in the Pull request rail re-runs the same search and DOES render both the
+      // error and empty states, because there the user asked.
+      .then((r) => {
+        if (!r) return undefined
+        // not on screen, but not thrown away either — same channel PrCompanionSection's own
+        // background status refresh reports through
+        if (r.error) console.warn(`[pr] review-entry search failed for ${forSlug}: ${r.error}`)
+        return r.candidates.length > 0 ? openPrPicker(forSlug, r) : undefined
+      })
       .catch(() => undefined)
       .finally(() => setPrSearching(false))
   }

@@ -113,6 +113,33 @@ describe('searchPrsForCase', () => {
     expect(r.candidates).toEqual([])
   })
 
+  // Seen live 2026-08-02: entering review mode on a case whose linked repo gh cannot see
+  // put `Command failed: gh search prs KAN-2 --match title --limit 30 --json
+  // number,state,isDraft,title,createdAt,url,repository --repo vendor/…` on screen — the
+  // whole argv, because execFile's rejection `.message` IS the command line plus stderr.
+  // `ghErrorText` (the convention every other gh caller in this repo already follows)
+  // prefers `.stderr`, which is the part that actually says what went wrong.
+  it('reports gh stderr, not the command line, when the search itself fails', async () => {
+    linkRepo('c1', 'git@github.com:JiaweiHan88/HiveMindTest.git')
+    const gh: Runner = async () => {
+      const err = new Error(
+        'Command failed: gh search prs NN-5165 --match title --limit 30 --json ' +
+          'number,state,isDraft,title,createdAt,url,repository --repo JiaweiHan88/HiveMindTest'
+      ) as NodeJS.ErrnoException & { stderr?: string }
+      err.stderr =
+        'Invalid search query "( NN-5165 ) in:title repo:JiaweiHan88/HiveMindTest type:pr".\n' +
+        'The listed users and repositories cannot be searched either because the resources ' +
+        'do not exist or you do not have permission to view them.\n'
+      throw err
+    }
+    const r = await searchPrsForCase({ db, gh }, 'c1')
+    expect(r.error).toContain('do not have permission')
+    expect(r.error).not.toMatch(/Command failed/)
+    expect(r.error).not.toContain('--json')
+    expect(r.candidates).toEqual([])
+    expect(r.searchedRepos).toEqual(['JiaweiHan88/HiveMindTest'])
+  })
+
   it('reports malformed JSON instead of throwing', async () => {
     linkRepo('c1', 'git@github.com:JiaweiHan88/HiveMindTest.git')
     const gh: Runner = async () => 'not json at all'

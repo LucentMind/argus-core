@@ -619,6 +619,31 @@ describe('CaseWorkspace mode switching', () => {
     expect(await screen.findByRole('radio', { name: /16315/ })).toBeTruthy()
   })
 
+  // Seen live 2026-08-02: switching to review on a case whose linked repo gh cannot search
+  // raised the picker over the freshly-opened chat with zero rows and only Cancel to click.
+  // Nobody asked for this search — it is a courtesy the mode switch runs on its own — so a
+  // result with nothing to pick has nothing to say and must not interrupt. The Pull request
+  // rail's "Find PRs" is the path where the user DID ask, and it still reports both states
+  // (see the PrPickerDialog tests for the error/empty bodies it renders).
+  it.each([
+    ['a search error', { candidates: [], error: 'gh could not search that repo.' }],
+    ['no matching PRs', { candidates: [], error: null }]
+  ])('does not interrupt the review switch with an empty picker: %s', async (_label, result) => {
+    renderWorkspace()
+    await screen.findByRole('main')
+    stubTwoModeSessions()
+    ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
+      async () => ({ ...result, searchedRepos: ['vendor/vendor-navigator-debug-mcp'] })
+    )
+
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
+    await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
+    // the busy state clearing is the signal the whole chain finished, so this cannot pass
+    // merely by asserting before the dialog would have rendered
+    await waitFor(() => expect(caseBarStore.get().busyMode).toBeNull())
+    expect(screen.queryByRole('dialog', { name: 'Link pull request' })).toBeNull()
+  })
+
   it('does not offer the picker when the case already has bound PRs', async () => {
     renderWorkspace()
     await screen.findByRole('main')
