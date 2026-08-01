@@ -211,6 +211,8 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     try {
       await window.argus.packs.applyUpdate(id)
       await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
@@ -221,6 +223,8 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     try {
       await window.argus.packs.checkUpdates()
       await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }

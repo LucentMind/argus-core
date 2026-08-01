@@ -342,4 +342,22 @@ describe('PacksSettings', () => {
     render(<PacksSettings settings={settingsPayload([])} />)
     expect(await screen.findByText(/download it manually/i)).toBeInTheDocument()
   })
+
+  it('surfaces an Update failure through the alert, not a silent re-enable', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [row({ id: 'sample', update: { phase: 'available', version: '1.1.0' } })]
+    })
+    packs.applyUpdate = vi.fn().mockRejectedValue(new Error('network unreachable'))
+    render(<PacksSettings settings={settingsPayload([])} />)
+    fireEvent.click(await screen.findByRole('button', { name: /update · sample/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('network unreachable')
+  })
+
+  it('surfaces a Check for pack updates failure through the alert', async () => {
+    packs.checkUpdates = vi.fn().mockRejectedValue(new Error('offline'))
+    render(<PacksSettings settings={settingsPayload([])} />)
+    fireEvent.click(await screen.findByRole('button', { name: /check for pack updates/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('offline')
+  })
 })
