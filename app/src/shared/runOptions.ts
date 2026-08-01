@@ -212,3 +212,23 @@ export function claudeSettingsFor(
   if (thinking && selectionValue(thinking, stored) === true) out.alwaysThinkingEnabled = true
   return out
 }
+
+export const ULTRATHINK_PREFIX = 'Ultrathink:\n'
+
+/** Word-boundary match, so `ultrathinking` does not count. */
+export function hasUltrathink(text: string): boolean {
+  return /\bultrathink\b/i.test(text)
+}
+
+export function applyUltrathink(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ULTRATHINK_PREFIX
+  if (hasUltrathink(trimmed)) return trimmed
+  return `${ULTRATHINK_PREFIX}${trimmed}`
+}
+
+/** Removes only the leading marker we wrote — the word elsewhere in the body is the
+ *  user's own text and must survive. */
+export function stripUltrathink(text: string): string {
+  return text.replace(/^Ultrathink:\s*/i, '')
+}

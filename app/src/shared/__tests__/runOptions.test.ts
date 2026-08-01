@@ -7,6 +7,9 @@ import {
   effectiveEffort,
   apiModelId,
   claudeSettingsFor,
+  hasUltrathink,
+  applyUltrathink,
+  stripUltrathink,
   type ModelOptionInfo,
   type RunOptionDescriptor
 } from '../runOptions'
@@ -239,5 +242,35 @@ describe('claudeSettingsFor', () => {
         { id: 'thinking', value: true }
       ])
     ).toEqual({ fastMode: true, alwaysThinkingEnabled: true })
+  })
+})
+
+describe('ultrathink prompt helpers', () => {
+  it('detects the word anywhere, case-insensitively', () => {
+    expect(hasUltrathink('Ultrathink:\nfix the bug')).toBe(true)
+    expect(hasUltrathink('please ULTRATHINK about this')).toBe(true)
+    expect(hasUltrathink('fix the bug')).toBe(false)
+  })
+
+  it('does not fire on a word that merely contains it', () => {
+    expect(hasUltrathink('ultrathinking')).toBe(false)
+  })
+
+  it('prefixes an existing draft', () => {
+    expect(applyUltrathink('fix the bug')).toBe('Ultrathink:\nfix the bug')
+  })
+
+  it('seeds an empty draft with just the prefix, so the chip has something to show', () => {
+    expect(applyUltrathink('')).toBe('Ultrathink:\n')
+    expect(applyUltrathink('   ')).toBe('Ultrathink:\n')
+  })
+
+  it('is idempotent', () => {
+    expect(applyUltrathink('Ultrathink:\nfix it')).toBe('Ultrathink:\nfix it')
+  })
+
+  it('strips only our prefix, never the word from the body', () => {
+    expect(stripUltrathink('Ultrathink:\nfix it')).toBe('fix it')
+    expect(stripUltrathink('please ultrathink here')).toBe('please ultrathink here')
   })
 })
