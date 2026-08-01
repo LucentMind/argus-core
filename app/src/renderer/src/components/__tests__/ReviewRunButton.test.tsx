@@ -84,5 +84,33 @@ describe('ReviewRunButton', () => {
       unmount()
       expect(panelsStore.get().occluded).toBe(false)
     })
+
+    it('closes on an outside click and clears occlusion (regression: no click-away listener)', async () => {
+      render(
+        <div>
+          <ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />
+          <button type="button">outside</button>
+        </div>
+      )
+      await userEvent.click(screen.getByRole('button', { name: /choose review layers/i }))
+      expect(screen.getByRole('group', { name: /review layers/i })).toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(true)
+
+      await userEvent.click(screen.getByRole('button', { name: 'outside' }))
+
+      expect(screen.queryByRole('group', { name: /review layers/i })).not.toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
+
+    it('closes on Escape and clears occlusion (regression: no Escape listener)', async () => {
+      render(<ReviewRunButton slug="c1" sessionId={3} onError={vi.fn()} />)
+      await userEvent.click(screen.getByRole('button', { name: /choose review layers/i }))
+      expect(panelsStore.get().occluded).toBe(true)
+
+      await userEvent.keyboard('{Escape}')
+
+      expect(screen.queryByRole('group', { name: /review layers/i })).not.toBeInTheDocument()
+      expect(panelsStore.get().occluded).toBe(false)
+    })
   })
 })
