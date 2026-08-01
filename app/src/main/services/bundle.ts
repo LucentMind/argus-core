@@ -13,7 +13,9 @@ import {
   type BundleWorkspaceRef
 } from '../../shared/bundle'
 import {
+  CASE_PHASE_PINS,
   CASE_RESOLUTIONS,
+  type CasePhasePin,
   type CaseRecord,
   type CaseResolution,
   type CaseStatus,
@@ -137,7 +139,13 @@ export async function exportCase(
   return manifest
 }
 
-const STATUSES: CaseStatus[] = ['open', 'analyzing', 'rca-drafted', 'closed']
+/** Statuses written by builds that predate the phase model, and where each one lands now. */
+const LEGACY_STATUS: Record<string, { status: CaseStatus; pin: CasePhasePin | null }> = {
+  open: { status: 'open', pin: null },
+  closed: { status: 'closed', pin: null },
+  analyzing: { status: 'open', pin: null },
+  'rca-drafted': { status: 'open', pin: 'rca-drafted' }
+}
 
 export function proposeSlug(
   db: DatabaseSync,
@@ -380,9 +388,8 @@ export async function importCase(
     } catch {
       // corrupt/missing case.json — fall back to manifest-only fields
     }
-    const status = STATUSES.includes(onDisk.status as CaseStatus)
-      ? (onDisk.status as CaseStatus)
-      : 'open'
+    const legacy = LEGACY_STATUS[String(onDisk.status ?? '')] ?? { status: 'open', pin: null }
+    const status = legacy.status
     // A bundled case.json with status "closed" but a missing/invalid resolution lands here
     // as closed + null — this is the same tolerated "legacy" state as pre-migration DB rows
     // (see CaseRecord.resolution). It is intentional, not a bug: do not tighten this to throw
@@ -392,14 +399,25 @@ export async function importCase(
       status === 'closed' && CASE_RESOLUTIONS.includes(onDisk.resolution as CaseResolution)
         ? (onDisk.resolution as CaseResolution)
         : null
+    // An explicit pin in the bundle wins; otherwise a legacy rca-drafted status becomes one,
+    // stamped at the bundle's updatedAt — the best approximation the file still carries.
+    const phasePin = CASE_PHASE_PINS.includes(onDisk.phasePin as CasePhasePin)
+      ? (onDisk.phasePin as CasePhasePin)
+      : legacy.pin
+    const phasePinnedAt = phasePin
+      ? ((onDisk.phasePinnedAt as string | undefined) ??
+        (onDisk.updatedAt as string | undefined) ??
+        new Date().toISOString())
+      : null
     const tags = Array.isArray(onDisk.tags) ? (onDisk.tags as string[]) : []
     const createdAt =
       typeof onDisk.createdAt === 'string' ? (onDisk.createdAt as string) : new Date().toISOString()
     const now = new Date().toISOString()
     const res = db
       .prepare(
-        `INSERT INTO cases (slug, title, jira_key, status, resolution, tags, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO cases
+           (slug, title, jira_key, status, resolution, phase_pin, phase_pinned_at, tags, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         slug,
@@ -407,6 +425,8 @@ export async function importCase(
         typeof onDisk.jiraKey === 'string' ? (onDisk.jiraKey as string) : null,
         status,
         resolution,
+        phasePin,
+        phasePinnedAt,
         JSON.stringify(tags),
         createdAt,
         now
@@ -419,11 +439,23 @@ export async function importCase(
         fs.mkdirSync(path.join(dir, sub), { recursive: true })
       }
       scaffoldCaseLinks(argusHome, dir)
-      // new slug + imported workspaces become unlinked refs (spec §2.2); local paths never travel
+      // new slug + imported workspaces become unlinked refs (spec §2.2); local paths never travel.
+      // status/phasePin/phasePinnedAt are written explicitly (not left to the `...onDisk`
+      // spread) so a legacy bundle's on-disk literal ("analyzing", "rca-drafted", ...) is
+      // normalized to match what actually landed in the DB row above.
       fs.writeFileSync(
         path.join(dir, 'case.json'),
         JSON.stringify(
-          { ...onDisk, slug, updatedAt: now, workspaces: [], workspaceRefs: manifest.workspaces },
+          {
+            ...onDisk,
+            slug,
+            status,
+            phasePin,
+            phasePinnedAt,
+            updatedAt: now,
+            workspaces: [],
+            workspaceRefs: manifest.workspaces
+          },
           null,
           2
         )

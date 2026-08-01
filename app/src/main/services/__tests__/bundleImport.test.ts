@@ -4,16 +4,18 @@ import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Zip, extract } from 'zip-lib'
 import { openDb } from '../db'
-import { createCase, getCase } from '../caseService'
+import { createCase, getCase, pinCasePhase } from '../caseService'
 import { ingestContent, ingestDerived, listEvidence, sha256File } from '../ingest'
 import { createDetection } from '../packs/detection'
 import { searchEvidence } from '../search'
 import { exportCase, importCase, inspectBundle, proposeSlug } from '../bundle'
+import { caseDir } from '../paths'
 import { sidecarPath } from '../lineIndex'
 import { MAX_READ_BYTES } from '../search'
 import { listSessions } from '../agent/sessionStore'
 import { readSessionEvents } from '../agent/mirror'
 import type { DatabaseSync } from 'node:sqlite'
+import type { CaseRecord } from '../../../shared/types'
 
 let homeA: string
 let homeB: string
@@ -412,5 +414,67 @@ describe('imported case resolution', () => {
     const rec = await importCase(dbB, homeB, patched, 'NAV-100')
     expect(rec.status).toBe('open')
     expect(rec.resolution).toBeNull()
+  })
+})
+
+/**
+ * Overwrite one field of the source case's on-disk case.json, then export + import it into
+ * homeB — this is exactly how a bundle written by a build that predates the phase model
+ * would look.
+ */
+async function reimportWith(patch: Record<string, unknown>): Promise<CaseRecord> {
+  const file = path.join(caseDir(homeA, 'NAV-100'), 'case.json')
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  fs.writeFileSync(file, JSON.stringify({ ...onDisk, ...patch }, null, 2))
+  const out = path.join(
+    os.tmpdir(),
+    `legacy-${Date.now()}-${Math.random().toString(36).slice(2)}.arguscase`
+  )
+  await exportCase(
+    dbA,
+    homeA,
+    'NAV-100',
+    out,
+    { includeTranscripts: true },
+    { argusVersion: '1.0.0' }
+  )
+  return importCase(dbB, homeB, out, 'NAV-100')
+}
+
+describe('legacy status values', () => {
+  it('maps an analyzing bundle onto the open lifecycle', async () => {
+    const rec = await reimportWith({ status: 'analyzing' })
+    expect(rec.status).toBe('open')
+    // The bundle carries evidence, so the phase re-derives to analyzing on its own — which is
+    // the point: nothing had to be preserved.
+    expect(rec.phase).toBe('analyzing')
+  })
+
+  it('converts an rca-drafted bundle into open plus a pin', async () => {
+    const rec = await reimportWith({
+      status: 'rca-drafted',
+      updatedAt: '2099-01-01T00:00:00.000Z'
+    })
+    expect(rec.status).toBe('open')
+    // Pinned at the bundle's updatedAt, which post-dates the imported evidence.
+    expect(rec.phase).toBe('rca-drafted')
+  })
+
+  it('round-trips an explicit pin through export and import', async () => {
+    pinCasePhase(dbA, homeA, 'NAV-100', 'rca-drafted')
+    const out = path.join(
+      os.tmpdir(),
+      `pinned-${Date.now()}-${Math.random().toString(36).slice(2)}.arguscase`
+    )
+    await exportCase(
+      dbA,
+      homeA,
+      'NAV-100',
+      out,
+      { includeTranscripts: true },
+      { argusVersion: '1.0.0' }
+    )
+    const rec = await importCase(dbB, homeB, out, 'NAV-100')
+    expect(rec.phase).toBe('rca-drafted')
   })
 })
