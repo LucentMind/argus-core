@@ -1326,10 +1326,13 @@ function registerIpc(): void {
     IPC.sessionsSetRunOptions,
     (_e, sessionId: number, sel: { id: string; value: string | boolean }[]) => {
       if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
-      if (!Array.isArray(sel)) throw new Error('Run options must be an array')
-      // The renderer has already pruned against the current model's descriptors; this
-      // layer only guards shape. The live CaseSession has these frozen at query()
-      // construction — AgentService compares optionsKey on the next send and rebuilds.
+      if (!Array.isArray(sel))
+        throw new Error(`Run options must be an array, received ${typeof sel}`)
+      // Shape-only guard: the renderer has already pruned selections against the
+      // current model's descriptors, and the model catalog is not reachable from
+      // this layer. Persisting here does NOT retune a live CaseSession — its options
+      // are frozen at query() construction, and the rebuild-on-change path is not
+      // wired yet.
       return setSessionRunOptions(db, sessionId, sel)
     }
   )
