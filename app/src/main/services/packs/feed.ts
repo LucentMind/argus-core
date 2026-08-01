@@ -45,24 +45,46 @@ function originOf(url: string): string | null {
   }
 }
 
+export interface SelectUpdateResult {
+  /** The winning entry, or `null` when there is nothing to offer. */
+  entry: FeedEntry | null
+  /**
+   * `true` only when `entry` is `null` AND the reason is specifically that every otherwise-
+   * eligible entry (newer, platform-matched, API-compatible) was excluded by the origin filter —
+   * i.e. an update genuinely exists, just not from the pinned origin. `false` both when `entry`
+   * is non-null and when there is genuinely nothing newer at all, so a caller can tell "the
+   * vendor moved off-origin" (should surface as `origin-pin`) apart from "nothing published"
+   * (idle) apart from "found one" — three states a single `FeedEntry | null` cannot distinguish.
+   * `selectUpdate` stays pure and never throws; it is up to the caller (`findUpdate`) to decide
+   * what a `true` here means for its own error reporting.
+   */
+  excludedByOriginOnly: boolean
+}
+
 /**
  * The newest entry that is platform-matched, API-compatible with this Core, strictly newer
- * than what is installed, and (when `origin` is given) hosted on the pinned origin. `null` when
- * there is nothing to offer — including when the installed version is not valid semver, since
- * there is then no defensible comparison to make.
+ * than what is installed, and (when `origin` is given) hosted on the pinned origin. `entry` is
+ * `null` when there is nothing to offer — including when the installed version is not valid
+ * semver, since there is then no defensible comparison to make.
  */
-export function selectUpdate(feed: PackFeed, opts: SelectOptions): FeedEntry | null {
+export function selectUpdate(feed: PackFeed, opts: SelectOptions): SelectUpdateResult {
   const { installedVersion, host, origin } = opts
-  if (semver.valid(installedVersion) == null) return null
+  if (semver.valid(installedVersion) == null) return { entry: null, excludedByOriginOnly: false }
 
-  const candidates = feed.versions.filter(
+  // Computed WITHOUT the origin filter first so a not-null-but-all-off-origin result can be told
+  // apart from genuinely nothing being newer — see `SelectUpdateResult.excludedByOriginOnly`.
+  const eligible = feed.versions.filter(
     (e) =>
       semver.valid(e.version) != null &&
       semver.gt(e.version, installedVersion) &&
       platformMatchesHost(e.platform, host) &&
-      isApiCompatible(e.argusApi) &&
-      (origin == null || originOf(e.url) === origin)
+      isApiCompatible(e.argusApi)
   )
-  if (candidates.length === 0) return null
-  return candidates.reduce((best, e) => (semver.gt(e.version, best.version) ? e : best))
+  const candidates = origin == null ? eligible : eligible.filter((e) => originOf(e.url) === origin)
+
+  if (candidates.length === 0) {
+    return { entry: null, excludedByOriginOnly: origin != null && eligible.length > 0 }
+  }
+  const entry = candidates.reduce((best, e) => (semver.gt(e.version, best.version) ? e : best))
+  return { entry, excludedByOriginOnly: false }
 }

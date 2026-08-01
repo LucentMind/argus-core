@@ -41,9 +41,12 @@ describe('packFeedSchema', () => {
 })
 
 describe('selectUpdate', () => {
-  it('returns null when nothing is newer than what is installed', () => {
+  it('returns entry: null when nothing is newer than what is installed', () => {
     const feed = packFeedSchema.parse({ id: 'sample', versions: [entry({ version: '1.0.0' })] })
-    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })).toBeNull()
+    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })).toEqual({
+      entry: null,
+      excludedByOriginOnly: false
+    })
   })
 
   it('picks the newest compatible entry', () => {
@@ -55,7 +58,9 @@ describe('selectUpdate', () => {
         entry({ version: '1.2.0' })
       ]
     })
-    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })?.version).toBe('1.3.0')
+    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN }).entry?.version).toBe(
+      '1.3.0'
+    )
   })
 
   it('skips entries built for another platform', () => {
@@ -63,7 +68,9 @@ describe('selectUpdate', () => {
       id: 'sample',
       versions: [entry({ version: '2.0.0', platform: 'mac-arm64' }), entry({ version: '1.1.0' })]
     })
-    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })?.version).toBe('1.1.0')
+    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN }).entry?.version).toBe(
+      '1.1.0'
+    )
   })
 
   it('skips entries requiring a Core API this build does not implement', () => {
@@ -74,15 +81,17 @@ describe('selectUpdate', () => {
       id: 'sample',
       versions: [entry({ version: '2.0.0', argusApi: '^2' }), entry({ version: '1.1.0' })]
     })
-    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })?.version).toBe('1.1.0')
+    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN }).entry?.version).toBe(
+      '1.1.0'
+    )
   })
 
-  it('returns null when every newer entry is incompatible', () => {
+  it('returns entry: null when every newer entry is incompatible', () => {
     const feed = packFeedSchema.parse({
       id: 'sample',
       versions: [entry({ version: '2.0.0', argusApi: '^2' })]
     })
-    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })).toBeNull()
+    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN }).entry).toBeNull()
   })
 
   it('ignores entries whose version is not valid semver', () => {
@@ -90,14 +99,19 @@ describe('selectUpdate', () => {
       id: 'sample',
       versions: [entry({ version: 'nightly' }), entry({ version: '1.1.0' })]
     })
-    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })?.version).toBe('1.1.0')
+    expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN }).entry?.version).toBe(
+      '1.1.0'
+    )
   })
 
-  it('returns null when the INSTALLED version is not valid semver', () => {
+  it('returns entry: null when the INSTALLED version is not valid semver', () => {
     // Pack manifests type `version` as a free string, so this is reachable. Comparing against
     // it would throw; refusing to guess is the safe answer.
     const feed = packFeedSchema.parse({ id: 'sample', versions: [entry({ version: '1.1.0' })] })
-    expect(selectUpdate(feed, { installedVersion: 'v1-final', host: WIN })).toBeNull()
+    expect(selectUpdate(feed, { installedVersion: 'v1-final', host: WIN })).toEqual({
+      entry: null,
+      excludedByOriginOnly: false
+    })
   })
 
   describe('origin filtering (Fix 2)', () => {
@@ -114,9 +128,9 @@ describe('selectUpdate', () => {
           entry({ version: '1.1.0', url: `${PIN}/sample-1.1.0-win-x64.zip` })
         ]
       })
-      expect(
-        selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })?.version
-      ).toBe('1.1.0')
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })
+      expect(result.entry?.version).toBe('1.1.0')
+      expect(result.excludedByOriginOnly).toBe(false)
     })
 
     it('skips an entry with a malformed url rather than throwing', () => {
@@ -130,7 +144,11 @@ describe('selectUpdate', () => {
         id: 'sample',
         versions: [entry({ version: '9.9.9', url: 'not a url at all' })]
       }
-      expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })).toBeNull()
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })
+      expect(result.entry).toBeNull()
+      // A malformed url is excluded the same way a non-matching origin is (`originOf` returns
+      // null, which never equals `PIN`) — this counts as "off-origin", not a distinct failure.
+      expect(result.excludedByOriginOnly).toBe(true)
     })
 
     it('does not filter by origin at all when none is given (existing callers unaffected)', () => {
@@ -138,7 +156,57 @@ describe('selectUpdate', () => {
         id: 'sample',
         versions: [entry({ version: '1.1.0', url: 'https://anywhere.example/p-1.1.0-win-x64.zip' })]
       })
-      expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })?.version).toBe('1.1.0')
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })
+      expect(result.entry?.version).toBe('1.1.0')
+      expect(result.excludedByOriginOnly).toBe(false)
+    })
+  })
+
+  describe('excludedByOriginOnly (Important 2)', () => {
+    const PIN = 'https://vendor.example'
+
+    it('is true when every otherwise-eligible entry is off-origin', () => {
+      const feed = packFeedSchema.parse({
+        id: 'sample',
+        versions: [entry({ version: '1.1.0', url: 'https://cdn.example/p-1.1.0-win-x64.zip' })]
+      })
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })
+      expect(result).toEqual({ entry: null, excludedByOriginOnly: true })
+    })
+
+    it('is false when there is genuinely nothing newer, even with an origin given', () => {
+      // Must not be confused with the off-origin case: no ELIGIBLE candidate exists at all here
+      // (ignoring origin entirely), so there is nothing to blame on the origin filter.
+      const feed = packFeedSchema.parse({
+        id: 'sample',
+        versions: [entry({ version: '1.0.0', url: `${PIN}/p-1.0.0-win-x64.zip` })]
+      })
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })
+      expect(result).toEqual({ entry: null, excludedByOriginOnly: false })
+    })
+
+    it('is false when an on-origin candidate wins, even if a newer off-origin one was excluded', () => {
+      const feed = packFeedSchema.parse({
+        id: 'sample',
+        versions: [
+          entry({ version: '2.0.0', url: 'https://cdn.example/p-2.0.0-win-x64.zip' }),
+          entry({ version: '1.1.0', url: `${PIN}/p-1.1.0-win-x64.zip` })
+        ]
+      })
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })
+      expect(result).toEqual({
+        entry: expect.objectContaining({ version: '1.1.0' }),
+        excludedByOriginOnly: false
+      })
+    })
+
+    it('is false when origin is not given at all', () => {
+      const feed = packFeedSchema.parse({
+        id: 'sample',
+        versions: [entry({ version: '1.1.0', url: 'https://anywhere.example/p-1.1.0-win-x64.zip' })]
+      })
+      const result = selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })
+      expect(result.excludedByOriginOnly).toBe(false)
     })
   })
 })
