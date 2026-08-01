@@ -3,19 +3,13 @@ import { PanelLeft, PanelRight } from 'lucide-react'
 import { SearchBar } from './SearchBar'
 import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
-import { HeaderChips } from './HeaderChips'
-import { ModeSwitcher } from './ModeSwitcher'
 import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
 import { ReposSection } from './ReposSection'
 import { PrCompanionSection } from './PrCompanionSection'
 import { PrPickerDialog } from './PrPickerDialog'
 import type { PrBinding, PrSearchResult } from '../../../shared/pr'
-import { DistillChip } from './DistillChip'
-import { HeaderNotice } from './HeaderNotice'
 import { SimilarCasesCard } from './SimilarCasesCard'
-import { JiraPill } from './JiraPill'
-import { MenuButton } from './ui'
 import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
@@ -23,53 +17,30 @@ import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH } from '../lib/uiStore'
 import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { reposStore } from '../lib/reposStore'
-import { notice } from '../lib/noticeStore'
 import { panelKeyStr } from '../../../shared/panels'
-import { CASE_RESOLUTIONS } from '../../../shared/types'
-import type {
-  CaseResolution,
-  CaseStatus,
-  ChatJumpTarget,
-  FileNode,
-  SessionSummary,
-  UnifiedHit
-} from '../../../shared/types'
+import type { ChatJumpTarget, FileNode, SessionSummary, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
-import { railTier } from '../lib/priorityRail'
 import type { ModeId } from '../../../shared/modes'
 import type { RunOptionSelection } from '../../../shared/runOptions'
 import type { PermissionMode } from '../../../shared/settings'
-import { useDistillJob, distillMenuLabel } from '../lib/distillJob'
+import { caseBarStore, type CaseBarEvent } from '../lib/caseBarStore'
 
 export function CaseWorkspace({
   slug,
-  jiraKey,
-  jiraSyncedAt,
-  status,
-  resolution,
-  jiraPriority,
   activeMode,
-  onStatusChanged,
   onModeSwitched,
   onOpenHit,
   onOpenCitation,
   onOpenFile,
   onOpenCase,
-  onOpenRepoFile,
-  onHome
+  onOpenRepoFile
 }: {
   slug: string
-  jiraKey: string | null
-  jiraSyncedAt: string | null
-  status: CaseStatus
-  resolution: CaseResolution | null
-  jiraPriority: string | null
   /** The mode axis the case is currently switched to (`CaseRecord.activeMode`) — the source
    *  of truth for which mode's chat is active, not the session row (Task 3/4: mode moved
    *  from session-scoped to case-scoped). */
   activeMode: ModeId
-  onStatusChanged: () => void
   /** A mode switch persisted `CaseRecord.activeMode` in the DB (ModeSwitcher already called
    *  `cases.setMode`); this tells the parent to refetch its `cases` array so the `activeMode`
    *  prop above stops being stale — same contract as `onStatusChanged`, just for the mode
@@ -81,10 +52,6 @@ export function CaseWorkspace({
   onOpenFile: (node: FileNode) => void
   onOpenCase?: (slug: string) => void
   onOpenRepoFile: (repoName: string, relPath: string, start: number, end: number) => void
-  /** Close case (case-actions menu) duplicates the tab's `×` for now — added here so the
-   *  increment that replaces the tab with a case anchor (and drops its `×`) is purely
-   *  structural, not a new wiring job. Same handler App.tsx already gives TopBar. */
-  onHome: () => void
 }): React.JSX.Element {
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -96,7 +63,6 @@ export function CaseWorkspace({
     () => panelsStore.get()
   )
   const anchors = useAmbientAnchors()
-  const distillJob = useDistillJob(slug)
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{ startX: number; startWidth: number; maxWidth: number } | null>(null)
@@ -344,6 +310,32 @@ export function CaseWorkspace({
     setSessionsError(message)
   }
 
+  // The bar's ModeSwitcher calls cases.setMode itself; everything that has to happen after
+  // it — select the new chat, refetch the session list, offer the PR picker — lives here,
+  // behind race guards not worth moving for a layout change. `handleModeChanged` closes over
+  // fresh state on every render, so the subscription reads it through a ref rather than
+  // capturing one render's copy. Same idiom AmbientCanvas uses for its own latest-props ref.
+  const onBarEvent = useRef<(event: CaseBarEvent) => void>(() => undefined)
+  useEffect(() => {
+    onBarEvent.current = (event) => {
+      if (event.kind === 'mode-switched') handleModeChanged(event.mode, event.sessionId)
+      else handleModeError(event.message)
+    }
+  })
+  useEffect(() => {
+    return caseBarStore.onEventFor(slug, (event) => onBarEvent.current(event))
+  }, [slug])
+
+  // Down-channel: the bar cannot know review's PR search is still running, because the search
+  // runs here and outlives the cases.setMode the bar awaited.
+  useEffect(() => {
+    caseBarStore.publish({
+      slug,
+      busyMode: prSearching ? 'review' : null,
+      statusText: prSearching ? 'Searching for pull requests…' : null
+    })
+  }, [slug, prSearching])
+
   /** Mirrors ReviewRunButton: compose in main (it owns the binding and worktree path), then
    *  send through the ordinary agent path so cancel/queue/mirror behave normally. A plain
    *  function, like the handlers around it — this component uses no useCallback and
@@ -396,125 +388,26 @@ export function CaseWorkspace({
     if (rec) onOpenCitation(rec.id, cite.start, cite.end)
   }
 
-  async function exportBundle(includeTranscripts: boolean): Promise<void> {
-    const r = await window.argus.bundle.export(slug, includeTranscripts)
-    if (!r) return // save dialog canceled
-    if (r.ok) notice(`exported ${r.fileCount} files`)
-    else notice(r.error, 'danger')
-  }
-
-  async function applyStatus(next: CaseStatus, res: CaseResolution | null): Promise<void> {
-    await window.argus.cases.setStatus(slug, next, res)
-    onStatusChanged()
-  }
-  const statusItems = [
-    ...CASE_RESOLUTIONS.map((r) => ({
-      label: r,
-      onSelect: () => void applyStatus('closed', r)
-    })),
-    ...(status === 'closed'
-      ? [{ label: 'Reopen', onSelect: () => void applyStatus('open', null) }]
-      : [])
-  ]
-  // The "Close as…" row doubles as the status readout, same as before it moved
-  // into the case-id menu: a closed case shows its resolution here.
-  const closeAsLabel =
-    status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* anchors.setCutoff/setLight are useState setters used directly as ref
-          callbacks (the React-documented way to observe a DOM node) — not a
-          stale `.current` read, so react-hooks/refs is a false positive here. */}
-      <header
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* The dynamic theme's light band. It used to borrow the case header's box; with the
+          header gone this is what it was always describing — the top 44px of the case view,
+          lit from the left, under where the case anchor now sits in the bar. Anchoring to a
+          real component instead would couple the band to that component's box and break the
+          next time one is restyled. AmbientCanvas measures both rects relative to the
+          DynamicScope wrapper, so both must live inside it — TopBar does not.
+          setCutoff/setLight are useState setters used directly as ref callbacks (the
+          React-documented way to observe a DOM node), not stale `.current` reads. */}
+      <div
+        aria-hidden="true"
+        data-testid="ambient-band"
+        className="pointer-events-none absolute inset-x-0 top-0 h-11"
         // eslint-disable-next-line react-hooks/refs
         ref={anchors.setCutoff}
-        /**
-         * `relative z-20` (2026-08-01) — the header's popovers (the Jira panel, the case-id
-         * menu) hang below it, over the evidence rail.
-         *
-         * The rail's cards are `position: relative` (`.glass-panel`, and `.surface-card` on
-         * hover), which puts them in the positioned-element paint step; the header comes first
-         * in DOM order, so at `z-index: auto` everything inside it — including a popover — paints
-         * UNDER them. In the dynamic theme it is worse: `.dyn-case-header`'s `backdrop-filter`
-         * makes the header a stacking context, so a popover's own `z-30` is trapped inside it and
-         * cannot climb out. One positive z on the header itself lifts the whole context above the
-         * rail and fixes both popovers at once, which per-popover z-index cannot do.
-         */
-        className={`relative z-20 flex items-center gap-3 border-b border-hair px-4 py-2 ${
-          dynamic ? 'dyn-case-header' : 'bg-void'
-        }`}
-        data-tier={railTier(jiraPriority) ?? undefined}
       >
-        {/* The case id is the trigger for the case-action menu (Close as / Export),
-            each a submenu — keeps a crowded bar to one control. */}
         {/* eslint-disable-next-line react-hooks/refs */}
-        <span ref={anchors.setLight} className="inline-flex">
-          <MenuButton
-            label={slug}
-            /* `text-signal`, not `text-defect` (user-directed, 2026-08-01): a case id is an
-               identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s
-               slug). The header drawing the SAME id in amber made one thing look like two, and
-               spent the attention colour on a label that is never a problem. */
-            triggerClassName="font-mono text-sm! text-signal!"
-            align="left"
-            items={[
-              { label: closeAsLabel, children: statusItems },
-              {
-                label: 'Export',
-                children: [
-                  { label: 'Export case…', onSelect: () => void exportBundle(true) },
-                  {
-                    label: 'Export without transcripts…',
-                    onSelect: () => void exportBundle(false)
-                  }
-                ]
-              },
-              {
-                label: distillMenuLabel(distillJob),
-                disabled: status !== 'closed',
-                onSelect: () => void window.argus.distill.redistill(slug).catch(() => undefined)
-              },
-              {
-                label: 'Close case',
-                onSelect: () => {
-                  uiStore.closeTab(slug)
-                  onHome()
-                }
-              }
-            ]}
-          />
-        </span>
-        {/* relative: the pill's popover is absolutely positioned and must anchor to the
-            pill, not to the header — key resets refresh state when switching cases */}
-        <div className="relative shrink-0">
-          <JiraPill key={slug} slug={slug} jiraKey={jiraKey} syncedAt={jiraSyncedAt} />
-        </div>
-        <ModeSwitcher
-          slug={slug}
-          activeMode={activeMode}
-          // the PR search outlives cases.setMode, so the control keeps spinning through it
-          busyMode={prSearching ? 'review' : null}
-          statusText={prSearching ? 'Searching for pull requests…' : null}
-          onModeChanged={handleModeChanged}
-          onError={handleModeError}
-        />
-        {/* Transient/informational content only — right of the mode switch, never left of
-            it, so it never shoves the case controls (case menu, Jira pill, mode switch) the
-            user is reaching for. The open-case tab strip absorbs the squeeze instead: it's
-            elastic and scrollable, this bar's other controls are not. */}
-        <div className="flex min-w-0 items-center gap-2">
-          {/* key={slug}: DistillChip holds its own component-instance state (the retry
-              `override`) — same category JiraPill guards with a key above; without it,
-              CaseWorkspace's no-remount-on-slug-change contract would let a retry clicked on
-              case A's chip keep showing after switching to case B. */}
-          <DistillChip key={slug} slug={slug} />
-          <HeaderNotice />
-        </div>
-        <div className="ml-auto">
-          <HeaderChips slug={slug} />
-        </div>
-      </header>
+        <div ref={anchors.setLight} className="h-full w-64" />
+      </div>
       <div className="flex min-h-0 flex-1">
         {ui.evidenceCollapsed ? (
           <button

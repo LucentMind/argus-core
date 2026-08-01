@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
 import { settingsStore } from '../../lib/settingsStore'
 import { confirm } from '../../lib/confirmStore'
-import { noticeStore } from '../../lib/noticeStore'
+import { caseBarStore } from '../../lib/caseBarStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
-import type { CaseResolution, CaseStatus, SessionSummary } from '../../../../shared/types'
+import type { SessionSummary } from '../../../../shared/types'
 import { DEFAULT_MODE, type ModeId } from '../../../../shared/modes'
 import type { FindingRow } from '../../../../shared/observability'
 
@@ -47,6 +46,7 @@ beforeEach(() => {
   uiStore.setFindingsWidth(384)
   uiStore.setEvidenceCollapsed(false)
   uiStore.setDynamicTheme(false)
+  caseBarStore.reset()
   // CaseWorkspace renders Composer, which reads the shared settingsStore
   // singleton — reset it so state doesn't leak across tests.
   settingsStore.reset()
@@ -181,43 +181,26 @@ beforeEach(() => {
 function workspace(
   slug: string,
   overrides?: {
-    status?: CaseStatus
-    resolution?: CaseResolution | null
-    jiraPriority?: string | null
-    onStatusChanged?: () => void
     activeMode?: ModeId
     onModeSwitched?: () => void
-    onHome?: () => void
   }
 ): React.JSX.Element {
   return (
     <CaseWorkspace
       slug={slug}
-      jiraKey={null}
-      jiraSyncedAt={null}
-      status={overrides?.status ?? 'open'}
-      resolution={overrides?.resolution ?? null}
-      jiraPriority={overrides?.jiraPriority ?? null}
       activeMode={overrides?.activeMode ?? DEFAULT_MODE}
-      onStatusChanged={overrides?.onStatusChanged ?? vi.fn()}
       onModeSwitched={overrides?.onModeSwitched ?? vi.fn()}
       onOpenHit={vi.fn()}
       onOpenCitation={vi.fn()}
       onOpenFile={vi.fn()}
       onOpenRepoFile={vi.fn()}
-      onHome={overrides?.onHome ?? vi.fn()}
     />
   )
 }
 
 function renderWorkspace(overrides?: {
-  status?: CaseStatus
-  resolution?: CaseResolution | null
-  jiraPriority?: string | null
-  onStatusChanged?: () => void
   activeMode?: ModeId
   onModeSwitched?: () => void
-  onHome?: () => void
 }): ReturnType<typeof render> {
   return render(workspace('NAV-1', overrides))
 }
@@ -262,6 +245,45 @@ function stubAnalyzableFile(): void {
     }
   ]) as never
 }
+
+describe('CaseWorkspace bar merge', () => {
+  it('no longer renders a case header of its own', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
+    // The bar owns the case identity now; a second <header> here is the duplication the
+    // merge removes.
+    expect(screen.queryByRole('banner')).toBeNull()
+  })
+
+  it('acts on a mode switch published by the bar', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
+    window.argus.sessions.list = vi.fn(async () => [])
+    caseBarStore.emit({
+      kind: 'mode-switched',
+      slug: 'NAV-1',
+      mode: 'investigation',
+      sessionId: 42
+    })
+    await vi.waitFor(() => expect(window.argus.sessions.list).toHaveBeenCalled())
+  })
+
+  it('ignores a mode switch published for another case', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
+    window.argus.sessions.list = vi.fn(async () => [])
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'OTHER-9', mode: 'review', sessionId: 42 })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(window.argus.sessions.list).not.toHaveBeenCalled()
+  })
+
+  it('publishes review PR-search busy state for the bar to render', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
+    expect(caseBarStore.get().slug).toBe('NAV-1')
+    expect(caseBarStore.get().busyMode).toBeNull()
+  })
+})
 
 describe('CaseWorkspace composer prefill', () => {
   it('clears an Analyze prefill when switching to another case', async () => {
@@ -440,8 +462,13 @@ describe('CaseWorkspace mode switching', () => {
     uiStore.setActiveSession('NAV-1', 1)
   })
 
+  // ModeSwitcher (its click, its cases.setMode call, its busy/pressed rendering) moved to
+  // TopBar and is covered there (TopBar.test.tsx) and at the component level
+  // (ModeSwitcher.test.tsx). What's left for CaseWorkspace to own is the far side of the
+  // wire: `caseBarStore.emit({ kind: 'mode-switched'|'mode-error', ... })` is what TopBar
+  // sends once its ModeSwitcher's `cases.setMode` resolves or rejects — these tests emit
+  // that event directly, the same contract TopBar exercises via the real click.
   function stubTwoModeSessions(): void {
-    window.argus.modes.available = vi.fn(async (): Promise<ModeId[]> => ['investigation', 'review'])
     window.argus.sessions.list = vi.fn(async (): Promise<SessionSummary[]> => [
       {
         id: 1,
@@ -468,7 +495,6 @@ describe('CaseWorkspace mode switching', () => {
         permissionMode: null
       }
     ])
-    window.argus.cases.setMode = vi.fn(async () => ({ sessionId: 7 }))
   }
 
   // uiStore.activeSessions is deliberately not persisted, so after a restart the bootstrap
@@ -477,7 +503,6 @@ describe('CaseWorkspace mode switching', () => {
   // already the active one, so there is no way to reach the right chat. A fresh slug is
   // used so no earlier test's activeSessions entry short-circuits the fallback.
   it('bootstraps to the newest chat of the case’s own mode, not the newest chat overall', async () => {
-    window.argus.modes.available = vi.fn(async (): Promise<ModeId[]> => ['investigation', 'review'])
     window.argus.sessions.list = vi.fn(async (): Promise<SessionSummary[]> => [
       {
         id: 9, // newest overall, but the wrong mode
@@ -514,44 +539,47 @@ describe('CaseWorkspace mode switching', () => {
   // sessionsError replaces the whole chat, so a stale one from a rejected switch hides the
   // transcript indefinitely — including after the retry that succeeded.
   it('clears a previous switch error once a switch succeeds', async () => {
-    stubTwoModeSessions()
-    window.argus.cases.setMode = vi.fn(async () => {
-      throw new Error('not available')
-    })
-    render(workspace('NAV-1', { activeMode: 'investigation' }))
+    renderWorkspace()
+    await screen.findByRole('main')
 
-    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    caseBarStore.emit({
+      kind: 'mode-error',
+      slug: 'NAV-1',
+      message: 'Could not switch mode for this chat.'
+    })
     expect(await screen.findByText('Could not switch mode for this chat.')).toBeTruthy()
 
-    window.argus.cases.setMode = vi.fn(async () => ({ sessionId: 7 }))
-    fireEvent.click(screen.getByRole('button', { name: /review/i }))
+    stubTwoModeSessions()
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
     await waitFor(() =>
       expect(screen.queryByText('Could not switch mode for this chat.')).toBeNull()
     )
   })
 
   it('says it is searching while the PR search is in flight, instead of showing nothing', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
     stubTwoModeSessions()
     let resolve!: (v: unknown) => void
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
       () => new Promise((r) => (resolve = r))
     )
-    render(workspace('NAV-1', { activeMode: 'investigation' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: /case mode · review/i }))
-    // the indicator lives on the control the user just clicked, not adrift on the page
-    const reviewBtn = screen.getByRole('button', { name: /case mode · review/i })
-    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('true'))
-    await waitFor(() =>
-      expect(reviewBtn.getAttribute('title')).toMatch(/searching .* pull requests/i)
-    )
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
+
+    // the busy state this publishes is what the bar's ModeSwitcher renders as aria-busy/title
+    // (see TopBar.test.tsx 'reads busy state back off the store') — CaseWorkspace's own
+    // contract is just the publish.
+    await waitFor(() => expect(caseBarStore.get().busyMode).toBe('review'))
+    expect(caseBarStore.get().statusText).toMatch(/searching .* pull requests/i)
 
     resolve({ candidates: [], error: null, searchedRepos: ['x/y'] })
-    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
-    expect(reviewBtn.getAttribute('title')).toBeNull()
+    await waitFor(() => expect(caseBarStore.get().busyMode).toBeNull())
   })
 
   it('offers the PR picker after switching to review with nothing bound yet', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
     stubTwoModeSessions()
     ;(window.argus.pr as unknown as { search: ReturnType<typeof vi.fn> }).search = vi.fn(
       async () => ({
@@ -573,9 +601,8 @@ describe('CaseWorkspace mode switching', () => {
         searchedRepos: ['JiaweiHan88/HiveMindTest']
       })
     )
-    render(workspace('NAV-1', { activeMode: 'investigation' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
 
     // the search runs only after the switch resolves, so the chat is never delayed by it
     await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
@@ -583,14 +610,15 @@ describe('CaseWorkspace mode switching', () => {
   })
 
   it('does not offer the picker when the case already has bound PRs', async () => {
+    renderWorkspace()
+    await screen.findByRole('main')
     stubTwoModeSessions()
     ;(window.argus.pr as unknown as { list: ReturnType<typeof vi.fn> }).list = vi.fn(async () => [
       { id: 1, number: 16315 }
     ])
-    render(workspace('NAV-1', { activeMode: 'investigation' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
-    await waitFor(() => expect(window.argus.cases.setMode).toHaveBeenCalled())
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
+    await waitFor(() => expect(window.argus.pr.list).toHaveBeenCalledWith('NAV-1'))
     await new Promise((r) => setTimeout(r, 0))
     expect(window.argus.pr.search).not.toHaveBeenCalled()
   })
@@ -750,7 +778,7 @@ describe('CaseWorkspace mode switching', () => {
   // `setPrPickerCurrent` at all, so it always rendered the dialog with `currentBinding: null`
   // even with no case switch involved — masked only because `bound.length` had already been
   // checked to be zero for the same slug moments earlier. Both paths now funnel through the
-  // shared, guarded `openPrPicker`. Driven through the ModeSwitcher's Review button rather
+  // shared, guarded `openPrPicker`. Driven through a bar-emitted `mode-switched` event rather
   // than "Find PRs", mirroring the two tests above.
   it('drops a review-mode auto-search result that resolves after switching to a different case', async () => {
     stubTwoModeSessions()
@@ -760,8 +788,11 @@ describe('CaseWorkspace mode switching', () => {
     )
     // default pr.list already resolves [] for any slug — matches "nothing bound yet" for A
     const view = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    await screen.findByRole('main')
 
-    fireEvent.click(await screen.findByRole('button', { name: /review/i }))
+    // simulates what TopBar emits once its ModeSwitcher's cases.setMode('NAV-1', 'review')
+    // resolves
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
     await waitFor(() => expect(window.argus.pr.search).toHaveBeenCalledWith('NAV-1'))
 
     // switch case BEFORE case A's in-flight pr.search resolves — case B (per the scenario
@@ -804,40 +835,31 @@ describe('CaseWorkspace mode switching', () => {
     await waitFor(() => expect(findBtn).not.toBeDisabled())
   })
 
-  it('calls onModeSwitched after a switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale), and renders no optimistic mirror of its own', async () => {
+  it('calls onModeSwitched after a bar-emitted switch (the callback contract that keeps the parent’s case list — and so the activeMode prop — from going stale)', async () => {
     stubTwoModeSessions()
     const onModeSwitched = vi.fn()
     render(workspace('NAV-1', { activeMode: 'investigation', onModeSwitched }))
+    await screen.findByRole('main')
 
-    const reviewBtn = await screen.findByRole('button', { name: /review/i })
-    fireEvent.click(reviewBtn)
+    // simulates what TopBar's ModeSwitcher emits once its own cases.setMode('NAV-1', 'review')
+    // resolves — that call itself, and the switcher's busy/pressed rendering, are
+    // ModeSwitcher's contract now (ModeSwitcher.test.tsx / TopBar.test.tsx), not
+    // CaseWorkspace's.
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
 
-    await waitFor(() => expect(window.argus.cases.setMode).toHaveBeenCalledWith('NAV-1', 'review'))
     // this is what actually closes the bug: it's App.tsx's signal to reload() its case
     // list, so the next time this prop is supplied it carries the real, persisted mode
     await waitFor(() => expect(onModeSwitched).toHaveBeenCalled())
-    // the mode's chat (session 7, per cases.setMode's result) is now the active session
+    // the mode's chat (session 7, per the emitted event) is now the active session
     expect(uiStore.get().activeSessions['NAV-1']).toBe(7)
-
-    // Before the parent has actually re-supplied a fresh `activeMode`, the switcher must
-    // not fake an optimistic flip — with the mirror removed, it can only show what the
-    // prop says. (This is the divergence the bug produced: the old mirror flipped
-    // immediately and then re-seeded wrongly from a stale prop on remount.)
-    expect(
-      screen.getByRole('button', { name: /investigation/i }).getAttribute('aria-pressed')
-    ).toBe('true')
   })
 
-  it('reflects a round trip correctly once the parent responds to onModeSwitched: after a switch, an unmount, and a remount with the refreshed activeMode, the switcher matches the still-open session', async () => {
+  it('keeps the switched-to chat open across an unmount/remount once the parent has refreshed activeMode', async () => {
     stubTwoModeSessions()
     const { unmount } = render(workspace('NAV-1', { activeMode: 'investigation' }))
+    await screen.findByRole('main')
 
-    // The mode switcher's Review control carries its own aria-label ("Case mode · Review");
-    // matched by that exact string rather than /review/i because once the mode is review,
-    // ReviewRunButton (rendered beside it) has an accessible name of "Run review" — a loose
-    // /review/i would still match both.
-    const reviewBtn = await screen.findByRole('button', { name: 'Case mode · Review' })
-    fireEvent.click(reviewBtn)
+    caseBarStore.emit({ kind: 'mode-switched', slug: 'NAV-1', mode: 'review', sessionId: 7 })
     await waitFor(() => expect(uiStore.get().activeSessions['NAV-1']).toBe(7))
 
     // simulate navigating home (CaseWorkspace fully unmounts — one branch of App.tsx's
@@ -846,12 +868,9 @@ describe('CaseWorkspace mode switching', () => {
     unmount()
     render(workspace('NAV-1', { activeMode: 'review' }))
 
-    const reviewAfter = await screen.findByRole('button', { name: 'Case mode · Review' })
-    expect(reviewAfter.getAttribute('aria-pressed')).toBe('true')
-    expect(
-      screen.getByRole('button', { name: /investigation/i }).getAttribute('aria-pressed')
-    ).toBe('false')
-    // the session the switcher now agrees with is the one that's actually open
+    // the bootstrap effect resolves to the session that matches the (now refreshed)
+    // activeMode prop — the same session the switch above actually opened, not a stale mirror
+    await waitFor(() => expect(window.argus.agent.history).toHaveBeenCalledWith('NAV-1', 7))
     expect(uiStore.get().activeSessions['NAV-1']).toBe(7)
   })
 })
@@ -934,20 +953,6 @@ describe('CaseWorkspace evidence pane', () => {
   })
 })
 
-describe('CaseWorkspace priority accent', () => {
-  it('carries a p1 header tier for a highest-priority case', async () => {
-    const { container } = renderWorkspace({ jiraPriority: 'Highest' })
-    await screen.findByText('Chat')
-    expect(container.querySelector('header')?.getAttribute('data-tier')).toBe('p1')
-  })
-
-  it('carries no header tier when the case has no priority', async () => {
-    const { container } = renderWorkspace({ jiraPriority: null })
-    await screen.findByText('Chat')
-    expect(container.querySelector('header')?.hasAttribute('data-tier')).toBe(false)
-  })
-})
-
 describe('CaseWorkspace rail material', () => {
   it('goes to ground (dyn-rail, not bg-void) when the dynamic theme is on', async () => {
     uiStore.setDynamicTheme(true)
@@ -983,174 +988,6 @@ describe('CaseWorkspace panel tab host', () => {
     expect(await screen.findByText('Chat')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('New panel'))
     expect(await screen.findByText('Text Viewer')).toBeTruthy()
-  })
-})
-
-// Submenu parent rows are opened with userEvent so the hover-then-click ordering a
-// real pointer produces is exercised end-to-end. Child items stay on fireEvent:
-// userEvent's pointer model wrongly fires the parent row's mouseleave when moving
-// onto a descendant, which would tear the submenu down mid-test.
-describe('CaseWorkspace case-id menu', () => {
-  it('closes the case as duplicate via the Close as… submenu', async () => {
-    const user = userEvent.setup()
-    const setStatus = vi.fn().mockResolvedValue(undefined)
-    window.argus.cases.setStatus = setStatus
-    const onStatusChanged = vi.fn()
-    renderWorkspace({ status: 'open', resolution: null, onStatusChanged })
-    // case id opens the menu; "Close as…" expands its submenu; then pick a resolution
-    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    await user.click(screen.getByRole('menuitem', { name: /close as/i }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'duplicate' }))
-    await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'closed', 'duplicate'))
-    expect(onStatusChanged).toHaveBeenCalled()
-  })
-
-  it('shows Reopen and the resolution label when the case is closed', async () => {
-    const user = userEvent.setup()
-    const setStatus = vi.fn().mockResolvedValue(undefined)
-    window.argus.cases.setStatus = setStatus
-    const onStatusChanged = vi.fn()
-    renderWorkspace({ status: 'closed', resolution: 'wont-fix', onStatusChanged })
-    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    // the closed status still reads on the submenu parent
-    await user.click(screen.getByRole('menuitem', { name: /closed · wont-fix/i }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Reopen' }))
-    await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'open', null))
-    expect(onStatusChanged).toHaveBeenCalled()
-  })
-
-  it('shows a bare "Closed" label (not "Close as…") for a legacy closed case with no resolution', async () => {
-    const user = userEvent.setup()
-    renderWorkspace({ status: 'closed', resolution: null })
-    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Closed' }))
-    expect(screen.getByRole('menuitem', { name: 'Reopen' })).toBeTruthy()
-  })
-
-  it('exports the case via the Export submenu', async () => {
-    const user = userEvent.setup()
-    noticeStore.reset()
-    const exportFn = vi.fn().mockResolvedValue({ ok: true, fileCount: 3 })
-    window.argus.bundle = { export: exportFn } as never
-    renderWorkspace({ status: 'open', resolution: null })
-    fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Export' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
-    await waitFor(() => expect(exportFn).toHaveBeenCalledWith('NAV-1', true))
-    await waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
-    expect(noticeStore.get().notices[0].message).toBe('exported 3 files')
-  })
-
-  // Task 9 moved this out of inline header text into a bottom-right toast; this branch
-  // moves it again, into the header's own info slot (right of ModeSwitcher) — the toast
-  // went unnoticed because the action that triggers it (the case menu) is top-left.
-  it('shows a finished export inline in the header notice slot, not as a floating toast', async () => {
-    const user = userEvent.setup()
-    noticeStore.reset()
-    window.argus.bundle = { export: vi.fn(async () => ({ ok: true, fileCount: 12 })) } as never
-    renderWorkspace()
-    await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
-    // fireEvent on the row, so the userEvent pointer never parks on it: the child
-    // below *is* driven with user.click, and userEvent wrongly fires the wrapper's
-    // mouseleave when the pointer moves from the row onto a descendant, which would
-    // tear the submenu down. (This used to read "user.click would re-toggle the row
-    // closed" — that hover-then-click bug is fixed; see MenuButton.test.tsx, which
-    // guards the row itself with userEvent.)
-    fireEvent.click(await screen.findByText('Export'))
-    await user.click(await screen.findByText('Export case…'))
-    const notice = await screen.findByText('exported 12 files')
-    // Inline in the header now, not a fixed-position overlay.
-    expect(notice.className).not.toContain('fixed')
-  })
-
-  it('stays silent when the export save dialog is cancelled', async () => {
-    const user = userEvent.setup()
-    noticeStore.reset()
-    window.argus.bundle = { export: vi.fn(async () => null) } as never
-    renderWorkspace()
-    await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
-    fireEvent.click(await screen.findByText('Export'))
-    await user.click(await screen.findByText('Export case…'))
-    await waitFor(() => expect(window.argus.bundle.export).toHaveBeenCalled())
-    expect(noticeStore.get().notices).toHaveLength(0)
-  })
-
-  // Task 9: `distilled · N` / `nothing to distill` persisted for the life of the case, so as
-  // header chips they were permanent bar furniture. They moved to a trailing label on this
-  // row instead — the chip (DistillChip) keeps only the transient `distilling…`/failed states.
-  it('labels the Re-distill row with the item count once a distillation has completed', async () => {
-    window.argus.distill.status = vi.fn(async () => ({
-      id: 1,
-      caseSlug: 'NAV-1',
-      state: 'done' as const,
-      error: null,
-      itemCount: 12,
-      createdAt: 't',
-      finishedAt: 't'
-    }))
-    renderWorkspace({ status: 'closed' })
-    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
-    expect(await screen.findByRole('menuitem', { name: 'Re-distill · 12 items' })).toBeTruthy()
-  })
-
-  it('keeps the Re-distill row bare when no distillation has ever run', async () => {
-    renderWorkspace({ status: 'closed' })
-    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
-    expect(await screen.findByRole('menuitem', { name: 'Re-distill' })).toBeTruthy()
-  })
-
-  // Task 9: `Close case` duplicates the tab's `×` for now — added so the next increment
-  // (case anchor replaces the tab and loses its `×`) is purely structural.
-  it('closes the tab and goes home via Close case', async () => {
-    const closeTab = vi.spyOn(uiStore, 'closeTab')
-    const onHome = vi.fn()
-    renderWorkspace({ onHome })
-    fireEvent.click(await screen.findByRole('button', { name: 'NAV-1' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Close case' }))
-    expect(closeTab).toHaveBeenCalledWith('NAV-1')
-    expect(onHome).toHaveBeenCalled()
-    closeTab.mockRestore()
-  })
-
-  // Regression coverage, same family as the other "does not leak case A's ... into case B"
-  // tests in this file: DistillChip now holds its own component-instance state (the retry
-  // `override`), the same category of state JiraPill/ChatPane/ReposSection already guard with
-  // `key={slug}`. Without that key here too, a retry clicked on case A's chip would keep
-  // showing on case B's chip after a switch, because CaseWorkspace itself is never remounted
-  // on a slug change.
-  it('does not leak a case A distill retry into case B’s chip', async () => {
-    window.argus.distill.status = vi.fn(async (slug: string) =>
-      slug === 'NAV-1'
-        ? {
-            id: 1,
-            caseSlug: 'NAV-1',
-            state: 'failed' as const,
-            error: 'boom',
-            itemCount: null,
-            createdAt: 't',
-            finishedAt: 't'
-          }
-        : null
-    )
-    window.argus.distill.retry = vi.fn(async () => ({
-      id: 1,
-      caseSlug: 'NAV-1',
-      state: 'queued' as const,
-      error: null,
-      itemCount: null,
-      createdAt: 't',
-      finishedAt: null
-    }))
-    const view = render(workspace('NAV-1'))
-    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
-    await screen.findByText(/distilling/)
-
-    // switch to a case with no distill job at all
-    view.rerender(workspace('NAV-2'))
-
-    await waitFor(() => expect(window.argus.distill.status).toHaveBeenCalledWith('NAV-2'))
-    expect(screen.queryByText(/distilling/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/retry/i)).not.toBeInTheDocument()
   })
 })
 

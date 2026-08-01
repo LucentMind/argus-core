@@ -162,9 +162,11 @@ function App(): React.JSX.Element {
       <TitleBarStrip kind="main" />
       <TopBar
         activeSlug={view.kind === 'case' ? view.slug : null}
+        activeCase={view.kind === 'case' ? (cases.find((c) => c.slug === view.slug) ?? null) : null}
         onHome={goHome}
         onSelect={openCase}
         onSettings={() => openSettings()}
+        onStatusChanged={() => void reload()}
         onObservability={openObservability}
       />
       <UpdateBanner />
@@ -192,13 +194,7 @@ function App(): React.JSX.Element {
           <DynamicScope variant="case">
             <CaseWorkspace
               slug={view.slug}
-              jiraKey={cases.find((c) => c.slug === view.slug)?.jiraKey ?? null}
-              jiraSyncedAt={cases.find((c) => c.slug === view.slug)?.jiraSyncedAt ?? null}
-              status={cases.find((c) => c.slug === view.slug)?.status ?? 'open'}
-              resolution={cases.find((c) => c.slug === view.slug)?.resolution ?? null}
-              jiraPriority={cases.find((c) => c.slug === view.slug)?.jiraPriority ?? null}
               activeMode={cases.find((c) => c.slug === view.slug)?.activeMode ?? DEFAULT_MODE}
-              onStatusChanged={() => void reload()}
               onModeSwitched={() => void reload()}
               onOpenHit={handleOpenHit}
               onOpenCitation={(id, start, end) =>
@@ -206,7 +202,6 @@ function App(): React.JSX.Element {
               }
               onOpenFile={(node) => setViewer(viewerForFileNode(view.slug, node))}
               onOpenCase={openCase}
-              onHome={goHome}
               onOpenRepoFile={(repoName, relPath, start, end) =>
                 setViewer({
                   kind: 'repoFile',

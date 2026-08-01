@@ -408,6 +408,21 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* The open-case strip is the only elastic element in the bar, so it is also the only one
+   that ever clips. The fade says "there is more" without spending width on a scrollbar —
+   Electron paints an overlay scrollbar over the tabs otherwise. Unlayered, like the
+   drag-region rules above, because `@layer utilities` would lose to nothing here but the
+   neighbouring rules are unlayered and splitting them is how one gets forgotten. */
+.tabstrip-fade {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 10px,
+    black calc(100% - 14px),
+    transparent 100%
+  );
+}
+
 .argus-titlebar-inset {
   padding-left: calc(0.75rem + env(titlebar-area-x, 0px));
   padding-right: calc(
