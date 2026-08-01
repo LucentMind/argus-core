@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render, screen, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MenuButton, type MenuItem } from '../ui'
 import { overlayMaterialRules } from '../../assets/__tests__/cssRuleScan'
 
@@ -10,6 +11,11 @@ const items = (onA = vi.fn(), onB = vi.fn()): MenuItem[] => [
   { label: 'Action A', onSelect: onA },
   { label: 'Danger B', onSelect: onB, tone: 'danger' as const },
   { label: 'Disabled C', onSelect: vi.fn(), disabled: true }
+]
+
+const nested = (onExport = vi.fn()): MenuItem[] => [
+  { label: 'Export', children: [{ label: 'Export case…', onSelect: onExport }] },
+  { label: 'Action A', onSelect: vi.fn() }
 ]
 
 describe('MenuButton', () => {
@@ -95,5 +101,63 @@ describe('MenuButton', () => {
       expect(body, `${selector} must not declare position`).not.toMatch(/(?<![\w-])position\s*:/)
       expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
     }
+  })
+})
+
+// Submenu parents open on hover *and* on click. Real pointer input fires mouseenter
+// before the click lands, so these use userEvent (which reproduces that ordering)
+// rather than fireEvent (which dispatches a lone click no real mouse can produce).
+describe('MenuButton submenus', () => {
+  it('stays open when a pointer click follows the hover that opened it', async () => {
+    const user = userEvent.setup()
+    render(<MenuButton label="Edit" aria-label="actions" items={nested()} />)
+    await user.click(screen.getByRole('button', { name: 'actions' }))
+
+    await user.click(screen.getByRole('menuitem', { name: 'Export' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Export case…' })).toBeTruthy()
+  })
+
+  it('selects a child item after the hover-then-click path', async () => {
+    const onExport = vi.fn()
+    const user = userEvent.setup()
+    render(<MenuButton label="Edit" aria-label="actions" items={nested(onExport)} />)
+    await user.click(screen.getByRole('button', { name: 'actions' }))
+
+    await user.click(screen.getByRole('menuitem', { name: 'Export' }))
+    // The child click stays on fireEvent: userEvent's pointer model fires the
+    // wrapper's mouseleave when moving onto a *descendant*, which the DOM spec
+    // forbids (verified against a static, React-state-free tree). Driving this
+    // hop with userEvent would tear the submenu down and test jsdom, not the menu.
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
+
+    expect(onExport).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('closes the submenu when the pointer leaves the parent row', async () => {
+    const user = userEvent.setup()
+    render(<MenuButton label="Edit" aria-label="actions" items={nested()} />)
+    await user.click(screen.getByRole('button', { name: 'actions' }))
+    const parent = screen.getByRole('menuitem', { name: 'Export' })
+
+    await user.hover(parent)
+    expect(screen.getByRole('menuitem', { name: 'Export case…' })).toBeTruthy()
+    await user.unhover(parent)
+
+    expect(screen.queryByRole('menuitem', { name: 'Export case…' })).toBeNull()
+  })
+
+  it('toggles on keyboard activation, where no hover precedes the click', async () => {
+    const user = userEvent.setup()
+    render(<MenuButton label="Edit" aria-label="actions" items={nested()} />)
+    await user.click(screen.getByRole('button', { name: 'actions' }))
+    await user.tab() // focus moves from the trigger to the submenu parent row
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Export' }))
+
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('menuitem', { name: 'Export case…' })).toBeTruthy()
+    await user.keyboard('{Enter}')
+    expect(screen.queryByRole('menuitem', { name: 'Export case…' })).toBeNull()
   })
 })

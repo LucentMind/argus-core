@@ -986,47 +986,55 @@ describe('CaseWorkspace panel tab host', () => {
   })
 })
 
+// Submenu parent rows are opened with userEvent so the hover-then-click ordering a
+// real pointer produces is exercised end-to-end. Child items stay on fireEvent:
+// userEvent's pointer model wrongly fires the parent row's mouseleave when moving
+// onto a descendant, which would tear the submenu down mid-test.
 describe('CaseWorkspace case-id menu', () => {
   it('closes the case as duplicate via the Close as… submenu', async () => {
+    const user = userEvent.setup()
     const setStatus = vi.fn().mockResolvedValue(undefined)
     window.argus.cases.setStatus = setStatus
     const onStatusChanged = vi.fn()
     renderWorkspace({ status: 'open', resolution: null, onStatusChanged })
     // case id opens the menu; "Close as…" expands its submenu; then pick a resolution
     fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /close as/i }))
+    await user.click(screen.getByRole('menuitem', { name: /close as/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'duplicate' }))
     await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'closed', 'duplicate'))
     expect(onStatusChanged).toHaveBeenCalled()
   })
 
   it('shows Reopen and the resolution label when the case is closed', async () => {
+    const user = userEvent.setup()
     const setStatus = vi.fn().mockResolvedValue(undefined)
     window.argus.cases.setStatus = setStatus
     const onStatusChanged = vi.fn()
     renderWorkspace({ status: 'closed', resolution: 'wont-fix', onStatusChanged })
     fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
     // the closed status still reads on the submenu parent
-    fireEvent.click(screen.getByRole('menuitem', { name: /closed · wont-fix/i }))
+    await user.click(screen.getByRole('menuitem', { name: /closed · wont-fix/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Reopen' }))
     await waitFor(() => expect(setStatus).toHaveBeenCalledWith('NAV-1', 'open', null))
     expect(onStatusChanged).toHaveBeenCalled()
   })
 
   it('shows a bare "Closed" label (not "Close as…") for a legacy closed case with no resolution', async () => {
+    const user = userEvent.setup()
     renderWorkspace({ status: 'closed', resolution: null })
     fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Closed' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Closed' }))
     expect(screen.getByRole('menuitem', { name: 'Reopen' })).toBeTruthy()
   })
 
   it('exports the case via the Export submenu', async () => {
+    const user = userEvent.setup()
     noticeStore.reset()
     const exportFn = vi.fn().mockResolvedValue({ ok: true, fileCount: 3 })
     window.argus.bundle = { export: exportFn } as never
     renderWorkspace({ status: 'open', resolution: null })
     fireEvent.click(screen.getByRole('button', { name: 'NAV-1' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Export' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export case…' }))
     await waitFor(() => expect(exportFn).toHaveBeenCalledWith('NAV-1', true))
     await waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
@@ -1042,10 +1050,12 @@ describe('CaseWorkspace case-id menu', () => {
     window.argus.bundle = { export: vi.fn(async () => ({ ok: true, fileCount: 12 })) } as never
     renderWorkspace()
     await user.click(await screen.findByRole('button', { name: 'NAV-1' }))
-    // fireEvent, not user.click: the "Export" row also opens on hover
-    // (MenuButton's submenu is hover-or-click), and userEvent's synthetic
-    // mouseenter-then-click on the same row would open then immediately
-    // re-toggle it closed.
+    // fireEvent on the row, so the userEvent pointer never parks on it: the child
+    // below *is* driven with user.click, and userEvent wrongly fires the wrapper's
+    // mouseleave when the pointer moves from the row onto a descendant, which would
+    // tear the submenu down. (This used to read "user.click would re-toggle the row
+    // closed" — that hover-then-click bug is fixed; see MenuButton.test.tsx, which
+    // guards the row itself with userEvent.)
     fireEvent.click(await screen.findByText('Export'))
     await user.click(await screen.findByText('Export case…'))
     const notice = await screen.findByText('exported 12 files')

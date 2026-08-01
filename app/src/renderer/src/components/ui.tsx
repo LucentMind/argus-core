@@ -190,6 +190,11 @@ export function MenuButton({
   const [openUp, setOpenUp] = useState(false)
   // Index of the currently-expanded submenu parent, or null.
   const [openSub, setOpenSub] = useState<number | null>(null)
+  // Whether the open submenu was opened by hover. Pointer input fires mouseenter
+  // before the click lands, so a click that follows hover must not toggle the
+  // submenu shut again; a click with no preceding hover (keyboard Enter/Space, or
+  // a menu that renders under an already-stationary pointer) still toggles.
+  const hoverOpenedSub = useRef(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     onOpenChange?.(open)
@@ -222,7 +227,9 @@ export function MenuButton({
           // the settings panel) so the menu never renders off-screen or under other chrome.
           const rect = ref.current?.getBoundingClientRect()
           setOpenUp(Boolean(rect && window.innerHeight - rect.bottom < 220 && rect.top > 220))
-          // reset any expanded submenu so each open starts collapsed
+          // reset any expanded submenu so each open starts collapsed. The hover flag
+          // resets too: a row unmounted while hovered never fires its mouseleave.
+          hoverOpenedSub.current = false
           setOpenSub(null)
           setOpen((o) => !o)
         }}
@@ -245,15 +252,21 @@ export function MenuButton({
               <div
                 key={`${i}-${it.label}`}
                 className="relative"
-                onMouseEnter={() => setOpenSub(i)}
-                onMouseLeave={() => setOpenSub(null)}
+                onMouseEnter={() => {
+                  hoverOpenedSub.current = true
+                  setOpenSub(i)
+                }}
+                onMouseLeave={() => {
+                  hoverOpenedSub.current = false
+                  setOpenSub(null)
+                }}
               >
                 <button
                   role="menuitem"
                   aria-haspopup="menu"
                   aria-expanded={openSub === i}
                   className={`flex items-center justify-between ${MENU_ITEM_BASE} text-ink`}
-                  onClick={() => setOpenSub((s) => (s === i ? null : i))}
+                  onClick={() => setOpenSub((s) => (s === i && !hoverOpenedSub.current ? null : i))}
                 >
                   <span>{it.label}</span>
                   <span aria-hidden="true" className="ml-3 text-mute">
