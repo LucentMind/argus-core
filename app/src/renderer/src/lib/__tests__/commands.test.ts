@@ -17,6 +17,7 @@ function handle(): AssetPaneHandle {
     changeFontSize: vi.fn(),
     toggleWrap: vi.fn(),
     openGotoLine: vi.fn(),
+    findReferences: vi.fn(),
     focus: vi.fn()
   }
 }
@@ -107,6 +108,11 @@ describe('buildCommands · enabled', () => {
     expect(byId(c, 'cycleViewMode').enabled).toBe(true)
     expect(byId(c, 'toggleWrap').enabled).toBe(true)
     expect(byId(c, 'fontIn').enabled).toBe(true)
+  })
+
+  it('offers Find references only on a saved asset, never on an unsaved create tab', () => {
+    expect(byId(ctx({}, { mode: 'create' }), 'findReferences').enabled).toBe(false)
+    expect(byId(ctx({}, { mode: 'edit' }), 'findReferences').enabled).toBe(true)
   })
 
   it('enables tab cycling only with more than one tab', () => {

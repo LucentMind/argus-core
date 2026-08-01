@@ -224,6 +224,15 @@ beforeEach(() => {
 const SKILL: EditorOpenRequest = { kind: 'skill', name: 'my-skill', mode: 'edit' }
 const REFERENCE: EditorOpenRequest = { kind: 'reference', name: 'notes.md', mode: 'edit' }
 
+/**
+ * Task 14's `BottomDock` also renders `role="tab"` elements (its Problems/References strip, one
+ * per mounted `AssetPane` — every tab stays mounted, so a hidden pane's dock is still in the DOM).
+ * Its buttons carry `aria-label="Problems"` / `"References"`, never this suffix, so a query
+ * scoped to it is scoped to the document-tab strip alone, the way every test below already
+ * assumed before that dock existed.
+ */
+const DOC_TAB = /\(tab\)$/
+
 describe('EditorApp', () => {
   it('shows an empty state until a tab is opened', () => {
     render(<EditorApp />)
@@ -464,7 +473,9 @@ describe('EditorApp resuming a same-named draft', () => {
     // Resolving through the tab's own `aria-controls` is what makes "the one the user is looking
     // at" expressible; it also means this still fails if the resume silently focused the old tab.
     await waitFor(() => {
-      const panelId = screen.getByRole('tab', { selected: true }).getAttribute('aria-controls')!
+      const panelId = screen
+        .getByRole('tab', { selected: true, name: DOC_TAB })
+        .getAttribute('aria-controls')!
       const panel = document.getElementById(panelId)!
       expect(within(panel).getByLabelText<HTMLTextAreaElement>('skill · my-skill').value).toBe(
         '# resumed draft content\n'
@@ -482,7 +493,7 @@ describe('multiple tabs', () => {
     await screen.findByLabelText('skill · my-skill')
     act(() => openTab!(OTHER))
     await screen.findByLabelText('skill · other-skill')
-    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(2)
   })
 
   // The point of the whole increment: nothing unmounts on a switch, so undo history, cursor and
@@ -507,7 +518,7 @@ describe('multiple tabs', () => {
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: /my-skill/ })).toHaveAttribute('aria-selected', 'true')
     )
-    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(2)
   })
 
   it('switches tabs from the strip', async () => {
@@ -600,7 +611,7 @@ describe('a create-mode tab that has been saved', () => {
 
     // Two tabs over one file share a draft (`draftKey` is `kind:name` only) and leave each
     // other's `baseHash` stale, which shows up as a conflict banner for a save that worked.
-    expect(screen.getAllByRole('tab')).toHaveLength(1)
+    expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(1)
   })
 
   // The persisted half. A restored `mode: 'create'` tab resolves the REAL disk content into a
@@ -745,7 +756,7 @@ describe('Edit a copy', () => {
     await userEvent.type(field, 'my-copy')
     await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
     await screen.findByRole('tab', { name: /my-copy/ })
-    expect(screen.getAllByRole('tab')).toHaveLength(1)
+    expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(1)
   })
 
   // Finding 2. The test above picks a NEW name on purpose, which is exactly why it could not see
@@ -765,7 +776,7 @@ describe('Edit a copy', () => {
     await userEvent.click(screen.getByRole('button', { name: /^fork$|^create copy$|^copy$/i }))
     await waitFor(() => expect(window.argus.skills.fork).toHaveBeenCalledWith('theirs', 'my-skill'))
 
-    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(1))
+    await waitFor(() => expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(1))
     expect(screen.getByRole('tab', { name: /my-skill/ })).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -911,7 +922,7 @@ describe('tab-set restore', () => {
       })
     )
     act(() => openTab!(SKILL))
-    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(1))
+    await waitFor(() => expect(screen.getAllByRole('tab', { name: DOC_TAB })).toHaveLength(1))
   })
 
   // The reporting effect also runs on MOUNT, before restore has arrived. Reporting an empty set

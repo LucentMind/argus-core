@@ -52,6 +52,7 @@ export interface AssetPaneHandle {
   changeFontSize(delta: number): void
   toggleWrap(): void
   openGotoLine(): void
+  findReferences(): void
   focus(): void
 }
 
@@ -225,7 +226,15 @@ export function buildCommands(ctx: CommandContext): Command[] {
       enabled: p !== null,
       run: on((h) => h.openGotoLine())
     },
-    // Task 14 inserts `findReferences` here, with the panel that renders its result.
+    {
+      id: 'findReferences',
+      title: 'Find references to this file',
+      section: 'Go',
+      keybinding: 'Ctrl+Shift+F',
+      // Create mode has no file for anything to cite yet, and the corpus lookup would miss.
+      enabled: p !== null && p.mode === 'edit',
+      run: on((h) => h.findReferences())
+    },
     {
       id: 'nextTab',
       title: 'Next tab',

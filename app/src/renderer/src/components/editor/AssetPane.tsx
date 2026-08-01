@@ -4,11 +4,11 @@ import { Btn } from '../ui'
 import { AssistProgress } from '../library/AssistProgress'
 import { useAssistProvider } from '../library/assistProvider'
 import { skillTemplate, referenceTemplate } from '../library/assetTemplates'
+import { BottomDock, type DockTab } from './BottomDock'
 import { CodeSurface } from './CodeSurface'
 import { DiffView } from './DiffView'
 import { EditorPane } from './EditorPane'
 import { PreviewPane } from './PreviewPane'
-import { ProblemsPanel } from './ProblemsPanel'
 import { StatusBar, type SyncState } from './StatusBar'
 import { readAsset, writeAsset } from './assetIo'
 import type { SurfaceCommands } from './extensions/keymap'
@@ -36,6 +36,7 @@ import {
 } from '../../../../shared/assetValidation'
 import type { CursorInfo, SurfaceHandle } from './surface'
 import type { AuthoringKind } from '../../../../shared/authoringIpc'
+import type { ReferenceHit } from '../../../../shared/corpusSearch'
 import type { DraftRecord, TabViewState } from '../../../../shared/editorIpc'
 import type { AssetPaneHandle, Command, PaneCommandState } from '../../lib/commands'
 
@@ -173,6 +174,9 @@ export function AssetPane({
   const [prefs, setPrefs] = useState(readPrefs)
   const [editorFraction, setEditorFraction] = useState(0)
   const [problemsOpen, setProblemsOpen] = useState(false)
+  const [references, setReferences] = useState<{ query: string; hits: ReferenceHit[] } | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [dockTab, setDockTab] = useState<DockTab>('problems')
 
   const setViewMode = useCallback((viewMode: ViewMode) => {
     writePrefs({ viewMode })
@@ -737,6 +741,37 @@ export function AssetPane({
     })
   }
 
+  /** Spec §6.3: a corpus scan for what mentions this asset, surfaced beside the problems list. */
+  const findReferences = useCallback((): void => {
+    // Create mode has no file to be cited; the command is disabled there, and this is the
+    // keyboard/handle path that does not go through the button.
+    if (mode === 'create') return
+    const query = filedAsRef.current
+    // Selected HERE, in the handler that starts the search, and not derived inside the dock from
+    // `references` changing — that derivation would be a `setState` in a `useEffect` body, which
+    // this repo forbids. Running Find references and then having to click a tab to see the
+    // answer is the feature failing at its last step, so this is not optional polish.
+    setDockTab('references')
+    setProblemsOpen(true)
+    setSearching(true)
+    void (async () => {
+      try {
+        const hits = await window.argus.editor.findReferences({ kind, name: query })
+        if (!liveRef.current) return
+        setReferences({ query, hits })
+      } catch (e) {
+        if (!liveRef.current) return
+        setError((e as Error).message)
+      } finally {
+        if (liveRef.current) setSearching(false)
+      }
+    })()
+  }, [kind, mode])
+
+  const openHit = useCallback((hit: ReferenceHit): void => {
+    void window.argus.editor.open({ kind: hit.kind, name: hit.name, mode: 'edit' })
+  }, [])
+
   const compare =
     compareSnapshot !== null && (banner.kind === 'stale' || banner.kind === 'conflict')
       ? { disk: banner.disk, snapshot: compareSnapshot }
@@ -779,13 +814,14 @@ export function AssetPane({
       changeFontSize: (delta) => surfaceCommands.changeFontSize(delta),
       toggleWrap: () => surfaceCommands.toggleWrap(),
       openGotoLine: () => surfaceRef.current?.openGotoLine(),
+      findReferences: () => findReferences(),
       focus: () => surfaceRef.current?.focus()
     }),
     // `paneRef` is not listed: React's `useImperativeHandle` already re-runs this factory whenever
     // the ref itself changes (it appends `ref` to the effect's own dependencies internally), which
     // is exactly why `react-hooks/exhaustive-deps` flags an explicit `paneRef` entry here as
     // unnecessary.
-    [surfaceCommands]
+    [surfaceCommands, findReferences]
   )
 
   // `useAssistProvider` (`../library/assistProvider.ts`) calls `assistProviderLabel` unmemoized on
@@ -1098,11 +1134,17 @@ export function AssetPane({
           }
           preview={<PreviewPane doc={doc} scrollFraction={editorFraction} />}
         />
-        <ProblemsPanel
+        <BottomDock
           issues={issues}
+          references={references}
+          searching={searching}
           open={problemsOpen}
-          onToggle={() => setProblemsOpen((o) => !o)}
+          tab={dockTab}
+          onOpenChange={setProblemsOpen}
+          onTabChange={setDockTab}
           onGoToLine={(line) => surfaceRef.current?.goToLine(line)}
+          onOpenHit={openHit}
+          onDismissReferences={() => setReferences(null)}
         />
         <div className="flex items-center justify-end gap-2 border-t border-hair bg-hi px-4 py-2">
           <span className="flex shrink-0 items-center gap-2">
@@ -1136,7 +1178,10 @@ export function AssetPane({
         draftAt={draftAt}
         viewMode={prefs.viewMode}
         tier={tier}
-        onProblems={() => setProblemsOpen((o) => !o)}
+        onProblems={() => {
+          setDockTab('problems')
+          setProblemsOpen(true)
+        }}
         onCycleViewMode={() => setViewMode(nextViewMode(prefs.viewMode))}
       />
     </div>

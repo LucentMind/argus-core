@@ -119,6 +119,8 @@ beforeEach(() => {
     editor: {
       draftChanged,
       discardDraft,
+      findReferences: vi.fn().mockResolvedValue([]),
+      open: vi.fn(),
       onDraftSaved: (cb: (s: DraftSaved) => void) => {
         draftSavedListener = cb
         return () => {}
@@ -964,6 +966,71 @@ describe('AssetPane · command contract', () => {
     fireEvent.change(surface, { target: { value: '' } })
     await waitFor(() => expect(onCommandState.mock.lastCall![0].blocked).toBe(true))
     expect(onCommandState.mock.calls.length).toBeGreaterThan(callsAfterMount)
+  })
+})
+
+// Task 14: find references to this file, surfaced beside the problems list in the shared dock.
+describe('AssetPane · find references', () => {
+  it('runs the corpus search through the handle and lands on the References tab', async () => {
+    const HIT = { kind: 'skill' as const, name: 'triage', line: 7, text: 'read jira-fields.md' }
+    globalThis.window.argus.editor.findReferences = vi.fn().mockResolvedValue([HIT])
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    expect(window.argus.editor.findReferences).toHaveBeenCalledWith({ kind: 'skill', name: 's' })
+    // Selected before the async result lands — the whole point of choosing the tab in the
+    // handler rather than deriving it from `references` arriving.
+    expect(screen.getByRole('tab', { name: /reference/i })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(screen.getByText(/read jira-fields\.md/)).toBeInTheDocument())
+  })
+
+  it('opens the hit through the same round trip resumeDraft uses', async () => {
+    const HIT = { kind: 'skill' as const, name: 'triage', line: 7, text: 'read jira-fields.md' }
+    globalThis.window.argus.editor.findReferences = vi.fn().mockResolvedValue([HIT])
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    await waitFor(() => expect(screen.getByText(/read jira-fields\.md/)).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: /triage/ }))
+    expect(window.argus.editor.open).toHaveBeenCalledWith({
+      kind: 'skill',
+      name: 'triage',
+      mode: 'edit'
+    })
+  })
+
+  it('does nothing on a create-mode tab — there is no file yet for anything to cite', async () => {
+    const paneRef = createRef<AssetPaneHandle>()
+    renderPane({ paneRef, mode: 'create', draftId: 'd1', initialName: 'untitled' })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    expect(window.argus.editor.findReferences).not.toHaveBeenCalled()
+  })
+
+  // Spec §5.5: the status bar's problem count is a JUMP to the Problems tab, not a toggle —
+  // clicking it while looking at find-references results must land on the problems, and a toggle
+  // would collapse the dock instead of switching tabs.
+  it("jumps the status bar's problem count to the Problems tab rather than toggling", async () => {
+    const HIT = { kind: 'skill' as const, name: 'triage', line: 7, text: 'x' }
+    globalThis.window.argus.editor.findReferences = vi.fn().mockResolvedValue([HIT])
+    const paneRef = createRef<AssetPaneHandle>()
+    const { surface } = mount({ paneRef })
+    // An empty document is a blocking validation error, giving the status bar a problem count.
+    fireEvent.change(surface, { target: { value: '' } })
+    await waitFor(() => expect(paneRef.current).not.toBeNull())
+    act(() => paneRef.current!.findReferences())
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /reference/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+    )
+    // The status bar's own count button has an implicit `role="button"`, distinct from the
+    // dock's `role="tab"` strip, which shows the same count text.
+    await userEvent.click(screen.getByRole('button', { name: /error/i }))
+    expect(screen.getByRole('tab', { name: /problem/i })).toHaveAttribute('aria-selected', 'true')
   })
 })
 
