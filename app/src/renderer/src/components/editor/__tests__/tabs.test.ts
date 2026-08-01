@@ -284,12 +284,20 @@ describe('cycleTab', () => {
     emptyTabs
   )
 
+  // Positional (`s.tabs[n].id`), not the minted `'t1'`/`'t3'` literals: the contract is "wraps
+  // from the last tab to the first (and back)", not "the ids happen to be these strings" — `id`
+  // is documented as synthetic (see `Tab.id`), so pinning its literal value here would make this
+  // test an accident of `mint`'s naming scheme rather than a check of `cycleTab`'s behaviour.
   it('moves right and wraps', () => {
-    expect(cycleTab({ ...three, activeId: 't3' }, 1).activeId).toBe('t1')
+    const last = three.tabs[three.tabs.length - 1]!.id
+    const first = three.tabs[0]!.id
+    expect(cycleTab({ ...three, activeId: last }, 1).activeId).toBe(first)
   })
 
   it('moves left and wraps', () => {
-    expect(cycleTab({ ...three, activeId: 't1' }, -1).activeId).toBe('t3')
+    const first = three.tabs[0]!.id
+    const last = three.tabs[three.tabs.length - 1]!.id
+    expect(cycleTab({ ...three, activeId: first }, -1).activeId).toBe(last)
   })
 
   it('is a no-op with no tabs', () => {

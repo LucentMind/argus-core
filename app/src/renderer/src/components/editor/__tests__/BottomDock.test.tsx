@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { BottomDock } from '../BottomDock'
 import type { ValidationIssue } from '../../../../../shared/assetValidation'
@@ -22,6 +22,13 @@ const base = {
   onOpenHit: vi.fn(),
   onDismissReferences: vi.fn()
 }
+
+// Finding 9: these mocks are shared, module-scope objects across every test in this file — left
+// un-reset, a later assertion like `toHaveBeenCalledWith(true)` passes whether THIS test caused
+// the call or an earlier one did, and only happened to be true because of the file's run order.
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 describe('BottomDock', () => {
   it('renders nothing when there is neither a problem nor a search', () => {
