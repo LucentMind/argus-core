@@ -360,4 +360,26 @@ describe('PacksSettings', () => {
     fireEvent.click(await screen.findByRole('button', { name: /check for pack updates/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent('offline')
   })
+
+  it('clears a stale install error when checkUpdates succeeds', async () => {
+    packs.install = vi.fn().mockResolvedValue({
+      ok: false,
+      code: 'checksum',
+      error: 'bundle corrupted'
+    })
+    packs.checkUpdates = vi.fn().mockResolvedValue({})
+
+    render(<PacksSettings settings={settingsPayload()} />)
+
+    // Trigger install failure
+    fireEvent.click(await screen.findByRole('button', { name: 'Install from file' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/bundle failed verification/i)
+
+    // Trigger successful checkUpdates — should clear the stale error
+    fireEvent.click(screen.getByRole('button', { name: /check for pack updates/i }))
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
 })

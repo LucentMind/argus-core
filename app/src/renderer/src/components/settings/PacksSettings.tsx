@@ -207,6 +207,8 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   }
 
   async function applyUpdate(id: string): Promise<void> {
+    if (busy) return
+    setError(null)
     setBusy(true)
     try {
       await window.argus.packs.applyUpdate(id)
@@ -219,6 +221,8 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
   }
 
   async function checkUpdates(): Promise<void> {
+    if (busy) return
+    setError(null)
     setBusy(true)
     try {
       await window.argus.packs.checkUpdates()
