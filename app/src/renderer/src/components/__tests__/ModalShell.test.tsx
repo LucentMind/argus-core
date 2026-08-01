@@ -105,23 +105,20 @@ describe('ModalShell', () => {
     expect(cls).toContain('modal-scrim')
   })
 
-  it('the dialog card carries both the flat classes and the frosted material', () => {
-    // Review on Task 8 came back dark-flat, light-frosted: `glass-card` supplies the frosted
-    // look, but theme-dynamic.css gates it to light for `role="dialog"` (see the "overlay
-    // opt-out" tests in themeTokens.test.ts), so the flat utility classes must stay on the
-    // element too — they're what actually renders in dark, and what its `revert-layer` falls
-    // back to. jsdom resolves no cascade, so this only proves the class *contract*: it cannot
-    // tell you which theme wins. The real-browser, computed-style proof of dark-vs-light lives
-    // in the Task 8 follow-up report, not in anything jsdom can run.
+  it('the dialog card carries the overlay material, not glass-card', () => {
+    // Task 8 rework: `.overlay-card` (main.css) owns the whole look itself — flat in dark,
+    // frosted in light — replacing a `glass-card` + flat-utilities + `revert-layer` combination
+    // that broke MenuButton's dropdown layout (see the layout-regression test below and
+    // theme-dynamic.css). jsdom resolves no cascade, so this only proves the class *contract*:
+    // it cannot tell you which theme wins or what the computed styles are. The real-browser,
+    // computed-style proof (dark-vs-light, dialog-vs-menu) lives in the Task 8 follow-up report.
     const { getByRole } = render(
       <ModalShell title="t" onClose={() => undefined}>
         body
       </ModalShell>
     )
     const cls = getByRole('dialog').className
-    expect(cls).toContain('glass-card')
-    expect(cls).toContain('border-hair2')
-    expect(cls).toContain('bg-panel')
-    expect(cls).toContain('shadow-2xl')
+    expect(cls).toContain('overlay-card')
+    expect(cls).not.toContain('glass-card')
   })
 })

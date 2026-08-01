@@ -41,14 +41,12 @@ export function ModalShell({
       onKeyDown={onKeyDown}
       tabIndex={-1}
     >
-      {/* The flat utility classes stay alongside `glass-card` on purpose: dark keeps this exact
-          flat look (theme-dynamic.css gates the frosted recipe to light for `role="dialog"`, so
-          these are what actually renders in dark, and what its `revert-layer` falls back to).
-          See theme-dynamic.css's "overlay opt-out" section. */}
+      {/* `overlay-card` (main.css) owns the whole look: flat in dark (reproducing the former
+          `border-hair2 bg-panel shadow-2xl` exactly), frosted in light. */}
       <div
         role="dialog"
         aria-label={ariaLabel}
-        className={`flex flex-col rounded-r4 border border-hair2 bg-panel shadow-2xl glass-card ${className}`}
+        className={`flex flex-col rounded-r4 overlay-card ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">

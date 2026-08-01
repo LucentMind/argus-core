@@ -303,64 +303,43 @@ describe('material scoping', () => {
   })
 })
 
-// ModalShell's dialog and MenuButton's dropdown/submenu carry `.glass-card` (frosted, for
-// light) but review on that decision came back dark-flat: those three surfaces must render
-// exactly what they did before the material existed, in dark, and only go frosted in light.
-// jsdom resolves no cascade and cannot see backdrop-filter or which of two competing unlayered
-// rules wins, so this — like the rest of this file — can only pin the CSS *source* contract.
-// The real-browser proof (computed styles, before/after, both themes) lives in the Task 8
-// follow-up report, not in a test any CI runner can execute headlessly-in-jsdom.
-describe('overlay opt-out (dialogs and menus stay flat in dark)', () => {
+// ModalShell's dialog and MenuButton's dropdown/submenu no longer touch `.glass-card` at all
+// (Task 8 rework). They carry their own `.overlay-card` / `.overlay-menu` classes, declared in
+// main.css's `@layer components` block alongside `.surface-card` — see that file and the
+// class-contract + layout-regression tests in ModalShell.test.tsx / MenuButton.test.tsx. This
+// describe block previously pinned a `revert-layer` mechanism keyed off `role`; that mechanism
+// is gone (it was unlayered and its `position: relative; overflow: hidden` from `.glass-card`
+// broke the dropdown's `absolute` anchoring — the Task 8 defect this rework fixes).
+describe('overlay material (dialogs and menus own their own look, not glass-card)', () => {
   const dyn = readCss('theme-dynamic.css')
+  const main = readCss('main.css')
 
-  it('the opt-out exists, keyed off role, and is guarded to dark only', () => {
-    // Pins the exact guard: drop `:not([data-theme='light'])` and this rule starts firing in
-    // light too, which would kill the frost there — the one thing this whole change protects.
-    // Keyed off the existing `role="dialog"` / `role="menu"` attribute rather than a new marker
-    // class: no other `.glass-card` consumer (dyn-home cards, the case view, the editor window)
-    // is a dialog or a menu, so nothing else can ever match this selector.
-    expect(dyn).toContain(`:root:not([data-theme='light']) [role='dialog'].glass-card`)
-    expect(dyn).toContain(`:root:not([data-theme='light']) [role='menu'].glass-card`)
+  it('theme-dynamic.css no longer references dialogs/menus at all', () => {
+    // No `role`-keyed selector, no `revert-layer` — the whole mechanism is deleted, not just
+    // disabled, so a future edit can't accidentally resurrect it here.
+    expect(dyn).not.toMatch(/revert-layer/)
+    expect(dyn).not.toMatch(/\[role=['"]dialog['"]\]/)
+    expect(dyn).not.toMatch(/\[role=['"]menu['"]\]/)
   })
 
-  it('the opt-out resets exactly the material properties, with nothing hand-copied', () => {
-    const start = dyn.indexOf(`[role='dialog'].glass-card,`)
-    expect(start, 'the opt-out rule must be found').toBeGreaterThanOrEqual(0)
-    const open = dyn.indexOf('{', start)
-    const close = dyn.indexOf('}', open)
-    expect(close, 'the opt-out rule must close').toBeGreaterThan(open)
-    const body = dyn.slice(open + 1, close)
-    expect(body).toContain('background: revert-layer')
-    expect(body).toContain('border: revert-layer')
-    expect(body).toContain('box-shadow: revert-layer')
-    expect(body).toContain('backdrop-filter: none')
-    // Every value here is either `revert-layer` (fall back to whatever the plain utility
-    // classes still on the element resolve to) or an explicit "off" — never a color or shadow
-    // hand-copied from the flat classes, which would drift the moment either recipe changed.
-    expect(body).not.toMatch(/rgba?\(|#[0-9a-f]{3,8}\b/i)
-  })
-
-  it('the hover counterpart neutralizes the lift too', () => {
-    // Neither surface had a hover state before the material existed; without this, hovering a
-    // dialog or menu in dark would still lift/relight per .glass-card:hover.
-    const start = dyn.indexOf(`[role='dialog'].glass-card:hover,`)
-    expect(start, 'the hover opt-out rule must be found').toBeGreaterThanOrEqual(0)
-    const open = dyn.indexOf('{', start)
-    const close = dyn.indexOf('}', open)
-    expect(close, 'the hover opt-out rule must close').toBeGreaterThan(open)
-    const body = dyn.slice(open + 1, close)
-    expect(body).toContain('transform: none')
-    expect(body).toContain('border: revert-layer')
-    expect(body).toContain('box-shadow: revert-layer')
-    expect(body).toContain('backdrop-filter: none')
-  })
-
-  it('the opt-out stays unlayered, like .glass-card itself', () => {
-    // theme-dynamic.css carries no `@layer` wrapper anywhere. An actual `@layer components { }`
-    // block here would lose to .glass-card's own unlayered declarations unconditionally,
-    // regardless of source order or specificity — the exact regression a components-layer card
-    // rule caused once already (Task 4). Matches the at-rule form specifically (name + brace) so
-    // this doesn't trip over prose that merely mentions "@layer" in a comment.
-    expect(dyn).not.toMatch(/@layer\s+[\w-]+\s*\{/)
+  it('.overlay-card and .overlay-menu exist in main.css and never declare position/overflow', () => {
+    // The defect this rework fixes: `.glass-card` sets `position: relative; overflow: hidden`,
+    // unlayered, which out-cascades the dropdown's own `absolute` Tailwind utility and would
+    // clip its `left-full` submenu. Neither replacement class may ever acquire either property —
+    // that is the whole point of splitting them out of `.glass-card`.
+    for (const selector of ['.overlay-card', '.overlay-menu']) {
+      // Plain indexOf, not an anchored regex: both rules sit indented inside `@layer
+      // components { }`, so `^selector {` would never match at column 0. The first occurrence
+      // of `${selector} {` is the base (dark) rule; the light override spells it
+      // `:is(.overlay-card, .overlay-menu) {`, which never matches this exact substring.
+      const start = main.indexOf(`${selector} {`)
+      expect(start, `${selector} rule must be found`).toBeGreaterThanOrEqual(0)
+      const open = main.indexOf('{', start)
+      const close = main.indexOf('}', open)
+      expect(close, `${selector} rule must close`).toBeGreaterThan(open)
+      const body = main.slice(open + 1, close)
+      expect(body, `${selector} must not declare position`).not.toMatch(/(?<![\w-])position\s*:/)
+      expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
+    }
   })
 })

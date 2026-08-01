@@ -79,6 +79,60 @@ body {
       0 14px 30px -14px rgba(24, 44, 80, 0.16);
   }
 
+  /* ModalShell's dialog card and MenuButton's dropdown/submenu. Replaces a Task 8 mechanism
+     that put `.glass-card` on both and then fought it back to flat in dark with an unlayered
+     `revert-layer` rule keyed off `role`. That was fragile (two competing background sources on
+     one element) and actively broken: `.glass-card` sets `position: relative; overflow: hidden`,
+     which is unlayered and so beats the dropdown's own `absolute` (Tailwind utility, `@layer
+     utilities`) and clips its `left-full` submenu. These two classes own their appearance
+     outright instead, the same way `.surface-card` does above.
+
+     Deliberately NO position/overflow/isolation/transition on either — those belong to
+     `.glass-card`, exist only for the cursor-tracked ring/sheen layers a plain overlay never
+     hosts, and are exactly what broke the dropdown's anchoring. Dark reproduces each surface's
+     pre-existing flat utilities verbatim (two genuinely different looks — the dialog is
+     `--bg-2`/`--hair-2`/shadow-2xl, the menu is `--bg-1`/`--hair`/shadow-lg); light shares one
+     frosted declaration, identical to what `.glass-card` gives in light, through the `--glass-*`
+     / `--card-shadow` tokens rather than duplicated literals. */
+  .overlay-card {
+    border: 1px solid var(--hair-2);
+    background: var(--bg-2);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); /* Tailwind's shadow-2xl */
+  }
+
+  .overlay-menu {
+    border: 1px solid var(--hair);
+    background: var(--bg-1);
+    /* Tailwind's shadow-lg */
+    box-shadow:
+      0 10px 15px -3px rgb(0 0 0 / 0.1),
+      0 4px 6px -4px rgb(0 0 0 / 0.1);
+  }
+
+  :root[data-theme='light'] :is(.overlay-card, .overlay-menu) {
+    border-color: var(--glass-border);
+    background:
+      linear-gradient(
+        146deg,
+        var(--glass-lens-1) 0%,
+        var(--glass-lens-2) 26%,
+        var(--glass-lens-3) 52%,
+        var(--glass-lens-4) 78%,
+        var(--glass-lens-5) 100%
+      ),
+      radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%),
+      var(--glass-bg);
+    box-shadow:
+      inset 0 1.5px 0 var(--glass-hi),
+      inset 1px 0 0 var(--glass-edge),
+      inset -1px 0 0 var(--glass-edge),
+      inset 0 -1.5px 0 var(--glass-edge),
+      inset 0 -22px 40px -26px var(--glass-edge),
+      var(--card-shadow);
+    backdrop-filter: var(--glass-filter);
+    -webkit-backdrop-filter: var(--glass-filter);
+  }
+
   /* The modal backdrop. A token rather than a utility so both themes read from one place —
      `bg-black/60` is a dark-theme assumption that is wrong on a pale ground. */
   .modal-scrim {
