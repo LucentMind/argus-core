@@ -6,6 +6,7 @@ import { confirm } from '../../lib/confirmStore'
 import { ToolRow, useToolProbes } from './ToolRow'
 import type { PacksListPayload, InstalledPackRow } from '../../../../shared/packs'
 import type { SettingsPayload } from '../../../../shared/settings'
+import { describeUpdate } from '../../../../shared/updates'
 
 function installErrorMessage(code: string, error: string): string {
   switch (code) {
@@ -35,7 +36,8 @@ function PackCard({
   report,
   busy,
   onUninstall,
-  onInstalled
+  onInstalled,
+  onUpdate
 }: {
   pack: InstalledPackRow
   tools: SettingsPayload['resolvedTools']
@@ -43,6 +45,7 @@ function PackCard({
   busy: boolean
   onUninstall: () => void
   onInstalled: () => void
+  onUpdate: () => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
@@ -54,6 +57,7 @@ function PackCard({
           <span className="flex items-center gap-1">
             <Chip tone="neutral">{pack.installedVersion ?? pack.loadedVersion ?? '—'}</Chip>
             {pack.pendingRelaunch && <Chip tone="review">pending relaunch</Chip>}
+            {pack.update?.phase === 'available' && <Chip tone="signal">update available</Chip>}
             {pack.binaries.map((b) => (
               <Chip key={b.id} tone={b.ok ? 'signal' : 'danger'} title={b.detail}>
                 {b.id}
@@ -62,6 +66,11 @@ function PackCard({
           </span>
         }
       >
+        {pack.update?.phase === 'available' && (
+          <Btn aria-label={`Update · ${pack.id}`} disabled={busy} onClick={onUpdate}>
+            Update to {pack.update.version}
+          </Btn>
+        )}
         {pack.installedVersion != null && (
           <Btn
             variant="danger"
@@ -80,6 +89,14 @@ function PackCard({
           />
         )}
       </SettingRow>
+      {pack.update != null && pack.update.phase !== 'idle' && (
+        <div className="pl-4 text-sm text-dim">
+          {describeUpdate(pack.update)}
+          {pack.update.phase === 'error' && pack.update.code === 'origin-pin' && (
+            <> — download it manually from your vendor and install it with Install pack.</>
+          )}
+        </div>
+      )}
       {open && tools.length > 0 && (
         <div data-pack-tools={pack.id} className="border-l border-hair pl-4">
           {tools.map((t) => (
@@ -189,6 +206,26 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
     }
   }
 
+  async function applyUpdate(id: string): Promise<void> {
+    setBusy(true)
+    try {
+      await window.argus.packs.applyUpdate(id)
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function checkUpdates(): Promise<void> {
+    setBusy(true)
+    try {
+      await window.argus.packs.checkUpdates()
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!payload) return <div className="text-dim">loading…</div>
 
   return (
@@ -238,6 +275,7 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
             busy={busy}
             onUninstall={() => void uninstall(p)}
             onInstalled={runChecks}
+            onUpdate={() => void applyUpdate(p.id)}
           />
         ))}
       </SettingsSection>
@@ -252,6 +290,9 @@ export function PacksSettings({ settings }: { settings: SettingsPayload }): Reac
         </Btn>
         <Btn disabled={running} onClick={runChecks}>
           {running ? 'Checking…' : 'Re-run checks'}
+        </Btn>
+        <Btn disabled={busy} onClick={() => void checkUpdates()}>
+          Check for pack updates
         </Btn>
       </div>
     </div>

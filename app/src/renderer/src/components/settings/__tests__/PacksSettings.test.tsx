@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { PacksSettings } from '../PacksSettings'
 import { confirm } from '../../../lib/confirmStore'
-import type { PacksListPayload } from '../../../../../shared/packs'
+import type { InstalledPackRow, PacksListPayload } from '../../../../../shared/packs'
 
 vi.mock('../../../lib/confirmStore', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -68,6 +68,20 @@ function settingsPayload(rows: ResolvedToolRow[] = toolRows): SettingsPayload {
   }
 }
 
+/** A complete InstalledPackRow with sensible defaults, shallow-merged with overrides. */
+function row(over: Partial<InstalledPackRow> & { id: string }): InstalledPackRow {
+  return {
+    displayName: over.id,
+    installedVersion: '1.0.0',
+    loadedVersion: '1.0.0',
+    platform: 'win-x64',
+    pendingRelaunch: false,
+    binaries: [],
+    update: null,
+    ...over
+  }
+}
+
 function mockPacks(
   over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}
 ): Record<string, ReturnType<typeof vi.fn>> {
@@ -91,6 +105,8 @@ function mockPacks(
     uninstall: vi.fn().mockResolvedValue({ ok: true }),
     relaunch: vi.fn().mockResolvedValue(undefined),
     onChanged: vi.fn().mockReturnValue(() => {}),
+    checkUpdates: vi.fn().mockResolvedValue({}),
+    applyUpdate: vi.fn().mockResolvedValue({ phase: 'idle' }),
     ...over
   }
 }
@@ -272,5 +288,58 @@ describe('PacksSettings', () => {
     await screen.findByRole('button', { name: 'Expand tools · navigation' })
     fireEvent.click(screen.getByRole('button', { name: 'Re-run checks' }))
     await waitFor(() => expect(window.argus.settings.probeTools).toHaveBeenCalledTimes(2))
+  })
+
+  it('offers Update on a pack with an available update', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [row({ id: 'sample', update: { phase: 'available', version: '1.1.0' } })]
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    expect(await screen.findByRole('button', { name: /update · sample/i })).toBeInTheDocument()
+  })
+
+  it('shows no Update button when the pack is idle', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [row({ id: 'sample', update: { phase: 'idle' } })]
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    await screen.findByText('sample')
+    expect(screen.queryByRole('button', { name: /update · sample/i })).not.toBeInTheDocument()
+  })
+
+  it('Check for pack updates calls through', async () => {
+    render(<PacksSettings settings={settingsPayload([])} />)
+    fireEvent.click(await screen.findByRole('button', { name: /check for pack updates/i }))
+    await waitFor(() => expect(packs.checkUpdates).toHaveBeenCalledOnce())
+  })
+
+  it('renders a failure with the shared wording, not an invented sentence', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [
+        row({
+          id: 'sample',
+          update: { phase: 'error', message: 'origin mismatch', at: 1, code: 'origin-pin' }
+        })
+      ]
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    expect(await screen.findByText(/update failed: origin mismatch/i)).toBeInTheDocument()
+  })
+
+  it('tells the user to download manually when the origin pin refused', async () => {
+    packs.list = vi.fn().mockResolvedValue({
+      error: null,
+      packs: [
+        row({
+          id: 'sample',
+          update: { phase: 'error', message: 'origin mismatch', at: 1, code: 'origin-pin' }
+        })
+      ]
+    })
+    render(<PacksSettings settings={settingsPayload([])} />)
+    expect(await screen.findByText(/download it manually/i)).toBeInTheDocument()
   })
 })
