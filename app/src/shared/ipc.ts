@@ -210,6 +210,9 @@ export const IPC = {
   /** main→renderer: theme changed in some window; every other window adopts it. Each
    *  BrowserWindow has its own UiStore that otherwise reads the theme only once, at load. */
   uiThemeChanged: 'ui:theme-changed',
+  /** renderer→main: report the renderer's UI zoom factor, so main can size the native
+   *  `titleBarOverlay` button hit-box to match (`webFrame.setZoomFactor` only scales the DOM). */
+  uiSetScale: 'ui:set-scale',
   panelsChanged: 'panels:changed',
   // main→renderer: select this panel (agent-opened panels aren't selected client-side)
   panelsActivate: 'panels:activate',

@@ -147,6 +147,29 @@ describe('UiStore', () => {
     uiStore.setTheme('light')
     expect(setTheme).toHaveBeenCalledWith('light')
   })
+
+  // Main cannot otherwise see the zoom factor (setZoomFactor is renderer-side only) and needs it
+  // to size the native titleBarOverlay button hit-box to match.
+  it('setUiScale reports the scale to main', () => {
+    const setScale = vi.fn(async () => undefined)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = {
+      ui: { setZoomFactor: vi.fn(), setScale },
+      panels: { setTheme: vi.fn() }
+    }
+    const store = new UiStore()
+    setScale.mockClear()
+    store.setUiScale(1.25)
+    expect(setScale).toHaveBeenCalledWith(1.25)
+  })
+
+  // A window whose preload predates this channel (or a stale mock in another test) must not
+  // throw — setScale is optional-chained everywhere it is called.
+  it('tolerates a missing ui.setScale', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = { ui: { setZoomFactor: vi.fn() }, panels: { setTheme: vi.fn() } }
+    expect(() => new UiStore().setUiScale(1.1)).not.toThrow()
+  })
 })
 
 describe('evidenceCollapsed', () => {

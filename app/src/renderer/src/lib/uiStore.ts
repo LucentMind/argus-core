@@ -106,6 +106,11 @@ export class UiStore {
 
   private applyScale(): void {
     window.argus?.ui?.setZoomFactor(this.state.uiScale)
+    // Main cannot see the zoom factor otherwise (setZoomFactor above is renderer-side only) and
+    // needs it to size the native titleBarOverlay's button hit-box to match. Fired from here so
+    // both the constructor's initial apply and every setUiScale() report it, mirroring how
+    // setTheme() reports the theme.
+    void window.argus?.ui?.setScale?.(this.state.uiScale)
   }
 
   /**

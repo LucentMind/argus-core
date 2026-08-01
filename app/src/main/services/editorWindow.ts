@@ -22,6 +22,8 @@ export interface EditorWindowHandle {
   onBoundsChanged(cb: () => void): void
   /** Re-tint the window's native system buttons after a theme change. */
   applyTheme(theme: TitleBarTheme): void
+  /** Resize the window's native system-button hit-box after the renderer's UI zoom changed. */
+  applyScale(scale: number): void
 }
 
 export type EditorWindowFactory = (bounds: WindowBounds | null) => EditorWindowHandle
@@ -76,6 +78,11 @@ export class EditorWindowService {
    */
   applyTheme(theme: TitleBarTheme): void {
     this.handle()?.applyTheme(theme)
+  }
+
+  /** The scale counterpart to {@link applyTheme}; see its doc comment. */
+  applyScale(scale: number): void {
+    this.handle()?.applyScale(scale)
   }
 
   open(req: EditorOpenRequest): void {

@@ -20,6 +20,7 @@ export class FakeEditorWindow implements EditorWindowHandle {
   sent: Array<{ channel: string; payload: unknown }> = []
   bounds: WindowBounds = { x: 10, y: 20, width: 1100, height: 780 }
   themes: TitleBarTheme[] = []
+  scales: number[] = []
   private closeAttempt: (() => boolean) | null = null
   private closed: (() => void) | null = null
   private moved: (() => void) | null = null
@@ -51,6 +52,9 @@ export class FakeEditorWindow implements EditorWindowHandle {
   }
   applyTheme(theme: TitleBarTheme): void {
     this.themes.push(theme)
+  }
+  applyScale(scale: number): void {
+    this.scales.push(scale)
   }
 
   // --- test drivers ---
@@ -371,5 +375,21 @@ describe('EditorWindowService.applyTheme', () => {
     service.applyTheme('light')
     service.applyTheme('dark')
     expect(created[0].themes).toEqual(['light', 'dark'])
+  })
+})
+
+describe('EditorWindowService.applyScale', () => {
+  it('reaches the open window, and no-ops when there is none', () => {
+    const { service, created } = makeService()
+    // No window yet — this must not throw, for the same reason as applyTheme above: main
+    // learns the renderer's zoom factor on every report, including ones made while the
+    // editor is closed.
+    service.applyScale(1.25)
+    expect(created).toHaveLength(0)
+
+    service.open(SKILL)
+    service.applyScale(1.25)
+    service.applyScale(0.9)
+    expect(created[0].scales).toEqual([1.25, 0.9])
   })
 })

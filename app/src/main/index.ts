@@ -25,7 +25,12 @@ import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
-import { applyOverlay, titleBarWindowOptions, type TitleBarTheme } from './services/titleBar'
+import {
+  pushScaleIfChanged,
+  pushThemeIfChanged,
+  titleBarWindowOptions,
+  type TitleBarTheme
+} from './services/titleBar'
 import type {
   PromptCatalogPayload,
   PromptPreview,
@@ -243,6 +248,13 @@ let editorWindowService: EditorWindowService | null = null
  * correct, because it reads this after the first report has landed.
  */
 let lastTheme: TitleBarTheme = 'dark'
+/**
+ * The UI zoom factor main believes the renderer is at. Same bootstrapping story as `lastTheme`
+ * above, and the same default the renderer's `UI_SCALES` uses (`uiStore.ts`): windows are
+ * constructed before any renderer can report a scale, so the first window opens unscaled and
+ * self-corrects the instant `uiStore`'s constructor fires `ui:set-scale`.
+ */
+let lastScale = 1
 // Module-scope, unlike the store it wraps: `before-quit` lives out here and must be able to
 // flush. See the flush calls in createWindow()'s 'closed' handler and in before-quit.
 let draftStore: DraftStore | null = null
@@ -536,7 +548,8 @@ function registerIpc(): void {
           w.loadFile(join(__dirname, '../renderer/editor.html'))
         }
       },
-      () => lastTheme
+      () => lastTheme,
+      () => lastScale
     ),
     loadBounds: () => editorWindowStore.load(),
     saveBounds: (b) => editorWindowStore.save(b),
@@ -1044,18 +1057,31 @@ function registerIpc(): void {
     broadcast(IPC.panelsChanged, undefined)
   })
   ipcMain.handle(IPC.panelsSetTheme, (_e, theme: 'dark' | 'light') => {
+    // Assigned first, before panelHost.setTheme/broadcast below can throw: a panel-subsystem
+    // throw must not leave `lastTheme` — and therefore the native chrome — stale. This is also
+    // where main learns the theme at all: `lastTheme` is what a window opened later is
+    // constructed with, and pushThemeIfChanged needs the PREVIOUS value to detect a no-op.
+    const prevTheme = lastTheme
+    lastTheme = theme
+    // Skip everything below when the value hasn't actually changed. Without this, main re-pushes
+    // `setTitleBarOverlay` on every renderer load — including the very first, where the value is
+    // identical to the construction-time default, and every HMR reload under `electron-vite
+    // dev` — which is the one in-diff suspect for a live defect where the main window's overlay
+    // came up zero-width.
+    if (!pushThemeIfChanged(mainWindow, editorWindowService, theme, prevTheme, lastScale)) return
     panelHost!.setTheme(theme)
     // Every BrowserWindow runs its own UiStore and reads the theme only at load, so a change
     // made in one window is invisible to the others until they reload. Fan it out here: this
     // handler already sees every theme change, including the one fired at construction.
     broadcast(IPC.uiThemeChanged, theme)
-    // The native chrome needs the same treatment for a different reason: the system buttons are
-    // drawn by the OS over our page, so the renderer's own theme swap cannot reach them. This is
-    // also where main learns the theme at all — `lastTheme` is what a window opened later is
-    // constructed with.
-    lastTheme = theme
-    applyOverlay(mainWindow, 'main', theme)
-    editorWindowService?.applyTheme(theme)
+  })
+  ipcMain.handle(IPC.uiSetScale, (_e, scale: number) => {
+    // Same ordering rationale as panelsSetTheme above: assign before anything that could throw,
+    // and skip the redundant native-overlay re-push when the value hasn't changed (e.g. an HMR
+    // reload re-reporting the same persisted scale).
+    const prevScale = lastScale
+    lastScale = scale
+    pushScaleIfChanged(mainWindow, editorWindowService, scale, prevScale, lastTheme)
   })
   ipcMain.handle(IPC.panelsDecls, () =>
     packRegistry.windowDecls().map((w) => ({
@@ -2238,7 +2264,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     icon,
-    ...titleBarWindowOptions('main', lastTheme),
+    ...titleBarWindowOptions('main', lastTheme, process.platform, lastScale),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

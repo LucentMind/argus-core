@@ -12,7 +12,8 @@ import { applyOverlay, titleBarWindowOptions, type TitleBarTheme } from './title
 export function makeElectronEditorWindowFactory(
   preloadPath: string,
   loadEditor: (win: BrowserWindow) => void,
-  getTheme: () => TitleBarTheme
+  getTheme: () => TitleBarTheme,
+  getScale: () => number
 ): EditorWindowFactory {
   return (saved: WindowBounds | null): EditorWindowHandle => {
     // clampToDisplays treats workAreas[0] as the primary display, but
@@ -38,7 +39,7 @@ export function makeElectronEditorWindowFactory(
       autoHideMenuBar: true,
       // The caption bar no longer renders this, but the taskbar entry and Alt-Tab still do.
       title: 'Argus — Editor',
-      ...titleBarWindowOptions('editor', getTheme()),
+      ...titleBarWindowOptions('editor', getTheme(), process.platform, getScale()),
       webPreferences: { preload: preloadPath, sandbox: false }
     })
 
@@ -120,7 +121,11 @@ export function makeElectronEditorWindowFactory(
           }
         })
       },
-      applyTheme: (theme) => applyOverlay(win, 'editor', theme)
+      // `getTheme`/`getScale` are read at call time (not captured at construction), so a theme
+      // push carries whatever scale main currently knows and vice versa — each is the other's
+      // counterpart's source of truth, mirroring `titleBarWindowOptions` above.
+      applyTheme: (theme) => applyOverlay(win, 'editor', theme, getScale()),
+      applyScale: (scale) => applyOverlay(win, 'editor', getTheme(), scale)
     }
   }
 }
