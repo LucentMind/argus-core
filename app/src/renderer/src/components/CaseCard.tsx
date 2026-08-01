@@ -79,12 +79,15 @@ export function CaseCard({
   // uniformly-railed cards says nothing.
   const showRail = tier !== null && actions.length > 0
 
+  // `case-card` on the root is a paint hook, not a layout class: it carries the
+  // top-right→bottom-left wash for the classic skin (main.css). The glass skin paints its own
+  // version of the same wash, from the same tokens (theme-dynamic.css).
   return (
     <Card
       onClick={() => onOpen(c.slug)}
       variant={dynamic ? 'glass' : 'default'}
       style={dynamic ? ({ '--d': `${50 + index * 40}ms` } as React.CSSProperties) : undefined}
-      className="group relative flex min-h-[158px] flex-col gap-1.5 overflow-hidden p-4"
+      className="group case-card relative flex min-h-[158px] flex-col gap-1.5 overflow-hidden p-4"
     >
       {showRail && (
         <i data-testid="priority-rail" data-tier={tier} aria-hidden="true" className="gc-rail" />

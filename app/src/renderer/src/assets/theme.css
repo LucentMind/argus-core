@@ -56,6 +56,20 @@
   --glass-lens-4: rgba(255, 255, 255, 0.055);
   --glass-lens-5: rgba(255, 255, 255, 0.105);
   --glass-cap: rgba(190, 220, 255, 0.1);
+  /* Case-card wash (dark only) — a cool glow pooled in the TOP-RIGHT corner falling away into a
+     dark bottom-left. Its own tokens rather than a reuse of --glass-lens-*: those five are shared
+     with light's frosted overlay recipe in main.css, and the case card is the only surface that
+     wants a directional wash. --card-base is deliberately darker and more opaque than
+     --glass-bg — the card should sit heavier than the ambient canvas behind it. */
+  --card-glow-1: rgba(158, 197, 245, 0.135);
+  --card-glow-2: rgba(118, 158, 214, 0.048);
+  --card-fall-1: rgba(255, 255, 255, 0.07);
+  --card-fall-2: rgba(255, 255, 255, 0.016);
+  --card-fall-3: rgba(0, 0, 0, 0.24);
+  --card-base: rgba(8, 10, 13, 0.72);
+  /* classic skin's equivalent of --card-base: a flat dim laid over --bg-2 as an image layer, so
+     the card's background-COLOR stays free for `hover:bg-hi`. */
+  --card-dim: rgba(0, 0, 0, 0.35);
   --glass-border: rgba(255, 255, 255, 0.16);
   --glass-border-h: rgba(255, 255, 255, 0.26);
   --glass-hi: rgba(255, 255, 255, 0.3);

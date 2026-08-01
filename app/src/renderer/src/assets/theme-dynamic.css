@@ -155,23 +155,32 @@
    it to 0,3,0 and silently beat `.glass-card:hover`'s 0,2,0 in dark, killing the hover recipe. */
 :where(:root:not([data-theme='light'])) .glass-card {
   border: 1px solid var(--glass-border);
+  /* Directional wash, not the five-stop lens: brightest at the top-right corner, falling into a
+     dark bottom-left. `to bottom left` rather than a fixed angle so the fall runs corner-to-corner
+     whatever the card's aspect ratio is — the dashboard grid reflows from ~2:1 to near-square. */
   background:
-    linear-gradient(
-      146deg,
-      var(--glass-lens-1) 0%,
-      var(--glass-lens-2) 26%,
-      var(--glass-lens-3) 52%,
-      var(--glass-lens-4) 78%,
-      var(--glass-lens-5) 100%
+    radial-gradient(
+      125% 115% at 100% 0%,
+      var(--card-glow-1),
+      var(--card-glow-2) 38%,
+      transparent 74%
     ),
-    radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%), var(--glass-bg);
+    linear-gradient(
+      to bottom left,
+      var(--card-fall-1) 0%,
+      var(--card-fall-2) 46%,
+      var(--card-fall-3) 100%
+    ),
+    var(--card-base);
   backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1.5px 0 var(--glass-hi),
     inset 1px 0 0 var(--glass-edge),
     inset -1px 0 0 var(--glass-edge),
     inset 0 -1.5px 0 var(--glass-edge),
-    inset 0 -22px 40px -26px var(--glass-edge),
+    /* the bottom bloom is halved from the shared recipe: box-shadow insets paint OVER the
+       background, so a white haze along the bottom edge undoes the wash's dark bottom-left. */
+    inset 0 -22px 40px -26px var(--card-fall-2),
     var(--card-shadow);
 }
 

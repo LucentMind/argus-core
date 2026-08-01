@@ -71,6 +71,35 @@ body {
     border: 1px solid var(--hair);
   }
 
+  /* Dashboard case cards only (dark): a cool glow pooled in the TOP-RIGHT corner falling into a
+     dark bottom-left, over a base dimmed below --bg-2. Same tokens as the dynamic theme's
+     `.glass-card` wash (theme-dynamic.css) so the two skins can't drift apart.
+
+     Three constraints shape this rule:
+       - it sets `background-image` ONLY, never the shorthand: `.surface-card`'s `background:
+         var(--bg-2)` supplies the colour, and `hover:bg-hi` (@layer utilities) must still be able
+         to win it. The shorthand here would also reset image on hover-repaint.
+       - the dimming is therefore a flat image layer (`--card-dim`), not a darker background-color.
+       - it stays IN @layer components, out-specifying `.surface-card` (0,2,0 vs 0,1,0) rather than
+         going unlayered — unlayered would beat the hover utilities outright (the Task 4
+         regression documented above). */
+  :root:not([data-theme='light']) .surface-card.case-card {
+    background-image:
+      radial-gradient(
+        125% 115% at 100% 0%,
+        var(--card-glow-1),
+        var(--card-glow-2) 38%,
+        transparent 74%
+      ),
+      linear-gradient(
+        to bottom left,
+        var(--card-fall-1) 0%,
+        var(--card-fall-2) 46%,
+        var(--card-fall-3) 100%
+      ),
+      linear-gradient(var(--card-dim), var(--card-dim));
+  }
+
   /* Reads the SAME tokens as `.glass-panel` (theme.css), not literals: the two materials are
      supposed to be indistinguishable in light (theme.css's comment above `--panel-bg`), and a
      hand-copied value pair drifts the moment either gets tuned. This is what "matching by
@@ -141,8 +170,7 @@ body {
         var(--glass-lens-4) 78%,
         var(--glass-lens-5) 100%
       ),
-      radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%),
-      var(--glass-bg);
+      radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%), var(--glass-bg);
     box-shadow:
       inset 0 1.5px 0 var(--glass-hi),
       inset 1px 0 0 var(--glass-edge),
