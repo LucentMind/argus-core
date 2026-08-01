@@ -36,7 +36,7 @@ export function ModalShell({
   return (
     <div
       data-testid="modal-backdrop"
-      className={`fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[2px] ${overlayZClassName}`}
+      className={`fixed inset-0 flex items-center justify-center modal-scrim backdrop-blur-[2px] ${overlayZClassName}`}
       onClick={onClose}
       onKeyDown={onKeyDown}
       tabIndex={-1}
@@ -44,7 +44,7 @@ export function ModalShell({
       <div
         role="dialog"
         aria-label={ariaLabel}
-        className={`flex flex-col rounded-r4 border border-hair2 bg-panel shadow-2xl ${className}`}
+        className={`flex flex-col rounded-r4 glass-card ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">

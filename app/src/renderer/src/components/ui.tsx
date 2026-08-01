@@ -236,7 +236,7 @@ export function MenuButton({
       {open && (
         <div
           role="menu"
-          className={`absolute z-30 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg ${
+          className={`absolute z-30 min-w-44 rounded-r2 glass-card p-1 ${
             openUp ? 'bottom-full mb-1' : 'mt-1'
           } ${align === 'left' ? 'left-0' : 'right-0'}`}
         >
@@ -268,10 +268,7 @@ export function MenuButton({
                   // over neither element mid-cross, firing the parent's onMouseLeave
                   // and closing the submenu before it can be reached.
                   <div className="absolute left-full top-0 z-40 pl-1">
-                    <div
-                      role="menu"
-                      className="min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
-                    >
+                    <div role="menu" className="min-w-44 rounded-r2 glass-card p-1">
                       {it.children.map((sub, j) => (
                         <button
                           key={`${j}-${sub.label}`}

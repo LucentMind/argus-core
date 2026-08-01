@@ -47,3 +47,49 @@ describe('ground surfaces', () => {
     })
   })
 })
+
+describe('the bg-deep split is complete', () => {
+  // The brief for this scan (plan §Task 8 Step 6) assumed bg-deep had exactly six call sites
+  // codebase-wide: ground in TopBar, PanelTabStrip, the editor root; cards in MetricCards, the
+  // Observability select, MenuButton's dropdown — and that Tasks 5, 7 and 8 would leave all six
+  // split, making a literal `walk(COMPONENTS)` repo-wide scan pass. Run empirically at Task 8
+  // (after converting ui.tsx below), it instead turns up eleven files this plan never assigned to
+  // anyone: CaseWorkspace.tsx, CitationCard.tsx, Composer.tsx, DeleteCaseDialog.tsx,
+  // EditorApp.tsx, SetupWizard.tsx, TourCompanion.tsx, RepoGraphControl.tsx,
+  // KnowledgeFlowStrip.tsx, SettingsView.tsx, ToolCallCard.tsx. Specifically:
+  //   - EditorApp.tsx ("the editor root") is explicitly Task 10's job — see progress.md Task 5:
+  //     "EditorApp.tsx:350 is the third such site; Task 10 will repeat it." Not done yet.
+  //   - CaseWorkspace.tsx, Composer.tsx, CitationCard.tsx, ToolCallCard.tsx were explicitly
+  //     verified-and-left-alone by Task 6 ("both paths are now correct, so they are not
+  //     edited... Editing them would mean touching the `dynamic ? … : ''` ternaries, which is
+  //     exactly where the layout-leak trap lives" — task-6-brief.md). ToolCallCard.tsx is also
+  //     palette-only per the legibility line: it must never acquire a material, so its bg-deep
+  //     is by design, not a miss.
+  //   - SetupWizard.tsx, TourCompanion.tsx were explicitly excluded from Task 7's scope
+  //     ("dialog/panel backgrounds, not main-window cards" — task-7-report.md).
+  //   - DeleteCaseDialog.tsx (an <input> fill), RepoGraphControl.tsx, KnowledgeFlowStrip.tsx and
+  //     SettingsView.tsx (a rail, mirroring CaseWorkspace's) were never named as a ground/card
+  //     split target by any task in this 11-task plan.
+  // A blanket assertion would force Task 8 ("Overlays") to rewrite ten files it was never asked
+  // to touch — several reversing decisions already reviewed and approved in Tasks 6 and 7 — or
+  // ship permanently red, which Task 5's own comment calls "a broken suite, not a checklist."
+  // Scoped instead to the specific sites this task family actually promises to keep split; see
+  // task-8-report.md for the full empirical trace and the reasoning above.
+  const SPLIT_SITES = [
+    'TopBar.tsx',
+    'PanelTabStrip.tsx',
+    'MetricCards.tsx',
+    'ObservabilityView.tsx',
+    'ui.tsx'
+  ]
+
+  it('no component this plan has actually converted paints ground or a card with bg-deep', () => {
+    const files = walk(COMPONENTS).filter((f) => SPLIT_SITES.some((s) => f.endsWith(s)))
+    // A scan that silently covers zero files after a rename would pass forever.
+    expect(files.length).toBe(SPLIT_SITES.length)
+    const offenders = files
+      .filter((f) => readFileSync(f, 'utf8').includes('bg-deep'))
+      .map((f) => f.split(/[\\/]/).pop()!)
+    expect(offenders).toEqual([])
+  })
+})

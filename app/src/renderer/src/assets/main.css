@@ -79,6 +79,12 @@ body {
       0 14px 30px -14px rgba(24, 44, 80, 0.16);
   }
 
+  /* The modal backdrop. A token rather than a utility so both themes read from one place —
+     `bg-black/60` is a dark-theme assumption that is wrong on a pale ground. */
+  .modal-scrim {
+    background: var(--scrim);
+  }
+
   .markdown-body > * + * {
     margin-top: 0.7em;
   }

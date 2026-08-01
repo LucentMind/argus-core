@@ -77,6 +77,7 @@
   /* the .glass-panel "waist" inset shadow — a cool, near-invisible tint on light so an
      85%-black inset doesn't read as dirt on a #fdfdfe fill (light value below) */
   --panel-waist: rgba(0, 0, 0, 0.85);
+  --scrim: rgba(0, 0, 0, 0.6);
 
   /* Material tokens live here in theme.css, not in theme-dynamic.css's .dyn block, so the
      classic theme and the editor window can resolve them too. .dyn still overrides the ones
@@ -158,6 +159,8 @@
   --panel-hi: rgba(255, 255, 255, 0.9);
   /* Task 11 tunes this against screenshots; a starting cool tint, not the dark literal. */
   --panel-waist: rgba(24, 44, 80, 0.06);
+  /* A blackout scrim on a pale ground reads as a bug. Cool navy at low alpha instead. */
+  --scrim: rgba(16, 24, 35, 0.28);
 }
 
 @theme inline {

@@ -92,4 +92,27 @@ describe('ModalShell', () => {
     await userEvent.keyboard('{Control>}f{/Control}')
     expect(onKeyDown).toHaveBeenCalled()
   })
+
+  it('the backdrop is theme-aware, not a hardcoded black', () => {
+    const { getByTestId } = render(
+      <ModalShell title="t" onClose={() => undefined}>
+        body
+      </ModalShell>
+    )
+    const cls = getByTestId('modal-backdrop').className
+    // bg-black/60 is a dark-theme assumption; on a pale ground it reads as a blackout.
+    expect(cls).not.toContain('bg-black')
+    expect(cls).toContain('modal-scrim')
+  })
+
+  it('the dialog card carries the frosted material', () => {
+    const { getByRole } = render(
+      <ModalShell title="t" onClose={() => undefined}>
+        body
+      </ModalShell>
+    )
+    const cls = getByRole('dialog').className
+    expect(cls).toContain('glass-card')
+    expect(cls).not.toContain('bg-panel')
+  })
 })
