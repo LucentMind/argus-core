@@ -356,7 +356,7 @@
     var(--panel-bg);
   box-shadow:
     inset 0 1px 0 var(--panel-hi),
-    inset 0 -14px 26px -24px rgba(0, 0, 0, 0.85),
+    inset 0 -14px 26px -24px var(--panel-waist),
     var(--panel-shadow);
 }
 

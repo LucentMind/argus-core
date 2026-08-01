@@ -74,13 +74,19 @@
   --panel-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
   --panel-border: rgba(255, 255, 255, 0.085);
   --panel-hi: rgba(255, 255, 255, 0.11);
+  /* the .glass-panel "waist" inset shadow — a cool, near-invisible tint on light so an
+     85%-black inset doesn't read as dirt on a #fdfdfe fill (light value below) */
+  --panel-waist: rgba(0, 0, 0, 0.85);
 
   /* The shared Card primitive's material. A SEPARATE token set from --panel-*, deliberately:
-     .dyn overrides --panel-bg to #090b0e, and if .surface-card read that, every default Card
-     inside the dynamic scope would darken. In dark these values reproduce today's flat
-     `border-hair bg-panel` card exactly — outside the `.dyn` scope. Inside `.dyn`, --bg-2
-     resolves to .dyn's own darker value, and that divergence is exactly what the constraint
-     wants. */
+     .dyn overrides --panel-bg to a near-black, and a .surface-card reading --panel-* directly
+     would darken inside the dynamic scope. In dark these values reproduce today's flat
+     `border-hair bg-panel` card exactly — everywhere, including inside `.dyn`: --surface-bg is
+     declared here as `var(--bg-2)`, and a custom property's var() substitutes at computed-value
+     time on the element where the property is DECLARED, not where it is read. Declared on
+     :root, it resolves to :root's --bg-2 once and inherits already-substituted — an element
+     inside `.dyn` still gets :root's --bg-2, never .dyn's own override (confirmed by probe:
+     --surface-bg computes to #111114, not .dyn's #0c0e12, on an element inside .dyn in dark). */
   --surface-bg: var(--bg-2);
   --surface-border: var(--hair);
   --surface-shadow: none;
@@ -159,6 +165,8 @@
   --panel-shadow: 0 1px 2px rgba(24, 44, 80, 0.04), 0 14px 30px -14px rgba(24, 44, 80, 0.16);
   --panel-border: rgba(26, 48, 84, 0.09);
   --panel-hi: rgba(255, 255, 255, 0.9);
+  /* Task 11 tunes this against screenshots; a starting cool tint, not the dark literal. */
+  --panel-waist: rgba(24, 44, 80, 0.06);
 
   --surface-bg: #fdfdfe;
   --surface-border: rgba(26, 48, 84, 0.09);

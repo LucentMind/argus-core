@@ -97,7 +97,8 @@ describe('theme tokens', () => {
       '--panel-lens-2': 'rgba(255, 255, 255, 0.016)',
       '--panel-shadow': '0 18px 40px -30px rgba(0, 0, 0, 0.9)',
       '--panel-border': 'rgba(255, 255, 255, 0.085)',
-      '--panel-hi': 'rgba(255, 255, 255, 0.11)'
+      '--panel-hi': 'rgba(255, 255, 255, 0.11)',
+      '--panel-waist': 'rgba(0, 0, 0, 0.85)'
     }
     for (const [name, value] of Object.entries(expected)) {
       expect(decl(dark, name), `dark ${name}`).toBe(value)
@@ -238,14 +239,39 @@ describe('material scoping', () => {
     // weaker assertion green.
     expect(dyn).toMatch(/\.dyn-home \.glass-card \{[^}]*animation:\s*dyn-card-in/)
     // …and the un-scoped recipe must NOT carry them.
-    const recipe = dyn.slice(dyn.search(/^\.glass-card \{/m))
-    expect(recipe.slice(0, recipe.indexOf('}'))).not.toContain('animation:')
+    // Guard the two indexOf/search results before slicing: if the selector regex ever stops
+    // matching, an unguarded slice(-1) collapses `recipe` to '' and the .not.toContain below
+    // passes vacuously instead of failing — the same silent-pass shape as the --surface-* guard
+    // below (Task 3 review finding 2).
+    const recipeStart = dyn.search(/^\.glass-card \{/m)
+    expect(recipeStart, 'the un-scoped .glass-card recipe must be found').toBeGreaterThanOrEqual(
+      0
+    )
+    const recipe = dyn.slice(recipeStart)
+    const recipeCloseIdx = recipe.indexOf('}')
+    expect(recipeCloseIdx, 'the recipe block must close').toBeGreaterThan(0)
+    expect(recipe.slice(0, recipeCloseIdx)).not.toContain('animation:')
   })
 
   it('light keeps the no-brightness-at-rest invariant', () => {
-    const light = theme.slice(theme.indexOf(":root[data-theme='light']"))
-    const filter = light.match(/--glass-filter:\s*([^;]+);/)![1]
+    const lightStart = theme.indexOf(":root[data-theme='light']")
+    expect(lightStart, "the light block selector must be found").toBeGreaterThanOrEqual(0)
+    const light = theme.slice(lightStart)
+    const filter = light.match(/--glass-filter:\s*([^;]+);/)?.[1]
+    expect(filter, '--glass-filter must be declared in the light block').toBeDefined()
     expect(filter).not.toContain('brightness')
+  })
+
+  // Pins the guard itself, not just the token values inside it: without
+  // `:root:not([data-theme='light'])`, a bare `.dyn { ... }` directly matches — beating the
+  // inherited light palette, since a directly-matching declaration wins over an inherited one —
+  // and light+dynamic users get a black page with unreadable text. This exact regression shipped
+  // once and was reintroduced by a reviewer reverting the selector with the suite still green;
+  // Tasks 5-10 keep editing this file, so a future reformat or re-derivation of this block must
+  // not be able to drop the guard silently.
+  it('the dark .dyn block stays guarded against the light theme', () => {
+    expect(dyn).toMatch(/:root:not\(\[data-theme='light'\]\) \.dyn \{/)
+    expect(dyn).not.toMatch(/^\.dyn \{/m)
   })
 
   it('--surface-* is not overridden inside .dyn', () => {
@@ -253,12 +279,14 @@ describe('material scoping', () => {
     // under either .dyn block would darken (or otherwise restyle) every default Card inside the
     // dynamic scope. Covers both the dark block (guarded by :not([data-theme='light'])) and the
     // light block, not just the dark one.
-    const darkStart = dyn.indexOf(":root:not([data-theme='light']) .dyn {")
-    const lightStart = dyn.indexOf(":root[data-theme='light'] .dyn {")
-    const darkClose = dyn.indexOf('\n}', darkStart)
-    const lightClose = dyn.indexOf('\n}', lightStart)
-    const darkBlock = dyn.slice(darkStart, darkClose)
-    const lightBlock = dyn.slice(lightStart, lightClose)
+    //
+    // Routed through the shared `block()` helper (not a raw indexOf/slice) deliberately: block()
+    // throws if the selector isn't found, so a selector that drifts under Tasks 5-10 fails loudly
+    // instead of collapsing both slices to '' and passing vacuously (Task 3 review finding 2 —
+    // demonstrated live: reverting the guard AND adding `--surface-bg: red;` inside the dark
+    // block left the old indexOf-based version at 14 passed).
+    const darkBlock = block(dyn, ":root:not([data-theme='light']) .dyn {").join('\n')
+    const lightBlock = block(dyn, ":root[data-theme='light'] .dyn {").join('\n')
     expect(darkBlock).not.toContain('--surface-')
     expect(lightBlock).not.toContain('--surface-')
   })
