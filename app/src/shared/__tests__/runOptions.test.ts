@@ -31,7 +31,13 @@ describe('descriptorsFor', () => {
     expect(effort && effort.type === 'select' && effort.label).toBe('Reasoning')
     const opts = effort!.type === 'select' ? effort!.options : []
     expect(opts.map((o) => o.value)).toEqual([
-      'low', 'medium', 'high', 'xhigh', 'max', 'ultracode', 'ultrathink'
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'ultracode',
+      'ultrathink'
     ])
     expect(opts.find((o) => o.isDefault)?.value).toBe('high')
     expect(opts.find((o) => o.value === 'xhigh')?.label).toBe('Extra High')
@@ -216,7 +222,7 @@ describe('effectiveEffort', () => {
     expect(effectiveEffort(undefined, 'high')).toBeUndefined()
   })
 
-  it('rounds up to the model\'s lowest level when nothing supported lies below the request', () => {
+  it("rounds up to the model's lowest level when nothing supported lies below the request", () => {
     const [noLow] = descriptorsFor({
       ...FABLE,
       supportedEffortLevels: ['medium', 'high', 'xhigh', 'max']

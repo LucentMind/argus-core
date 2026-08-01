@@ -348,10 +348,7 @@ export function setSessionRunOptions(
 }
 
 /** Null means "fall back to settings.agent.defaultPermissionMode". */
-export function sessionPermissionMode(
-  db: DatabaseSync,
-  sessionId: number
-): PermissionMode | null {
+export function sessionPermissionMode(db: DatabaseSync, sessionId: number): PermissionMode | null {
   const row = db.prepare(`SELECT permission_mode FROM sessions WHERE id = ?`).get(sessionId) as
     { permission_mode: string | null } | undefined
   return parsePermissionMode(row?.permission_mode ?? null)

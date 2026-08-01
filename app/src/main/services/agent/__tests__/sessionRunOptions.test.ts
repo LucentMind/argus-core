@@ -41,9 +41,9 @@ describe('session run options', () => {
   it('clears back to NULL rather than storing an empty array', () => {
     setSessionRunOptions(db, sessionId, [{ id: 'effort', value: 'xhigh' }])
     expect(setSessionRunOptions(db, sessionId, [])).toBe(true)
-    const raw = db
-      .prepare(`SELECT run_options FROM sessions WHERE id = ?`)
-      .get(sessionId) as { run_options: string | null }
+    const raw = db.prepare(`SELECT run_options FROM sessions WHERE id = ?`).get(sessionId) as {
+      run_options: string | null
+    }
     expect(raw.run_options).toBeNull()
   })
 
