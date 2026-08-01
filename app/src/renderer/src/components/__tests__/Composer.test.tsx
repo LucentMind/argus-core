@@ -694,5 +694,42 @@ describe('Composer option chips', () => {
       expect(screen.getByText(/Remove it to change this option/i)).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Max' })).toBeDisabled()
     })
+
+    // Finding 1: the trigger label reading "Ultrathink" is not enough — the open menu's
+    // highlighted entry must also move off the last stored real effort level (here the
+    // 'high' default) and onto Ultrathink itself, in the wide chip's own popup.
+    it('highlights Ultrathink as the selected entry in the wide chip menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      await userEvent.click(await screen.findByTitle('Reasoning'))
+      expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
+      expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
+    })
+
+    // Same requirement, collapsed density: DescriptorChip and CollapsedMenu render the
+    // same OptionSection, so this must not diverge from the wide-chip case above.
+    it('highlights Ultrathink as the selected entry in the collapsed menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Reasoning')
+      act(() => setRowWidth(360))
+      await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
+      expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
+    })
+
+    // Finding 2: symmetric to 'strips the prefix when another level is chosen' above,
+    // but through the collapsed `⋯` menu — the two densities are required to behave
+    // identically, and only the wide-chip case was covered before.
+    it('strips the prefix when another level is chosen from the collapsed menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const box = screen.getByPlaceholderText(/Message the analyst/)
+      await screen.findByTitle('Reasoning')
+      act(() => setRowWidth(360))
+      await userEvent.type(box, 'Ultrathink:\ngo')
+      await userEvent.click(screen.getByLabelText('More options'))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
+      expect(box).toHaveValue('go')
+    })
   })
 })

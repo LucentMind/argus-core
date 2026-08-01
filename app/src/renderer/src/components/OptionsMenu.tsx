@@ -14,15 +14,20 @@ export function OptionSection({
   selections,
   onChange,
   locked,
-  lockNote
+  lockNote,
+  currentOverride
 }: {
   descriptor: RunOptionDescriptor
   selections: readonly RunOptionSelection[]
   onChange: (value: string | boolean) => void
   locked?: boolean
   lockNote?: string
+  /** Overrides which entry reads as selected — used for Ultrathink, whose state lives in
+   *  the prompt rather than in `selections`. Mirrors the trigger-label override on
+   *  `DescriptorChip`/`CollapsedMenu` so the two can't drift apart. */
+  currentOverride?: string | boolean
 }): React.JSX.Element {
-  const current = selectionValue(descriptor, selections)
+  const current = currentOverride ?? selectionValue(descriptor, selections)
   const choices =
     descriptor.type === 'select'
       ? descriptor.options.map((o) => ({ value: o.value as string | boolean, label: o.label }))
@@ -66,7 +71,8 @@ export function DescriptorChip({
   onChange,
   label,
   locked,
-  lockNote
+  lockNote,
+  currentOverride
 }: {
   descriptor: RunOptionDescriptor
   selections: readonly RunOptionSelection[]
@@ -75,6 +81,8 @@ export function DescriptorChip({
   label?: string
   locked?: boolean
   lockNote?: string
+  /** Overrides which entry the popup highlights as selected — see `OptionSection`. */
+  currentOverride?: string | boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
@@ -101,6 +109,7 @@ export function DescriptorChip({
               selections={selections}
               locked={locked}
               lockNote={lockNote}
+              currentOverride={currentOverride}
               onChange={(v) => {
                 onChange(v)
                 setOpen(false)
@@ -121,6 +130,7 @@ export function CollapsedMenu({
   onChangeOption,
   isLocked,
   lockNote,
+  currentOverride,
   permissionOptions,
   permission,
   onPermissionChange,
@@ -134,6 +144,9 @@ export function CollapsedMenu({
    *  the wide chip's `DescriptorChip`, so the two densities cannot diverge. */
   isLocked?: (d: RunOptionDescriptor) => boolean
   lockNote?: string
+  /** Per-descriptor selection override — used for Ultrathink's highlighted entry. Shares
+   *  `OptionSection` with `DescriptorChip`, so the two densities cannot diverge. */
+  currentOverride?: (d: RunOptionDescriptor) => string | boolean | undefined
   permissionOptions: string[]
   permission: string
   onPermissionChange: (label: string) => void
@@ -167,6 +180,7 @@ export function CollapsedMenu({
                 selections={selections}
                 locked={isLocked?.(d)}
                 lockNote={lockNote}
+                currentOverride={currentOverride?.(d)}
                 onChange={(v) => onChangeOption(d, v)}
               />
             ))}

@@ -240,7 +240,22 @@ export function Composer({
   // Ultrathink is prompt text, not a stored selection, so its state is read back out
   // of the draft. That is what makes it impossible to desync from what is sent.
   const ultrathinkOn = hasUltrathink(text)
+  // If the user edits the marker itself into something that no longer matches
+  // `stripUltrathink`'s regex (e.g. deletes the colon, leaving "Ultrathink\nfix it"),
+  // stripping it leaves the word still present — so this reads as the word appearing in
+  // the BODY, same as if the user had typed "please ultrathink" from scratch, and the
+  // section locks. That's a defensible reading (the text genuinely is no longer the
+  // marker) but is easy to trip over by accident, hence this note.
   const ultrathinkInBody = ultrathinkOn && hasUltrathink(stripUltrathink(text))
+
+  // Drives both the trigger-label override (below) and the open menu's highlighted-entry
+  // override (`currentOverride` on DescriptorChip/CollapsedMenu). Reads the descriptor's
+  // own `promptInjected` array — the same field `changeOption` below checks — instead of
+  // hardcoding the string 'ultrathink', so it stays correct if another prompt-injected
+  // option is ever added.
+  function promptInjectedValue(d: RunOptionDescriptor): string | boolean | undefined {
+    return d.type === 'select' ? d.promptInjected?.[0] : undefined
+  }
 
   function changeOption(d: RunOptionDescriptor, value: string | boolean): void {
     if (d.type === 'select' && d.promptInjected?.includes(String(value))) {
@@ -474,6 +489,7 @@ export function Composer({
                     selections={selections}
                     onChange={(v) => changeOption(d, v)}
                     label={d.id === 'effort' && ultrathinkOn ? 'Ultrathink' : undefined}
+                    currentOverride={ultrathinkOn ? promptInjectedValue(d) : undefined}
                     locked={d.id === 'effort' && ultrathinkInBody}
                     lockNote={
                       d.id === 'effort' && ultrathinkInBody ? ULTRATHINK_LOCK_NOTE : undefined
@@ -499,6 +515,7 @@ export function Composer({
               onChangeOption={changeOption}
               isLocked={(d) => d.id === 'effort' && ultrathinkInBody}
               lockNote={ULTRATHINK_LOCK_NOTE}
+              currentOverride={(d) => (ultrathinkOn ? promptInjectedValue(d) : undefined)}
               permissionOptions={permissionOptions}
               permission={permission}
               onPermissionChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}
