@@ -422,7 +422,7 @@ export function CaseWorkspace({
         // eslint-disable-next-line react-hooks/refs
         ref={anchors.setCutoff}
         className={`flex items-center gap-3 border-b border-hair px-4 py-2 ${
-          dynamic ? 'dyn-case-header' : 'bg-deep'
+          dynamic ? 'dyn-case-header' : 'bg-void'
         }`}
         data-tier={railTier(jiraPriority) ?? undefined}
       >
@@ -491,7 +491,7 @@ export function CaseWorkspace({
           <button
             aria-label="Expand evidence"
             title="Expand evidence"
-            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-hair bg-deep text-mute transition-colors hover:bg-hi hover:text-ink"
+            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-hair bg-void text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setEvidenceCollapsed(false)}
           >
             <PanelLeft size={14} strokeWidth={1.5} />
@@ -501,7 +501,7 @@ export function CaseWorkspace({
           </button>
         ) : (
           <aside
-            className={`flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
+            className={`flex w-80 shrink-0 flex-col gap-3 overflow-hidden border-r border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
           >
             {/* The rail itself no longer scrolls (CaseFiles below needs flex-1 to mean
                 something), so this wrapper keeps these naturally-growing sections — an
@@ -624,7 +624,7 @@ export function CaseWorkspace({
           <button
             aria-label="Expand findings"
             title="Expand findings"
-            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-l border-hair bg-deep text-mute transition-colors hover:bg-hi hover:text-ink"
+            className="flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-l border-hair bg-void text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setFindingsCollapsed(false)}
           >
             <PanelRight size={14} strokeWidth={1.5} />
@@ -665,7 +665,7 @@ export function CaseWorkspace({
               }}
             />
             <aside
-              className={`flex flex-col border-l border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
+              className={`flex flex-col border-l border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
               style={{ width: ui.findingsWidth, minWidth: FINDINGS_MIN_WIDTH }}
             >
               {/* key: remount on case switch. Findings are fetched once per case and filtered

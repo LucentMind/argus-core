@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Theme } from '../lib/uiStore'
 import type { BandConfig } from '../lib/ambientBands'
-import { hexToRgb01 } from '../lib/hexColor'
 
 /**
  * The dynamic theme's ambient light — a raw-WebGL2 canvas shared by all three
@@ -30,13 +29,17 @@ import { hexToRgb01 } from '../lib/hexColor'
 const RES_SCALE = 0.55
 
 /** Light-theme aurora pastels (spec §6 — starting values, tuned at CDP stage).
- *  The light `uBg` is NOT listed here: it is read from the resolved scoped
- *  `--void` at refresh time, because the two must be exactly equal or a seam
- *  appears where the canvas ends (spec invariant). */
+ *  There is deliberately no light `uBg` any more (task 13 / spec
+ *  2026-08-01-light-theme-redesign-design.md §5): the light branch used to mix a flat page
+ *  colour underneath the tint at alpha 1, which painted an OPAQUE rectangle on top of the
+ *  page's diagonal `--wash` gradient — hiding it and drawing a hard seam where the canvas
+ *  ended. It now outputs the tint alone with an alpha ramp (ground truth in `assertGroundInvariant`
+ *  below): where the effect is strong you get tint, where it falls off you get transparency and
+ *  the wash shows through unchanged. Dark is unaffected — its ground genuinely IS flat `--void`,
+ *  so it still clears opaque and never needs a background sample. */
 const LIGHT_PAL_A: [number, number, number] = [0.3, 0.48, 0.82]
 const LIGHT_PAL_B: [number, number, number] = [0.94, 0.66, 0.32]
 const BLACK: [number, number, number] = [0, 0, 0]
-const WHITE: [number, number, number] = [1, 1, 1]
 
 const VERT = `#version 300 es
 void main() {
@@ -59,7 +62,6 @@ uniform float uFade;
 uniform vec2  uPad;
 uniform float uMode;
 uniform float uLight;  // 0 = dark theme, 1 = light theme
-uniform vec3  uBg;     // page colour (light theme) — MUST equal scoped --void
 uniform vec3  uPalA;   // cool pastel, light theme
 uniform vec3  uPalB;   // warm pastel, light theme
 
@@ -153,19 +155,41 @@ void main() {
 
   if (uLight > 0.5) {
     // Light theme: the panel is a tint, not a glow — adding brightness to a
-    // near-white page just clips. Intensity drives how far the page colour is
-    // pushed toward a pastel; the aurora's warm/cool balance picks which one.
+    // near-white page just clips. Intensity drives how far the fragment is pushed toward a
+    // pastel; the aurora's warm/cool balance picks which one.
     float I = clamp(length(col) * 1.30, 0.0, 1.0);
     // Polarised, not linear: a raw r/b ratio parks around 0.3 for most of the
     // panel, and mixing blue with amber at 0.3 averages into slate grey.
     // smoothstep pushes each fragment toward one pastel or the other — that is
     // what keeps any chroma at all.
     float warm = smoothstep(0.25, 0.75, clamp(col.r / max(col.b, 1e-4), 0.0, 1.0));
-    outColor = vec4(mix(uBg, mix(uPalA, uPalB, warm), I), 1.0);
+    vec3 tint = mix(uPalA, uPalB, warm);
+    // Composite as a tint over the page's --wash, not a flat fill on top of it (task 13): I
+    // doubles as the alpha, so where the effect is weak the fragment is transparent and the
+    // wash shows through untouched, and where it is strong the fragment is (near-)opaque tint.
+    // Premultiplied on purpose — see the JS-side context/clearColor comments for why.
+    outColor = vec4(tint * I, I);
   } else {
     outColor = vec4(col, 1.0);
   }
 }`
+
+/** Half of the pin between the canvas's ground and the page's ground (task 13); the other half
+ *  is the alpha:true check right after context creation, below. Nothing in the type system ties
+ *  "clear alpha" to "theme" — that is exactly how this file shipped an opaque canvas on top of
+ *  `--wash` for a whole redesign branch with a code comment as the only guard. This throws
+ *  instead of silently drawing the wrong thing if a future edit changes `clearAlpha` without
+ *  changing `light` (or vice versa) to match. It cannot be exercised by vitest/jsdom
+ *  (getContext('webgl2') returns null there, so refresh() never reaches a real gl), so it only
+ *  ever runs in a real browser — call it a runtime tripwire, not test coverage. */
+function assertGroundInvariant(light: boolean, clearAlpha: number): void {
+  if (light && clearAlpha !== 0) {
+    throw new Error(`[ambient] light-theme clear alpha must be 0 (transparent) — got ${clearAlpha}`)
+  }
+  if (!light && clearAlpha !== 1) {
+    throw new Error(`[ambient] dark-theme clear alpha must be 1 (opaque) — got ${clearAlpha}`)
+  }
+}
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader | null {
   const sh = gl.createShader(type)
@@ -216,7 +240,18 @@ export function AmbientCanvas({
     try {
       gl = canvas.getContext('webgl2', {
         antialias: false,
-        alpha: false,
+        // alpha:true — task 13 / spec 2026-08-01-light-theme-redesign-design.md §5. The canvas
+        // must be able to composite OVER whatever is behind it (the page's --wash gradient in
+        // light) rather than always painting an opaque rectangle. Dark still clears fully opaque
+        // (see refresh()'s clearColor), so this is safe for dark too — a context that CAN carry
+        // alpha but always writes alpha=1 composites identically to alpha:false.
+        alpha: true,
+        // Explicit, not just the WebGL default: browsers composite a WebGL canvas's output
+        // assuming its RGB is already premultiplied by its alpha. The light branch's fragment
+        // shader premultiplies (`tint * I, I`) to match — see FRAG's comment there. Getting this
+        // pair wrong (straight-alpha colour against a premultipliedAlpha:true composite) produces
+        // dark fringing at the edge of the alpha ramp, not the flat colour bug this task fixes.
+        premultipliedAlpha: true,
         powerPreference: 'high-performance'
       })
     } catch {
@@ -225,6 +260,17 @@ export function AmbientCanvas({
     if (!gl) {
       setFallback(true)
       return
+    }
+    // GUARD (task 13): the light-theme math above only works if the context actually carries an
+    // alpha channel. jsdom never reaches this line at all (getContext('webgl2') returns null,
+    // see AmbientCanvas.test.tsx), so this cannot be unit-tested — it is a real-browser tripwire
+    // for the day someone "simplifies" the getContext call back to alpha:false and silently
+    // reintroduces an opaque canvas sitting on top of the wash.
+    if (gl.getContextAttributes()?.alpha !== true) {
+      throw new Error(
+        '[ambient] WebGL context must be created with alpha:true — light theme composites the ' +
+          'aurora as a transparent tint over --wash, not an opaque fill (see this file doc comment).'
+      )
     }
 
     const vs = compile(gl, gl.VERTEX_SHADER, VERT)
@@ -255,7 +301,6 @@ export function AmbientCanvas({
       pad: gl.getUniformLocation(prog, 'uPad'),
       mode: gl.getUniformLocation(prog, 'uMode'),
       light: gl.getUniformLocation(prog, 'uLight'),
-      bg: gl.getUniformLocation(prog, 'uBg'),
       palA: gl.getUniformLocation(prog, 'uPalA'),
       palB: gl.getUniformLocation(prog, 'uPalB')
     }
@@ -304,21 +349,23 @@ export function AmbientCanvas({
       } else {
         gl.uniform1f(u.heroOn, 0)
       }
-      // SPEC INVARIANT: light uBg = the resolved scoped --void, read from CSS,
-      // never a duplicated constant — the two must match exactly or a seam
-      // appears where the canvas ends. WHITE, not black, is the safe fallback on
-      // a light page: a black ground would be a full-page seam, not a subtle one.
       const light = th === 'light'
-      const bg = light
-        ? (hexToRgb01(getComputedStyle(wrapper).getPropertyValue('--void')) ?? WHITE)
-        : BLACK
       gl.uniform1f(u.light, light ? 1 : 0)
-      gl.uniform3f(u.bg, bg[0], bg[1], bg[2])
       const palA = light ? LIGHT_PAL_A : BLACK
       const palB = light ? LIGHT_PAL_B : BLACK
       gl.uniform3f(u.palA, palA[0], palA[1], palA[2])
       gl.uniform3f(u.palB, palB[0], palB[1], palB[2])
-      gl.clearColor(bg[0], bg[1], bg[2], 1)
+      // GUARD (task 13 / spec 2026-08-01-light-theme-redesign-design.md §5): the ground is now a
+      // HOLE in light, not a FILL. Light must clear to fully transparent (alpha 0) so --wash
+      // paints through the whole canvas rect wherever the shader has nothing to say; dark's
+      // ground genuinely IS flat --void, so it stays fully opaque (alpha 1), unchanged from
+      // before this task. clearAlpha is derived directly from `light` — the two cannot drift
+      // independently — and assertGroundInvariant re-checks that tie at runtime so a future edit
+      // that hand-edits one without the other fails loudly instead of reappearing as a silent
+      // seam. RGB is irrelevant when alpha is 0 (premultiplied compositing multiplies it away).
+      const clearAlpha = light ? 0 : 1
+      assertGroundInvariant(light, clearAlpha)
+      gl.clearColor(0, 0, 0, clearAlpha)
     }
     api.current = { refresh }
 

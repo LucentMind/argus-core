@@ -163,7 +163,13 @@ export function TabBar({
           {menuOpen && (
             <div
               role="menu"
-              className="absolute right-0 top-full z-10 max-h-80 w-64 overflow-y-auto rounded-r2 border border-hair bg-panel py-1 shadow-lg"
+              // `overlay-menu` (Task 10 review finding 4), not `border border-hair bg-panel
+              // shadow-lg`: every other dropdown in the app reads frosted on the wash through
+              // this material, and the old utilities were the dark-tuned literals `.overlay-menu`
+              // exists to replace (see main.css's comment above `.overlay-card`). It carries no
+              // layout properties, so the layout classes here (`absolute`, sizing, `py-1`) are
+              // unaffected.
+              className="absolute right-0 top-full z-10 max-h-80 w-64 overflow-y-auto rounded-r2 overlay-menu py-1"
             >
               {tabs.map((t) => (
                 <button

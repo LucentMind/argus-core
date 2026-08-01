@@ -60,7 +60,7 @@ export function MermaidBlock({
         aria-label="Expand diagram"
         tabIndex={0}
         title="Click to expand"
-        className="max-h-[28rem] cursor-zoom-in overflow-hidden rounded-r2 border border-hair bg-panel p-2 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[27rem] [&_svg]:w-auto [&_svg]:max-w-full"
+        className="max-h-[28rem] cursor-zoom-in overflow-hidden rounded-r2 surface-card p-2 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[27rem] [&_svg]:w-auto [&_svg]:max-w-full"
         onClick={() => setExpanded(true)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') setExpanded(true)
@@ -69,13 +69,16 @@ export function MermaidBlock({
       />
       {expanded && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8"
+          className="fixed inset-0 z-50 flex items-center justify-center modal-scrim p-8"
           onClick={() => setExpanded(false)}
         >
+          {/* `glass-panel`, not `bg-panel` (matches ModalShell's `variant="reading"`): this is a
+              reading surface — a diagram at full size — so it gets the solid material with a
+              border/shadow instead of a borderless white rectangle floating on the scrim. */}
           <div
             role="dialog"
             aria-label="Diagram"
-            className="mermaid-lightbox h-full w-full overflow-auto rounded-r3 bg-panel p-4"
+            className="mermaid-lightbox glass-panel h-full w-full overflow-auto rounded-r3 p-4"
             onClick={(e) => e.stopPropagation()}
             dangerouslySetInnerHTML={{ __html: phase.svg }}
           />

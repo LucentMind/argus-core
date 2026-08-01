@@ -77,7 +77,7 @@ export function ObservabilityView({
             value={scope}
             onChange={(e) => setScope(e.target.value)}
             onKeyDown={blurOnEscape}
-            className="rounded-r1 border border-hair bg-deep px-2 py-1 text-xs text-ink"
+            className="rounded-r1 border border-hair bg-overlay px-2 py-1 text-xs text-ink"
           >
             <option value="global">All cases</option>
             {cases.map((c) => (

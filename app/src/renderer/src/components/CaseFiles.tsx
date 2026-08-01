@@ -281,7 +281,9 @@ export function CaseFiles({
           </button>
           {r.derived && <Chip tone="neutral">derived</Chip>}
           {r.meta.missing === true && <Chip tone="danger">missing</Chip>}
-          <span className="ml-auto line-clamp-2 max-w-[70px] shrink-0 whitespace-normal rounded-r1 bg-overlay px-1.5 py-0.5 text-center font-mono text-[10px] leading-tight text-dim">
+          {/* `bg-well`, not `bg-overlay` (Task 12 review finding 1): this chip is a descendant of
+              the `bg-panel` list container below, an opaque near-white fill in light. */}
+          <span className="ml-auto line-clamp-2 max-w-[70px] shrink-0 whitespace-normal rounded-r1 bg-well px-1.5 py-0.5 text-center font-mono text-[10px] leading-tight text-dim">
             {r.artifactType}
           </span>
         </div>

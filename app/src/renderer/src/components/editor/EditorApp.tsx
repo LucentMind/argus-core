@@ -632,7 +632,7 @@ export function EditorApp(): React.JSX.Element {
      * every click.
      */
     <PaneActionSlotContext.Provider value={actionSlot}>
-      <div className="flex h-screen flex-col bg-deep text-ink">
+      <div className="flex h-screen flex-col bg-void text-ink">
         <TitleBarStrip kind="editor" flush>
           <TabBar
             tabs={state.tabs}

@@ -27,7 +27,7 @@ export function KnowledgeFlowStrip({
   )
 
   return (
-    <div className="flex items-center gap-3 rounded-r2 border border-hair bg-deep px-3 py-2 text-xs text-dim">
+    <div className="flex items-center gap-3 rounded-r2 surface-card px-3 py-2 text-xs text-dim">
       <span className="flex-1 leading-relaxed">
         {link('sources', 'Sources')} (packs · Confluence · your team&apos;s hive) →{' '}
         {link('library', 'Library')} (what the agent can use) → the agent distills sessions into{' '}

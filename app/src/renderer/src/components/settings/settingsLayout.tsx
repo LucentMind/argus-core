@@ -4,8 +4,11 @@ import { Card, IconBtn, SectionLabel } from '../ui'
 import { blurOnEscape } from '../../lib/escapeLayer'
 import { uiStore } from '../../lib/uiStore'
 
+// `bg-well` (Task 12), not `bg-overlay`: every FIELD/TEXTAREA_FIELD sits inside a SettingsSection
+// card, and `--bg-over` is tuned for the wash, not a near-white card fill — it read as no fill
+// at all there. `--well` is the on-card counterpart.
 export const FIELD =
-  'h-7 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
+  'h-7 rounded-r2 border border-hair bg-well px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
 
 /** Multi-line counterpart of {@link FIELD}. `FIELD`'s `h-7` is single-line-only, so a
  *  textarea that reused it would collapse; this keeps the same border/bg/focus tokens but
@@ -13,7 +16,7 @@ export const FIELD =
  *  the memory editors previously passed no class at all and fell back to the UA's ~20-column
  *  unpadded box, which rendered as a cramped scrolling sliver. */
 export const TEXTAREA_FIELD =
-  'w-full min-h-32 resize-y rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs leading-relaxed text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
+  'w-full min-h-32 resize-y rounded-r2 border border-hair bg-well p-2 font-mono text-xs leading-relaxed text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
 
 /**
  * The settings-wide disclosure affordance: a chevron icon button that rotates when open.

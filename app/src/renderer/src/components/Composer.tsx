@@ -430,7 +430,7 @@ export function Composer({
 
   return (
     <div
-      className={`relative border-t border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
+      className={`relative border-t border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-void'}`}
       data-onboarding-anchor="composer"
     >
       {popupOpen && (

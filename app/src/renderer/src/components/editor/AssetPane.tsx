@@ -994,14 +994,18 @@ export function AssetPane({
             value={name}
             disabled={proposed !== null}
             onChange={(e) => renameCreate(e.target.value)}
-            className="w-56 rounded-r2 bg-black/20 px-2 py-1 font-mono text-xs outline-none"
+            // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this row sits on
+            // EditorApp's `surface-card`, same as the two banners below.
+            className="w-56 rounded-r2 bg-well px-2 py-1 font-mono text-xs outline-none"
           />
           <input
             aria-label="describe it"
             placeholder="Describe what it should do…"
             value={describe}
             onChange={(e) => setDescribe(e.target.value)}
-            className="min-w-0 flex-1 rounded-r2 bg-black/20 px-2 py-1 text-xs outline-none placeholder:text-faint"
+            // `bg-well`, not `bg-overlay` (Task 12 review finding 1): same reasoning as the name
+            // field above.
+            className="min-w-0 flex-1 rounded-r2 bg-well px-2 py-1 text-xs outline-none placeholder:text-faint"
           />
           {proposed === null && prefs.viewMode !== 'preview' && draftCmd && (
             <Btn variant="outline" disabled={!draftCmd.enabled} onClick={draftCmd.run}>
@@ -1015,7 +1019,8 @@ export function AssetPane({
       {banner.kind === 'restored' && (
         <div
           role="status"
-          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
+          // `bg-well`, not `bg-hi` (Task 12): this banner sits on EditorApp's `surface-card`.
+          className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-r2 border border-hair bg-well px-3 py-1.5 text-xs text-dim"
         >
           <span>Restored unsaved draft from {clockTime(banner.updatedAt)}.</span>
           <Btn variant="ghost" onClick={() => void discardDraft()}>
@@ -1051,7 +1056,8 @@ export function AssetPane({
       {mode === 'create' && otherDrafts.length > 0 && (
         <div
           role="status"
-          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-black/20 px-3 py-1.5 text-xs text-dim"
+          // `bg-well`, not `bg-hi` (Task 12): same reasoning as the "restored" banner above.
+          className="mx-3 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-r2 border border-hair bg-well px-3 py-1.5 text-xs text-dim"
         >
           <span>
             {otherDrafts.length} unsaved new{' '}

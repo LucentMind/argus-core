@@ -50,6 +50,7 @@ export function MarkdownViewer({
       title={title}
       onClose={onClose}
       ariaLabel={ariaLabel}
+      variant="reading"
       className="h-[80vh] w-[80vw] max-w-4xl"
       actions={
         <>

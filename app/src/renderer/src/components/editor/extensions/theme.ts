@@ -60,8 +60,10 @@ export function argusTheme(): Extension {
       color: 'var(--ink)',
       fontSize: '12px'
     },
+    // `--well`, not `--bg-hi` (Task 12): the CodeMirror surface sits inside the panel card (see
+    // this file's own doc comment), and `--bg-hi` is tuned for the wash, not a near-white card.
     '.cm-panels': {
-      backgroundColor: 'var(--bg-hi)',
+      backgroundColor: 'var(--well)',
       color: 'var(--ink)',
       borderTop: '1px solid var(--hair)'
     },

@@ -113,7 +113,10 @@ export function SpaceDialog({
           <div className="flex flex-col gap-3">
             <input
               aria-label="space key"
-              className="rounded-r2 bg-black/20 px-2 py-1 text-sm"
+              // `bg-well`, not `bg-black/20` (Task 14): this input sits inside ModalShell's
+              // `overlay-card` material, an opaque-in-light card fill — the on-card token, same
+              // reasoning as every other FIELD inside a card (settingsLayout.tsx).
+              className="rounded-r2 bg-well px-2 py-1 text-sm"
               placeholder="Space key, e.g. NAVNATIVE"
               value={state.keyInput}
               disabled={state.busy}

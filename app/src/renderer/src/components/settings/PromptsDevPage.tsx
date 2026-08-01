@@ -81,7 +81,9 @@ function EntryRow({
           {isExternal ? (
             <p className="text-xs text-dim">{entry.note}</p>
           ) : !entry.editable ? (
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-r2 bg-overlay p-2 font-mono text-[11px] text-ink">
+            // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this row sits inside a
+            // SettingsSection card, same as the editable `TEXTAREA_FIELD` sibling below.
+            <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-r2 bg-well p-2 font-mono text-[11px] text-ink">
               {effective}
             </pre>
           ) : (
@@ -404,7 +406,9 @@ function CaptureTab(): React.JSX.Element {
             title="System append (exact bytes)"
             count={detail.capture.systemAppend.length}
           >
-            <pre className="max-h-[24rem] overflow-auto whitespace-pre-wrap rounded-r2 bg-overlay p-2 font-mono text-[11px] text-ink">
+            {/* `bg-well`, not `bg-overlay` (Task 12 review finding 1): this row sits inside its
+                own SettingsSection card. */}
+            <pre className="max-h-[24rem] overflow-auto whitespace-pre-wrap rounded-r2 bg-well p-2 font-mono text-[11px] text-ink">
               {detail.capture.systemAppend}
             </pre>
           </SettingsSection>

@@ -22,6 +22,25 @@ const TABS: Tab[] = [
 ]
 
 describe('TabBar', () => {
+  // Task 10 review finding 7: replaces a bare file-string scan
+  // (`expect(read('TabBar.tsx')).toContain('glass-chrome')`), which passed no matter where in the
+  // file the class sat. This renders the strip and asserts on the root element's own className,
+  // the way ModalShell.test.tsx / MenuButton.test.tsx already pin `.overlay-card`/`.overlay-menu`.
+  // AMENDED ON REBASE (2026-08-01). `main` moved this strip inside a draggable `TitleBarStrip`
+  // while the light-theme branch was in flight, so it no longer carries its own material —
+  // `glass-chrome` on a drag region has never been looked at and would risk the same class of
+  // bug `.glass-card` already caused here once (its unlayered `overflow: hidden` clipped the
+  // "All tabs" dropdown, and its `border` shorthand beat `border-x-0`). The editor's light
+  // treatment is deferred; what this pins is the part that must not regress either way.
+  it('the strip never carries a layout-bearing material', () => {
+    const { container } = render(
+      <TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />
+    )
+    const cls = container.firstElementChild!.className
+    expect(cls).not.toContain('glass-card')
+    expect(cls).not.toContain('glass-panel')
+  })
+
   it('renders one tab per open asset', () => {
     render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getAllByRole('tab')).toHaveLength(3)
@@ -90,6 +109,20 @@ describe('TabBar', () => {
     expect(items.map((i) => i.textContent)).toEqual(['alpha', 'beta', 'notes.md'])
     await userEvent.click(items[2])
     expect(onActivate).toHaveBeenCalledWith('t3')
+  })
+
+  // Task 10 review finding 4: the dropdown used to carry `border border-hair bg-panel shadow-lg`
+  // — a flat, dark-tuned literal — while every other menu in the app reads frosted through
+  // `.overlay-menu`. `overlay-menu` carries no layout properties (pinned in themeTokens.test.ts),
+  // so this also checks the dropdown kept its own positioning.
+  it('the "All tabs" dropdown carries the overlay material, not a flat dark-tuned panel', async () => {
+    render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /all tabs/i }))
+    const cls = screen.getByRole('menu').className
+    expect(cls).toContain('overlay-menu')
+    expect(cls).toContain('absolute')
+    expect(cls).not.toContain('bg-panel')
+    expect(cls).not.toContain('shadow-lg')
   })
 
   it('closes the dropdown after a pick', async () => {

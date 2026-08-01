@@ -25,8 +25,10 @@ export function DiffModeToggle({
           key={m}
           type="button"
           onClick={() => onChange(m)}
+          // `bg-well`, not `bg-hi` (Task 12 review finding 1): this toggle's one production call
+          // site (UnifiedDiffView, via HivemindSettings) sits inside a SettingsSection card.
           className={`rounded-r2 border px-2 py-0.5 text-xs transition-colors ${
-            mode === m ? 'border-hair2 bg-hi text-ink' : 'border-hair text-dim hover:text-ink'
+            mode === m ? 'border-hair2 bg-well text-ink' : 'border-hair text-dim hover:text-ink'
           }`}
         >
           {m === 'split' ? 'Split' : 'Unified'}

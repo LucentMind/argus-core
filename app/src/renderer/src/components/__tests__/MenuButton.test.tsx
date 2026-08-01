@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MenuButton, type MenuItem } from '../ui'
+import { overlayMaterialRules } from '../../assets/__tests__/cssRuleScan'
 
 const items = (onA = vi.fn(), onB = vi.fn()): MenuItem[] => [
   { label: 'Action A', onSelect: onA },
@@ -57,5 +60,40 @@ describe('MenuButton', () => {
     expect(c.disabled).toBe(true)
     fireEvent.click(c)
     expect(screen.getByRole('menu')).toBeTruthy() // still open, nothing fired
+  })
+
+  it('the dropdown carries the overlay material, not glass-card', () => {
+    // Why .overlay-menu exists rather than `.glass-card`: see main.css's comment above
+    // `.overlay-card`. jsdom resolves no cascade, so this only proves the class *contract*; the
+    // real-browser, computed-style proof lives in the Task 8 follow-up report.
+    render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'actions' }))
+    const cls = screen.getByRole('menu').className
+    expect(cls).toContain('overlay-menu')
+    expect(cls).not.toContain('glass-card')
+  })
+
+  it('the dropdown still anchors with `absolute` (Task 8 layout regression pin)', () => {
+    // jsdom cannot evaluate the cascade, so this only pins the source-level precondition for
+    // staying fixed: the dropdown must keep requesting `absolute` in its class list, and neither
+    // overlay rule (base or light override) may reintroduce a `position`/`overflow` declaration
+    // that could out-cascade it — see main.css's comment above `.overlay-card` for the defect
+    // this replaced. The real-browser proof that `absolute` actually wins the cascade is in the
+    // Task 8 report.
+    render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'actions' }))
+    const cls = screen.getByRole('menu').className
+    expect(cls.split(/\s+/)).toContain('absolute')
+
+    const mainCss = readFileSync(join(__dirname, '../../assets/main.css'), 'utf8')
+    const rules = overlayMaterialRules(mainCss)
+    expect(
+      rules.length,
+      'expected the dark base rules plus the light override'
+    ).toBeGreaterThanOrEqual(3)
+    for (const { selector, body } of rules) {
+      expect(body, `${selector} must not declare position`).not.toMatch(/(?<![\w-])position\s*:/)
+      expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
+    }
   })
 })

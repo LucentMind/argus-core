@@ -2,6 +2,24 @@
 @import './theme.css';
 @import './theme-dynamic.css';
 
+/* The light-theme ground (spec §5).
+   Unlayered plain CSS on purpose — same reason as .argus-shimmer below: it is emitted
+   unconditionally, so a brand-new class never renders unstyled on its first HMR pass.
+
+   `background-attachment: fixed` is the whole trick. Every element that paints the ground
+   samples the SAME viewport-anchored gradient, so nested and stacked ground containers line up
+   into one continuous wash with no extra layer and no z-index work — and the editor window gets
+   it for free, being just another body. This only adds background-image; the Tailwind utility's
+   background-color stays underneath and is simply covered.
+
+   .bg-deep is deliberately absent: it paints ground in some places and cards in others. See the
+   themeTokens test for the list. */
+:root[data-theme='light'] :is(body, .bg-void) {
+  background-image: var(--wash);
+  background-attachment: fixed;
+  background-size: cover;
+}
+
 body {
   @apply bg-void text-ink font-sans antialiased;
   font-size: 14px;
@@ -36,6 +54,135 @@ body {
    than p margins. Box styles for pre/table target direct children only to
    stay out of nested components like CitationCard. */
 @layer components {
+  /* The shared card material, behind ui.tsx's <Card> default variant.
+     Lives in @layer components — NOT unlayered — so Tailwind's utility layer still outranks
+     it. The primitive's class string no longer carries bg-panel/border-hair, so nothing but
+     the hover utilities (hover:border-hair2, hover:bg-hi) competes with this for fill/border,
+     and those are exactly the ones that should win on hover. Unlayered plain CSS would beat
+     them unconditionally regardless of specificity or :hover — that was Task 4's regression.
+
+     `var(--bg-2)` / `var(--hair)` are read here, on .surface-card itself, rather than baked
+     into a token further away, so substitution happens on the card element: a card nested
+     inside `.dyn` resolves that scope's own darker --bg-2/--hair, not the page-level values.
+     In dark that reproduces today's flat card exactly (bg-2 fill, --hair border, no shadow).
+     In light it matches .glass-panel by construction. */
+  .surface-card {
+    background: var(--bg-2);
+    border: 1px solid var(--hair);
+  }
+
+  /* Reads the SAME tokens as `.glass-panel` (theme.css), not literals: the two materials are
+     supposed to be indistinguishable in light (theme.css's comment above `--panel-bg`), and a
+     hand-copied value pair drifts the moment either gets tuned. This is what "matching by
+     construction" actually requires — the prior literals here matched `.glass-panel` by
+     coincidence, not by construction, until this rule read the same variables. Gains
+     `.glass-panel`'s bevel (`--panel-hi` inset) and waist (`--panel-waist` inset) as a result —
+     `.surface-card` had neither before; that is the intended, if slight, visual change. */
+  :root[data-theme='light'] .surface-card {
+    border-color: var(--panel-border);
+    background:
+      linear-gradient(152deg, var(--panel-lens-1) 0%, var(--panel-lens-2) 38%, transparent 74%),
+      var(--panel-bg);
+    box-shadow:
+      inset 0 1px 0 var(--panel-hi),
+      inset 0 -14px 26px -24px var(--panel-waist),
+      var(--panel-shadow);
+  }
+
+  /* ModalShell's dialog card and MenuButton's dropdown/submenu. Replaces a Task 8 mechanism
+     that put `.glass-card` on both and then fought it back to flat in dark with an unlayered
+     `revert-layer` rule keyed off `role`. That was fragile (two competing background sources on
+     one element) and actively broken: `.glass-card` sets `position: relative; overflow: hidden`,
+     which is unlayered and so beats the dropdown's own `absolute` (Tailwind utility, `@layer
+     utilities`) and clips its `left-full` submenu. These two classes own their appearance
+     outright instead, the same way `.surface-card` does above.
+
+     Deliberately NO position/overflow/isolation/transition on either — those belong to
+     `.glass-card`, exist only for the cursor-tracked ring/sheen layers a plain overlay never
+     hosts, and are exactly what broke the dropdown's anchoring. Dark reproduces each surface's
+     pre-existing flat utilities verbatim (two genuinely different looks — the dialog is
+     `--bg-2`/`--hair-2`/shadow-2xl, the menu is `--bg-1`/`--hair`/shadow-lg); light shares one
+     frosted declaration below with `.glass-card` itself (Task 12) — the same rule now paints
+     all four, through the `--glass-*` / `--card-shadow` tokens, rather than four copies. */
+  .overlay-card {
+    border: 1px solid var(--hair-2);
+    background: var(--bg-2);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); /* Tailwind's shadow-2xl */
+  }
+
+  .overlay-menu {
+    border: 1px solid var(--hair);
+    background: var(--bg-1);
+    /* Tailwind's shadow-lg */
+    box-shadow:
+      0 10px 15px -3px rgb(0 0 0 / 0.1),
+      0 4px 6px -4px rgb(0 0 0 / 0.1);
+  }
+
+  /* `.glass-chrome` (below) shares this exact recipe (Task 10 review finding 2), and so now does
+     `.glass-card` itself (Task 12 review finding 1): `theme-dynamic.css`'s `.glass-card` used to
+     carry this same recipe a second time, unconditionally, so its dark-only declarations sat
+     right next to a light rendering it never used — the shared selector below is now the ONE
+     place light's frosted recipe is written, for all four consumers, and `.glass-card`'s own
+     rule keeps only its dark path (see the `:where(...)` comment there for why that split needed
+     a specificity-neutral guard). One shared selector list is what makes a repeat of the old
+     drift (a tuning pass changing the waist inset here but not on a duplicate) structurally
+     impossible; `cssRuleScan.ts`'s `overlayMaterialRules` scans this rule (and `.glass-chrome`'s
+     own dark base rule below) for the position/overflow invariant the same way it already does
+     `.overlay-card`/`.overlay-menu`. */
+  :root[data-theme='light'] :is(.overlay-card, .overlay-menu, .glass-chrome, .glass-card) {
+    border-color: var(--glass-border);
+    background:
+      linear-gradient(
+        146deg,
+        var(--glass-lens-1) 0%,
+        var(--glass-lens-2) 26%,
+        var(--glass-lens-3) 52%,
+        var(--glass-lens-4) 78%,
+        var(--glass-lens-5) 100%
+      ),
+      radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%),
+      var(--glass-bg);
+    box-shadow:
+      inset 0 1.5px 0 var(--glass-hi),
+      inset 1px 0 0 var(--glass-edge),
+      inset -1px 0 0 var(--glass-edge),
+      inset 0 -1.5px 0 var(--glass-edge),
+      inset 0 -22px 40px -26px var(--glass-edge),
+      var(--card-shadow);
+    backdrop-filter: var(--glass-filter);
+  }
+
+  /* The modal backdrop. A token rather than a utility so both themes read from one place —
+     `bg-black/60` is a dark-theme assumption that is wrong on a pale ground. */
+  .modal-scrim {
+    background: var(--scrim);
+  }
+
+  /* The editor window's tab strip and status bar (Task 10, spec §6): frosted chrome, not
+     `.glass-card`. `.glass-card` is unlayered CSS carrying `position: relative`, `overflow:
+     hidden`, `isolation: isolate` and a hover-lift `transition` for the cursor-tracked ring/sheen
+     a dashboard card hosts. Put directly on TabBar's root, `overflow: hidden` clips its "All
+     tabs" dropdown (`position: absolute; top: 100%`, nested one level deeper) — the exact class
+     of bug `.overlay-card` / `.overlay-menu` above were already built to avoid for
+     ModalShell/MenuButton — and the hover-lift is wrong for a bar the pointer sits over for the
+     whole editing session, not a card briefly hovered. A third material of that same shape:
+     carries no layout properties. Dark reproduces TabBar/StatusBar's pre-existing `border-hair` /
+     `bg-hi` exactly; each consumer zeroes the two sides it doesn't want via Tailwind's
+     `border-x-0` / `border-t-0` / `border-b-0` utilities, which win here as they do over
+     `.surface-card` above.
+
+     The light recipe is NOT repeated here (Task 10 review finding 2) — it is the same
+     `--glass-*` / `--card-shadow` composition as `.overlay-card` / `.overlay-menu` / `.glass-card`
+     (Task 12), so it lives once, in the shared `:is(.overlay-card, .overlay-menu, .glass-chrome,
+     .glass-card)` rule above this comment's own `.overlay-*` block. Writing it a third time here
+     let a Task 11 tuning pass change the waist inset on that shared rule while this class
+     silently kept the old bevel. */
+  .glass-chrome {
+    border: 1px solid var(--hair);
+    background: var(--bg-hi);
+  }
+
   .markdown-body > * + * {
     margin-top: 0.7em;
   }

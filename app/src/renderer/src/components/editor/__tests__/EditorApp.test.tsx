@@ -239,6 +239,33 @@ describe('EditorApp', () => {
     expect(screen.getByText(/nothing open/i)).toBeInTheDocument()
   })
 
+  // Task 10 review finding 1: the shell used to carry `glass-panel`, which changes DARK for no
+  // reason (measured: #111114 -> #090b0e, a shadow appearing from `box-shadow: none`) and is the
+  // only conversion in the whole plan that does — every sibling material (`.surface-card`,
+  // `.overlay-card`, `.overlay-menu`, `.glass-chrome` itself) deliberately reproduces dark
+  // verbatim. `surface-card`'s dark rule IS the pre-existing `border border-hair bg-panel`
+  // verbatim, and in light the two materials are identical by construction (theme.css's comment
+  // above `--panel-bg`). Also finding 7: a rendered assertion on the shell's own className,
+  // replacing the old file-string scan that would go green even if `glass-panel` moved onto a
+  // nested tab, and go red the moment anyone wrote the word "glass-chrome" in a comment.
+  // AMENDED ON REBASE (2026-08-01). `main` restructured this window while the light-theme branch
+  // was in flight: the tab strip moved into a draggable `TitleBarStrip`, and the rounded inset
+  // card this test looked for (`.rounded-r3`) is gone — the pane is now full-bleed `bg-panel`.
+  // Reapplying the material to a full-bleed shell, and `glass-chrome` to a drag region, is a
+  // design decision that has never been looked at, so the branch keeps `main`'s structure and the
+  // editor's light treatment is deferred.
+  //
+  // What still holds, and is what this now pins: nothing the user READS may sit behind a blur.
+  // That is the invariant the whole editor treatment was chosen for.
+  it('the editor pane is never blurred', () => {
+    const { container } = render(<EditorApp />)
+    const pane = container.querySelector('.bg-panel')
+    expect(pane, 'the editor pane (bg-panel) must be found').not.toBeNull()
+    const cls = pane!.className
+    expect(cls).not.toContain('glass-card')
+    expect(cls).not.toContain('glass-chrome')
+  })
+
   it('renders the editor for an asset pushed from main', async () => {
     render(<EditorApp />)
     openTab!(SKILL)

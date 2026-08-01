@@ -52,7 +52,7 @@ export function SetupWizard({
         role="dialog"
         aria-modal="true"
         aria-label="Argus setup"
-        className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 border border-hair bg-deep"
+        className="flex h-[560px] w-[840px] overflow-hidden rounded-r3 surface-card"
       >
         <nav
           aria-label="Setup steps"
@@ -61,8 +61,10 @@ export function SetupWizard({
           {WIZARD_STEPS.map((s, i) => (
             <div
               key={s}
+              // `bg-well`, not `bg-hi` (Task 12): this dialog is a `surface-card`, and `--bg-hi`
+              // is tuned for the wash, not for sitting on a near-white card.
               className={`rounded-r2 px-2.5 py-1.5 text-xs ${
-                i === index ? 'bg-hi text-ink' : i < index ? 'text-dim' : 'text-faint'
+                i === index ? 'bg-well text-ink' : i < index ? 'text-dim' : 'text-faint'
               }`}
             >
               {LABELS[s]}
@@ -90,7 +92,8 @@ export function SetupWizard({
               )}
               <button
                 disabled={!gate}
-                className="rounded-r2 bg-hi px-3 py-1.5 text-xs text-ink disabled:opacity-40"
+                // `bg-well`, not `bg-hi` (Task 12) — same card-fill reasoning as the step chips.
+                className="rounded-r2 bg-well px-3 py-1.5 text-xs text-ink disabled:opacity-40"
                 onClick={() => (isLast ? onComplete(SAMPLE_CASE_SLUG) : next())}
               >
                 {isLast ? 'Finish' : 'Continue'}

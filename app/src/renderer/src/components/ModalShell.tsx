@@ -17,7 +17,8 @@ export function ModalShell({
   className = 'h-[80vh] w-[80vw]',
   overlayZClassName = 'z-30',
   onKeyDown,
-  ariaLabel
+  ariaLabel,
+  variant = 'chrome'
 }: {
   title: ReactNode
   onClose: () => void
@@ -30,21 +31,32 @@ export function ModalShell({
   /** Extra key handling for the card subtree (e.g. TextViewer's Ctrl/Cmd+F). */
   onKeyDown?: (e: KeyboardEvent) => void
   ariaLabel?: string
+  /** 'chrome' (default) is `.overlay-card` — frosted in light, flat in dark (`--bg-2` /
+   *  `--hair-2` / shadow-2xl) — for controls, confirms and forms. 'reading' is `.glass-panel` —
+   *  the same solid material the editor's writing sheets use, dark `--panel-bg` (#090b0e) /
+   *  `--panel-border` / `--panel-shadow` with a bevel and waist — for a body that is dense text
+   *  the user is there to read: nothing read sits behind a blur (Task 12). */
+  variant?: 'chrome' | 'reading'
 }): React.JSX.Element {
   useEscapeLayer({ onEscape: onClose })
+  const material = variant === 'reading' ? 'glass-panel' : 'overlay-card'
 
   return (
     <div
       data-testid="modal-backdrop"
-      className={`fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[2px] ${overlayZClassName}`}
+      className={`fixed inset-0 flex items-center justify-center modal-scrim backdrop-blur-[2px] ${overlayZClassName}`}
       onClick={onClose}
       onKeyDown={onKeyDown}
       tabIndex={-1}
     >
+      {/* Default 'chrome' variant: `overlay-card` (main.css) owns the whole look — flat in dark
+          (reproducing the former hairline-border, panel-fill, deep-shadow trio exactly), frosted
+          in light. 'reading' variant: `glass-panel` (theme.css material tokens) — solid in both
+          themes, never blurred, for a body the user is there to read. */}
       <div
         role="dialog"
         aria-label={ariaLabel}
-        className={`flex flex-col rounded-r4 border border-hair2 bg-panel shadow-2xl ${className}`}
+        className={`flex flex-col rounded-r4 ${material} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-hair px-3 py-2">

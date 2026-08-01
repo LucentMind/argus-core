@@ -294,7 +294,10 @@ export function AgentSettings({ payload }: { payload: SettingsPayload }): React.
         >
           <DraftTextarea
             aria-label="Persona append"
-            className="w-72 rounded-r2 border border-hair bg-overlay p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
+            // `bg-well`, not `bg-overlay` (Task 12 review finding 1): this row sits inside a
+            // SettingsSection card, same as every FIELD/TEXTAREA_FIELD (settingsLayout.tsx) —
+            // this one just never switched over when it grew a custom width class.
+            className="w-72 rounded-r2 border border-hair bg-well p-2 font-mono text-xs text-ink placeholder:text-mute focus:border-hair2 focus:outline-none"
             value={a.personaAppend}
             onCommit={(v) => patchAgent({ personaAppend: v || null })}
           />

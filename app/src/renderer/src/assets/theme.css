@@ -7,6 +7,11 @@
   --bg-2: #111114;
   --bg-hi: #17171c;
   --bg-over: #1d1d23;
+  /* "One step up" fill for something sitting ON a card/panel, as opposed to `--bg-hi`/`--bg-over`
+     (one step up from the WASH). Dark has no version of this defect — a low-alpha white film
+     reads fine on a dark card too — so this just aliases `--bg-hi` here; only light overrides it
+     (Task 12). */
+  --well: var(--bg-hi);
 
   /* Ink */
   --ink: #efede6;
@@ -26,6 +31,12 @@
   --analytics: #c2a6fa;
   --danger: #f27a6b;
 
+  /* Priority rails. Aliases in dark so the classic rail colours are exactly what they were
+     before this block existed; the light block and .dyn each give them real values. */
+  --p1: var(--danger);
+  --p2: var(--defect);
+  --p3: var(--mute);
+
   /* Brand wordmark — pale ice on the dark surface; swaps to a deep navy
      below so it doesn't wash out on paper */
   --brand: #e2f4ff;
@@ -34,27 +45,142 @@
   --mo-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
   --mo: 200ms cubic-bezier(0.2, 0, 0.2, 1);
   --mo-slow: 320ms cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ── material tokens ──────────────────────────────────────────────────────
+     Here rather than in theme-dynamic.css's .dyn block so the classic theme and the editor
+     window resolve them too. .dyn still overrides the ones its own skin needs. */
+  --glass-bg: rgba(15, 17, 21, 0.34);
+  --glass-lens-1: rgba(255, 255, 255, 0.145);
+  --glass-lens-2: rgba(255, 255, 255, 0.05);
+  --glass-lens-3: rgba(255, 255, 255, 0.018);
+  --glass-lens-4: rgba(255, 255, 255, 0.055);
+  --glass-lens-5: rgba(255, 255, 255, 0.105);
+  --glass-cap: rgba(190, 220, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-border-h: rgba(255, 255, 255, 0.26);
+  --glass-hi: rgba(255, 255, 255, 0.3);
+  --glass-hi-h: rgba(255, 255, 255, 0.44);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-edge-h: rgba(255, 255, 255, 0.16);
+  --card-shadow: 0 26px 52px -30px rgba(0, 0, 0, 0.98);
+  --card-shadow-h: 0 40px 72px -32px #000;
+  /* brightness>1 is free on black (0 x 1.08 = 0) but re-whitens a light page */
+  --glass-filter: blur(40px) saturate(200%) brightness(1.08);
+  --glass-filter-h: blur(54px) saturate(230%) brightness(1.13);
+  --cursor-ring: rgba(175, 220, 255, 0.95);
+  --cursor-ring-2: rgba(255, 255, 255, 0.26);
+  --cursor-sheen: rgba(205, 230, 255, 0.16);
+  --cursor-sheen-2: rgba(190, 220, 255, 0.055);
+  --grain-op: 0.035;
+
+  --panel-bg: #090b0e;
+  --panel-lens-1: rgba(255, 255, 255, 0.055);
+  --panel-lens-2: rgba(255, 255, 255, 0.016);
+  --panel-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
+  --panel-border: rgba(255, 255, 255, 0.085);
+  --panel-hi: rgba(255, 255, 255, 0.11);
+  /* the .glass-panel "waist" inset shadow — a cool, near-invisible tint on light so an
+     85%-black inset doesn't read as dirt on a #fdfdfe fill (light value below) */
+  --panel-waist: rgba(0, 0, 0, 0.85);
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  /* Material tokens live here in theme.css, not in theme-dynamic.css's .dyn block, so the
+     classic theme and the editor window can resolve them too. .dyn still overrides the ones
+     its own skin needs. */
 }
 
 :root[data-theme='light'] {
-  --void: #f5f3ee;
-  --bg-1: #faf8f3;
+  /* Cool wash palette (spec 2026-08-01-light-theme-redesign-design.md §4). Replaces the warm
+     paper palette. `--void` must stay an opaque hex: Btn variant="primary" renders
+     `bg-signal text-void`, so this token doubles as "label on an accent fill". */
+  --void: #eef2f9;
+  --bg-1: #eef2f9;
   --bg-2: #ffffff;
-  --bg-hi: #f0eee7;
-  --bg-over: #eae8e1;
+  --bg-hi: rgba(255, 255, 255, 0.62);
+  --bg-over: rgba(255, 255, 255, 0.76);
+  /* Task 12: `--bg-hi`/`--bg-over` read fine on the wash but vanish on a near-white card — this
+     is the opaque "one step up from a card" fill for that case (form fields, chips, banners).
+     Distinct from `.surface-card`'s own `#fdfdfe` without reading as a grey patch. */
+  --well: #eef1f7;
 
-  --ink: #18181b;
-  --dim: rgba(24, 24, 27, 0.7);
-  --mute: rgba(24, 24, 27, 0.5);
-  --faint: rgba(24, 24, 27, 0.25);
-  --hair: rgba(0, 0, 0, 0.06);
-  --hair-2: rgba(0, 0, 0, 0.12);
-  --scrollbar-thumb: rgba(24, 24, 27, 0.3);
-  --scrollbar-thumb-hover: rgba(24, 24, 27, 0.5);
+  --ink: #101823;
+  --dim: rgba(28, 42, 64, 0.68);
+  --mute: rgba(28, 42, 64, 0.5);
+  --faint: rgba(28, 42, 64, 0.3);
+  --hair: rgba(26, 48, 84, 0.09);
+  --hair-2: rgba(26, 48, 84, 0.15);
+  --scrollbar-thumb: rgba(28, 42, 64, 0.26);
+  --scrollbar-thumb-hover: rgba(28, 42, 64, 0.42);
 
-  --signal: #1567b3;
-  --defect: #9a6700;
-  --brand: #16232e;
+  --signal: #1f6fd0;
+  --defect: #b3760a;
+  --danger: #c93b3b;
+  --review: #1e8f5c;
+  --analytics: #7351c9;
+  /* The references' wordmark is an airy mid-slate, not the near-black #16232e it was. */
+  --brand: #3a4c66;
+
+  --p1: #c93b3b;
+  --p2: #b3760a;
+  --p3: rgba(28, 42, 64, 0.5);
+
+  /* The ground. White bloom top-left, periwinkle pool bottom-right — the references' diagonal
+     wash. Painted through background-attachment: fixed (main.css) so every ground-painting
+     element samples the same viewport-anchored gradient. */
+  --wash:
+    radial-gradient(120% 90% at 88% 108%, rgba(150, 182, 232, 0.55) 0%, transparent 62%),
+    radial-gradient(90% 70% at 4% -6%, rgba(255, 255, 255, 0.95) 0%, transparent 60%),
+    linear-gradient(146deg, #fbfcfe 0%, #eef2f9 42%, #dde6f5 76%, #cfdcf1 100%);
+
+  /* ── material tokens, light (spec §6) ─────────────────────────────────────
+     SPEC INVARIANT: no brightness() at rest on light — it un-does the transparency.
+
+     Task 12: the pre-Task-12 values below (glass-bg 0.46, lens 0.78→0.46→0.46→0.52→0.6) were
+     never actually SEEN composited — backdrop-filter didn't render at all until this branch
+     fixed the -webkit- alias defect, so nobody had watched a panel with them. Composited (alpha
+     "over" compositing, `combined = lens + glass-bg × (1 - lens)`, same formula for every stop
+     since lens and glass-bg are both white): top edge ~88%, ~71% in the middle — exactly where
+     body text sits — ~78% at the bottom. Raised here: glass-bg to 0.78 and the lens stops lifted
+     into a narrower band (0.75→0.60→0.60→0.68→0.78) so the same dip-then-recover SHAPE survives
+     but the floor comes up. With glass-bg at 0.78, combined = 0.78 + 0.22 × lens, giving
+     top ≈ 94.5%, middle/floor ≈ 91.2%, ≈93.0% at the third stop, bottom ≈ 95.2% — inside the
+     90–95% target, variation still visible, floor well clear of the old 71%. */
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-lens-1: rgba(255, 255, 255, 0.75);
+  --glass-lens-2: rgba(255, 255, 255, 0.6);
+  --glass-lens-3: rgba(255, 255, 255, 0.6);
+  --glass-lens-4: rgba(255, 255, 255, 0.68);
+  --glass-lens-5: rgba(255, 255, 255, 0.78);
+  --glass-cap: rgba(120, 165, 230, 0.1);
+  --glass-border: rgba(26, 48, 84, 0.09);
+  --glass-border-h: rgba(31, 111, 208, 0.32);
+  --glass-hi: rgba(255, 255, 255, 0.85);
+  --glass-hi-h: rgba(255, 255, 255, 1);
+  --glass-edge: rgba(26, 48, 84, 0.04);
+  --glass-edge-h: rgba(26, 48, 84, 0.06);
+  --card-shadow: 0 1px 2px rgba(24, 44, 80, 0.04), 0 14px 30px -14px rgba(24, 44, 80, 0.16);
+  --card-shadow-h: 0 2px 4px rgba(24, 44, 80, 0.06), 0 22px 44px -16px rgba(24, 44, 80, 0.22);
+  --glass-filter: blur(22px) saturate(150%);
+  --glass-filter-h: blur(28px) saturate(165%) brightness(1.03);
+  --cursor-ring: rgba(40, 110, 200, 0.5);
+  --cursor-ring-2: rgba(40, 110, 200, 0.12);
+  --cursor-sheen: rgba(60, 125, 205, 0.1);
+  --cursor-sheen-2: rgba(60, 125, 205, 0.04);
+  --grain-op: 0.018;
+
+  /* .glass-panel and .surface-card are given the SAME values here on purpose: in light the two
+     materials must be indistinguishable, and matching them by construction is what stops them
+     drifting apart. In dark they are legitimately different. */
+  --panel-bg: #fdfdfe;
+  --panel-lens-1: rgba(255, 255, 255, 0);
+  --panel-lens-2: rgba(255, 255, 255, 0);
+  --panel-shadow: 0 1px 2px rgba(24, 44, 80, 0.04), 0 14px 30px -14px rgba(24, 44, 80, 0.16);
+  --panel-border: rgba(26, 48, 84, 0.09);
+  --panel-hi: rgba(255, 255, 255, 0.9);
+  /* Task 11 tunes this against screenshots; a starting cool tint, not the dark literal. */
+  --panel-waist: rgba(24, 44, 80, 0.06);
+  /* A blackout scrim on a pale ground reads as a bug. Cool navy at low alpha instead. */
+  --scrim: rgba(16, 24, 35, 0.28);
 }
 
 @theme inline {
@@ -63,6 +189,7 @@
   --color-panel: var(--bg-2);
   --color-hi: var(--bg-hi);
   --color-overlay: var(--bg-over);
+  --color-well: var(--well);
   --color-ink: var(--ink);
   --color-dim: var(--dim);
   --color-mute: var(--mute);

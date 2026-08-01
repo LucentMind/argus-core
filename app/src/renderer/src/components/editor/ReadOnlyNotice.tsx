@@ -44,7 +44,9 @@ export function ReadOnlyNotice({
   return (
     <div
       role="status"
-      className="flex shrink-0 items-center justify-between gap-3 border-b border-hair bg-hi px-4 py-2 text-xs text-dim"
+      // `bg-well`, not `bg-hi` (Task 12): this notice sits inside EditorApp's `surface-card`
+      // shell, and `--bg-hi` is tuned for the wash, not a near-white card fill.
+      className="flex shrink-0 items-center justify-between gap-3 border-b border-hair bg-well px-4 py-2 text-xs text-dim"
     >
       <span className="flex min-w-0 items-center gap-2">
         <Lock size={13} aria-hidden="true" className="shrink-0" />

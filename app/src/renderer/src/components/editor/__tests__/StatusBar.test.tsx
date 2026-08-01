@@ -16,6 +16,17 @@ const base = {
 }
 
 describe('StatusBar', () => {
+  // Task 10 review finding 7: replaces a bare file-string scan
+  // (`expect(read('StatusBar.tsx')).toContain('glass-chrome')`), which passed no matter where in
+  // the file the class sat. Renders the bar and asserts on the root element's own className, the
+  // way ModalShell.test.tsx / MenuButton.test.tsx already pin `.overlay-card`/`.overlay-menu`.
+  it('carries the frosted chrome material, not glass-card', () => {
+    const { container } = render(<StatusBar {...base} />)
+    const cls = container.firstElementChild!.className
+    expect(cls).toContain('glass-chrome')
+    expect(cls).not.toContain('glass-card')
+  })
+
   it('shows the cursor position', () => {
     render(<StatusBar {...base} />)
     expect(screen.getByText('12:3')).toBeInTheDocument()

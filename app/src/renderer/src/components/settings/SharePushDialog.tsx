@@ -84,9 +84,14 @@ export function SharePushDialog({
       )}
       <div className="flex items-center gap-2">
         <span className="text-xs text-dim">PR title</span>
+        {/* `bg-well`, not `bg-overlay` (Task 12 review finding 1): this dialog is embedded inline
+            under a SettingRow in LibraryPage (a SettingsSection card) as well as inline under
+            ProposalsPage's ground-level accepted-proposal row; `--well` and the wash are close
+            enough in light that this reads correctly in both places, unlike `--bg-over`, which
+            vanishes on the LibraryPage card. */}
         <input
           aria-label="PR title"
-          className="h-7 min-w-0 flex-1 rounded-r2 border border-hair bg-overlay px-2 text-xs text-ink"
+          className="h-7 min-w-0 flex-1 rounded-r2 border border-hair bg-well px-2 text-xs text-ink"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />

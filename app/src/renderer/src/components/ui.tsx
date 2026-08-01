@@ -54,9 +54,9 @@ export function Card({
   children
 }: {
   className?: string
-  /** 'glass' renders the dynamic-theme liquid-glass container (theme-dynamic.css)
-   *  with its cursor-tracked ring/sheen layers. Only meaningful inside a
-   *  `.dyn-home` scope — elsewhere the classes resolve to nothing. */
+  /** 'glass' renders the liquid-glass material (theme-dynamic.css) with its cursor-tracked
+   *  ring/sheen layers; the ring/sheen only light up inside a `.dyn-home` scope. The default
+   *  variant carries `.surface-card` (main.css), which is flat in dark and frosted in light. */
   variant?: 'default' | 'glass'
   style?: React.CSSProperties
   onClick?: () => void
@@ -79,7 +79,7 @@ export function Card({
     <div
       onClick={onClick}
       style={style}
-      className={`rounded-r3 border border-hair bg-panel transition-colors ${onClick ? 'cursor-pointer hover:border-hair2 hover:bg-hi' : ''} ${className}`}
+      className={`rounded-r3 surface-card transition-colors ${onClick ? 'cursor-pointer hover:border-hair2 hover:bg-hi' : ''} ${className}`}
     >
       {children}
     </div>
@@ -236,7 +236,7 @@ export function MenuButton({
       {open && (
         <div
           role="menu"
-          className={`absolute z-30 min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg ${
+          className={`absolute z-30 min-w-44 rounded-r2 overlay-menu p-1 ${
             openUp ? 'bottom-full mb-1' : 'mt-1'
           } ${align === 'left' ? 'left-0' : 'right-0'}`}
         >
@@ -268,10 +268,7 @@ export function MenuButton({
                   // over neither element mid-cross, firing the parent's onMouseLeave
                   // and closing the submenu before it can be reached.
                   <div className="absolute left-full top-0 z-40 pl-1">
-                    <div
-                      role="menu"
-                      className="min-w-44 rounded-r2 border border-hair bg-deep p-1 shadow-lg"
-                    >
+                    <div role="menu" className="min-w-44 rounded-r2 overlay-menu p-1">
                       {it.children.map((sub, j) => (
                         <button
                           key={`${j}-${sub.label}`}
