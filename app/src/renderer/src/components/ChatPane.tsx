@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatJumpTarget, SessionSummary } from '../../../shared/types'
+import type { RunOptionSelection } from '../../../shared/runOptions'
+import type { PermissionMode } from '../../../shared/settings'
 import { agentStore, type TranscriptItem } from '../lib/agentStore'
 import { citationsTray } from '../lib/citationsTray'
 import { composerDraft } from '../lib/composerDraft'
@@ -59,6 +61,8 @@ export function ChatPane({
   sessionId,
   session = null,
   onModelChange,
+  onRunOptionsChange,
+  onPermissionModeChange,
   onSwitchSession,
   onCite,
   onJumpToTurn,
@@ -71,6 +75,10 @@ export function ChatPane({
   /** Summary of the chat being shown — carries its pinned provider instance + model. */
   session?: SessionSummary | null
   onModelChange?: (instanceId: string, model: string) => void
+  /** Replace this chat's option selections. */
+  onRunOptionsChange?: (sel: RunOptionSelection[]) => void
+  /** Pin this chat's permission mode. */
+  onPermissionModeChange?: (mode: PermissionMode) => void
   onSwitchSession: (id: number) => void
   onCite: (cite: CiteTarget) => void
   onJumpToTurn?: (sessionId: number, target: ChatJumpTarget) => void
@@ -385,6 +393,8 @@ export function ChatPane({
         }}
         session={session}
         onModelChange={onModelChange}
+        onRunOptionsChange={onRunOptionsChange}
+        onPermissionModeChange={onPermissionModeChange}
         citations={citations}
         onRemoveCitation={(i) => citationsTray.remove(slug, sessionId, i)}
         onCitationsConsumed={() => citationsTray.clear(slug, sessionId)}

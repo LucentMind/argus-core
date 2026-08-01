@@ -1,5 +1,5 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, Sparkles, Lock, Gauge, SquareTerminal, ArrowUp } from 'lucide-react'
+import { Fragment, useEffect, useState, useSyncExternalStore } from 'react'
+import { ChevronDown, Sparkles, Lock, SquareTerminal, ArrowUp } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { AttachmentTray } from './AttachmentTray'
@@ -12,37 +12,46 @@ import {
   mergeCatalogModels,
   type AggregatedModel
 } from '../../../shared/drivers'
-import { PERMISSION_MODE_LABELS } from '../../../shared/settings'
+import {
+  PERMISSION_MODES,
+  PERMISSION_MODE_LABELS,
+  type PermissionMode
+} from '../../../shared/settings'
+import {
+  descriptorsFor,
+  pruneSelections,
+  type RunOptionDescriptor,
+  type RunOptionSelection
+} from '../../../shared/runOptions'
 import type { SkillListItem } from '../../../shared/memoryIpc'
 import type { SessionSummary } from '../../../shared/types'
 import { useModelCatalog } from '../lib/catalogStore'
+import { DescriptorChip } from './OptionsMenu'
 
 /**
- * Session-option picker. Reasoning is still cosmetic; model and permission mode are real —
- * the model selection is persisted onto the session row and picks the provider that runs it.
+ * Session-option picker: model and permission mode. Reasoning and Context Window use the
+ * descriptor-driven `DescriptorChip` in OptionsMenu.tsx instead — see the `descriptors` map
+ * in the Composer body below.
  */
 function OptionChip({
   icon,
   options,
   value,
   onChange,
-  menuLabel,
-  cosmetic
+  menuLabel
 }: {
   icon: React.ReactNode
   options: string[]
   value: string
   onChange: (v: string) => void
   menuLabel: string
-  /** Marks a picker whose selection isn't wired to the session yet (reasoning). */
-  cosmetic?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return (
     <div className="relative">
       <button
         type="button"
-        title={cosmetic ? `${menuLabel} (not wired yet)` : menuLabel}
+        title={menuLabel}
         className="flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
         onClick={() => setOpen(!open)}
       >
@@ -102,7 +111,9 @@ export function Composer({
   onRemoveAttachment,
   onAttachFiles,
   session,
-  onModelChange
+  onModelChange,
+  onRunOptionsChange,
+  onPermissionModeChange
 }: {
   disabled: boolean
   onSend: (text: string) => void
@@ -124,11 +135,13 @@ export function Composer({
   session?: SessionSummary | null
   /** Re-pin the session to another provider instance + model. */
   onModelChange?: (instanceId: string, slug: string) => void
+  /** Replace this chat's option selections. */
+  onRunOptionsChange?: (sel: RunOptionSelection[]) => void
+  /** Pin this chat's permission mode. */
+  onPermissionModeChange?: (mode: PermissionMode) => void
 }): React.JSX.Element {
   const [text, setText] = useState('')
   const [skills, setSkills] = useState<SkillListItem[]>([])
-  const [reasoning, setReasoning] = useState('High · 200k')
-  const [permission, setPermission] = useState('Ask approvals')
   const showToolCalls = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
     () => uiStore.get().showToolCalls
@@ -142,14 +155,7 @@ export function Composer({
     void window.argus.skills.list().then((p) => setSkills(p.skills))
   }, [])
 
-  // seed the permission picker from settings once the payload first arrives — adjust-
-  // state-during-render, matching the `prefill` idiom below
   const settingsPayload = useSettingsPayload()
-  const [seeded, setSeeded] = useState(false)
-  if (!seeded && settingsPayload) {
-    setSeeded(true)
-    setPermission(PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode])
-  }
 
   // The catalog describes ONE instance's CLI — the session's. It substitutes that single
   // instance's rows (see allVisibleModels' rowOverrides); every OTHER enabled instance keeps
@@ -183,6 +189,26 @@ export function Composer({
     models[0]
   const model = current ? modelOptionLabel(current, showProvider) : modelOptions[0]
 
+  // Run-option descriptors come from what the CLI reports about the PINNED model, not the
+  // static AggregatedModel row — `current.slug` looks the catalog row up directly, falling
+  // back to a `[1m]`-stripped match so a session pinned at the 1M suffix still finds its
+  // base row's capabilities.
+  const info = current
+    ? (catalog.find((m) => m.value === current.slug) ??
+      catalog.find((m) => m.resolvedModel?.replace(/\[1m\]$/, '') === current.slug) ??
+      null)
+    : null
+  const descriptors: RunOptionDescriptor[] = info ? descriptorsFor(info) : []
+  const selections = session?.runOptions ?? []
+
+  function changeOption(d: RunOptionDescriptor, value: string | boolean): void {
+    const next = pruneSelections(descriptors, [
+      ...selections.filter((s) => s.id !== d.id),
+      { id: d.id, value }
+    ])
+    onRunOptionsChange?.(next)
+  }
+
   // Permission modes come from THIS session's provider, not the global default — with two
   // providers enabled they can differ, and offering a mode the running driver drops would
   // be a false signal.
@@ -190,6 +216,14 @@ export function Composer({
     settingsPayload?.settings,
     session?.instanceId ?? (settingsPayload ? defaultInstanceId(settingsPayload.settings) : null)
   ).permissionModes.map((m) => PERMISSION_MODE_LABELS[m])
+
+  // The session's own mode wins (it is what a send actually uses); the settings default is
+  // only a fallback for a chat that has never had its permission mode set.
+  const permission = session?.permissionMode
+    ? PERMISSION_MODE_LABELS[session.permissionMode]
+    : settingsPayload
+      ? PERMISSION_MODE_LABELS[settingsPayload.settings.agent.defaultPermissionMode]
+      : 'Ask approvals'
 
   // suggestion buttons (e.g. Analyze in the evidence library) overwrite the
   // draft — adjust-state-during-render pattern instead of a setState effect
@@ -339,21 +373,25 @@ export function Composer({
             }}
             options={modelOptions}
           />
-          <Divider />
-          <OptionChip
-            icon={<Gauge size={12} strokeWidth={1.5} />}
-            menuLabel="Reasoning"
-            value={reasoning}
-            onChange={setReasoning}
-            cosmetic
-            options={['Max · 200k', 'High · 200k', 'Medium · 64k', 'Low · 16k']}
-          />
+          {descriptors.map((d) => (
+            <Fragment key={d.id}>
+              <Divider />
+              <DescriptorChip
+                descriptor={d}
+                selections={selections}
+                onChange={(v) => changeOption(d, v)}
+              />
+            </Fragment>
+          ))}
           <Divider />
           <OptionChip
             icon={<Lock size={12} strokeWidth={1.5} />}
             menuLabel="Permission mode"
             value={permission}
-            onChange={setPermission}
+            onChange={(label) => {
+              const mode = PERMISSION_MODES.find((m) => PERMISSION_MODE_LABELS[m] === label)
+              if (mode) onPermissionModeChange?.(mode)
+            }}
             options={permissionOptions}
           />
           <Divider />

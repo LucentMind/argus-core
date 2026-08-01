@@ -1,0 +1,114 @@
+import { useState } from 'react'
+import { ChevronDown } from 'lucide-react'
+import {
+  selectionLabel,
+  selectionValue,
+  type RunOptionDescriptor,
+  type RunOptionSelection
+} from '../../../shared/runOptions'
+
+/** One labelled radio group per descriptor. Shared verbatim by the wide chips and the
+ *  narrow collapsed popup, so the two can never drift apart. */
+export function OptionSection({
+  descriptor,
+  selections,
+  onChange,
+  locked,
+  lockNote
+}: {
+  descriptor: RunOptionDescriptor
+  selections: readonly RunOptionSelection[]
+  onChange: (value: string | boolean) => void
+  locked?: boolean
+  lockNote?: string
+}): React.JSX.Element {
+  const current = selectionValue(descriptor, selections)
+  const choices =
+    descriptor.type === 'select'
+      ? descriptor.options.map((o) => ({ value: o.value as string | boolean, label: o.label }))
+      : [
+          { value: true as string | boolean, label: 'On' },
+          { value: false as string | boolean, label: 'Off' }
+        ]
+  return (
+    <div>
+      <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">{descriptor.label}</div>
+      {locked && lockNote ? <div className="px-2 pb-1.5 text-xs text-mute">{lockNote}</div> : null}
+      {choices.map((c) => (
+        <button
+          key={String(c.value)}
+          type="button"
+          role="menuitem"
+          disabled={locked}
+          className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi disabled:opacity-40 ${
+            c.value === current ? 'text-ink' : 'text-dim'
+          }`}
+          onClick={() => onChange(c.value)}
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Re-exported for Task 13's collapsed menu, which needs the same label derivation as this
+// file's chips. Fast refresh only reloads this file's components on edit; harmless for a
+// pure re-export of a shared/ helper.
+// eslint-disable-next-line react-refresh/only-export-components
+export { selectionLabel }
+
+/** One chip per descriptor, reusing `OptionChip`'s overlay and positioning verbatim so the
+ *  two popups (this wide row, and Task 13's narrow collapsed menu) cannot drift apart. */
+export function DescriptorChip({
+  descriptor,
+  selections,
+  onChange,
+  label,
+  locked,
+  lockNote
+}: {
+  descriptor: RunOptionDescriptor
+  selections: readonly RunOptionSelection[]
+  onChange: (value: string | boolean) => void
+  /** Overrides the derived label — used for Ultrathink, whose state lives in the prompt. */
+  label?: string
+  locked?: boolean
+  lockNote?: string
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title={descriptor.label}
+        className="flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        onClick={() => setOpen(!open)}
+      >
+        <span>{label ?? selectionLabel(descriptor, selections)}</span>
+        <ChevronDown size={10} strokeWidth={1.5} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            aria-label={descriptor.label}
+            className="absolute bottom-full left-0 z-20 mb-1 min-w-40 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
+          >
+            <OptionSection
+              descriptor={descriptor}
+              selections={selections}
+              locked={locked}
+              lockNote={lockNote}
+              onChange={(v) => {
+                onChange(v)
+                setOpen(false)
+              }}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

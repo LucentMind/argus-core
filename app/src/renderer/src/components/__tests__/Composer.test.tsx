@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
 import { uiStore } from '../../lib/uiStore'
@@ -8,6 +10,7 @@ import { defaultSettings, settingsSchema } from '../../../../shared/settings'
 import { DRIVERS } from '../../../../shared/drivers'
 import { clearCatalogStore } from '../../lib/catalogStore'
 import type { ModelOptionInfo } from '../../../../shared/runOptions'
+import type { SessionSummary } from '../../../../shared/types'
 
 beforeEach(() => {
   localStorage.clear()
@@ -42,16 +45,7 @@ describe('Composer', () => {
   it('renders the option chips, falling back to static labels before settings load', () => {
     render(<Composer disabled={false} onSend={vi.fn()} />)
     expect(screen.getByText('Claude Fable 5')).toBeTruthy()
-    expect(screen.getByText('High · 200k')).toBeTruthy()
     expect(screen.getByText('Ask approvals')).toBeTruthy()
-  })
-
-  it('reasoning stays a local, still-unwired picker', () => {
-    render(<Composer disabled={false} onSend={vi.fn()} />)
-    fireEvent.click(screen.getByText('High · 200k'))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Low · 16k' }))
-    expect(screen.getByText('Low · 16k')).toBeTruthy()
-    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('tool-results toggle flips uiStore.showToolCalls', () => {
@@ -451,5 +445,96 @@ describe('Composer', () => {
       fireEvent.keyDown(textarea, { key: 'Enter' })
       expect(onSend).toHaveBeenCalledWith('/rca')
     })
+  })
+})
+
+const SESSION: SessionSummary = {
+  id: 1,
+  title: '',
+  turnCount: 0,
+  updatedAt: '',
+  driverKind: 'claude-agent-sdk',
+  instanceId: 'claude-default',
+  model: 'claude-fable-5',
+  mode: 'investigation',
+  runOptions: [],
+  permissionMode: null
+}
+
+describe('Composer option chips', () => {
+  beforeEach(() => {
+    window.argus = {
+      ...window.argus,
+      models: {
+        catalog: async () => [
+          {
+            value: 'claude-fable-5',
+            displayName: 'Fable',
+            supportsEffort: true,
+            supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+            supportsAdaptiveThinking: true
+          },
+          { value: 'claude-haiku-4-5', displayName: 'Haiku' }
+        ]
+      },
+      skills: { list: async () => ({ skills: [] }) }
+    } as never
+  })
+
+  it('renders Reasoning and Context as separate chips, not one fused label', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await waitFor(() => expect(screen.getByTitle('Reasoning')).toBeInTheDocument())
+    expect(screen.getByTitle('Context Window')).toBeInTheDocument()
+    expect(screen.queryByText('High · 200k')).not.toBeInTheDocument()
+  })
+
+  it('offers Ultracode and Ultrathink in the Reasoning menu', async () => {
+    render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+    await userEvent.click(await screen.findByTitle('Reasoning'))
+    expect(screen.getByRole('menuitem', { name: 'Ultracode' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Extra High' })).toBeInTheDocument()
+  })
+
+  it('reports a reasoning change to the owner', async () => {
+    const onRunOptionsChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onRunOptionsChange={onRunOptionsChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Reasoning'))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
+    expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'effort', value: 'max' }])
+  })
+
+  it('shows no option chips for a model with no descriptors', async () => {
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={{ ...SESSION, model: 'claude-haiku-4-5' }}
+      />
+    )
+    await waitFor(() => expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument())
+    expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
+  })
+
+  it('reports a permission change to the owner', async () => {
+    const onPermissionModeChange = vi.fn()
+    render(
+      <Composer
+        disabled={false}
+        onSend={() => {}}
+        session={SESSION}
+        onPermissionModeChange={onPermissionModeChange}
+      />
+    )
+    await userEvent.click(await screen.findByTitle('Permission mode'))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Auto-approve edits' }))
+    expect(onPermissionModeChange).toHaveBeenCalledWith('acceptEdits')
   })
 })
