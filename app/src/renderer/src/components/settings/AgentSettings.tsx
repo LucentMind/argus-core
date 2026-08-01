@@ -20,14 +20,10 @@ import { defaultInstanceId, getDriver, nextInstanceId } from '../../../../shared
 import {
   PERMISSION_MODES,
   PERMISSION_MODE_LABELS,
-  type PermissionMode,
+  MODE_BY_LABEL,
   type SettingsPayload
 } from '../../../../shared/settings'
 import type { ProviderStatus } from '../../../../shared/types'
-
-const MODE_BY_LABEL = Object.fromEntries(
-  PERMISSION_MODES.map((m) => [PERMISSION_MODE_LABELS[m], m])
-) as Record<string, PermissionMode>
 
 /** Used as BOTH the danger row's description and the confirm dialog's body, so the promise
  *  made before the click and the one made during it cannot drift apart. */

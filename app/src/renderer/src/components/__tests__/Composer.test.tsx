@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Composer } from '../Composer'
@@ -12,7 +12,22 @@ import { clearCatalogStore } from '../../lib/catalogStore'
 import type { ModelOptionInfo } from '../../../../shared/runOptions'
 import type { SessionSummary } from '../../../../shared/types'
 
+// jsdom never fires a real ResizeObserver — this stub only needs to capture the callback
+// so setRowWidth (below) can drive it by hand; the lifecycle methods are intentionally inert.
+/* eslint-disable @typescript-eslint/no-empty-function */
+class StubResizeObserver {
+  constructor(cb: ResizeObserverCallback) {
+    ;(globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks.push(cb)
+  }
+  observe(): void {}
+  disconnect(): void {}
+  unobserve(): void {}
+}
+/* eslint-enable @typescript-eslint/no-empty-function */
+
 beforeEach(() => {
+  ;(globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks = []
+  globalThis.ResizeObserver = StubResizeObserver as unknown as typeof ResizeObserver
   localStorage.clear()
   uiStore.setShowToolCalls(true)
   settingsStore.reset()
@@ -536,5 +551,62 @@ describe('Composer option chips', () => {
     await userEvent.click(await screen.findByTitle('Permission mode'))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Auto-approve edits' }))
     expect(onPermissionModeChange).toHaveBeenCalledWith('acceptEdits')
+  })
+
+  /** Drives the ResizeObserver the component registers, since jsdom never fires one. */
+  function setRowWidth(px: number): void {
+    const cb = (globalThis as unknown as { __roCallbacks: ResizeObserverCallback[] }).__roCallbacks
+    const row = document.querySelector('[data-composer-density]') as HTMLElement
+    Object.defineProperty(row, 'clientWidth', { value: px, configurable: true })
+    cb.forEach((c) => c([], {} as ResizeObserver))
+  }
+
+  // Nested here (not a sibling describe) so it inherits this describe's beforeEach,
+  // which mocks a catalog with Reasoning/Context descriptors for SESSION's model —
+  // without descriptors there is nothing for the collapse to fold.
+  describe('Composer responsive collapse', () => {
+    it('is wide by default and shows each chip separately', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      const row = await screen.findByTestId('composer-options')
+      expect(row).toHaveAttribute('data-composer-density', 'wide')
+      expect(screen.getByTitle('Reasoning')).toBeInTheDocument()
+    })
+
+    it('collapses everything but Model and Send below the threshold', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Reasoning')
+      act(() => setRowWidth(360))
+      expect(screen.getByTestId('composer-options')).toHaveAttribute(
+        'data-composer-density',
+        'narrow'
+      )
+      expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
+      expect(screen.getByTitle('Model')).toBeInTheDocument()
+      expect(screen.getByLabelText('Send')).toBeInTheDocument()
+      expect(screen.getByLabelText('More options')).toBeInTheDocument()
+    })
+
+    it('holds every collapsed control in the one menu', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Reasoning')
+      act(() => setRowWidth(360))
+      await userEvent.click(screen.getByLabelText('More options'))
+      expect(screen.getByText('Reasoning')).toBeInTheDocument()
+      expect(screen.getByText('Context Window')).toBeInTheDocument()
+      expect(screen.getByText('Access')).toBeInTheDocument()
+      expect(screen.getByText('Tool results')).toBeInTheDocument()
+    })
+
+    it('expands again when the pane widens', async () => {
+      render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
+      await screen.findByTitle('Reasoning')
+      act(() => setRowWidth(360))
+      act(() => setRowWidth(900))
+      expect(screen.getByTestId('composer-options')).toHaveAttribute(
+        'data-composer-density',
+        'wide'
+      )
+    })
   })
 })

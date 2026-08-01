@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import { ChevronDown, Sparkles, Lock, SquareTerminal, ArrowUp } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
@@ -13,8 +13,8 @@ import {
   type AggregatedModel
 } from '../../../shared/drivers'
 import {
-  PERMISSION_MODES,
   PERMISSION_MODE_LABELS,
+  MODE_BY_LABEL,
   type PermissionMode
 } from '../../../shared/settings'
 import {
@@ -26,7 +26,7 @@ import {
 import type { SkillListItem } from '../../../shared/memoryIpc'
 import type { SessionSummary } from '../../../shared/types'
 import { useModelCatalog } from '../lib/catalogStore'
-import { DescriptorChip } from './OptionsMenu'
+import { DescriptorChip, CollapsedMenu } from './OptionsMenu'
 
 /**
  * Session-option picker: model and permission mode. Reasoning and Context Window use the
@@ -98,6 +98,33 @@ function modelOptionLabel(m: AggregatedModel, showProvider: boolean): string {
 
 function Divider(): React.JSX.Element {
   return <span className="h-4 w-px shrink-0 bg-hair2" />
+}
+
+/**
+ * Collapse threshold in CSS px, sized for the widest realistic chip row (Model +
+ * Reasoning + Context + Fast Mode + Access + Tool results). A model with fewer
+ * descriptors therefore collapses slightly earlier than strictly necessary, which is
+ * harmless.
+ *
+ * Deliberately a fixed threshold rather than an overflow measurement
+ * (`scrollWidth > clientWidth`): collapsing changes the width, which can un-trigger
+ * the condition and oscillate.
+ */
+const COLLAPSE_AT_PX = 560
+
+function useDensity(ref: RefObject<HTMLDivElement | null>): 'wide' | 'narrow' {
+  const [density, setDensity] = useState<'wide' | 'narrow'>('wide')
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const apply = (): void =>
+      setDensity(el.clientWidth > 0 && el.clientWidth < COLLAPSE_AT_PX ? 'narrow' : 'wide')
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return density
 }
 
 export function Composer({
@@ -269,6 +296,42 @@ export function Composer({
     onCitationsConsumed?.()
   }
 
+  const rowRef = useRef<HTMLDivElement>(null)
+  const density = useDensity(rowRef)
+
+  // Hoisted so the wide and narrow densities render the IDENTICAL Tool-results and Send
+  // elements — they cannot drift apart.
+  const toolResultsButton = (
+    <button
+      type="button"
+      aria-label={showToolCalls ? 'Hide tool results' : 'Show tool results'}
+      title={showToolCalls ? 'Hide tool results' : 'Show tool results'}
+      className={`flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs transition-colors hover:bg-hair ${
+        showToolCalls ? 'text-ink' : 'text-mute'
+      }`}
+      onClick={() => uiStore.toggleToolCalls()}
+    >
+      <SquareTerminal size={12} strokeWidth={1.5} />
+      <span>Tool results</span>
+      <span className={`h-1.5 w-1.5 rounded-full ${showToolCalls ? 'bg-review' : 'bg-faint'}`} />
+    </button>
+  )
+
+  const sendButton = (
+    <button
+      type="button"
+      aria-label="Send"
+      title="Send (⏎)"
+      disabled={
+        disabled || (!text.trim() && citations.length === 0 && sendableAttachments.length === 0)
+      }
+      className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
+      onClick={send}
+    >
+      <ArrowUp size={14} strokeWidth={2} />
+    </button>
+  )
+
   return (
     <div
       className={`relative border-t border-hair p-3 ${dynamic ? 'dyn-rail' : 'bg-deep'}`}
@@ -362,7 +425,13 @@ export function Composer({
             }
           }}
         />
-        <div className="flex items-center gap-2">
+        <div
+          ref={rowRef}
+          data-testid="composer-options"
+          data-composer-density={density}
+          className="flex items-center gap-2"
+        >
+          {/* Model chip: unchanged, survives both densities */}
           <OptionChip
             icon={<Sparkles size={12} strokeWidth={1.5} />}
             menuLabel="Model"
@@ -373,56 +442,42 @@ export function Composer({
             }}
             options={modelOptions}
           />
-          {descriptors.map((d) => (
-            <Fragment key={d.id}>
+          {density === 'wide' ? (
+            <>
+              {descriptors.map((d) => (
+                <Fragment key={d.id}>
+                  <Divider />
+                  <DescriptorChip
+                    descriptor={d}
+                    selections={selections}
+                    onChange={(v) => changeOption(d, v)}
+                  />
+                </Fragment>
+              ))}
               <Divider />
-              <DescriptorChip
-                descriptor={d}
-                selections={selections}
-                onChange={(v) => changeOption(d, v)}
+              <OptionChip
+                icon={<Lock size={12} strokeWidth={1.5} />}
+                menuLabel="Permission mode"
+                value={permission}
+                onChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}
+                options={permissionOptions}
               />
-            </Fragment>
-          ))}
-          <Divider />
-          <OptionChip
-            icon={<Lock size={12} strokeWidth={1.5} />}
-            menuLabel="Permission mode"
-            value={permission}
-            onChange={(label) => {
-              const mode = PERMISSION_MODES.find((m) => PERMISSION_MODE_LABELS[m] === label)
-              if (mode) onPermissionModeChange?.(mode)
-            }}
-            options={permissionOptions}
-          />
-          <Divider />
-          <button
-            type="button"
-            aria-label={showToolCalls ? 'Hide tool results' : 'Show tool results'}
-            title={showToolCalls ? 'Hide tool results' : 'Show tool results'}
-            className={`flex items-center gap-1.5 rounded-r2 px-2 py-1 text-xs transition-colors hover:bg-hair ${
-              showToolCalls ? 'text-ink' : 'text-mute'
-            }`}
-            onClick={() => uiStore.toggleToolCalls()}
-          >
-            <SquareTerminal size={12} strokeWidth={1.5} />
-            <span>Tool results</span>
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${showToolCalls ? 'bg-review' : 'bg-faint'}`}
+              <Divider />
+              {toolResultsButton}
+            </>
+          ) : (
+            <CollapsedMenu
+              descriptors={descriptors}
+              selections={selections}
+              onChangeOption={changeOption}
+              permissionOptions={permissionOptions}
+              permission={permission}
+              onPermissionChange={(label) => onPermissionModeChange?.(MODE_BY_LABEL[label])}
+              showToolCalls={showToolCalls}
+              onToggleToolCalls={() => uiStore.toggleToolCalls()}
             />
-          </button>
-          <button
-            type="button"
-            aria-label="Send"
-            title="Send (⏎)"
-            disabled={
-              disabled ||
-              (!text.trim() && citations.length === 0 && sendableAttachments.length === 0)
-            }
-            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-signal text-void transition-all hover:brightness-110 disabled:opacity-40"
-            onClick={send}
-          >
-            <ArrowUp size={14} strokeWidth={2} />
-          </button>
+          )}
+          {sendButton}
         </div>
       </div>
     </div>

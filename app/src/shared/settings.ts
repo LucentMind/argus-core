@@ -11,6 +11,13 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
   bypassPermissions: 'Bypass approvals'
 }
 
+/** Inverse of `PERMISSION_MODE_LABELS` — used to resolve a picker's chosen label back to
+ *  the mode it names. Shared by the Composer's permission chip/collapsed menu and the
+ *  Agent settings select so all three can't drift apart. */
+export const MODE_BY_LABEL: Record<string, PermissionMode> = Object.fromEntries(
+  Object.entries(PERMISSION_MODE_LABELS).map(([mode, label]) => [label, mode as PermissionMode])
+) as Record<string, PermissionMode>
+
 export const TIMESTAMP_FORMATS = ['locale', '12h', '24h'] as const
 export type TimestampFormat = (typeof TIMESTAMP_FORMATS)[number]
 

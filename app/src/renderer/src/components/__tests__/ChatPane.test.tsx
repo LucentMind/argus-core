@@ -358,7 +358,10 @@ describe('ChatPane', () => {
 
       it('re-anchors when the transcript grows after the initial anchor', () => {
         const scroller = renderPane('NAV-SETTLE')
-        expect(observed).toHaveLength(1)
+        // The Composer's own density observer (Task 13) also registers against this
+        // stub, so more than the transcript's own content div can appear here —
+        // assert ChatPane's effect ran, not that it is the only one in the tree.
+        expect(observed).toContain(scroller.querySelector('.space-y-3'))
         // anchored at the bottom of the pre-render height...
         sizeScroller(scroller, 500, 200)
         fireResize()

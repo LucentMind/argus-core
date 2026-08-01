@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import {
   selectionLabel,
   selectionValue,
@@ -106,6 +106,99 @@ export function DescriptorChip({
                 setOpen(false)
               }}
             />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Every control except Model and Send, in one popup. Sections are the same
+ *  `OptionSection` the wide chips use, so the two renderings cannot diverge. */
+export function CollapsedMenu({
+  descriptors,
+  selections,
+  onChangeOption,
+  permissionOptions,
+  permission,
+  onPermissionChange,
+  showToolCalls,
+  onToggleToolCalls
+}: {
+  descriptors: readonly RunOptionDescriptor[]
+  selections: readonly RunOptionSelection[]
+  onChangeOption: (d: RunOptionDescriptor, value: string | boolean) => void
+  permissionOptions: string[]
+  permission: string
+  onPermissionChange: (label: string) => void
+  showToolCalls: boolean
+  onToggleToolCalls: () => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label="More options"
+        title="More options"
+        className="flex items-center rounded-r2 px-2 py-1 text-xs text-dim transition-colors hover:bg-hair hover:text-ink"
+        onClick={() => setOpen(!open)}
+      >
+        <MoreHorizontal size={14} strokeWidth={1.5} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            aria-label="Session options"
+            className="absolute bottom-full left-0 z-20 mb-1 min-w-48 rounded-r2 border border-hair bg-overlay p-1 shadow-lg"
+          >
+            {descriptors.map((d) => (
+              <OptionSection
+                key={d.id}
+                descriptor={d}
+                selections={selections}
+                onChange={(v) => onChangeOption(d, v)}
+              />
+            ))}
+            <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Access</div>
+            {permissionOptions.map((label) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                className={`block w-full whitespace-nowrap rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
+                  label === permission ? 'text-ink' : 'text-dim'
+                }`}
+                onClick={() => {
+                  onPermissionChange(label)
+                  setOpen(false)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+            <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-mute">Tool results</div>
+            {[
+              { label: 'On', on: true },
+              { label: 'Off', on: false }
+            ].map((o) => (
+              <button
+                key={o.label}
+                type="button"
+                role="menuitem"
+                className={`block w-full rounded-r1 px-2 py-1 text-left text-xs transition-colors hover:bg-hi ${
+                  o.on === showToolCalls ? 'text-ink' : 'text-dim'
+                }`}
+                onClick={() => {
+                  if (o.on !== showToolCalls) onToggleToolCalls()
+                  setOpen(false)
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
           </div>
         </>
       )}
