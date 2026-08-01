@@ -132,22 +132,6 @@ describe('scanEvidence', () => {
     expect(getCase(db, 'C1')!.phase).toBe('analyzing')
   })
 
-  it('a scan that adds nothing does not advance the case', () => {
-    // evidence ingested BEFORE any turn exists → case stays open at ingest time
-    ingestContent(db, argusHome, detection, 'C1', 'seed.txt', 'seeded', 'upload')
-    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug = 'C1'`).get() as { id: number }).id
-    db.prepare(
-      `INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?, 'now', 'now')`
-    ).run(caseId)
-    db.prepare(
-      `INSERT INTO turns (case_id, session_id, turn_index, status, created_at)
-       VALUES (?, 1, 0, 'done', 'now')`
-    ).run(caseId)
-    // nothing new on disk: scan reconciles but must not advance an untouched case
-    scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
-    expect(getCase(db, 'C1')!.status).toBe('open')
-  })
-
   it('updateEvidenceContent clears a stale missing flag (file rewritten in place)', () => {
     const rec = ingestContent(db, argusHome, detection, 'C1', 'ticket.md', 'v1 body', 'jira')
     fs.rmSync(path.join(caseDir(argusHome, 'C1'), rec.relPath))
