@@ -1,121 +1,34 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { Chip } from './ui'
-import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
-import { useSettingsPayload } from '../lib/settingsStore'
 import { prStatusStore } from '../lib/prStatusStore'
 import { PrRollupDot } from './PrRollupDot'
-import { capabilitiesFor, defaultInstanceId } from '../../../shared/drivers'
-import type { AuthStatus, PreflightReport } from '../../../shared/types'
 
-export function HeaderChips({
-  slug,
-  sessionId,
-  instanceId = null
-}: {
-  slug: string
-  sessionId: number | null
-  /** Provider instance running this chat — cost reporting is a per-provider capability
-   *  (Copilot reports none), so it must not be read off the global default. */
-  instanceId?: string | null
-}): React.JSX.Element {
-  const [auth, setAuth] = useState<AuthStatus | null>(null)
-  const [preflight, setPreflight] = useState<PreflightReport | null>(null)
-  const state = useSyncExternalStore(
-    (cb) => agentStore.subscribe(cb),
-    () => (sessionId === null ? EMPTY_CASE_AGENT_STATE : agentStore.get(slug, sessionId))
-  )
-  // Read-only: the chip never fetches. The cache outlives review mode, so a case shows its last
-  // known PR state in any mode — which is the point of putting it in the header rather than in
-  // the review-only companion.
+/**
+ * The case's bound pull request — the one thing in this cluster that is a fact about the
+ * *case* rather than about the chat. Readiness and cost moved to `SessionChips` in the
+ * chat panel, where their subject actually lives.
+ *
+ * Read-only: the chip never fetches. The cache outlives review mode, so a case shows its
+ * last known PR state in any mode — which is the point of putting it in the header rather
+ * than in the review-only companion.
+ */
+export function HeaderChips({ slug }: { slug: string }): React.JSX.Element | null {
   const prStatus = useSyncExternalStore(
     (cb) => prStatusStore.subscribe(cb),
     () => prStatusStore.get(slug)
   )
-  const settingsPayload = useSettingsPayload()
-  const costReporting = capabilitiesFor(
-    settingsPayload?.settings,
-    instanceId ?? (settingsPayload ? defaultInstanceId(settingsPayload.settings) : null)
-  ).costReporting
-
-  useEffect(() => {
-    // authStatus() can be in flight when agent:auth-changed fires (e.g. a turn 401s
-    // right after mount). Without a sequence guard, the stale mount-time probe can
-    // resolve AFTER the refresh triggered by the broadcast and overwrite the correct
-    // (red) state back to green — a last-write-wins hazard, not just an unmount race.
-    let seq = 0
-    const refresh = (): void => {
-      const mySeq = ++seq
-      void window.argus.agent.authStatus().then((status) => {
-        if (mySeq === seq) setAuth(status)
-      })
-    }
-    refresh()
-    void window.argus.agent.preflight().then(setPreflight)
-    // The verdict changes from turn evidence (spec §5), not just at mount — a chip that
-    // only ever probed once was the whole reason a logged-out app kept showing ✓.
-    const unsubscribe = window.argus.agent.onAuthChanged(refresh)
-    return () => {
-      // Invalidate any still-in-flight probe so a response arriving after unmount
-      // (or during teardown) can never call setState.
-      seq = -1
-      unsubscribe()
-    }
-  }, [])
-
-  const authLabel = !auth
-    ? 'claude …'
-    : !auth.ok
-      ? 'claude ✗'
-      : auth.verified
-        ? 'claude ✓'
-        : 'claude ~'
-  const authTone = !auth ? 'neutral' : !auth.ok ? 'danger' : auth.verified ? 'review' : 'neutral'
-  const authTitle = !auth
-    ? 'probing claude CLI…'
-    : auth.ok && !auth.verified
-      ? `${auth.detail} — sign-in confirmed on your first message`
-      : auth.detail
-
+  if (!prStatus) return null
   return (
-    <div className="flex items-center gap-2">
-      <span title={authTitle}>
-        <Chip tone={authTone}>{authLabel}</Chip>
-      </span>
-      <span
-        title={
-          preflight
-            ? preflight.checks.map((c) => `${c.ok ? '✓' : '✗'} ${c.name}: ${c.detail}`).join('\n')
-            : 'running preflight…'
-        }
+    <Chip>
+      <a
+        href={prStatus.url}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center gap-1"
+        title={`${prStatus.owner}/${prStatus.repo}#${prStatus.number}`}
       >
-        <Chip tone={preflight?.ok ? 'review' : 'neutral'}>
-          {preflight ? (preflight.ok ? 'tools ✓' : 'tools ✗') : 'tools …'}
-        </Chip>
-      </span>
-      <Chip tone="neutral">
-        {(state.cost.inputTokens + state.cost.outputTokens).toLocaleString()} tok
-        {/* costReporting=false (e.g. Copilot v1) never accumulates a real cost —
-            say so honestly instead of rendering the accumulator's initial 0 as
-            if it were a measured $0.00 turn. */}
-        {!costReporting
-          ? ' · n/a'
-          : state.cost.costUsd > 0
-            ? ` · $${state.cost.costUsd.toFixed(2)}`
-            : ''}
-      </Chip>
-      {prStatus && (
-        <Chip>
-          <a
-            href={prStatus.url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1"
-            title={`${prStatus.owner}/${prStatus.repo}#${prStatus.number}`}
-          >
-            <PrRollupDot rollup={prStatus.rollup} size={6} />#{prStatus.number}
-          </a>
-        </Chip>
-      )}
-    </div>
+        <PrRollupDot rollup={prStatus.rollup} size={6} />#{prStatus.number}
+      </a>
+    </Chip>
   )
 }

@@ -23,7 +23,16 @@ const ev = (type: string, payload: unknown): AgentEvent =>
 beforeEach(() => {
   settingsStore.reset()
   window.argus = {
-    agent: { send: vi.fn(), interrupt: vi.fn(), onEvent: vi.fn(() => () => undefined) },
+    agent: {
+      send: vi.fn(),
+      interrupt: vi.fn(),
+      onEvent: vi.fn(() => () => undefined),
+      // ChatPane renders SessionSwitcher, which now mounts SessionChips (Task 5) beside
+      // the trigger — it probes auth/preflight on mount, same as SessionSwitcher.test.tsx.
+      authStatus: vi.fn(async () => ({ ok: true, verified: true, detail: 'claude ready' })),
+      preflight: vi.fn(async () => ({ ok: true, checks: [] })),
+      onAuthChanged: vi.fn(() => () => {})
+    },
     sessions: {
       list: vi.fn(async () => [
         { id: 1, title: '', turnCount: 0, updatedAt: '2026-07-09T00:00:00Z' }

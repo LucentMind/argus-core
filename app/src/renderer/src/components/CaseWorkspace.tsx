@@ -474,11 +474,7 @@ export function CaseWorkspace({
           <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
         )}
         <div className="ml-auto">
-          <HeaderChips
-            slug={slug}
-            sessionId={sessionId}
-            instanceId={sessions.find((s) => s.id === sessionId)?.instanceId ?? null}
-          />
+          <HeaderChips slug={slug} />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">

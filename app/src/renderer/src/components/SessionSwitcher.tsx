@@ -5,6 +5,7 @@ import { confirm } from '../lib/confirmStore'
 import { useSettingsPayload } from '../lib/settingsStore'
 import { DRIVERS, activeDriver } from '../../../shared/drivers'
 import { Chip } from './ui'
+import { SessionChips } from './SessionChips'
 
 function displayTitle(s: { id: number; title: string }): string {
   return s.title || `Chat ${s.id}`
@@ -347,6 +348,7 @@ export function SessionSwitcher({
           </>
         )}
       </div>
+      <SessionChips slug={slug} sessionId={sessionId} instanceId={active?.instanceId ?? null} />
       {/* relative z-20: own stacking context above the popup's click-away
           overlay (fixed inset-0 z-10, see above). The overlay lives inside
           the trigger's wrapper, not here, so this container's positioned
