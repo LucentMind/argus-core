@@ -89,7 +89,7 @@ describe('CaseAnchor', () => {
     const onStatusChanged = vi.fn()
     renderAnchor({ onStatusChanged })
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
-    fireEvent.click(screen.getByText('Close as…'))
+    await user.click(screen.getByText('Close as…'))
     await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
     fireEvent.click(screen.getByText('solved'))
     await vi.waitFor(() =>
@@ -102,7 +102,7 @@ describe('CaseAnchor', () => {
     const user = userEvent.setup()
     renderAnchor()
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
-    fireEvent.click(screen.getByText('Export'))
+    await user.click(screen.getByText('Export'))
     fireEvent.click(screen.getByText('Export case…'))
     await vi.waitFor(() => expect(noticeStore.get().notices).toHaveLength(1))
     expect(noticeStore.get().notices[0].message).toBe('exported 12 files')
