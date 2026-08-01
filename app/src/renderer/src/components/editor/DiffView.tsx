@@ -66,7 +66,11 @@ export function DiffView({
 
 function Side({ cell }: { cell: DiffRow['left'] }): React.JSX.Element {
   // Filler opposite an unpaired add/del — no data-kind, so it never counts as a change.
-  if (!cell) return <span className="bg-black/10" />
+  // `bg-hair/20` (Task 10 review finding 6): the previous dark-only black-alpha literal was
+  // invisible-to-wrong on a pale ground. `references/DiffView.tsx`'s `SplitDiffRows` already
+  // uses `bg-hair/20` for this exact filler; matched here rather than inventing a second token
+  // for the same job.
+  if (!cell) return <span className="bg-hair/20" />
   return (
     <span
       data-kind={cell.kind}

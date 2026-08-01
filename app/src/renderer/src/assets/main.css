@@ -109,7 +109,14 @@ body {
       0 4px 6px -4px rgb(0 0 0 / 0.1);
   }
 
-  :root[data-theme='light'] :is(.overlay-card, .overlay-menu) {
+  /* `.glass-chrome` (below) shares this exact recipe (Task 10 review finding 2): the three of
+     these are the only consumers of the frosted light recipe outside `.glass-card` itself, and
+     writing it out a third time invited the tuning pass to change the waist inset here and on
+     `.glass-chrome` separately — leaving the editor chrome with a stale bevel. One shared
+     selector list is what makes that structurally impossible; `cssRuleScan.ts`'s
+     `overlayMaterialRules` scans this rule (and `.glass-chrome`'s own dark base rule below) for
+     the position/overflow invariant the same way it already does `.overlay-card`/`.overlay-menu`. */
+  :root[data-theme='light'] :is(.overlay-card, .overlay-menu, .glass-chrome) {
     border-color: var(--glass-border);
     background:
       linear-gradient(
@@ -146,37 +153,19 @@ body {
      of bug `.overlay-card` / `.overlay-menu` above were already built to avoid for
      ModalShell/MenuButton — and the hover-lift is wrong for a bar the pointer sits over for the
      whole editing session, not a card briefly hovered. A third material of that same shape:
-     carries no layout properties, and reuses `.glass-card`'s own light recipe verbatim through
-     the same `--glass-*` / `--card-shadow` tokens rather than duplicated literals. Dark
-     reproduces TabBar/StatusBar's pre-existing `border-hair` / `bg-hi` exactly; each consumer
-     zeroes the two sides it doesn't want via Tailwind's `border-x-0` / `border-t-0` /
-     `border-b-0` utilities, which win here as they do over `.surface-card` above. */
+     carries no layout properties. Dark reproduces TabBar/StatusBar's pre-existing `border-hair` /
+     `bg-hi` exactly; each consumer zeroes the two sides it doesn't want via Tailwind's
+     `border-x-0` / `border-t-0` / `border-b-0` utilities, which win here as they do over
+     `.surface-card` above.
+
+     The light recipe is NOT repeated here (Task 10 review finding 2) — it is the same
+     `--glass-*` / `--card-shadow` composition as `.overlay-card` / `.overlay-menu`, so it lives
+     once, in the shared `:is(.overlay-card, .overlay-menu, .glass-chrome)` rule above this
+     comment's own `.overlay-*` block. Writing it a third time here let a Task 11 tuning pass
+     change the waist inset on that shared rule while this class silently kept the old bevel. */
   .glass-chrome {
     border: 1px solid var(--hair);
     background: var(--bg-hi);
-  }
-
-  :root[data-theme='light'] .glass-chrome {
-    border-color: var(--glass-border);
-    background:
-      linear-gradient(
-        146deg,
-        var(--glass-lens-1) 0%,
-        var(--glass-lens-2) 26%,
-        var(--glass-lens-3) 52%,
-        var(--glass-lens-4) 78%,
-        var(--glass-lens-5) 100%
-      ),
-      radial-gradient(120% 90% at 12% 0%, var(--glass-cap), transparent 58%),
-      var(--glass-bg);
-    box-shadow:
-      inset 0 1.5px 0 var(--glass-hi),
-      inset 1px 0 0 var(--glass-edge),
-      inset -1px 0 0 var(--glass-edge),
-      inset 0 -1.5px 0 var(--glass-edge),
-      inset 0 -22px 40px -26px var(--glass-edge),
-      var(--card-shadow);
-    backdrop-filter: var(--glass-filter);
   }
 
   .markdown-body > * + * {

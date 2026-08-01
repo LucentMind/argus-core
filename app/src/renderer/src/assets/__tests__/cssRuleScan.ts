@@ -61,10 +61,18 @@ export function leafRules(css: string): CssRule[] {
   return rules
 }
 
-/** Every leaf rule whose selector text mentions `.overlay-card` or `.overlay-menu` — the dark
- *  base rules AND the `:is(.overlay-card, .overlay-menu)` light override alike. */
+/** Every leaf rule whose selector text mentions `.overlay-card`, `.overlay-menu` or
+ *  `.glass-chrome` — the dark base rules AND the
+ *  `:is(.overlay-card, .overlay-menu, .glass-chrome)` light override alike. `.glass-chrome`
+ *  joined this scan at Task 10 review (finding 2/3): it exists for exactly the same
+ *  layout-carrying-properties reason `.overlay-card` / `.overlay-menu` do (see main.css's
+ *  comment above `.overlay-card`), so it needs the same position/overflow guard, and merging
+ *  its light recipe into the shared `:is(...)` selector is what this scan now picks up for free. */
 export function overlayMaterialRules(css: string): CssRule[] {
   return leafRules(css).filter(
-    (r) => r.selector.includes('.overlay-card') || r.selector.includes('.overlay-menu')
+    (r) =>
+      r.selector.includes('.overlay-card') ||
+      r.selector.includes('.overlay-menu') ||
+      r.selector.includes('.glass-chrome')
   )
 }

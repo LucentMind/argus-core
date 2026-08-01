@@ -22,6 +22,19 @@ const TABS: Tab[] = [
 ]
 
 describe('TabBar', () => {
+  // Task 10 review finding 7: replaces a bare file-string scan
+  // (`expect(read('TabBar.tsx')).toContain('glass-chrome')`), which passed no matter where in the
+  // file the class sat. This renders the strip and asserts on the root element's own className,
+  // the way ModalShell.test.tsx / MenuButton.test.tsx already pin `.overlay-card`/`.overlay-menu`.
+  it('the strip carries the frosted chrome material, not glass-card', () => {
+    const { container } = render(
+      <TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />
+    )
+    const cls = container.firstElementChild!.className
+    expect(cls).toContain('glass-chrome')
+    expect(cls).not.toContain('glass-card')
+  })
+
   it('renders one tab per open asset', () => {
     render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
     expect(screen.getAllByRole('tab')).toHaveLength(3)
@@ -90,6 +103,20 @@ describe('TabBar', () => {
     expect(items.map((i) => i.textContent)).toEqual(['alpha', 'beta', 'notes.md'])
     await userEvent.click(items[2])
     expect(onActivate).toHaveBeenCalledWith('t3')
+  })
+
+  // Task 10 review finding 4: the dropdown used to carry `border border-hair bg-panel shadow-lg`
+  // — a flat, dark-tuned literal — while every other menu in the app reads frosted through
+  // `.overlay-menu`. `overlay-menu` carries no layout properties (pinned in themeTokens.test.ts),
+  // so this also checks the dropdown kept its own positioning.
+  it('the "All tabs" dropdown carries the overlay material, not a flat dark-tuned panel', async () => {
+    render(<TabBar tabs={TABS} activeId="t1" onActivate={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /all tabs/i }))
+    const cls = screen.getByRole('menu').className
+    expect(cls).toContain('overlay-menu')
+    expect(cls).toContain('absolute')
+    expect(cls).not.toContain('bg-panel')
+    expect(cls).not.toContain('shadow-lg')
   })
 
   it('closes the dropdown after a pick', async () => {

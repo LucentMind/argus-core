@@ -341,21 +341,22 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     expect(dyn).not.toMatch(/\[role=['"]menu['"]\]/)
   })
 
-  it('.overlay-card and .overlay-menu exist in main.css and never declare position/overflow', () => {
+  it('.overlay-card, .overlay-menu and .glass-chrome exist in main.css and never declare position/overflow', () => {
     // The defect this rework fixes: `.glass-card` sets `position: relative; overflow: hidden`,
     // unlayered, which out-cascades the dropdown's own `absolute` Tailwind utility and would
-    // clip its `left-full` submenu. Neither replacement class may ever acquire either property —
-    // that is the whole point of splitting them out of `.glass-card`.
+    // clip its `left-full` submenu (and, for `.glass-chrome`, TabBar's own "All tabs" dropdown —
+    // Task 10's own deviation report). None of the three replacement classes may ever acquire
+    // either property — that is the whole point of splitting them out of `.glass-card`.
     //
-    // Scans EVERY rule whose selector mentions either class (via cssRuleScan's leafRules), not
-    // just the first exact-substring hit: the light override is spelled
-    // `:is(.overlay-card, .overlay-menu) { … }` and was silently unscanned by an earlier version
-    // of this test that used `main.indexOf('.overlay-card {')`.
+    // Scans EVERY rule whose selector mentions any of the three classes (via cssRuleScan's
+    // leafRules), not just the first exact-substring hit: the light override is spelled
+    // `:is(.overlay-card, .overlay-menu, .glass-chrome) { … }` and was silently unscanned by an
+    // earlier version of this test that used `main.indexOf('.overlay-card {')`.
     const rules = overlayMaterialRules(main)
     expect(
       rules.length,
-      'expected the dark base rules plus the light override'
-    ).toBeGreaterThanOrEqual(3)
+      'expected the three dark base rules plus the one shared light override'
+    ).toBeGreaterThanOrEqual(4)
     for (const { selector, body } of rules) {
       expect(body, `${selector} must not declare position`).not.toMatch(/(?<![\w-])position\s*:/)
       expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
@@ -384,5 +385,41 @@ describe('overlay material (dialogs and menus own their own look, not glass-card
     expect(shadowValue(menu!.body)).toBe(
       '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)'
     )
+  })
+
+  // Task 10 review finding 3: `.overlay-card` / `.overlay-menu` had the position/overflow guard
+  // above, and `.surface-card` has a layer pin (Card.glass.test.tsx) — but `.glass-chrome` had
+  // neither, despite existing for exactly the reason those invariants protect against. Pinned
+  // here rather than duplicating Card.glass.test.tsx's walk, using exact-substring anchors (the
+  // dark rule's own selector, and the merged light override's selector) rather than a bare
+  // `.glass-chrome` substring search, which would also match the class name inside doc comments.
+  it('.glass-chrome stays inside @layer components (unlayered would beat the layout utilities)', () => {
+    const layerStart = main.indexOf('@layer components {')
+    expect(layerStart).toBeGreaterThanOrEqual(0)
+    const braceOpen = main.indexOf('{', layerStart)
+    let depth = 0
+    let layerEnd = -1
+    for (let i = braceOpen; i < main.length; i++) {
+      if (main[i] === '{') depth++
+      else if (main[i] === '}') {
+        depth--
+        if (depth === 0) {
+          layerEnd = i
+          break
+        }
+      }
+    }
+    expect(layerEnd).toBeGreaterThan(braceOpen)
+
+    const darkIdx = main.indexOf('.glass-chrome {')
+    expect(darkIdx, 'the dark .glass-chrome rule must be found').toBeGreaterThanOrEqual(0)
+    expect(darkIdx).toBeGreaterThan(braceOpen)
+    expect(darkIdx).toBeLessThan(layerEnd)
+
+    const lightSelector = ':is(.overlay-card, .overlay-menu, .glass-chrome) {'
+    const lightIdx = main.indexOf(lightSelector)
+    expect(lightIdx, 'the merged light override selector must be found').toBeGreaterThanOrEqual(0)
+    expect(lightIdx).toBeGreaterThan(braceOpen)
+    expect(lightIdx).toBeLessThan(layerEnd)
   })
 })

@@ -239,6 +239,26 @@ describe('EditorApp', () => {
     expect(screen.getByText(/nothing open/i)).toBeInTheDocument()
   })
 
+  // Task 10 review finding 1: the shell used to carry `glass-panel`, which changes DARK for no
+  // reason (measured: #111114 -> #090b0e, a shadow appearing from `box-shadow: none`) and is the
+  // only conversion in the whole plan that does — every sibling material (`.surface-card`,
+  // `.overlay-card`, `.overlay-menu`, `.glass-chrome` itself) deliberately reproduces dark
+  // verbatim. `surface-card`'s dark rule IS the pre-existing `border border-hair bg-panel`
+  // verbatim, and in light the two materials are identical by construction (theme.css's comment
+  // above `--panel-bg`). Also finding 7: a rendered assertion on the shell's own className,
+  // replacing the old file-string scan that would go green even if `glass-panel` moved onto a
+  // nested tab, and go red the moment anyone wrote the word "glass-chrome" in a comment.
+  it('the shell carries surface-card, and is never glass-panel/glass-card/glass-chrome', () => {
+    const { container } = render(<EditorApp />)
+    const shell = container.querySelector('.rounded-r3')
+    expect(shell, 'the editor shell (rounded-r3) must be found').not.toBeNull()
+    const cls = shell!.className
+    expect(cls).toContain('surface-card')
+    expect(cls).not.toContain('glass-panel')
+    expect(cls).not.toContain('glass-card')
+    expect(cls).not.toContain('glass-chrome')
+  })
+
   it('renders the editor for an asset pushed from main', async () => {
     render(<EditorApp />)
     openTab!(SKILL)
