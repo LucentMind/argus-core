@@ -267,3 +267,32 @@ body {
     0.75rem + 100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px)
   );
 }
+
+/* Platform-scoped floors (review issue 1, Critical; `data-platform` stamped by uiStore's
+   applyPlatform() from `window.argus.platform`, i.e. `process.platform` surfaced in preload).
+
+   `.argus-titlebar-inset` above trusts env(titlebar-area-*) unconditionally, and a live boot has
+   been observed where Chromium never activates the Window Controls Overlay and reports
+   `navigator.windowControlsOverlay.visible === false` — the vars are then never published and
+   both fallbacks above collapse to a plain 12px gutter (tuned for the jsdom suite, not for a real
+   window). Before this feature the native caption bar made overlap with the OS buttons
+   impossible; these rules keep that failure mode cosmetic — a wrong-sized gutter — instead of
+   letting an app control render underneath a system button. They refine the base rule; they do
+   not replace it. */
+:root[data-platform='win32'] .argus-titlebar-inset {
+  /* ~140px reserves space for the Windows minimize/maximize/close cluster when the overlay vars
+     never arrive, instead of the base rule's 12px (which leaves the cluster overlapping app
+     content). Still a guess, but a much safer one than "no reservation at all". */
+  padding-right: calc(
+    0.75rem + 100vw - env(titlebar-area-width, calc(100vw - 140px)) - env(titlebar-area-x, 0px)
+  );
+}
+
+:root[data-platform='darwin'] .argus-titlebar-inset {
+  /* 78px is an UNVERIFIED FLOOR, not a measured fact: the original design spec asserted "~78px on
+     macOS" for the traffic-light cluster with no captured evidence, and nobody has run this build
+     on a Mac to confirm it (review issue 3). Treat it only as a floor — `max()` lets a genuine
+     `env(titlebar-area-x)` value win once someone measures and it turns out to differ — and
+     update this comment with real numbers the day that measurement happens. */
+  padding-left: max(78px, calc(0.75rem + env(titlebar-area-x, 0px)));
+}

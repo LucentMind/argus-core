@@ -814,7 +814,10 @@ const argus = {
     }
   },
   pathForFile: (file: File) => webUtils.getPathForFile(file),
-  openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url)
+  openExternal: (url: string) => ipcRenderer.invoke(IPC.appOpenExternal, url),
+  /** For CSS platform floors (`data-platform` in main.css) — main.css:264's
+   *  `.argus-titlebar-inset` cannot otherwise tell a Windows build from a macOS one. */
+  platform: process.platform
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

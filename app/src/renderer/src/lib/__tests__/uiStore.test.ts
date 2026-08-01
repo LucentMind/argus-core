@@ -69,6 +69,34 @@ describe('UiStore', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
   })
 
+  // Task 4 (review issue 1, Critical): main.css's platform-scoped floors for
+  // .argus-titlebar-inset key off data-platform, so it has to land before anything else reads it.
+  it('stamps data-platform on the document at construction, mirroring data-theme', () => {
+    document.documentElement.removeAttribute('data-platform')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = {
+      platform: 'win32',
+      ui: { setZoomFactor: vi.fn() },
+      panels: { setTheme: vi.fn() }
+    }
+    new UiStore()
+    expect(document.documentElement.getAttribute('data-platform')).toBe('win32')
+  })
+
+  it('applyToDocument re-stamps data-platform too, for the editor window', () => {
+    document.documentElement.removeAttribute('data-platform')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).argus = {
+      platform: 'darwin',
+      ui: { setZoomFactor: vi.fn() },
+      panels: { setTheme: vi.fn() }
+    }
+    const store = new UiStore()
+    document.documentElement.removeAttribute('data-platform')
+    store.applyToDocument()
+    expect(document.documentElement.getAttribute('data-platform')).toBe('darwin')
+  })
+
   it('toggleTheme flips the attribute and persists across instances', () => {
     const store = new UiStore()
     store.toggleTheme()
