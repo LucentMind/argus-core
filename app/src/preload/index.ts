@@ -22,7 +22,7 @@ import type {
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload, PermissionMode } from '../shared/settings'
-import type { RunOptionSelection } from '../shared/runOptions'
+import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
 import type { SourceControlStatus } from '../shared/sourcecontrol'
@@ -377,6 +377,12 @@ const argus = {
       ipcRenderer.invoke(IPC.sessionsSetPermissionMode, sessionId, mode),
     delete: (caseSlug: string, sessionId: number): Promise<void> =>
       ipcRenderer.invoke(IPC.sessionsDelete, caseSlug, sessionId)
+  },
+  models: {
+    /** The option-bearing model catalog this instance's CLI reports. Empty for
+     *  drivers with no runtime catalog. */
+    catalog: (instanceId: string): Promise<ModelOptionInfo[]> =>
+      ipcRenderer.invoke(IPC.modelsCatalog, instanceId)
   },
   modes: {
     /** The modes available to a case right now, given its current mode context. */

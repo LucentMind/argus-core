@@ -157,7 +157,14 @@ function prMaterializer(argusHome: string, caseSlug: string): PrMaterializer {
 import type { PrRef } from '../shared/pr'
 import { readRepoSnippet, readRepoText } from './services/workspaceRead'
 import { exportCase, importCase, inspectBundle } from './services/bundle'
-import { activeInstanceConfig, defaultModelRef } from '../shared/drivers'
+import {
+  activeInstanceConfig,
+  defaultModelRef,
+  driverConfig,
+  type AgentDriverConfig
+} from '../shared/drivers'
+import { defaultCreateQuery as createClaudeQuery } from './services/agent/drivers/claude'
+import { fetchCatalog } from './services/agent/drivers/claude/catalog'
 import { composeReviewRunPrompt } from './services/agent/reviewRunCompose'
 import { composeReviewActionPrompt } from './services/agent/reviewActionCompose'
 import { composeCiTriagePrompt } from './services/agent/ciTriageCompose'
@@ -1277,6 +1284,19 @@ function registerIpc(): void {
     assertSlug(caseSlug)
     if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     return readSessionEvents(caseDir(argusHome, caseSlug), sessionId)
+  })
+  // The composer needs each model's option descriptors (effort levels, 1M context,
+  // adaptive thinking) before any session/query exists. Only the Claude driver has a
+  // runtime catalog; every other instance returns [] rather than something speculative,
+  // so option controls never appear on a model that cannot honour them.
+  ipcMain.handle(IPC.modelsCatalog, async (_e, instanceId: string) => {
+    const settings = settingsService.get()
+    const inst = settings.agent.providerInstances[instanceId]
+    if (!inst?.enabled) return []
+    const resolved = resolveInstanceDriver(settings.agent, instanceId)
+    if (resolved.driver.kind !== 'claude-agent-sdk') return []
+    const cfg = driverConfig<AgentDriverConfig>(resolved.driver.kind, inst.config)
+    return fetchCatalog(createClaudeQuery, cfg.cliPath ? { cliPath: cfg.cliPath } : {})
   })
   // A new chat is seeded with the DEFAULT provider instance and its default model, pinned
   // at creation. The user can re-pin it from the composer's model picker afterwards.

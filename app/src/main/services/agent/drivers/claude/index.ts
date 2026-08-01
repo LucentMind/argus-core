@@ -30,7 +30,9 @@ export type CreateQueryFn = (args: {
 }) => QueryHandle
 
 // This module owns defaultCreateQuery; registry.ts consumes it via createClaudeDriver().
-const defaultCreateQuery: CreateQueryFn = (args) =>
+// Exported too: the models:catalog IPC handler (main/index.ts) needs a CreateQueryFn to
+// fetch the runtime catalog before any driver/session is constructed.
+export const defaultCreateQuery: CreateQueryFn = (args) =>
   query({ prompt: args.prompt as never, options: args.options as never }) as never
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
