@@ -80,7 +80,8 @@ function compareSemverDesc(a: string, b: string): number {
 }
 
 /**
- * Reads `argusApi` from the BUNDLE's own manifest, not the source manifest passed via `packDir`.
+ * Reads `argusApi` from the BUNDLE's own manifest, not the source manifest passed via `packDir`,
+ * and asserts the bundle's own declared `id`/`version` agree with what its FILENAME claims.
  *
  * The plan originally stamped every entry with the source manifest's current `argusApi`
  * ("unzipping each bundle would be wasteful"). That forces a single-version feed: after a vendor
@@ -90,10 +91,21 @@ function compareSemverDesc(a: string, b: string): number {
  * `packFeedSchema.versions` is a LIST rather than a `latest` pointer (see feed.ts's doc comment
  * in `app/src/main/services/packs/feed.ts`). Reading each bundle's own manifest is not
  * meaningfully more expensive at publish time, so the human overruled the original tradeoff.
+ *
+ * The id/version cross-check (Minor c of the final review) exists because `app/.../packUpdates.ts`
+ * `apply()` treats a mismatch between a downloaded bundle's manifest and the feed entry that
+ * pointed at it as FATAL, for every user, at update time — refusing to install it under another
+ * pack's identity. The manifest is already being parsed here to read `argusApi`; asserting it
+ * agrees with what the filename (id, version) and `packDir` (id) claim catches a bundle built
+ * from a stale or mislabeled source before it is ever published, rather than after every user's
+ * update attempt starts failing.
  */
-async function readBundleArgusApi(bundlePath: string): Promise<string> {
+async function readBundleArgusApi(
+  bundlePath: string,
+  expected: { id: string; version: string }
+): Promise<string> {
   const name = path.basename(bundlePath)
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-feed-'))
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'packtools-feed-')))
   try {
     try {
       await extract(bundlePath, tmp, { safeSymlinksOnly: true })
@@ -114,6 +126,20 @@ async function readBundleArgusApi(bundlePath: string): Promise<string> {
     if (!parsed.success) {
       throw new Error(
         `bundle '${name}' has an invalid ${PACK_MANIFEST_FILE}: ${parsed.error.issues[0]?.message ?? parsed.error.message}`
+      )
+    }
+    if (parsed.data.id !== expected.id) {
+      throw new Error(
+        `bundle '${name}' declares pack id '${parsed.data.id}' in its manifest, but its filename ` +
+          `(and source pack) says '${expected.id}' — refusing to publish a feed entry whose bundle ` +
+          `disagrees with itself`
+      )
+    }
+    if (parsed.data.version !== expected.version) {
+      throw new Error(
+        `bundle '${name}' declares version '${parsed.data.version}' in its manifest, but its ` +
+          `filename says '${expected.version}' — refusing to publish a feed entry whose bundle ` +
+          `disagrees with itself`
       )
     }
     return parsed.data.argusApi
@@ -163,8 +189,9 @@ export async function buildFeed(opts: FeedOptions): Promise<FeedDocument> {
     }
     // Filename checks above are cheap and synchronous, so a bundle that's obviously wrong (bad
     // name, wrong pack) fails fast without ever needing to be a valid zip. Only a bundle that's
-    // passed all of that is actually opened to read its own argusApi.
-    const argusApi = await readBundleArgusApi(bundlePath)
+    // passed all of that is actually opened to read its own argusApi (and to cross-check its own
+    // declared id/version against what this filename claims — Minor c).
+    const argusApi = await readBundleArgusApi(bundlePath, { id: manifest.id, version })
     versions.push({
       version,
       argusApi,

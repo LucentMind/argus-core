@@ -90,8 +90,16 @@ describe('buildFeed', () => {
     // alongside a newer one built against '^2'. Stamping both with whatever the CURRENT source
     // manifest says would relabel the older bundle and strand ^1-Core users who could otherwise
     // still get it.
-    const older = await zipBundle('sample-1.1.0-win-x64.zip', { argusApi: '^1' }, 'older')
-    const newer = await zipBundle('sample-2.0.0-win-x64.zip', { argusApi: '^2' }, 'newer')
+    const older = await zipBundle(
+      'sample-1.1.0-win-x64.zip',
+      { version: '1.1.0', argusApi: '^1' },
+      'older'
+    )
+    const newer = await zipBundle(
+      'sample-2.0.0-win-x64.zip',
+      { version: '2.0.0', argusApi: '^2' },
+      'newer'
+    )
     const feed = await buildFeed({
       packDir,
       bundles: [older, newer],
@@ -124,9 +132,21 @@ describe('buildFeed', () => {
   })
 
   it('sorts versions by semver descending (Fix 6i)', async () => {
-    const b110 = await zipBundle('sample-1.1.0-win-x64.zip', { argusApi: '^1' }, 'a')
-    const b300 = await zipBundle('sample-3.0.0-win-x64.zip', { argusApi: '^1' }, 'b')
-    const b200 = await zipBundle('sample-2.0.0-win-x64.zip', { argusApi: '^1' }, 'c')
+    const b110 = await zipBundle(
+      'sample-1.1.0-win-x64.zip',
+      { version: '1.1.0', argusApi: '^1' },
+      'a'
+    )
+    const b300 = await zipBundle(
+      'sample-3.0.0-win-x64.zip',
+      { version: '3.0.0', argusApi: '^1' },
+      'b'
+    )
+    const b200 = await zipBundle(
+      'sample-2.0.0-win-x64.zip',
+      { version: '2.0.0', argusApi: '^1' },
+      'c'
+    )
     const feed = await buildFeed({
       packDir,
       bundles: [b110, b300, b200],
@@ -210,6 +230,30 @@ describe('buildFeed', () => {
         baseUrl: 'https://v.example'
       })
     ).rejects.toThrow(/does not belong to pack 'sample'/)
+  })
+
+  it("fails naming the bundle when its manifest id disagrees with its own filename (Minor c)", async () => {
+    // The filename/packDir checks earlier only look at the STRING id embedded in the filename —
+    // they never open the zip. A bundle built from a stale or mislabeled source dir can carry a
+    // manifest whose `id` disagrees with that, and `app/.../packUpdates.ts apply()` treats that
+    // mismatch as fatal for every user at update time. Catch it here, at publish time, instead.
+    const bundlePath = await zipBundle('sample-1.1.0-win-x64.zip', {
+      id: 'not-sample',
+      argusApi: '^1'
+    })
+    await expect(
+      buildFeed({ packDir, bundles: [bundlePath], baseUrl: 'https://v.example' })
+    ).rejects.toThrow(/sample-1\.1\.0-win-x64\.zip.*declares pack id 'not-sample'/s)
+  })
+
+  it('fails naming the bundle when its manifest version disagrees with its own filename (Minor c)', async () => {
+    const bundlePath = await zipBundle('sample-1.1.0-win-x64.zip', {
+      version: '9.9.9',
+      argusApi: '^1'
+    })
+    await expect(
+      buildFeed({ packDir, bundles: [bundlePath], baseUrl: 'https://v.example' })
+    ).rejects.toThrow(/sample-1\.1\.0-win-x64\.zip.*declares version '9\.9\.9'/s)
   })
 
   it('parses a hyphenated pack id and a prerelease version correctly', async () => {
