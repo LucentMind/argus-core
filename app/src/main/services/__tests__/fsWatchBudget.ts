@@ -61,7 +61,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * @returns      How many pokes it took.
  */
 export async function armFsWatch(poke: () => void, fired: () => boolean): Promise<number> {
-  const deadline = Date.now() + FS_WATCH_TIMEOUT
+  const started = Date.now()
+  const deadline = started + FS_WATCH_TIMEOUT
   let pokes = 0
   while (Date.now() < deadline) {
     poke()
@@ -69,12 +70,13 @@ export async function armFsWatch(poke: () => void, fired: () => boolean): Promis
     const until = Date.now() + FS_WATCH_POLL_MS
     while (Date.now() < until) {
       if (fired()) {
+        const armedMs = Date.now() - started
+        // Always logged, both platforms, so the numbers can be compared rather than argued
+        // about. `pokes > 1` is the strong form of the diagnosis (the first event was lost
+        // outright); a single poke with a long `armedMs` is the weak form (it was merely
+        // late). Both are macOS-only predictions — Windows should read 1 poke, ~debounce ms.
+        console.warn(`[fsWatchBudget] armed after ${pokes} poke(s), ${armedMs}ms`)
         await sleep(DEBOUNCE_SETTLE_MS)
-        if (pokes > 1) {
-          // Deliberately noisy: this line appearing on macOS and not on Windows is the
-          // evidence for the lost-first-event diagnosis above.
-          console.warn(`[fsWatchBudget] watcher armed only after ${pokes} pokes`)
-        }
         return pokes
       }
       await sleep(25)
