@@ -34,4 +34,14 @@ describe('ground surfaces', () => {
       expect(src, `${file} still hand-rolls a card fill`).not.toMatch(/\bbg-panel\b/)
     }
   })
+
+  describe('card surfaces', () => {
+    it('MermaidBlock uses the shared material, not a raw bg-panel fill', () => {
+      const [file] = walk(COMPONENTS).filter((f) => f.endsWith('MermaidBlock.tsx'))
+      expect(file, 'MermaidBlock.tsx not found — rename?').toBeDefined()
+      const src = readFileSync(file, 'utf8')
+      expect(src).toContain('surface-card')
+      expect(src).not.toMatch(/\bbg-panel\b/)
+    })
+  })
 })

@@ -60,7 +60,7 @@ export function MermaidBlock({
         aria-label="Expand diagram"
         tabIndex={0}
         title="Click to expand"
-        className="max-h-[28rem] cursor-zoom-in overflow-hidden rounded-r2 border border-hair bg-panel p-2 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[27rem] [&_svg]:w-auto [&_svg]:max-w-full"
+        className="max-h-[28rem] cursor-zoom-in overflow-hidden rounded-r2 surface-card p-2 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[27rem] [&_svg]:w-auto [&_svg]:max-w-full"
         onClick={() => setExpanded(true)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') setExpanded(true)
@@ -75,7 +75,7 @@ export function MermaidBlock({
           <div
             role="dialog"
             aria-label="Diagram"
-            className="mermaid-lightbox h-full w-full overflow-auto rounded-r3 bg-panel p-4"
+            className="mermaid-lightbox h-full w-full overflow-auto rounded-r3 bg-hi p-4"
             onClick={(e) => e.stopPropagation()}
             dangerouslySetInnerHTML={{ __html: phase.svg }}
           />
