@@ -446,7 +446,9 @@ describe('CaseWorkspace mode switching', () => {
         driverKind: 'claude-agent-sdk',
         instanceId: null,
         model: null,
-        mode: 'investigation'
+        mode: 'investigation',
+        runOptions: [],
+        permissionMode: null
       },
       {
         id: 7,
@@ -456,7 +458,9 @@ describe('CaseWorkspace mode switching', () => {
         driverKind: 'claude-agent-sdk',
         instanceId: null,
         model: null,
-        mode: 'review'
+        mode: 'review',
+        runOptions: [],
+        permissionMode: null
       }
     ])
     window.argus.cases.setMode = vi.fn(async () => ({ sessionId: 7 }))
@@ -478,7 +482,9 @@ describe('CaseWorkspace mode switching', () => {
         driverKind: 'claude-agent-sdk',
         instanceId: null,
         model: null,
-        mode: 'investigation'
+        mode: 'investigation',
+        runOptions: [],
+        permissionMode: null
       },
       {
         id: 7,
@@ -488,7 +494,9 @@ describe('CaseWorkspace mode switching', () => {
         driverKind: 'claude-agent-sdk',
         instanceId: null,
         model: null,
-        mode: 'review'
+        mode: 'review',
+        runOptions: [],
+        permissionMode: null
       }
     ])
 

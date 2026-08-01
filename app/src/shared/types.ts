@@ -1,6 +1,8 @@
 import type { ActionItem } from './triage'
 import type { ModeId } from './modes'
 import type { EvidenceScope } from './evidenceScope'
+import type { RunOptionSelection } from './runOptions'
+import type { PermissionMode } from './settings'
 
 export type CaseStatus = 'open' | 'analyzing' | 'rca-drafted' | 'closed'
 
@@ -124,6 +126,10 @@ export interface SessionSummary {
   /** The mode axis this session is pinned to (e.g. `'investigation'`, `'review'`) —
    *  stamped at creation (sessions.mode), same pattern as driverKind/instanceId/model. */
   mode: ModeId
+  /** Per-session option selections (see shared/runOptions.ts). Empty means all defaults. */
+  runOptions: RunOptionSelection[]
+  /** Per-session permission mode. Null means "use the settings default". */
+  permissionMode: PermissionMode | null
 }
 
 /** Result of a manual evidence-folder scan (evidence:scan). Lists are relPaths. */
