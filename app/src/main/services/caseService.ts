@@ -227,8 +227,17 @@ export function listCases(db: DatabaseSync): CaseRecord[] {
     if (d !== 0) return d
     const u = b.updatedAt > a.updatedAt ? 1 : b.updatedAt < a.updatedAt ? -1 : 0
     if (u !== 0) return u
-    // Priority is the LAST tiebreak only — a chip you read, not a key you trust.
-    return PRIORITY_ORDER(a.jiraPriority) - PRIORITY_ORDER(b.jiraPriority)
+    const p = PRIORITY_ORDER(a.jiraPriority) - PRIORITY_ORDER(b.jiraPriority)
+    if (p !== 0) return p
+    // Priority was the last key, which left fully-tied cases on `sort`'s stability — i.e.
+    // on the order `SELECT * FROM cases` happened to return, which is rowid order, which
+    // is oldest-first: the reverse of what every other key here means. `createdAt`/
+    // `updatedAt` are ISO strings with millisecond resolution, so two cases created inside
+    // one millisecond tie on `u` above, and on macOS CI that happened often enough to fail
+    // `lists newest first` in 3 of 50 full-suite runs. Newest id first restores the
+    // intended sense and makes the order total, so the dashboard cannot reshuffle two
+    // same-millisecond cases between reads either.
+    return b.id - a.id
   })
 }
 
