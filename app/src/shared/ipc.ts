@@ -38,6 +38,8 @@ export const IPC = {
   sessionsCreate: 'sessions:create',
   sessionsRename: 'sessions:rename',
   sessionsSetModel: 'sessions:set-model',
+  sessionsSetRunOptions: 'sessions:set-run-options',
+  sessionsSetPermissionMode: 'sessions:set-permission-mode',
   modesAvailable: 'modes:available',
   workspacesPick: 'workspaces:pick',
   workspacesLink: 'workspaces:link',

@@ -117,6 +117,9 @@ import {
   listSessions,
   createSession,
   setSessionModel,
+  setSessionRunOptions,
+  setSessionPermissionMode,
+  assertPermissionMode,
   renameSession,
   deleteSession
 } from './services/agent/sessionStore'
@@ -1319,6 +1322,22 @@ function registerIpc(): void {
       return changed
     }
   )
+  ipcMain.handle(
+    IPC.sessionsSetRunOptions,
+    (_e, sessionId: number, sel: { id: string; value: string | boolean }[]) => {
+      if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+      if (!Array.isArray(sel)) throw new Error('Run options must be an array')
+      // The renderer has already pruned against the current model's descriptors; this
+      // layer only guards shape. The live CaseSession has these frozen at query()
+      // construction — AgentService compares optionsKey on the next send and rebuilds.
+      return setSessionRunOptions(db, sessionId, sel)
+    }
+  )
+  ipcMain.handle(IPC.sessionsSetPermissionMode, (_e, sessionId: number, mode: unknown) => {
+    if (!Number.isInteger(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
+    assertPermissionMode(mode)
+    return setSessionPermissionMode(db, sessionId, mode)
+  })
   ipcMain.handle(IPC.sessionsRename, (_e, sessionId: number, title: string) =>
     renameSession(db, sessionId, title)
   )

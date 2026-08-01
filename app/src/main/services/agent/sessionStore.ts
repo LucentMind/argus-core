@@ -357,6 +357,14 @@ export function sessionPermissionMode(
   return parsePermissionMode(row?.permission_mode ?? null)
 }
 
+/** Throws on anything that is not a real PermissionMode. Used at the IPC boundary:
+ *  pinning a session to a mode no driver understands would strand the chat. */
+export function assertPermissionMode(value: unknown): asserts value is PermissionMode {
+  if (typeof value !== 'string' || !(PERMISSION_MODES as readonly string[]).includes(value)) {
+    throw new Error(`Invalid permission mode: ${String(value)}`)
+  }
+}
+
 export function setSessionPermissionMode(
   db: DatabaseSync,
   sessionId: number,
