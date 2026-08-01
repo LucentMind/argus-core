@@ -3,7 +3,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { PackUpdatesService, type HttpClient, type HttpResponse } from '../packUpdates'
+import { createServer, type Server, type RequestListener } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import {
+  PackUpdatesService,
+  nodeHttpClient,
+  HttpTooLargeError,
+  type HttpClient,
+  type HttpResponse
+} from '../packUpdates'
 import { PacksStateStore } from '../packsState'
 import type { InstallResult } from '../../../../shared/packs'
 
@@ -136,6 +144,18 @@ describe('checkAll', () => {
     expect((await svc(c).checkAll()).sample).toMatchObject({ phase: 'error', code: 'feed' })
   })
 
+  it('reports too-large, not feed, when the feed response breaches its byte cap', async () => {
+    // The fake throws the exact shape the real nodeHttpClient throws (see the
+    // `describe('nodeHttpClient')` block below, which proves the real client throws this too).
+    const c = http({
+      'https://vendor.example/feed.json': () => {
+        throw new HttpTooLargeError(1024)
+      }
+    })
+    const s = (await svc(c).checkAll()).sample
+    expect(s).toMatchObject({ phase: 'error', code: 'too-large' })
+  })
+
   it('isolates failures per pack — one dead vendor does not hide another pack update', async () => {
     state.set('beta', '1.0.0')
     state.setSource('beta', {
@@ -255,5 +275,104 @@ describe('apply', () => {
     await svc(c).apply('sample')
     const leftovers = fs.readdirSync(home).filter((n) => n.startsWith('.pack-update-'))
     expect(leftovers).toEqual([])
+  })
+
+  it('reports too-large, not feed, when the bundle download breaches its byte cap', async () => {
+    const c = http({
+      'https://vendor.example/feed.json': ok(feedBody()),
+      'https://vendor.example/sample-1.1.0-win-x64.zip': () => {
+        throw new HttpTooLargeError(512 * 1024 * 1024)
+      }
+    })
+    expect(await svc(c).apply('sample')).toMatchObject({ phase: 'error', code: 'too-large' })
+    expect(install).not.toHaveBeenCalled()
+  })
+
+  it('still resolves to the correct UpdateStatus when temp-dir cleanup fails', async () => {
+    // Realistic on Windows: an AV scanner or installPack's own extract can still hold a handle
+    // on the just-written zip when apply() tries to remove the temp dir. That must not turn a
+    // successful apply into a rejected promise, and must not surface as anything but 'ready'.
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation(() => {
+      throw new Error('EBUSY: resource busy or locked')
+    })
+    try {
+      const c = http({ 'https://vendor.example/feed.json': ok(feedBody()), ...bundleRoute })
+      await expect(svc(c).apply('sample')).resolves.toEqual({ phase: 'ready', version: '1.1.0' })
+    } finally {
+      rmSpy.mockRestore()
+    }
+  })
+})
+
+/**
+ * Every other test in this file injects a fake `HttpClient` whose `get` ignores `maxBytes`
+ * entirely, so the production `nodeHttpClient` — the byte cap, the `redirect: 'manual'` flag,
+ * the abort/timeout wiring, and the `location` header read — was previously exercised by
+ * nothing. These tests drive it against a real `http.createServer` on an ephemeral port. Plain
+ * `http` (not https) is correct here: the https-only policy lives in the service's
+ * `assertHttps`, not in the transport.
+ */
+describe('nodeHttpClient', () => {
+  let server: Server | null = null
+  let baseUrl: string
+
+  function listen(handler: RequestListener): Promise<void> {
+    return new Promise((resolve) => {
+      server = createServer(handler)
+      server.listen(0, '127.0.0.1', () => {
+        const { port } = server!.address() as AddressInfo
+        baseUrl = `http://127.0.0.1:${port}`
+        resolve()
+      })
+    })
+  }
+
+  afterEach(async () => {
+    if (!server) return
+    const s = server
+    server = null
+    await new Promise<void>((resolve) => s.close(() => resolve()))
+    s.closeAllConnections()
+  })
+
+  it('surfaces a 302 status and its Location header without following it', async () => {
+    await listen((_req, res) => {
+      res.writeHead(302, { Location: 'https://evil.example/x' })
+      res.end()
+    })
+    const res = await nodeHttpClient.get(baseUrl, { maxBytes: 1024, timeoutMs: 2000 })
+    expect(res.status).toBe(302)
+    expect(res.location).toBe('https://evil.example/x')
+  })
+
+  it('rejects with HttpTooLargeError when the body exceeds maxBytes, and a bigger cap would not', async () => {
+    const body = Buffer.alloc(2048, 'a')
+    await listen((_req, res) => {
+      res.writeHead(200)
+      res.end(body)
+    })
+    await expect(
+      nodeHttpClient.get(baseUrl, { maxBytes: 1024, timeoutMs: 2000 })
+    ).rejects.toBeInstanceOf(HttpTooLargeError)
+    // Proves the cap itself is what rejected it, not something incidental about the body.
+    const res = await nodeHttpClient.get(baseUrl, { maxBytes: 4096, timeoutMs: 2000 })
+    expect(res.body.equals(body)).toBe(true)
+  })
+
+  it('round-trips a normal 200 body under the cap', async () => {
+    await listen((_req, res) => {
+      res.writeHead(200)
+      res.end('hello world')
+    })
+    const res = await nodeHttpClient.get(baseUrl, { maxBytes: 1024, timeoutMs: 2000 })
+    expect(res.status).toBe(200)
+    expect(res.body.toString('utf8')).toBe('hello world')
+  })
+
+  it('rejects a hung response once the timeout elapses', async () => {
+    await listen(() => {
+      // Never write a header or end the response — the client must abort on its own.
+    })
+    await expect(nodeHttpClient.get(baseUrl, { maxBytes: 1024, timeoutMs: 50 })).rejects.toThrow()
   })
 })

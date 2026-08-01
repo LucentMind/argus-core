@@ -27,6 +27,17 @@ export interface HttpClient {
   get(url: string, opts: { maxBytes: number; timeoutMs: number }): Promise<HttpResponse>
 }
 
+/** Thrown by `nodeHttpClient` (and by fakes standing in for it) when a response exceeds the
+ *  byte cap passed to `get()`. A distinct class — rather than a plain `Error` — so the service
+ *  can tell "too large" apart from every other transport failure and report `code: 'too-large'`
+ *  instead of collapsing it into the generic `'feed'` bucket. */
+export class HttpTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`response exceeded ${maxBytes} bytes`)
+    this.name = 'HttpTooLargeError'
+  }
+}
+
 /** Production client: `redirect: 'manual'`, hard byte cap enforced while streaming. */
 export const nodeHttpClient: HttpClient = {
   async get(url, { maxBytes, timeoutMs }) {
@@ -44,7 +55,7 @@ export const nodeHttpClient: HttpClient = {
           total += value.byteLength
           if (total > maxBytes) {
             await reader.cancel()
-            throw new Error(`response exceeded ${maxBytes} bytes`)
+            throw new HttpTooLargeError(maxBytes)
           }
           chunks.push(Buffer.from(value))
         }
@@ -151,7 +162,16 @@ export class PackUpdatesService {
     } catch (err) {
       return this.errorOf(err)
     } finally {
-      if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
+      // Cleanup failure (Windows EBUSY/EPERM from an AV scanner or installPack's own extract
+      // still holding a handle on the just-written zip is realistic) must never escape apply()
+      // and discard the UpdateStatus already computed above — it's best-effort only.
+      if (tmp) {
+        try {
+          fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+        } catch {
+          // Stranding the temp dir is unfortunate but not fatal; swallow and move on.
+        }
+      }
     }
   }
 
@@ -173,6 +193,7 @@ export class PackUpdatesService {
         timeoutMs: FEED_TIMEOUT_MS
       })
     } catch (err) {
+      if (err instanceof HttpTooLargeError) throw new UpdateError('too-large', err.message)
       throw new UpdateError('feed', (err as Error).message)
     }
     this.assertNoRedirect(res)
@@ -214,7 +235,12 @@ export class PackUpdatesService {
 
   private errorOf(err: unknown): UpdateStatus {
     const message = err instanceof Error ? err.message : String(err)
-    const code = err instanceof UpdateError ? err.code : 'feed'
+    const code =
+      err instanceof UpdateError
+        ? err.code
+        : err instanceof HttpTooLargeError
+          ? 'too-large'
+          : 'feed'
     return { phase: 'error', message, at: this.now(), code }
   }
 }
