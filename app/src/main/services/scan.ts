@@ -9,7 +9,7 @@ import type { ArtifactType, EvidenceRecord, ScanSummary } from '../../shared/typ
 import { dirForMode, sidecarRelPath, type CaseSubdir } from '../../shared/evidenceScope'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { modeDir, caseDir } from './paths'
-import { getCase, maybeAdvanceToAnalyzing } from './caseService'
+import { getCase } from './caseService'
 import { listEvidence, sha256File, deleteEvidence } from './ingest'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 import { extractDerivedText } from './extraction'
@@ -200,10 +200,6 @@ export function scanEvidence(
     if (!rec.meta.missing) setMissing(db, rec, true)
     summary.missing.push(relPath)
   }
-
-  // scan is an ingest path like any other: newly registered evidence can move an
-  // open case (with a started chat) to analyzing — modified/missing files cannot
-  if (summary.added.length > 0) maybeAdvanceToAnalyzing(db, argusHome, kase.id)
 
   deps.evidenceChanged(caseSlug)
   return summary

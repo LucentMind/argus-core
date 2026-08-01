@@ -115,9 +115,10 @@ describe('scanEvidence', () => {
     expect(s.missing).toEqual([]) // .derived record not flagged missing
   })
 
-  it('advances an open case to analyzing when a scan adds evidence and a turn exists', () => {
-    // mirror the maybeAdvanceToAnalyzing precondition used by interactive ingest:
-    // the case needs BOTH evidence and a started chat (a turn row)
+  it('derives analyzing once a scan adds evidence and a turn exists', () => {
+    // The old maybeAdvanceToAnalyzing ratchet needed BOTH evidence and a started chat
+    // (a turn row) to write status: 'analyzing'. It's gone — phase is now derived fresh
+    // from the same two signals every read, so this only asserts the derivation, not a write.
     const caseId = (db.prepare(`SELECT id FROM cases WHERE slug = 'C1'`).get() as { id: number }).id
     db.prepare(
       `INSERT INTO sessions (case_id, created_at, updated_at) VALUES (?, 'now', 'now')`
@@ -128,7 +129,7 @@ describe('scanEvidence', () => {
     ).run(caseId)
     fs.writeFileSync(path.join(evDir('C1'), 'found.txt'), 'scanned in')
     scanEvidence(db, argusHome, detection, extractors, deps(), 'C1')
-    expect(getCase(db, 'C1')!.status).toBe('analyzing')
+    expect(getCase(db, 'C1')!.phase).toBe('analyzing')
   })
 
   it('a scan that adds nothing does not advance the case', () => {

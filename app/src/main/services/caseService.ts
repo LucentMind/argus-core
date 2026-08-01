@@ -10,7 +10,7 @@ import type {
   SyncError
 } from '../../shared/types'
 import { derivePhase, type PhaseSignals } from '../../shared/casePhase'
-import type { CasePhase, CasePhasePin } from '../../shared/types'
+import { CASE_PHASE_PINS, type CasePhase, type CasePhasePin } from '../../shared/types'
 import { deriveActionItems, triageRank } from '../../shared/triage'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
@@ -306,7 +306,12 @@ function attachPhase(c: CaseRecord, row: CaseRow, sig: CaseSignals): CasePhase {
     prLinkedAt: sig.prLinkedAt,
     lastReviewAt: sig.lastReviewAt,
     lastReviewFindingAt: sig.lastReviewFindingAt,
-    phasePin: (row.phase_pin ?? null) as CasePhasePin | null,
+    // Defence in depth against a direct DB edit or a downgrade from a future build that
+    // wrote a pin this build does not know — same convention as rowToCase's activeMode
+    // guard against MODES.
+    phasePin: CASE_PHASE_PINS.includes(row.phase_pin as CasePhasePin)
+      ? (row.phase_pin as CasePhasePin)
+      : null,
     phasePinnedAt: row.phase_pinned_at ?? null
   }
   return derivePhase(signals)
@@ -549,10 +554,12 @@ export function setReviewBaseline(
 }
 
 /**
- * The single writer for a case's lifecycle status + resolution. Enforces the
- * invariant (resolution non-null iff status === 'closed'), updates the DB row,
- * and mirrors status/resolution into case.json. Used by the human IPC path, the
- * agent update_case_status tool, and the auto-analyze helper.
+ * The single writer for a case's lifecycle status + resolution. Only `open` and
+ * `closed` are valid — everything else is a derived `CasePhase` (see
+ * shared/casePhase.ts) and must go through `pinCasePhase` instead if it cannot be
+ * derived. Enforces the invariant (resolution non-null iff status === 'closed'),
+ * updates the DB row, and mirrors status/resolution into case.json. Used by the
+ * human IPC path and the agent update_case_status tool.
  */
 export function setCaseStatus(
   db: DatabaseSync,
@@ -564,6 +571,12 @@ export function setCaseStatus(
 ): CaseRecord {
   const existing = getCase(db, slug)
   if (!existing) throw new Error(`Unknown case: ${slug}`)
+  if (status !== 'open' && status !== 'closed') {
+    throw new Error(
+      `Unknown case status: ${JSON.stringify(status)} — the lifecycle is open|closed; ` +
+        `everything else is a derived phase (see shared/casePhase.ts)`
+    )
+  }
   if (status === 'closed' && resolution === null) {
     throw new Error('Closing a case requires a resolution reason')
   }
@@ -599,6 +612,49 @@ export function setCaseStatus(
     }
   }
   return updated
+}
+
+/**
+ * Declare a phase that cannot be derived from any artifact — today only `rca-drafted`, which
+ * no file, table or rule produces. Mirrors setCaseStatus's shape: validate, update the row,
+ * mirror into case.json.
+ *
+ * A pin is NOT sticky. It competes on `phase_pinned_at` against every other signal, so the
+ * next thing that happens on the case supersedes it (see shared/casePhase.ts). It is never
+ * cleared, only outranked — which is what lets reopening a closed case restore the phase it
+ * showed before.
+ */
+export function pinCasePhase(
+  db: DatabaseSync,
+  argusHome: string,
+  slug: string,
+  pin: CasePhasePin
+): CaseRecord {
+  if (!CASE_PHASE_PINS.includes(pin)) {
+    throw new Error(
+      `Unknown phase pin: ${JSON.stringify(pin)} — expected ${CASE_PHASE_PINS.join('|')}`
+    )
+  }
+  const existing = getCase(db, slug)
+  if (!existing) throw new Error(`Unknown case: ${slug}`)
+  const now = new Date().toISOString()
+  db.prepare(
+    `UPDATE cases SET phase_pin = ?, phase_pinned_at = ?, updated_at = ? WHERE slug = ?`
+  ).run(pin, now, now, slug)
+
+  const file = path.join(caseDir(argusHome, slug), 'case.json')
+  let onDisk: Record<string, unknown>
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  } catch {
+    // corrupt/unreadable case.json — rebuild from the DB record, same as setCaseStatus
+    onDisk = { ...existing, id: undefined }
+  }
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ ...onDisk, phasePin: pin, phasePinnedAt: now, updatedAt: now }, null, 2)
+  )
+  return getCase(db, slug)!
 }
 
 /**
@@ -658,25 +714,6 @@ export async function setCaseMode(
   if (target) return { sessionId: target.id }
   const created = createSession(db, slug, { ...provider, mode })
   return { sessionId: created.id }
-}
-
-/**
- * Auto-advance a case from 'open' to 'analyzing' once it has both evidence and a
- * started chat (a turn row). No-op for any non-'open' status, so it never
- * downgrades analyzing/rca-drafted/closed. Called after an interactive evidence
- * ingest and after a chat turn is created.
- */
-export function maybeAdvanceToAnalyzing(db: DatabaseSync, argusHome: string, caseId: number): void {
-  const row = db.prepare(`SELECT slug, status FROM cases WHERE id = ?`).get(caseId) as
-    { slug: string; status: string } | undefined
-  if (!row || row.status !== 'open') return
-  const hasEvidence =
-    (db.prepare(`SELECT 1 FROM evidence WHERE case_id = ? LIMIT 1`).get(caseId) as unknown) != null
-  const hasTurn =
-    (db.prepare(`SELECT 1 FROM turns WHERE case_id = ? LIMIT 1`).get(caseId) as unknown) != null
-  if (hasEvidence && hasTurn) {
-    setCaseStatus(db, argusHome, row.slug, 'analyzing', null)
-  }
 }
 
 /**

@@ -95,6 +95,18 @@ describe('listCases phase derivation', () => {
     expect(listCases(db)[0].phase).toBe('analyzing')
   })
 
+  it('normalises an unrecognised stored phase_pin to null (direct DB edit / version downgrade)', () => {
+    // Same defence-in-depth convention as rowToCase's activeMode guard: a stored value that
+    // isn't a real CASE_PHASE_PINS member must not survive into phasePin, or it would surface
+    // as a bogus phase forever — a pin is never cleared, only outranked.
+    const id = mkCase('GARBAGE-PIN-1')
+    db.prepare(
+      `UPDATE cases SET phase_pin = 'some-future-pin', phase_pinned_at = ? WHERE id = ?`
+    ).run(T(5), id)
+    expect(getCase(db, 'GARBAGE-PIN-1')!.phase).toBe('open')
+    expect(listCases(db)[0].phase).toBe('open')
+  })
+
   it('derives per case, not globally', () => {
     const a = mkCase('A-1')
     const b = mkCase('B-1')
@@ -122,5 +134,62 @@ describe('listCases phase derivation', () => {
       `INSERT INTO turns (case_id, session_id, turn_index, created_at) VALUES (?, 999999, 0, ?)`
     ).run(id, T(1))
     expect(listCases(db)[0].phase).toBe('analyzing')
+  })
+})
+
+import { pinCasePhase, setCaseStatus } from '../caseService'
+
+describe('pinCasePhase', () => {
+  it('stores the pin and shows it as the phase', () => {
+    mkCase('PIN-2')
+    const rec = pinCasePhase(db, home, 'PIN-2', 'rca-drafted')
+    expect(rec.phase).toBe('rca-drafted')
+    expect(getCase(db, 'PIN-2')!.phase).toBe('rca-drafted')
+  })
+
+  it('mirrors the pin into case.json', () => {
+    mkCase('PIN-3')
+    pinCasePhase(db, home, 'PIN-3', 'rca-drafted')
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(home, 'cases', 'PIN-3', 'case.json'), 'utf8')
+    ) as { phasePin: string; phasePinnedAt: string }
+    expect(onDisk.phasePin).toBe('rca-drafted')
+    expect(typeof onDisk.phasePinnedAt).toBe('string')
+  })
+
+  it('rejects an unknown pin', () => {
+    mkCase('PIN-4')
+    expect(() => pinCasePhase(db, home, 'PIN-4', 'analyzing' as never)).toThrow(/Unknown phase pin/)
+  })
+
+  it('loses to a later turn — a pin is not sticky', () => {
+    const id = mkCase('PIN-5')
+    pinCasePhase(db, home, 'PIN-5', 'rca-drafted')
+    addTurn(id, addSession(id, 'investigation'), '2099-01-01T00:00:00.000Z')
+    expect(getCase(db, 'PIN-5')!.phase).toBe('analyzing')
+  })
+})
+
+describe('setCaseStatus lifecycle', () => {
+  it('closing overrides an otherwise busy case', () => {
+    const id = mkCase('CL-2')
+    addTurn(id, addSession(id, 'review'), T(9))
+    setCaseStatus(db, home, 'CL-2', 'closed', 'solved')
+    expect(getCase(db, 'CL-2')!.phase).toBe('closed')
+  })
+
+  it('reopening restores the derived phase', () => {
+    const id = mkCase('CL-3')
+    addTurn(id, addSession(id, 'review'), T(9))
+    setCaseStatus(db, home, 'CL-3', 'closed', 'solved')
+    setCaseStatus(db, home, 'CL-3', 'open', null)
+    expect(getCase(db, 'CL-3')!.phase).toBe('reviewing')
+  })
+
+  it('rejects a value that is no longer a lifecycle status', () => {
+    mkCase('CL-4')
+    expect(() => setCaseStatus(db, home, 'CL-4', 'analyzing' as never, null)).toThrow(
+      /Unknown case status/
+    )
   })
 })

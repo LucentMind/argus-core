@@ -26,7 +26,7 @@ describe('setCaseStatus onClosed hook', () => {
 
   it('does not fire on non-close transitions or re-close', () => {
     const hook = vi.fn()
-    setCaseStatus(db, home, 'c1', 'analyzing', null, hook)
+    setCaseStatus(db, home, 'c1', 'open', null, hook)
     expect(hook).not.toHaveBeenCalled()
     setCaseStatus(db, home, 'c1', 'closed', 'solved')
     setCaseStatus(db, home, 'c1', 'closed', 'wont-fix', hook) // already closed → no re-fire

@@ -12,7 +12,7 @@ import {
 } from '../../shared/evidenceScope'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import { caseDir, modeDir } from './paths'
-import { getCase, maybeAdvanceToAnalyzing } from './caseService'
+import { getCase } from './caseService'
 import type { Detection } from './packs/detection'
 import { deleteEvidenceIndex, indexEvidenceFile } from './indexer'
 import { appendDeletionAudit } from './deletionAudit'
@@ -153,7 +153,6 @@ export function ingestArtifact(
     origin,
     extraMeta
   )
-  maybeAdvanceToAnalyzing(db, argusHome, kase.id)
   return rec
 }
 
@@ -187,7 +186,6 @@ export function ingestContent(
     origin,
     extraMeta
   )
-  maybeAdvanceToAnalyzing(db, argusHome, kase.id)
   return rec
 }
 

@@ -28,7 +28,6 @@ import { composePersona } from './persona'
 import { filteredIndex } from '../memory'
 import { defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import { touchSession, setTitleIfEmpty } from './sessionStore'
-import { maybeAdvanceToAnalyzing } from '../caseService'
 import { extractToolDetail, type ToolDetailCtx } from './toolDetail'
 import { sharedReferencesDir } from '../skillsDir'
 import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
@@ -435,7 +434,6 @@ export class CaseSession {
       )
       .run(this.deps.caseId, this.sessionId, this.turnIndex, now)
     this.currentTurnRow = Number(res.lastInsertRowid)
-    maybeAdvanceToAnalyzing(this.deps.db, this.deps.argusHome, this.deps.caseId)
     setTitleIfEmpty(this.deps.db, this.sessionId, text)
     this.deps.mirror?.indexText('user', text, this.currentTurnRow)
     this.emit(
