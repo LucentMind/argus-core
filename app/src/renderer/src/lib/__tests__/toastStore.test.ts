@@ -40,7 +40,9 @@ describe('toastStore', () => {
 
   it('reset cancels pending timers so a later advance cannot fire into the next test', () => {
     toast('leaked')
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
     toastStore.reset()
+    expect(vi.getTimerCount()).toBe(0)
     expect(toastStore.get().toasts).toHaveLength(0)
     vi.advanceTimersByTime(TOAST_TTL_MS * 3)
     expect(toastStore.get().toasts).toHaveLength(0)
