@@ -63,7 +63,11 @@ export function CaseAnchor({
 
   return (
     <div className="flex h-[30px] shrink-0 items-center gap-1 rounded-r2 border border-hair pl-2.5">
-      <span className="font-mono text-sm text-defect">{slug}</span>
+      {/* `text-signal`, not `text-defect` (user-directed, 2026-08-01): a case id is an
+          identifier, and the dashboard has always drawn it in signal blue (`CaseCard`'s slug).
+          The header drawing the SAME id in amber made one thing look like two, and spent the
+          attention colour on a label that is never a problem. */}
+      <span className="font-mono text-sm text-signal">{slug}</span>
       <MenuButton
         label={<span aria-hidden="true">⋯</span>}
         aria-label={`Case actions · ${slug}`}
