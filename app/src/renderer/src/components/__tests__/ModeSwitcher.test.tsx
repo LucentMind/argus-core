@@ -175,7 +175,7 @@ describe('ModeSwitcher', () => {
     )
     const reviewBtn = await screen.findByRole('button', { name: /case mode · review/i })
     expect(reviewBtn.getAttribute('aria-busy')).toBe('true')
-    expect(screen.getByText('Searching for pull requests…')).toBeTruthy()
+    expect(reviewBtn.getAttribute('title')).toBe('Searching for pull requests…')
 
     rerender(
       <ModeSwitcher
@@ -188,7 +188,25 @@ describe('ModeSwitcher', () => {
       />
     )
     await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
-    expect(screen.queryByText('Searching for pull requests…')).toBeNull()
+    expect(reviewBtn.getAttribute('title')).toBeNull()
+  })
+
+  it('puts the switch status on the busy button title, not in a sibling element', async () => {
+    available.mockResolvedValue(['investigation', 'review'])
+    render(
+      <ModeSwitcher
+        slug="case-a"
+        activeMode="investigation"
+        busyMode="review"
+        statusText="Searching for pull requests…"
+        onModeChanged={() => {}}
+        onError={() => {}}
+      />
+    )
+    const review = await screen.findByRole('button', { name: 'Case mode · Review' })
+    expect(review.getAttribute('title')).toBe('Searching for pull requests…')
+    // the free-floating status span is what shoved the rest of the bar sideways
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('ignores repeat clicks while a switch is already in flight', async () => {

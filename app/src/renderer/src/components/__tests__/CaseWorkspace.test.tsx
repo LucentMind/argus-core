@@ -537,11 +537,13 @@ describe('CaseWorkspace mode switching', () => {
     // the indicator lives on the control the user just clicked, not adrift on the page
     const reviewBtn = screen.getByRole('button', { name: /case mode · review/i })
     await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('true'))
-    expect(await screen.findByText(/searching .* pull requests/i)).toBeTruthy()
+    await waitFor(() =>
+      expect(reviewBtn.getAttribute('title')).toMatch(/searching .* pull requests/i)
+    )
 
     resolve({ candidates: [], error: null, searchedRepos: ['x/y'] })
-    await waitFor(() => expect(screen.queryByText(/searching .* pull requests/i)).toBeNull())
-    expect(reviewBtn.getAttribute('aria-busy')).toBe('false')
+    await waitFor(() => expect(reviewBtn.getAttribute('aria-busy')).toBe('false'))
+    expect(reviewBtn.getAttribute('title')).toBeNull()
   })
 
   it('offers the PR picker after switching to review with nothing bound yet', async () => {
