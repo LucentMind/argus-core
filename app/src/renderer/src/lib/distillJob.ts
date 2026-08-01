@@ -11,9 +11,14 @@ export function useDistillJob(slug: string): DistillJobRow | null {
     let mounted = true
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setJob(null)
-    void window.argus.distill.status(slug).then((j) => {
-      if (mounted) setJob(j)
-    })
+    void window.argus.distill
+      .status(slug)
+      .then((j) => {
+        if (mounted) setJob(j)
+      })
+      .catch(() => {
+        if (mounted) setJob(null)
+      })
     const off = window.argus.distill.onChanged((p) => {
       if (p.caseSlug === slug) setJob(p.job)
     })

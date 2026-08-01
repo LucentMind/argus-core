@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { DistillChip } from '../DistillChip'
 import type { DistillJobRow } from '../../../../shared/distill'
+import type { DistillStatusPayload } from '../../../../shared/distill'
 
 const job = (over: Partial<DistillJobRow>): DistillJobRow => ({
   id: 1,
@@ -97,5 +98,35 @@ describe('DistillChip', () => {
     await waitFor(() => expect(retry).toHaveBeenCalledWith(1))
     // On failure, status() is called again to re-sync
     await waitFor(() => expect(status).toHaveBeenCalledTimes(initialStatusCallCount + 1))
+  })
+
+  it('a later broadcast supersedes an optimistic retry result (regression: override never cleared)', async () => {
+    let onChangedCb: ((p: DistillStatusPayload) => void) | undefined
+    retry = vi.fn().mockResolvedValue(job({ state: 'queued' }))
+    ;(window as unknown as { argus: unknown }).argus = {
+      distill: {
+        status: vi.fn().mockResolvedValue(job({ state: 'failed', error: 'boom', itemCount: null })),
+        retry,
+        onChanged: vi.fn((cb: (p: DistillStatusPayload) => void) => {
+          onChangedCb = cb
+          return () => undefined
+        })
+      }
+    }
+    render(<DistillChip slug="c1" />)
+    const button = await screen.findByRole('button', { name: /retry/i })
+
+    fireEvent.click(button)
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(1))
+    // Optimistic retry result lands: chip shows distilling…
+    await waitFor(() => expect(screen.getByText(/distilling/)).toBeInTheDocument())
+
+    // Main finishes the job and broadcasts `done` — this must supersede the optimistic
+    // 'queued' result the retry response set, not be permanently shadowed by it.
+    act(() => {
+      onChangedCb?.({ caseSlug: 'c1', job: job({ state: 'done', itemCount: 5 }) })
+    })
+
+    await waitFor(() => expect(screen.queryByText(/distill/i)).not.toBeInTheDocument())
   })
 })

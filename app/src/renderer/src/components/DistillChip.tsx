@@ -12,6 +12,14 @@ export function DistillChip({ slug }: { slug: string }): React.JSX.Element | nul
   const tracked = useDistillJob(slug)
   const [override, setOverride] = useState<DistillJobRow | null>(null)
   const [retrying, setRetrying] = useState(false)
+  // adjust-state-during-render: any broadcast (tracked) supersedes the optimistic retry
+  // result, restoring the pre-split single-state semantics (see JiraPill's prevSyncedAt /
+  // SessionSwitcher's lastOpen for the same idiom).
+  const [prevTracked, setPrevTracked] = useState(tracked)
+  if (tracked !== prevTracked) {
+    setPrevTracked(tracked)
+    setOverride(null)
+  }
   const job = override ?? tracked
 
   if (!job) return null
