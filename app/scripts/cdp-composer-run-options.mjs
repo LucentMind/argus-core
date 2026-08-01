@@ -2,10 +2,11 @@
 /**
  * CDP acceptance for Task 15 — the composer's responsive run-option row (spec's
  * composer-run-options feature). The claim under test is a *layout* claim: at a wide chat
- * pane the Reasoning/Context Window/Access/Tool results controls render as individual chips,
- * and once the row's own measured width drops below `COLLAPSE_AT_PX` (700px, see
- * `Composer.tsx`) they collapse into a single "More options" menu — driven by a live
- * `ResizeObserver` on the row (`useDensity` in Composer.tsx).
+ * pane, Reasoning/Context Window/Fast Mode/Thinking render fused into ONE "Traits" chip
+ * (`TraitsChip` in OptionsMenu.tsx — replaced the old one-chip-per-descriptor design) next to
+ * Access/Tool results, and once the row's own measured width drops below `COLLAPSE_AT_PX`
+ * (650px, see `Composer.tsx`) everything but Model and Send collapses into a single "More
+ * options" menu — driven by a live `ResizeObserver` on the row (`useDensity` in Composer.tsx).
  *
  * jsdom cannot prove any of this. It loads no stylesheet and resolves no cascade, so
  * `getBoundingClientRect()` on anything in a jsdom-rendered tree is meaningless, and jsdom
@@ -19,8 +20,8 @@
  * It also proves persistence end-to-end: selecting Ultracode calls
  * `window.argus.sessions.setRunOptions`, a real IPC round trip to the main process, which
  * writes `sessions.run_options` in the sqlite db. Reloading the page discards all renderer
- * state, so if the Reasoning chip still reads "Ultracode" after a reload, the selection lived
- * in the session row, not in a React state variable that only looked persisted.
+ * state, so if the Traits chip's joined label still includes "Ultracode" after a reload, the
+ * selection lived in the session row, not in a React state variable that only looked persisted.
  *
  * Usage:
  *   1. Seed a scratch home (creates <home>, no argus.db yet):
@@ -57,15 +58,20 @@ const CASE_TITLE = 'Composer run options fixture'
 /** What `composer-run-options-fixture.mjs` pins the seeded session to (a WIRE slug). */
 const PINNED_MODEL = 'claude-sonnet-5'
 /**
- * Display names that legitimately mean `claude-sonnet-5`, depending on where the catalog came
- * from: the live CLI reports it as the alias row `sonnet` / "Sonnet"; the offline
- * STATIC_FALLBACK (catalog.ts) reports it as `claude-sonnet-5` / "Claude Sonnet 5". Anything
- * else — most importantly "Default (recommended)", the first row of a real catalog — means
- * the composer resolved the pinned model to the WRONG row. That is exactly what happened
- * before: this gate passed while the chip named a model the session was not pinned to, and
- * every run option was being dropped on the wire, because it never looked at the chip.
+ * The one display name that legitimately means `claude-sonnet-5`. Before the model-picker
+ * naming fix this differed by catalog source — the live CLI's alias row `sonnet` showed its
+ * terse raw `displayName` ("Sonnet"), while the offline STATIC_FALLBACK (catalog.ts) showed
+ * `claude-sonnet-5` / "Claude Sonnet 5" — so this list used to accept both. `catalogModelRows`
+ * (shared/drivers.ts) now derives every runtime-catalog row's name from its `resolvedModel`
+ * against the same static `CLAUDE_MODELS` table STATIC_FALLBACK's names already came from, so
+ * the live and offline paths converge on the identical string; a lingering "Sonnet" here would
+ * mean that convergence broke. Anything else — most importantly "Default (recommended)", the
+ * first row of a real catalog — means the composer resolved the pinned model to the WRONG row.
+ * That is exactly what happened before: this gate passed while the chip named a model the
+ * session was not pinned to, and every run option was being dropped on the wire, because it
+ * never looked at the chip.
  */
-const MODEL_CHIP_OK = ['Sonnet', 'Claude Sonnet 5']
+const MODEL_CHIP_OK = ['Claude Sonnet 5']
 
 /** The instance the fixture pins its session to (`composer-run-options-fixture.mjs`). */
 const INSTANCE_ID = 'claude-default'
@@ -140,11 +146,11 @@ async function openCase() {
   )
   // The model catalog is fetched from the real Claude CLI the first time any case opens in
   // this app instance (catalog.ts's fetchCatalog, cached for the process lifetime after that)
-  // — that first spawn can take several seconds. Wait for the Reasoning chip rather than a
+  // — that first spawn can take several seconds. Wait for the Traits chip rather than a
   // fixed sleep, since it exists only once descriptorsFor() has real data to build from.
   await waitFor(
-    'Reasoning chip to render (model catalog resolved)',
-    () => conn.evalJs(`!!document.querySelector('button[title="Reasoning"]')`),
+    'Traits chip to render (model catalog resolved)',
+    () => conn.evalJs(`!!document.querySelector('button[title="Traits"]')`),
     20000
   )
 }
@@ -156,18 +162,27 @@ const readRow = () =>
     return {
       density: row ? row.getAttribute('data-composer-density') : null,
       rowWidth: row ? Math.round(row.getBoundingClientRect().width) : null,
-      reasoningChip: !!document.querySelector('button[title="Reasoning"]'),
-      contextChip: !!document.querySelector('button[title="Context Window"]'),
+      traitsChip: !!document.querySelector('button[title="Traits"]'),
       moreOptions: !!document.querySelector('[aria-label="More options"]')
     }
   })()`)
 
-/** The wide Reasoning chip's own displayed text (its trigger label), or null if it isn't
+/** The wide Traits chip's own displayed text (its joined trigger label), or null if it isn't
  *  mounted (i.e. the row is currently narrow). */
-const reasoningLabel = () =>
+const traitsLabel = () =>
   conn.evalJs(`(() => {
-    const btn = document.querySelector('button[title="Reasoning"]')
+    const btn = document.querySelector('button[title="Traits"]')
     return btn ? btn.textContent.trim() : null
+  })()`)
+
+/** Section headings inside an open menu, matched by the class pair `OptionSection` (and
+ *  `CollapsedMenu`'s own hand-written Access/Tool results headers) share — see the "4."
+ *  check below, which uses the identical selector against the narrow collapsed menu. */
+const sectionHeadings = (menuSelector) =>
+  conn.evalJs(`(() => {
+    const menu = document.querySelector(${JSON.stringify(menuSelector)})
+    if (!menu) return []
+    return [...menu.querySelectorAll('div.font-medium.text-mute')].map((d) => d.textContent.trim())
   })()`)
 
 /** The Model chip's own displayed text. Survives both densities — the Model chip is one of
@@ -241,25 +256,59 @@ await openCase()
   )
 }
 
-// ── 2. wide composer: density=wide, Reasoning + Context Window chips both present ─────────
+// ── 2. wide composer: density=wide, the fused Traits chip is present ──────────────────────
+//
+// Re-expressed from the old per-descriptor design (Reasoning + Context Window chips both
+// present) to the fused one: there is now exactly ONE chip for every descriptor together.
 
 {
   const wide = await readRow()
   check(
-    '2. wide composer: data-composer-density=wide, Reasoning + Context Window chips present',
-    wide.density === 'wide' && wide.reasoningChip && wide.contextChip,
+    '2. wide composer: data-composer-density=wide, Traits chip present',
+    wide.density === 'wide' && wide.traitsChip,
     wide
   )
 }
 
-// ── 3. narrow the chat pane (<700px row) and confirm the flip ─────────────────────────────
+// ── 2b. opening the wide Traits chip's own popup shows the Reasoning + Context Window
+//        sections — proves the fused chip still carries the same per-descriptor controls the
+//        old individual chips did, just inside one popup instead of two separate ones ───────
+
+await conn.evalJs(`(() => {
+  document.querySelector('button[title="Traits"]').click()
+  return true
+})()`)
+await waitFor('Traits menu to open', () =>
+  conn.evalJs(`!!document.querySelector('[role="menu"][aria-label="Traits"]')`)
+)
+
+{
+  const traitsHeadings = await sectionHeadings('[role="menu"][aria-label="Traits"]')
+  check(
+    '2b. the wide Traits chip popup shows Reasoning and Context Window sections',
+    ['Reasoning', 'Context Window'].every((h) => traitsHeadings.includes(h)),
+    traitsHeadings
+  )
+}
+
+// close the popup (outside click) before narrowing, so it doesn't linger unmounted-but-open
+// across the viewport change below.
+await conn.evalJs(`(() => {
+  const scrim = document.querySelector('.fixed.inset-0')
+  if (scrim) scrim.click()
+  return true
+})()`)
+
+// ── 3. narrow the chat pane (<650px row) and confirm the flip ─────────────────────────────
 //
 // The row's own width, not the window's, is what the component measures (`useDensity`
-// observes `rowRef`, COLLAPSE_AT_PX = 700). Rather than compute the exact aside/findings-pane
-// arithmetic that would put the row at exactly 700px, this drives the viewport down to a width
-// where <main>'s own CSS floor (`CHAT_MIN_WIDTH` = 360px, see uiStore.ts/CaseWorkspace.tsx)
-// is what ends up binding — reliable regardless of the evidence/findings panes' current
-// widths, and still well under the threshold once the composer's own padding is subtracted.
+// observes `rowRef`, COLLAPSE_AT_PX = 650 — lowered from the old 700 now that the row holds
+// one fused Traits chip instead of up to four separate descriptor chips, see Composer.tsx's
+// own docstring on the constant). Rather than compute the exact aside/findings-pane arithmetic
+// that would put the row at exactly 650px, this drives the viewport down to a width where
+// <main>'s own CSS floor (`CHAT_MIN_WIDTH` = 360px, see uiStore.ts/CaseWorkspace.tsx) is what
+// ends up binding — reliable regardless of the evidence/findings panes' current widths, and
+// still well under the threshold once the composer's own padding is subtracted.
 //
 // The generous timeout (default waitFor's 20s is doubled here) is not slack for the app —
 // it's slack for THIS environment. See setViewport's doc comment: the DOM is already laid out
@@ -269,18 +318,17 @@ await openCase()
 // mercy of real OS window focus — which this terminal itself competes for. A short timeout
 // here does not mean "the feature is broken", only "the window didn't get focus in time".
 
-await setViewport(700, 900)
+await setViewport(650, 900)
 await waitFor('composer row to narrow', () => readRow().then((r) => r.density === 'narrow'), 45000)
 
 {
   const narrow = await readRow()
   check(
-    '3. narrow composer (<700px row): density=narrow, Reasoning/Context chips gone, "More options" exists',
+    '3. narrow composer (<650px row): density=narrow, Traits chip gone, "More options" exists',
     narrow.density === 'narrow' &&
       narrow.rowWidth !== null &&
-      narrow.rowWidth < 700 &&
-      !narrow.reasoningChip &&
-      !narrow.contextChip &&
+      narrow.rowWidth < 650 &&
+      !narrow.traitsChip &&
       narrow.moreOptions,
     narrow
   )
@@ -296,14 +344,7 @@ await waitFor('Session options menu to open', () =>
   conn.evalJs(`!!document.querySelector('[role="menu"][aria-label="Session options"]')`)
 )
 
-const headings = await conn.evalJs(`(() => {
-  const menu = document.querySelector('[role="menu"][aria-label="Session options"]')
-  if (!menu) return []
-  // The section-heading divs share this exact class pair (OptionsMenu.tsx's OptionSection,
-  // and CollapsedMenu's own hand-written Access/Tool results headers) — matched by class
-  // rather than by tag so this doesn't also pick up the menu's own wrapper divs.
-  return [...menu.querySelectorAll('div.font-medium.text-mute')].map((d) => d.textContent.trim())
-})()`)
+const headings = await sectionHeadings('[role="menu"][aria-label="Session options"]')
 
 check(
   '4. the collapsed menu shows Reasoning, Context Window, Access and Tool results headings',
@@ -311,13 +352,19 @@ check(
   headings
 )
 
-// ── 5. selecting Ultracode makes the (wide) Reasoning chip read "Ultracode" ────────────────
+// ── 5. selecting Ultracode makes the (wide) Traits chip's joined label include "Ultracode" ─
 //
 // The collapsed menu does NOT auto-close on selecting a descriptor option (only the Access
 // and Tool results rows call setOpen(false) — see CollapsedMenu in OptionsMenu.tsx), so the
 // popup is still open after this click. Widening back to the wide density afterwards is what
-// actually exercises "the composer's Reasoning label" the task asks about — that label only
-// exists as a standalone chip in wide density; narrow density never shows it outside the menu.
+// actually exercises the fused Traits chip's own trigger label — that label only exists as a
+// standalone chip in wide density; narrow density never shows it outside the menu.
+//
+// Re-expressed from the old per-chip design: the wide chip used to be Reasoning's OWN chip,
+// so its whole text became "Ultracode" after the pick. Now Reasoning is one of up to four
+// values joined into a single label (e.g. "Ultracode · 200k · On"), so the assertion checks
+// the joined label CONTAINS "Ultracode" as one of its ` · `-separated parts, not that the
+// whole label equals it.
 
 const clickedUltracode = await conn.evalJs(`(() => {
   const menu = document.querySelector('[role="menu"][aria-label="Session options"]')
@@ -340,10 +387,10 @@ await waitFor(
 )
 await sleep(400)
 
-const labelAfterSelect = await reasoningLabel()
+const labelAfterSelect = await traitsLabel()
 check(
-  '5. selecting Ultracode makes the Reasoning chip read "Ultracode"',
-  clickedUltracode && labelAfterSelect === 'Ultracode',
+  '5. selecting Ultracode makes the Traits chip label include "Ultracode"',
+  clickedUltracode && !!labelAfterSelect && labelAfterSelect.split(' · ').includes('Ultracode'),
   { clickedUltracode, labelAfterSelect }
 )
 
@@ -353,10 +400,10 @@ await reload()
 await identityGate()
 await openCase()
 
-const labelAfterReload = await reasoningLabel()
+const labelAfterReload = await traitsLabel()
 check(
   '6. after a reload the Ultracode selection survived (proves it persisted to the session row)',
-  labelAfterReload === 'Ultracode',
+  !!labelAfterReload && labelAfterReload.split(' · ').includes('Ultracode'),
   labelAfterReload
 )
 

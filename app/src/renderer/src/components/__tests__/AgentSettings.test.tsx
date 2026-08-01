@@ -53,7 +53,10 @@ beforeEach(() => {
       statuses: vi.fn(async () => statuses),
       refresh: vi.fn(async () => statuses),
       onChanged: vi.fn(() => () => {})
-    }
+    },
+    // Empty by default: expanding a Claude row's Models section (ProviderModels, Change 3)
+    // falls back to the static catalog, which is what these tests assert against.
+    models: { catalog: vi.fn(async () => []) }
   } as never
 })
 

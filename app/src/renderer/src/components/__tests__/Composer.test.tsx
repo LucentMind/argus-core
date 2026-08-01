@@ -180,7 +180,7 @@ describe('Composer', () => {
         {
           value: 'opus[1m]',
           resolvedModel: 'claude-opus-5[1m]',
-          displayName: 'Opus (1M context)'
+          displayName: 'Claude Opus 5 (1M)'
         }
       ]
     })
@@ -205,15 +205,15 @@ describe('Composer', () => {
       />
     )
     // catalog-only row, not present in the static CLAUDE_MODELS list at all
-    expect(await screen.findByText('Opus (1M context)')).toBeTruthy()
-    fireEvent.click(screen.getByText('Opus (1M context)'))
+    expect(await screen.findByText('Claude Opus 5 (1M)')).toBeTruthy()
+    fireEvent.click(screen.getByText('Claude Opus 5 (1M)'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // for this single enabled instance, the runtime catalog rows replace the static list
-    expect(items).toEqual(['Opus (1M context)'])
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Opus (1M context)' }))
+    expect(items).toEqual(['Claude Opus 5 (1M)'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Claude Opus 5 (1M)' }))
     // and the catalog-only row still carries the SESSION's own instance identity
     expect(onModelChange).toHaveBeenCalledWith('claude-default', 'opus[1m]')
   })
@@ -239,7 +239,7 @@ describe('Composer', () => {
         {
           value: 'opus[1m]',
           resolvedModel: 'claude-opus-5[1m]',
-          displayName: 'Opus (1M context)'
+          displayName: 'Claude Opus 5 (1M)'
         }
       ]
     })
@@ -261,13 +261,13 @@ describe('Composer', () => {
         }}
       />
     )
-    fireEvent.click(await screen.findByText('Opus (1M context) · Claude'))
+    fireEvent.click(await screen.findByText('Claude Opus 5 (1M) · Claude'))
     const menu = screen.getByRole('menu', { name: 'Model' })
     const items = within(menu)
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // Claude's catalog substitutes its own rows...
-    expect(items).toContain('Opus (1M context) · Claude')
+    expect(items).toContain('Claude Opus 5 (1M) · Claude')
     // ...but Copilot, a completely different enabled instance, must still be offered —
     // the model picker is how the user switches provider.
     expect(items).toContain('Auto · Copilot')
@@ -298,12 +298,13 @@ describe('Composer', () => {
     render(
       <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
     )
-    // the row whose resolvedModel is claude-fable-5 — NOT models[0]
-    expect(await screen.findByText('Fable')).toBeInTheDocument()
+    // the row whose resolvedModel is claude-fable-5 — NOT models[0] — named recognisably
+    // (Change 2a), not the CLI's own terse alias displayName ("Fable")
+    expect(await screen.findByText('Claude Fable 5')).toBeInTheDocument()
     expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
-    // ...and the descriptors resolve for THAT row, which is what reaches the wire
-    expect(screen.getByTitle('Reasoning')).toBeInTheDocument()
-    expect(screen.getByTitle('Context Window')).toBeInTheDocument()
+    // ...and the descriptors resolve for THAT row, which is what reaches the wire — surfaced
+    // as the fused Traits chip (Change 1) rather than individual Reasoning/Context chips
+    expect(screen.getByTitle('Traits')).toBeInTheDocument()
   })
 
   it('names a pinned model the catalog no longer offers instead of showing models[0]', async () => {
@@ -317,7 +318,7 @@ describe('Composer', () => {
     // option chips must be absent, matching what a send would really do.
     expect(await screen.findByText('Claude Opus 4.8')).toBeInTheDocument()
     expect(screen.queryByText('Default (recommended)')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
   })
 
   // ── I2 regression: substituting catalog rows used to discard model preferences ──────────
@@ -341,15 +342,15 @@ describe('Composer', () => {
     render(
       <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
     )
-    fireEvent.click(await screen.findByText('Fable'))
+    fireEvent.click(await screen.findByText('Claude Fable 5'))
     const items = within(screen.getByRole('menu', { name: 'Model' }))
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
     // the alias row whose resolvedModel is the hidden wire slug must be gone...
-    expect(items).not.toContain('Sonnet')
+    expect(items).not.toContain('Claude Sonnet 5')
     // ...without taking the rest of the catalog with it
-    expect(items).toContain('Fable')
-    expect(items).toContain('Opus (1M context)')
+    expect(items).toContain('Claude Fable 5')
+    expect(items).toContain('Claude Opus 5 (1M)')
   })
 
   it('still offers a custom model for the instance once the runtime catalog loads', async () => {
@@ -367,7 +368,7 @@ describe('Composer', () => {
     render(
       <Composer disabled={false} onSend={vi.fn()} session={pinnedToStaticSlug('claude-fable-5')} />
     )
-    fireEvent.click(await screen.findByText('Fable'))
+    fireEvent.click(await screen.findByText('Claude Fable 5'))
     const items = within(screen.getByRole('menu', { name: 'Model' }))
       .getAllByRole('menuitem')
       .map((el) => el.textContent)
@@ -609,28 +610,43 @@ describe('Composer option chips', () => {
     } as never
   })
 
-  it('renders Reasoning and Context as separate chips, not one fused label', async () => {
+  // Change 1: replaces the old "renders Reasoning and Context as separate chips, not one
+  // fused label" test, which asserted exactly the OLD design (separate per-descriptor chips,
+  // no fused label) — the fused chip is now the intended shape, so that assertion is
+  // obsolete rather than merely stale. SESSION's model (`claude-fable-5`/`fable`) reports
+  // effort, contextWindow and thinking (no fastMode — see the fixture), so the joined label
+  // is every one of those three, in descriptor order, at their defaults.
+  it('fuses Reasoning, Context Window and Thinking into one Traits chip', async () => {
     render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-    await waitFor(() => expect(screen.getByTitle('Reasoning')).toBeInTheDocument())
-    expect(screen.getByTitle('Context Window')).toBeInTheDocument()
-    expect(screen.queryByText('High · 200k')).not.toBeInTheDocument()
+    const traits = await screen.findByTitle('Traits')
+    expect(traits).toHaveTextContent('High · 200k · Thinking On')
+    // the old per-descriptor chips must be gone, not just relabelled
+    expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Thinking')).not.toBeInTheDocument()
   })
 
-  // I5: a boolean chip that rendered only its value was a bare "Off" — and Fast Mode and
-  // Thinking sit side by side, so two adjacent chips were indistinguishable without hovering.
-  it('names the boolean toggle on its chip instead of showing a bare On/Off', async () => {
+  // Change 1, replacing "names the boolean toggle on its chip instead of showing a bare
+  // On/Off" (I5): that test asserted Thinking's OWN standalone chip carried its name via
+  // `aria-label` — Thinking has no chip of its own any more, it is a section inside the
+  // fused Traits popup. The underlying I5 concern (two adjacent booleans reading as bare
+  // "Off"/"On" are indistinguishable) still applies to the FUSED label itself, since
+  // `Fast Mode` and `Thinking` would otherwise sit side by side there — `TraitsChip` prefixes
+  // a boolean's value with its own descriptor label for exactly this reason (see its own doc
+  // comment), so this re-expresses the same guarantee against the joined label.
+  it('names each boolean value inside the joined Traits label instead of showing a bare On/Off', async () => {
     render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-    const thinking = await screen.findByTitle('Thinking')
-    expect(thinking).toHaveTextContent('Thinking')
-    // state still reachable, just not as the visible label
-    expect(thinking).toHaveAttribute('aria-label', 'Thinking: On')
+    const traits = await screen.findByTitle('Traits')
+    expect(traits).toHaveTextContent('Thinking On')
   })
 
   // I3: alwaysThinkingEnabled is ON unless explicitly false, so an unset toggle rendering
-  // "Off" reported the opposite of what the wire does.
+  // "Off" reported the opposite of what the wire does. Now opens the fused Traits popup
+  // (Change 1) instead of a standalone Thinking chip; the Thinking SECTION inside it is the
+  // same `OptionSection` the old chip rendered, so its own menuitems are unchanged.
   it('shows Thinking as On by default, matching what the SDK actually does', async () => {
     render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-    await userEvent.click(await screen.findByTitle('Thinking'))
+    await userEvent.click(await screen.findByTitle('Traits'))
     expect(screen.getByRole('menuitem', { name: 'On' })).toHaveClass('text-ink')
     expect(screen.getByRole('menuitem', { name: 'Off' })).toHaveClass('text-dim')
   })
@@ -645,14 +661,14 @@ describe('Composer option chips', () => {
         onRunOptionsChange={onRunOptionsChange}
       />
     )
-    await userEvent.click(await screen.findByTitle('Thinking'))
+    await userEvent.click(await screen.findByTitle('Traits'))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Off' }))
     expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'thinking', value: false }])
   })
 
-  it('offers Ultracode and Ultrathink in the Reasoning menu', async () => {
+  it('offers Ultracode and Ultrathink in the Reasoning section', async () => {
     render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-    await userEvent.click(await screen.findByTitle('Reasoning'))
+    await userEvent.click(await screen.findByTitle('Traits'))
     expect(screen.getByRole('menuitem', { name: 'Ultracode' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Extra High' })).toBeInTheDocument()
@@ -668,12 +684,12 @@ describe('Composer option chips', () => {
         onRunOptionsChange={onRunOptionsChange}
       />
     )
-    await userEvent.click(await screen.findByTitle('Reasoning'))
+    await userEvent.click(await screen.findByTitle('Traits'))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
     expect(onRunOptionsChange).toHaveBeenCalledWith([{ id: 'effort', value: 'max' }])
   })
 
-  it('shows no option chips for a model with no descriptors', async () => {
+  it('shows no Traits chip for a model with no descriptors', async () => {
     render(
       <Composer
         disabled={false}
@@ -681,8 +697,7 @@ describe('Composer option chips', () => {
         session={{ ...SESSION, model: 'claude-haiku-4-5' }}
       />
     )
-    await waitFor(() => expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument())
-    expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTitle('Traits')).not.toBeInTheDocument())
   })
 
   it('reports a permission change to the owner', async () => {
@@ -712,23 +727,22 @@ describe('Composer option chips', () => {
   // which mocks a catalog with Reasoning/Context descriptors for SESSION's model —
   // without descriptors there is nothing for the collapse to fold.
   describe('Composer responsive collapse', () => {
-    it('is wide by default and shows each chip separately', async () => {
+    it('is wide by default and shows the fused Traits chip', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       const row = await screen.findByTestId('composer-options')
       expect(row).toHaveAttribute('data-composer-density', 'wide')
-      expect(screen.getByTitle('Reasoning')).toBeInTheDocument()
+      expect(screen.getByTitle('Traits')).toBeInTheDocument()
     })
 
     it('collapses everything but Model and Send below the threshold', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-      await screen.findByTitle('Reasoning')
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       expect(screen.getByTestId('composer-options')).toHaveAttribute(
         'data-composer-density',
         'narrow'
       )
-      expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Context Window')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Traits')).not.toBeInTheDocument()
       expect(screen.getByTitle('Model')).toBeInTheDocument()
       expect(screen.getByLabelText('Send')).toBeInTheDocument()
       expect(screen.getByLabelText('More options')).toBeInTheDocument()
@@ -736,7 +750,7 @@ describe('Composer option chips', () => {
 
     it('holds every collapsed control in the one menu', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-      await screen.findByTitle('Reasoning')
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       await userEvent.click(screen.getByLabelText('More options'))
       expect(screen.getByText('Reasoning')).toBeInTheDocument()
@@ -747,7 +761,7 @@ describe('Composer option chips', () => {
 
     it('expands again when the pane widens', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-      await screen.findByTitle('Reasoning')
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       act(() => setRowWidth(900))
       expect(screen.getByTestId('composer-options')).toHaveAttribute(
@@ -756,7 +770,7 @@ describe('Composer option chips', () => {
       )
       // The attribute flip alone doesn't prove the layout actually restored — confirm a
       // real chip is back in the DOM, not just the density label on the row.
-      expect(screen.getByTitle('Reasoning')).toBeInTheDocument()
+      expect(screen.getByTitle('Traits')).toBeInTheDocument()
     })
 
     it('collapsed menu still shows Access and Tool results — but no descriptor sections — for a model with none', async () => {
@@ -767,9 +781,9 @@ describe('Composer option chips', () => {
           session={{ ...SESSION, model: 'claude-haiku-4-5' }}
         />
       )
-      // Haiku has no descriptors, so there's no Reasoning chip to await — flush the
+      // Haiku has no descriptors, so there's no Traits chip to await — flush the
       // catalog-load effect via a negative assertion instead, as the sibling test above does.
-      await waitFor(() => expect(screen.queryByTitle('Reasoning')).not.toBeInTheDocument())
+      await waitFor(() => expect(screen.queryByTitle('Traits')).not.toBeInTheDocument())
       act(() => setRowWidth(360))
       expect(screen.getByTestId('composer-options')).toHaveAttribute(
         'data-composer-density',
@@ -800,7 +814,7 @@ describe('Composer option chips', () => {
       )
       const box = screen.getByPlaceholderText(/Message the analyst/)
       await userEvent.type(box, 'fix the crash')
-      await userEvent.click(await screen.findByTitle('Reasoning'))
+      await userEvent.click(await screen.findByTitle('Traits'))
       await userEvent.click(screen.getByRole('menuitem', { name: 'Ultrathink' }))
       expect(box).toHaveValue('Ultrathink:\nfix the crash')
       expect(onRunOptionsChange).not.toHaveBeenCalled()
@@ -809,14 +823,16 @@ describe('Composer option chips', () => {
     it('reads its selected state back out of the prompt', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
-      expect(await screen.findByTitle('Reasoning')).toHaveTextContent('Ultrathink')
+      // the Traits chip's joined label carries it — the effort part specifically, per the
+      // `labelFor` override (see TraitsChip's own doc comment), not the whole label
+      expect(await screen.findByTitle('Traits')).toHaveTextContent('Ultrathink')
     })
 
     it('strips the prefix when another level is chosen', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       const box = screen.getByPlaceholderText(/Message the analyst/)
       await userEvent.type(box, 'Ultrathink:\ngo')
-      await userEvent.click(await screen.findByTitle('Reasoning'))
+      await userEvent.click(await screen.findByTitle('Traits'))
       await userEvent.click(screen.getByRole('menuitem', { name: 'Max' }))
       expect(box).toHaveValue('go')
     })
@@ -824,7 +840,7 @@ describe('Composer option chips', () => {
     it('locks the section when the word is in the body rather than the prefix', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'please ultrathink')
-      await userEvent.click(await screen.findByTitle('Reasoning'))
+      await userEvent.click(await screen.findByTitle('Traits'))
       expect(screen.getByText(/Remove it to change this option/i)).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Max' })).toBeDisabled()
     })
@@ -834,7 +850,7 @@ describe('Composer option chips', () => {
     // wide chip exercised above.
     it('locks the section in the collapsed menu too, not only the wide chip', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-      await screen.findByTitle('Reasoning')
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'please ultrathink')
       await userEvent.click(screen.getByLabelText('More options'))
@@ -848,16 +864,16 @@ describe('Composer option chips', () => {
     it('highlights Ultrathink as the selected entry in the wide chip menu', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
-      await userEvent.click(await screen.findByTitle('Reasoning'))
+      await userEvent.click(await screen.findByTitle('Traits'))
       expect(screen.getByRole('menuitem', { name: 'Ultrathink' })).toHaveClass('text-ink')
       expect(screen.getByRole('menuitem', { name: 'High' })).toHaveClass('text-dim')
     })
 
-    // Same requirement, collapsed density: DescriptorChip and CollapsedMenu render the
+    // Same requirement, collapsed density: TraitsChip and CollapsedMenu render the
     // same OptionSection, so this must not diverge from the wide-chip case above.
     it('highlights Ultrathink as the selected entry in the collapsed menu', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
-      await screen.findByTitle('Reasoning')
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       await userEvent.type(screen.getByPlaceholderText(/Message the analyst/), 'Ultrathink:\ngo')
       await userEvent.click(screen.getByLabelText('More options'))
@@ -871,7 +887,7 @@ describe('Composer option chips', () => {
     it('strips the prefix when another level is chosen from the collapsed menu', async () => {
       render(<Composer disabled={false} onSend={() => {}} session={SESSION} />)
       const box = screen.getByPlaceholderText(/Message the analyst/)
-      await screen.findByTitle('Reasoning')
+      await screen.findByTitle('Traits')
       act(() => setRowWidth(360))
       await userEvent.type(box, 'Ultrathink:\ngo')
       await userEvent.click(screen.getByLabelText('More options'))

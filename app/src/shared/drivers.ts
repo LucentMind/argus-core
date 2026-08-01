@@ -550,24 +550,102 @@ export function instanceModels(s: AppSettings, instanceId?: string): CatalogMode
 }
 
 /**
+ * Turns a wire model id into a human name when nothing in `CLAUDE_MODELS` already names it:
+ * strips a trailing `-YYYYMMDD` date segment (the CLI's dated ids, e.g.
+ * `claude-haiku-4-5-20251001`), then title-cases each `-`-separated word, joining consecutive
+ * purely-numeric segments with `.` instead of a space — `claude-opus-5` → `Claude Opus 5`,
+ * `claude-sonnet-4-6` → `Claude Sonnet 4.6`. That numeric-join rule is not invented for this:
+ * it is the exact pattern `CLAUDE_MODELS`' own names already follow for every multi-part
+ * version (`4-8` → `4.8`, `4-6` → `4.6`), so a prettified slug reads the same as a hand-written
+ * catalog entry would.
+ */
+function prettifyModelSlug(id: string): string {
+  const withoutDate = id.replace(/-\d{8}$/, '')
+  const words: string[] = []
+  let numGroup: string[] = []
+  const flushNumGroup = (): void => {
+    if (numGroup.length > 0) {
+      words.push(numGroup.join('.'))
+      numGroup = []
+    }
+  }
+  for (const part of withoutDate.split('-').filter(Boolean)) {
+    if (/^\d+$/.test(part)) {
+      numGroup.push(part)
+    } else {
+      flushNumGroup()
+      words.push(part.charAt(0).toUpperCase() + part.slice(1))
+    }
+  }
+  flushNumGroup()
+  return words.join(' ')
+}
+
+/**
+ * The name to show for a runtime catalog row, derived from `resolvedModel` (the actual wire
+ * slug) rather than the CLI's own `displayName` — the terse alias label ("Opus (1M context)",
+ * "Fable", "Sonnet") is unrecognisable next to the model names everywhere else in the app.
+ *
+ * A trailing `[1m]` is stripped before matching (it names a context-window variant, not a
+ * different model) and reapplied as a ` (1M)` suffix on the result — that distinction is real
+ * and worth keeping visible, unlike the alias itself.
+ */
+function displayNameForResolved(resolvedModel: string): string {
+  const isOneM = resolvedModel.endsWith('[1m]')
+  const bareModel = isOneM ? resolvedModel.slice(0, -'[1m]'.length) : resolvedModel
+  const known = CLAUDE_MODELS.find((m) => resolvesToId(bareModel, m.slug))
+  const base = known ? known.name : prettifyModelSlug(bareModel)
+  return isOneM ? `${base} (1M)` : base
+}
+
+/**
  * The model rows to offer for a Claude instance.
  *
- * Purely a CONVERSION of one instance's reported runtime catalog into picker rows — it
- * merges nothing (the old `staticModels` parameter was dead: the only production call site
- * passed `[]`). Whether and when these rows substitute is decided in {@link allVisibleModels}
- * via its per-instance `rowOverrides` parameter. Substitution is per-instance by design:
- * with multiple providers enabled at once, the model picker is how the user switches between
- * them, so one instance's catalog must never suppress other providers.
+ * Mostly a CONVERSION of one instance's reported runtime catalog into picker rows — the old
+ * `staticModels` parameter was dead (the only production call site passed `[]`). Whether and
+ * when these rows substitute is decided in {@link allVisibleModels} via its per-instance
+ * `rowOverrides` parameter. Substitution is per-instance by design: with multiple providers
+ * enabled at once, the model picker is how the user switches between them, so one instance's
+ * catalog must never suppress other providers.
  *
- * `resolvedModel` is carried through deliberately — without it a session pinned to a static
- * wire slug matches no alias-keyed row at all (see `shared/modelIdentity.ts`).
+ * Two things beyond a straight conversion:
+ *
+ * 1. Naming: see {@link displayNameForResolved}. `resolvedModel` is also carried through as
+ *    the row's own `resolvedModel` field, deliberately — without it a session pinned to a
+ *    static wire slug matches no alias-keyed row at all (see `shared/modelIdentity.ts`).
+ *
+ * 2. Dedup: two aliases can resolve to the identical model (the fixture's `default` and
+ *    `opus[1m]` both report `resolvedModel: "claude-opus-5[1m]"`) — that is one model, not
+ *    two, and listing it twice is confusing rather than informative. Rows sharing a
+ *    `resolvedModel` collapse to one, keeping whichever alias is NOT `'default'` — the generic
+ *    alias tells the user nothing a specific one doesn't, while `opus[1m]` (or whichever
+ *    specific alias resolves the same way) is at least a real, distinguishing name. A row
+ *    with no `resolvedModel` at all (never observed live, but the type allows it) is always
+ *    kept — there is no shared identity to dedupe it against.
  */
 export function catalogModelRows(catalog: readonly ModelOptionInfo[]): CatalogModel[] {
-  return catalog.map((m) => ({
+  const rows = catalog.map((m) => ({
     slug: m.value,
-    name: m.displayName,
+    name: m.resolvedModel === undefined ? m.displayName : displayNameForResolved(m.resolvedModel),
     ...(m.resolvedModel === undefined ? {} : { resolvedModel: m.resolvedModel })
   }))
+  const kept: CatalogModel[] = []
+  const indexByResolved = new Map<string, number>()
+  for (const row of rows) {
+    if (row.resolvedModel === undefined) {
+      kept.push(row)
+      continue
+    }
+    const existingIndex = indexByResolved.get(row.resolvedModel)
+    if (existingIndex === undefined) {
+      indexByResolved.set(row.resolvedModel, kept.length)
+      kept.push(row)
+      continue
+    }
+    // Duplicate resolvedModel: prefer whichever alias is not the generic `default`.
+    if (kept[existingIndex].slug === 'default' && row.slug !== 'default') kept[existingIndex] = row
+  }
+  return kept
 }
 
 /**
@@ -651,6 +729,46 @@ export function orderedModels(s: AppSettings, instanceId?: string): CatalogModel
   const id = instanceId ?? defaultInstanceId(s)
   const prefs = s.agent.modelPreferences[id] ?? EMPTY_PREFS
   return sortModels(instanceModels(s, id), prefs)
+}
+
+/**
+ * `orderedModels`, but for an instance whose Settings panel should show a loaded runtime
+ * catalog (see `catalogModelRows`) instead of the driver's static list — the Claude provider
+ * card, once its catalog has arrived. `builtinRows` replaces the driver's static catalog when
+ * non-empty; custom models are still layered on top and deduped against it exactly as
+ * {@link instanceModels} does for the static case.
+ *
+ * Preferences are translated through {@link translatePreferences} — the SAME helper
+ * {@link applyModelPreferences} uses for the Composer's picker substitution — rather than read
+ * raw off `s.agent.modelPreferences`, because `builtinRows` here is alias-keyed while a stored
+ * preference is a wire slug (see that function's own doc comment). Returning the translated
+ * `ModelPreferences` alongside the rows (not just the sorted list) is what lets the caller
+ * compute accurate hidden/favourite sets AND still round-trip a toggle back through
+ * `settingsStore.patch` using the rows' own slugs.
+ */
+export function modelsForSettingsPanel(
+  s: AppSettings,
+  instanceId: string,
+  builtinRows?: readonly CatalogModel[]
+): { models: CatalogModel[]; prefs: ModelPreferences; builtins: readonly CatalogModel[] } {
+  const inst = s.agent.providerInstances[instanceId]
+  const builtins =
+    builtinRows && builtinRows.length > 0
+      ? builtinRows
+      : (getDriver(inst?.driver ?? '')?.models ?? [])
+  const rows = inst?.enabled ? [...builtins, ...customModelRows(s, instanceId, builtins)] : builtins
+  const prefs = translatePreferences(rows, s.agent.modelPreferences[instanceId] ?? EMPTY_PREFS)
+  return { models: sortModels(rows, prefs), prefs, builtins }
+}
+
+/** True when `slug` already names one of `rows` — by alias, wire slug, or `resolvedModel` (see
+ *  `duplicatesCatalogRow`). Shared by custom-model dedup ({@link customModelRows}, silent) and
+ *  the Settings panel's "already built in" validation (loud, `ProviderModels.tsx`), so the two
+ *  checks cannot disagree — without this a slug the picker silently dropped as a duplicate
+ *  could still sail past the add-form's own check under a loaded runtime catalog, where
+ *  built-in rows are alias-keyed rather than wire-slug-keyed. */
+export function catalogRowNames(rows: readonly CatalogModel[], slug: string): boolean {
+  return rows.some((m) => duplicatesCatalogRow(m, slug))
 }
 
 /** Session default model: explicit config.model wins (back-compat); else the top ordered visible model. */

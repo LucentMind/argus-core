@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import { ChevronDown, Sparkles, Lock, SquareTerminal, ArrowUp } from 'lucide-react'
 import { uiStore } from '../lib/uiStore'
 import { useSettingsPayload } from '../lib/settingsStore'
@@ -32,12 +32,13 @@ import {
 import type { SkillListItem } from '../../../shared/memoryIpc'
 import type { SessionSummary } from '../../../shared/types'
 import { useModelCatalog } from '../lib/catalogStore'
-import { DescriptorChip, CollapsedMenu } from './OptionsMenu'
+import { TraitsChip, CollapsedMenu } from './OptionsMenu'
 
 /**
- * Session-option picker: model and permission mode. Reasoning and Context Window use the
- * descriptor-driven `DescriptorChip` in OptionsMenu.tsx instead — see the `descriptors` map
- * in the Composer body below.
+ * Session-option picker: model and permission mode. Reasoning, Context Window, Fast Mode and
+ * Thinking are rendered together as ONE fused chip — the descriptor-driven `TraitsChip` in
+ * OptionsMenu.tsx — instead of one `OptionChip` each; see the `descriptors` map in the
+ * Composer body below.
  */
 function OptionChip({
   icon,
@@ -109,31 +110,46 @@ function Divider(): React.JSX.Element {
 /**
  * Collapse threshold in CSS px.
  *
- * The widest row a model can produce is Model + FOUR descriptor chips (Reasoning, Context
- * Window, Fast Mode, Thinking — the previous docstring enumerated only three and omitted
- * Thinking) + Access + Tool results + Send, with a divider and a `gap-2` between each. At
- * `text-xs` those add up to roughly:
+ * Re-derived for the fused `TraitsChip` (one chip for every descriptor together, not one
+ * chip each — see that component's own doc comment). The previous value, 700, was sized for
+ * FOUR separate descriptor chips (Reasoning, Context Window, Fast Mode, Thinking) each with
+ * their own icon/padding and a divider on both sides.
  *
- *   Model ~130 · Reasoning ~90 · Context ~56 · Fast Mode ~100 · Thinking ~95 ·
- *   Access ~125-155 · Tool results ~114 · Send 32 · dividers+gaps ~62   =>  ~800-830px
+ * Fusing them into one chip does NOT save as much width as it might look like at first: a
+ * boolean descriptor's value is prefixed with its own name inside the joined label (`Fast
+ * Off`, `Thinking On` — see `TraitsChip`'s own doc comment on why bare values would be
+ * ambiguous once two booleans sit side by side in one string), so the worst-case joined label
+ * is close in length to the sum of what the old Fast Mode/Thinking chips used to show. What
+ * IS saved is three chips' worth of button padding/icon/chevron overhead and three of the old
+ * six dividers. The widest row a model can still produce is Model + TraitsChip + Access +
+ * Tool results + Send, with a divider and a `gap-2` between each. At `text-xs` those add up
+ * to roughly:
  *
- * The threshold is deliberately set BELOW that worst case rather than at it. Collapsing a
- * row that would still have fit costs the user every chip at once, on panes that are common;
- * the 700-830 band instead just runs tight, and only for a model that reports all four
- * descriptors while the Access chip carries its longest label. 560 was well under even the
- * typical row and is what let five chips crowd together unlabelled.
+ *   Model ~150 (e.g. "Claude Opus 5 (1M)") · TraitsChip ~300 (its label joins up to four
+ *   values — "Extra High · 200k · Fast Off · Thinking Off" is close to the longest realistic
+ *   combination) · Access ~125-155 · Tool results ~114 · Send 32 · dividers+gaps ~40
+ *   (3 dividers now, not 6)   =>  ~760-790px
+ *
+ * The threshold is deliberately set BELOW that worst case rather than at it, same reasoning
+ * as before: collapsing a row that would still have fit costs the user every chip at once, on
+ * panes that are common, so it is better to run a LITTLE tight near the worst case than to
+ * collapse early. 650 sits under the ~760-790 worst case by roughly the same margin the old
+ * 700 sat under its ~800-830 (about seven-eighths of it), while staying well above a row with
+ * no descriptors at all (Model + Access + Tool results + Send, comfortably under 450px), so a
+ * Haiku-style session — no TraitsChip to render at all — never collapses at a width where
+ * there would have been nothing to gain from doing so.
  *
  * Deliberately a fixed threshold rather than an overflow measurement
  * (`scrollWidth > clientWidth`): collapsing changes the width, which can un-trigger
  * the condition and oscillate.
  *
- * `OptionChip` and `DescriptorChip` triggers carry `shrink-0 whitespace-nowrap`, so between
- * this threshold and the true worst-case width the chips run tight rather than wrapping their
+ * `OptionChip` and `TraitsChip` triggers carry `shrink-0 whitespace-nowrap`, so between this
+ * threshold and the true worst-case width the chips run tight rather than wrapping their
  * label text and growing the row taller — which makes the exact number above far less
  * load-bearing than it looks: a few px of error just narrows or widens the tight band instead
  * of visibly breaking the row.
  */
-const COLLAPSE_AT_PX = 700
+const COLLAPSE_AT_PX = 650
 
 /** Shown on the Reasoning section when the word appears in the body rather than the leading
  *  marker we wrote — stripping it there would mangle the user's own message, so the section
@@ -292,7 +308,7 @@ export function Composer({
   const ultrathinkInBody = ultrathinkOn && hasUltrathink(stripUltrathink(text))
 
   // Drives both the trigger-label override (below) and the open menu's highlighted-entry
-  // override (`currentOverride` on DescriptorChip/CollapsedMenu). Reads the descriptor's
+  // override (`currentOverride` on TraitsChip/CollapsedMenu). Reads the descriptor's
   // own `promptInjected` array — the same field `changeOption` below checks — instead of
   // hardcoding the string 'ultrathink', so it stays correct if another prompt-injected
   // option is ever added.
@@ -524,22 +540,20 @@ export function Composer({
           />
           {density === 'wide' ? (
             <>
-              {descriptors.map((d) => (
-                <Fragment key={d.id}>
+              {descriptors.length > 0 && (
+                <>
                   <Divider />
-                  <DescriptorChip
-                    descriptor={d}
+                  <TraitsChip
+                    descriptors={descriptors}
                     selections={selections}
-                    onChange={(v) => changeOption(d, v)}
-                    label={d.id === 'effort' && ultrathinkOn ? 'Ultrathink' : undefined}
-                    currentOverride={ultrathinkOn ? promptInjectedValue(d) : undefined}
-                    locked={d.id === 'effort' && ultrathinkInBody}
-                    lockNote={
-                      d.id === 'effort' && ultrathinkInBody ? ULTRATHINK_LOCK_NOTE : undefined
-                    }
+                    onChangeOption={changeOption}
+                    labelFor={(d) => (d.id === 'effort' && ultrathinkOn ? 'Ultrathink' : undefined)}
+                    isLocked={(d) => d.id === 'effort' && ultrathinkInBody}
+                    lockNote={ULTRATHINK_LOCK_NOTE}
+                    currentOverride={(d) => (ultrathinkOn ? promptInjectedValue(d) : undefined)}
                   />
-                </Fragment>
-              ))}
+                </>
+              )}
               <Divider />
               <OptionChip
                 icon={<Lock size={12} strokeWidth={1.5} />}
