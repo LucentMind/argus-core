@@ -99,4 +99,46 @@ describe('selectUpdate', () => {
     const feed = packFeedSchema.parse({ id: 'sample', versions: [entry({ version: '1.1.0' })] })
     expect(selectUpdate(feed, { installedVersion: 'v1-final', host: WIN })).toBeNull()
   })
+
+  describe('origin filtering (Fix 2)', () => {
+    const PIN = 'https://vendor.example'
+
+    it('skips an off-origin newest entry in favour of an on-origin older one', () => {
+      // Without origin as part of selection, this newest-wins reduce would pick the 2.0.0 entry,
+      // and `apply()` would then refuse the whole update instead of offering the 1.1.0 the user
+      // could actually get — one bad (or hostile) entry must not block every other one.
+      const feed = packFeedSchema.parse({
+        id: 'sample',
+        versions: [
+          entry({ version: '2.0.0', url: 'https://cdn.example/sample-2.0.0-win-x64.zip' }),
+          entry({ version: '1.1.0', url: `${PIN}/sample-1.1.0-win-x64.zip` })
+        ]
+      })
+      expect(
+        selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })?.version
+      ).toBe('1.1.0')
+    })
+
+    it('skips an entry with a malformed url rather than throwing', () => {
+      // `feedEntrySchema.url` is `z.string().url()`, which (in this zod version) validates by
+      // calling `new URL()` itself — so a feed that actually went through `packFeedSchema.parse`
+      // can never carry a `url` that `new URL()` rejects. `selectUpdate` takes a plain `PackFeed`
+      // object, though, not a parse call, so nothing at the type level stops a malformed value
+      // from reaching it directly — this is exactly the defensive case `origin == null || ...`
+      // guards, exercised here by constructing the feed object literally instead of parsing it.
+      const feed: PackFeed = {
+        id: 'sample',
+        versions: [entry({ version: '9.9.9', url: 'not a url at all' })]
+      }
+      expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN, origin: PIN })).toBeNull()
+    })
+
+    it('does not filter by origin at all when none is given (existing callers unaffected)', () => {
+      const feed = packFeedSchema.parse({
+        id: 'sample',
+        versions: [entry({ version: '1.1.0', url: 'https://anywhere.example/p-1.1.0-win-x64.zip' })]
+      })
+      expect(selectUpdate(feed, { installedVersion: '1.0.0', host: WIN })?.version).toBe('1.1.0')
+    })
+  })
 })

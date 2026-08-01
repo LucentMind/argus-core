@@ -26,15 +26,33 @@ export type PackFeed = z.infer<typeof packFeedSchema>
 export interface SelectOptions {
   installedVersion: string
   host?: { platform: string; arch: string }
+  /**
+   * When given, only entries whose `url` origin equals this are candidates. Without this, the
+   * single newest entry could be off-origin and get selected anyway — `apply()`'s origin check
+   * would then refuse it and stop, instead of falling back to the next-newest, on-origin entry.
+   * Filtering here (rather than only in `apply`) lets a compromised or migrated CDN entry be
+   * skipped in favour of an older, still-valid one.
+   */
+  origin?: string
+}
+
+/** `url`'s origin, or `null` if `url` doesn't parse — a malformed entry is excluded, not fatal. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
 }
 
 /**
- * The newest entry that is platform-matched, API-compatible with this Core, and strictly newer
- * than what is installed. `null` when there is nothing to offer — including when the installed
- * version is not valid semver, since there is then no defensible comparison to make.
+ * The newest entry that is platform-matched, API-compatible with this Core, strictly newer
+ * than what is installed, and (when `origin` is given) hosted on the pinned origin. `null` when
+ * there is nothing to offer — including when the installed version is not valid semver, since
+ * there is then no defensible comparison to make.
  */
 export function selectUpdate(feed: PackFeed, opts: SelectOptions): FeedEntry | null {
-  const { installedVersion, host } = opts
+  const { installedVersion, host, origin } = opts
   if (semver.valid(installedVersion) == null) return null
 
   const candidates = feed.versions.filter(
@@ -42,7 +60,8 @@ export function selectUpdate(feed: PackFeed, opts: SelectOptions): FeedEntry | n
       semver.valid(e.version) != null &&
       semver.gt(e.version, installedVersion) &&
       platformMatchesHost(e.platform, host) &&
-      isApiCompatible(e.argusApi)
+      isApiCompatible(e.argusApi) &&
+      (origin == null || originOf(e.url) === origin)
   )
   if (candidates.length === 0) return null
   return candidates.reduce((best, e) => (semver.gt(e.version, best.version) ? e : best))
