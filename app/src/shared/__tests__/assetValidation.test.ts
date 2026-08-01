@@ -92,6 +92,14 @@ describe('validateReference', () => {
     expect(hasErrors(validateReference({ file: 'INDEX.md', content: 'Body.' }))).toBe(true)
   })
 
+  // Finding 5: must agree with `isGeneratedAsset` (assetEditable.ts), which is case-insensitive
+  // because the filesystem is. Disagreeing would let a differently-cased index open as an
+  // editable buffer that this function still refuses to save.
+  it('rejects the generated index file under any casing', () => {
+    expect(hasErrors(validateReference({ file: 'index.md', content: 'Body.' }))).toBe(true)
+    expect(hasErrors(validateReference({ file: 'Index.Md', content: 'Body.' }))).toBe(true)
+  })
+
   it('rejects empty content', () => {
     expect(hasErrors(validateReference({ file: 'notes.md', content: '   ' }))).toBe(true)
   })
