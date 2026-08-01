@@ -4,17 +4,25 @@ import { describe, it, expect } from 'vitest'
 import { Card } from '../ui'
 
 describe('Card glass variant', () => {
-  it('default variant renders no glass layers (unchanged existing look)', () => {
+  it('default variant carries the shared material, not a raw bg utility', () => {
     const { container } = render(<Card>content</Card>)
     expect(container.querySelector('.glass-card')).toBeNull()
     expect(container.querySelector('.gc-ring')).toBeNull()
     expect(container.firstElementChild!.className.split(/\s+/).filter(Boolean)).toEqual([
       'rounded-r3',
-      'border',
-      'border-hair',
-      'bg-panel',
+      'surface-card',
       'transition-colors'
     ])
+  })
+
+  it('default variant no longer paints its own background utility', () => {
+    // .surface-card OWNS fill/border/shadow. Leaving bg-panel and border-hair in the class
+    // string too would make stylesheet order — not intent — decide the winner, which is the
+    // append trap this repo has already been bitten by.
+    const { container } = render(<Card>content</Card>)
+    const cls = container.firstElementChild!.className
+    expect(cls).not.toContain('bg-panel')
+    expect(cls).not.toContain('border-hair')
   })
 
   it('glass variant renders ring + sheen layers and the glass class', () => {

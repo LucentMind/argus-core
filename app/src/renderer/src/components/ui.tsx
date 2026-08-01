@@ -54,9 +54,9 @@ export function Card({
   children
 }: {
   className?: string
-  /** 'glass' renders the dynamic-theme liquid-glass container (theme-dynamic.css)
-   *  with its cursor-tracked ring/sheen layers. Only meaningful inside a
-   *  `.dyn-home` scope — elsewhere the classes resolve to nothing. */
+  /** 'glass' renders the liquid-glass material (theme-dynamic.css) with its cursor-tracked
+   *  ring/sheen layers; the ring/sheen only light up inside a `.dyn-home` scope. The default
+   *  variant carries `.surface-card` (main.css), which is flat in dark and frosted in light. */
   variant?: 'default' | 'glass'
   style?: React.CSSProperties
   onClick?: () => void
@@ -79,7 +79,7 @@ export function Card({
     <div
       onClick={onClick}
       style={style}
-      className={`rounded-r3 border border-hair bg-panel transition-colors ${onClick ? 'cursor-pointer hover:border-hair2 hover:bg-hi' : ''} ${className}`}
+      className={`rounded-r3 surface-card transition-colors ${onClick ? 'cursor-pointer hover:border-hair2 hover:bg-hi' : ''} ${className}`}
     >
       {children}
     </div>
