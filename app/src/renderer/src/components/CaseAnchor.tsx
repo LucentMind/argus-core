@@ -62,7 +62,7 @@ export function CaseAnchor({
     status === 'closed' ? (resolution ? `Closed · ${resolution}` : 'Closed') : 'Close as…'
 
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1 rounded-r2 border border-hair pl-2.5">
+    <div className="flex h-[30px] shrink-0 items-center gap-1 rounded-r2 border border-hair pl-2.5">
       <span className="font-mono text-sm text-defect">{slug}</span>
       <MenuButton
         label={<span aria-hidden="true">⋯</span>}

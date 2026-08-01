@@ -219,7 +219,7 @@ describe('backdrop-filter has no -webkit- alias (Task 8 review finding 1)', () =
   // compiled stylesheet kept only `-webkit-backdrop-filter` — and Blink (Electron's renderer)
   // does not support that prefixed form (`CSS.supports('-webkit-backdrop-filter', ...)` is
   // false in Chromium). Net effect: the blur/saturate never rendered, for `.glass-card`, its
-  // `:hover`, `.dyn-case-header`, or the overlay rules — verified by reordering the two lines,
+  // `:hover`, `.dyn-case-bar`, or the overlay rules — verified by reordering the two lines,
   // rebuilding, and observing the compiled output kept only whichever came last. Re-adding the
   // `-webkit-` line anywhere silently disables the effect again without any test noticing unless
   // this guard exists — jsdom resolves no cascade and would happily keep both lines forever.

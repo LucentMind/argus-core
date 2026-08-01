@@ -6,9 +6,9 @@ import type { ModeId } from '../../../shared/modes'
 export interface CaseBarState {
   /** Whose state this is. A stale publish from the case you just left must not be read as
    *  the current case's busy state. */
-  slug: string | null
-  busyMode: ModeId | null
-  statusText: string | null
+  readonly slug: string | null
+  readonly busyMode: ModeId | null
+  readonly statusText: string | null
 }
 
 /** Bar → workspace. `ModeSwitcher` lives in the bar now, but everything that has to happen

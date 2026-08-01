@@ -83,59 +83,68 @@ export function TopBar({
               from the enclosing drag rect, so every control inside is reachable without
               threading a bar-specific class through six components that are not about
               the bar. */}
-          <div
-            data-testid="case-group"
-            data-tier={
-              ui.dynamicTheme
-                ? (railTier(activeCase?.jiraPriority ?? null) ?? undefined)
-                : undefined
-            }
-            className={`argus-nodrag flex h-8 shrink-0 items-center gap-2 ${
-              // TopBar renders outside DynamicScope, so the group carries its own scope.
-              // `.dyn` is a plain class that re-declares the raw token vars and `theme.css`
-              // maps every Tailwind colour through them — so it nests, and this restyles the
-              // group without moving the bar into the scope tree.
-              ui.dynamicTheme ? 'dyn dyn-case dyn-case-bar px-2' : ''
-            }`}
-          >
-            <CaseAnchor
-              slug={activeSlug}
-              status={activeCase?.status ?? 'open'}
-              resolution={activeCase?.resolution ?? null}
-              onStatusChanged={onStatusChanged}
-              onHome={onHome}
-            />
-            {/* relative: the pill's popover is absolutely positioned and must anchor to the
-                pill, not to the bar — key resets refresh state when switching cases */}
-            <div className="relative shrink-0">
-              <JiraPill
-                key={activeSlug}
+          <div className="argus-nodrag flex h-full shrink-0 items-center">
+            {/* This inner box is the drag-safe rect itself, i.e. what `argus-nodrag` above
+                subtracts from the header's drag rect: `-webkit-app-region` is not inherited,
+                Chromium builds no-drag regions from each styled element's own border-box, so a
+                `h-8` no-drag rect vertically centred in a `h-12` drag header leaves a strip
+                above and below it still draggable — which CaseAnchor's menu and JiraPill's
+                popover (both `absolute`, opening a couple px below this box) would open into.
+                The outer div above stands in for that instead, spanning the full header height. */}
+            <div
+              data-testid="case-group"
+              data-tier={
+                ui.dynamicTheme
+                  ? (railTier(activeCase?.jiraPriority ?? null) ?? undefined)
+                  : undefined
+              }
+              className={`flex h-8 shrink-0 items-center gap-2 ${
+                // TopBar renders outside DynamicScope, so the group carries its own scope.
+                // `.dyn` is a plain class that re-declares the raw token vars and `theme.css`
+                // maps every Tailwind colour through them — so it nests, and this restyles the
+                // group without moving the bar into the scope tree.
+                ui.dynamicTheme ? 'dyn dyn-case dyn-case-bar px-2' : ''
+              }`}
+            >
+              <CaseAnchor
                 slug={activeSlug}
-                jiraKey={activeCase?.jiraKey ?? null}
-                syncedAt={activeCase?.jiraSyncedAt ?? null}
+                status={activeCase?.status ?? 'open'}
+                resolution={activeCase?.resolution ?? null}
+                onStatusChanged={onStatusChanged}
+                onHome={onHome}
               />
-            </div>
-            <ModeSwitcher
-              slug={activeSlug}
-              activeMode={activeCase?.activeMode ?? DEFAULT_MODE}
-              // Review's PR search outlives cases.setMode and runs in CaseWorkspace, so the
-              // only way the control knows to keep spinning is the store.
-              busyMode={busyForThisCase ? bar.busyMode : null}
-              statusText={busyForThisCase ? bar.statusText : null}
-              onModeChanged={(mode, sessionId) =>
-                caseBarStore.emit({ kind: 'mode-switched', slug: activeSlug, mode, sessionId })
-              }
-              onError={(message) =>
-                caseBarStore.emit({ kind: 'mode-error', slug: activeSlug, message })
-              }
-            />
-            <HeaderChips slug={activeSlug} />
-            {/* Transient/informational content only, and deliberately last: everything left
-                of here is fixed-width, so a landing notice or a distill event cannot shove a
-                control the user is already reaching for. The elastic strip absorbs it. */}
-            <div className="flex min-w-0 items-center gap-2">
-              <DistillChip key={activeSlug} slug={activeSlug} />
-              <HeaderNotice />
+              {/* relative: the pill's popover is absolutely positioned and must anchor to the
+                  pill, not to the bar — key resets refresh state when switching cases */}
+              <div className="relative shrink-0">
+                <JiraPill
+                  key={activeSlug}
+                  slug={activeSlug}
+                  jiraKey={activeCase?.jiraKey ?? null}
+                  syncedAt={activeCase?.jiraSyncedAt ?? null}
+                />
+              </div>
+              <ModeSwitcher
+                slug={activeSlug}
+                activeMode={activeCase?.activeMode ?? DEFAULT_MODE}
+                // Review's PR search outlives cases.setMode and runs in CaseWorkspace, so the
+                // only way the control knows to keep spinning is the store.
+                busyMode={busyForThisCase ? bar.busyMode : null}
+                statusText={busyForThisCase ? bar.statusText : null}
+                onModeChanged={(mode, sessionId) =>
+                  caseBarStore.emit({ kind: 'mode-switched', slug: activeSlug, mode, sessionId })
+                }
+                onError={(message) =>
+                  caseBarStore.emit({ kind: 'mode-error', slug: activeSlug, message })
+                }
+              />
+              <HeaderChips slug={activeSlug} />
+              {/* Transient/informational content only, and deliberately last: everything left
+                  of here is fixed-width, so a landing notice or a distill event cannot shove a
+                  control the user is already reaching for. The elastic strip absorbs it. */}
+              <div className="flex min-w-0 items-center gap-2">
+                <DistillChip key={activeSlug} slug={activeSlug} />
+                <HeaderNotice />
+              </div>
             </div>
           </div>
           <div className="mx-1 h-6 w-px bg-hair2" />

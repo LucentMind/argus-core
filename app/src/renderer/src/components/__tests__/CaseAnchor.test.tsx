@@ -133,6 +133,23 @@ describe('CaseAnchor', () => {
     expect(noticeStore.get().notices[0].message).toBe('exported 12 files')
   })
 
+  it('stays silent when the export save dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    ;(window.argus.bundle.export as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    renderAnchor()
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    // "Export" is the parent row that opens the submenu; drive it with userEvent.
+    await user.click(screen.getByText('Export'))
+    // "Export case…" is a leaf item inside the now-open submenu; drive it with fireEvent.
+    fireEvent.click(screen.getByText('Export case…'))
+    await vi.waitFor(() => expect(window.argus.bundle.export).toHaveBeenCalled())
+    // No positive signal to wait on when the dialog is cancelled (that is the point of the
+    // test) — flush the awaited `window.argus.bundle.export()` microtask so `exportBundle`'s
+    // `if (!r) return` has actually run before asserting nothing was queued.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(noticeStore.get().notices).toHaveLength(0)
+  })
+
   it('disables Re-distill until the case is closed', async () => {
     const user = userEvent.setup()
     renderAnchor({ status: 'open' })

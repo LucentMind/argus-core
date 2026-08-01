@@ -5,7 +5,11 @@ import { useEffect, useState } from 'react'
 import { DynamicScope } from '../DynamicScope'
 import { CaseWorkspace } from '../CaseWorkspace'
 import { uiStore } from '../../lib/uiStore'
-import { useAmbientAnchors } from '../../lib/ambientAnchors'
+import {
+  AmbientAnchorContext,
+  useAmbientAnchors,
+  type AmbientAnchors
+} from '../../lib/ambientAnchors'
 import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import { DEFAULT_MODE } from '../../../../shared/modes'
@@ -262,5 +266,42 @@ describe('DynamicScope — case variant', () => {
     // canvas to nothing.
     expect(band?.closest('[data-testid="dynamic-case"]')).not.toBeNull()
     expect(band?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('wires the anchor refs to the ambient band, not just to some element', async () => {
+    // The test above only checks that a `data-testid="ambient-band"` div exists somewhere in
+    // the scope — it would stay green even if `ref={anchors.setCutoff}`/`setLight` were
+    // deleted from CaseWorkspace and the aurora silently fell back to its hardcoded default.
+    // This renders CaseWorkspace under a real AmbientAnchorContext.Provider (the same shape
+    // DynamicScope's own `anchors` value has — see DynamicScope.tsx) and captures exactly
+    // which elements the ref callbacks receive.
+    let cutoffEl: HTMLElement | null = null
+    let lightEl: HTMLElement | null = null
+    const anchors: AmbientAnchors = {
+      setCutoff: (el) => {
+        cutoffEl = el
+      },
+      setLight: (el) => {
+        lightEl = el
+      }
+    }
+    render(
+      <AmbientAnchorContext.Provider value={anchors}>
+        <CaseWorkspace
+          slug="NAV-1"
+          activeMode={DEFAULT_MODE}
+          onModeSwitched={vi.fn()}
+          onOpenHit={vi.fn()}
+          onOpenCitation={vi.fn()}
+          onOpenFile={vi.fn()}
+          onOpenRepoFile={vi.fn()}
+        />
+      </AmbientAnchorContext.Provider>
+    )
+    await screen.findByRole('main')
+    const band = screen.getByTestId('ambient-band')
+    expect(cutoffEl).toBe(band)
+    expect(lightEl).not.toBeNull()
+    expect(band.contains(lightEl)).toBe(true)
   })
 })

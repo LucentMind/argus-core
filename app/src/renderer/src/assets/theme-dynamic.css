@@ -401,6 +401,10 @@
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
+  /* border-radius does not clip an absolutely-positioned descendant, so without this the
+     accent's square corners poke past the group's own rounded (--radius-r2) border. Top
+     corners only — the accent sits flush against the top edge, not the bottom. */
+  border-radius: var(--radius-r2) var(--radius-r2) 0 0;
 }
 .dyn-case.dyn-case-bar[data-tier='p1']::before {
   background: linear-gradient(90deg, var(--p1), transparent 62%);

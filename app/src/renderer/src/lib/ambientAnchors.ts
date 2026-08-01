@@ -2,10 +2,10 @@ import { createContext, useContext } from 'react'
 
 export interface AmbientAnchors {
   /** Ref callback for the view's light source — the aurora anchors to its rect.
-   *  Home: the ARGUS wordmark. Case: the case-id menu button. Settings: the page title. */
+   *  Home: the ARGUS wordmark. Case: the ambient band. Settings: the page title. */
   setLight: (el: HTMLElement | null) => void
   /** Ref callback for the element whose bottom edge the light dies at.
-   *  Home: the filter row. Case: the header. Settings: the masthead. */
+   *  Home: the filter row. Case: the ambient band. Settings: the masthead. */
   setCutoff: (el: HTMLElement | null) => void
 }
 
