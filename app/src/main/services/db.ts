@@ -239,6 +239,28 @@ export function openDb(file: string): DatabaseSync {
     // must be kept in sync with it by hand, same caveat as the sessions.mode migration below.
     db.exec(`ALTER TABLE cases ADD COLUMN active_mode TEXT NOT NULL DEFAULT 'investigation'`)
   }
+  // Phase pin: the escape hatch for a phase with no artifact to derive it from (today only
+  // `rca-drafted`). Everything else about a case's phase is derived at read time from
+  // timestamps — see shared/casePhase.ts.
+  if (!caseCols.some((c) => c.name === 'phase_pin')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN phase_pin TEXT`)
+  }
+  if (!caseCols.some((c) => c.name === 'phase_pinned_at')) {
+    db.exec(`ALTER TABLE cases ADD COLUMN phase_pinned_at TEXT`)
+  }
+  // Collapse the legacy four-value status onto the two-value lifecycle. `analyzing` needs no
+  // preservation: it re-derives from the evidence and turn rows that produced it. `rca-drafted`
+  // cannot re-derive, so it becomes a pin stamped at updated_at — the closest thing to the
+  // moment it was set that the row still remembers. Both statements are naturally idempotent:
+  // after the first run no row matches. COALESCE keeps a pin an operator already set.
+  db.exec(
+    `UPDATE cases
+        SET phase_pin = 'rca-drafted',
+            phase_pinned_at = COALESCE(phase_pinned_at, updated_at),
+            status = 'open'
+      WHERE status = 'rca-drafted'`
+  )
+  db.exec(`UPDATE cases SET status = 'open' WHERE status = 'analyzing'`)
   // WP-D migration: legacy sessions had UNIQUE(case_id) (one session per case).
   // SQLite can't drop a constraint — rebuild the table once if the unique index exists.
   const sessionIdx = db.prepare(`PRAGMA index_list(sessions)`).all() as {
