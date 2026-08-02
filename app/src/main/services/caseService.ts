@@ -12,6 +12,7 @@ import type {
 import { derivePhase, type PhaseSignals } from '../../shared/casePhase'
 import { CASE_PHASE_PINS, type CasePhase, type CasePhasePin } from '../../shared/types'
 import { deriveActionItems, triageRank } from '../../shared/triage'
+import { ARTIFACTS_PREFIX } from '../../shared/evidenceScope'
 import { DEFAULT_MODE, MODES, type ModeId } from '../../shared/modes'
 import { caseDir } from './paths'
 import { appendDeletionAudit } from './deletionAudit'
@@ -211,6 +212,8 @@ interface CaseSignals {
   lastInvestigationFindingAt: string | null
   lastReviewAt: string | null
   lastReviewFindingAt: string | null
+  /** Review-scoped evidence (artifacts/…) — see the evidence-scope split in readCaseSignals. */
+  lastReviewEvidenceAt: string | null
   prLinkedAt: string | null
 }
 
@@ -222,9 +225,16 @@ function emptySignals(): CaseSignals {
     lastInvestigationFindingAt: null,
     lastReviewAt: null,
     lastReviewFindingAt: null,
+    lastReviewEvidenceAt: null,
     prLinkedAt: null
   }
 }
+
+/** `rel_path` pattern for review-scoped evidence — mirrors shared/evidenceScope.ts's
+ *  scopeOfRelPath (artifacts/… is review, everything else is investigation). A SQL `CASE`
+ *  can't call that function directly, so this LIKE pattern is the SQL-side copy; keep it in
+ *  sync with ARTIFACTS_PREFIX if that ever changes. */
+const ARTIFACTS_LIKE = `${ARTIFACTS_PREFIX}%`
 
 /**
  * Four grouped reads covering every phase signal, plus the evidence count the `idle` triage
@@ -248,15 +258,43 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
   const scope = (col: string): string => (caseId === undefined ? '' : ` WHERE ${col} = ?`)
   const args: number[] = caseId === undefined ? [] : [caseId]
 
+  // Evidence count is unscoped and unfiltered — every row, any origin, any scope — because
+  // the `idle` triage heuristic below reads it as "has anything at all landed on this case",
+  // not as a work signal. Do not fold origin/scope filtering into this query.
   for (const r of db
     .prepare(
-      `SELECT case_id AS caseId, COUNT(*) AS n, MAX(created_at) AS lastAt
+      `SELECT case_id AS caseId, COUNT(*) AS n
          FROM evidence${scope('case_id')} GROUP BY case_id`
     )
-    .all(...args) as unknown as Array<{ caseId: number; n: number; lastAt: string | null }>) {
+    .all(...args) as unknown as Array<{ caseId: number; n: number }>) {
+    at(r.caseId).evidenceCount = r.n
+  }
+
+  // The phase SIGNAL, unlike the count above, is scoped by directory: review evidence
+  // (artifacts/…, see ARTIFACTS_LIKE — mirrors shared/evidenceScope.ts's scopeOfRelPath)
+  // feeds `lastReviewEvidenceAt` -> `reviewing` instead of falling into `lastEvidenceAt` ->
+  // `analyzing`. A CI log fetched mid-review (ciLogs.ts's fetch_check_logs) is the motivating
+  // case (Finding I1).
+  const evidenceScopeCol = `CASE WHEN e.rel_path LIKE ? THEN 'review' ELSE 'investigation' END`
+  for (const r of db
+    .prepare(
+      `SELECT e.case_id AS caseId, ${evidenceScopeCol} AS evScope, MAX(e.created_at) AS lastAt
+         FROM evidence e${scope('e.case_id')}
+        GROUP BY e.case_id, evScope`
+    )
+    .all(ARTIFACTS_LIKE, ...args) as unknown as Array<{
+    caseId: number
+    evScope: 'review' | 'investigation'
+    lastAt: string | null
+  }>) {
     const s = at(r.caseId)
-    s.evidenceCount = r.n
-    s.lastEvidenceAt = r.lastAt
+    if (r.evScope === 'review') {
+      if (!s.lastReviewEvidenceAt || (r.lastAt && r.lastAt > s.lastReviewEvidenceAt)) {
+        s.lastReviewEvidenceAt = r.lastAt
+      }
+    } else if (!s.lastEvidenceAt || (r.lastAt && r.lastAt > s.lastEvidenceAt)) {
+      s.lastEvidenceAt = r.lastAt
+    }
   }
 
   for (const r of db
@@ -268,8 +306,14 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
     )
     .all(...args) as unknown as Array<{ caseId: number; mode: string; lastAt: string | null }>) {
     const s = at(r.caseId)
-    if (r.mode === 'review') s.lastReviewAt = r.lastAt
-    else s.lastInvestigationAt = r.lastAt
+    // Max-preserving, not assigning: modes.ts anticipates a third mode, at which point two
+    // non-review rows would arrive per case and a bare assignment would let whichever the
+    // engine emits last silently clobber the other (Finding 4).
+    if (r.mode === 'review') {
+      if (!s.lastReviewAt || (r.lastAt && r.lastAt > s.lastReviewAt)) s.lastReviewAt = r.lastAt
+    } else if (!s.lastInvestigationAt || (r.lastAt && r.lastAt > s.lastInvestigationAt)) {
+      s.lastInvestigationAt = r.lastAt
+    }
   }
 
   for (const r of db
@@ -281,8 +325,16 @@ function readCaseSignals(db: DatabaseSync, caseId?: number): Map<number, CaseSig
     )
     .all(...args) as unknown as Array<{ caseId: number; mode: string; lastAt: string | null }>) {
     const s = at(r.caseId)
-    if (r.mode === 'review') s.lastReviewFindingAt = r.lastAt
-    else s.lastInvestigationFindingAt = r.lastAt
+    if (r.mode === 'review') {
+      if (!s.lastReviewFindingAt || (r.lastAt && r.lastAt > s.lastReviewFindingAt)) {
+        s.lastReviewFindingAt = r.lastAt
+      }
+    } else if (
+      !s.lastInvestigationFindingAt ||
+      (r.lastAt && r.lastAt > s.lastInvestigationFindingAt)
+    ) {
+      s.lastInvestigationFindingAt = r.lastAt
+    }
   }
 
   for (const r of db
@@ -306,6 +358,7 @@ function attachPhase(c: CaseRecord, row: CaseRow, sig: CaseSignals): CasePhase {
     prLinkedAt: sig.prLinkedAt,
     lastReviewAt: sig.lastReviewAt,
     lastReviewFindingAt: sig.lastReviewFindingAt,
+    lastReviewEvidenceAt: sig.lastReviewEvidenceAt,
     // Defence in depth against a direct DB edit or a downgrade from a future build that
     // wrote a pin this build does not know — same convention as rowToCase's activeMode
     // guard against MODES.

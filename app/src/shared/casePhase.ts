@@ -9,7 +9,7 @@ import type { CasePhase, CasePhasePin, CaseStatus } from './types'
 export interface PhaseSignals {
   /** The declared lifecycle. `closed` short-circuits everything below. */
   status: CaseStatus
-  /** MAX(evidence.created_at). */
+  /** MAX(evidence.created_at) over non-review-scoped evidence (see shared/evidenceScope.ts). */
   lastEvidenceAt: string | null
   /** MAX(turns.created_at) over sessions whose mode is `investigation`. */
   lastInvestigationAt: string | null
@@ -21,6 +21,10 @@ export interface PhaseSignals {
   lastReviewAt: string | null
   /** MAX(findings.created_at) over sessions whose mode is `review`. */
   lastReviewFindingAt: string | null
+  /** MAX(evidence.created_at) over review-scoped evidence (artifacts/…, see
+   *  shared/evidenceScope.ts's scopeOfRelPath) — e.g. a CI log fetched mid-review. Without
+   *  this, review-scoped evidence fell into `lastEvidenceAt` and read as `analyzing`. */
+  lastReviewEvidenceAt: string | null
   /** cases.phase_pin — null unless something declared a non-derivable phase. */
   phasePin: CasePhasePin | null
   /** cases.phase_pinned_at — when it was declared. */
@@ -52,6 +56,7 @@ export function derivePhase(s: PhaseSignals): CasePhase {
     [s.phasePin ? s.phasePinnedAt : null, s.phasePin ?? 'open'],
     [s.lastReviewAt, 'reviewing'],
     [s.lastReviewFindingAt, 'reviewing'],
+    [s.lastReviewEvidenceAt, 'reviewing'],
     [s.prLinkedAt, 'pr-created'],
     [s.lastInvestigationAt, 'analyzing'],
     [s.lastInvestigationFindingAt, 'analyzing'],

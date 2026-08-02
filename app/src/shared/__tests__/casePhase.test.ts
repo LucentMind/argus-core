@@ -9,6 +9,7 @@ const NONE: PhaseSignals = {
   prLinkedAt: null,
   lastReviewAt: null,
   lastReviewFindingAt: null,
+  lastReviewEvidenceAt: null,
   phasePin: null,
   phasePinnedAt: null
 }
@@ -27,6 +28,7 @@ describe('derivePhase', () => {
     expect(derivePhase({ ...NONE, prLinkedAt: T(1) })).toBe('pr-created')
     expect(derivePhase({ ...NONE, lastReviewAt: T(1) })).toBe('reviewing')
     expect(derivePhase({ ...NONE, lastReviewFindingAt: T(1) })).toBe('reviewing')
+    expect(derivePhase({ ...NONE, lastReviewEvidenceAt: T(1) })).toBe('reviewing')
     expect(derivePhase({ ...NONE, phasePin: 'rca-drafted', phasePinnedAt: T(1) })).toBe(
       'rca-drafted'
     )
@@ -49,6 +51,13 @@ describe('derivePhase', () => {
       derivePhase({ ...NONE, lastInvestigationAt: T(1), prLinkedAt: T(2), lastReviewAt: T(3) })
     ).toBe('reviewing')
     expect(derivePhase({ ...NONE, lastInvestigationAt: T(1), prLinkedAt: T(2) })).toBe('pr-created')
+  })
+
+  it('a review-scoped evidence row reads as reviewing, even over a newer investigation-scoped one', () => {
+    // e.g. fetch_check_logs ingesting a CI log mid-review — see caseService.ts's readCaseSignals.
+    expect(
+      derivePhase({ ...NONE, lastInvestigationAt: T(1), lastReviewEvidenceAt: T(2) })
+    ).toBe('reviewing')
   })
 
   it('lets a pin win when it is newest and lose when it is not', () => {

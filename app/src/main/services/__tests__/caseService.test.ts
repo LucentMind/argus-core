@@ -13,6 +13,8 @@ import {
   setCaseSyncState,
   setReviewBaseline
 } from '../caseService'
+import { ingestContent } from '../ingest'
+import { createDetection } from '../packs/detection'
 import { caseDir } from '../paths'
 import type { DatabaseSync } from 'node:sqlite'
 
@@ -405,5 +407,59 @@ describe('listCases triage ordering', () => {
     )
     const fetched = getCase(db, 'contract-1')!
     expect(fetched.actionItems).toEqual([])
+  })
+})
+
+// Finding I1: evidence written during review (e.g. fetch_check_logs mid-review) used to be
+// mode-blind — MAX(evidence.created_at) over ALL evidence fed straight into `analyzing`, so a
+// review that ingested a CI log and recorded no findings read as "Analyzing" the instant it
+// finished. readCaseSignals now splits the evidence query by scope (shared/evidenceScope.ts's
+// scopeOfRelPath rule: artifacts/… is review, everything else is investigation), feeding
+// review-scoped evidence into `lastReviewEvidenceAt` -> `reviewing` instead.
+describe('evidence-scope phase signal (Finding I1)', () => {
+  const detection = createDetection()
+
+  it('review-scoped evidence (artifacts/…) reads as reviewing, not analyzing', () => {
+    createCase(db, home, { slug: 'REV-1', title: 'r' })
+    ingestContent(
+      db,
+      home,
+      detection,
+      'REV-1',
+      'ci-9-build.log',
+      'boom\n',
+      'ci',
+      {},
+      'review'
+    )
+    expect(getCase(db, 'REV-1')!.phase).toBe('reviewing')
+  })
+
+  it('investigation-scoped evidence still reads as analyzing (regression check)', () => {
+    createCase(db, home, { slug: 'INV-1', title: 'i' })
+    ingestContent(db, home, detection, 'INV-1', 'app.log', 'boom\n', 'upload')
+    expect(getCase(db, 'INV-1')!.phase).toBe('analyzing')
+  })
+
+  it('the idle heuristic still counts ALL evidence, across both scopes', () => {
+    createCase(db, home, { slug: 'IDLE-SCOPE-1', title: 'i' })
+    db.prepare(`UPDATE cases SET created_at = ? WHERE slug = 'IDLE-SCOPE-1'`).run(
+      new Date(Date.now() - 30 * 86_400_000).toISOString()
+    )
+    ingestContent(
+      db,
+      home,
+      detection,
+      'IDLE-SCOPE-1',
+      'ci-1.log',
+      'boom\n',
+      'ci',
+      {},
+      'review'
+    )
+    // one evidence row exists (review-scoped), so idle must NOT fire — proving evidenceCount
+    // still counts it, exactly like an investigation-scoped row would.
+    const rec = listCases(db).find((c) => c.slug === 'IDLE-SCOPE-1')!
+    expect(rec.actionItems).not.toContainEqual(expect.objectContaining({ kind: 'idle' }))
   })
 })
