@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   argv0Basename,
   resolveLabel,
+  stdioConnectorCommands,
   type LabelSources,
   type WindowDescriptor
 } from '../labels'
@@ -167,5 +168,112 @@ describe('resolveLabel — tier C (command-line inference)', () => {
     expect(
       resolveLabel(sample({ pid: 44, command: '/usr/bin/node server.js' }), undefined, sources())
     ).toBeNull()
+  })
+})
+
+describe('resolveLabel — MCP connector matching', () => {
+  const github = {
+    instanceId: 'github',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-github']
+  }
+
+  it('matches a POSIX npx spawn', () => {
+    const r = resolveLabel(
+      sample({ pid: 50, command: 'npx -y @modelcontextprotocol/server-github' }),
+      undefined,
+      sources({ connectors: [github] })
+    )
+    expect(r).toEqual({
+      kind: 'mcp',
+      label: 'MCP: github',
+      instanceId: 'github',
+      inferred: true
+    })
+  })
+
+  it('matches the Windows node/npx-cli rewrite, where argv0 is node.exe', () => {
+    const r = resolveLabel(
+      sample({
+        pid: 51,
+        command:
+          'C:\\Program Files\\nodejs\\node.exe C:\\npm\\npx-cli.js -y @modelcontextprotocol/server-github'
+      }),
+      undefined,
+      sources({ connectors: [github] })
+    )
+    expect(r?.instanceId).toBe('github')
+  })
+
+  it('matches case-insensitively', () => {
+    const r = resolveLabel(
+      sample({ pid: 52, command: 'NPX -Y @MODELCONTEXTPROTOCOL/SERVER-GITHUB' }),
+      undefined,
+      sources({ connectors: [github] })
+    )
+    expect(r?.instanceId).toBe('github')
+  })
+
+  it('does not match when one configured token is absent', () => {
+    const r = resolveLabel(
+      sample({ pid: 53, command: 'npx -y @modelcontextprotocol/server-gitlab' }),
+      undefined,
+      sources({ connectors: [github] })
+    )
+    expect(r).toBeNull()
+  })
+
+  it('refuses to match on generic tokens alone, so a bare npx connector claims nothing', () => {
+    const bare = { instanceId: 'bare', command: 'npx', args: ['-y'] }
+    const r = resolveLabel(
+      sample({ pid: 54, command: 'npx -y @some/unrelated-package' }),
+      undefined,
+      sources({ connectors: [bare] })
+    )
+    expect(r).toBeNull()
+  })
+
+  it('prefers the connector with more distinctive matched tokens', () => {
+    const broad = { instanceId: 'broad', command: 'npx', args: ['@scope/server'] }
+    const exact = { instanceId: 'exact', command: 'npx', args: ['@scope/server', '--repo=argus'] }
+    const r = resolveLabel(
+      sample({ pid: 55, command: 'npx @scope/server --repo=argus' }),
+      undefined,
+      sources({ connectors: [broad, exact] })
+    )
+    expect(r?.instanceId).toBe('exact')
+  })
+
+  it('breaks a tie by instanceId so the label never flickers between ticks', () => {
+    const b = { instanceId: 'bravo', command: 'npx', args: ['@scope/server'] }
+    const a = { instanceId: 'alpha', command: 'npx', args: ['@scope/server'] }
+    const r = resolveLabel(
+      sample({ pid: 56, command: 'npx @scope/server' }),
+      undefined,
+      sources({ connectors: [b, a] })
+    )
+    expect(r?.instanceId).toBe('alpha')
+  })
+
+  it('ranks a driver basename above a connector match', () => {
+    const sneaky = { instanceId: 'sneaky', command: 'claude', args: ['--print'] }
+    const r = resolveLabel(
+      sample({ pid: 57, command: '/usr/local/bin/claude --print' }),
+      undefined,
+      sources({ connectors: [sneaky] })
+    )
+    expect(r?.kind).toBe('driver')
+  })
+})
+
+describe('stdioConnectorCommands', () => {
+  it('keeps stdio instances and drops http ones and blank commands', () => {
+    expect(
+      stdioConnectorCommands({
+        gh: { kind: 'stdio', config: { command: 'npx', args: ['-y', '@x/gh'] } },
+        web: { kind: 'http', config: { url: 'https://example.test' } },
+        blank: { kind: 'stdio', config: { command: '  ', args: [] } }
+      } as never)
+    ).toEqual([{ instanceId: 'gh', command: 'npx', args: ['-y', '@x/gh'] }])
   })
 })

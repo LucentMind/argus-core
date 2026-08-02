@@ -3,6 +3,11 @@ import type {
   ElectronProcessMetric,
   ProcessSample
 } from '../../../shared/diagnostics'
+import {
+  connectorConfig,
+  type ConnectorMap,
+  type StdioConnectorConfig
+} from '../../../shared/connectors'
 
 /**
  * Resolves a raw process sample to an Argus-object label.
@@ -65,7 +70,10 @@ function tierBRenderer(pid: number, windows: readonly WindowDescriptor[]): Resol
   return { kind, label: matched.map(nameOfWindow).join(' + '), inferred: false }
 }
 
-function tierB(electron: ElectronProcessMetric, windows: readonly WindowDescriptor[]): ResolvedLabel {
+function tierB(
+  electron: ElectronProcessMetric,
+  windows: readonly WindowDescriptor[]
+): ResolvedLabel {
   switch (electron.type) {
     case 'Browser':
       return { kind: 'electron-internal', label: 'Argus main process', inferred: false }
@@ -139,7 +147,70 @@ export function argv0Basename(command: string): string {
   return base.toLowerCase().replace(/\.exe$/, '')
 }
 
-function tierC(sample: ProcessSample): ResolvedLabel | null {
+/**
+ * Tokens too common to identify anything. Without this guard a connector
+ * configured as bare `npx -y` would claim every Node process on the machine.
+ */
+const GENERIC_TOKENS = new Set(['npx', 'node', 'npm', 'uvx', '-y', '--yes'])
+
+function isDistinctive(token: string): boolean {
+  return token.length >= 3 && !GENERIC_TOKENS.has(token.toLowerCase())
+}
+
+/**
+ * Which configured connector, if any, this command line is running.
+ *
+ * The match cannot key on argv0: a connector configured as
+ * `npx -y @scope/server` is spawned on Windows as `node …\npx-cli.js …`, so the
+ * basename is `node.exe`. Instead EVERY configured token must appear somewhere
+ * in the command line, and at least one of them must be distinctive.
+ *
+ * Ties resolve by distinctive-token count then by instanceId, so a process
+ * never flickers between two labels on consecutive ticks.
+ */
+export function matchConnector(
+  command: string,
+  connectors: readonly ConnectorCommand[]
+): ConnectorCommand | null {
+  const haystack = command.toLowerCase()
+  let best: { connector: ConnectorCommand; score: number } | null = null
+
+  for (const c of connectors) {
+    const tokens = [c.command, ...c.args].filter((t) => t.trim() !== '')
+    if (tokens.length === 0) continue
+    if (!tokens.every((t) => haystack.includes(t.toLowerCase()))) continue
+    const score = tokens.filter(isDistinctive).length
+    if (score === 0) continue
+    if (
+      !best ||
+      score > best.score ||
+      (score === best.score && c.instanceId < best.connector.instanceId)
+    )
+      best = { connector: c, score }
+  }
+
+  return best ? best.connector : null
+}
+
+/**
+ * Flatten the live connector map into the shape the matcher wants. HTTP
+ * connectors have no local process, so they are dropped.
+ */
+export function stdioConnectorCommands(map: ConnectorMap): ConnectorCommand[] {
+  const out: ConnectorCommand[] = []
+  for (const [instanceId, inst] of Object.entries(map)) {
+    if (inst.kind !== 'stdio') continue
+    const cfg = connectorConfig<StdioConnectorConfig>('stdio', inst.config)
+    if (cfg.command.trim() === '') continue
+    out.push({ instanceId, command: cfg.command, args: cfg.args })
+  }
+  return out
+}
+
+function tierC(
+  sample: ProcessSample,
+  connectors: readonly ConnectorCommand[]
+): ResolvedLabel | null {
   const base = argv0Basename(sample.command)
 
   const driver = DRIVER_BASENAMES[base]
@@ -151,12 +222,19 @@ function tierC(sample: ProcessSample): ResolvedLabel | null {
       inferred: true
     }
 
-  if (PACK_BINARY_BASENAMES.has(base))
-    return { kind: 'pack-binary', label: base, inferred: true }
+  if (PACK_BINARY_BASENAMES.has(base)) return { kind: 'pack-binary', label: base, inferred: true }
+
+  const connector = matchConnector(sample.command, connectors)
+  if (connector)
+    return {
+      kind: 'mcp',
+      label: `MCP: ${connector.instanceId}`,
+      instanceId: connector.instanceId,
+      inferred: true
+    }
 
   for (const [flag, label] of ELECTRON_TYPE_FLAGS)
-    if (sample.command.includes(flag))
-      return { kind: 'electron-internal', label, inferred: true }
+    if (sample.command.includes(flag)) return { kind: 'electron-internal', label, inferred: true }
 
   return null
 }
@@ -167,5 +245,5 @@ export function resolveLabel(
   sources: LabelSources
 ): ResolvedLabel | null {
   if (electron) return tierB(electron, sources.windows)
-  return tierC(sample)
+  return tierC(sample, sources.connectors)
 }
