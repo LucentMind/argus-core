@@ -49,8 +49,9 @@ export function DynamicScope({
   // the whole subtree, and the toggle lives in Settings — so with a settings
   // variant it would remount the page it is on, discarding scroll position and
   // any unsaved draft in an open memory or skill editor.
-  const layout =
-    variant === 'home' ? 'relative min-h-full' : 'relative flex min-h-0 flex-1 flex-col'
+  // Home is a column like the others now that it pins its masthead and scrolls only the grid
+  // region below it — it has to hand a bounded height down, not grow past the viewport.
+  const layout = 'relative flex min-h-0 flex-1 flex-col'
   return (
     <div
       className={`${on ? `dyn dyn-${variant} bg-void ` : ''}${layout}`}
@@ -63,11 +64,7 @@ export function DynamicScope({
           lower aurora to avoid, because this one already starts above the header. */}
       {on && <AmbientCanvas light={light} cutoff={cutoff} theme={ui.theme} band={BANDS[variant]} />}
       {on && variant === 'home' && <div className="dyn-grain" aria-hidden="true" />}
-      {variant === 'home' ? (
-        <div className="relative z-[1]">{children}</div>
-      ) : (
-        <div className="relative z-[1] flex min-h-0 flex-1 flex-col">{children}</div>
-      )}
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   )
 }

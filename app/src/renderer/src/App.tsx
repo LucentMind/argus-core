@@ -185,16 +185,17 @@ function App(): React.JSX.Element {
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {view.kind === 'home' ? (
             <DynamicScope variant="home" light={ambientLight} cutoff={ambientCutoff}>
+              {/* SearchBar is a CHILD, not a sibling: home now pins its masthead and scrolls only
+                  the grid region below it, and the search box belongs in that scrolling region. */}
               <CaseDashboard
                 cases={cases}
                 onOpen={openCase}
                 onNew={() => setNewCaseOpen(true)}
                 onImport={() => void pickBundle()}
                 onDeleted={() => void reload()}
-              />
-              <div className="mx-auto w-full max-w-[1400px] px-8 pb-8">
+              >
                 <SearchBar caseSlug={null} onOpen={handleOpenHit} />
-              </div>
+              </CaseDashboard>
             </DynamicScope>
           ) : view.kind === 'settings' ? (
             <DynamicScope variant="settings" light={ambientLight} cutoff={ambientCutoff}>

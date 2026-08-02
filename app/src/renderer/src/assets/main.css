@@ -639,6 +639,16 @@ body {
   mask-image: linear-gradient(to right, transparent 0, black 14px);
 }
 
+/* Home's card grid scrolls under a pinned masthead; without this the cards are guillotined at
+   the scroll region's top edge. A mask, not a gradient overlay: the ambient aurora is painted
+   BEHIND this band, so anything opaque enough to hide the cards would also hide the light.
+   The scroll region carries a matching 24px of padding-top, so at rest the fade falls entirely
+   on empty space and the first row of cards has a clean edge — the fade only bites once
+   something has actually scrolled into it. Unlayered for the same reason as .tabstrip-fade. */
+.scroll-fade-top {
+  mask-image: linear-gradient(to bottom, transparent 0, black 24px);
+}
+
 .argus-titlebar-inset {
   padding-left: calc(0.75rem + env(titlebar-area-x, 0px));
   padding-right: calc(

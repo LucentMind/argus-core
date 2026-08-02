@@ -19,13 +19,16 @@ export function CaseDashboard({
   onOpen,
   onNew,
   onImport,
-  onDeleted
+  onDeleted,
+  children
 }: {
   cases: CaseRecord[]
   onOpen: (slug: string) => void
   onNew: () => void
   onImport: () => void
   onDeleted: () => void
+  /** Footer slot — rendered inside the scrolling region, below the grid. */
+  children?: React.ReactNode
 }): React.JSX.Element {
   const [exportNote, setExportNote] = useState<{ slug: string; text: string } | null>(null)
   const [deleteError, setDeleteError] = useState<{ slug: string; text: string } | null>(null)
@@ -187,10 +190,21 @@ export function CaseDashboard({
       : `Status: ${STATUS_MENU.find((s) => s.id === statusFilter)?.label ?? statusFilter}`
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 p-8">
-      <div className="flex flex-col gap-2.5">
+    // The masthead is pinned and only the grid below it scrolls (user-directed, 2026-08-02).
+    // Done as a real two-region layout rather than `position: sticky` because under the dynamic
+    // theme the aurora is painted BEHIND this block — a sticky header would need an opaque
+    // background to hide the cards sliding under it, and that background would cover the light.
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* No pb here: the 24px that used to sit under the masthead now lives as pt-6 on the
+          scrolling content below, so .scroll-fade-top's 24px fade lands on empty space at rest.
+          The spacing between the filter row and the first card is unchanged either way. */}
+      <div className="mx-auto flex w-full shrink-0 max-w-[1400px] flex-col gap-2.5 px-8 pt-4">
         <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-2.5">
+          {/* gap-1, not the gap-2.5 that separates the other rows: the h1's 30px/1.2 line box
+              leaves ~9px of empty descent+half-leading under a greeting that has no descenders,
+              so an equal gap here reads as nearly double the one below the label. The optical
+              gap is the token gap plus that slack; this pays it back. */}
+          <div className="flex flex-col gap-1">
             {/* Still the ambient light source (the aurora anchors to this rect), but no longer
                 the wordmark — that moved to the top bar. Sans, not the brand face: Michroma at
                 letterSpacing 11 is built for five letters, not a sentence. */}
@@ -283,26 +297,31 @@ export function CaseDashboard({
           </div>
         </div>
       </div>
-      <div ref={gridRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((c, i) => (
-          <CaseCard
-            key={c.slug}
-            c={c}
-            dynamic={dynamic}
-            index={i}
-            onOpen={onOpen}
-            onExport={(slug) => void exportCase(slug)}
-            onDelete={(slug) => void requestDelete(slug)}
-            prStatus={prStatuses[c.slug]}
-            note={
-              deleteError?.slug === c.slug
-                ? { text: deleteError.text, danger: true }
-                : exportNote?.slug === c.slug
-                  ? { text: exportNote.text, danger: false }
-                  : null
-            }
-          />
-        ))}
+      <div className="scroll-fade-top min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-8 pb-8 pt-6">
+          <div ref={gridRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {visible.map((c, i) => (
+              <CaseCard
+                key={c.slug}
+                c={c}
+                dynamic={dynamic}
+                index={i}
+                onOpen={onOpen}
+                onExport={(slug) => void exportCase(slug)}
+                onDelete={(slug) => void requestDelete(slug)}
+                prStatus={prStatuses[c.slug]}
+                note={
+                  deleteError?.slug === c.slug
+                    ? { text: deleteError.text, danger: true }
+                    : exportNote?.slug === c.slug
+                      ? { text: exportNote.text, danger: false }
+                      : null
+                }
+              />
+            ))}
+          </div>
+          {children}
+        </div>
       </div>
       {deleting && (
         <DeleteCaseDialog
