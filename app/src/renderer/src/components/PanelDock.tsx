@@ -5,6 +5,18 @@ import { uiStore } from '../lib/uiStore'
 import { panelKeyStr } from '../../../shared/panels'
 
 /**
+ * Inset (in CSS px, before uiScale) applied to the docked native view's bounds so its hard
+ * rectangular corners never cross the case card's rounded ones. The card's `PanelDock hostRef`
+ * relies on this only where its own edge coincides with a rounded corner of `rounded-r3`'s
+ * `--radius-r3: 10px` — see the per-edge reasoning at the call site below.
+ *
+ * For a rectangle to sit fully inside a rounded rect of corner radius r, each edge must be
+ * inset by r * (1 - 1/sqrt(2)) ≈ 0.2929 * r. r = 10px -> ≈2.93px, rounded up to 3px, plus the
+ * card's 1px border (`.surface-card` / `.glass-panel`) = 4px total.
+ */
+const DOCK_INSET_PX = 4
+
+/**
  * Positions the active docked panel's native WebContentsView over `hostRef` and
  * hides every other docked panel. The view is a sibling of the DOM (it always
  * paints on top), so visibility is explicit: shown only when it is the active
@@ -35,11 +47,18 @@ export function PanelDock({ hostRef }: { hostRef: React.RefObject<HTMLDivElement
         if (visible && hostRef.current) {
           const r = hostRef.current.getBoundingClientRect()
           const z = ui.uiScale
+          // hostRef (CaseWorkspace's dockHost) is `absolute inset-0` inside the sibling of
+          // PanelTabStrip, so it is flush with the case card's left/right/bottom edges — the
+          // two corners it actually reaches are the card's bottom-left and bottom-right. Its
+          // top edge sits below the tab strip, an interior seam, not a card corner, so it gets
+          // no inset. Insetting x/y moves the origin in by one edge; width/height shrink by
+          // twice that on the edges inset on BOTH sides (left+right), once on the edges inset
+          // on only one side (bottom only, top untouched).
           void window.argus.panels.setBounds(k, {
-            x: Math.round(r.left * z),
+            x: Math.round((r.left + DOCK_INSET_PX) * z),
             y: Math.round(r.top * z),
-            width: Math.round(r.width * z),
-            height: Math.round(r.height * z)
+            width: Math.round((r.width - DOCK_INSET_PX * 2) * z),
+            height: Math.round((r.height - DOCK_INSET_PX) * z)
           })
         }
         void window.argus.panels.setVisible(k, visible)

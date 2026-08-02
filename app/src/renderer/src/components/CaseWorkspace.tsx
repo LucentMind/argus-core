@@ -467,7 +467,7 @@ export function CaseWorkspace({
             /* Top-aligned, not centred: `pt-3` + the `h-6` icon box below reproduce the expanded
                rail's `p-3` inset and chrome-row height exactly, so collapsing slides the icon
                sideways instead of dropping it to mid-window — the pointer is still on it. */
-            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-r border-hair bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
+            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setEvidenceCollapsed(false)}
           >
             <span className="flex h-6 shrink-0 items-center">
@@ -673,7 +673,7 @@ export function CaseWorkspace({
             aria-label="Expand findings"
             title="Expand findings"
             /* Top-aligned for the same reason as the workspace strip opposite — see there. */
-            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 border-l border-hair bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
+            className="flex w-6 shrink-0 flex-col items-center justify-start gap-2 bg-void pt-3 text-mute transition-colors hover:bg-hi hover:text-ink"
             onClick={() => uiStore.setFindingsCollapsed(false)}
           >
             <span className="flex h-6 shrink-0 items-center">

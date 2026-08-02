@@ -987,6 +987,16 @@ describe('CaseWorkspace findings pane', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('separator', { name: 'Resize findings pane' })).toBeInTheDocument()
   })
+
+  // Mirrors the workspace-rail assertion above: the collapsed findings strip must not
+  // regrow the hairline Task 3 removed from the expanded aside.
+  it('collapsed strip carries no hairline border', async () => {
+    uiStore.setFindingsCollapsed(true)
+    renderWorkspace()
+    const toggle = await screen.findByRole('button', { name: 'Expand findings' })
+    expect(toggle.className).not.toContain('border-hair')
+    expect(toggle.className).not.toContain('border-l')
+  })
 })
 
 describe('CaseWorkspace evidence pane drag', () => {
@@ -1070,6 +1080,17 @@ describe('CaseWorkspace workspace pane', () => {
     expect(toggle.parentElement?.parentElement).toBe(aside)
     expect(aside.firstElementChild).toBe(toggle.parentElement)
     expect(toggle.closest('.overflow-y-auto')).toBeNull()
+  })
+
+  // Task 3 dropped the hairline border from the two EXPANDED asides so the three columns
+  // read as peers on one ground plane, but left it on the collapsed strips — collapsing
+  // either rail brought the hairline back. The collapsed strip is this button itself.
+  it('collapsed strip carries no hairline border', async () => {
+    uiStore.setEvidenceCollapsed(true)
+    renderWorkspace()
+    const toggle = await screen.findByRole('button', { name: 'Expand workspace' })
+    expect(toggle.className).not.toContain('border-hair')
+    expect(toggle.className).not.toContain('border-r')
   })
 })
 
