@@ -47,7 +47,12 @@ localize in history.
 the rest of this section** with organization-specific instructions (release plans,
 build↔commit mapping, version lookup). Generic fallbacks otherwise:
 
-- Repo tags: `git tag --sort=-creatordate`, `git describe --contains <sha>`.
+- Repo tags: list them with
+  `git log --tags --simplify-by-decoration --date=short --pretty='%h %ad %d'`, and name the
+  first tag containing a commit with `git describe --contains <sha>`. Do **not** use
+  `git tag` — it is not on the read allowlist (the same command also creates and deletes
+  tags), so it forces an approval prompt and, because one segment gates the whole `&&`
+  chain, stalls every other read in the same call.
 - Version strings in evidence: crash dumps, log headers, build ids — grep the
   evidence, then match against tags or version-bump commits.
 - Last resort: map the report timestamp to commit dates and treat it as a soft
